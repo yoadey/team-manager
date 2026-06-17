@@ -113,6 +113,7 @@ export interface EventDto {
   endTime: string | null;
   meetTimeMandatory: boolean;
   responseMode: ResponseMode;
+  nominatedRoleIds?: string[];
   recurring: boolean;
   seriesId: string | null;
   status: EventStatus;
