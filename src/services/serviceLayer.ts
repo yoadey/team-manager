@@ -390,7 +390,9 @@ function effectiveStatus(event: EventDto, userId: string | null) {
   return { status: 'pending' as AttendanceStatus, reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false };
 }
 const STATUS_ORDER: Record<string, number> = { yes: 0, maybe: 1, pending: 2, no: 3, not_nominated: 4 };
-function applyNominations(event: TeamEvent, nominatedRoleIds: string[]) {
+// Operates on the raw EventDto: nominations are persisted on the stored record
+// (id/teamId/nominatedRoleIds), independent of the UI TeamEvent enrichment.
+function applyNominations(event: EventDto, nominatedRoleIds: string[]) {
   event.nominatedRoleIds = [...nominatedRoleIds];
   const nomSet = new Set(nominatedRoleIds);
   const members = DB.memberships.filter((m) => m.teamId === event.teamId);
@@ -606,7 +608,9 @@ export const api = {
       }
       persist(); return this._withSummary(created[0], teamId);
     },
-    _mk(base: any, payload: any): TeamEvent {
+    // Builds a persistable EventDto (not the enriched TeamEvent ViewModel) so the
+    // result can be pushed straight into the DB.events collection.
+    _mk(base: any, payload: any): EventDto {
       const mk = (h: string) => (h ? atTime(base.date, +h.slice(0, 2), +h.slice(3, 5)) : null);
       const nominatedRoleIds = Array.isArray(payload.nominatedRoleIds) ? [...payload.nominatedRoleIds] : undefined;
       return { id: rid('ev'), teamId: base.teamId, type: base.type, title: base.title, date: base.date, location: base.location, note: base.note || '', meetTime: payload.meetT ? mk(payload.meetT) : null, startTime: payload.startT ? mk(payload.startT) : null, endTime: payload.endT ? mk(payload.endT) : null, meetTimeMandatory: !!base.meetTimeMandatory, responseMode: base.responseMode || 'opt_in', nominatedRoleIds, recurring: !!base.recurring, seriesId: base.seriesId || null, status: 'active' } as EventDto;
