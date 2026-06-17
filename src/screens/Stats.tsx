@@ -2,6 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '../store/AppContext';
 import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '../theme/tokens';
+import { formatDateOnly, parseDateOnlyLocal } from '../utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '../components/ui';
 import type { DateRange } from '../services/types';
 
@@ -12,11 +13,11 @@ export function Stats() {
   const st = state.stats;
 
   const today = todayStr();
-  const d = new Date(today + 'T00:00:00');
+  const d = parseDateOnlyLocal(today);
   const ago = (months: number) => {
     const x = new Date(d);
     x.setMonth(x.getMonth() - months);
-    return x.toISOString().slice(0, 10);
+    return formatDateOnly(x);
   };
   const R: DateRange = state.statsRange || { from: null, to: null };
   const presets: [string, string, DateRange | null][] = [

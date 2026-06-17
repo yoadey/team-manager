@@ -8,6 +8,10 @@ import type {
 } from '../services/types';
 import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '../theme/tokens';
 import { validateDateRange, validateEventForm, validateMoneyAmount, validatePollForm, validateRequiredText } from '../utils/validation';
+import { combineDateAndTimeLocal } from '../utils/date';
+import { useEventActionFeatures, useEventDetailActions } from './features/events';
+import { useFinanceActions } from './features/finance';
+import { usePollActions } from './features/polls';
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
@@ -295,7 +299,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toggleCalAbsences = useCallback(() => { const nv = !S().calShowAbsences; setState({ calShowAbsences: nv }); if (nv && !S().absences) loadAbsences(); }, [setState, loadAbsences]);
 
   // ---------- notifications ----------
-  const openNotifications = useCallback(() => { if (!S().notifications) loadNotifications(); setState({ sheet: { type: 'notifications' }, notifFilter: 'all', notifUnread: 0 }); api.notifications.markSeen(S().activeTeamId!); }, [api, setState, loadNotifications]);
+  const openNotifications = useCallback(() => {
+    const teamId = S().activeTeamId;
+    if (!teamId) return;
+
+    setState({ sheet: { type: 'notifications' }, notifFilter: 'all' });
+
+    void (async () => {
+      try {
+        if (!S().notifications) await loadNotifications();
+        await api.notifications.markSeen(teamId);
+        setState((s) => {
+          if (s.activeTeamId !== teamId) return {};
+          return {
+            notifications: s.notifications ? s.notifications.map((n) => ({ ...n, unread: false })) : s.notifications,
+            notifUnread: 0,
+          };
+        });
+      } catch {
+        toastMsg('Benachrichtigungen konnten nicht als gelesen markiert werden.');
+      }
+    })();
+  }, [api, setState, loadNotifications, toastMsg]);
   const setNotifFilter = useCallback((f: AppState['notifFilter']) => setState({ notifFilter: f }), [setState]);
 
   // ---------- confirm ----------
@@ -303,80 +328,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);
   const runConfirm = useCallback(async () => { const cfg = S().sheet && S().sheet!.cfg; setState({ sheet: null }); if (cfg && cfg.onConfirm) await cfg.onConfirm(); }, [setState]);
 
-  // ---------- event detail/attendance ----------
-  const reloadDetail = useCallback(async (eventId: string) => {
-    const [event, rows, comments] = await Promise.all([api.events.get(eventId), api.attendance.listForEvent(eventId), api.events.listComments(eventId)]);
-    setState((s) => (s.sheet && s.sheet.type === 'eventDetail') ? { sheet: { ...s.sheet, event, rows, comments } } : {});
-  }, [api, setState]);
-  const openEventDetail = useCallback(async (eventId: string) => { setState({ sheet: { type: 'eventDetail', eventId, event: null, rows: [] } }); await reloadDetail(eventId); }, [setState, reloadDetail]);
-  const setMyStatus = useCallback(async (eventId: string, status: AttendanceStatus) => {
-    const ev = S().sheet && S().sheet!.event;
-    const keep = (ev && ev.id === eventId) ? (ev.myReason || '') : '';
-    await api.attendance.set(eventId, S().user!.id, { status, reason: keep });
-    await refreshEvents();
-    if (S().sheet && S().sheet!.type === 'eventDetail' && S().sheet!.eventId === eventId) await reloadDetail(eventId);
-    toastMsg(status === 'yes' ? 'Zugesagt' : (status === 'maybe' ? 'Als unsicher markiert' : 'Abgesagt'));
-  }, [api, refreshEvents, reloadDetail, toastMsg]);
-  const setStatusFor = useCallback((e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => {
-    (async () => { await api.attendance.set(e.id, row.userId, { status, reason: row.reason || '' }); await refreshEvents(); await reloadDetail(e.id); })();
-  }, [api, refreshEvents, reloadDetail]);
-  const canSeeComment = useCallback((row: AttendanceRow) => {
-    if (row.userId === S().user!.id) return true;
-    if (!row.reason) return false;
-    if (row.status !== 'no') return true;
-    const vis = (activeTeam() && activeTeam()!.reasonVisibilityRoles) || [];
-    const myIds = myRoles().map((r) => r.id);
-    return myIds.some((id) => vis.includes(id));
-  }, [activeTeam, myRoles]);
-  const openComment = useCallback((e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => {
-    setState((st) => ({ sheet: { type: 'comment', eventId: e.id, userId: row.userId, name: row.name, status: row.status, back: st.sheet }, form: { commentText: row.reason || '' } }));
-  }, [setState]);
-  const submitComment = useCallback(async () => {
-    const s = S().sheet!;
-    setState({ busy: 'save' });
-    await api.attendance.set(s.eventId, s.userId, { status: s.status, reason: S().form.commentText || '' });
-    await refreshEvents();
-    const eid = s.eventId;
-    setState({ busy: null, sheet: null });
-    openEventDetail(eid);
-    toastMsg('Kommentar gespeichert');
-  }, [api, setState, refreshEvents, openEventDetail, toastMsg]);
-  const postEventComment = useCallback(async (eventId: string) => {
-    const txt = (S().form.newEventComment || '').trim();
-    if (!txt) return;
-    await api.events.addComment(eventId, txt);
-    setFormVal({ newEventComment: '' });
-    await reloadDetail(eventId);
-  }, [api, setFormVal, reloadDetail]);
-  const removeEventComment = useCallback(async (eventId: string, cid: string) => { await api.events.removeComment(cid); await reloadDetail(eventId); }, [api, reloadDetail]);
-  const toggleNomination = useCallback(async (eventId: string, userId: string, currentlyNominated: boolean) => {
-    await api.attendance.setNomination(eventId, userId, !currentlyNominated);
-    await refreshEvents(); await reloadDetail(eventId);
-    toastMsg(currentlyNominated ? 'Nicht nominiert' : 'Nominiert');
-  }, [api, refreshEvents, reloadDetail, toastMsg]);
+  const { reloadDetail, openEventDetail, setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination } = useEventDetailActions({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg });
 
-  // ---------- event actions ----------
-  const runEventAction = useCallback(async (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => {
-    if (action === 'delete') {
-      askConfirm({
-        title: scope === 'series' ? 'Ganze Serie löschen?' : 'Termin löschen?',
-        message: scope === 'series' ? 'Alle Termine dieser Serie und alle Rückmeldungen werden dauerhaft entfernt.' : '„' + event.title + '" und alle Rückmeldungen werden dauerhaft entfernt.',
-        confirmLabel: 'Löschen', danger: true,
-        onConfirm: async () => { await api.events.remove(event.id, scope); await refreshEvents(); setState({ sheet: null }); toastMsg(scope === 'series' ? 'Serie gelöscht' : 'Termin gelöscht'); },
-      });
-      return;
-    }
-    const status = action === 'cancel' ? 'cancelled' : 'active';
-    await api.events.setStatus(event.id, status, scope);
-    await refreshEvents();
-    setState({ sheet: null });
-    openEventDetail(event.id);
-    toastMsg(action === 'cancel' ? (scope === 'series' ? 'Serie abgesagt' : 'Termin abgesagt') : (scope === 'series' ? 'Serie aktiviert' : 'Termin aktiviert'));
-  }, [api, askConfirm, refreshEvents, setState, openEventDetail, toastMsg]);
-  const askEventAction = useCallback((action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent) => {
-    if (event.seriesId) setState((st) => ({ sheet: { type: 'seriesAction', action, event, back: st.sheet } }));
-    else runEventAction(action, event, 'single');
-  }, [setState, runEventAction]);
+  const { askEventAction, runEventAction } = useEventActionFeatures({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg, askConfirm, openEventDetail });
 
   // ---------- event form ----------
   const openEventForm = useCallback((event: TeamEvent | null) => {
@@ -384,7 +338,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: event.id, seriesId: event.seriesId || null, type: event.type, title: event.title, date: event.date,
       meetT: hhmm(event.meetTime), startT: hhmm(event.startTime), endT: hhmm(event.endTime), location: event.location || '',
       note: event.note || '', meetTimeMandatory: !!event.meetTimeMandatory, responseMode: event.responseMode || 'opt_in',
-      nominatedRoleIds: S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
+      nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
     } : {
       type: 'training', title: '', date: todayStr(), meetT: '19:15', startT: '19:30', endT: '21:30', location: 'Tanzsporthalle Eilendorf',
       note: '', meetTimeMandatory: true, responseMode: 'opt_out', nominatedRoleIds: S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
@@ -399,7 +353,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!validation.ok) { toastMsg(validation.message!); return; }
     const back = sh.back;
     setState({ busy: 'save' });
-    const payload = { type: f.type, title: f.title.trim(), date: f.date, location: f.location, note: f.note, meetTimeMandatory: f.meetTimeMandatory, responseMode: f.responseMode, meetT: f.meetT, startT: f.startT, endT: f.endT };
+    const payload = { type: f.type, title: f.title.trim(), date: f.date, location: f.location, note: f.note, meetTimeMandatory: f.meetTimeMandatory, responseMode: f.responseMode, meetT: f.meetT, startT: f.startT, endT: f.endT, nominatedRoleIds: f.nominatedRoleIds };
     if (mode === 'edit') await api.events.update(f.id, payload, scope);
     else await api.events.create(S().activeTeamId!, { ...payload, recurring: f.recurring, repeatWeeks: validation.value!.repeatWeeks, nominatedRoleIds: f.nominatedRoleIds });
     await refreshEvents();
@@ -530,8 +484,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date();
     const tMeta: Record<string, string> = { training: 'Training', auftritt: 'Auftritt / Turnier', event: 'Team-Event' };
     evs.forEach((e) => {
-      const start = new Date(e.startTime || e.meetTime || (e.date + 'T18:00:00'));
-      const end = new Date(e.endTime || (new Date(start.getTime() + 2 * 3600 * 1000)).toISOString());
+      const start = combineDateAndTimeLocal(e.date, hhmm(e.startTime) || hhmm(e.meetTime) || '18:00');
+      const end = e.endTime ? combineDateAndTimeLocal(e.date, hhmm(e.endTime)) : new Date(start.getTime() + 2 * 3600 * 1000);
       const descParts: string[] = [];
       if (e.meetTime) descParts.push('Treffen: ' + hhmm(e.meetTime));
       if (e.note) descParts.push(e.note);
