@@ -1,8 +1,8 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens, fmtMoney } from '../theme/tokens';
+import { buildTokens, fmtMoney } from '../styles/tokens';
 import { EmptyState, Field, PrimaryButton, Sym, TextInput, inputSx, labelSx } from '../components/ui';
-import type { Member, Penalty } from '../services/types';
+import type { Member, Penalty } from '../types';
 import type { SheetProps } from './types';
 
 export function TxFormSheet({ app, sheet }: SheetProps) {

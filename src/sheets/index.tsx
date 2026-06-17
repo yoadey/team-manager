@@ -2,17 +2,23 @@ import type { AppContextValue, SheetState } from '../store/AppContext';
 export type { SheetProps } from './types';
 import {
   TeamsSheet, ProfileSheet, MoreSheet,
-} from './NavSheets';
-import { NotificationsSheet } from './NotificationsSheet';
-import { CalExportSheet } from './CalExportSheet';
+} from '../features/team/components/NavSheets';
+import { NotificationsSheet } from '../features/notifications/components/NotificationsSheet';
+import { CalExportSheet } from '../features/events/components/CalExportSheet';
 import { ConfirmSheet, SeriesActionSheet, CommentSheet } from './DialogSheets';
-import { EventDetailSheet } from './EventDetailSheet';
-import { EventFormSheet } from './EventFormSheet';
-import { MemberDetailSheet, MemberFormSheet } from './MemberSheets';
-import { RolesSheet, RoleFormSheet } from './RoleSheets';
-import { CreateTeamSheet, InviteSheet, TeamSettingsSheet } from './TeamSheets';
-import { AbsenceFormSheet, NewsFormSheet, PollFormSheet } from './MiscSheets';
-import { TxFormSheet, PenaltyCatalogSheet, PenaltyFormSheet, PenaltyAssignSheet, ContribFormSheet } from './FinanceSheets';
+import { EventDetailSheet } from '../features/events/components/EventDetailSheet';
+import { EventFormSheet } from '../features/events/components/EventFormSheet';
+import { MemberDetailSheet, MemberFormSheet } from '../features/members/components/MemberSheets';
+import { RolesSheet, RoleFormSheet } from '../features/team/components/RoleSheets';
+import { CreateTeamSheet, InviteSheet, TeamSettingsSheet } from '../features/team/components/TeamSheets';
+import { AbsenceFormSheet } from '../features/events/components/AbsenceFormSheet';
+import { NewsFormSheet } from '../features/news/components/NewsFormSheet';
+import { PollFormSheet } from '../features/polls/components/PollFormSheet';
+import { TxFormSheet } from '../features/finances/components/TxFormSheet';
+import { PenaltyCatalogSheet } from '../features/finances/components/PenaltyCatalogSheet';
+import { PenaltyFormSheet } from '../features/finances/components/PenaltyFormSheet';
+import { PenaltyAssignSheet } from '../features/finances/components/PenaltyAssignSheet';
+import { ContribFormSheet } from '../features/finances/components/ContribFormSheet';
 
 export function renderSheet(app: AppContextValue, sheet: SheetState) {
   const p = { app, sheet };

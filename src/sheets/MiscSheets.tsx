@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '../theme/tokens';
+import { buildTokens } from '../styles/tokens';
 import { Field, PrimaryButton, Sym, TextArea, TextInput, labelSx } from '../components/ui';
 import type { SheetProps } from './types';
 

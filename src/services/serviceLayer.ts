@@ -42,7 +42,7 @@ import type {
   TeamForUser,
   Transaction,
   User,
-} from './types';
+} from '../types';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '../utils/date';
 
 const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);

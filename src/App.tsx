@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AppProvider, useApp } from './store/AppContext';
-import { buildMuiTheme } from './theme/theme';
+import { buildMuiTheme } from './styles/theme';
 import { Root } from './components/Root';
 
 function Themed() {

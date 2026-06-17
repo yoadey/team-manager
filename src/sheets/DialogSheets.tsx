@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from './types';
-import { buildTokens, statusMeta } from '../theme/tokens';
+import { buildTokens, statusMeta } from '../styles/tokens';
 import { Sym, Chip, PrimaryButton, inputSx } from '../components/ui';
 
 export function ConfirmSheet({ app, sheet }: SheetProps) {

@@ -5,13 +5,13 @@ import type {
   AppNotification, Absence, AttendanceRow, AttendanceStatus, DateRange, EventComment,
   FinanceOverview, Invite, Member, ModuleKey, NewsItem, PermLevel, Poll, Provider, Role,
   StatsOverview, TeamEvent, TeamForUser, User,
-} from '../services/types';
-import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '../theme/tokens';
+} from '../types';
+import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '../styles/tokens';
 import { validateDateRange, validateEventForm, validateMoneyAmount, validatePollForm, validateRequiredText } from '../utils/validation';
 import { combineDateAndTimeLocal } from '../utils/date';
-import { useEventActionFeatures, useEventDetailActions } from './features/events';
-import { useFinanceActions } from './features/finance';
-import { usePollActions } from './features/polls';
+import { useEventActionFeatures, useEventDetailActions } from '../features/events/hooks/useEventActions';
+import { useFinanceActions } from '../features/finances/hooks/useFinanceActions';
+import { usePollActions } from '../features/polls/hooks/usePollActions';
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';

@@ -4,7 +4,7 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { type SxProps, type Theme } from '@mui/material/styles';
-import { initials as toInitials, NEUTRAL } from '../theme/tokens';
+import { initials as toInitials, NEUTRAL } from '../styles/tokens';
 import { useApp } from '../store/AppContext';
 
 /** Material Symbols Outlined glyph (rendered by glyph name, like the prototype). */
