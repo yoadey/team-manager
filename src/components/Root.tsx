@@ -1,5 +1,5 @@
 import Box from '@mui/material/Box';
-import { useApp } from '../store/AppContext';
+import { useApp } from '../context/AppContext';
 import { NEUTRAL } from '../styles/tokens';
 import { Login } from '../features/auth/components/Login';
 import { Shell } from '../layouts/AppShell';

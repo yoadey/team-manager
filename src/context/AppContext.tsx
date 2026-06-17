@@ -1,0 +1,384 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { api as defaultApi, resetDemoData } from '../services/serviceLayer';
+import type {
+  AppNotification, Absence, AttendanceRow, AttendanceStatus, DateRange, EventComment,
+  FinanceOverview, Invite, Member, ModuleKey, NewsItem, PermLevel, Poll, Provider, Role,
+  StatsOverview, TeamEvent, TeamForUser, User,
+} from '../types';
+import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '../styles/tokens';
+import { validateEventForm } from '../utils/validation';
+import { useEventActionFeatures, useEventDetailActions } from '../features/events/hooks/useEventActions';
+import { useAbsenceActions } from '../features/events/hooks/useAbsenceActions';
+import { useCalExportActions } from '../features/events/hooks/useCalExportActions';
+import { useFinanceActions } from '../features/finances/hooks/useFinanceActions';
+import { useMemberActions } from '../features/members/hooks/useMemberActions';
+import { useNewsActions } from '../features/news/hooks/useNewsActions';
+import { useNotificationActions } from '../features/notifications/hooks/useNotificationActions';
+import { usePollActions } from '../features/polls/hooks/usePollActions';
+import { useRoleActions } from '../features/team/hooks/useRoleActions';
+import { useTeamActions } from '../features/team/hooks/useTeamActions';
+
+
+export type Phase = 'loading' | 'login' | 'app';
+export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
+export interface SheetState { type: string; back?: SheetState | null; [k: string]: any; }
+
+export interface AppState {
+  phase: Phase;
+  providers: Provider[];
+  busy: string | null;
+  primaryColor: string;
+  user: User | null;
+  teams: TeamForUser[];
+  activeTeamId: string | null;
+  route: Route;
+  eventScope: 'upcoming' | 'past';
+  eventsView: 'list' | 'calendar' | 'absences';
+  eventsOnlyPending: boolean;
+  calShowAbsences: boolean;
+  calMonth: Date | null;
+  events: TeamEvent[];
+  members: Member[];
+  roles: Role[];
+  news: NewsItem[] | null;
+  finances: FinanceOverview | null;
+  stats: StatsOverview | null;
+  polls: Poll[] | null;
+  absences: Absence[] | null;
+  myAbsences: Absence[] | null;
+  notifications: AppNotification[] | null;
+  notifUnread: number;
+  notifFilter: 'all' | 'attendance' | 'events' | 'other';
+  statsRange: DateRange | null;
+  finTab: 'umsaetze' | 'strafen' | 'beitraege';
+  contribMonth: string | null;
+  sheet: SheetState | null;
+  form: Record<string, any>;
+  toast: string | null;
+}
+
+const initialState: AppState = {
+  phase: 'loading', providers: [], busy: null, primaryColor: DEFAULT_PRESET_KEY,
+  user: null, teams: [], activeTeamId: null, route: 'home',
+  eventScope: 'upcoming', eventsView: 'list', eventsOnlyPending: false,
+  calShowAbsences: false, calMonth: null,
+  events: [], members: [], roles: [], news: null, finances: null, stats: null,
+  polls: null, absences: null, myAbsences: null,
+  notifications: null, notifUnread: 0, notifFilter: 'all',
+  statsRange: null, finTab: 'umsaetze', contribMonth: null,
+  sheet: null, form: {}, toast: null,
+};
+
+const PAGE_SHEETS = ['eventDetail', 'eventForm', 'memberDetail', 'memberForm', 'teamSettings', 'roles', 'roleForm'];
+export const isPageSheet = (type?: string | null) => !!type && PAGE_SHEETS.includes(type);
+
+export interface AppContextValue {
+  state: AppState;
+  api: typeof defaultApi;
+  // helpers
+  activeTeam: () => TeamForUser | null;
+  myRoles: () => Role[];
+  can: (module: ModuleKey, level?: PermLevel) => boolean;
+  isStaff: () => boolean;
+  toastMsg: (m: string) => void;
+  resetDemo: () => void;
+  setPrimaryColor: (c: string) => void;
+  // form
+  onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
+  setFormVal: (patch: Record<string, any>) => void;
+  onFile: (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => void;
+  setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
+  // auth
+  doLogin: (pid: string) => Promise<void>;
+  logout: () => void;
+  // nav
+  go: (route: Route) => void;
+  goEventsPending: () => void;
+  closeSheet: () => void;
+  activePageSheet: () => SheetState | null;
+  selectTeam: (id: string) => Promise<void>;
+  setEventsView: (v: 'list' | 'calendar' | 'absences') => void;
+  toggleCalAbsences: () => void;
+  // notifications
+  openNotifications: () => void;
+  setNotifFilter: (f: AppState['notifFilter']) => void;
+  loadAbsences: () => Promise<void>;
+  // data refresh
+  loadFinances: () => Promise<void>;
+  loadStats: (range?: DateRange | null) => Promise<void>;
+  // attendance
+  setMyStatus: (eventId: string, status: AttendanceStatus) => Promise<void>;
+  setStatusFor: (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => void;
+  canSeeComment: (row: AttendanceRow) => boolean;
+  openComment: (e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => void;
+  submitComment: () => Promise<void>;
+  postEventComment: (eventId: string) => Promise<void>;
+  removeEventComment: (eventId: string, cid: string) => Promise<void>;
+  toggleNomination: (eventId: string, userId: string, currentlyNominated: boolean) => Promise<void>;
+  // confirm
+  askConfirm: (cfg: { title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void | Promise<void> }) => void;
+  cancelConfirm: () => void;
+  runConfirm: () => Promise<void>;
+  // events
+  askEventAction: (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent) => void;
+  runEventAction: (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => Promise<void>;
+  openEventDetail: (eventId: string) => Promise<void>;
+  reloadDetail: (eventId: string) => Promise<void>;
+  openEventForm: (event: TeamEvent | null) => void;
+  saveEvent: (scope?: 'single' | 'series') => Promise<void>;
+  toggleFormNomRole: (roleId: string) => void;
+  // members
+  openMemberDetail: (membershipId: string) => Promise<void>;
+  openMemberForm: (member: Member) => void;
+  toggleFormRole: (roleId: string) => void;
+  saveMember: () => Promise<void>;
+  removeMember: (membershipId: string) => void;
+  // roles
+  openRoles: () => void;
+  openCreateRole: () => void;
+  setRolePerm: (module: ModuleKey, level: PermLevel) => void;
+  saveRole: () => Promise<void>;
+  toggleMyRole: (roleId: string) => Promise<void>;
+  // team
+  openTeamSwitcher: () => void;
+  openProfile: () => void;
+  openMore: () => void;
+  openTeamSettings: () => void;
+  saveTeamPhoto: (dataUrl: string) => Promise<void>;
+  saveTeamLogo: (dataUrl: string) => Promise<void>;
+  setTeamIcon: (em: string) => void;
+  toggleReasonRole: (roleId: string) => void;
+  saveTeamSettings: () => Promise<void>;
+  openCreateTeam: () => void;
+  createTeam: () => Promise<void>;
+  openInvite: () => Promise<void>;
+  copyInvite: () => void;
+  uploadMyPhoto: (dataUrl: string) => Promise<void>;
+  // absences
+  openAbsenceForm: (absence?: Absence | null) => void;
+  saveAbsence: () => Promise<void>;
+  removeAbsence: (id: string) => void;
+  // calendar export
+  openCalExport: () => void;
+  downloadIcs: () => void;
+  copyCalUrl: () => void;
+  // news
+  openNewsForm: () => void;
+  saveNews: () => Promise<void>;
+  removeNews: (id: string) => void;
+  // finances
+  openTxForm: (tx?: any) => void;
+  saveTx: () => Promise<void>;
+  deleteTx: (id: string) => Promise<void>;
+  openPenaltyCatalog: () => void;
+  openPenaltyForm: (p?: any) => void;
+  savePenalty: () => Promise<void>;
+  deletePenaltyDef: (id: string) => void;
+  openPenaltyAssign: () => void;
+  savePenaltyAssign: () => Promise<void>;
+  deleteAssignment: (id: string) => Promise<void>;
+  openContribForm: (c: any) => void;
+  saveContrib: () => Promise<void>;
+  togglePenalty: (id: string) => Promise<void>;
+  toggleContribution: (id: string) => Promise<void>;
+  setStatsRange: (range: DateRange | null) => void;
+  // polls
+  openPollForm: () => void;
+  savePoll: () => Promise<void>;
+  togglePollOption: (poll: Poll, optId: string) => void;
+}
+
+const AppContext = createContext<AppContextValue | null>(null);
+export const useApp = () => {
+  const ctx = useContext(AppContext);
+  if (!ctx) throw new Error('useApp must be used within AppProvider');
+  return ctx;
+};
+
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  const api = defaultApi;
+  const [state, setRaw] = useState<AppState>(initialState);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const setState = useCallback((patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
+    setRaw((prev) => {
+      const p = typeof patch === 'function' ? patch(prev) : patch;
+      const next = { ...prev, ...p };
+      stateRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const S = () => stateRef.current;
+
+  // ---------- helpers ----------
+  const activeTeam = useCallback(() => S().teams.find((t) => t.id === S().activeTeamId) || null, []);
+  const myRoles = useCallback(() => { const t = activeTeam(); return t ? t.myRoles : []; }, [activeTeam]);
+  const can = useCallback((module: ModuleKey, level: PermLevel = 'write') => {
+    const t = activeTeam();
+    if (!t || !t.myPerms) return false;
+    const p = t.myPerms[module];
+    if (level === 'read') return p === 'read' || p === 'write';
+    return p === 'write';
+  }, [activeTeam]);
+  const isStaff = useCallback(() => can('events', 'write') || can('members', 'write'), [can]);
+  const toastMsg = useCallback((m: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setState({ toast: m });
+    toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
+  }, [setState]);
+  const resetDemo = useCallback(() => { resetDemoData(); location.reload(); }, []);
+  const setPrimaryColor = useCallback((c: string) => setState({ primaryColor: c }), [setState]);
+
+  // ---------- form ----------
+  const onFormInput = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const target = e.target as HTMLInputElement;
+    const name = target.name;
+    const val = target.type === 'checkbox' ? target.checked : target.value;
+    setState((s) => ({ form: { ...s.form, [name]: val } }));
+  }, [setState]);
+  const setFormVal = useCallback((patch: Record<string, any>) => setState((s) => ({ form: { ...s.form, ...patch } })), [setState]);
+  const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => cb(r.result as string);
+    r.readAsDataURL(f);
+  }, []);
+
+  // ---------- data loaders ----------
+  const loadNotifications = useCallback(async () => {
+    const r = await api.notifications.list(S().activeTeamId!);
+    setState({ notifications: r.items, notifUnread: r.unreadCount });
+  }, [api, setState]);
+  const afterLoginLoad = useCallback(async (teamId: string) => {
+    setState({ events: [], members: [], roles: [], news: null, finances: null, stats: null, polls: null, absences: null, myAbsences: null, notifications: null, eventsOnlyPending: false });
+    const [events, members, roles, news, notif] = await Promise.all([
+      api.events.list(teamId, 'all'), api.members.list(teamId), api.roles.list(teamId), api.news.list(teamId), api.notifications.list(teamId),
+    ]);
+    setState({ events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount });
+  }, [api, setState]);
+  const refreshEvents = useCallback(async () => { const events = await api.events.list(S().activeTeamId!, 'all'); setState({ events }); loadNotifications(); }, [api, setState, loadNotifications]);
+  const refreshMembers = useCallback(async () => { const members = await api.members.list(S().activeTeamId!); setState({ members }); }, [api, setState]);
+  const refreshRoles = useCallback(async () => { const roles = await api.roles.list(S().activeTeamId!); setState({ roles }); }, [api, setState]);
+  const refreshTeams = useCallback(async () => { const teams = await api.teams.listForCurrentUser(); setState({ teams }); }, [api, setState]);
+  const loadFinances = useCallback(async () => { const finances = await api.finances.overview(S().activeTeamId!); setState({ finances }); }, [api, setState]);
+  const loadStats = useCallback(async (range?: DateRange | null) => { const r = range !== undefined ? range : S().statsRange; const stats = await api.stats.teamOverview(S().activeTeamId!, r); setState({ stats }); }, [api, setState]);
+  const loadNews = useCallback(async () => { const news = await api.news.list(S().activeTeamId!); setState({ news }); loadNotifications(); }, [api, setState, loadNotifications]);
+  const loadPolls = useCallback(async () => { const polls = await api.polls.list(S().activeTeamId!); setState({ polls }); loadNotifications(); }, [api, setState, loadNotifications]);
+  const loadAbsences = useCallback(async () => { const [absences, myAbsences] = await Promise.all([api.absences.listForTeam(S().activeTeamId!), api.absences.listMine()]); setState({ absences, myAbsences }); }, [api, setState]);
+  const ensureRouteData = useCallback((route: Route) => {
+    if (route === 'finances' && !S().finances) loadFinances();
+    if (route === 'stats' && !S().stats) loadStats();
+    if (route === 'news' && !S().news) loadNews();
+    if (route === 'polls' && !S().polls) loadPolls();
+  }, [loadFinances, loadStats, loadNews, loadPolls]);
+
+  // ---------- auth ----------
+  const doLogin = useCallback(async (pid: string) => {
+    setState({ busy: 'login:' + pid });
+    await api.auth.login(pid);
+    const user = await api.auth.currentUser();
+    const teams = await api.teams.listForCurrentUser();
+    const activeTeamId = teams[0].id;
+    setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+    await afterLoginLoad(activeTeamId);
+  }, [api, setState, afterLoginLoad]);
+  const logout = useCallback(() => {
+    api.auth.logout();
+    setState({ phase: 'login', user: null, teams: [], activeTeamId: null, sheet: null, events: [], members: [], roles: [] });
+  }, [api, setState]);
+
+  // ---------- nav ----------
+  const closeSheet = useCallback(() => { const s = S().sheet; setState({ sheet: (s && s.back) ? s.back : null }); }, [setState]);
+  const go = useCallback((route: Route) => { setState({ route, sheet: null, eventsOnlyPending: false }); ensureRouteData(route); }, [setState, ensureRouteData]);
+  const goEventsPending = useCallback(() => { setState({ route: 'events', sheet: null, eventsView: 'list', eventScope: 'upcoming', eventsOnlyPending: true }); ensureRouteData('events'); }, [setState, ensureRouteData]);
+  const activePageSheet = useCallback(() => { let s = S().sheet; while (s) { if (isPageSheet(s.type)) return s; s = s.back || null; } return null; }, []);
+  const selectTeam = useCallback(async (id: string) => {
+    if (id === S().activeTeamId) { closeSheet(); return; }
+    setState({ activeTeamId: id, sheet: null, route: 'home', eventScope: 'upcoming', eventsView: 'list' });
+    await afterLoginLoad(id);
+  }, [setState, closeSheet, afterLoginLoad]);
+  const setEventsView = useCallback((v: 'list' | 'calendar' | 'absences') => { setState({ eventsView: v }); if (v === 'absences' && !S().absences) loadAbsences(); }, [setState, loadAbsences]);
+  const toggleCalAbsences = useCallback(() => { const nv = !S().calShowAbsences; setState({ calShowAbsences: nv }); if (nv && !S().absences) loadAbsences(); }, [setState, loadAbsences]);
+
+  // ---------- confirm ----------
+  const askConfirm = useCallback((cfg: any) => setState((s) => ({ sheet: { type: 'confirm', cfg, back: s.sheet } })), [setState]);
+  const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);
+  const runConfirm = useCallback(async () => { const cfg = S().sheet && S().sheet!.cfg; setState({ sheet: null }); if (cfg && cfg.onConfirm) await cfg.onConfirm(); }, [setState]);
+
+  // ---------- event hooks ----------
+  const { reloadDetail, openEventDetail, setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination } = useEventDetailActions({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg });
+  const { askEventAction, runEventAction } = useEventActionFeatures({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg, askConfirm, openEventDetail });
+
+  const openEventForm = useCallback((event: TeamEvent | null) => {
+    const f = event ? {
+      id: event.id, seriesId: event.seriesId || null, type: event.type, title: event.title, date: event.date,
+      meetT: hhmm(event.meetTime), startT: hhmm(event.startTime), endT: hhmm(event.endTime), location: event.location || '',
+      note: event.note || '', meetTimeMandatory: !!event.meetTimeMandatory, responseMode: event.responseMode || 'opt_in',
+      nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
+    } : {
+      type: 'training', title: '', date: todayStr(), meetT: '19:15', startT: '19:30', endT: '21:30', location: 'Tanzsporthalle Eilendorf',
+      note: '', meetTimeMandatory: true, responseMode: 'opt_out', nominatedRoleIds: S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
+    };
+    setState((st) => ({ sheet: { type: 'eventForm', mode: event ? 'edit' : 'create', back: (st.sheet && st.sheet.type === 'eventDetail') ? st.sheet : null }, form: f }));
+  }, [setState]);
+  const saveEvent = useCallback(async (scope: 'single' | 'series' = 'single') => {
+    const f = S().form;
+    const sh = S().sheet!;
+    const mode = sh.mode;
+    const validation = validateEventForm(f, mode);
+    if (!validation.ok) { toastMsg(validation.message!); return; }
+    const back = sh.back;
+    setState({ busy: 'save' });
+    const payload = { type: f.type, title: f.title.trim(), date: f.date, location: f.location, note: f.note, meetTimeMandatory: f.meetTimeMandatory, responseMode: f.responseMode, meetT: f.meetT, startT: f.startT, endT: f.endT, nominatedRoleIds: f.nominatedRoleIds };
+    if (mode === 'edit') await api.events.update(f.id, payload, scope);
+    else await api.events.create(S().activeTeamId!, { ...payload, recurring: f.recurring, repeatWeeks: validation.value!.repeatWeeks, nominatedRoleIds: f.nominatedRoleIds });
+    await refreshEvents();
+    setState({ busy: null, sheet: null });
+    if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id);
+    toastMsg(mode === 'edit' ? (scope === 'series' ? 'Ganze Serie aktualisiert' : 'Termin aktualisiert') : 'Termin angelegt');
+  }, [api, setState, refreshEvents, openEventDetail, toastMsg]);
+  const toggleFormNomRole = useCallback((roleId: string) => setState((s) => { const cur = s.form.nominatedRoleIds || []; const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId); return { form: { ...s.form, nominatedRoleIds: next } }; }), [setState]);
+
+  // ---------- feature hooks ----------
+  const { openNotifications, setNotifFilter } = useNotificationActions({ api, S, setState, loadNotifications, toastMsg });
+  const { openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember } = useMemberActions({ api, S, setState, refreshMembers, refreshTeams, askConfirm, toastMsg });
+  const { openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole } = useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, toastMsg });
+  const { openTeamSwitcher, openProfile, openMore, openTeamSettings, saveTeamPhoto, saveTeamLogo, setTeamIcon, toggleReasonRole, saveTeamSettings, openCreateTeam, createTeam, openInvite, copyInvite, uploadMyPhoto } = useTeamActions({ api, S, setState, activeTeam, refreshTeams, refreshMembers, setFormVal, afterLoginLoad, toastMsg });
+  const { openAbsenceForm, saveAbsence, removeAbsence } = useAbsenceActions({ api, S, setState, refreshEvents, loadAbsences, askConfirm, toastMsg });
+  const { openCalExport, downloadIcs, copyCalUrl } = useCalExportActions({ S, setState, activeTeam, toastMsg });
+  const { openNewsForm, saveNews, removeNews } = useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg });
+  const { openTxForm, saveTx, deleteTx, openPenaltyCatalog, openPenaltyForm, savePenalty, deletePenaltyDef, openPenaltyAssign, savePenaltyAssign, deleteAssignment, openContribForm, saveContrib, togglePenalty, toggleContribution, setStatsRange } = useFinanceActions({ api, S, setState, loadFinances, loadStats, refreshMembers, askConfirm, toastMsg });
+  const { openPollForm, savePoll, togglePollOption } = usePollActions({ api, S, setState, loadPolls, toastMsg });
+
+  // ---------- bootstrap ----------
+  useEffect(() => {
+    (async () => {
+      const providers = await api.auth.providers();
+      setState({ providers, phase: 'login' });
+    })();
+  }, [api, setState]);
+
+  const value: AppContextValue = useMemo(() => ({
+    state, api, activeTeam, myRoles, can, isStaff, toastMsg, resetDemo, setPrimaryColor,
+    onFormInput, setFormVal, onFile, setState,
+    doLogin, logout, go, goEventsPending, closeSheet, activePageSheet, selectTeam, setEventsView, toggleCalAbsences,
+    openNotifications, setNotifFilter, loadAbsences, loadFinances, loadStats,
+    setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination,
+    askConfirm, cancelConfirm, runConfirm, askEventAction, runEventAction, openEventDetail, reloadDetail, openEventForm, saveEvent, toggleFormNomRole,
+    openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember,
+    openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole,
+    openTeamSwitcher, openProfile, openMore, openTeamSettings, saveTeamPhoto, saveTeamLogo, setTeamIcon, toggleReasonRole, saveTeamSettings, openCreateTeam, createTeam, openInvite, copyInvite, uploadMyPhoto,
+    openAbsenceForm, saveAbsence, removeAbsence,
+    openCalExport, downloadIcs, copyCalUrl,
+    openNewsForm, saveNews, removeNews,
+    openTxForm, saveTx, deleteTx, openPenaltyCatalog, openPenaltyForm, savePenalty, deletePenaltyDef, openPenaltyAssign, savePenaltyAssign, deleteAssignment, openContribForm, saveContrib, togglePenalty, toggleContribution, setStatsRange,
+    openPollForm, savePoll, togglePollOption,
+  }), [state]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+}

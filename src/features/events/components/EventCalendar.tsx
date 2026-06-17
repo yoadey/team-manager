@@ -1,7 +1,7 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../../../store/AppContext';
+import { useApp } from '../../../context/AppContext';
 import { useCompact } from '../../../layouts/AppShell';
 import { buildTokens, hhmm, typeMeta } from '../../../styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '../../../utils/date';

@@ -1,4 +1,4 @@
-import { useApp } from '../store/AppContext';
+import { useApp } from '../context/AppContext';
 import { Home } from './Home';
 import { Events } from './Events';
 import { Members } from './Members';

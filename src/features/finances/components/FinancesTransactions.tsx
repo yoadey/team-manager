@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../../../store/AppContext';
+import { useApp } from '../../../context/AppContext';
 import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '../../../styles/tokens';
 import { SectionTitle, EmptyState, Sym } from '../../../components/ui';
 import type { FinanceOverview, Transaction } from '../../../types';

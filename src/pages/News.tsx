@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../store/AppContext';
+import { useApp } from '../context/AppContext';
 import { buildTokens } from '../styles/tokens';
 import { EmptyState, SpinnerBox, Sym } from '../components/ui';
 import { NewsCard } from '../components/cards';

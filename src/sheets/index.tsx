@@ -1,4 +1,4 @@
-import type { AppContextValue, SheetState } from '../store/AppContext';
+import type { AppContextValue, SheetState } from '../context/AppContext';
 export type { SheetProps } from './types';
 import {
   TeamsSheet, ProfileSheet, MoreSheet,

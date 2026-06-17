@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
-import { AppProvider, useApp } from './store/AppContext';
+import { AppProvider, useApp } from './context/AppContext';
 import { buildMuiTheme } from './styles/theme';
 import { Root } from './components/Root';
 

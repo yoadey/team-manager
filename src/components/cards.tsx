@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../store/AppContext';
+import { useApp } from '../context/AppContext';
 import { useCompact } from '../layouts/AppShell';
 import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '../styles/tokens';
 import { parseDateOnlyLocal, todayLocalDate } from '../utils/date';
