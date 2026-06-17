@@ -1,0 +1,50 @@
+import Box from '@mui/material/Box';
+import ButtonBase from '@mui/material/ButtonBase';
+import { buildTokens, fmtMoney } from '../../../styles/tokens';
+import { Field, PrimaryButton, inputSx, labelSx } from '../../../components/ui';
+import type { Member } from '../../../types';
+import type { SheetProps } from '../../../sheets/types';
+
+export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
+  const { state } = app;
+  const t = buildTokens(state.primaryColor);
+  void sheet;
+  const F = app.state.form;
+  const f = app.state.finances;
+  const members: Member[] = app.state.members || [];
+
+  const penOpts = (
+    <Box key="po">
+      <Box key="l" sx={labelSx}>Strafe</Box>
+      <Box key="b" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {(f ? f.penalties : []).map((p) => {
+          const sel = F.penaltyId === p.id;
+          return (
+            <ButtonBase key={p.id} onClick={() => app.setFormVal({ penaltyId: p.id })} sx={{ display: 'flex', alignItems: 'center', gap: '11px', p: '12px 14px', borderRadius: '13px', cursor: 'pointer', textAlign: 'left', justifyContent: 'flex-start', border: '1.5px solid ' + (sel ? t.primary : '#E0E2EA'), background: sel ? t.primaryContainer : '#fff' }}>
+              <Box component="span" key="r" sx={{ width: '18px', height: '18px', borderRadius: '50%', flex: '0 0 auto', border: '2px solid ' + (sel ? t.primary : '#C0C2CA'), background: sel ? t.primary : '#fff', boxShadow: sel ? 'inset 0 0 0 3px #fff' : 'none' }} />
+              <Box component="span" key="lb" sx={{ flex: 1, fontSize: '14px', fontWeight: 600, color: '#44474E' }}>{p.label}</Box>
+              <Box component="b" key="a" sx={{ fontSize: '14px', color: t.primary }}>{fmtMoney(p.amount)}</Box>
+            </ButtonBase>
+          );
+        })}
+      </Box>
+    </Box>
+  );
+
+  const memSel = (
+    <Field label="Person">
+      <select name="userId" value={F.userId || ''} onChange={app.onFormInput} style={inputSx}>
+        <option key="_" value="">Bitte wählen…</option>
+        {members.map((m) => <option key={m.userId} value={m.userId}>{m.name}</option>)}
+      </select>
+    </Field>
+  );
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {memSel}
+      {penOpts}
+      <PrimaryButton label="Strafe erfassen" onClick={() => app.savePenaltyAssign()} busy={app.state.busy === 'save'} />
+    </Box>
+  );
+}

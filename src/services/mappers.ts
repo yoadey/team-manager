@@ -7,7 +7,7 @@ import type {
   MemberDto,
   Role,
   TeamEvent,
-} from './types';
+} from '../types';
 
 /** Builds the event ViewModel expected by the UI from a raw event DTO plus client aggregates. */
 export function mapEventDtoToTeamEvent(

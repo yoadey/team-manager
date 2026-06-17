@@ -1,10 +1,10 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../store/AppContext';
-import { useCompact } from './Shell';
-import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '../theme/tokens';
+import { useApp } from '../context/AppContext';
+import { useCompact } from '../layouts/AppShell';
+import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '../styles/tokens';
 import { parseDateOnlyLocal, todayLocalDate } from '../utils/date';
-import type { NewsItem, TeamEvent } from '../services/types';
+import type { NewsItem, TeamEvent } from '../types';
 import { Av, Chip, Sym, metaItem } from './ui';
 
 /** Event list card (used on Home and Events). Mirrors prototype eventCard(). */

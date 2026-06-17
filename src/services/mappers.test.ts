@@ -7,7 +7,7 @@ import type {
   MemberDto,
   Permissions,
   Role,
-} from './types';
+} from '../types';
 
 const writeAll: Permissions = {
   events: 'write',

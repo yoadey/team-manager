@@ -1,5 +1,5 @@
 import Box from '@mui/material/Box';
-import { useApp } from '../store/AppContext';
+import { useApp } from '../context/AppContext';
 import { Sym } from './ui';
 
 export function Toast() {
