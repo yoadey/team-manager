@@ -216,6 +216,8 @@ function seed(): DB {
     att.push({ id: rid('att'), eventId, userId, status, reason: reason || '', reasonId: reasonId || null, reasonVisibility: vis || null, at: iso(new Date()) });
   const aMembers = db.memberships.filter((m) => m.teamId === 't_a').map((m) => m.userId);
   const upcomingTraining = ev.filter((e) => e.type === 'training' && e.date >= dstr(new Date())).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const nominatedA = db.roles.filter((r) => r.teamId === 't_a' && r.name !== 'Betreuer').map((r) => r.id);
+  ev.filter((e) => e.teamId === 't_a').forEach((e) => { e.nominatedRoleIds = [...nominatedA]; });
   if (upcomingTraining) {
     const e = upcomingTraining.id;
     A(e, 'u1', 'yes'); A(e, 'u4', 'yes'); A(e, 'u5', 'no', 'Grippe, kuriere mich aus', 'cr1', 'trainers');
@@ -384,6 +386,24 @@ function effectiveStatus(event: TeamEvent, userId: string | null) {
   return { status: 'pending' as AttendanceStatus, reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false };
 }
 const STATUS_ORDER: Record<string, number> = { yes: 0, maybe: 1, pending: 2, no: 3, not_nominated: 4 };
+function applyNominations(event: TeamEvent, nominatedRoleIds: string[]) {
+  event.nominatedRoleIds = [...nominatedRoleIds];
+  const nomSet = new Set(nominatedRoleIds);
+  const members = DB.memberships.filter((m) => m.teamId === event.teamId);
+  members.forEach((m) => {
+    const nominated = m.roleIds.some((roleId) => nomSet.has(roleId));
+    const a = DB.attendance.find((x) => x.eventId === event.id && x.userId === m.userId);
+    if (nominated) {
+      if (a && a.status === 'not_nominated') DB.attendance = DB.attendance.filter((x) => x !== a);
+      return;
+    }
+    if (!a) {
+      DB.attendance.push({ id: rid('att'), eventId: event.id, userId: m.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null, at: iso(new Date()) });
+    } else if (a.status === 'not_nominated') {
+      a.reason = ''; a.reasonId = null; a.reasonVisibility = null; a.at = iso(new Date());
+    }
+  });
+}
 
 // =============================================================================
 export const api = {
@@ -548,21 +568,15 @@ export const api = {
       }
       created.forEach((e) => DB.events.push(e));
       pushNotif({ teamId, type: 'event_created', actorId: session.userId!, title: created[0].title, eventId: created[0].id, eventTitle: created[0].title, eventDate: created[0].date, note: created.length > 1 ? ('Serie mit ' + created.length + ' Terminen') : '' });
-      if (payload.nominatedRoleIds && payload.nominatedRoleIds.length) {
-        const nomSet = new Set<string>(payload.nominatedRoleIds);
-        const members = DB.memberships.filter((m) => m.teamId === teamId);
-        created.forEach((e) => {
-          members.forEach((m) => {
-            const nominated = m.roleIds.some((roleId) => nomSet.has(roleId));
-            if (!nominated) DB.attendance.push({ id: rid('att'), eventId: e.id, userId: m.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null, at: iso(new Date()) });
-          });
-        });
+      if (Array.isArray(payload.nominatedRoleIds)) {
+        created.forEach((e) => applyNominations(e, payload.nominatedRoleIds));
       }
       persist(); return clone(created[0]);
     },
     _mk(base: any, payload: any): TeamEvent {
       const mk = (h: string) => (h ? atTime(new Date(base.date + 'T00:00:00'), +h.slice(0, 2), +h.slice(3, 5)) : null);
-      return { id: rid('ev'), teamId: base.teamId, type: base.type, title: base.title, date: base.date, location: base.location, note: base.note || '', meetTime: payload.meetT ? mk(payload.meetT) : null, startTime: payload.startT ? mk(payload.startT) : null, endTime: payload.endT ? mk(payload.endT) : null, meetTimeMandatory: !!base.meetTimeMandatory, responseMode: base.responseMode || 'opt_in', recurring: !!base.recurring, seriesId: base.seriesId || null, status: 'active' } as TeamEvent;
+      const nominatedRoleIds = Array.isArray(payload.nominatedRoleIds) ? [...payload.nominatedRoleIds] : undefined;
+      return { id: rid('ev'), teamId: base.teamId, type: base.type, title: base.title, date: base.date, location: base.location, note: base.note || '', meetTime: payload.meetT ? mk(payload.meetT) : null, startTime: payload.startT ? mk(payload.startT) : null, endTime: payload.endT ? mk(payload.endT) : null, meetTimeMandatory: !!base.meetTimeMandatory, responseMode: base.responseMode || 'opt_in', nominatedRoleIds, recurring: !!base.recurring, seriesId: base.seriesId || null, status: 'active' } as TeamEvent;
     },
     async update(eventId: string, patch: any, scope: 'single' | 'series' = 'single'): Promise<TeamEvent> {
       await delay(260, 480);
@@ -576,6 +590,7 @@ export const api = {
         if (patch.meetT !== undefined) ev.meetTime = patch.meetT ? mk(patch.meetT) : null;
         if (patch.startT !== undefined) ev.startTime = patch.startT ? mk(patch.startT) : null;
         if (patch.endT !== undefined) ev.endTime = patch.endT ? mk(patch.endT) : null;
+        if (Array.isArray(patch.nominatedRoleIds)) applyNominations(ev, patch.nominatedRoleIds);
       });
       pushNotif({ teamId: e.teamId, type: 'event_updated', actorId: session.userId!, title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
       persist(); return this._withSummary(e, e.teamId);

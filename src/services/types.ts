@@ -104,6 +104,7 @@ export interface TeamEvent {
   endTime: string | null;
   meetTimeMandatory: boolean;
   responseMode: ResponseMode;
+  nominatedRoleIds?: string[];
   recurring: boolean;
   seriesId: string | null;
   status: EventStatus;

@@ -383,7 +383,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: event.id, seriesId: event.seriesId || null, type: event.type, title: event.title, date: event.date,
       meetT: hhmm(event.meetTime), startT: hhmm(event.startTime), endT: hhmm(event.endTime), location: event.location || '',
       note: event.note || '', meetTimeMandatory: !!event.meetTimeMandatory, responseMode: event.responseMode || 'opt_in',
-      nominatedRoleIds: S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
+      nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
     } : {
       type: 'training', title: '', date: todayStr(), meetT: '19:15', startT: '19:30', endT: '21:30', location: 'Tanzsporthalle Eilendorf',
       note: '', meetTimeMandatory: true, responseMode: 'opt_out', nominatedRoleIds: S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
@@ -397,7 +397,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const mode = sh.mode;
     const back = sh.back;
     setState({ busy: 'save' });
-    const payload = { type: f.type, title: f.title, date: f.date, location: f.location, note: f.note, meetTimeMandatory: f.meetTimeMandatory, responseMode: f.responseMode, meetT: f.meetT, startT: f.startT, endT: f.endT };
+    const payload = { type: f.type, title: f.title, date: f.date, location: f.location, note: f.note, meetTimeMandatory: f.meetTimeMandatory, responseMode: f.responseMode, meetT: f.meetT, startT: f.startT, endT: f.endT, nominatedRoleIds: f.nominatedRoleIds };
     if (mode === 'edit') await api.events.update(f.id, payload, scope);
     else await api.events.create(S().activeTeamId!, { ...payload, recurring: f.recurring, repeatWeeks: Number(f.repeatWeeks), nominatedRoleIds: f.nominatedRoleIds });
     await refreshEvents();
