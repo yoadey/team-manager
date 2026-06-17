@@ -1,5 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import { todayLocalDate } from '../utils/date';
 import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta } from '../theme/tokens';
 import { Av, Chip, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '../components/ui';
 import type { AttendanceRow, AttendanceStatus, EventComment, TeamEvent } from '../services/types';
@@ -13,7 +14,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   if (!e) return <SpinnerBox />;
 
   const tm = typeMeta(e.type);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDate();
   const isPast = e.date < today;
   const myStatus = e.myStatus;
   const canEdit = app.can('events', 'write');

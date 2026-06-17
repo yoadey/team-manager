@@ -2,6 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '../store/AppContext';
 import { buildTokens, NEUTRAL } from '../theme/tokens';
+import { todayLocalDate } from '../utils/date';
 import { Av, EmptyState, SectionTitle, Sym } from '../components/ui';
 import { EventCard, NewsCard } from '../components/cards';
 
@@ -10,7 +11,7 @@ export function Home() {
   const { state } = app;
   const t = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDate();
 
   const next = state.events.filter((e) => e.date >= today).slice(0, 3);
   const news = (state.news || []).slice(0, 3);

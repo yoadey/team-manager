@@ -5,6 +5,7 @@
 // =============================================================================
 
 import type { AttendanceStatus, EventType } from '../services/types';
+import { parseDateOnlyLocal, todayLocalDate } from '../utils/date';
 
 export interface ThemePreset {
   primary: string;
@@ -89,18 +90,19 @@ export function statusMeta(s: AttendanceStatus | string): StatusMeta {
 }
 
 // ---- Formatting helpers -----------------------------------------------------
-export const todayStr = () => new Date().toISOString().slice(0, 10);
+export const todayStr = todayLocalDate;
 export function hhmm(isoStr: string | null): string {
   if (!isoStr) return '';
+  if (/^\d{2}:\d{2}$/.test(isoStr)) return isoStr;
   const d = new Date(isoStr);
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 export const fmtDate = (ds: string) =>
-  new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(ds + 'T00:00:00'));
+  new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'short' }).format(parseDateOnlyLocal(ds));
 export const fmtDateLong = (ds: string) =>
-  new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(ds + 'T00:00:00'));
+  new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(parseDateOnlyLocal(ds));
 export function fmtRange(a: string, b: string) {
-  const f = (x: string) => new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' }).format(new Date(x + 'T00:00:00'));
+  const f = (x: string) => new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' }).format(parseDateOnlyLocal(x));
   return f(a) + ' – ' + f(b);
 }
 export const fmtMoney = (n: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(n);
