@@ -7,6 +7,9 @@ import type {
   StatsOverview, TeamEvent, TeamForUser, User,
 } from '../services/types';
 import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '../theme/tokens';
+import { useEventActionFeatures, useEventDetailActions } from './features/events';
+import { useFinanceActions } from './features/finance';
+import { usePollActions } from './features/polls';
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
@@ -294,7 +297,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toggleCalAbsences = useCallback(() => { const nv = !S().calShowAbsences; setState({ calShowAbsences: nv }); if (nv && !S().absences) loadAbsences(); }, [setState, loadAbsences]);
 
   // ---------- notifications ----------
-  const openNotifications = useCallback(() => { if (!S().notifications) loadNotifications(); setState({ sheet: { type: 'notifications' }, notifFilter: 'all', notifUnread: 0 }); api.notifications.markSeen(S().activeTeamId!); }, [api, setState, loadNotifications]);
+  const openNotifications = useCallback(() => {
+    const teamId = S().activeTeamId;
+    if (!teamId) return;
+
+    setState({ sheet: { type: 'notifications' }, notifFilter: 'all' });
+
+    void (async () => {
+      try {
+        if (!S().notifications) await loadNotifications();
+        await api.notifications.markSeen(teamId);
+        setState((s) => {
+          if (s.activeTeamId !== teamId) return {};
+          return {
+            notifications: s.notifications ? s.notifications.map((n) => ({ ...n, unread: false })) : s.notifications,
+            notifUnread: 0,
+          };
+        });
+      } catch {
+        toastMsg('Benachrichtigungen konnten nicht als gelesen markiert werden.');
+      }
+    })();
+  }, [api, setState, loadNotifications, toastMsg]);
   const setNotifFilter = useCallback((f: AppState['notifFilter']) => setState({ notifFilter: f }), [setState]);
 
   // ---------- confirm ----------
@@ -302,80 +326,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);
   const runConfirm = useCallback(async () => { const cfg = S().sheet && S().sheet!.cfg; setState({ sheet: null }); if (cfg && cfg.onConfirm) await cfg.onConfirm(); }, [setState]);
 
-  // ---------- event detail/attendance ----------
-  const reloadDetail = useCallback(async (eventId: string) => {
-    const [event, rows, comments] = await Promise.all([api.events.get(eventId), api.attendance.listForEvent(eventId), api.events.listComments(eventId)]);
-    setState((s) => (s.sheet && s.sheet.type === 'eventDetail') ? { sheet: { ...s.sheet, event, rows, comments } } : {});
-  }, [api, setState]);
-  const openEventDetail = useCallback(async (eventId: string) => { setState({ sheet: { type: 'eventDetail', eventId, event: null, rows: [] } }); await reloadDetail(eventId); }, [setState, reloadDetail]);
-  const setMyStatus = useCallback(async (eventId: string, status: AttendanceStatus) => {
-    const ev = S().sheet && S().sheet!.event;
-    const keep = (ev && ev.id === eventId) ? (ev.myReason || '') : '';
-    await api.attendance.set(eventId, S().user!.id, { status, reason: keep });
-    await refreshEvents();
-    if (S().sheet && S().sheet!.type === 'eventDetail' && S().sheet!.eventId === eventId) await reloadDetail(eventId);
-    toastMsg(status === 'yes' ? 'Zugesagt' : (status === 'maybe' ? 'Als unsicher markiert' : 'Abgesagt'));
-  }, [api, refreshEvents, reloadDetail, toastMsg]);
-  const setStatusFor = useCallback((e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => {
-    (async () => { await api.attendance.set(e.id, row.userId, { status, reason: row.reason || '' }); await refreshEvents(); await reloadDetail(e.id); })();
-  }, [api, refreshEvents, reloadDetail]);
-  const canSeeComment = useCallback((row: AttendanceRow) => {
-    if (row.userId === S().user!.id) return true;
-    if (!row.reason) return false;
-    if (row.status !== 'no') return true;
-    const vis = (activeTeam() && activeTeam()!.reasonVisibilityRoles) || [];
-    const myIds = myRoles().map((r) => r.id);
-    return myIds.some((id) => vis.includes(id));
-  }, [activeTeam, myRoles]);
-  const openComment = useCallback((e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => {
-    setState((st) => ({ sheet: { type: 'comment', eventId: e.id, userId: row.userId, name: row.name, status: row.status, back: st.sheet }, form: { commentText: row.reason || '' } }));
-  }, [setState]);
-  const submitComment = useCallback(async () => {
-    const s = S().sheet!;
-    setState({ busy: 'save' });
-    await api.attendance.set(s.eventId, s.userId, { status: s.status, reason: S().form.commentText || '' });
-    await refreshEvents();
-    const eid = s.eventId;
-    setState({ busy: null, sheet: null });
-    openEventDetail(eid);
-    toastMsg('Kommentar gespeichert');
-  }, [api, setState, refreshEvents, openEventDetail, toastMsg]);
-  const postEventComment = useCallback(async (eventId: string) => {
-    const txt = (S().form.newEventComment || '').trim();
-    if (!txt) return;
-    await api.events.addComment(eventId, txt);
-    setFormVal({ newEventComment: '' });
-    await reloadDetail(eventId);
-  }, [api, setFormVal, reloadDetail]);
-  const removeEventComment = useCallback(async (eventId: string, cid: string) => { await api.events.removeComment(cid); await reloadDetail(eventId); }, [api, reloadDetail]);
-  const toggleNomination = useCallback(async (eventId: string, userId: string, currentlyNominated: boolean) => {
-    await api.attendance.setNomination(eventId, userId, !currentlyNominated);
-    await refreshEvents(); await reloadDetail(eventId);
-    toastMsg(currentlyNominated ? 'Nicht nominiert' : 'Nominiert');
-  }, [api, refreshEvents, reloadDetail, toastMsg]);
+  const { reloadDetail, openEventDetail, setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination } = useEventDetailActions({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg });
 
-  // ---------- event actions ----------
-  const runEventAction = useCallback(async (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => {
-    if (action === 'delete') {
-      askConfirm({
-        title: scope === 'series' ? 'Ganze Serie löschen?' : 'Termin löschen?',
-        message: scope === 'series' ? 'Alle Termine dieser Serie und alle Rückmeldungen werden dauerhaft entfernt.' : '„' + event.title + '" und alle Rückmeldungen werden dauerhaft entfernt.',
-        confirmLabel: 'Löschen', danger: true,
-        onConfirm: async () => { await api.events.remove(event.id, scope); await refreshEvents(); setState({ sheet: null }); toastMsg(scope === 'series' ? 'Serie gelöscht' : 'Termin gelöscht'); },
-      });
-      return;
-    }
-    const status = action === 'cancel' ? 'cancelled' : 'active';
-    await api.events.setStatus(event.id, status, scope);
-    await refreshEvents();
-    setState({ sheet: null });
-    openEventDetail(event.id);
-    toastMsg(action === 'cancel' ? (scope === 'series' ? 'Serie abgesagt' : 'Termin abgesagt') : (scope === 'series' ? 'Serie aktiviert' : 'Termin aktiviert'));
-  }, [api, askConfirm, refreshEvents, setState, openEventDetail, toastMsg]);
-  const askEventAction = useCallback((action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent) => {
-    if (event.seriesId) setState((st) => ({ sheet: { type: 'seriesAction', action, event, back: st.sheet } }));
-    else runEventAction(action, event, 'single');
-  }, [setState, runEventAction]);
+  const { askEventAction, runEventAction } = useEventActionFeatures({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg, askConfirm, openEventDetail });
 
   // ---------- event form ----------
   const openEventForm = useCallback((event: TeamEvent | null) => {
@@ -566,28 +519,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const saveNews = useCallback(async () => { const f = S().form; if (!f.title) { toastMsg('Bitte Titel angeben'); return; } setState({ busy: 'save' }); await api.news.create(S().activeTeamId!, { title: f.title, body: f.body, pinned: f.pinned }); await loadNews(); setState({ busy: null, sheet: null }); toastMsg('News veröffentlicht'); }, [api, setState, loadNews, toastMsg]);
   const removeNews = useCallback((id: string) => askConfirm({ title: 'News löschen?', message: 'Diese Neuigkeit wird dauerhaft entfernt.', confirmLabel: 'Löschen', danger: true, onConfirm: async () => { await api.news.remove(id); await loadNews(); toastMsg('News gelöscht'); } }), [api, askConfirm, loadNews, toastMsg]);
 
-  // ---------- finances ----------
-  const openTxForm = useCallback((tx?: any) => { const f = tx ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category } : { type: 'income', title: '', amount: '', category: 'Beiträge' }; setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create' }, form: f }); }, [setState]);
-  const saveTx = useCallback(async () => { const f = S().form; if (!f.title || !f.amount) { toastMsg('Bitte Titel und Betrag angeben'); return; } setState({ busy: 'save' }); if (S().sheet!.mode === 'edit') await api.finances.updateTransaction(f.id, { type: f.type, title: f.title, amount: f.amount, category: f.category }); else await api.finances.addTransaction(S().activeTeamId!, { type: f.type, title: f.title, amount: f.amount, category: f.category }); await loadFinances(); setState({ busy: null, sheet: null }); toastMsg('Buchung gespeichert'); }, [api, setState, loadFinances, toastMsg]);
-  const deleteTx = useCallback(async (id: string) => { await api.finances.deleteTransaction(id); await loadFinances(); setState({ sheet: null }); toastMsg('Buchung gelöscht'); }, [api, loadFinances, setState, toastMsg]);
-  const openPenaltyCatalog = useCallback(() => setState({ sheet: { type: 'penaltyCatalog' } }), [setState]);
-  const openPenaltyForm = useCallback((p?: any) => setState((st) => ({ sheet: { type: 'penaltyForm', mode: p ? 'edit' : 'create', back: (st.sheet && st.sheet.type === 'penaltyCatalog') ? st.sheet : null }, form: p ? { id: p.id, label: p.label, amount: String(p.amount) } : { label: '', amount: '' } })), [setState]);
-  const savePenalty = useCallback(async () => { const f = S().form; if (!f.label) { toastMsg('Bitte Bezeichnung angeben'); return; } if (!f.amount) { toastMsg('Bitte Betrag angeben'); return; } const sh = S().sheet!; const back = sh.back || null; const create = sh.mode === 'create'; setState({ busy: 'save' }); if (create) await api.finances.createPenalty(S().activeTeamId!, { label: f.label, amount: f.amount }); else await api.finances.updatePenalty(f.id, { label: f.label, amount: f.amount }); await loadFinances(); setState({ busy: null, sheet: back }); toastMsg(create ? 'Strafe hinzugefügt' : 'Strafe gespeichert'); }, [api, setState, loadFinances, toastMsg]);
-  const deletePenaltyDef = useCallback((id: string) => askConfirm({ title: 'Strafe entfernen?', message: 'Diese Strafe wird aus dem Katalog entfernt. Bereits erfasste Strafen bleiben erhalten.', confirmLabel: 'Entfernen', danger: true, onConfirm: async () => { await api.finances.deletePenalty(id); await loadFinances(); setState({ sheet: { type: 'penaltyCatalog' } }); toastMsg('Strafe entfernt'); } }), [api, askConfirm, loadFinances, setState, toastMsg]);
-  const openPenaltyAssign = useCallback(() => { if (!S().members || !S().members.length) refreshMembers(); const f = S().finances; const first = (f && f.penalties[0]) ? f.penalties[0].id : null; setState({ sheet: { type: 'penaltyAssign' }, form: { userId: '', penaltyId: first } }); }, [refreshMembers, setState]);
-  const savePenaltyAssign = useCallback(async () => { const f = S().form; if (!f.userId) { toastMsg('Bitte Person wählen'); return; } if (!f.penaltyId) { toastMsg('Bitte Strafe wählen'); return; } setState({ busy: 'save' }); await api.finances.assignPenalty(S().activeTeamId!, { userId: f.userId, penaltyId: f.penaltyId }); await loadFinances(); setState({ busy: null, sheet: null }); toastMsg('Strafe erfasst'); }, [api, setState, loadFinances, toastMsg]);
-  const deleteAssignment = useCallback(async (id: string) => { await api.finances.deleteAssignment(id); await loadFinances(); toastMsg('Strafe gelöscht'); }, [api, loadFinances, toastMsg]);
-  const openContribForm = useCallback((c: any) => setState({ sheet: { type: 'contribForm' }, form: { id: c.id, label: c.label, amount: String(c.amount) } }), [setState]);
-  const saveContrib = useCallback(async () => { const f = S().form; setState({ busy: 'save' }); await api.finances.updateContribution(f.id, { label: f.label, amount: f.amount }); await loadFinances(); setState({ busy: null, sheet: null }); toastMsg('Beitrag gespeichert'); }, [api, setState, loadFinances, toastMsg]);
-  const togglePenalty = useCallback(async (id: string) => { await api.finances.togglePenaltyPaid(id); await loadFinances(); }, [api, loadFinances]);
-  const toggleContribution = useCallback(async (id: string) => { await api.finances.toggleContribution(id); await loadFinances(); }, [api, loadFinances]);
-  const setStatsRange = useCallback((range: DateRange | null) => { setState({ statsRange: range, stats: null }); loadStats(range); }, [setState, loadStats]);
+  const { openTxForm, saveTx, deleteTx, openPenaltyCatalog, openPenaltyForm, savePenalty, deletePenaltyDef, openPenaltyAssign, savePenaltyAssign, deleteAssignment, openContribForm, saveContrib, togglePenalty, toggleContribution, setStatsRange } = useFinanceActions({ api, S, setState, loadFinances, loadStats, refreshMembers, askConfirm, toastMsg });
 
-  // ---------- polls ----------
-  const openPollForm = useCallback(() => setState({ sheet: { type: 'pollForm' }, form: { question: '', opt0: '', opt1: '', opt2: '', opt3: '', multiple: false, anonymous: false } }), [setState]);
-  const votePoll = useCallback(async (pollId: string, optionIds: string[]) => { await api.polls.vote(pollId, optionIds); await loadPolls(); }, [api, loadPolls]);
-  const savePoll = useCallback(async () => { const f = S().form; const opts = [f.opt0, f.opt1, f.opt2, f.opt3].filter((o) => o && o.trim()); if (!f.question || opts.length < 2) { toastMsg('Frage und mind. 2 Optionen'); return; } setState({ busy: 'save' }); await api.polls.create(S().activeTeamId!, { question: f.question, options: opts, multiple: f.multiple, anonymous: f.anonymous }); await loadPolls(); setState({ busy: null, sheet: null }); toastMsg('Umfrage erstellt'); }, [api, setState, loadPolls, toastMsg]);
-  const togglePollOption = useCallback((poll: Poll, optId: string) => { const cur = poll.myVote || []; let next: string[]; if (poll.multiple) next = cur.includes(optId) ? cur.filter((x) => x !== optId) : cur.concat(optId); else next = [optId]; votePoll(poll.id, next); }, [votePoll]);
+  const { openPollForm, savePoll, togglePollOption } = usePollActions({ api, S, setState, loadPolls, toastMsg });
 
   // ---------- bootstrap ----------
   useEffect(() => {
