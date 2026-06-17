@@ -7,18 +7,22 @@
 // signatures (the API contract) stay the same.
 // =============================================================================
 
+import { mapAttendanceDtoToRow, mapEventDtoToTeamEvent, mapMemberDtoToMember } from './mappers';
 import type {
   AppNotification,
   Absence,
+  AttendanceDto,
   AttendanceRow,
   AttendanceStatus,
   Contribution,
   DateRange,
   EventComment,
+  EventDto,
   EventType,
   FinanceOverview,
   Invite,
   Member,
+  MemberDto,
   Membership,
   ModuleKey,
   NewsItem,
@@ -31,6 +35,7 @@ import type {
   ReasonVisibility,
   ResponseMode,
   Role,
+  RoleDto,
   StatsOverview,
   Team,
   TeamEvent,
@@ -95,9 +100,9 @@ interface DB {
   users: User[];
   teams: Team[];
   memberships: Membership[];
-  roles: Role[];
-  events: TeamEvent[];
-  attendance: any[];
+  roles: RoleDto[];
+  events: EventDto[];
+  attendance: AttendanceDto[];
   invites: Invite[];
   absences: Absence[];
   news: NewsItem[];
@@ -186,12 +191,12 @@ function seed(): DB {
   ];
 
   // ---- Termine A-Team ----
-  const ev: TeamEvent[] = [];
-  const E = (o: Partial<TeamEvent>): TeamEvent => {
+  const ev: EventDto[] = [];
+  const E = (o: Partial<EventDto>): EventDto => {
     const e = Object.assign(
       { id: rid('ev'), teamId: 't_a', recurring: false, meetTimeMandatory: true, location: '', note: '', responseMode: 'opt_in' as ResponseMode, status: 'active' as const },
       o,
-    ) as TeamEvent;
+    ) as EventDto;
     ev.push(e);
     return e;
   };
@@ -215,6 +220,8 @@ function seed(): DB {
     att.push({ id: rid('att'), eventId, userId, status, reason: reason || '', reasonId: reasonId || null, reasonVisibility: vis || null, at: iso(new Date()) });
   const aMembers = db.memberships.filter((m) => m.teamId === 't_a').map((m) => m.userId);
   const upcomingTraining = ev.filter((e) => e.type === 'training' && e.date >= todayLocalDate()).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const nominatedA = db.roles.filter((r) => r.teamId === 't_a' && r.name !== 'Betreuer').map((r) => r.id);
+  ev.filter((e) => e.teamId === 't_a').forEach((e) => { e.nominatedRoleIds = [...nominatedA]; });
   if (upcomingTraining) {
     const e = upcomingTraining.id;
     A(e, 'u1', 'yes'); A(e, 'u4', 'yes'); A(e, 'u5', 'no', 'Grippe, kuriere mich aus', 'cr1', 'trainers');
@@ -375,7 +382,7 @@ function primaryRole(roles: Role[]): Role | null {
 function absenceCovers(userId: string, date: string) {
   return DB.absences.some((a) => a.userId === userId && date >= a.from && date <= a.to);
 }
-function effectiveStatus(event: TeamEvent, userId: string | null) {
+function effectiveStatus(event: EventDto, userId: string | null) {
   const rec = DB.attendance.find((a) => a.eventId === event.id && a.userId === userId);
   if (rec) return { status: rec.status as AttendanceStatus, reason: rec.reason, reasonId: rec.reasonId, reasonVisibility: rec.reasonVisibility, auto: false, absent: absenceCovers(userId!, event.date) };
   if (userId && absenceCovers(userId, event.date)) return { status: 'no' as AttendanceStatus, reason: 'Geplante Abwesenheit', reasonId: null, reasonVisibility: 'team' as ReasonVisibility, auto: true, absent: true };
@@ -383,8 +390,54 @@ function effectiveStatus(event: TeamEvent, userId: string | null) {
   return { status: 'pending' as AttendanceStatus, reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false };
 }
 const STATUS_ORDER: Record<string, number> = { yes: 0, maybe: 1, pending: 2, no: 3, not_nominated: 4 };
+function applyNominations(event: TeamEvent, nominatedRoleIds: string[]) {
+  event.nominatedRoleIds = [...nominatedRoleIds];
+  const nomSet = new Set(nominatedRoleIds);
+  const members = DB.memberships.filter((m) => m.teamId === event.teamId);
+  members.forEach((m) => {
+    const nominated = m.roleIds.some((roleId) => nomSet.has(roleId));
+    const a = DB.attendance.find((x) => x.eventId === event.id && x.userId === m.userId);
+    if (nominated) {
+      if (a && a.status === 'not_nominated') DB.attendance = DB.attendance.filter((x) => x !== a);
+      return;
+    }
+    if (!a) {
+      DB.attendance.push({ id: rid('att'), eventId: event.id, userId: m.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null, at: iso(new Date()) });
+    } else if (a.status === 'not_nominated') {
+      a.reason = ''; a.reasonId = null; a.reasonVisibility = null; a.at = iso(new Date());
+    }
+  });
+}
 
 // =============================================================================
+export const SERVICE_ENDPOINTS = {
+  // auth: thin wrappers for future authentication/session endpoints.
+  auth: ['auth.providers', 'auth.login', 'auth.currentUser', 'auth.logout', 'auth.setPhoto'],
+  // teams: thin wrappers for team CRUD and invite endpoints; listForCurrentUser is enriched with role permissions.
+  teams: ['teams.listForCurrentUser', 'teams.get', 'teams.create', 'teams.updateSettings', 'teams.createInvite'],
+  // members: list returns Member ViewModels mapped from MemberDto plus derived primaryRole/perms.
+  members: ['members.list', 'members.add', 'members.update', 'members.setRoles', 'members.remove'],
+  // roles: direct RoleDto CRUD endpoints.
+  roles: ['roles.list', 'roles.create', 'roles.update', 'roles.remove'],
+  // events: list/get map EventDto to TeamEvent with client-side summary/myStatus aggregation.
+  events: ['events.list', 'events.get', 'events.create', 'events.update', 'events.setStatus', 'events.remove', 'events.listComments', 'events.addComment', 'events.removeComment'],
+  // attendance: set/setNomination are endpoint-shaped mutations; listForEvent maps AttendanceDto to display rows.
+  attendance: ['attendance.listForEvent', 'attendance.set', 'attendance.setNomination'],
+  // absences/news/polls/notifications: endpoint-shaped resource operations with small display enrichments.
+  absences: ['absences.listForTeam', 'absences.listMine', 'absences.create', 'absences.update', 'absences.remove'],
+  news: ['news.list', 'news.create', 'news.remove'],
+  polls: ['polls.list', 'polls.vote', 'polls.create'],
+  notifications: ['notifications.list', 'notifications.markSeen'],
+  // finances.overview is currently a client aggregation over finance collections; mutation methods map to future endpoints.
+  finances: ['finances.overview', 'finances.addTransaction', 'finances.updateTransaction', 'finances.deleteTransaction', 'finances.updatePenalty', 'finances.deletePenalty', 'finances.addPenaltyAssignment', 'finances.togglePenaltyPaid', 'finances.updateContribution'],
+  // stats.overview is a client-side aggregation until the backend exposes a reporting endpoint.
+  stats: ['stats.overview'],
+} as const;
+
+export const CLIENT_AGGREGATIONS = ['events._withSummary', 'members.list', 'attendance.listForEvent', 'finances.overview', 'stats.overview'] as const;
+
+export const API_ENDPOINT_METHODS = Object.values(SERVICE_ENDPOINTS).flat();
+
 export const api = {
   auth: {
     async providers(): Promise<Provider[]> { await delay(80, 200); return clone(PROVIDERS); },
@@ -445,7 +498,8 @@ export const api = {
       return DB.memberships.filter((m) => m.teamId === teamId).map((m) => {
         const u = DB.users.find((x) => x.id === m.userId)!;
         const roles = rolesOf(m);
-        return { membershipId: m.id, userId: u.id, name: u.name, email: u.email, phone: u.phone, birthday: u.birthday || '', address: u.address || '', avatarColor: u.avatarColor, photo: u.photo, group: m.group, roles: clone(roles), primaryRole: clone(primaryRole(roles)), perms: mergePerms(roles), joinedAt: m.joinedAt };
+        const dto: MemberDto = { membershipId: m.id, userId: u.id, name: u.name, email: u.email, phone: u.phone, birthday: u.birthday || '', address: u.address || '', avatarColor: u.avatarColor, photo: u.photo, group: m.group, roles: clone(roles), joinedAt: m.joinedAt };
+        return mapMemberDtoToMember(dto, clone(primaryRole(roles)), mergePerms(roles));
       }).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     },
     async add(teamId: string, { name, email, phone, roleIds, group, photo }: { name: string; email?: string; phone?: string; roleIds?: string[]; group?: string; photo?: string | null }) {
@@ -516,7 +570,7 @@ export const api = {
       const e = DB.events.find((x) => x.id === eventId);
       return e ? this._withSummary(e, e.teamId) : null;
     },
-    _withSummary(e: TeamEvent, teamId: string): TeamEvent {
+    _withSummary(e: EventDto, teamId: string): TeamEvent {
       const memberIds = DB.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
       let yes = 0, no = 0, maybe = 0, pending = 0, notNom = 0;
       memberIds.forEach((uid) => {
@@ -529,11 +583,11 @@ export const api = {
       });
       const mine = effectiveStatus(e, session.userId);
       const nominated = memberIds.length - notNom;
-      return Object.assign(clone(e), { summary: { yes, no, maybe, pending, notNominated: notNom, nominated, total: memberIds.length }, myStatus: mine.status, myAuto: mine.auto, myReason: mine.reason });
+      return mapEventDtoToTeamEvent(clone(e), { yes, no, maybe, pending, notNominated: notNom, nominated, total: memberIds.length }, { myStatus: mine.status, myAuto: mine.auto, myReason: mine.reason });
     },
     async create(teamId: string, payload: any): Promise<TeamEvent> {
       await delay(340, 600);
-      const created: TeamEvent[] = [];
+      const created: EventDto[] = [];
       const base = Object.assign({ teamId, recurring: false, meetTimeMandatory: true, location: '', note: '', responseMode: 'opt_in', status: 'active' }, payload);
       if (payload.recurring && payload.repeatWeeks > 1) {
         const seriesId = rid('series');
@@ -547,21 +601,15 @@ export const api = {
       }
       created.forEach((e) => DB.events.push(e));
       pushNotif({ teamId, type: 'event_created', actorId: session.userId!, title: created[0].title, eventId: created[0].id, eventTitle: created[0].title, eventDate: created[0].date, note: created.length > 1 ? ('Serie mit ' + created.length + ' Terminen') : '' });
-      if (payload.nominatedRoleIds && payload.nominatedRoleIds.length) {
-        const nomSet = new Set<string>(payload.nominatedRoleIds);
-        const members = DB.memberships.filter((m) => m.teamId === teamId);
-        created.forEach((e) => {
-          members.forEach((m) => {
-            const nominated = m.roleIds.some((roleId) => nomSet.has(roleId));
-            if (!nominated) DB.attendance.push({ id: rid('att'), eventId: e.id, userId: m.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null, at: iso(new Date()) });
-          });
-        });
+      if (Array.isArray(payload.nominatedRoleIds)) {
+        created.forEach((e) => applyNominations(e, payload.nominatedRoleIds));
       }
-      persist(); return clone(created[0]);
+      persist(); return this._withSummary(created[0], teamId);
     },
     _mk(base: any, payload: any): TeamEvent {
       const mk = (h: string) => (h ? atTime(base.date, +h.slice(0, 2), +h.slice(3, 5)) : null);
-      return { id: rid('ev'), teamId: base.teamId, type: base.type, title: base.title, date: base.date, location: base.location, note: base.note || '', meetTime: payload.meetT ? mk(payload.meetT) : null, startTime: payload.startT ? mk(payload.startT) : null, endTime: payload.endT ? mk(payload.endT) : null, meetTimeMandatory: !!base.meetTimeMandatory, responseMode: base.responseMode || 'opt_in', recurring: !!base.recurring, seriesId: base.seriesId || null, status: 'active' } as TeamEvent;
+      const nominatedRoleIds = Array.isArray(payload.nominatedRoleIds) ? [...payload.nominatedRoleIds] : undefined;
+      return { id: rid('ev'), teamId: base.teamId, type: base.type, title: base.title, date: base.date, location: base.location, note: base.note || '', meetTime: payload.meetT ? mk(payload.meetT) : null, startTime: payload.startT ? mk(payload.startT) : null, endTime: payload.endT ? mk(payload.endT) : null, meetTimeMandatory: !!base.meetTimeMandatory, responseMode: base.responseMode || 'opt_in', nominatedRoleIds, recurring: !!base.recurring, seriesId: base.seriesId || null, status: 'active' } as EventDto;
     },
     async update(eventId: string, patch: any, scope: 'single' | 'series' = 'single'): Promise<TeamEvent> {
       await delay(260, 480);
@@ -575,6 +623,7 @@ export const api = {
         if (patch.meetT !== undefined) ev.meetTime = patch.meetT ? mk(patch.meetT) : null;
         if (patch.startT !== undefined) ev.startTime = patch.startT ? mk(patch.startT) : null;
         if (patch.endT !== undefined) ev.endTime = patch.endT ? mk(patch.endT) : null;
+        if (Array.isArray(patch.nominatedRoleIds)) applyNominations(ev, patch.nominatedRoleIds);
       });
       pushNotif({ teamId: e.teamId, type: 'event_updated', actorId: session.userId!, title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
       persist(); return this._withSummary(e, e.teamId);
@@ -622,7 +671,8 @@ export const api = {
         const u = DB.users.find((x) => x.id === m.userId)!;
         const roles = rolesOf(m);
         const es = effectiveStatus(e, m.userId);
-        return { userId: u.id, name: u.name, avatarColor: u.avatarColor, photo: u.photo, group: m.group, primaryRole: clone(primaryRole(roles)), status: es.status, reason: es.reason, reasonId: es.reasonId, reasonVisibility: es.reasonVisibility, auto: es.auto, absent: es.absent };
+        const dto: AttendanceDto = { id: es.reasonId || `${eventId}:${u.id}`, eventId, userId: u.id, status: es.status, reason: es.reason, reasonId: es.reasonId, reasonVisibility: es.reasonVisibility };
+        return mapAttendanceDtoToRow(dto, { userId: u.id, name: u.name, avatarColor: u.avatarColor, photo: u.photo, group: m.group, primaryRole: clone(primaryRole(roles)), auto: es.auto, absent: es.absent });
       });
       rows.sort((a, b) => (STATUS_ORDER[a.status] - STATUS_ORDER[b.status]) || a.name.localeCompare(b.name, 'de'));
       return rows;
@@ -630,7 +680,7 @@ export const api = {
     async set(eventId: string, userId: string, { status, reason, reasonId, reasonVisibility }: { status: AttendanceStatus; reason?: string; reasonId?: string | null; reasonVisibility?: ReasonVisibility }) {
       await delay(160, 320);
       let a = DB.attendance.find((x) => x.eventId === eventId && x.userId === userId);
-      if (!a) { a = { id: rid('att'), eventId, userId }; DB.attendance.push(a); }
+      if (!a) { a = { id: rid('att'), eventId, userId, status, reason: '', reasonId: null, reasonVisibility: null }; DB.attendance.push(a); }
       a.status = status; a.reason = reason || ''; a.reasonId = reasonId || null; a.reasonVisibility = reasonVisibility || null; a.at = iso(new Date());
       const e = DB.events.find((x) => x.id === eventId);
       if (e && (status === 'yes' || status === 'no' || status === 'maybe')) pushNotif({ teamId: e.teamId, type: 'attendance', actorId: userId, status, eventId: e.id, eventTitle: e.title, eventDate: e.date });
@@ -642,7 +692,7 @@ export const api = {
         DB.attendance = DB.attendance.filter((x) => !(x.eventId === eventId && x.userId === userId));
       } else {
         let a = DB.attendance.find((x) => x.eventId === eventId && x.userId === userId);
-        if (!a) { a = { id: rid('att'), eventId, userId }; DB.attendance.push(a); }
+        if (!a) { a = { id: rid('att'), eventId, userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null }; DB.attendance.push(a); }
         a.status = 'not_nominated'; a.reason = ''; a.reasonId = null;
       }
       persist(); return true;

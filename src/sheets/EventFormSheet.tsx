@@ -63,7 +63,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
     </Box>
   ) : null;
 
-  const nomSel = sheet.mode === 'create' ? (
+  const nomSel = (
     <Box key="nomsel" sx={{ borderTop: '1px solid #ECEDF3', pt: '14px' }}>
       <Box key="l" sx={labelSx}>Nominierte Rollen</Box>
       <Box key="h" sx={{ fontSize: '12px', color: '#9A9DA6', m: '-2px 0 9px', lineHeight: 1.45 }}>Nur Mitglieder mit einer gewählten Rolle werden nominiert. Abgewählte Rollen können nicht zu-/absagen.</Box>
@@ -80,7 +80,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         })}
       </Box>
     </Box>
-  ) : null;
+  );
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
