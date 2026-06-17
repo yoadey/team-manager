@@ -38,6 +38,7 @@ import type {
   Transaction,
   User,
 } from './types';
+import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '../utils/date';
 
 const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
 const delay = (min = 120, max = 320) =>
@@ -45,11 +46,9 @@ const delay = (min = 120, max = 320) =>
 const clone = <T>(x: T): T => JSON.parse(JSON.stringify(x));
 const DAY = 86400000;
 const iso = (d: Date) => d.toISOString();
-const dstr = (d: Date) => d.toISOString().slice(0, 10);
-function atTime(base: Date | string, h: number, m: number) {
-  const d = new Date(base);
-  d.setHours(h, m, 0, 0);
-  return iso(d);
+const dstr = formatDateOnly;
+function atTime(_base: Date | string, h: number, m: number) {
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 function nextWeekday(weekday: number, weeks = 0) {
   const d = new Date();
@@ -62,7 +61,7 @@ function plusDays(n: number) {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   d.setTime(d.getTime() + n * DAY);
-  return dstr(d);
+  return formatDateOnly(d);
 }
 
 // ---- Rechte-Modell ----------------------------------------------------------
@@ -215,7 +214,7 @@ function seed(): DB {
   const A = (eventId: string, userId: string, status: AttendanceStatus, reason?: string, reasonId?: string | null, vis?: ReasonVisibility) =>
     att.push({ id: rid('att'), eventId, userId, status, reason: reason || '', reasonId: reasonId || null, reasonVisibility: vis || null, at: iso(new Date()) });
   const aMembers = db.memberships.filter((m) => m.teamId === 't_a').map((m) => m.userId);
-  const upcomingTraining = ev.filter((e) => e.type === 'training' && e.date >= dstr(new Date())).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const upcomingTraining = ev.filter((e) => e.type === 'training' && e.date >= todayLocalDate()).sort((a, b) => a.date.localeCompare(b.date))[0];
   if (upcomingTraining) {
     const e = upcomingTraining.id;
     A(e, 'u1', 'yes'); A(e, 'u4', 'yes'); A(e, 'u5', 'no', 'Grippe, kuriere mich aus', 'cr1', 'trainers');
@@ -270,7 +269,7 @@ function seed(): DB {
     db.penaltyAssignments.push({ id: rid('pa'), teamId: 't_a', userId, penaltyId: pid(penIdx), paid, date: plusDays(-daysAgo) });
   PA('u4', 0, false, 2); PA('u7', 1, false, 9); PA('u5', 2, true, 4); PA('u8', 0, false, 1); PA('u4', 2, false, 1); PA('u12', 3, true, 7);
   const monthKeyOff = (off: number) => {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - off); return d.toISOString().slice(0, 7);
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - off); return formatDateOnly(d).slice(0, 7);
   };
   const CO = (userId: string, month: string, paid: boolean) =>
     db.contributions.push({ id: rid('co'), teamId: 't_a', userId, month, label: 'Mitgliedsbeitrag', amount: 25, status: paid ? 'paid' : 'open' });
@@ -291,7 +290,7 @@ function seed(): DB {
     { id: rid('poll'), teamId: 't_a', question: 'Neue Turnierkleidung – welche Farbe?', multiple: false, anonymous: true, createdAt: iso(new Date(Date.now() - 4 * DAY)), options: [{ id: 'a', text: 'Schwarz / Gold (klassisch)' }, { id: 'b', text: 'Dunkelrot' }, { id: 'c', text: 'Marineblau' }], votes: [{ userId: 'u2', optionIds: ['a'] }, { userId: 'u3', optionIds: ['a'] }, { userId: 'u5', optionIds: ['b'] }, { userId: 'u7', optionIds: ['a'] }, { userId: 'u8', optionIds: ['c'] }, { userId: 'u9', optionIds: ['a'] }] },
   ];
 
-  const _ft = ev.find((e) => e.type === 'training' && e.date >= dstr(new Date()));
+  const _ft = ev.find((e) => e.type === 'training' && e.date >= todayLocalDate());
   if (_ft) {
     db.eventComments = [
       { id: rid('cm'), eventId: _ft.id, userId: 'u2', text: 'Bringe die neue Musik für die Kür mit.', createdAt: iso(new Date(Date.now() - 2 * 3600 * 1000)) },
@@ -304,7 +303,7 @@ function seed(): DB {
   const hAgo = (h: number) => iso(new Date(Date.now() - h * 3600 * 1000));
   const dAgo = (d: number) => iso(new Date(Date.now() - d * DAY));
   const N = (o: Partial<AppNotification>) => ntf.push(Object.assign({ id: rid('ntf'), teamId: 't_a' }, o) as AppNotification);
-  const upTrain = ev.filter((e) => e.type === 'training' && e.date >= dstr(new Date())).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const upTrain = ev.filter((e) => e.type === 'training' && e.date >= todayLocalDate()).sort((a, b) => a.date.localeCompare(b.date))[0];
   const trn = ev.find((e) => e.title.startsWith('NRW-Liga'));
   const grl = ev.find((e) => e.type === 'event');
   N({ type: 'event_created', actorId: 'u1', title: 'Lateinformation – Training (Serie Di & Do)', createdAt: dAgo(48) });
@@ -332,7 +331,7 @@ function seed(): DB {
 }
 
 // ---- Persistenz (tagesfrisch) ----------------------------------------------
-function todayKey() { return 'tv_db_v7_' + dstr(new Date()); }
+function todayKey() { return 'tv_db_v7_' + todayLocalDate(); }
 function loadDb(): DB {
   try {
     const raw = localStorage.getItem(todayKey());
@@ -505,7 +504,7 @@ export const api = {
   events: {
     async list(teamId: string, scope: 'all' | 'upcoming' | 'past' = 'all'): Promise<TeamEvent[]> {
       await delay();
-      const today = dstr(new Date());
+      const today = todayLocalDate();
       let list = DB.events.filter((e) => e.teamId === teamId);
       if (scope === 'upcoming') list = list.filter((e) => e.date >= today);
       if (scope === 'past') list = list.filter((e) => e.date < today);
@@ -539,9 +538,9 @@ export const api = {
       if (payload.recurring && payload.repeatWeeks > 1) {
         const seriesId = rid('series');
         for (let w = 0; w < payload.repeatWeeks; w++) {
-          const d = new Date(payload.date + 'T00:00:00');
+          const d = parseDateOnlyLocal(payload.date);
           d.setDate(d.getDate() + w * 7);
-          created.push(this._mk(Object.assign({}, base, { date: dstr(d), seriesId, recurring: true }), payload));
+          created.push(this._mk(Object.assign({}, base, { date: formatDateOnly(d), seriesId, recurring: true }), payload));
         }
       } else {
         created.push(this._mk(base, payload));
@@ -561,7 +560,7 @@ export const api = {
       persist(); return clone(created[0]);
     },
     _mk(base: any, payload: any): TeamEvent {
-      const mk = (h: string) => (h ? atTime(new Date(base.date + 'T00:00:00'), +h.slice(0, 2), +h.slice(3, 5)) : null);
+      const mk = (h: string) => (h ? atTime(base.date, +h.slice(0, 2), +h.slice(3, 5)) : null);
       return { id: rid('ev'), teamId: base.teamId, type: base.type, title: base.title, date: base.date, location: base.location, note: base.note || '', meetTime: payload.meetT ? mk(payload.meetT) : null, startTime: payload.startT ? mk(payload.startT) : null, endTime: payload.endT ? mk(payload.endT) : null, meetTimeMandatory: !!base.meetTimeMandatory, responseMode: base.responseMode || 'opt_in', recurring: !!base.recurring, seriesId: base.seriesId || null, status: 'active' } as TeamEvent;
     },
     async update(eventId: string, patch: any, scope: 'single' | 'series' = 'single'): Promise<TeamEvent> {
@@ -570,7 +569,7 @@ export const api = {
       const targets = (scope === 'series' && e.seriesId) ? DB.events.filter((x) => x.seriesId === e.seriesId) : [e];
       targets.forEach((ev) => {
         const baseDate = (scope !== 'series' && patch.date !== undefined) ? patch.date : ev.date;
-        const mk = (h: string) => (h ? atTime(new Date(baseDate + 'T00:00:00'), +h.slice(0, 2), +h.slice(3, 5)) : null);
+        const mk = (h: string) => (h ? atTime(baseDate, +h.slice(0, 2), +h.slice(3, 5)) : null);
         if (scope !== 'series' && patch.date !== undefined) ev.date = patch.date;
         (['type', 'title', 'location', 'note', 'meetTimeMandatory', 'responseMode'] as const).forEach((k) => { if (patch[k] !== undefined) (ev as any)[k] = patch[k]; });
         if (patch.meetT !== undefined) ev.meetTime = patch.meetT ? mk(patch.meetT) : null;
@@ -723,7 +722,7 @@ export const api = {
     },
     async addTransaction(teamId: string, { type, title, amount, category }: { type: 'income' | 'expense'; title: string; amount: number | string; category?: string }): Promise<Transaction> {
       await delay(240, 440);
-      const t: Transaction = { id: rid('tx'), teamId, type, title, amount: Number(amount), date: dstr(new Date()), category: category || 'Sonstiges' };
+      const t: Transaction = { id: rid('tx'), teamId, type, title, amount: Number(amount), date: todayLocalDate(), category: category || 'Sonstiges' };
       DB.transactions.push(t); persist(); return clone(t);
     },
     async updateTransaction(id: string, { type, title, amount, category }: { type?: 'income' | 'expense'; title?: string; amount?: number | string; category?: string }): Promise<Transaction> {
@@ -758,7 +757,7 @@ export const api = {
     },
     async assignPenalty(teamId: string, { userId, penaltyId }: { userId: string; penaltyId: string }): Promise<PenaltyAssignment> {
       await delay(200, 380);
-      const a: PenaltyAssignment = { id: rid('pa'), teamId, userId, penaltyId, paid: false, date: dstr(new Date()) };
+      const a: PenaltyAssignment = { id: rid('pa'), teamId, userId, penaltyId, paid: false, date: todayLocalDate() };
       DB.penaltyAssignments.push(a); persist(); return clone(a);
     },
     async deleteAssignment(id: string) { await delay(160, 300); DB.penaltyAssignments = DB.penaltyAssignments.filter((x) => x.id !== id); persist(); return true; },
@@ -779,7 +778,7 @@ export const api = {
   stats: {
     async attendanceFor(teamId: string, userId: string) {
       await delay(110, 220);
-      const today = dstr(new Date());
+      const today = todayLocalDate();
       const past = DB.events.filter((e) => e.teamId === teamId && e.date < today && e.status !== 'cancelled');
       let yes = 0, counted = 0;
       past.forEach((e) => { const s = effectiveStatus(e, userId).status; if (s === 'not_nominated') return; counted++; if (s === 'yes') yes++; });
@@ -787,7 +786,7 @@ export const api = {
     },
     async teamOverview(teamId: string, range?: DateRange | null): Promise<StatsOverview> {
       await delay(180, 360);
-      const today = dstr(new Date());
+      const today = todayLocalDate();
       const from = range && range.from ? range.from : null;
       const to = range && range.to ? range.to : null;
       const members = DB.memberships.filter((m) => m.teamId === teamId);

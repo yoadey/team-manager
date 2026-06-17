@@ -3,7 +3,8 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { useApp, type Route } from '../store/AppContext';
-import { buildTokens, initials, NEUTRAL } from '../theme/tokens';
+import { buildTokens, fmtDateLong, initials, NEUTRAL } from '../theme/tokens';
+import { todayLocalDate } from '../utils/date';
 import { Av, Sym } from './ui';
 import { RouteScreen } from '../screens';
 import { renderSheet } from '../sheets';
@@ -23,7 +24,7 @@ export function Shell() {
   const team = app.activeTeam();
   if (!team || !state.user) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDate();
   const pending = state.events.filter((e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled').length;
 
   const pageSheet = app.activePageSheet();
@@ -204,7 +205,7 @@ function pageMeta(app: ReturnType<typeof useApp>): PM {
 function pageSheetMeta(app: ReturnType<typeof useApp>, s: { type: string; [k: string]: any }): PM {
   const team = app.activeTeam();
   const base = (title: string, subtitle: string): PM => ({ title, subtitle, showPrimaryAction: false, primaryActionLabel: '', primaryActionIcon: 'add', primaryAction: () => {} });
-  if (s.type === 'eventDetail') { const e = s.event; return base(e ? e.title : 'Termin', e ? new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(e.date + 'T00:00:00')) : 'Termin & Anwesenheit'); }
+  if (s.type === 'eventDetail') { const e = s.event; return base(e ? e.title : 'Termin', e ? fmtDateLong(e.date) : 'Termin & Anwesenheit'); }
   if (s.type === 'eventForm') return base(s.mode === 'edit' ? 'Termin bearbeiten' : 'Neuer Termin', s.mode === 'edit' ? 'Änderungen am Termin' : 'Neuen Termin anlegen');
   if (s.type === 'memberDetail') { const m = s.member; return base(m ? m.name : 'Mitglied', m ? m.roles.map((r: any) => r.name).join(' · ') : 'Profil'); }
   if (s.type === 'memberForm') return base(s.self ? 'Mein Profil' : 'Profil bearbeiten', 'Kontaktdaten, Rollen & Foto');

@@ -7,6 +7,7 @@ import type {
   StatsOverview, TeamEvent, TeamForUser, User,
 } from '../services/types';
 import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '../theme/tokens';
+import { combineDateAndTimeLocal } from '../utils/date';
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
@@ -527,8 +528,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date();
     const tMeta: Record<string, string> = { training: 'Training', auftritt: 'Auftritt / Turnier', event: 'Team-Event' };
     evs.forEach((e) => {
-      const start = new Date(e.startTime || e.meetTime || (e.date + 'T18:00:00'));
-      const end = new Date(e.endTime || (new Date(start.getTime() + 2 * 3600 * 1000)).toISOString());
+      const start = combineDateAndTimeLocal(e.date, hhmm(e.startTime) || hhmm(e.meetTime) || '18:00');
+      const end = e.endTime ? combineDateAndTimeLocal(e.date, hhmm(e.endTime)) : new Date(start.getTime() + 2 * 3600 * 1000);
       const descParts: string[] = [];
       if (e.meetTime) descParts.push('Treffen: ' + hhmm(e.meetTime));
       if (e.note) descParts.push(e.note);

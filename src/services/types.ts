@@ -95,10 +95,12 @@ export interface TeamEvent {
   teamId: string;
   type: EventType;
   title: string;
+  /** Calendar date in local team/user context, formatted as YYYY-MM-DD. */
   date: string;
   location: string;
   note: string;
   result?: string;
+  /** Local wall-clock times for date, formatted as HH:mm. */
   meetTime: string | null;
   startTime: string | null;
   endTime: string | null;

@@ -3,6 +3,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '../store/AppContext';
 import { useCompact } from '../components/Shell';
 import { buildTokens, fmtRange, hhmm, NEUTRAL, typeMeta } from '../theme/tokens';
+import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '../utils/date';
 import { Av, Card, Chip, EmptyState, SectionTitle, Sym, SpinnerBox } from '../components/ui';
 import { EventCard } from '../components/cards';
 
@@ -10,7 +11,7 @@ export function Events() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDate();
 
   const seg = (label: string, val: string, cur: string, fn: (v: any) => void, flex?: string) => (
     <ButtonBase
@@ -102,7 +103,7 @@ function Calendar() {
   const month = cur.getMonth();
   const first = new Date(year, month, 1);
   const startDow = (first.getDay() + 6) % 7;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDate();
 
   const evByDate: Record<string, typeof state.events> = {};
   state.events.forEach((e) => { (evByDate[e.date] = evByDate[e.date] || []).push(e); });
@@ -110,10 +111,10 @@ function Calendar() {
   const absByDate: Record<string, NonNullable<typeof state.absences>> = {};
   if (state.calShowAbsences && state.absences) {
     state.absences.forEach((a) => {
-      let d = new Date(a.from + 'T00:00:00');
-      const end = new Date(a.to + 'T00:00:00');
+      let d = parseDateOnlyLocal(a.from);
+      const end = parseDateOnlyLocal(a.to);
       while (d <= end) {
-        const ds = d.toISOString().slice(0, 10);
+        const ds = formatDateOnly(d);
         (absByDate[ds] = absByDate[ds] || []).push(a);
         d = new Date(d.getTime() + 86400000);
       }
@@ -128,7 +129,7 @@ function Calendar() {
 
   for (let i = 0; i < 42; i++) {
     const d = new Date(year, month, 1 - startDow + i);
-    const ds = d.toISOString().slice(0, 10);
+    const ds = formatDateOnly(d);
     const inMonth = d.getMonth() === month;
     const evs = evByDate[ds] || [];
     const abs = absByDate[ds] || [];
@@ -195,7 +196,7 @@ function Absences() {
 
   if (!state.absences) return <SpinnerBox />;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDate();
   const list = state.absences.filter((a) => a.to >= today);
 
   const rows = list.map((a) => {

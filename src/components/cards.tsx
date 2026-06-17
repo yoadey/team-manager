@@ -3,6 +3,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '../store/AppContext';
 import { useCompact } from './Shell';
 import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '../theme/tokens';
+import { parseDateOnlyLocal, todayLocalDate } from '../utils/date';
 import type { NewsItem, TeamEvent } from '../services/types';
 import { Av, Chip, Sym, metaItem } from './ui';
 
@@ -10,12 +11,12 @@ import { Av, Chip, Sym, metaItem } from './ui';
 export function EventCard({ e }: { e: TeamEvent }) {
   const app = useApp();
   const compact = useCompact();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalDate();
   const tm = typeMeta(e.type);
   const sm = statusMeta(e.myStatus);
   const isPast = e.date < today;
   const cancelled = e.status === 'cancelled';
-  const day = new Date(e.date + 'T00:00:00');
+  const day = parseDateOnlyLocal(e.date);
 
   return (
     <ButtonBase
