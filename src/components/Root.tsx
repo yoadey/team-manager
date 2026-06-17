@@ -1,0 +1,28 @@
+import Box from '@mui/material/Box';
+import { useApp } from '../store/AppContext';
+import { NEUTRAL } from '../theme/tokens';
+import { Login } from './Login';
+import { Shell } from './Shell';
+import { SheetHost } from './SheetHost';
+import { Toast } from './Toast';
+
+export function Root() {
+  const { state } = useApp();
+
+  if (state.phase === 'loading') {
+    return (
+      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '18px', color: '#5A5D66', background: NEUTRAL.appBg }}>
+        <Box sx={{ width: 42, height: 42, border: '4px solid #CDD0D9', borderTopColor: state.primaryColor, borderRadius: '50%', animation: 'tvSpin .8s linear infinite' }} />
+        <Box sx={{ fontSize: '14px', letterSpacing: '.3px' }}>Verbinde mit Service…</Box>
+      </Box>
+    );
+  }
+
+  return (
+    <>
+      {state.phase === 'login' ? <Login /> : <Shell />}
+      <SheetHost />
+      <Toast />
+    </>
+  );
+}
