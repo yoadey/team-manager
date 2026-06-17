@@ -1,6 +1,6 @@
 // =============================================================================
-// Domain types — shared contract between the (mock) service layer and the UI.
-// These mirror the API surface described in the Lastenheft / design handoff.
+// Service contracts — raw DTOs model the future backend payloads, while
+// UI ViewModels contain client-side enrichment used by screens and sheets.
 // =============================================================================
 
 export type PermLevel = 'none' | 'read' | 'write';
@@ -24,7 +24,8 @@ export interface User {
   address: string;
 }
 
-export interface Role {
+/** Raw role payload as it should be returned by roles.* API endpoints. */
+export interface RoleDto {
   id: string;
   teamId: string;
   name: string;
@@ -63,7 +64,8 @@ export interface Membership {
   joinedAt: string;
 }
 
-export interface Member {
+/** Raw member payload composed from user + membership + role DTOs by members.* endpoints. */
+export interface MemberDto {
   membershipId: string;
   userId: string;
   name: string;
@@ -74,11 +76,17 @@ export interface Member {
   avatarColor: string;
   photo: string | null;
   group: string;
-  roles: Role[];
-  primaryRole: Role | null;
-  perms: Permissions;
+  roles: RoleDto[];
   joinedAt: string;
 }
+
+/** UI ViewModel consumed by member screens. */
+export interface Member extends MemberDto {
+  primaryRole: Role | null;
+  perms: Permissions;
+}
+
+export type Role = RoleDto;
 
 export interface EventSummary {
   yes: number;
@@ -90,7 +98,8 @@ export interface EventSummary {
   total: number;
 }
 
-export interface TeamEvent {
+/** Raw event payload as it should be returned by events.* API endpoints. */
+export interface EventDto {
   id: string;
   teamId: string;
   type: EventType;
@@ -107,13 +116,29 @@ export interface TeamEvent {
   recurring: boolean;
   seriesId: string | null;
   status: EventStatus;
-  // attached by _withSummary
+}
+
+/** UI ViewModel consumed by event screens; summary and my* are client-side enrichment. */
+export interface TeamEvent extends EventDto {
   summary: EventSummary;
   myStatus: AttendanceStatus;
   myAuto: boolean;
   myReason: string;
 }
 
+/** Raw attendance payload as it should be returned by attendance.* API endpoints. */
+export interface AttendanceDto {
+  id: string;
+  eventId: string;
+  userId: string;
+  status: AttendanceStatus;
+  reason: string;
+  reasonId: string | null;
+  reasonVisibility: ReasonVisibility;
+  at?: string;
+}
+
+/** UI ViewModel for event attendance lists. */
 export interface AttendanceRow {
   userId: string;
   name: string;
@@ -220,6 +245,7 @@ export interface Contribution {
   photo?: string | null;
 }
 
+/** UI ViewModel assembled from several finance DTO collections. */
 export interface FinanceOverview {
   balance: number;
   income: number;
