@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
-import type { AttendanceStatus, DateRange, Invite, ModuleKey, PermLevel, Provider, Role, StatsOverview, TeamForUser, User } from '@/types';
-import type { Absence, AttendanceRow, EventComment, TeamEvent } from '@/features/events';
+import type { AttendanceStatus, DateRange, ModuleKey, PermLevel, Provider, Role, StatsOverview, TeamForUser, User } from '@/types';
+import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
 import type { FinanceOverview } from '@/features/finances';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
@@ -49,6 +49,7 @@ export interface AppState {
   sheet: SheetState | null;
   form: Record<string, any>;
   toast: string | null;
+  error: string | null;
 }
 
 const initialState: AppState = {
@@ -60,7 +61,7 @@ const initialState: AppState = {
   polls: null, absences: null, myAbsences: null,
   notifications: null, notifUnread: 0, notifFilter: 'all',
   statsRange: null, finTab: 'umsaetze', contribMonth: null,
-  sheet: null, form: {}, toast: null,
+  sheet: null, form: {}, toast: null, error: null,
 };
 
 const PAGE_SHEETS = ['eventDetail', 'eventForm', 'memberDetail', 'memberForm', 'teamSettings', 'roles', 'roleForm'];
@@ -272,13 +273,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- auth ----------
   const doLogin = useCallback(async (pid: string) => {
-    setState({ busy: 'login:' + pid });
-    await api.auth.login(pid);
-    const user = await api.auth.currentUser();
-    const teams = await api.teams.listForCurrentUser();
-    const activeTeamId = teams[0].id;
-    setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-    await afterLoginLoad(activeTeamId);
+    setState({ busy: 'login:' + pid, error: null });
+    try {
+      await api.auth.login(pid);
+      const user = await api.auth.currentUser();
+      const teams = await api.teams.listForCurrentUser();
+      const activeTeamId = teams[0].id;
+      setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+      await afterLoginLoad(activeTeamId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen';
+      setState({ busy: null, error: msg });
+    }
   }, [api, setState, afterLoginLoad]);
   const logout = useCallback(() => {
     api.auth.logout();
@@ -339,8 +345,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // ---------- bootstrap ----------
   useEffect(() => {
     (async () => {
-      const providers = await api.auth.providers();
-      setState({ providers, phase: 'login' });
+      try {
+        const providers = await api.auth.providers();
+        setState({ providers, phase: 'login' });
+      } catch {
+        setState({ phase: 'login', providers: [], error: 'Verbindung zum Service fehlgeschlagen' });
+      }
     })();
   }, [api, setState]);
 

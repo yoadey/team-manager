@@ -7,8 +7,9 @@
 // signatures (the API contract) stay the same.
 // =============================================================================
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { mapAttendanceDtoToRow, mapEventDtoToTeamEvent, mapMemberDtoToMember } from './mappers';
-import type { AttendanceStatus, DateRange, EventType, Invite, Membership, ModuleKey, Permissions, Provider, ReasonVisibility, Role, RoleDto, StatsOverview, Team, TeamForUser, User } from '@/types';
+import type { AttendanceStatus, DateRange, Invite, Membership, ModuleKey, Permissions, PermLevel, Provider, ReasonVisibility, Role, RoleDto, StatsOverview, Team, TeamForUser, User } from '@/types';
 import type { Absence, AttendanceDto, AttendanceRow, EventComment, EventDto, ResponseMode, TeamEvent } from '@/features/events';
 import type { Contribution, FinanceOverview, Penalty, PenaltyAssignment, Transaction } from '@/features/finances';
 import type { Member, MemberDto } from '@/features/members';
@@ -44,7 +45,7 @@ function plusDays(n: number) {
 // ---- Rechte-Modell ----------------------------------------------------------
 const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings'];
 function perms(
-  events: any, members: any, finances: any, news: any, polls: any, settings: any,
+  events: PermLevel, members: PermLevel, finances: PermLevel, news: PermLevel, polls: PermLevel, settings: PermLevel,
 ): Permissions {
   return { events, members, finances, news, polls, settings };
 }

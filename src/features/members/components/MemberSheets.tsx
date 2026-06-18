@@ -1,14 +1,11 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
 import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { Member } from '../types';
 import type { SheetProps } from '@/sheets/types';
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
-  const team = app.activeTeam()!;
   const m: Member = sheet.member;
   const st: { quote: number | null; counted: number; yes: number } | null = sheet.stats;
   const qcol = st && st.quote !== null ? (st.quote >= 80 ? '#2E7D32' : (st.quote >= 50 ? '#9A5B00' : '#BA1A1A')) : '#9A9DA6';
@@ -88,10 +85,8 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
   );
 }
 
-export function MemberFormSheet({ app, sheet }: SheetProps) {
+export function MemberFormSheet({ app }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
-  const team = app.activeTeam()!;
   const F = app.state.form;
   const myIds: string[] = F.roleIds || [];
   const canRoles = app.can('members', 'write');
