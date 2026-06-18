@@ -1,5 +1,6 @@
 import type { AppContextValue, SheetState } from '@/context/AppContext';
 export type { SheetProps } from './types';
+import { t } from '@/i18n';
 import { eventSheetMap } from '@/features/events';
 import { financeSheetMap } from '@/features/finances';
 import { memberSheetMap } from '@/features/members';
@@ -36,31 +37,31 @@ export function sheetMeta(
 ): { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } {
   const s = sheet;
   const titles: Record<string, string> = {
-    teams: 'Team wechseln',
-    profile: 'Konto & Rollen',
-    more: 'Mehr',
-    notifications: 'Benachrichtigungen',
-    calExport: 'Kalender-Export',
-    eventDetail: 'Termin',
-    comment: 'Kommentar',
-    confirm: 'Bestätigen',
-    seriesAction: 'Serientermin',
-    eventForm: s.mode === 'edit' ? 'Termin bearbeiten' : 'Neuer Termin',
-    memberDetail: 'Mitglied',
-    memberForm: 'Profil bearbeiten',
-    roles: 'Rollen & Rechte',
-    roleForm: 'Eigene Rolle',
-    createTeam: 'Neues Team',
-    invite: 'Einladungslink',
-    teamSettings: 'Team-Einstellungen',
-    absenceForm: s.mode === 'edit' ? 'Abwesenheit bearbeiten' : 'Abwesenheit eintragen',
-    newsForm: s.mode === 'edit' ? 'Neuigkeit bearbeiten' : 'Neuigkeit verfassen',
-    txForm: s.mode === 'edit' ? 'Buchung bearbeiten' : 'Buchung erfassen',
-    pollForm: 'Neue Umfrage',
-    penaltyForm: s.mode === 'create' ? 'Strafe hinzufügen' : 'Strafe bearbeiten',
-    penaltyCatalog: 'Strafenkatalog',
-    penaltyAssign: 'Strafe erfassen',
-    contribForm: 'Beitrag bearbeiten',
+    teams: t('sheet.teams'),
+    profile: t('sheet.profile'),
+    more: t('sheet.more'),
+    notifications: t('shell.notifications'),
+    calExport: t('sheet.calExport'),
+    eventDetail: t('sheet.eventDetail'),
+    comment: t('sheet.comment'),
+    confirm: t('common.confirm'),
+    seriesAction: t('sheet.seriesAction'),
+    eventForm: s.mode === 'edit' ? t('sheet.eventFormEdit') : t('sheet.eventFormCreate'),
+    memberDetail: t('sheet.memberDetail'),
+    memberForm: t('sheet.memberForm'),
+    roles: t('sheet.roles'),
+    roleForm: t('sheet.roleForm'),
+    createTeam: t('sheet.createTeam'),
+    invite: t('sheet.invite'),
+    teamSettings: t('sheet.teamSettings'),
+    absenceForm: s.mode === 'edit' ? t('sheet.absenceFormEdit') : t('sheet.absenceFormCreate'),
+    newsForm: s.mode === 'edit' ? t('sheet.newsFormEdit') : t('sheet.newsFormCreate'),
+    txForm: s.mode === 'edit' ? t('sheet.txFormEdit') : t('sheet.txFormCreate'),
+    pollForm: t('sheet.pollForm'),
+    penaltyForm: s.mode === 'create' ? t('sheet.penaltyFormCreate') : t('sheet.penaltyFormEdit'),
+    penaltyCatalog: t('sheet.penaltyCatalog'),
+    penaltyAssign: t('sheet.penaltyAssign'),
+    contribForm: t('sheet.contribForm'),
   };
   const meta: { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } = {
     title: titles[s.type] || '',
@@ -81,6 +82,10 @@ export function sheetMeta(
   }
   if (s.type === 'seriesAction')
     meta.title =
-      s.action === 'delete' ? 'Termin löschen' : s.action === 'reactivate' ? 'Termin aktivieren' : 'Termin absagen';
+      s.action === 'delete'
+        ? t('sheet.seriesActionDelete')
+        : s.action === 'reactivate'
+          ? t('sheet.seriesActionReactivate')
+          : t('sheet.seriesActionCancel');
   return meta;
 }
