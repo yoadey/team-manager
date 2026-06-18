@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath, URL } from 'url';
 
 // Vitest configuration kept separate from vite.config.ts so the production
 // build pipeline stays free of test-only settings. The jsdom environment is
@@ -7,6 +8,9 @@ import react from '@vitejs/plugin-react';
 // targets React Testing Library for component/hook tests.
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

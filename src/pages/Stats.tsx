@@ -1,10 +1,10 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../context/AppContext';
-import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '../styles/tokens';
-import { formatDateOnly, parseDateOnlyLocal } from '../utils/date';
-import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '../components/ui';
-import type { DateRange } from '../types';
+import { useApp } from '@/context/AppContext';
+import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '@/styles/tokens';
+import { formatDateOnly, parseDateOnlyLocal } from '@/utils/date';
+import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
+import type { DateRange } from '@/types';
 
 export function Stats() {
   const app = useApp();

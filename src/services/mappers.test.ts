@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mapAttendanceDtoToRow, mapEventDtoToTeamEvent, mapMemberDtoToMember } from './mappers';
-import type {
-  AttendanceDto,
-  EventDto,
-  EventSummary,
-  MemberDto,
-  Permissions,
-  Role,
-} from '../types';
+import type { AttendanceDto, EventDto, EventSummary } from '@/features/events';
+import type { MemberDto } from '@/features/members';
+import type { Permissions, Role } from '@/types';
 
 const writeAll: Permissions = {
   events: 'write',

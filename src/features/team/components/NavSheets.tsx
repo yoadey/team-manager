@@ -1,10 +1,10 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import type { SheetProps } from '../../../sheets/types';
-import type { Route } from '../../../context/AppContext';
-import { buildTokens } from '../../../styles/tokens';
-import { Sym, Av, SectionTitle } from '../../../components/ui';
-import { shortName } from '../../../layouts/AppShell';
+import type { SheetProps } from '@/sheets/types';
+import type { Route } from '@/context/AppContext';
+import { buildTokens } from '@/styles/tokens';
+import { Sym, Av, SectionTitle } from '@/components/ui';
+import { shortName } from '@/layouts/AppShell';
 
 export function TeamsSheet({ app }: SheetProps) {
   const { state } = app;

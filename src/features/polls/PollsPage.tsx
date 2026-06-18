@@ -1,11 +1,11 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../context/AppContext';
-import { buildTokens, NEUTRAL } from '../styles/tokens';
-import { Card, Chip, EmptyState, SpinnerBox, Sym } from '../components/ui';
-import type { Poll } from '../types';
+import { useApp } from '@/context/AppContext';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
+import { Card, Chip, EmptyState, SpinnerBox, Sym } from '@/components/ui';
+import type { Poll } from './types';
 
-export function Polls() {
+export function PollsPage() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);

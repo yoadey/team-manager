@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
-import type { api as defaultApi } from '../../../services/serviceLayer';
-import type { Poll } from '../../../types';
-import type { AppState } from '../../../context/AppContext';
-import { validatePollForm } from '../../../utils/validation';
+import type { api as defaultApi } from '@/services/serviceLayer';
+import type { Poll } from '../types';
+import type { AppState } from '@/context/AppContext';
+import { validatePollForm } from '@/utils/validation';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 

@@ -1,8 +1,8 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../../../context/AppContext';
-import { NEUTRAL } from '../../../styles/tokens';
-import { Spinner, Sym } from '../../../components/ui';
+import { useApp } from '@/context/AppContext';
+import { NEUTRAL } from '@/styles/tokens';
+import { Spinner, Sym } from '@/components/ui';
 
 export function Login() {
   const { state, doLogin } = useApp();

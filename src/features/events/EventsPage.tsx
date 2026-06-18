@@ -1,14 +1,13 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../context/AppContext';
-import { buildTokens } from '../styles/tokens';
-import { todayLocalDate } from '../utils/date';
-import { Sym, EmptyState } from '../components/ui';
-import { EventCard } from '../components/cards';
-import { EventCalendar } from '../features/events/components/EventCalendar';
-import { EventAbsences } from '../features/events/components/EventAbsences';
+import { useApp } from '@/context/AppContext';
+import { buildTokens } from '@/styles/tokens';
+import { todayLocalDate } from '@/utils/date';
+import { Sym, EmptyState } from '@/components/ui';
+import { EventCard } from '@/components/cards';
+import { EventCalendar, EventAbsences } from '@/features/events';
 
-export function Events() {
+export function EventsPage() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);

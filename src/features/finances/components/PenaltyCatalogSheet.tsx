@@ -1,9 +1,9 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens, fmtMoney } from '../../../styles/tokens';
-import { EmptyState, Sym } from '../../../components/ui';
-import type { Penalty } from '../../../types';
-import type { SheetProps } from '../../../sheets/types';
+import { buildTokens, fmtMoney } from '@/styles/tokens';
+import { EmptyState, Sym } from '@/components/ui';
+import type { Penalty } from '../types';
+import type { SheetProps } from '@/sheets/types';
 
 export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
   const { state } = app;

@@ -1,11 +1,11 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../context/AppContext';
-import { buildTokens } from '../styles/tokens';
-import { EmptyState, SpinnerBox, Sym } from '../components/ui';
-import { NewsCard } from '../components/cards';
+import { useApp } from '@/context/AppContext';
+import { buildTokens } from '@/styles/tokens';
+import { EmptyState, SpinnerBox, Sym } from '@/components/ui';
+import { NewsCard } from '@/components/cards';
 
-export function News() {
+export function NewsPage() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);

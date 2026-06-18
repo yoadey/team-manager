@@ -2,12 +2,12 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { useApp, type Route } from '../context/AppContext';
-import { buildTokens, fmtDateLong, initials, NEUTRAL } from '../styles/tokens';
-import { todayLocalDate } from '../utils/date';
-import { Av, Sym } from '../components/ui';
-import { RouteScreen } from '../pages';
-import { renderSheet } from '../sheets';
+import { useApp, type Route } from '@/context/AppContext';
+import { buildTokens, fmtDateLong, initials, NEUTRAL } from '@/styles/tokens';
+import { todayLocalDate } from '@/utils/date';
+import { Av, Sym } from '@/components/ui';
+import { RouteScreen } from '@/pages';
+import { renderSheet } from '@/sheets';
 
 export const COMPACT_BP = 760;
 export function useCompact() {

@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
-import type { api as defaultApi } from '../../../services/serviceLayer';
-import type { ModuleKey, PermLevel, TeamForUser } from '../../../types';
-import type { AppState } from '../../../context/AppContext';
+import type { api as defaultApi } from '@/services/serviceLayer';
+import type { ModuleKey, PermLevel, TeamForUser } from '@/types';
+import type { AppState } from '@/context/AppContext';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 

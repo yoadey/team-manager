@@ -1,10 +1,10 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../context/AppContext';
-import { buildTokens, NEUTRAL } from '../styles/tokens';
-import { todayLocalDate } from '../utils/date';
-import { Av, EmptyState, SectionTitle, Sym } from '../components/ui';
-import { EventCard, NewsCard } from '../components/cards';
+import { useApp } from '@/context/AppContext';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
+import { todayLocalDate } from '@/utils/date';
+import { Av, EmptyState, SectionTitle, Sym } from '@/components/ui';
+import { EventCard, NewsCard } from '@/components/cards';
 
 export function Home() {
   const app = useApp();

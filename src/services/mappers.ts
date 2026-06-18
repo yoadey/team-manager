@@ -1,13 +1,6 @@
-import type {
-  AttendanceDto,
-  AttendanceRow,
-  EventDto,
-  EventSummary,
-  Member,
-  MemberDto,
-  Role,
-  TeamEvent,
-} from '../types';
+import type { AttendanceDto, AttendanceRow, EventDto, EventSummary, TeamEvent } from '@/features/events';
+import type { Member, MemberDto } from '@/features/members';
+import type { Role } from '@/types';
 
 /** Builds the event ViewModel expected by the UI from a raw event DTO plus client aggregates. */
 export function mapEventDtoToTeamEvent(

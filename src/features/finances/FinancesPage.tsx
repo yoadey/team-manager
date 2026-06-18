@@ -1,13 +1,11 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../context/AppContext';
-import { buildTokens, fmtMoney, NEUTRAL } from '../styles/tokens';
-import { SpinnerBox, Sym } from '../components/ui';
-import { FinancesTransactions } from '../features/finances/components/FinancesTransactions';
-import { FinancesPenalties } from '../features/finances/components/FinancesPenalties';
-import { FinancesContributions } from '../features/finances/components/FinancesContributions';
+import { useApp } from '@/context/AppContext';
+import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
+import { SpinnerBox, Sym } from '@/components/ui';
+import { FinancesTransactions, FinancesPenalties, FinancesContributions } from '@/features/finances';
 
-export function Finances() {
+export function FinancesPage() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);

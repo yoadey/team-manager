@@ -1,9 +1,9 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../../../context/AppContext';
-import { buildTokens, fmtMoney, monthName, NEUTRAL } from '../../../styles/tokens';
-import { Av, Chip, EmptyState, Sym } from '../../../components/ui';
-import type { Contribution, FinanceOverview } from '../../../types';
+import { useApp } from '@/context/AppContext';
+import { buildTokens, fmtMoney, monthName, NEUTRAL } from '@/styles/tokens';
+import { Av, Chip, EmptyState, Sym } from '@/components/ui';
+import type { Contribution, FinanceOverview } from '../types';
 
 type App = ReturnType<typeof useApp>;
 type Tk = ReturnType<typeof buildTokens>;

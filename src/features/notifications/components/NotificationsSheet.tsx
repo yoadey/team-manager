@@ -1,10 +1,10 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import type { SheetProps } from '../../../sheets/types';
-import type { AppNotification } from '../../../types';
-import { buildTokens, statusMeta, fmtDate, relTime } from '../../../styles/tokens';
-import { Av, EmptyState, SpinnerBox } from '../../../components/ui';
+import type { SheetProps } from '@/sheets/types';
+import type { AppNotification } from '../types';
+import { buildTokens, statusMeta, fmtDate, relTime } from '@/styles/tokens';
+import { Av, EmptyState, SpinnerBox } from '@/components/ui';
 
 interface NotifMeta {
   col: string;

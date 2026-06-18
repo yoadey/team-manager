@@ -1,8 +1,8 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '../../../styles/tokens';
-import { Field, PrimaryButton, Sym, TextInput, labelSx } from '../../../components/ui';
-import type { SheetProps } from '../../../sheets/types';
+import { buildTokens } from '@/styles/tokens';
+import { Field, PrimaryButton, Sym, TextInput, labelSx } from '@/components/ui';
+import type { SheetProps } from '@/sheets/types';
 
 export function PollFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;

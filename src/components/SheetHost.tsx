@@ -1,12 +1,12 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Modal from '@mui/material/Modal';
-import { useApp } from '../context/AppContext';
-import { isPageSheet } from '../context/AppContext';
-import { NEUTRAL } from '../styles/tokens';
+import { useApp } from '@/context/AppContext';
+import { isPageSheet } from '@/context/AppContext';
+import { NEUTRAL } from '@/styles/tokens';
 import { Sym } from './ui';
-import { renderSheet, sheetMeta } from '../sheets';
-import { useCompact } from '../layouts/AppShell';
+import { renderSheet, sheetMeta } from '@/sheets';
+import { useCompact } from '@/layouts/AppShell';
 
 export function SheetHost() {
   const app = useApp();

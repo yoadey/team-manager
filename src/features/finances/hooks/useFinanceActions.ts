@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback } from 'react';
-import type { api as defaultApi } from '../../../services/serviceLayer';
-import type { DateRange } from '../../../types';
-import type { AppState } from '../../../context/AppContext';
-import { validateMoneyAmount, validateRequiredText } from '../../../utils/validation';
+import type { api as defaultApi } from '@/services/serviceLayer';
+import type { DateRange } from '@/types';
+import type { AppState } from '@/context/AppContext';
+import { validateMoneyAmount, validateRequiredText } from '@/utils/validation';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 

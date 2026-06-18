@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
-import type { api as defaultApi } from '../../../services/serviceLayer';
-import type { AppState } from '../../../context/AppContext';
-import { validateDateRange } from '../../../utils/validation';
-import { todayStr } from '../../../styles/tokens';
+import type { api as defaultApi } from '@/services/serviceLayer';
+import type { AppState } from '@/context/AppContext';
+import { validateDateRange } from '@/utils/validation';
+import { todayStr } from '@/styles/tokens';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 

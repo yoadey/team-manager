@@ -1,10 +1,11 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { todayLocalDate } from '../../../utils/date';
-import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta } from '../../../styles/tokens';
-import { Av, Chip, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '../../../components/ui';
-import type { AttendanceRow, AttendanceStatus, EventComment, TeamEvent } from '../../../types';
-import type { SheetProps } from '../../../sheets/types';
+import { todayLocalDate } from '@/utils/date';
+import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta } from '@/styles/tokens';
+import { Av, Chip, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '@/components/ui';
+import type { AttendanceRow, EventComment, TeamEvent } from '../types';
+import type { AttendanceStatus } from '@/types';
+import type { SheetProps } from '@/sheets/types';
 
 export function EventDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
