@@ -589,10 +589,6 @@ export function Shell() {
   );
 }
 
-export function shortName(name: string) {
-  return name.replace(' TSC Schwarz-Gelb Aachen', '');
-}
-
 interface PM {
   title: string;
   subtitle: string;
