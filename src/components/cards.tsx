@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
-import { useCompact } from '@/layouts/AppShell';
+import { useCompact } from '@/layouts/useCompact';
 import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '@/styles/tokens';
 import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import type { TeamEvent } from '@/features/events';
