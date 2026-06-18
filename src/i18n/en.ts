@@ -50,6 +50,7 @@ export const en: Messages = {
     polls: 'Polls',
     team: 'Team',
     more: 'More',
+    mainNav: 'Main navigation',
   },
   shell: {
     connecting: 'Connecting to service…',
@@ -61,6 +62,7 @@ export const en: Messages = {
     unreadNotifications: '{n} unread notifications',
     memberCount: '{n} members',
     accountAndRoles: 'Account & Roles',
+    openProfile: 'Open profile',
   },
   page: {
     events: 'Events',
@@ -138,5 +140,10 @@ export const en: Messages = {
     signIn: 'Sign in',
     selectProvider: 'Sign in with an account',
     welcome: 'Welcome',
+    loginHint: 'Sign in via your identity provider.',
+    loginHintNote: 'No password is stored with the club.',
+    pwaInstallable: 'Installable as an app (PWA).',
+    pwaIosLabel: 'iOS note:',
+    pwaIosHint: 'Push notifications only work after adding the app to the home screen.',
   },
 };

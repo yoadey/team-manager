@@ -51,6 +51,7 @@ export const de = {
     polls: 'Umfragen',
     team: 'Team',
     more: 'Mehr',
+    mainNav: 'Hauptnavigation',
   },
   shell: {
     connecting: 'Verbinde mit Service…',
@@ -62,6 +63,7 @@ export const de = {
     unreadNotifications: '{n} ungelesene Benachrichtigungen',
     memberCount: '{n} Mitglieder',
     accountAndRoles: 'Konto & Rollen',
+    openProfile: 'Profil öffnen',
   },
   page: {
     events: 'Termine',
@@ -139,5 +141,10 @@ export const de = {
     signIn: 'Anmelden',
     selectProvider: 'Mit einem Konto anmelden',
     welcome: 'Willkommen',
+    loginHint: 'Anmeldung über deinen Identity-Provider.',
+    loginHintNote: 'Es ist kein Passwort beim Verein gespeichert.',
+    pwaInstallable: 'Als App installierbar (PWA).',
+    pwaIosLabel: 'iOS-Hinweis:',
+    pwaIosHint: 'Push-Nachrichten funktionieren erst, wenn die App zum Home-Bildschirm hinzugefügt wurde.',
   },
 };

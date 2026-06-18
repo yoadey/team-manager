@@ -217,7 +217,7 @@ export function Shell() {
           </ButtonBase>
           <ButtonBase
             onClick={app.openProfile}
-            aria-label={`${state.user.name} – Profil öffnen`}
+            aria-label={`${state.user.name} – ${tl('shell.openProfile')}`}
             sx={{ borderRadius: '50%' }}
           >
             {myAvatar}
@@ -259,7 +259,7 @@ export function Shell() {
 
         <Box
           component="nav"
-          aria-label="Hauptnavigation"
+          aria-label={tl('nav.mainNav')}
           sx={{
             flex: '0 0 auto',
             height: 72,
@@ -386,7 +386,7 @@ export function Shell() {
 
         <Box
           component="nav"
-          aria-label="Hauptnavigation"
+          aria-label={tl('nav.mainNav')}
           sx={{
             flex: 1,
             minHeight: 0,
