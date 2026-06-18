@@ -22,7 +22,7 @@ type NewsDeps = {
 
 export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg }: NewsDeps) {
   const openNewsForm = useCallback(
-    () => setState({ sheet: { type: 'newsForm' }, form: { title: '', body: '', pinned: false } }),
+    () => setState({ sheet: { type: 'newsForm' }, form: { title: '', body: '', pinned: false }, formErrors: {} }),
     [setState],
   );
 

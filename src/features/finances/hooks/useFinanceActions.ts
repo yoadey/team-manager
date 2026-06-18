@@ -34,7 +34,7 @@ export function useFinanceActions({
       const f = tx
         ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category }
         : { type: 'income', title: '', amount: '', category: 'Beiträge' };
-      setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create' }, form: f });
+      setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create' }, form: f, formErrors: {} });
     },
     [setState],
   );

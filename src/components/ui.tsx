@@ -334,7 +334,7 @@ export function Field({
 type TextInputProps = React.InputHTMLAttributes<HTMLInputElement> & { name: string };
 
 /** Form-bound text input (mirrors prototype tf()). */
-export function TextInput({ name, type = 'text', placeholder, min, max, ...rest }: TextInputProps) {
+export function TextInput({ name, type = 'text', placeholder, min, max, style: styleProp, ...rest }: TextInputProps) {
   const { state, onFormInput } = useApp();
   const v = state.form[name];
   return (
@@ -346,7 +346,7 @@ export function TextInput({ name, type = 'text', placeholder, min, max, ...rest 
       value={v == null ? '' : v}
       placeholder={placeholder || ''}
       onChange={onFormInput}
-      style={inputSx}
+      style={styleProp ? { ...inputSx, ...styleProp } : inputSx}
       {...rest}
     />
   );
@@ -356,10 +356,14 @@ export function TextArea({
   name,
   placeholder,
   minHeight = 80,
+  onBlur,
+  style: styleProp,
 }: {
   name: string;
   placeholder?: string;
   minHeight?: number;
+  onBlur?: React.FocusEventHandler<HTMLTextAreaElement>;
+  style?: React.CSSProperties;
 }) {
   const { state, onFormInput } = useApp();
   const v = state.form[name];
@@ -369,7 +373,12 @@ export function TextArea({
       value={v == null ? '' : v}
       placeholder={placeholder || ''}
       onChange={onFormInput}
-      style={{ ...inputSx, minHeight, resize: 'vertical' }}
+      onBlur={onBlur}
+      style={
+        styleProp
+          ? { ...inputSx, minHeight, resize: 'vertical', ...styleProp }
+          : { ...inputSx, minHeight, resize: 'vertical' }
+      }
     />
   );
 }

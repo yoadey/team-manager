@@ -117,6 +117,7 @@ export interface AppState {
   sheet: SheetState | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   form: Record<string, any>;
+  formErrors: Record<string, string>;
   toast: string | null;
   error: string | null;
 }
@@ -152,6 +153,7 @@ const initialState: AppState = {
   contribMonth: null,
   sheet: null,
   form: {},
+  formErrors: {},
   toast: null,
   error: null,
 };
@@ -174,6 +176,7 @@ export interface AppContextValue {
   onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setFormVal: (patch: Record<string, any>) => void;
+  setFormErrors: (patch: Record<string, string>) => void;
   onFile: (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => void;
   setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
   // auth
@@ -369,6 +372,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setFormVal = useCallback(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (patch: Record<string, any>) => setState((s) => ({ form: { ...s.form, ...patch } })),
+    [setState],
+  );
+  const setFormErrors = useCallback(
+    (patch: Record<string, string>) => setState((s) => ({ formErrors: { ...s.formErrors, ...patch } })),
     [setState],
   );
   const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
@@ -752,6 +759,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
         },
         form: f,
+        formErrors: {},
       }));
     },
     [setState],
@@ -843,6 +851,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPrimaryColor,
       onFormInput,
       setFormVal,
+      setFormErrors,
       onFile,
       setState,
       doLogin,

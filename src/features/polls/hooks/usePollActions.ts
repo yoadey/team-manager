@@ -21,6 +21,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg }: PollFe
       setState({
         sheet: { type: 'pollForm' },
         form: { question: '', opt0: '', opt1: '', opt2: '', opt3: '', multiple: false, anonymous: false },
+        formErrors: {},
       }),
     [setState],
   );
