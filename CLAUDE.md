@@ -94,7 +94,7 @@ Tests live alongside source files as `*.test.ts(x)`. Currently covering services
 ```bash
 npm test                  # single run
 npm run test:watch        # watch mode
-npm run test:coverage     # coverage report (thresholds: 70% statements/lines, 75% functions, 60% branches)
+npm run test:coverage     # whole-app coverage report (floors: 18% statements/lines, 50% functions, 70% branches — raise as tests grow)
 ```
 
 Add component tests with `@testing-library/react`. The jsdom environment and jest-dom matchers are pre-configured in `src/test/setup.ts`.
