@@ -1,4 +1,13 @@
-export type { ResponseMode, EventSummary, EventDto, TeamEvent, AttendanceDto, AttendanceRow, EventComment, Absence } from './types';
+export type {
+  ResponseMode,
+  EventSummary,
+  EventDto,
+  TeamEvent,
+  AttendanceDto,
+  AttendanceRow,
+  EventComment,
+  Absence,
+} from './types';
 export { EventsPage } from './EventsPage';
 export { EventCalendar } from './components/EventCalendar';
 export { EventAbsences } from './components/EventAbsences';
@@ -9,6 +18,7 @@ export { CalExportSheet } from './components/CalExportSheet';
 export { useEventActionFeatures, useEventDetailActions } from './hooks/useEventActions';
 export { useAbsenceActions } from './hooks/useAbsenceActions';
 export { useCalExportActions } from './hooks/useCalExportActions';
+export { useEventFormActions } from './hooks/useEventFormActions';
 
 import { EventDetailSheet } from './components/EventDetailSheet';
 import { EventFormSheet } from './components/EventFormSheet';

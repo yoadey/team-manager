@@ -3,6 +3,7 @@ import {
   useEventDetailActions,
   useAbsenceActions,
   useCalExportActions,
+  useEventFormActions,
 } from '@/features/events';
 import { useFinanceActions } from '@/features/finances';
 import { useMemberActions } from '@/features/members';
@@ -112,6 +113,14 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     toastMsg,
   });
   const pollActions = usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm });
+  const eventFormActions = useEventFormActions({
+    api,
+    S,
+    setState,
+    refreshEvents,
+    openEventDetail: eventDetailActions.openEventDetail,
+    toastMsg,
+  });
 
   return {
     ...eventDetailActions,
@@ -125,5 +134,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     ...newsActions,
     ...financeActions,
     ...pollActions,
+    ...eventFormActions,
   };
 }
