@@ -6,7 +6,7 @@ export function Toast() {
   const { state } = useApp();
   if (!state.toast) return null;
   return (
-    <Box sx={{ position: 'fixed', left: '50%', bottom: 26, transform: 'translateX(-50%)', background: '#2A2C33', color: '#fff', p: '13px 20px', borderRadius: '13px', fontSize: '14px', fontWeight: 500, boxShadow: '0 10px 30px rgba(0,0,0,.3)', zIndex: 1500, animation: 'tvUp .3s ease', display: 'flex', alignItems: 'center', gap: '9px', maxWidth: '90vw' }}>
+    <Box role="status" aria-live="polite" aria-atomic="true" sx={{ position: 'fixed', left: '50%', bottom: 26, transform: 'translateX(-50%)', background: '#2A2C33', color: '#fff', p: '13px 20px', borderRadius: '13px', fontSize: '14px', fontWeight: 500, boxShadow: '0 10px 30px rgba(0,0,0,.3)', zIndex: 1500, animation: 'tvUp .3s ease', display: 'flex', alignItems: 'center', gap: '9px', maxWidth: '90vw' }}>
       <Sym name="check_circle" size={19} color="#9FD8A0" />
       {state.toast}
     </Box>

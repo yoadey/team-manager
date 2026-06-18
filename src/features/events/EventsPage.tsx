@@ -13,7 +13,7 @@ export function EventsPage() {
   const t = buildTokens(state.primaryColor);
   const today = todayLocalDate();
 
-  const seg = (label: string, val: string, cur: string, fn: (v: any) => void, flex?: string) => (
+  const seg = <T extends string>(label: string, val: T, cur: string, fn: (v: T) => void, flex?: string) => (
     <ButtonBase
       key={label}
       onClick={() => fn(val)}

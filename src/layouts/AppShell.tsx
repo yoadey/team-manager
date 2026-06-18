@@ -2,10 +2,10 @@ import React from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { useApp, type Route } from '@/context/AppContext';
+import { useApp, type Route, type SheetState } from '@/context/AppContext';
 import { buildTokens, fmtDateLong, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
-import { Av, Sym } from '@/components/ui';
+import { Sym } from '@/components/ui';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 
@@ -71,7 +71,7 @@ export function Shell() {
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, background: NEUTRAL.surface }}>
         <Box sx={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '10px', p: '12px 14px', background: t.primaryContainer, color: t.onPrimaryContainer }}>
           {pageSheet ? (
-            <ButtonBase onClick={app.closeSheet} sx={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,.28)', color: 'inherit', flex: '0 0 auto' }}><Sym name="arrow_back" size={22} /></ButtonBase>
+            <ButtonBase onClick={app.closeSheet} aria-label="Zurück" sx={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,.28)', color: 'inherit', flex: '0 0 auto' }}><Sym name="arrow_back" size={22} /></ButtonBase>
           ) : null}
           <ButtonBase onClick={app.openTeamSwitcher} sx={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0, textAlign: 'left', color: 'inherit', justifyContent: 'flex-start' }}>
             {teamIcon}
@@ -81,11 +81,11 @@ export function Shell() {
             </Box>
             <Sym name="unfold_more" size={20} sx={{ opacity: 0.8 }} />
           </ButtonBase>
-          <ButtonBase onClick={app.openNotifications} sx={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,.28)', color: 'inherit', flex: '0 0 auto' }}>
+          <ButtonBase onClick={app.openNotifications} aria-label={hasUnread ? `${state.notifUnread} ungelesene Benachrichtigungen` : 'Benachrichtigungen öffnen'} sx={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,.28)', color: 'inherit', flex: '0 0 auto' }}>
             <Sym name="notifications" size={21} />
-            {hasUnread ? <Box sx={{ position: 'absolute', top: -3, right: -3, minWidth: 17, height: 17, borderRadius: '9px', background: t.primary, color: t.onPrimary, fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', px: '4px', border: `2px solid ${t.primaryContainer}` }}>{notifBadge}</Box> : null}
+            {hasUnread ? <Box aria-hidden="true" sx={{ position: 'absolute', top: -3, right: -3, minWidth: 17, height: 17, borderRadius: '9px', background: t.primary, color: t.onPrimary, fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', px: '4px', border: `2px solid ${t.primaryContainer}` }}>{notifBadge}</Box> : null}
           </ButtonBase>
-          <ButtonBase onClick={app.openProfile} sx={{ borderRadius: '50%' }}>{myAvatar}</ButtonBase>
+          <ButtonBase onClick={app.openProfile} aria-label={`${state.user.name} – Profil öffnen`} sx={{ borderRadius: '50%' }}>{myAvatar}</ButtonBase>
         </Box>
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '14px 14px 90px', position: 'relative' }}>{content}</Box>
@@ -156,15 +156,15 @@ export function Shell() {
       <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: NEUTRAL.surface }}>
         <Box sx={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '14px', p: '18px 28px', borderBottom: `1px solid ${NEUTRAL.line2}` }}>
           {pageSheet ? (
-            <ButtonBase onClick={app.closeSheet} sx={{ width: 40, height: 40, borderRadius: '50%', border: `1px solid ${NEUTRAL.line3}`, background: '#fff', color: NEUTRAL.onSurfaceVariant, flex: '0 0 auto' }}><Sym name="arrow_back" size={22} /></ButtonBase>
+            <ButtonBase onClick={app.closeSheet} aria-label="Zurück" sx={{ width: 40, height: 40, borderRadius: '50%', border: `1px solid ${NEUTRAL.line3}`, background: '#fff', color: NEUTRAL.onSurfaceVariant, flex: '0 0 auto' }}><Sym name="arrow_back" size={22} /></ButtonBase>
           ) : null}
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Box sx={{ fontSize: '22px', fontWeight: 700, letterSpacing: '-.2px' }}>{pm.title}</Box>
             <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary }}>{pm.subtitle}</Box>
           </Box>
-          <ButtonBase onClick={app.openNotifications} sx={{ position: 'relative', width: 44, height: 44, borderRadius: '50%', border: `1px solid ${NEUTRAL.line3}`, background: '#fff', color: NEUTRAL.onSurfaceVariant, flex: '0 0 auto' }}>
+          <ButtonBase onClick={app.openNotifications} aria-label={hasUnread ? `${state.notifUnread} ungelesene Benachrichtigungen` : 'Benachrichtigungen öffnen'} sx={{ position: 'relative', width: 44, height: 44, borderRadius: '50%', border: `1px solid ${NEUTRAL.line3}`, background: '#fff', color: NEUTRAL.onSurfaceVariant, flex: '0 0 auto' }}>
             <Sym name="notifications" size={23} />
-            {hasUnread ? <Box sx={{ position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: '10px', background: t.primary, color: t.onPrimary, fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', px: '5px', border: '2px solid #fff' }}>{notifBadge}</Box> : null}
+            {hasUnread ? <Box aria-hidden="true" sx={{ position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, borderRadius: '10px', background: t.primary, color: t.onPrimary, fontSize: '10px', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', px: '5px', border: '2px solid #fff' }}>{notifBadge}</Box> : null}
           </ButtonBase>
           {!pageSheet && pm.showPrimaryAction ? (
             <ButtonBase onClick={pm.primaryAction} sx={{ display: 'flex', alignItems: 'center', gap: '8px', background: t.primary, color: t.onPrimary, borderRadius: '14px', p: '11px 18px', fontSize: '14px', fontWeight: 600, boxShadow: '0 4px 14px rgba(21,101,192,.28)' }}>
@@ -202,12 +202,12 @@ function pageMeta(app: ReturnType<typeof useApp>): PM {
   return { title: d[0], subtitle: d[1], showPrimaryAction: !!d[2], primaryActionLabel: d[3] || '', primaryActionIcon: d[4] || 'add', primaryAction: d[5] || noop };
 }
 
-function pageSheetMeta(app: ReturnType<typeof useApp>, s: { type: string; [k: string]: any }): PM {
+function pageSheetMeta(app: ReturnType<typeof useApp>, s: SheetState): PM {
   const team = app.activeTeam();
   const base = (title: string, subtitle: string): PM => ({ title, subtitle, showPrimaryAction: false, primaryActionLabel: '', primaryActionIcon: 'add', primaryAction: () => {} });
   if (s.type === 'eventDetail') { const e = s.event; return base(e ? e.title : 'Termin', e ? fmtDateLong(e.date) : 'Termin & Anwesenheit'); }
   if (s.type === 'eventForm') return base(s.mode === 'edit' ? 'Termin bearbeiten' : 'Neuer Termin', s.mode === 'edit' ? 'Änderungen am Termin' : 'Neuen Termin anlegen');
-  if (s.type === 'memberDetail') { const m = s.member; return base(m ? m.name : 'Mitglied', m ? m.roles.map((r: any) => r.name).join(' · ') : 'Profil'); }
+  if (s.type === 'memberDetail') { const m = s.member; return base(m ? m.name : 'Mitglied', m ? m.roles.map((r: { name: string }) => r.name).join(' · ') : 'Profil'); }
   if (s.type === 'memberForm') return base(s.self ? 'Mein Profil' : 'Profil bearbeiten', 'Kontaktdaten, Rollen & Foto');
   if (s.type === 'teamSettings') return base('Team-Einstellungen', team ? shortName(team.name) : '');
   if (s.type === 'roles') return base('Rollen & Rechte', 'Standard- und eigene Rollen');

@@ -65,14 +65,14 @@ export function SpinnerBox() {
   const { state } = useApp();
   const { primaryColor } = state;
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', p: '48px' }}>
+    <Box role="status" aria-label="Lädt…" sx={{ display: 'flex', justifyContent: 'center', p: '48px' }}>
       <Box sx={{ width: 34, height: 34, border: '3px solid #D5D8E0', borderTopColor: primaryColor, borderRadius: '50%', animation: 'tvSpin .8s linear infinite' }} />
     </Box>
   );
 }
 
 export function Spinner({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) {
-  return <Box component="span" sx={{ width: size, height: size, border: `2px solid ${color}`, borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'tvSpin .7s linear infinite' }} />;
+  return <Box component="span" role="status" aria-label="Lädt…" sx={{ width: size, height: size, border: `2px solid ${color}`, borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'tvSpin .7s linear infinite' }} />;
 }
 
 export function Card({ children, sx }: { children: React.ReactNode; sx?: SxProps<Theme> }) {
@@ -110,8 +110,10 @@ export function Field({ label, children }: { label: string; children: React.Reac
   );
 }
 
+type TextInputProps = React.InputHTMLAttributes<HTMLInputElement> & { name: string };
+
 /** Form-bound text input (mirrors prototype tf()). */
-export function TextInput({ name, type = 'text', placeholder, min, max, ...rest }: { name: string; type?: string; placeholder?: string; min?: string; max?: string; [k: string]: any }) {
+export function TextInput({ name, type = 'text', placeholder, min, max, ...rest }: TextInputProps) {
   const { state, onFormInput } = useApp();
   const v = state.form[name];
   return (
