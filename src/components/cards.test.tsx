@@ -33,7 +33,7 @@ function makeEvent(overrides: Record<string, unknown> = {}) {
   } as never;
 }
 
-function makeNews() {
+function makeNews(overrides: Record<string, unknown> = {}) {
   return {
     id: 'n1',
     title: 'Neuigkeit',
@@ -43,6 +43,7 @@ function makeNews() {
     authorColor: '#4285F4',
     createdAt: '2026-01-15T10:00:00Z',
     pinned: false,
+    ...overrides,
   } as never;
 }
 
@@ -80,23 +81,23 @@ describe('EventCard', () => {
 
 describe('NewsCard', () => {
   it('renders news title and body', () => {
-    render(<NewsCard n={makeNews()} />);
+    render(<NewsCard n={makeNews()} primaryColor="#4285F4" />);
     expect(screen.getByText('Neuigkeit')).toBeTruthy();
     expect(screen.getByText('Wichtige Information')).toBeTruthy();
   });
 
   it('renders author name', () => {
-    render(<NewsCard n={makeNews()} />);
+    render(<NewsCard n={makeNews()} primaryColor="#4285F4" />);
     expect(screen.getByText('Coach')).toBeTruthy();
   });
 
   it('renders pin icon when pinned', () => {
-    render(<NewsCard n={{ ...makeNews(), pinned: true }} />);
+    render(<NewsCard n={makeNews({ pinned: true })} primaryColor="#4285F4" />);
     expect(screen.getByText('push_pin')).toBeTruthy();
   });
 
   it('does not render pin icon when not pinned', () => {
-    render(<NewsCard n={makeNews()} />);
+    render(<NewsCard n={makeNews()} primaryColor="#4285F4" />);
     expect(screen.queryByText('push_pin')).toBeNull();
   });
 });

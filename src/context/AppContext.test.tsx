@@ -71,7 +71,16 @@ describe('AppProvider / actions (app phase)', () => {
     await act(async () => {
       capturedActions.setState({
         phase: 'app',
-        user: { id: 'u1', name: 'Test User', email: 'test@example.com', avatarColor: '#000', photo: null },
+        user: {
+          id: 'u1',
+          name: 'Test User',
+          email: 'test@example.com',
+          avatarColor: '#000',
+          photo: null,
+          phone: '',
+          birthday: '',
+          address: '',
+        },
         teams: [
           {
             id: 'team1',
@@ -95,7 +104,7 @@ describe('AppProvider / actions (app phase)', () => {
   it('askConfirm sets confirm sheet', async () => {
     await renderAndBootstrap();
     await act(async () => {
-      capturedActions.askConfirm({ title: 'Confirm?', onConfirm: vi.fn() });
+      capturedActions.askConfirm({ title: 'Confirm?', message: 'Sure?', onConfirm: vi.fn() });
     });
     expect(screen.getByTestId('sheet').textContent).toBe('confirm');
   });
@@ -103,7 +112,7 @@ describe('AppProvider / actions (app phase)', () => {
   it('cancelConfirm closes confirm sheet', async () => {
     await renderAndBootstrap();
     await act(async () => {
-      capturedActions.askConfirm({ title: 'Confirm?', onConfirm: vi.fn() });
+      capturedActions.askConfirm({ title: 'Confirm?', message: 'Sure?', onConfirm: vi.fn() });
     });
     await act(async () => {
       capturedActions.cancelConfirm();
@@ -115,7 +124,7 @@ describe('AppProvider / actions (app phase)', () => {
     await renderAndBootstrap();
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     await act(async () => {
-      capturedActions.askConfirm({ title: 'Delete?', onConfirm });
+      capturedActions.askConfirm({ title: 'Delete?', message: 'Really delete?', onConfirm });
     });
     await act(async () => {
       await capturedActions.runConfirm();
@@ -202,7 +211,7 @@ describe('AppProvider / actions (app phase)', () => {
   it('closeSheet resets sheet to null', async () => {
     await renderAndBootstrap();
     await act(async () => {
-      capturedActions.askConfirm({ title: 'Test', onConfirm: vi.fn() });
+      capturedActions.askConfirm({ title: 'Test', message: 'Close?', onConfirm: vi.fn() });
     });
     await act(async () => {
       capturedActions.closeSheet();

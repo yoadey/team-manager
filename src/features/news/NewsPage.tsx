@@ -17,7 +17,7 @@ export function NewsPage() {
   return (
     <Box sx={{ maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
       {state.news.map((n) => {
-        const cardEl = <NewsCard n={n} compact={false} />;
+        const cardEl = <NewsCard n={n} compact={false} primaryColor={state.primaryColor} />;
         if (!canEdit) return <Box key={n.id}>{cardEl}</Box>;
         return (
           <Box key={n.id} sx={{ position: 'relative' }}>

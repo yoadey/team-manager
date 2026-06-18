@@ -21,7 +21,7 @@ function makeStats() {
   };
 }
 
-function makeApp(statsOverride: unknown = null, statsRange = null) {
+function makeApp(statsOverride: unknown = null, statsRange: { from: string; to: string } | null = null) {
   return {
     state: {
       phase: 'app',

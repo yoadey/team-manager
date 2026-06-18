@@ -146,7 +146,7 @@ export function Stats() {
   const memberBars = (
     <Box key="mb" sx={{ mb: '22px' }}>
       <SectionTitle>Quote pro Person</SectionTitle>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '60vh', overflowY: 'auto' }}>
         {st.members.map((m) => {
           const q = m.quote === null ? 0 : m.quote;
           const col = m.quote === null ? '#C0C2CA' : q >= 80 ? '#2E7D32' : q >= 50 ? '#9A5B00' : '#BA1A1A';

@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp, useAppActions } from '@/context/AppContext';
+import { useAppActions } from '@/context/AppContext';
 import { useCompact } from '@/layouts/AppShell';
 import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '@/styles/tokens';
 import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
@@ -122,10 +122,18 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
   );
 });
 
-/** News card. compact=true clamps body to 2 lines. Mirrors prototype newsCard(). */
-export function NewsCard({ n, compact = false }: { n: NewsItem; compact?: boolean }) {
-  const { state } = useApp();
-  const t = buildTokens(state.primaryColor);
+/** News card. compact=true clamps body to 2 lines. Mirrors prototype newsCard().
+ *  Memoised + state-free so it skips re-renders when unrelated state changes. */
+export const NewsCard = memo(function NewsCard({
+  n,
+  compact = false,
+  primaryColor,
+}: {
+  n: NewsItem;
+  compact?: boolean;
+  primaryColor: string;
+}) {
+  const t = buildTokens(primaryColor);
   return (
     <Box sx={{ background: '#fff', border: `1px solid ${NEUTRAL.line}`, borderRadius: '16px', p: '15px 16px' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: '9px', mb: '7px' }}>
@@ -152,4 +160,4 @@ export function NewsCard({ n, compact = false }: { n: NewsItem; compact?: boolea
       </Box>
     </Box>
   );
-}
+});
