@@ -4,7 +4,10 @@ import ButtonBase from '@mui/material/ButtonBase';
 
 interface Props {
   children: ReactNode;
+  /** Static fallback element rendered on error. */
   fallback?: ReactNode;
+  /** Render-prop fallback that receives the caught error (takes precedence). */
+  renderFallback?: (error: Error, reset: () => void) => ReactNode;
   onError?: (error: Error, info: ErrorInfo) => void;
 }
 interface State {
@@ -27,13 +30,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (this.state.error) {
+      const reset = () => this.setState({ error: null });
+      if (this.props.renderFallback) return this.props.renderFallback(this.state.error, reset);
       if (this.props.fallback) return this.props.fallback;
-      return (
-        <DefaultFallback
-          error={this.state.error}
-          onReset={() => this.setState({ error: null })}
-        />
-      );
+      return <DefaultFallback error={this.state.error} onReset={reset} />;
     }
     return this.props.children;
   }

@@ -6,6 +6,7 @@
 
 import type { AttendanceStatus, EventType } from '@/types';
 import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
+import { getCurrency, getIntlLocale, t } from '@/i18n';
 
 export interface ThemePreset {
   primary: string;
@@ -17,11 +18,46 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: Record<string, ThemePreset> = {
-  '#1565C0': { primary: '#1565C0', onPrimary: '#FFFFFF', primaryContainer: '#D7E3FF', onPrimaryContainer: '#001B3E', secondaryContainer: '#DCE3F2', onSecondaryContainer: '#101C2B' },
-  '#6750A4': { primary: '#6750A4', onPrimary: '#FFFFFF', primaryContainer: '#EADDFF', onPrimaryContainer: '#21005D', secondaryContainer: '#E8DEF8', onSecondaryContainer: '#1D192B' },
-  '#00796B': { primary: '#00796B', onPrimary: '#FFFFFF', primaryContainer: '#9DF1E2', onPrimaryContainer: '#00201B', secondaryContainer: '#CCE8E2', onSecondaryContainer: '#0B1F1B' },
-  '#B71C1C': { primary: '#B3261E', onPrimary: '#FFFFFF', primaryContainer: '#F9DEDC', onPrimaryContainer: '#410E0B', secondaryContainer: '#F4DDDA', onSecondaryContainer: '#2C1512' },
-  '#33691E': { primary: '#386A20', onPrimary: '#FFFFFF', primaryContainer: '#B7F397', onPrimaryContainer: '#072100', secondaryContainer: '#D8E7CD', onSecondaryContainer: '#121F0C' },
+  '#1565C0': {
+    primary: '#1565C0',
+    onPrimary: '#FFFFFF',
+    primaryContainer: '#D7E3FF',
+    onPrimaryContainer: '#001B3E',
+    secondaryContainer: '#DCE3F2',
+    onSecondaryContainer: '#101C2B',
+  },
+  '#6750A4': {
+    primary: '#6750A4',
+    onPrimary: '#FFFFFF',
+    primaryContainer: '#EADDFF',
+    onPrimaryContainer: '#21005D',
+    secondaryContainer: '#E8DEF8',
+    onSecondaryContainer: '#1D192B',
+  },
+  '#00796B': {
+    primary: '#00796B',
+    onPrimary: '#FFFFFF',
+    primaryContainer: '#9DF1E2',
+    onPrimaryContainer: '#00201B',
+    secondaryContainer: '#CCE8E2',
+    onSecondaryContainer: '#0B1F1B',
+  },
+  '#B71C1C': {
+    primary: '#B3261E',
+    onPrimary: '#FFFFFF',
+    primaryContainer: '#F9DEDC',
+    onPrimaryContainer: '#410E0B',
+    secondaryContainer: '#F4DDDA',
+    onSecondaryContainer: '#2C1512',
+  },
+  '#33691E': {
+    primary: '#386A20',
+    onPrimary: '#FFFFFF',
+    primaryContainer: '#B7F397',
+    onPrimaryContainer: '#072100',
+    secondaryContainer: '#D8E7CD',
+    onSecondaryContainer: '#121F0C',
+  },
 };
 
 export const DEFAULT_PRESET_KEY = '#1565C0';
@@ -67,24 +103,41 @@ export const NEUTRAL = {
   inputBorder: '#C8CAD2',
 };
 
-export interface TypeMeta { label: string; icon: string; color: string; bg: string; on: string; }
+export interface TypeMeta {
+  label: string;
+  icon: string;
+  color: string;
+  bg: string;
+  on: string;
+}
 export function typeMeta(type: EventType | string): TypeMeta {
   const m: Record<string, TypeMeta> = {
-    training: { label: 'Training', icon: 'fitness_center', color: '#1565C0', bg: '#D7E3FF', on: '#00315C' },
-    auftritt: { label: 'Auftritt / Turnier', icon: 'emoji_events', color: '#9A5B00', bg: '#FFDDB0', on: '#2E1500' },
-    event: { label: 'Team-Event', icon: 'celebration', color: '#6A3EA1', bg: '#EADDFF', on: '#23005C' },
+    training: {
+      label: t('eventType.training'),
+      icon: 'fitness_center',
+      color: '#1565C0',
+      bg: '#D7E3FF',
+      on: '#00315C',
+    },
+    auftritt: { label: t('eventType.auftritt'), icon: 'emoji_events', color: '#9A5B00', bg: '#FFDDB0', on: '#2E1500' },
+    event: { label: t('eventType.event'), icon: 'celebration', color: '#6A3EA1', bg: '#EADDFF', on: '#23005C' },
   };
   return m[type] || m.event;
 }
 
-export interface StatusMeta { label: string; icon: string; color: string; bg: string; }
+export interface StatusMeta {
+  label: string;
+  icon: string;
+  color: string;
+  bg: string;
+}
 export function statusMeta(s: AttendanceStatus | string): StatusMeta {
   const m: Record<string, StatusMeta> = {
-    yes: { label: 'Zugesagt', icon: 'check_circle', color: '#2E7D32', bg: '#D7F0D8' },
-    maybe: { label: 'Unsicher', icon: 'help', color: '#9A5B00', bg: '#FFE5B8' },
-    no: { label: 'Abgesagt', icon: 'cancel', color: '#BA1A1A', bg: '#FFDAD6' },
-    pending: { label: 'Offen', icon: 'schedule', color: '#5A5D66', bg: '#E7E8EE' },
-    not_nominated: { label: 'Nicht nominiert', icon: 'block', color: '#9A9DA6', bg: '#F0F0F4' },
+    yes: { label: t('attendance.yes'), icon: 'check_circle', color: '#2E7D32', bg: '#D7F0D8' },
+    maybe: { label: t('attendance.maybe'), icon: 'help', color: '#9A5B00', bg: '#FFE5B8' },
+    no: { label: t('attendance.no'), icon: 'cancel', color: '#BA1A1A', bg: '#FFDAD6' },
+    pending: { label: t('attendance.pending'), icon: 'schedule', color: '#5A5D66', bg: '#E7E8EE' },
+    not_nominated: { label: t('attendance.not_nominated'), icon: 'block', color: '#9A9DA6', bg: '#F0F0F4' },
   };
   return m[s] || m.pending;
 }
@@ -98,31 +151,50 @@ export function hhmm(isoStr: string | null): string {
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 export const fmtDate = (ds: string) =>
-  new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: 'numeric', month: 'short' }).format(parseDateOnlyLocal(ds));
+  new Intl.DateTimeFormat(getIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).format(
+    parseDateOnlyLocal(ds),
+  );
 export const fmtDateLong = (ds: string) =>
-  new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(parseDateOnlyLocal(ds));
+  new Intl.DateTimeFormat(getIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(
+    parseDateOnlyLocal(ds),
+  );
 export function fmtRange(a: string, b: string) {
-  const f = (x: string) => new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' }).format(parseDateOnlyLocal(x));
+  const f = (x: string) =>
+    new Intl.DateTimeFormat(getIntlLocale(), { day: 'numeric', month: 'short' }).format(parseDateOnlyLocal(x));
   return f(a) + ' – ' + f(b);
 }
-export const fmtMoney = (n: number) => new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(n);
+export const fmtMoney = (n: number) =>
+  new Intl.NumberFormat(getIntlLocale(), { style: 'currency', currency: getCurrency() }).format(n);
 export function fmtDateTime(isoStr: string) {
-  return new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(isoStr));
+  return new Intl.DateTimeFormat(getIntlLocale(), {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(isoStr));
 }
 export function monthName(ym: string) {
   const p = String(ym || '').split('-');
   if (p.length < 2) return ym || '';
-  return new Intl.DateTimeFormat('de-DE', { month: 'long', year: 'numeric' }).format(new Date(+p[0], +p[1] - 1, 1));
+  return new Intl.DateTimeFormat(getIntlLocale(), { month: 'long', year: 'numeric' }).format(
+    new Date(+p[0], +p[1] - 1, 1),
+  );
 }
 export function initials(name: string) {
-  return (name || '').split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase();
+  return (name || '')
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((s) => s[0])
+    .join('')
+    .toUpperCase();
 }
 export function relTime(isoStr: string) {
   const mins = Math.round((Date.now() - new Date(isoStr).getTime()) / 60000);
-  if (mins < 1) return 'gerade eben';
-  if (mins < 60) return 'vor ' + mins + ' Min';
+  if (mins < 1) return t('relTime.now');
+  if (mins < 60) return t('relTime.minutes', { n: mins });
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return 'vor ' + hrs + ' Std';
+  if (hrs < 24) return t('relTime.hours', { n: hrs });
   const days = Math.round(hrs / 24);
-  return 'vor ' + days + ' ' + (days === 1 ? 'Tag' : 'Tagen');
+  return days === 1 ? t('relTime.day') : t('relTime.days', { n: days });
 }

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Teamverwaltung">
+  <rect width="512" height="512" rx="96" fill="#1565C0"/>
+  <path fill="#FFFFFF" d="M256 120c34 0 62 28 62 62s-28 62-62 62-62-28-62-62 28-62 62-62zm-104 272c0-57 47-94 104-94s104 37 104 94v8H152v-8z"/>
+  <circle cx="152" cy="208" r="40" fill="#FFFFFF" opacity="0.85"/>
+  <circle cx="360" cy="208" r="40" fill="#FFFFFF" opacity="0.85"/>
+</svg>

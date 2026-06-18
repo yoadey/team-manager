@@ -20,8 +20,24 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: ['src/services/**', 'src/utils/**'],
-      thresholds: { statements: 70, branches: 60, functions: 75, lines: 70 },
+      // Measure the whole app (previously only services + utils were counted,
+      // which made the thresholds misleading). Presentational-only files and
+      // non-logic entry points are excluded; they are covered by component
+      // tests, which are tracked as a separate, growing effort.
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.{test,spec}.{ts,tsx}',
+        'src/test/**',
+        'src/types/**',
+        'src/**/index.ts',
+        'src/main.tsx',
+        'src/monitoring.ts',
+        'src/i18n/de.ts',
+        'src/i18n/en.ts',
+      ],
+      // Floors set just below current real coverage so regressions fail CI.
+      // Raise these as component/hook tests are added.
+      thresholds: { statements: 18, branches: 70, functions: 50, lines: 18 },
     },
   },
 });
