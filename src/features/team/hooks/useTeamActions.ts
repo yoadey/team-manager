@@ -3,6 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Invite, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import { validateRequiredText } from '@/utils/validation';
+import { reportActionError } from '@/utils/errors';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -18,91 +19,195 @@ type TeamDeps = {
   toastMsg: (m: string) => void;
 };
 
-export function useTeamActions({ api, S, setState, activeTeam, refreshTeams, refreshMembers, setFormVal, afterLoginLoad, toastMsg }: TeamDeps) {
+export function useTeamActions({
+  api,
+  S,
+  setState,
+  activeTeam,
+  refreshTeams,
+  refreshMembers,
+  setFormVal,
+  afterLoginLoad,
+  toastMsg,
+}: TeamDeps) {
   const openTeamSwitcher = useCallback(() => setState({ sheet: { type: 'teams' } }), [setState]);
 
   const openProfile = useCallback(() => {
     setState({ sheet: { type: 'profile' } });
-    api.absences.listMine().then((myAbsences) => setState({ myAbsences }));
-  }, [api, setState]);
+    api.absences
+      .listMine()
+      .then((myAbsences) => setState({ myAbsences }))
+      .catch((err) => reportActionError({ setState, toastMsg }, err, 'error.load'));
+  }, [api, setState, toastMsg]);
 
   const openMore = useCallback(() => setState({ sheet: { type: 'more' } }), [setState]);
 
   const openTeamSettings = useCallback(() => {
     const t = activeTeam()!;
-    setState({ sheet: { type: 'teamSettings' }, form: { name: t.name, description: t.description || '', icon: t.icon, logo: t.logo || null, photo: t.photo, reasonRoles: (t.reasonVisibilityRoles || []).slice() } });
+    setState({
+      sheet: { type: 'teamSettings' },
+      form: {
+        name: t.name,
+        description: t.description || '',
+        icon: t.icon,
+        logo: t.logo || null,
+        photo: t.photo,
+        reasonRoles: (t.reasonVisibilityRoles || []).slice(),
+      },
+    });
   }, [activeTeam, setState]);
 
-  const saveTeamPhoto = useCallback(async (dataUrl: string) => {
-    await api.teams.updateSettings(S().activeTeamId!, { photo: dataUrl });
-    await refreshTeams();
-    setFormVal({ photo: dataUrl });
-    toastMsg('Gruppenbild aktualisiert');
-  }, [api, S, refreshTeams, setFormVal, toastMsg]);
+  const saveTeamPhoto = useCallback(
+    async (dataUrl: string) => {
+      try {
+        await api.teams.updateSettings(S().activeTeamId!, { photo: dataUrl });
+        await refreshTeams();
+        setFormVal({ photo: dataUrl });
+        toastMsg('Gruppenbild aktualisiert');
+      } catch (err) {
+        reportActionError({ setState, toastMsg }, err, 'error.save');
+      }
+    },
+    [api, S, refreshTeams, setFormVal, setState, toastMsg],
+  );
 
-  const saveTeamLogo = useCallback(async (dataUrl: string) => {
-    await api.teams.updateSettings(S().activeTeamId!, { logo: dataUrl });
-    await refreshTeams();
-    setFormVal({ logo: dataUrl });
-    toastMsg('Logo aktualisiert');
-  }, [api, S, refreshTeams, setFormVal, toastMsg]);
+  const saveTeamLogo = useCallback(
+    async (dataUrl: string) => {
+      try {
+        await api.teams.updateSettings(S().activeTeamId!, { logo: dataUrl });
+        await refreshTeams();
+        setFormVal({ logo: dataUrl });
+        toastMsg('Logo aktualisiert');
+      } catch (err) {
+        reportActionError({ setState, toastMsg }, err, 'error.save');
+      }
+    },
+    [api, S, refreshTeams, setFormVal, setState, toastMsg],
+  );
 
-  const setTeamIcon = useCallback((em: string) => {
-    setFormVal({ icon: em, logo: null });
-    api.teams.updateSettings(S().activeTeamId!, { icon: em, logo: null }).then(() => refreshTeams());
-  }, [api, S, setFormVal, refreshTeams]);
+  const setTeamIcon = useCallback(
+    (em: string) => {
+      setFormVal({ icon: em, logo: null });
+      api.teams
+        .updateSettings(S().activeTeamId!, { icon: em, logo: null })
+        .then(() => refreshTeams())
+        .catch((err) => reportActionError({ setState, toastMsg }, err, 'error.save'));
+    },
+    [api, S, setFormVal, refreshTeams, setState, toastMsg],
+  );
 
-  const toggleReasonRole = useCallback((roleId: string) => setState((s) => {
-    const cur = s.form.reasonRoles || [];
-    const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId);
-    return { form: { ...s.form, reasonRoles: next } };
-  }), [setState]);
+  const toggleReasonRole = useCallback(
+    (roleId: string) =>
+      setState((s) => {
+        const cur = s.form.reasonRoles || [];
+        const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId);
+        return { form: { ...s.form, reasonRoles: next } };
+      }),
+    [setState],
+  );
 
   const saveTeamSettings = useCallback(async () => {
     const f = S().form;
-    if (!f.name || !f.name.trim()) { toastMsg('Bitte Team-Namen angeben'); return; }
+    if (!f.name || !f.name.trim()) {
+      toastMsg('Bitte Team-Namen angeben');
+      return;
+    }
     setState({ busy: 'save' });
-    await api.teams.updateSettings(S().activeTeamId!, { name: f.name.trim(), description: f.description || '', reasonVisibilityRoles: f.reasonRoles || [] });
-    await refreshTeams();
-    setState({ busy: null });
-    toastMsg('Team-Einstellungen gespeichert');
+    try {
+      await api.teams.updateSettings(S().activeTeamId!, {
+        name: f.name.trim(),
+        description: f.description || '',
+        reasonVisibilityRoles: f.reasonRoles || [],
+      });
+      await refreshTeams();
+      setState({ busy: null });
+      toastMsg('Team-Einstellungen gespeichert');
+    } catch (err) {
+      reportActionError({ setState, toastMsg }, err, 'error.save');
+    }
   }, [api, S, setState, refreshTeams, toastMsg]);
 
-  const openCreateTeam = useCallback(() => setState({ sheet: { type: 'createTeam' }, form: { name: '', icon: '⭐', photo: null } }), [setState]);
+  const openCreateTeam = useCallback(
+    () => setState({ sheet: { type: 'createTeam' }, form: { name: '', icon: '⭐', photo: null } }),
+    [setState],
+  );
 
   const createTeam = useCallback(async () => {
     const f = S().form;
     const name = validateRequiredText(f.name, 'Team-Name fehlt.');
-    if (!name.ok) { toastMsg(name.message!); return; }
+    if (!name.ok) {
+      toastMsg(name.message!);
+      return;
+    }
     setState({ busy: 'save' });
-    const team = await api.teams.create({ name: name.value!, icon: f.icon, iconBg: '#1A1A1A', iconFg: '#F5C518', photo: f.photo });
-    await refreshTeams();
-    setState({ busy: null, sheet: null, activeTeamId: team.id, route: 'home', eventScope: 'upcoming' });
-    await afterLoginLoad(team.id);
-    toastMsg('Team angelegt – du bist Admin');
+    try {
+      const team = await api.teams.create({
+        name: name.value!,
+        icon: f.icon,
+        iconBg: '#1A1A1A',
+        iconFg: '#F5C518',
+        photo: f.photo,
+      });
+      await refreshTeams();
+      setState({ busy: null, sheet: null, activeTeamId: team.id, route: 'home', eventScope: 'upcoming' });
+      await afterLoginLoad(team.id);
+      toastMsg('Team angelegt – du bist Admin');
+    } catch (err) {
+      reportActionError({ setState, toastMsg }, err, 'error.save');
+    }
   }, [api, S, setState, refreshTeams, afterLoginLoad, toastMsg]);
 
   const openInvite = useCallback(async () => {
     setState({ sheet: { type: 'invite', invite: null } });
-    const invite = await api.teams.createInvite(S().activeTeamId!);
-    setState((s) => (s.sheet && s.sheet.type === 'invite') ? { sheet: { ...s.sheet, invite } } : {});
-  }, [api, S, setState]);
+    try {
+      const invite = await api.teams.createInvite(S().activeTeamId!);
+      setState((s) => (s.sheet && s.sheet.type === 'invite' ? { sheet: { ...s.sheet, invite } } : {}));
+    } catch (err) {
+      reportActionError({ setState, toastMsg }, err);
+    }
+  }, [api, S, setState, toastMsg]);
 
   const copyInvite = useCallback(() => {
     const inv: Invite = S().sheet!.invite;
     if (!inv) return;
-    try { navigator.clipboard.writeText(inv.link); } catch { /* ignore */ }
+    try {
+      navigator.clipboard.writeText(inv.link);
+    } catch {
+      /* ignore */
+    }
     setState((s) => ({ sheet: { ...s.sheet!, copied: true } }));
     toastMsg('Link kopiert');
   }, [S, setState, toastMsg]);
 
-  const uploadMyPhoto = useCallback(async (dataUrl: string) => {
-    await api.auth.setPhoto(dataUrl);
-    const user = await api.auth.currentUser();
-    await Promise.all([refreshTeams(), refreshMembers()]);
-    setState({ user });
-    toastMsg('Profilfoto aktualisiert');
-  }, [api, refreshTeams, refreshMembers, setState, toastMsg]);
+  const uploadMyPhoto = useCallback(
+    async (dataUrl: string) => {
+      try {
+        await api.auth.setPhoto(dataUrl);
+        const user = await api.auth.currentUser();
+        await Promise.all([refreshTeams(), refreshMembers()]);
+        setState({ user });
+        toastMsg('Profilfoto aktualisiert');
+      } catch (err) {
+        reportActionError({ setState, toastMsg }, err, 'error.save');
+      }
+    },
+    [api, refreshTeams, refreshMembers, setState, toastMsg],
+  );
 
-  return { openTeamSwitcher, openProfile, openMore, openTeamSettings, saveTeamPhoto, saveTeamLogo, setTeamIcon, toggleReasonRole, saveTeamSettings, openCreateTeam, createTeam, openInvite, copyInvite, uploadMyPhoto };
+  return {
+    openTeamSwitcher,
+    openProfile,
+    openMore,
+    openTeamSettings,
+    saveTeamPhoto,
+    saveTeamLogo,
+    setTeamIcon,
+    toggleReasonRole,
+    saveTeamSettings,
+    openCreateTeam,
+    createTeam,
+    openInvite,
+    copyInvite,
+    uploadMyPhoto,
+  };
 }

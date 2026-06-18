@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { ModuleKey, PermLevel, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
+import { reportActionError } from '@/utils/errors';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -18,34 +19,62 @@ type RoleDeps = {
 export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, toastMsg }: RoleDeps) {
   const openRoles = useCallback(() => setState({ sheet: { type: 'roles' } }), [setState]);
 
-  const openCreateRole = useCallback(() => setState((st) => ({
-    sheet: { type: 'roleForm', back: st.sheet },
-    form: { name: '', perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' } },
-  })), [setState]);
+  const openCreateRole = useCallback(
+    () =>
+      setState((st) => ({
+        sheet: { type: 'roleForm', back: st.sheet },
+        form: {
+          name: '',
+          perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' },
+        },
+      })),
+    [setState],
+  );
 
-  const setRolePerm = useCallback((module: ModuleKey, level: PermLevel) => setState((s) => ({
-    form: { ...s.form, perms: { ...s.form.perms, [module]: level } },
-  })), [setState]);
+  const setRolePerm = useCallback(
+    (module: ModuleKey, level: PermLevel) =>
+      setState((s) => ({
+        form: { ...s.form, perms: { ...s.form.perms, [module]: level } },
+      })),
+    [setState],
+  );
 
   const saveRole = useCallback(async () => {
     const f = S().form;
-    if (!f.name) { toastMsg('Bitte Rollennamen angeben'); return; }
+    if (!f.name) {
+      toastMsg('Bitte Rollennamen angeben');
+      return;
+    }
     setState({ busy: 'save' });
-    await api.roles.create(S().activeTeamId!, { name: f.name, permissions: f.perms });
-    await refreshRoles();
-    setState({ busy: null, sheet: { type: 'roles' } });
-    toastMsg('Rolle angelegt');
+    try {
+      await api.roles.create(S().activeTeamId!, { name: f.name, permissions: f.perms });
+      await refreshRoles();
+      setState({ busy: null, sheet: { type: 'roles' } });
+      toastMsg('Rolle angelegt');
+    } catch (err) {
+      reportActionError({ setState, toastMsg }, err, 'error.save');
+    }
   }, [api, S, setState, refreshRoles, toastMsg]);
 
-  const toggleMyRole = useCallback(async (roleId: string) => {
-    const team = activeTeam()!;
-    const cur = team.myRoles.map((r) => r.id);
-    const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-    if (!next.length) { toastMsg('Mindestens eine Rolle nötig'); return; }
-    await api.members.setRoles(team.membershipId, next);
-    await refreshTeams();
-    toastMsg('Rollen aktualisiert');
-  }, [api, activeTeam, refreshTeams, toastMsg]);
+  const toggleMyRole = useCallback(
+    async (roleId: string) => {
+      const team = activeTeam()!;
+      const cur = team.myRoles.map((r) => r.id);
+      const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
+      if (!next.length) {
+        toastMsg('Mindestens eine Rolle nötig');
+        return;
+      }
+      try {
+        await api.members.setRoles(team.membershipId, next);
+        await refreshTeams();
+        toastMsg('Rollen aktualisiert');
+      } catch (err) {
+        reportActionError({ setState, toastMsg }, err);
+      }
+    },
+    [api, activeTeam, refreshTeams, setState, toastMsg],
+  );
 
   return { openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole };
 }

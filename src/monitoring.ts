@@ -12,10 +12,30 @@ export function initMonitoring(): void {
   });
 }
 
+/** ErrorBoundary hook: receives a React error + component stack. */
 export function captureError(error: Error, info: ErrorInfo): void {
   if (import.meta.env.DEV) {
     console.error('[monitoring]', error, info.componentStack);
     return;
   }
   Sentry.captureException(error, { contexts: { react: { componentStack: info.componentStack ?? '' } } });
+}
+
+/** Generic capture for caught async/runtime errors (action hooks, global handlers). */
+export function captureException(error: unknown, context?: Record<string, unknown>): void {
+  if (import.meta.env.DEV) {
+    console.error('[monitoring]', error, context ?? '');
+    return;
+  }
+  Sentry.captureException(error, context ? { extra: context } : undefined);
+}
+
+/** Registers global handlers for otherwise-unhandled promise rejections and errors. */
+export function installGlobalErrorHandlers(): void {
+  window.addEventListener('unhandledrejection', (event) => {
+    captureException(event.reason, { kind: 'unhandledrejection' });
+  });
+  window.addEventListener('error', (event) => {
+    captureException(event.error ?? event.message, { kind: 'window.error' });
+  });
 }

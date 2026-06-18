@@ -1,7 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
-import type { AttendanceStatus, DateRange, ModuleKey, PermLevel, Provider, Role, StatsOverview, TeamForUser, User } from '@/types';
+import type {
+  AttendanceStatus,
+  DateRange,
+  ModuleKey,
+  PermLevel,
+  Provider,
+  Role,
+  StatsOverview,
+  TeamForUser,
+  User,
+} from '@/types';
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
 import type { FinanceOverview } from '@/features/finances';
 import type { Member } from '@/features/members';
@@ -10,12 +20,18 @@ import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
 import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '@/styles/tokens';
 import { validateEventForm } from '@/utils/validation';
+import { canForTeam, isStaffForTeam } from '@/utils/permissions';
+import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
-
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
-export interface SheetState { type: string; back?: SheetState | null; [k: string]: any; }
+export interface SheetState {
+  type: string;
+  back?: SheetState | null;
+  [k: string]: any;
+}
 
 export interface AppState {
   phase: Phase;
@@ -53,15 +69,38 @@ export interface AppState {
 }
 
 const initialState: AppState = {
-  phase: 'loading', providers: [], busy: null, primaryColor: DEFAULT_PRESET_KEY,
-  user: null, teams: [], activeTeamId: null, route: 'home',
-  eventScope: 'upcoming', eventsView: 'list', eventsOnlyPending: false,
-  calShowAbsences: false, calMonth: null,
-  events: [], members: [], roles: [], news: null, finances: null, stats: null,
-  polls: null, absences: null, myAbsences: null,
-  notifications: null, notifUnread: 0, notifFilter: 'all',
-  statsRange: null, finTab: 'umsaetze', contribMonth: null,
-  sheet: null, form: {}, toast: null, error: null,
+  phase: 'loading',
+  providers: [],
+  busy: null,
+  primaryColor: DEFAULT_PRESET_KEY,
+  user: null,
+  teams: [],
+  activeTeamId: null,
+  route: 'home',
+  eventScope: 'upcoming',
+  eventsView: 'list',
+  eventsOnlyPending: false,
+  calShowAbsences: false,
+  calMonth: null,
+  events: [],
+  members: [],
+  roles: [],
+  news: null,
+  finances: null,
+  stats: null,
+  polls: null,
+  absences: null,
+  myAbsences: null,
+  notifications: null,
+  notifUnread: 0,
+  notifFilter: 'all',
+  statsRange: null,
+  finTab: 'umsaetze',
+  contribMonth: null,
+  sheet: null,
+  form: {},
+  toast: null,
+  error: null,
 };
 
 const PAGE_SHEETS = ['eventDetail', 'eventForm', 'memberDetail', 'memberForm', 'teamSettings', 'roles', 'roleForm'];
@@ -111,12 +150,22 @@ export interface AppContextValue {
   removeEventComment: (eventId: string, cid: string) => Promise<void>;
   toggleNomination: (eventId: string, userId: string, currentlyNominated: boolean) => Promise<void>;
   // confirm
-  askConfirm: (cfg: { title: string; message: string; confirmLabel?: string; danger?: boolean; onConfirm: () => void | Promise<void> }) => void;
+  askConfirm: (cfg: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void | Promise<void>;
+  }) => void;
   cancelConfirm: () => void;
   runConfirm: () => Promise<void>;
   // events
   askEventAction: (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent) => void;
-  runEventAction: (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => Promise<void>;
+  runEventAction: (
+    action: 'cancel' | 'delete' | 'reactivate',
+    event: TeamEvent,
+    scope: 'single' | 'series',
+  ) => Promise<void>;
   openEventDetail: (eventId: string) => Promise<void>;
   reloadDetail: (eventId: string) => Promise<void>;
   openEventForm: (event: TeamEvent | null) => void;
@@ -183,11 +232,31 @@ export interface AppContextValue {
   togglePollOption: (poll: Poll, optId: string) => void;
 }
 
-const AppContext = createContext<AppContextValue | null>(null);
-export const useApp = () => {
-  const ctx = useContext(AppContext);
-  if (!ctx) throw new Error('useApp must be used within AppProvider');
-  return ctx;
+/** Actions + helpers, without the mutable `state`. Stable across renders. */
+export type AppActions = Omit<AppContextValue, 'state'>;
+
+// State and actions are kept in separate contexts so components that only
+// dispatch actions (via useAppActions) do not re-render on every state change.
+// Actions have a stable identity; only state-subscribed consumers re-render.
+const AppStateContext = createContext<AppState | null>(null);
+const AppActionsContext = createContext<AppActions | null>(null);
+
+export const useApp = (): AppContextValue => {
+  const actions = useContext(AppActionsContext);
+  const state = useContext(AppStateContext);
+  if (!actions || !state) throw new Error('useApp must be used within AppProvider');
+  return useMemo(() => ({ ...actions, state }), [actions, state]);
+};
+
+/**
+ * Actions/helpers only — does NOT subscribe to state changes. Use in components
+ * that merely dispatch and read their display data from props, so they skip
+ * re-renders triggered by unrelated state updates.
+ */
+export const useAppActions = (): AppActions => {
+  const actions = useContext(AppActionsContext);
+  if (!actions) throw new Error('useAppActions must be used within AppProvider');
+  return actions;
 };
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -210,31 +279,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- helpers ----------
   const activeTeam = useCallback(() => S().teams.find((t) => t.id === S().activeTeamId) || null, []);
-  const myRoles = useCallback(() => { const t = activeTeam(); return t ? t.myRoles : []; }, [activeTeam]);
-  const can = useCallback((module: ModuleKey, level: PermLevel = 'write') => {
+  const myRoles = useCallback(() => {
     const t = activeTeam();
-    if (!t || !t.myPerms) return false;
-    const p = t.myPerms[module];
-    if (level === 'read') return p === 'read' || p === 'write';
-    return p === 'write';
+    return t ? t.myRoles : [];
   }, [activeTeam]);
-  const isStaff = useCallback(() => can('events', 'write') || can('members', 'write'), [can]);
-  const toastMsg = useCallback((m: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setState({ toast: m });
-    toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
-  }, [setState]);
-  const resetDemo = useCallback(() => { resetDemoData(); location.reload(); }, []);
+  const can = useCallback(
+    (module: ModuleKey, level: PermLevel = 'write') => canForTeam(activeTeam(), module, level),
+    [activeTeam],
+  );
+  const isStaff = useCallback(() => isStaffForTeam(activeTeam()), [activeTeam]);
+  const toastMsg = useCallback(
+    (m: string) => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      setState({ toast: m });
+      toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
+    },
+    [setState],
+  );
+  const resetDemo = useCallback(() => {
+    resetDemoData();
+    location.reload();
+  }, []);
   const setPrimaryColor = useCallback((c: string) => setState({ primaryColor: c }), [setState]);
 
   // ---------- form ----------
-  const onFormInput = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const target = e.target as HTMLInputElement;
-    const name = target.name;
-    const val = target.type === 'checkbox' ? target.checked : target.value;
-    setState((s) => ({ form: { ...s.form, [name]: val } }));
-  }, [setState]);
-  const setFormVal = useCallback((patch: Record<string, any>) => setState((s) => ({ form: { ...s.form, ...patch } })), [setState]);
+  const onFormInput = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+      const target = e.target as HTMLInputElement;
+      const name = target.name;
+      const val = target.type === 'checkbox' ? target.checked : target.value;
+      setState((s) => ({ form: { ...s.form, [name]: val } }));
+    },
+    [setState],
+  );
+  const setFormVal = useCallback(
+    (patch: Record<string, any>) => setState((s) => ({ form: { ...s.form, ...patch } })),
+    [setState],
+  );
   const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
@@ -244,103 +325,433 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ---------- data loaders ----------
+  // Loaders report failures via toast + monitoring instead of leaving the UI
+  // with a spinner or stale data. They never throw to their caller.
+  const reportLoad = useCallback(
+    (err: unknown) => reportActionError({ setState, toastMsg }, err, 'error.load'),
+    [setState, toastMsg],
+  );
   const loadNotifications = useCallback(async () => {
-    const r = await api.notifications.list(S().activeTeamId!);
-    setState({ notifications: r.items, notifUnread: r.unreadCount });
-  }, [api, setState]);
-  const afterLoginLoad = useCallback(async (teamId: string) => {
-    setState({ events: [], members: [], roles: [], news: null, finances: null, stats: null, polls: null, absences: null, myAbsences: null, notifications: null, eventsOnlyPending: false });
-    const [events, members, roles, news, notif] = await Promise.all([
-      api.events.list(teamId, 'all'), api.members.list(teamId), api.roles.list(teamId), api.news.list(teamId), api.notifications.list(teamId),
-    ]);
-    setState({ events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount });
-  }, [api, setState]);
-  const refreshEvents = useCallback(async () => { const events = await api.events.list(S().activeTeamId!, 'all'); setState({ events }); loadNotifications(); }, [api, setState, loadNotifications]);
-  const refreshMembers = useCallback(async () => { const members = await api.members.list(S().activeTeamId!); setState({ members }); }, [api, setState]);
-  const refreshRoles = useCallback(async () => { const roles = await api.roles.list(S().activeTeamId!); setState({ roles }); }, [api, setState]);
-  const refreshTeams = useCallback(async () => { const teams = await api.teams.listForCurrentUser(); setState({ teams }); }, [api, setState]);
-  const loadFinances = useCallback(async () => { const finances = await api.finances.overview(S().activeTeamId!); setState({ finances }); }, [api, setState]);
-  const loadStats = useCallback(async (range?: DateRange | null) => { const r = range !== undefined ? range : S().statsRange; const stats = await api.stats.teamOverview(S().activeTeamId!, r); setState({ stats }); }, [api, setState]);
-  const loadNews = useCallback(async () => { const news = await api.news.list(S().activeTeamId!); setState({ news }); loadNotifications(); }, [api, setState, loadNotifications]);
-  const loadPolls = useCallback(async () => { const polls = await api.polls.list(S().activeTeamId!); setState({ polls }); loadNotifications(); }, [api, setState, loadNotifications]);
-  const loadAbsences = useCallback(async () => { const [absences, myAbsences] = await Promise.all([api.absences.listForTeam(S().activeTeamId!), api.absences.listMine()]); setState({ absences, myAbsences }); }, [api, setState]);
-  const ensureRouteData = useCallback((route: Route) => {
-    if (route === 'finances' && !S().finances) loadFinances();
-    if (route === 'stats' && !S().stats) loadStats();
-    if (route === 'news' && !S().news) loadNews();
-    if (route === 'polls' && !S().polls) loadPolls();
-  }, [loadFinances, loadStats, loadNews, loadPolls]);
+    try {
+      const r = await api.notifications.list(S().activeTeamId!);
+      setState({ notifications: r.items, notifUnread: r.unreadCount });
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, reportLoad]);
+  const afterLoginLoad = useCallback(
+    async (teamId: string) => {
+      setState({
+        events: [],
+        members: [],
+        roles: [],
+        news: null,
+        finances: null,
+        stats: null,
+        polls: null,
+        absences: null,
+        myAbsences: null,
+        notifications: null,
+        eventsOnlyPending: false,
+      });
+      try {
+        const [events, members, roles, news, notif] = await Promise.all([
+          api.events.list(teamId, 'all'),
+          api.members.list(teamId),
+          api.roles.list(teamId),
+          api.news.list(teamId),
+          api.notifications.list(teamId),
+        ]);
+        setState({ events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount });
+      } catch (err) {
+        reportLoad(err);
+        setState({ error: t('error.load') });
+      }
+    },
+    [api, setState, reportLoad],
+  );
+  const refreshEvents = useCallback(async () => {
+    try {
+      const events = await api.events.list(S().activeTeamId!, 'all');
+      setState({ events });
+      loadNotifications();
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, loadNotifications, reportLoad]);
+  const refreshMembers = useCallback(async () => {
+    try {
+      const members = await api.members.list(S().activeTeamId!);
+      setState({ members });
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, reportLoad]);
+  const refreshRoles = useCallback(async () => {
+    try {
+      const roles = await api.roles.list(S().activeTeamId!);
+      setState({ roles });
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, reportLoad]);
+  const refreshTeams = useCallback(async () => {
+    try {
+      const teams = await api.teams.listForCurrentUser();
+      setState({ teams });
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, reportLoad]);
+  const loadFinances = useCallback(async () => {
+    try {
+      const finances = await api.finances.overview(S().activeTeamId!);
+      setState({ finances });
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, reportLoad]);
+  const loadStats = useCallback(
+    async (range?: DateRange | null) => {
+      try {
+        const r = range !== undefined ? range : S().statsRange;
+        const stats = await api.stats.teamOverview(S().activeTeamId!, r);
+        setState({ stats });
+      } catch (err) {
+        reportLoad(err);
+      }
+    },
+    [api, setState, reportLoad],
+  );
+  const loadNews = useCallback(async () => {
+    try {
+      const news = await api.news.list(S().activeTeamId!);
+      setState({ news });
+      loadNotifications();
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, loadNotifications, reportLoad]);
+  const loadPolls = useCallback(async () => {
+    try {
+      const polls = await api.polls.list(S().activeTeamId!);
+      setState({ polls });
+      loadNotifications();
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, loadNotifications, reportLoad]);
+  const loadAbsences = useCallback(async () => {
+    try {
+      const [absences, myAbsences] = await Promise.all([
+        api.absences.listForTeam(S().activeTeamId!),
+        api.absences.listMine(),
+      ]);
+      setState({ absences, myAbsences });
+    } catch (err) {
+      reportLoad(err);
+    }
+  }, [api, setState, reportLoad]);
+  const ensureRouteData = useCallback(
+    (route: Route) => {
+      if (route === 'finances' && !S().finances) loadFinances();
+      if (route === 'stats' && !S().stats) loadStats();
+      if (route === 'news' && !S().news) loadNews();
+      if (route === 'polls' && !S().polls) loadPolls();
+    },
+    [loadFinances, loadStats, loadNews, loadPolls],
+  );
 
   // ---------- auth ----------
-  const doLogin = useCallback(async (pid: string) => {
-    setState({ busy: 'login:' + pid, error: null });
-    try {
-      await api.auth.login(pid);
-      const user = await api.auth.currentUser();
-      const teams = await api.teams.listForCurrentUser();
-      const activeTeamId = teams[0].id;
-      setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-      await afterLoginLoad(activeTeamId);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Anmeldung fehlgeschlagen';
-      setState({ busy: null, error: msg });
-    }
-  }, [api, setState, afterLoginLoad]);
+  const doLogin = useCallback(
+    async (pid: string) => {
+      setState({ busy: 'login:' + pid, error: null });
+      try {
+        await api.auth.login(pid);
+        const user = await api.auth.currentUser();
+        const teams = await api.teams.listForCurrentUser();
+        if (!teams.length) {
+          setState({ busy: null, error: t('error.login') });
+          return;
+        }
+        const activeTeamId = teams[0].id;
+        setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+        await afterLoginLoad(activeTeamId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('error.login');
+        setState({ busy: null, error: msg });
+      }
+    },
+    [api, setState, afterLoginLoad],
+  );
   const logout = useCallback(() => {
     api.auth.logout();
-    setState({ phase: 'login', user: null, teams: [], activeTeamId: null, sheet: null, events: [], members: [], roles: [] });
+    setState({
+      phase: 'login',
+      user: null,
+      teams: [],
+      activeTeamId: null,
+      sheet: null,
+      events: [],
+      members: [],
+      roles: [],
+    });
   }, [api, setState]);
 
   // ---------- nav ----------
-  const closeSheet = useCallback(() => { const s = S().sheet; setState({ sheet: (s && s.back) ? s.back : null }); }, [setState]);
-  const go = useCallback((route: Route) => { setState({ route, sheet: null, eventsOnlyPending: false }); ensureRouteData(route); }, [setState, ensureRouteData]);
-  const goEventsPending = useCallback(() => { setState({ route: 'events', sheet: null, eventsView: 'list', eventScope: 'upcoming', eventsOnlyPending: true }); ensureRouteData('events'); }, [setState, ensureRouteData]);
-  const activePageSheet = useCallback(() => { let s = S().sheet; while (s) { if (isPageSheet(s.type)) return s; s = s.back || null; } return null; }, []);
-  const selectTeam = useCallback(async (id: string) => {
-    if (id === S().activeTeamId) { closeSheet(); return; }
-    setState({ activeTeamId: id, sheet: null, route: 'home', eventScope: 'upcoming', eventsView: 'list' });
-    await afterLoginLoad(id);
-  }, [setState, closeSheet, afterLoginLoad]);
-  const setEventsView = useCallback((v: 'list' | 'calendar' | 'absences') => { setState({ eventsView: v }); if (v === 'absences' && !S().absences) loadAbsences(); }, [setState, loadAbsences]);
-  const toggleCalAbsences = useCallback(() => { const nv = !S().calShowAbsences; setState({ calShowAbsences: nv }); if (nv && !S().absences) loadAbsences(); }, [setState, loadAbsences]);
+  const closeSheet = useCallback(() => {
+    const s = S().sheet;
+    setState({ sheet: s && s.back ? s.back : null });
+  }, [setState]);
+  const go = useCallback(
+    (route: Route) => {
+      setState({ route, sheet: null, eventsOnlyPending: false });
+      ensureRouteData(route);
+    },
+    [setState, ensureRouteData],
+  );
+  const goEventsPending = useCallback(() => {
+    setState({ route: 'events', sheet: null, eventsView: 'list', eventScope: 'upcoming', eventsOnlyPending: true });
+    ensureRouteData('events');
+  }, [setState, ensureRouteData]);
+  const activePageSheet = useCallback(() => {
+    let s = S().sheet;
+    while (s) {
+      if (isPageSheet(s.type)) return s;
+      s = s.back || null;
+    }
+    return null;
+  }, []);
+  const selectTeam = useCallback(
+    async (id: string) => {
+      if (id === S().activeTeamId) {
+        closeSheet();
+        return;
+      }
+      setState({ activeTeamId: id, sheet: null, route: 'home', eventScope: 'upcoming', eventsView: 'list' });
+      await afterLoginLoad(id);
+    },
+    [setState, closeSheet, afterLoginLoad],
+  );
+  const setEventsView = useCallback(
+    (v: 'list' | 'calendar' | 'absences') => {
+      setState({ eventsView: v });
+      if (v === 'absences' && !S().absences) loadAbsences();
+    },
+    [setState, loadAbsences],
+  );
+  const toggleCalAbsences = useCallback(() => {
+    const nv = !S().calShowAbsences;
+    setState({ calShowAbsences: nv });
+    if (nv && !S().absences) loadAbsences();
+  }, [setState, loadAbsences]);
 
   // ---------- confirm ----------
-  const askConfirm = useCallback((cfg: any) => setState((s) => ({ sheet: { type: 'confirm', cfg, back: s.sheet } })), [setState]);
+  const askConfirm = useCallback(
+    (cfg: any) => setState((s) => ({ sheet: { type: 'confirm', cfg, back: s.sheet } })),
+    [setState],
+  );
   const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);
-  const runConfirm = useCallback(async () => { const cfg = S().sheet && S().sheet!.cfg; setState({ sheet: null }); if (cfg && cfg.onConfirm) await cfg.onConfirm(); }, [setState]);
+  const runConfirm = useCallback(async () => {
+    const cfg = S().sheet && S().sheet!.cfg;
+    setState({ sheet: null });
+    if (cfg && cfg.onConfirm) await cfg.onConfirm();
+  }, [setState]);
 
   // ---------- feature hooks ----------
-  const { reloadDetail, openEventDetail, setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination, askEventAction, runEventAction, openNotifications, setNotifFilter, openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember, openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole, openTeamSwitcher, openProfile, openMore, openTeamSettings, saveTeamPhoto, saveTeamLogo, setTeamIcon, toggleReasonRole, saveTeamSettings, openCreateTeam, createTeam, openInvite, copyInvite, uploadMyPhoto, openAbsenceForm, saveAbsence, removeAbsence, openCalExport, downloadIcs, copyCalUrl, openNewsForm, saveNews, removeNews, openTxForm, saveTx, deleteTx, openPenaltyCatalog, openPenaltyForm, savePenalty, deletePenaltyDef, openPenaltyAssign, savePenaltyAssign, deleteAssignment, openContribForm, saveContrib, togglePenalty, toggleContribution, setStatsRange, openPollForm, savePoll, togglePollOption } = useFeatureActions({ api, S, setState, activeTeam, myRoles, refreshEvents, refreshMembers, refreshRoles, refreshTeams, loadAbsences, loadFinances, loadStats, loadNews, loadPolls, loadNotifications, afterLoginLoad, toastMsg, setFormVal, askConfirm });
+  const {
+    reloadDetail,
+    openEventDetail,
+    setMyStatus,
+    setStatusFor,
+    canSeeComment,
+    openComment,
+    submitComment,
+    postEventComment,
+    removeEventComment,
+    toggleNomination,
+    askEventAction,
+    runEventAction,
+    openNotifications,
+    setNotifFilter,
+    openMemberDetail,
+    openMemberForm,
+    toggleFormRole,
+    saveMember,
+    removeMember,
+    openRoles,
+    openCreateRole,
+    setRolePerm,
+    saveRole,
+    toggleMyRole,
+    openTeamSwitcher,
+    openProfile,
+    openMore,
+    openTeamSettings,
+    saveTeamPhoto,
+    saveTeamLogo,
+    setTeamIcon,
+    toggleReasonRole,
+    saveTeamSettings,
+    openCreateTeam,
+    createTeam,
+    openInvite,
+    copyInvite,
+    uploadMyPhoto,
+    openAbsenceForm,
+    saveAbsence,
+    removeAbsence,
+    openCalExport,
+    downloadIcs,
+    copyCalUrl,
+    openNewsForm,
+    saveNews,
+    removeNews,
+    openTxForm,
+    saveTx,
+    deleteTx,
+    openPenaltyCatalog,
+    openPenaltyForm,
+    savePenalty,
+    deletePenaltyDef,
+    openPenaltyAssign,
+    savePenaltyAssign,
+    deleteAssignment,
+    openContribForm,
+    saveContrib,
+    togglePenalty,
+    toggleContribution,
+    setStatsRange,
+    openPollForm,
+    savePoll,
+    togglePollOption,
+  } = useFeatureActions({
+    api,
+    S,
+    setState,
+    activeTeam,
+    myRoles,
+    refreshEvents,
+    refreshMembers,
+    refreshRoles,
+    refreshTeams,
+    loadAbsences,
+    loadFinances,
+    loadStats,
+    loadNews,
+    loadPolls,
+    loadNotifications,
+    afterLoginLoad,
+    toastMsg,
+    setFormVal,
+    askConfirm,
+  });
 
-  const openEventForm = useCallback((event: TeamEvent | null) => {
-    const f = event ? {
-      id: event.id, seriesId: event.seriesId || null, type: event.type, title: event.title, date: event.date,
-      meetT: hhmm(event.meetTime), startT: hhmm(event.startTime), endT: hhmm(event.endTime), location: event.location || '',
-      note: event.note || '', meetTimeMandatory: !!event.meetTimeMandatory, responseMode: event.responseMode || 'opt_in',
-      nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
-    } : {
-      type: 'training', title: '', date: todayStr(), meetT: '19:15', startT: '19:30', endT: '21:30', location: 'Tanzsporthalle Eilendorf',
-      note: '', meetTimeMandatory: true, responseMode: 'opt_out', nominatedRoleIds: S().roles.map((r) => r.id), recurring: false, repeatWeeks: 8,
-    };
-    setState((st) => ({ sheet: { type: 'eventForm', mode: event ? 'edit' : 'create', back: (st.sheet && st.sheet.type === 'eventDetail') ? st.sheet : null }, form: f }));
-  }, [setState]);
-  const saveEvent = useCallback(async (scope: 'single' | 'series' = 'single') => {
-    const f = S().form;
-    const sh = S().sheet!;
-    const mode = sh.mode;
-    const validation = validateEventForm(f, mode);
-    if (!validation.ok) { toastMsg(validation.message!); return; }
-    const back = sh.back;
-    setState({ busy: 'save' });
-    const payload = { type: f.type, title: f.title.trim(), date: f.date, location: f.location, note: f.note, meetTimeMandatory: f.meetTimeMandatory, responseMode: f.responseMode, meetT: f.meetT, startT: f.startT, endT: f.endT, nominatedRoleIds: f.nominatedRoleIds };
-    if (mode === 'edit') await api.events.update(f.id, payload, scope);
-    else await api.events.create(S().activeTeamId!, { ...payload, recurring: f.recurring, repeatWeeks: validation.value!.repeatWeeks, nominatedRoleIds: f.nominatedRoleIds });
-    await refreshEvents();
-    setState({ busy: null, sheet: null });
-    if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id);
-    toastMsg(mode === 'edit' ? (scope === 'series' ? 'Ganze Serie aktualisiert' : 'Termin aktualisiert') : 'Termin angelegt');
-  }, [api, setState, refreshEvents, openEventDetail, toastMsg]);
-  const toggleFormNomRole = useCallback((roleId: string) => setState((s) => { const cur = s.form.nominatedRoleIds || []; const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId); return { form: { ...s.form, nominatedRoleIds: next } }; }), [setState]);
+  const openEventForm = useCallback(
+    (event: TeamEvent | null) => {
+      const f = event
+        ? {
+            id: event.id,
+            seriesId: event.seriesId || null,
+            type: event.type,
+            title: event.title,
+            date: event.date,
+            meetT: hhmm(event.meetTime),
+            startT: hhmm(event.startTime),
+            endT: hhmm(event.endTime),
+            location: event.location || '',
+            note: event.note || '',
+            meetTimeMandatory: !!event.meetTimeMandatory,
+            responseMode: event.responseMode || 'opt_in',
+            nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id),
+            recurring: false,
+            repeatWeeks: 8,
+          }
+        : {
+            type: 'training',
+            title: '',
+            date: todayStr(),
+            meetT: '19:15',
+            startT: '19:30',
+            endT: '21:30',
+            location: 'Tanzsporthalle Eilendorf',
+            note: '',
+            meetTimeMandatory: true,
+            responseMode: 'opt_out',
+            nominatedRoleIds: S().roles.map((r) => r.id),
+            recurring: false,
+            repeatWeeks: 8,
+          };
+      setState((st) => ({
+        sheet: {
+          type: 'eventForm',
+          mode: event ? 'edit' : 'create',
+          back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
+        },
+        form: f,
+      }));
+    },
+    [setState],
+  );
+  const saveEvent = useCallback(
+    async (scope: 'single' | 'series' = 'single') => {
+      const f = S().form;
+      const sh = S().sheet!;
+      const mode = sh.mode;
+      const validation = validateEventForm(f, mode);
+      if (!validation.ok) {
+        toastMsg(validation.message!);
+        return;
+      }
+      const back = sh.back;
+      setState({ busy: 'save' });
+      const payload = {
+        type: f.type,
+        title: f.title.trim(),
+        date: f.date,
+        location: f.location,
+        note: f.note,
+        meetTimeMandatory: f.meetTimeMandatory,
+        responseMode: f.responseMode,
+        meetT: f.meetT,
+        startT: f.startT,
+        endT: f.endT,
+        nominatedRoleIds: f.nominatedRoleIds,
+      };
+      try {
+        if (mode === 'edit') await api.events.update(f.id, payload, scope);
+        else
+          await api.events.create(S().activeTeamId!, {
+            ...payload,
+            recurring: f.recurring,
+            repeatWeeks: validation.value!.repeatWeeks,
+            nominatedRoleIds: f.nominatedRoleIds,
+          });
+        await refreshEvents();
+        setState({ busy: null, sheet: null });
+        if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id);
+        toastMsg(
+          mode === 'edit'
+            ? scope === 'series'
+              ? 'Ganze Serie aktualisiert'
+              : 'Termin aktualisiert'
+            : 'Termin angelegt',
+        );
+      } catch (err) {
+        reportActionError({ setState, toastMsg }, err, 'error.save');
+      }
+    },
+    [api, setState, refreshEvents, openEventDetail, toastMsg],
+  );
+  const toggleFormNomRole = useCallback(
+    (roleId: string) =>
+      setState((s) => {
+        const cur = s.form.nominatedRoleIds || [];
+        const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId);
+        return { form: { ...s.form, nominatedRoleIds: next } };
+      }),
+    [setState],
+  );
 
   // ---------- bootstrap ----------
   useEffect(() => {
@@ -349,27 +760,121 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const providers = await api.auth.providers();
         setState({ providers, phase: 'login' });
       } catch {
-        setState({ phase: 'login', providers: [], error: 'Verbindung zum Service fehlgeschlagen' });
+        setState({ phase: 'login', providers: [], error: t('error.network') });
       }
     })();
   }, [api, setState]);
 
-  const value: AppContextValue = useMemo(() => ({
-    state, api, activeTeam, myRoles, can, isStaff, toastMsg, resetDemo, setPrimaryColor,
-    onFormInput, setFormVal, onFile, setState,
-    doLogin, logout, go, goEventsPending, closeSheet, activePageSheet, selectTeam, setEventsView, toggleCalAbsences,
-    openNotifications, setNotifFilter, loadAbsences, loadFinances, loadStats,
-    setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination,
-    askConfirm, cancelConfirm, runConfirm, askEventAction, runEventAction, openEventDetail, reloadDetail, openEventForm, saveEvent, toggleFormNomRole,
-    openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember,
-    openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole,
-    openTeamSwitcher, openProfile, openMore, openTeamSettings, saveTeamPhoto, saveTeamLogo, setTeamIcon, toggleReasonRole, saveTeamSettings, openCreateTeam, createTeam, openInvite, copyInvite, uploadMyPhoto,
-    openAbsenceForm, saveAbsence, removeAbsence,
-    openCalExport, downloadIcs, copyCalUrl,
-    openNewsForm, saveNews, removeNews,
-    openTxForm, saveTx, deleteTx, openPenaltyCatalog, openPenaltyForm, savePenalty, deletePenaltyDef, openPenaltyAssign, savePenaltyAssign, deleteAssignment, openContribForm, saveContrib, togglePenalty, toggleContribution, setStatsRange,
-    openPollForm, savePoll, togglePollOption,
-  }), [state]); // eslint-disable-line react-hooks/exhaustive-deps
+  // All actions/helpers are stable (useCallback), so the actions object is built
+  // once and never changes identity — this is what lets useAppActions consumers
+  // avoid re-rendering on state changes.
+  const actions: AppActions = useMemo(
+    () => ({
+      api,
+      activeTeam,
+      myRoles,
+      can,
+      isStaff,
+      toastMsg,
+      resetDemo,
+      setPrimaryColor,
+      onFormInput,
+      setFormVal,
+      onFile,
+      setState,
+      doLogin,
+      logout,
+      go,
+      goEventsPending,
+      closeSheet,
+      activePageSheet,
+      selectTeam,
+      setEventsView,
+      toggleCalAbsences,
+      openNotifications,
+      setNotifFilter,
+      loadAbsences,
+      loadFinances,
+      loadStats,
+      setMyStatus,
+      setStatusFor,
+      canSeeComment,
+      openComment,
+      submitComment,
+      postEventComment,
+      removeEventComment,
+      toggleNomination,
+      askConfirm,
+      cancelConfirm,
+      runConfirm,
+      askEventAction,
+      runEventAction,
+      openEventDetail,
+      reloadDetail,
+      openEventForm,
+      saveEvent,
+      toggleFormNomRole,
+      openMemberDetail,
+      openMemberForm,
+      toggleFormRole,
+      saveMember,
+      removeMember,
+      openRoles,
+      openCreateRole,
+      setRolePerm,
+      saveRole,
+      toggleMyRole,
+      openTeamSwitcher,
+      openProfile,
+      openMore,
+      openTeamSettings,
+      saveTeamPhoto,
+      saveTeamLogo,
+      setTeamIcon,
+      toggleReasonRole,
+      saveTeamSettings,
+      openCreateTeam,
+      createTeam,
+      openInvite,
+      copyInvite,
+      uploadMyPhoto,
+      openAbsenceForm,
+      saveAbsence,
+      removeAbsence,
+      openCalExport,
+      downloadIcs,
+      copyCalUrl,
+      openNewsForm,
+      saveNews,
+      removeNews,
+      openTxForm,
+      saveTx,
+      deleteTx,
+      openPenaltyCatalog,
+      openPenaltyForm,
+      savePenalty,
+      deletePenaltyDef,
+      openPenaltyAssign,
+      savePenaltyAssign,
+      deleteAssignment,
+      openContribForm,
+      saveContrib,
+      togglePenalty,
+      toggleContribution,
+      setStatsRange,
+      openPollForm,
+      savePoll,
+      togglePollOption,
+    }),
+    // All referenced actions are stable useCallback identities, so the object is
+    // intentionally built once. Listing ~90 stable deps would add no safety.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppActionsContext.Provider value={actions}>
+      <AppStateContext.Provider value={state}>{children}</AppStateContext.Provider>
+    </AppActionsContext.Provider>
+  );
 }

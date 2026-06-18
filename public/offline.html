@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Offline – Teamverwaltung</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-family: system-ui, sans-serif; background: #e4e5ec; color: #1a1c20; text-align: center; padding: 32px; }
+      h1 { font-size: 20px; margin: 0; }
+      p { font-size: 14px; color: #44474e; margin: 0; max-width: 32ch; }
+      button { margin-top: 8px; padding: 12px 24px; border: none; border-radius: 12px; background: #1565c0; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <div style="font-size: 48px">📡</div>
+    <h1>Keine Verbindung</h1>
+    <p>Die Teamverwaltung ist offline nicht erreichbar. Sobald du wieder online bist, lädt die App normal.</p>
+    <button onclick="location.reload()">Erneut versuchen</button>
+  </body>
+</html>

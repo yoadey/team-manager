@@ -1,0 +1,20 @@
+{
+  "name": "Teamverwaltung",
+  "short_name": "Teamverwaltung",
+  "description": "Verwaltung von Trainingsterminen und Spielern für einen Verein",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E4E5EC",
+  "theme_color": "#1565C0",
+  "lang": "de",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -12,4 +12,19 @@ export default defineConfig({
     port: 5173,
     host: true,
   },
+  build: {
+    // Emit source maps so Sentry can symbolicate production stack traces.
+    sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Split large, rarely-changing vendor code into its own long-lived
+        // chunks for better caching and a smaller main bundle.
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          mui: ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+          sentry: ['@sentry/react'],
+        },
+      },
+    },
+  },
 });
