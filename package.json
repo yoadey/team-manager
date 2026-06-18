@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "audit:ci": "npm audit --omit=dev --audit-level=high",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
     "prepare": "husky"
   },
   "engines": {
@@ -49,6 +50,7 @@
     "jsdom": "^29.1.1",
     "lint-staged": "^17.0.7",
     "prettier": "^3.8.4",
+    "rollup-plugin-visualizer": "^7.0.1",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.61.1",
     "vite": "^6.0.5",

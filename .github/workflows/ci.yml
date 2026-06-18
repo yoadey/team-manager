@@ -73,7 +73,32 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run build
+      - name: Enforce bundle size budget
+        run: npm run check:bundle
       - name: Report bundle size
+        if: always()
         run: |
-          echo "### Bundle size" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Bundle size (gzipped)" >> "$GITHUB_STEP_SUMMARY"
+          node -e "
+            import('fs').then(({readdirSync, readFileSync}) => {
+              import('zlib').then(({gzipSync}) => {
+                const files = readdirSync('dist/assets').filter(f => f.endsWith('.js'));
+                let total = 0;
+                for (const f of files.sort()) {
+                  const kb = (gzipSync(readFileSync('dist/assets/' + f), {level:9}).length / 1024).toFixed(1);
+                  total += parseFloat(kb);
+                  console.log(kb + ' KB\t' + f);
+                }
+                console.log(total.toFixed(1) + ' KB\tTOTAL');
+              });
+            });
+          " >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || \
           { du -h dist/assets/*.js 2>/dev/null || true; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bundle-stats
+          path: |
+            dist/stats.html
+            coverage/
+          retention-days: 7
