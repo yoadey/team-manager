@@ -73,7 +73,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
       </Field>
       {pin}
       <PrimaryButton
-        label="Veröffentlichen"
+        label={sheet.mode === 'edit' ? 'Änderungen speichern' : 'Veröffentlichen'}
         onClick={() => app.saveNews()}
         busy={app.state.busy === 'save'}
         disabled={!canSubmit}

@@ -264,7 +264,7 @@ export interface AppContextValue {
   downloadIcs: () => void;
   copyCalUrl: () => void;
   // news
-  openNewsForm: () => void;
+  openNewsForm: (n?: import('@/features/news').NewsItem) => void;
   saveNews: () => Promise<void>;
   removeNews: (id: string) => void;
   // finances
@@ -287,6 +287,7 @@ export interface AppContextValue {
   openPollForm: () => void;
   savePoll: () => Promise<void>;
   togglePollOption: (poll: Poll, optId: string) => void;
+  removePoll: (id: string) => void;
 }
 
 /** Actions + helpers, without the mutable `state`. Stable across renders. */
@@ -695,6 +696,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openPollForm,
     savePoll,
     togglePollOption,
+    removePoll,
   } = useFeatureActions({
     api,
     S,
@@ -937,6 +939,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openPollForm,
       savePoll,
       togglePollOption,
+      removePoll,
     }),
     // All referenced actions are stable useCallback identities, so the object is
     // intentionally built once. Listing ~90 stable deps would add no safety.

@@ -54,7 +54,7 @@ export function sheetMeta(
     invite: 'Einladungslink',
     teamSettings: 'Team-Einstellungen',
     absenceForm: s.mode === 'edit' ? 'Abwesenheit bearbeiten' : 'Abwesenheit eintragen',
-    newsForm: 'Neuigkeit verfassen',
+    newsForm: s.mode === 'edit' ? 'Neuigkeit bearbeiten' : 'Neuigkeit verfassen',
     txForm: s.mode === 'edit' ? 'Buchung bearbeiten' : 'Buchung erfassen',
     pollForm: 'Neue Umfrage',
     penaltyForm: s.mode === 'create' ? 'Strafe hinzufügen' : 'Strafe bearbeiten',

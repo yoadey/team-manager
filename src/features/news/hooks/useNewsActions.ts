@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
+import type { NewsItem } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
 
@@ -22,7 +23,16 @@ type NewsDeps = {
 
 export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg }: NewsDeps) {
   const openNewsForm = useCallback(
-    () => setState({ sheet: { type: 'newsForm' }, form: { title: '', body: '', pinned: false }, formErrors: {} }),
+    (n?: NewsItem) => {
+      const form = n
+        ? { id: n.id, title: n.title, body: n.body, pinned: n.pinned }
+        : { title: '', body: '', pinned: false };
+      setState({
+        sheet: { type: 'newsForm', mode: n ? 'edit' : 'create' },
+        form,
+        formErrors: {},
+      });
+    },
     [setState],
   );
 
@@ -34,10 +44,17 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
     }
     setState({ busy: 'save' });
     try {
-      await api.news.create(S().activeTeamId!, { title: f.title, body: f.body, pinned: f.pinned });
-      await loadNews();
-      setState({ busy: null, sheet: null });
-      toastMsg('News veröffentlicht');
+      if (f.id) {
+        await api.news.update(f.id, { title: f.title, body: f.body, pinned: f.pinned });
+        await loadNews();
+        setState({ busy: null, sheet: null });
+        toastMsg('News aktualisiert');
+      } else {
+        await api.news.create(S().activeTeamId!, { title: f.title, body: f.body, pinned: f.pinned });
+        await loadNews();
+        setState({ busy: null, sheet: null });
+        toastMsg('News veröffentlicht');
+      }
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }

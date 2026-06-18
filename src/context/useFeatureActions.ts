@@ -111,7 +111,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     askConfirm,
     toastMsg,
   });
-  const pollActions = usePollActions({ api, S, setState, loadPolls, toastMsg });
+  const pollActions = usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm });
 
   return {
     ...eventDetailActions,
