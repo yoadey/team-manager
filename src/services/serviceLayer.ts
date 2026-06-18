@@ -323,7 +323,7 @@ function loadDb(): DB {
 function save(db: DB) {
   try { localStorage.setItem(todayKey(), JSON.stringify(db)); } catch { /* ignore */ }
 }
-let DB = loadDb();
+const DB = loadDb();
 function persist() { save(DB); }
 function pushNotif(o: Partial<AppNotification>) {
   DB.notifications.push(Object.assign({ id: rid('ntf'), createdAt: iso(new Date()) }, o) as AppNotification);
