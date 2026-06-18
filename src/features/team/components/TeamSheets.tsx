@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens } from '@/styles/tokens';
 import { Av, Field, labelSx, PrimaryButton, SectionTitle, Sym, TextArea, TextInput } from '@/components/ui';
-import { shortName } from '@/layouts/AppShell';
+import { shortName } from '@/layouts/useCompact';
 import type { Invite } from '@/types';
 import type { SheetProps } from '@/sheets/types';
 
