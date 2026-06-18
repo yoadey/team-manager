@@ -1,0 +1,284 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { useTeamActions } from './useTeamActions';
+import type { AppState } from '@/context/AppContext';
+
+function makeState(overrides: Partial<AppState> = {}): AppState {
+  return {
+    phase: 'app',
+    user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
+    activeTeamId: 'team1',
+    sheet: null,
+    form: {},
+    formErrors: {},
+    busy: null,
+    toast: null,
+    route: 'home',
+    events: [],
+    members: [],
+    finances: null,
+    stats: null,
+    statsRange: null,
+    news: [],
+    polls: [],
+    teams: [],
+    roles: [],
+    notifUnread: 0,
+    notifications: [],
+    primaryColor: '#000',
+    ...overrides,
+  } as unknown as AppState;
+}
+
+function makeActiveTeam() {
+  return {
+    id: 'team1',
+    name: 'Test Team',
+    description: 'A test team',
+    icon: '⚽',
+    iconBg: '#000',
+    iconFg: '#fff',
+    logo: null,
+    photo: null,
+    memberCount: 5,
+    reasonVisibilityRoles: [],
+  };
+}
+
+function makeApi() {
+  return {
+    absences: {
+      listMine: vi.fn().mockResolvedValue([]),
+    },
+    teams: {
+      updateSettings: vi.fn().mockResolvedValue(undefined),
+      create: vi.fn().mockResolvedValue({ id: 'new-team', name: 'New Team' }),
+      createInvite: vi.fn().mockResolvedValue({ link: 'https://example.com/invite/abc123' }),
+    },
+    auth: {
+      setPhoto: vi.fn().mockResolvedValue(undefined),
+      currentUser: vi.fn().mockResolvedValue({ id: 'u1', name: 'Test User' }),
+    },
+    notifications: {},
+  };
+}
+
+describe('useTeamActions', () => {
+  let setState: ReturnType<typeof vi.fn>;
+  let toastMsg: ReturnType<typeof vi.fn>;
+  let refreshTeams: ReturnType<typeof vi.fn>;
+  let refreshMembers: ReturnType<typeof vi.fn>;
+  let setFormVal: ReturnType<typeof vi.fn>;
+  let afterLoginLoad: ReturnType<typeof vi.fn>;
+  let api: ReturnType<typeof makeApi>;
+  let stateRef: AppState;
+
+  beforeEach(() => {
+    stateRef = makeState();
+    setState = vi.fn((patch) => {
+      if (typeof patch === 'function') {
+        const result = patch(stateRef);
+        stateRef = { ...stateRef, ...result };
+      } else {
+        stateRef = { ...stateRef, ...patch };
+      }
+    });
+    toastMsg = vi.fn();
+    refreshTeams = vi.fn().mockResolvedValue(undefined);
+    refreshMembers = vi.fn().mockResolvedValue(undefined);
+    setFormVal = vi.fn();
+    afterLoginLoad = vi.fn().mockResolvedValue(undefined);
+    api = makeApi();
+  });
+
+  function renderActions() {
+    return renderHook(() =>
+      useTeamActions({
+        api: api as never,
+        S: () => stateRef,
+        setState,
+        activeTeam: () => makeActiveTeam() as never,
+        refreshTeams,
+        refreshMembers,
+        setFormVal,
+        afterLoginLoad,
+        toastMsg,
+      }),
+    );
+  }
+
+  it('openTeamSwitcher sets teams sheet', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTeamSwitcher();
+    });
+    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'teams' } });
+  });
+
+  it('openProfile sets profile sheet and loads absences', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      result.current.openProfile();
+    });
+    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'profile' } });
+    expect(api.absences.listMine).toHaveBeenCalled();
+  });
+
+  it('openMore sets more sheet', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openMore();
+    });
+    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'more' } });
+  });
+
+  it('openTeamSettings sets teamSettings sheet with team form data', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTeamSettings();
+    });
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: { type: 'teamSettings' },
+        form: expect.objectContaining({ name: 'Test Team', icon: '⚽' }),
+      }),
+    );
+  });
+
+  it('saveTeamPhoto calls updateSettings and shows toast', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamPhoto('data:image/png;base64,abc');
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { photo: 'data:image/png;base64,abc' });
+    expect(toastMsg).toHaveBeenCalledWith('Gruppenbild aktualisiert');
+  });
+
+  it('saveTeamLogo calls updateSettings and shows toast', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamLogo('data:image/png;base64,logo');
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { logo: 'data:image/png;base64,logo' });
+    expect(toastMsg).toHaveBeenCalledWith('Logo aktualisiert');
+  });
+
+  it('setTeamIcon calls setFormVal and updateSettings', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      result.current.setTeamIcon('🏆');
+    });
+    expect(setFormVal).toHaveBeenCalledWith({ icon: '🏆', logo: null });
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { icon: '🏆', logo: null });
+  });
+
+  it('toggleReasonRole adds role to reasonRoles', () => {
+    stateRef = makeState({ form: { reasonRoles: ['r1'] } });
+    const { result } = renderActions();
+    act(() => {
+      result.current.toggleReasonRole('r2');
+    });
+    expect(stateRef.form.reasonRoles).toContain('r2');
+    expect(stateRef.form.reasonRoles).toContain('r1');
+  });
+
+  it('toggleReasonRole removes role from reasonRoles', () => {
+    stateRef = makeState({ form: { reasonRoles: ['r1', 'r2'] } });
+    const { result } = renderActions();
+    act(() => {
+      result.current.toggleReasonRole('r2');
+    });
+    expect(stateRef.form.reasonRoles).not.toContain('r2');
+  });
+
+  it('saveTeamSettings shows toast when name is empty', async () => {
+    stateRef = makeState({ form: { name: '' } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamSettings();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben');
+    expect(api.teams.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('saveTeamSettings updates settings and shows toast', async () => {
+    stateRef = makeState({ form: { name: 'Updated Team', description: 'Desc', reasonRoles: [] } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamSettings();
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Updated Team' }));
+    expect(toastMsg).toHaveBeenCalledWith('Team-Einstellungen gespeichert');
+  });
+
+  it('openCreateTeam sets createTeam sheet', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openCreateTeam();
+    });
+    expect(setState).toHaveBeenCalledWith({
+      sheet: { type: 'createTeam' },
+      form: { name: '', icon: '⭐', photo: null },
+    });
+  });
+
+  it('createTeam shows toast when name is empty', async () => {
+    stateRef = makeState({ form: { name: '' } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.createTeam();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Team-Name fehlt.');
+    expect(api.teams.create).not.toHaveBeenCalled();
+  });
+
+  it('createTeam creates team and shows toast', async () => {
+    stateRef = makeState({ form: { name: 'My New Team', icon: '⭐', photo: null } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.createTeam();
+    });
+    expect(api.teams.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'My New Team' }));
+    expect(toastMsg).toHaveBeenCalledWith('Team angelegt – du bist Admin');
+    expect(afterLoginLoad).toHaveBeenCalledWith('new-team');
+  });
+
+  it('openInvite sets invite sheet and loads invite link', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openInvite();
+    });
+    expect(api.teams.createInvite).toHaveBeenCalledWith('team1');
+    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'invite', invite: null } });
+  });
+
+  it('copyInvite does nothing when no invite in sheet', () => {
+    stateRef = makeState({ sheet: { type: 'invite', invite: null } as never });
+    const { result } = renderActions();
+    act(() => {
+      result.current.copyInvite();
+    });
+    expect(toastMsg).not.toHaveBeenCalled();
+  });
+
+  it('copyInvite shows toast when invite link exists', () => {
+    stateRef = makeState({ sheet: { type: 'invite', invite: { link: 'https://example.com/abc' } } as never });
+    Object.assign(navigator, { clipboard: { writeText: vi.fn() } });
+    const { result } = renderActions();
+    act(() => {
+      result.current.copyInvite();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Link kopiert');
+  });
+
+  it('uploadMyPhoto updates user photo and shows toast', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.uploadMyPhoto('data:image/png;base64,photo');
+    });
+    expect(api.auth.setPhoto).toHaveBeenCalledWith('data:image/png;base64,photo');
+    expect(refreshTeams).toHaveBeenCalled();
+    expect(refreshMembers).toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalledWith('Profilfoto aktualisiert');
+  });
+});
