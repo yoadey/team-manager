@@ -105,14 +105,14 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
       >
         {isPast || cancelled ? null : <Chip label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 600 }}>
-          <Box component="span" sx={{ color: '#2E7D32' }}>
+          <Box component="span" aria-label={`${e.summary.yes} zugesagt`} sx={{ color: '#2E7D32' }}>
             {e.summary.yes}✓
           </Box>
-          <Box component="span" sx={{ color: '#BA1A1A' }}>
+          <Box component="span" aria-label={`${e.summary.no} abgesagt`} sx={{ color: '#BA1A1A' }}>
             {e.summary.no}✕
           </Box>
           {e.summary.maybe ? (
-            <Box component="span" sx={{ color: '#9A5B00' }}>
+            <Box component="span" aria-label={`${e.summary.maybe} vielleicht`} sx={{ color: '#9A5B00' }}>
               {e.summary.maybe}?
             </Box>
           ) : null}

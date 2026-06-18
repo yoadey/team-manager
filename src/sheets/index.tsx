@@ -30,24 +30,57 @@ export function renderSheet(app: AppContextValue, sheet: SheetState) {
   return Comp ? <Comp app={app} sheet={sheet} /> : null;
 }
 
-export function sheetMeta(app: AppContextValue, sheet: SheetState): { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } {
+export function sheetMeta(
+  app: AppContextValue,
+  sheet: SheetState,
+): { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } {
   const s = sheet;
   const titles: Record<string, string> = {
-    teams: 'Team wechseln', profile: 'Konto & Rollen', more: 'Mehr', notifications: 'Benachrichtigungen',
-    calExport: 'Kalender-Export', eventDetail: 'Termin', comment: 'Kommentar', confirm: 'Bestätigen',
-    seriesAction: 'Serientermin', eventForm: s.mode === 'edit' ? 'Termin bearbeiten' : 'Neuer Termin',
-    memberDetail: 'Mitglied', memberForm: 'Profil bearbeiten', roles: 'Rollen & Rechte', roleForm: 'Eigene Rolle',
-    createTeam: 'Neues Team', invite: 'Einladungslink', teamSettings: 'Team-Einstellungen',
+    teams: 'Team wechseln',
+    profile: 'Konto & Rollen',
+    more: 'Mehr',
+    notifications: 'Benachrichtigungen',
+    calExport: 'Kalender-Export',
+    eventDetail: 'Termin',
+    comment: 'Kommentar',
+    confirm: 'Bestätigen',
+    seriesAction: 'Serientermin',
+    eventForm: s.mode === 'edit' ? 'Termin bearbeiten' : 'Neuer Termin',
+    memberDetail: 'Mitglied',
+    memberForm: 'Profil bearbeiten',
+    roles: 'Rollen & Rechte',
+    roleForm: 'Eigene Rolle',
+    createTeam: 'Neues Team',
+    invite: 'Einladungslink',
+    teamSettings: 'Team-Einstellungen',
     absenceForm: s.mode === 'edit' ? 'Abwesenheit bearbeiten' : 'Abwesenheit eintragen',
-    newsForm: 'Neuigkeit verfassen', txForm: s.mode === 'edit' ? 'Buchung bearbeiten' : 'Buchung erfassen',
-    pollForm: 'Neue Umfrage', penaltyForm: s.mode === 'create' ? 'Strafe hinzufügen' : 'Strafe bearbeiten',
-    penaltyCatalog: 'Strafenkatalog', penaltyAssign: 'Strafe erfassen', contribForm: 'Beitrag bearbeiten',
+    newsForm: 'Neuigkeit verfassen',
+    txForm: s.mode === 'edit' ? 'Buchung bearbeiten' : 'Buchung erfassen',
+    pollForm: 'Neue Umfrage',
+    penaltyForm: s.mode === 'create' ? 'Strafe hinzufügen' : 'Strafe bearbeiten',
+    penaltyCatalog: 'Strafenkatalog',
+    penaltyAssign: 'Strafe erfassen',
+    contribForm: 'Beitrag bearbeiten',
   };
-  const meta: { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } = { title: titles[s.type] || '', hasBack: false };
+  const meta: { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } = {
+    title: titles[s.type] || '',
+    hasBack: false,
+  };
   if (s.type === 'eventDetail' && s.event) meta.title = s.event.title;
-  if (s.type === 'roleForm') { meta.hasBack = true; meta.onBack = () => app.openRoles(); }
-  if (s.type === 'comment' && s.eventId) { meta.hasBack = true; meta.onBack = () => app.openEventDetail(s.eventId); }
-  if (s.type === 'penaltyForm' && s.back && s.back.type === 'penaltyCatalog') { meta.hasBack = true; meta.onBack = () => app.openPenaltyCatalog(); }
-  if (s.type === 'seriesAction') meta.title = s.action === 'delete' ? 'Termin löschen' : (s.action === 'reactivate' ? 'Termin aktivieren' : 'Termin absagen');
+  if (s.type === 'roleForm') {
+    meta.hasBack = true;
+    meta.onBack = () => app.openRoles();
+  }
+  if (s.type === 'comment' && s.eventId) {
+    meta.hasBack = true;
+    meta.onBack = () => app.openEventDetail(s.eventId!);
+  }
+  if (s.type === 'penaltyForm' && s.back && s.back.type === 'penaltyCatalog') {
+    meta.hasBack = true;
+    meta.onBack = () => app.openPenaltyCatalog();
+  }
+  if (s.type === 'seriesAction')
+    meta.title =
+      s.action === 'delete' ? 'Termin löschen' : s.action === 'reactivate' ? 'Termin aktivieren' : 'Termin absagen';
   return meta;
 }

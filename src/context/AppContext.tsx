@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
 import type {
   AttendanceStatus,
   DateRange,
+  MemberAttendanceStats,
   ModuleKey,
   PermLevel,
   Provider,
@@ -13,7 +13,7 @@ import type {
   User,
 } from '@/types';
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
-import type { FinanceOverview } from '@/features/finances';
+import type { Contribution, FinanceOverview, Penalty, Transaction } from '@/features/finances';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
 import type { AppNotification } from '@/features/notifications';
@@ -22,15 +22,67 @@ import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '@/styles/tokens';
 import { validateEventForm } from '@/utils/validation';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
+import { setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
+export type SheetType =
+  | 'teams'
+  | 'profile'
+  | 'more'
+  | 'teamSettings'
+  | 'createTeam'
+  | 'invite'
+  | 'notifications'
+  | 'calExport'
+  | 'eventDetail'
+  | 'eventForm'
+  | 'seriesAction'
+  | 'comment'
+  | 'absenceForm'
+  | 'memberDetail'
+  | 'memberForm'
+  | 'newsForm'
+  | 'txForm'
+  | 'penaltyCatalog'
+  | 'penaltyAssign'
+  | 'penaltyForm'
+  | 'contribForm'
+  | 'pollForm'
+  | 'roles'
+  | 'roleForm'
+  | 'confirm';
+
+export interface ConfirmConfig {
+  title?: string;
+  message?: string;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm?: () => void | Promise<void>;
+}
+
 export interface SheetState {
-  type: string;
+  type: SheetType;
   back?: SheetState | null;
-  [k: string]: any;
+  // Typed payload properties shared across sheet variants (all optional)
+  cfg?: ConfirmConfig;
+  mode?: 'edit' | 'create';
+  self?: boolean;
+  action?: 'cancel' | 'delete' | 'reactivate';
+  event?: TeamEvent | null;
+  eventId?: string;
+  rows?: AttendanceRow[];
+  comments?: import('@/features/events').EventComment[];
+  membershipId?: string;
+  member?: Member | null;
+  stats?: MemberAttendanceStats | null;
+  userId?: string;
+  name?: string;
+  status?: AttendanceStatus;
+  invite?: import('@/types').Invite | null;
+  copied?: boolean;
 }
 
 export interface AppState {
@@ -63,6 +115,7 @@ export interface AppState {
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
   contribMonth: string | null;
   sheet: SheetState | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   form: Record<string, any>;
   toast: string | null;
   error: string | null;
@@ -119,6 +172,7 @@ export interface AppContextValue {
   setPrimaryColor: (c: string) => void;
   // form
   onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setFormVal: (patch: Record<string, any>) => void;
   onFile: (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => void;
   setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -211,17 +265,17 @@ export interface AppContextValue {
   saveNews: () => Promise<void>;
   removeNews: (id: string) => void;
   // finances
-  openTxForm: (tx?: any) => void;
+  openTxForm: (tx?: Transaction) => void;
   saveTx: () => Promise<void>;
   deleteTx: (id: string) => Promise<void>;
   openPenaltyCatalog: () => void;
-  openPenaltyForm: (p?: any) => void;
+  openPenaltyForm: (p?: Penalty) => void;
   savePenalty: () => Promise<void>;
   deletePenaltyDef: (id: string) => void;
   openPenaltyAssign: () => void;
   savePenaltyAssign: () => Promise<void>;
   deleteAssignment: (id: string) => Promise<void>;
-  openContribForm: (c: any) => void;
+  openContribForm: (c: Contribution) => void;
   saveContrib: () => Promise<void>;
   togglePenalty: (id: string) => Promise<void>;
   toggleContribution: (id: string) => Promise<void>;
@@ -313,6 +367,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [setState],
   );
   const setFormVal = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (patch: Record<string, any>) => setState((s) => ({ form: { ...s.form, ...patch } })),
     [setState],
   );
@@ -362,10 +417,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           api.news.list(teamId),
           api.notifications.list(teamId),
         ]);
-        setState({ events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount });
+        // Discard results if the user switched to a different team while loading
+        setState((s) => {
+          if (s.activeTeamId !== teamId) return {};
+          return { events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount };
+        });
       } catch (err) {
-        reportLoad(err);
-        setState({ error: t('error.load') });
+        if (S().activeTeamId === teamId) {
+          reportLoad(err);
+          setState({ error: t('error.load') });
+        }
       }
     },
     [api, setState, reportLoad],
@@ -476,6 +537,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         const activeTeamId = teams[0].id;
         setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+        setSentryUser(user);
         await afterLoginLoad(activeTeamId);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
@@ -486,6 +548,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const logout = useCallback(() => {
     api.auth.logout();
+    setSentryUser(null);
     setState({
       phase: 'login',
       user: null,
@@ -548,7 +611,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- confirm ----------
   const askConfirm = useCallback(
-    (cfg: any) => setState((s) => ({ sheet: { type: 'confirm', cfg, back: s.sheet } })),
+    (cfg: ConfirmConfig) => setState((s) => ({ sheet: { type: 'confirm', cfg, back: s.sheet } })),
     [setState],
   );
   const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);

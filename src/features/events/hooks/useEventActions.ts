@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { AttendanceRow, TeamEvent } from '../types';
@@ -16,6 +15,7 @@ type EventFeatureDeps = {
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
   refreshEvents: () => Promise<void>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setFormVal: (patch: Record<string, any>) => void;
   toastMsg: (m: string) => void;
 };
@@ -121,9 +121,12 @@ export function useEventDetailActions({
     const s = S().sheet!;
     setState({ busy: 'save' });
     try {
-      await api.attendance.set(s.eventId, s.userId, { status: s.status, reason: S().form.commentText || '' });
+      await api.attendance.set(s.eventId!, s.userId!, {
+        status: s.status!,
+        reason: (S().form.commentText as string) || '',
+      });
       await refreshEvents();
-      const eid = s.eventId;
+      const eid = s.eventId!;
       setState({ busy: null, sheet: null });
       openEventDetail(eid);
       toastMsg('Kommentar gespeichert');

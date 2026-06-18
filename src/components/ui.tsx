@@ -281,11 +281,52 @@ export const inputSx: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({
+  label,
+  children,
+  required,
+  error,
+  errorText,
+  helperText,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  error?: boolean;
+  errorText?: string;
+  helperText?: string;
+}) {
+  const errorId = errorText ? `field-err-${label.replace(/\s+/g, '-').toLowerCase()}` : undefined;
   return (
     <Box component="label" sx={{ display: 'block' }}>
-      <Box sx={labelSx}>{label}</Box>
-      {children}
+      <Box sx={labelSx}>
+        {label}
+        {required ? (
+          <Box component="span" aria-hidden="true" sx={{ color: '#BA1A1A', ml: '2px' }}>
+            *
+          </Box>
+        ) : null}
+      </Box>
+      {React.isValidElement(children)
+        ? React.cloneElement(children as React.ReactElement<Record<string, unknown>>, {
+            'aria-required': required ? 'true' : undefined,
+            'aria-invalid': error ? 'true' : undefined,
+            'aria-describedby': errorId,
+            style: error
+              ? {
+                  ...(children as React.ReactElement<{ style?: React.CSSProperties }>).props.style,
+                  borderColor: '#BA1A1A',
+                }
+              : (children as React.ReactElement<{ style?: React.CSSProperties }>).props.style,
+          })
+        : children}
+      {errorId && errorText ? (
+        <Box id={errorId} role="alert" sx={{ fontSize: '12px', color: '#BA1A1A', mt: '4px' }}>
+          {errorText}
+        </Box>
+      ) : helperText ? (
+        <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '4px' }}>{helperText}</Box>
+      ) : null}
     </Box>
   );
 }
