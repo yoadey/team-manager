@@ -7,8 +7,8 @@ import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
-import { useCompact } from './useCompact';
-export { COMPACT_BP, useCompact } from './useCompact';
+import { useCompact, shortName } from './useCompact';
+export { COMPACT_BP, useCompact, shortName } from './useCompact';
 
 interface NavDef { key: string; label: string; icon: string; badge?: number; gate?: () => boolean; }
 
@@ -174,11 +174,7 @@ export function Shell() {
   );
 }
 
-export function shortName(name: string) {
-  return name.replace(' TSC Schwarz-Gelb Aachen', '');
-}
-
-interface PM { title: string; subtitle: string; showPrimaryAction: boolean; primaryActionLabel: string; primaryActionIcon: string; primaryAction: () => void; }
+interface PM {title: string; subtitle: string; showPrimaryAction: boolean; primaryActionLabel: string; primaryActionIcon: string; primaryAction: () => void; }
 function pageMeta(app: ReturnType<typeof useApp>): PM {
   const { state } = app;
   const pageSheet = app.activePageSheet();
