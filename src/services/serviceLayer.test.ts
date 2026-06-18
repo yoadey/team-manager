@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { todayLocalDate } from '../utils/date';
+import { todayLocalDate } from '@/utils/date';
 
 /**
  * The service layer keeps an in-memory `DB` singleton that is seeded once at

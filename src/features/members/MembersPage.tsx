@@ -1,10 +1,10 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../context/AppContext';
-import { buildTokens, NEUTRAL } from '../styles/tokens';
-import { Av, Chip, Sym } from '../components/ui';
+import { useApp } from '@/context/AppContext';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
+import { Av, Chip, Sym } from '@/components/ui';
 
-export function Members() {
+export function MembersPage() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);

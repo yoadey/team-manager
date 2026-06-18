@@ -1,8 +1,8 @@
 import { useCallback } from 'react';
-import type { TeamForUser } from '../../../types';
-import type { AppState } from '../../../context/AppContext';
-import { hhmm } from '../../../styles/tokens';
-import { combineDateAndTimeLocal } from '../../../utils/date';
+import type { TeamForUser } from '@/types';
+import type { AppState } from '@/context/AppContext';
+import { hhmm } from '@/styles/tokens';
+import { combineDateAndTimeLocal } from '@/utils/date';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 

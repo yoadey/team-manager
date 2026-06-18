@@ -1,55 +1,33 @@
-import type { AppContextValue, SheetState } from '../context/AppContext';
+import type { AppContextValue, SheetState } from '@/context/AppContext';
 export type { SheetProps } from './types';
-import {
-  TeamsSheet, ProfileSheet, MoreSheet,
-} from '../features/team/components/NavSheets';
-import { NotificationsSheet } from '../features/notifications/components/NotificationsSheet';
-import { CalExportSheet } from '../features/events/components/CalExportSheet';
+import { eventSheetMap } from '@/features/events';
+import { financeSheetMap } from '@/features/finances';
+import { memberSheetMap } from '@/features/members';
+import { newsSheetMap } from '@/features/news';
+import { notificationsSheetMap } from '@/features/notifications';
+import { pollSheetMap } from '@/features/polls';
+import { teamSheetMap } from '@/features/team';
 import { ConfirmSheet, SeriesActionSheet, CommentSheet } from './DialogSheets';
-import { EventDetailSheet } from '../features/events/components/EventDetailSheet';
-import { EventFormSheet } from '../features/events/components/EventFormSheet';
-import { MemberDetailSheet, MemberFormSheet } from '../features/members/components/MemberSheets';
-import { RolesSheet, RoleFormSheet } from '../features/team/components/RoleSheets';
-import { CreateTeamSheet, InviteSheet, TeamSettingsSheet } from '../features/team/components/TeamSheets';
-import { AbsenceFormSheet } from '../features/events/components/AbsenceFormSheet';
-import { NewsFormSheet } from '../features/news/components/NewsFormSheet';
-import { PollFormSheet } from '../features/polls/components/PollFormSheet';
-import { TxFormSheet } from '../features/finances/components/TxFormSheet';
-import { PenaltyCatalogSheet } from '../features/finances/components/PenaltyCatalogSheet';
-import { PenaltyFormSheet } from '../features/finances/components/PenaltyFormSheet';
-import { PenaltyAssignSheet } from '../features/finances/components/PenaltyAssignSheet';
-import { ContribFormSheet } from '../features/finances/components/ContribFormSheet';
+import type { SheetProps } from './types';
+
+type SheetComponent = React.ComponentType<SheetProps>;
+
+const sheetRegistry: Record<string, SheetComponent> = {
+  ...teamSheetMap,
+  ...notificationsSheetMap,
+  ...eventSheetMap,
+  ...memberSheetMap,
+  ...newsSheetMap,
+  ...pollSheetMap,
+  ...financeSheetMap,
+  confirm: ConfirmSheet,
+  seriesAction: SeriesActionSheet,
+  comment: CommentSheet,
+};
 
 export function renderSheet(app: AppContextValue, sheet: SheetState) {
-  const p = { app, sheet };
-  switch (sheet.type) {
-    case 'teams': return <TeamsSheet {...p} />;
-    case 'profile': return <ProfileSheet {...p} />;
-    case 'more': return <MoreSheet {...p} />;
-    case 'notifications': return <NotificationsSheet {...p} />;
-    case 'calExport': return <CalExportSheet {...p} />;
-    case 'confirm': return <ConfirmSheet {...p} />;
-    case 'seriesAction': return <SeriesActionSheet {...p} />;
-    case 'comment': return <CommentSheet {...p} />;
-    case 'eventDetail': return <EventDetailSheet {...p} />;
-    case 'eventForm': return <EventFormSheet {...p} />;
-    case 'memberDetail': return <MemberDetailSheet {...p} />;
-    case 'memberForm': return <MemberFormSheet {...p} />;
-    case 'roles': return <RolesSheet {...p} />;
-    case 'roleForm': return <RoleFormSheet {...p} />;
-    case 'createTeam': return <CreateTeamSheet {...p} />;
-    case 'invite': return <InviteSheet {...p} />;
-    case 'teamSettings': return <TeamSettingsSheet {...p} />;
-    case 'absenceForm': return <AbsenceFormSheet {...p} />;
-    case 'newsForm': return <NewsFormSheet {...p} />;
-    case 'pollForm': return <PollFormSheet {...p} />;
-    case 'txForm': return <TxFormSheet {...p} />;
-    case 'penaltyCatalog': return <PenaltyCatalogSheet {...p} />;
-    case 'penaltyForm': return <PenaltyFormSheet {...p} />;
-    case 'penaltyAssign': return <PenaltyAssignSheet {...p} />;
-    case 'contribForm': return <ContribFormSheet {...p} />;
-    default: return null;
-  }
+  const Comp = sheetRegistry[sheet.type];
+  return Comp ? <Comp app={app} sheet={sheet} /> : null;
 }
 
 export function sheetMeta(app: AppContextValue, sheet: SheetState): { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } {

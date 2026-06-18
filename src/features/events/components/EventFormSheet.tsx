@@ -1,9 +1,9 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens, typeMeta } from '../../../styles/tokens';
-import { Field, labelSx, PrimaryButton, Sym, TextArea, TextInput } from '../../../components/ui';
-import type { Role } from '../../../types';
-import type { SheetProps } from '../../../sheets/types';
+import { buildTokens, typeMeta } from '@/styles/tokens';
+import { Field, labelSx, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
+import type { Role } from '@/types';
+import type { SheetProps } from '@/sheets/types';
 
 export function EventFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;

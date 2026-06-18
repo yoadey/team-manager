@@ -1,8 +1,8 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import type { SheetProps } from '../../../sheets/types';
-import { buildTokens } from '../../../styles/tokens';
-import { Sym, PrimaryButton } from '../../../components/ui';
+import type { SheetProps } from '@/sheets/types';
+import { buildTokens } from '@/styles/tokens';
+import { Sym, PrimaryButton } from '@/components/ui';
 
 export function CalExportSheet({ app, sheet }: SheetProps) {
   const { state } = app;

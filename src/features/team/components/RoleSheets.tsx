@@ -1,10 +1,10 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '../../../styles/tokens';
-import { Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '../../../components/ui';
-import { MODULE_LABELS } from '../../../services/serviceLayer';
-import type { ModuleKey, PermLevel } from '../../../types';
-import type { SheetProps } from '../../../sheets/types';
+import { buildTokens } from '@/styles/tokens';
+import { Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
+import { MODULE_LABELS } from '@/services/serviceLayer';
+import type { ModuleKey, PermLevel } from '@/types';
+import type { SheetProps } from '@/sheets/types';
 
 export function RolesSheet({ app, sheet }: SheetProps) {
   void sheet;

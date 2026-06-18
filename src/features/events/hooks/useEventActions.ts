@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback } from 'react';
-import type { api as defaultApi } from '../../../services/serviceLayer';
-import type { AttendanceRow, AttendanceStatus, ModuleKey, PermLevel, Role, TeamEvent, TeamForUser, User } from '../../../types';
-import type { AppState } from '../../../context/AppContext';
+import type { api as defaultApi } from '@/services/serviceLayer';
+import type { AttendanceRow, TeamEvent } from '../types';
+import type { AttendanceStatus, ModuleKey, PermLevel, Role, TeamForUser, User } from '@/types';
+import type { AppState } from '@/context/AppContext';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 

@@ -1,11 +1,11 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp } from '../../../context/AppContext';
-import { useCompact } from '../../../layouts/AppShell';
-import { buildTokens, hhmm, typeMeta } from '../../../styles/tokens';
-import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '../../../utils/date';
-import { Sym, Card } from '../../../components/ui';
+import { useApp } from '@/context/AppContext';
+import { useCompact } from '@/layouts/AppShell';
+import { buildTokens, hhmm, typeMeta } from '@/styles/tokens';
+import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
+import { Sym, Card } from '@/components/ui';
 
 export function EventCalendar() {
   const app = useApp();

@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
-import { buildTokens } from '../../../styles/tokens';
-import { Field, PrimaryButton, TextInput } from '../../../components/ui';
-import type { SheetProps } from '../../../sheets/types';
+import { buildTokens } from '@/styles/tokens';
+import { Field, PrimaryButton, TextInput } from '@/components/ui';
+import type { SheetProps } from '@/sheets/types';
 
 export function ContribFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;

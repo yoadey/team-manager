@@ -1,8 +1,8 @@
 import Box from '@mui/material/Box';
-import { useApp } from '../context/AppContext';
-import { NEUTRAL } from '../styles/tokens';
-import { Login } from '../features/auth/components/Login';
-import { Shell } from '../layouts/AppShell';
+import { useApp } from '@/context/AppContext';
+import { NEUTRAL } from '@/styles/tokens';
+import { Login } from '@/features/auth';
+import { Shell } from '@/layouts/AppShell';
 import { SheetHost } from './SheetHost';
 import { Toast } from './Toast';
 

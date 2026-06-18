@@ -8,42 +8,14 @@
 // =============================================================================
 
 import { mapAttendanceDtoToRow, mapEventDtoToTeamEvent, mapMemberDtoToMember } from './mappers';
-import type {
-  AppNotification,
-  Absence,
-  AttendanceDto,
-  AttendanceRow,
-  AttendanceStatus,
-  Contribution,
-  DateRange,
-  EventComment,
-  EventDto,
-  EventType,
-  FinanceOverview,
-  Invite,
-  Member,
-  MemberDto,
-  Membership,
-  ModuleKey,
-  NewsItem,
-  NotificationsResult,
-  Penalty,
-  PenaltyAssignment,
-  Permissions,
-  Poll,
-  Provider,
-  ReasonVisibility,
-  ResponseMode,
-  Role,
-  RoleDto,
-  StatsOverview,
-  Team,
-  TeamEvent,
-  TeamForUser,
-  Transaction,
-  User,
-} from '../types';
-import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '../utils/date';
+import type { AttendanceStatus, DateRange, EventType, Invite, Membership, ModuleKey, Permissions, Provider, ReasonVisibility, Role, RoleDto, StatsOverview, Team, TeamForUser, User } from '@/types';
+import type { Absence, AttendanceDto, AttendanceRow, EventComment, EventDto, ResponseMode, TeamEvent } from '@/features/events';
+import type { Contribution, FinanceOverview, Penalty, PenaltyAssignment, Transaction } from '@/features/finances';
+import type { Member, MemberDto } from '@/features/members';
+import type { NewsItem } from '@/features/news';
+import type { AppNotification, NotificationsResult } from '@/features/notifications';
+import type { Poll } from '@/features/polls';
+import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 
 const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
 const delay = (min = 120, max = 320) =>

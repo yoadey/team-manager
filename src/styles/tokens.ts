@@ -4,8 +4,8 @@
 // handoff (section 8, Design-Tokens) so the MUI build matches pixel for pixel.
 // =============================================================================
 
-import type { AttendanceStatus, EventType } from '../types';
-import { parseDateOnlyLocal, todayLocalDate } from '../utils/date';
+import type { AttendanceStatus, EventType } from '@/types';
+import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 
 export interface ThemePreset {
   primary: string;

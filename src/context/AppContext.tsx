@@ -1,23 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { api as defaultApi, resetDemoData } from '../services/serviceLayer';
-import type {
-  AppNotification, Absence, AttendanceRow, AttendanceStatus, DateRange, EventComment,
-  FinanceOverview, Invite, Member, ModuleKey, NewsItem, PermLevel, Poll, Provider, Role,
-  StatsOverview, TeamEvent, TeamForUser, User,
-} from '../types';
-import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '../styles/tokens';
-import { validateEventForm } from '../utils/validation';
-import { useEventActionFeatures, useEventDetailActions } from '../features/events/hooks/useEventActions';
-import { useAbsenceActions } from '../features/events/hooks/useAbsenceActions';
-import { useCalExportActions } from '../features/events/hooks/useCalExportActions';
-import { useFinanceActions } from '../features/finances/hooks/useFinanceActions';
-import { useMemberActions } from '../features/members/hooks/useMemberActions';
-import { useNewsActions } from '../features/news/hooks/useNewsActions';
-import { useNotificationActions } from '../features/notifications/hooks/useNotificationActions';
-import { usePollActions } from '../features/polls/hooks/usePollActions';
-import { useRoleActions } from '../features/team/hooks/useRoleActions';
-import { useTeamActions } from '../features/team/hooks/useTeamActions';
+import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
+import type { AttendanceStatus, DateRange, Invite, ModuleKey, PermLevel, Provider, Role, StatsOverview, TeamForUser, User } from '@/types';
+import type { Absence, AttendanceRow, EventComment, TeamEvent } from '@/features/events';
+import type { FinanceOverview } from '@/features/finances';
+import type { Member } from '@/features/members';
+import type { NewsItem } from '@/features/news';
+import type { AppNotification } from '@/features/notifications';
+import type { Poll } from '@/features/polls';
+import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '@/styles/tokens';
+import { validateEventForm } from '@/utils/validation';
+import { useFeatureActions } from './useFeatureActions';
 
 
 export type Phase = 'loading' | 'login' | 'app';
@@ -310,9 +303,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);
   const runConfirm = useCallback(async () => { const cfg = S().sheet && S().sheet!.cfg; setState({ sheet: null }); if (cfg && cfg.onConfirm) await cfg.onConfirm(); }, [setState]);
 
-  // ---------- event hooks ----------
-  const { reloadDetail, openEventDetail, setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination } = useEventDetailActions({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg });
-  const { askEventAction, runEventAction } = useEventActionFeatures({ api, S, setState, activeTeam, myRoles, refreshEvents, setFormVal, toastMsg, askConfirm, openEventDetail });
+  // ---------- feature hooks ----------
+  const { reloadDetail, openEventDetail, setMyStatus, setStatusFor, canSeeComment, openComment, submitComment, postEventComment, removeEventComment, toggleNomination, askEventAction, runEventAction, openNotifications, setNotifFilter, openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember, openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole, openTeamSwitcher, openProfile, openMore, openTeamSettings, saveTeamPhoto, saveTeamLogo, setTeamIcon, toggleReasonRole, saveTeamSettings, openCreateTeam, createTeam, openInvite, copyInvite, uploadMyPhoto, openAbsenceForm, saveAbsence, removeAbsence, openCalExport, downloadIcs, copyCalUrl, openNewsForm, saveNews, removeNews, openTxForm, saveTx, deleteTx, openPenaltyCatalog, openPenaltyForm, savePenalty, deletePenaltyDef, openPenaltyAssign, savePenaltyAssign, deleteAssignment, openContribForm, saveContrib, togglePenalty, toggleContribution, setStatsRange, openPollForm, savePoll, togglePollOption } = useFeatureActions({ api, S, setState, activeTeam, myRoles, refreshEvents, refreshMembers, refreshRoles, refreshTeams, loadAbsences, loadFinances, loadStats, loadNews, loadPolls, loadNotifications, afterLoginLoad, toastMsg, setFormVal, askConfirm });
 
   const openEventForm = useCallback((event: TeamEvent | null) => {
     const f = event ? {
@@ -343,17 +335,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toastMsg(mode === 'edit' ? (scope === 'series' ? 'Ganze Serie aktualisiert' : 'Termin aktualisiert') : 'Termin angelegt');
   }, [api, setState, refreshEvents, openEventDetail, toastMsg]);
   const toggleFormNomRole = useCallback((roleId: string) => setState((s) => { const cur = s.form.nominatedRoleIds || []; const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId); return { form: { ...s.form, nominatedRoleIds: next } }; }), [setState]);
-
-  // ---------- feature hooks ----------
-  const { openNotifications, setNotifFilter } = useNotificationActions({ api, S, setState, loadNotifications, toastMsg });
-  const { openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember } = useMemberActions({ api, S, setState, refreshMembers, refreshTeams, askConfirm, toastMsg });
-  const { openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole } = useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, toastMsg });
-  const { openTeamSwitcher, openProfile, openMore, openTeamSettings, saveTeamPhoto, saveTeamLogo, setTeamIcon, toggleReasonRole, saveTeamSettings, openCreateTeam, createTeam, openInvite, copyInvite, uploadMyPhoto } = useTeamActions({ api, S, setState, activeTeam, refreshTeams, refreshMembers, setFormVal, afterLoginLoad, toastMsg });
-  const { openAbsenceForm, saveAbsence, removeAbsence } = useAbsenceActions({ api, S, setState, refreshEvents, loadAbsences, askConfirm, toastMsg });
-  const { openCalExport, downloadIcs, copyCalUrl } = useCalExportActions({ S, setState, activeTeam, toastMsg });
-  const { openNewsForm, saveNews, removeNews } = useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg });
-  const { openTxForm, saveTx, deleteTx, openPenaltyCatalog, openPenaltyForm, savePenalty, deletePenaltyDef, openPenaltyAssign, savePenaltyAssign, deleteAssignment, openContribForm, saveContrib, togglePenalty, toggleContribution, setStatsRange } = useFinanceActions({ api, S, setState, loadFinances, loadStats, refreshMembers, askConfirm, toastMsg });
-  const { openPollForm, savePoll, togglePollOption } = usePollActions({ api, S, setState, loadPolls, toastMsg });
 
   // ---------- bootstrap ----------
   useEffect(() => {

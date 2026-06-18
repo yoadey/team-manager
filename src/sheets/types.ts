@@ -1,4 +1,4 @@
-import type { AppContextValue, SheetState } from '../context/AppContext';
+import type { AppContextValue, SheetState } from '@/context/AppContext';
 
 export interface SheetProps {
   app: AppContextValue;
