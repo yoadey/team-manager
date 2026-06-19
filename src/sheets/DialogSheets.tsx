@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from './types';
-import { buildTokens, statusMeta } from '@/styles/tokens';
+import { buildTokens, statusMeta, NEUTRAL } from '@/styles/tokens';
 import { Sym, Chip, PrimaryButton, inputSx } from '@/components/ui';
 
 export function ConfirmSheet({ app, sheet }: SheetProps) {
@@ -17,8 +17,8 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
           width: '56px',
           height: '56px',
           borderRadius: '16px',
-          background: danger ? '#FFDAD6' : t.primaryContainer,
-          color: danger ? '#BA1A1A' : t.primary,
+          background: danger ? NEUTRAL.errorBg : t.primaryContainer,
+          color: danger ? NEUTRAL.error : t.primary,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -57,7 +57,7 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
             p: '13px',
             borderRadius: '13px',
             border: 'none',
-            background: danger ? '#BA1A1A' : t.primary,
+            background: danger ? NEUTRAL.error : t.primary,
             color: '#fff',
             fontWeight: 700,
             fontSize: '14px',
@@ -82,9 +82,13 @@ export function SeriesActionSheet({ app, sheet }: SheetProps) {
     delete: {
       d: 'Diesen Termin oder die ganze Serie löschen? Gelöschte Termine werden vollständig und unwiderruflich entfernt.',
       ic: 'delete',
-      col: '#BA1A1A',
+      col: NEUTRAL.error,
     },
-    reactivate: { d: 'Diesen Termin oder die ganze Serie wieder aktivieren?', ic: 'event_available', col: '#2E7D32' },
+    reactivate: {
+      d: 'Diesen Termin oder die ganze Serie wieder aktivieren?',
+      ic: 'event_available',
+      col: NEUTRAL.success,
+    },
   };
   const L = cfg[act] || cfg.cancel;
 
@@ -129,7 +133,7 @@ export function SeriesActionSheet({ app, sheet }: SheetProps) {
         <Box key="t" sx={{ fontSize: '15px', fontWeight: 700 }}>
           {title}
         </Box>
-        <Box key="s" sx={{ fontSize: '12px', color: '#6A6D76', mt: '2px' }}>
+        <Box key="s" sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '2px' }}>
           {sub}
         </Box>
       </Box>
@@ -158,7 +162,10 @@ export function CommentSheet({ app, sheet }: SheetProps) {
   const isMe = sheet.userId === state.user!.id;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      <Box key="who" sx={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '13px', color: '#6A6D76' }}>
+      <Box
+        key="who"
+        sx={{ display: 'flex', alignItems: 'center', gap: '9px', fontSize: '13px', color: NEUTRAL.secondary }}
+      >
         <Chip key="c" label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />
         <Box component="span" key="n">
           {isMe ? 'Dein Kommentar' : 'Kommentar für ' + sheet.name}
@@ -173,8 +180,8 @@ export function CommentSheet({ app, sheet }: SheetProps) {
         style={{ ...inputSx, minHeight: '100px', resize: 'vertical' }}
       />
       {sheet.status === 'no' ? (
-        <Box key="h" sx={{ display: 'flex', gap: '8px', fontSize: '12px', color: '#6A6D76', lineHeight: 1.5 }}>
-          <Sym name="visibility" size={16} color="#9A9DA6" />
+        <Box key="h" sx={{ display: 'flex', gap: '8px', fontSize: '12px', color: NEUTRAL.secondary, lineHeight: 1.5 }}>
+          <Sym name="visibility" size={16} color={NEUTRAL.faint} />
           Absage-Kommentare sehen nur die in den Team-Einstellungen freigegebenen Rollen.
         </Box>
       ) : null}

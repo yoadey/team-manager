@@ -1,5 +1,5 @@
 import Box from '@mui/material/Box';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { t } from '@/i18n';
@@ -15,7 +15,7 @@ export function AbsenceFormSheet({ app, sheet }: SheetProps) {
           display: 'flex',
           gap: '12px',
           fontSize: '13px',
-          color: '#6A6D76',
+          color: NEUTRAL.secondary,
           lineHeight: 1.5,
           background: '#FFF7E6',
           border: '1px solid #F0DBA8',

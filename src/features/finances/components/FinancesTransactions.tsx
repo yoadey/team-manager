@@ -26,8 +26,8 @@ export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
             width: '38px',
             height: '38px',
             borderRadius: '11px',
-            background: tx.type === 'income' ? '#D7F0D8' : '#FFDAD6',
-            color: tx.type === 'income' ? '#2E7D32' : '#BA1A1A',
+            background: tx.type === 'income' ? NEUTRAL.successBg : NEUTRAL.errorBg,
+            color: tx.type === 'income' ? NEUTRAL.success : NEUTRAL.error,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -52,7 +52,7 @@ export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
           </Box>
           <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>{tx.category + ' · ' + fmtDate(tx.date)}</Box>
         </Box>
-        <Box sx={{ fontSize: '15px', fontWeight: 700, color: tx.type === 'income' ? '#2E7D32' : '#BA1A1A' }}>
+        <Box sx={{ fontSize: '15px', fontWeight: 700, color: tx.type === 'income' ? NEUTRAL.success : NEUTRAL.error }}>
           {(tx.type === 'income' ? '+' : '−') + fmtMoney(tx.amount).replace('-', '')}
         </Box>
         {canFin ? <Sym name="chevron_right" size={20} color="#C0C2CA" /> : null}

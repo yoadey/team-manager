@@ -62,8 +62,8 @@ export function FinancesPage() {
         <Box sx={{ fontSize: '34px', fontWeight: 800, mt: '4px' }}>{fmtMoney(f.balance)}</Box>
       </Box>
       <Box sx={{ display: 'flex', gap: '10px', flexWrap: 'wrap', mb: '18px' }}>
-        {stat(t('finances.income'), f.income, '#2E7D32')}
-        {stat(t('finances.expense'), f.expense, '#BA1A1A')}
+        {stat(t('finances.income'), f.income, NEUTRAL.success)}
+        {stat(t('finances.expense'), f.expense, NEUTRAL.error)}
       </Box>
       <Box sx={{ display: 'flex', gap: '4px', background: '#ECEDF3', borderRadius: '14px', p: '4px', mb: '18px' }}>
         {tabDef.map(([k, l, ic]) => {

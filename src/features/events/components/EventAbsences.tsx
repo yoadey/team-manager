@@ -37,7 +37,9 @@ export function EventAbsences() {
             {a.name}
             {isMe ? <Chip label={t('events.meLabel')} color={tk.primary} bg={tk.primaryContainer} /> : null}
           </Box>
-          <Box sx={{ fontSize: '12px', color: '#6A6D76', mt: '2px' }}>{fmtRange(a.from, a.to) + ' · ' + a.reason}</Box>
+          <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '2px' }}>
+            {fmtRange(a.from, a.to) + ' · ' + a.reason}
+          </Box>
         </Box>
         <Box
           component="span"
@@ -68,11 +70,11 @@ export function EventAbsences() {
               borderRadius: '50%',
               border: 'none',
               background: '#FFF4F3',
-              color: '#BA1A1A',
+              color: NEUTRAL.error,
               flex: '0 0 auto',
             }}
           >
-            <Sym name="delete" size={19} color="#BA1A1A" />
+            <Sym name="delete" size={19} color={NEUTRAL.error} />
           </ButtonBase>
         ) : null}
       </Box>

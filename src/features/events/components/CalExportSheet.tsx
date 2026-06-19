@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, PrimaryButton } from '@/components/ui';
 import { t } from '@/i18n';
 
@@ -14,12 +14,12 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
 
   const hint = (icon: string, title: string, text: string) => (
     <Box key={title} sx={{ display: 'flex', gap: '12px', alignItems: 'flex-start', p: '12px 0' }}>
-      <Sym name={icon} size={20} color="#6A6D76" />
+      <Sym name={icon} size={20} color={NEUTRAL.secondary} />
       <Box key="m" sx={{ flex: 1 }}>
         <Box key="t" sx={{ fontSize: '13px', fontWeight: 700, mb: '2px' }}>
           {title}
         </Box>
-        <Box key="d" sx={{ fontSize: '12px', color: '#6A6D76', lineHeight: 1.5 }}>
+        <Box key="d" sx={{ fontSize: '12px', color: NEUTRAL.secondary, lineHeight: 1.5 }}>
           {text}
         </Box>
       </Box>
@@ -46,7 +46,7 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
         >
           event_upcoming
         </Box>
-        <Box key="s" sx={{ fontSize: '14px', color: '#6A6D76', mt: '12px', lineHeight: 1.5 }}>
+        <Box key="s" sx={{ fontSize: '14px', color: NEUTRAL.secondary, mt: '12px', lineHeight: 1.5 }}>
           {t('events.calExportHero', { n: cnt })}
         </Box>
       </Box>
@@ -61,7 +61,7 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
           <Sym name="sync" size={18} color={tk.primary} />
           {t('events.calSubscribe')}
         </Box>
-        <Box key="d" sx={{ fontSize: '12px', color: '#6A6D76', lineHeight: 1.5, mb: '10px' }}>
+        <Box key="d" sx={{ fontSize: '12px', color: NEUTRAL.secondary, lineHeight: 1.5, mb: '10px' }}>
           {t('events.calSubscribeDesc')}
         </Box>
         <Box

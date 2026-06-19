@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens, typeMeta } from '@/styles/tokens';
+import { buildTokens, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Field, labelSx, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { Role } from '@/types';
 import type { SheetProps } from '@/sheets/types';
@@ -35,10 +35,10 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           fontWeight: 600,
           border: '1.5px solid ' + (sel ? meta.color : '#E0E2EA'),
           background: sel ? meta.bg : '#fff',
-          color: sel ? meta.color : '#6A6D76',
+          color: sel ? meta.color : NEUTRAL.secondary,
         }}
       >
-        <Sym name={meta.icon} size={18} color={sel ? meta.color : '#6A6D76'} />
+        <Sym name={meta.icon} size={18} color={sel ? meta.color : NEUTRAL.secondary} />
         {tp === 'training'
           ? t('events.typeTraining')
           : tp === 'auftritt'
@@ -87,7 +87,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           <Sym name={ic} size={17} color={sel ? tk.onPrimaryContainer : '#44474E'} />
           {l}
         </Box>
-        <Box key="d" sx={{ fontSize: '11px', color: sel ? tk.onPrimaryContainer : '#9A9DA6', lineHeight: 1.4 }}>
+        <Box key="d" sx={{ fontSize: '11px', color: sel ? tk.onPrimaryContainer : NEUTRAL.faint, lineHeight: 1.4 }}>
           {d}
         </Box>
       </ButtonBase>
@@ -152,7 +152,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
             justifyContent: 'flex-start',
           }}
         >
-          <Sym name="repeat" size={20} color="#6A6D76" />
+          <Sym name="repeat" size={20} color={NEUTRAL.secondary} />
           <Box key="l" component="span" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
             {t('events.recurWeekly')}
           </Box>
@@ -198,7 +198,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <Box key="l" sx={labelSx}>
         {t('events.nominatedRoles')}
       </Box>
-      <Box key="h" sx={{ fontSize: '12px', color: '#9A9DA6', m: '-2px 0 9px', lineHeight: 1.45 }}>
+      <Box key="h" sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-2px 0 9px', lineHeight: 1.45 }}>
         {t('events.nominatedRolesHint')}
       </Box>
       <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -219,7 +219,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 fontWeight: 600,
                 border: '1.5px solid ' + (sel ? r.color : '#D0D2DA'),
                 background: sel ? r.color + '1A' : '#fff',
-                color: sel ? r.color : '#9A9DA6',
+                color: sel ? r.color : NEUTRAL.faint,
               }}
             >
               <Box
@@ -296,11 +296,11 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
               alignItems: 'center',
               gap: '7px',
               fontSize: '12px',
-              color: '#6A6D76',
+              color: NEUTRAL.secondary,
               fontWeight: 600,
             }}
           >
-            <Sym name="repeat" size={16} color="#9A9DA6" />
+            <Sym name="repeat" size={16} color={NEUTRAL.faint} />
             {t('events.seriesHint')}
           </Box>
           <Box key="b" sx={{ display: 'flex', gap: '10px' }}>

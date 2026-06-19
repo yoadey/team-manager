@@ -302,7 +302,7 @@ export function Field({
       <Box sx={labelSx}>
         {label}
         {required ? (
-          <Box component="span" aria-hidden="true" sx={{ color: '#BA1A1A', ml: '2px' }}>
+          <Box component="span" aria-hidden="true" sx={{ color: NEUTRAL.error, ml: '2px' }}>
             *
           </Box>
         ) : null}
@@ -315,13 +315,13 @@ export function Field({
             style: error
               ? {
                   ...(children as React.ReactElement<{ style?: React.CSSProperties }>).props.style,
-                  borderColor: '#BA1A1A',
+                  borderColor: NEUTRAL.error,
                 }
               : (children as React.ReactElement<{ style?: React.CSSProperties }>).props.style,
           })
         : children}
       {errorId && errorText ? (
-        <Box id={errorId} role="alert" sx={{ fontSize: '12px', color: '#BA1A1A', mt: '4px' }}>
+        <Box id={errorId} role="alert" sx={{ fontSize: '12px', color: NEUTRAL.error, mt: '4px' }}>
           {errorText}
         </Box>
       ) : helperText ? (

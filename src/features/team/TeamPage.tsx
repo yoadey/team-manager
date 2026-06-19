@@ -46,7 +46,7 @@ export function TeamPage() {
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Box sx={{ fontSize: '15px', fontWeight: 600 }}>{title}</Box>
-        <Box sx={{ fontSize: '12px', color: '#6A6D76', mt: '2px' }}>{sub}</Box>
+        <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '2px' }}>{sub}</Box>
       </Box>
       <Sym name="chevron_right" size={22} color="#C0C2CA" />
     </ButtonBase>
@@ -97,7 +97,7 @@ export function TeamPage() {
         <Box
           sx={{
             fontSize: '13px',
-            color: team.photo ? 'rgba(255,255,255,.85)' : '#6A6D76',
+            color: team.photo ? 'rgba(255,255,255,.85)' : NEUTRAL.secondary,
             mt: '5px',
             display: 'flex',
             alignItems: 'center',
@@ -174,7 +174,7 @@ export function TeamPage() {
             </Box>
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ fontSize: '14px', fontWeight: 600 }}>{tm.name}</Box>
-              <Box sx={{ fontSize: '12px', color: active ? tk.onPrimaryContainer : '#6A6D76', mt: '2px' }}>
+              <Box sx={{ fontSize: '12px', color: active ? tk.onPrimaryContainer : NEUTRAL.secondary, mt: '2px' }}>
                 {tm.myRoles.map((r) => r.name).join(', ') + ' · ' + t('team.membersCount', { n: tm.memberCount })}
               </Box>
             </Box>

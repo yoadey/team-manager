@@ -52,7 +52,7 @@ export function MembersPage() {
           <Box
             sx={{
               fontSize: '12px',
-              color: '#6A6D76',
+              color: NEUTRAL.secondary,
               mt: '2px',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -78,7 +78,7 @@ export function MembersPage() {
               sx={{
                 fontSize: '11px',
                 fontWeight: 700,
-                color: '#6A6D76',
+                color: NEUTRAL.secondary,
                 background: '#ECEDF3',
                 p: '4px 8px',
                 borderRadius: '999px',
@@ -96,7 +96,7 @@ export function MembersPage() {
   return (
     <Box sx={{ maxWidth: '820px' }}>
       <Box sx={{ display: 'flex', gap: '8px', mb: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-        <Box sx={{ fontSize: '13px', fontWeight: 600, color: '#6A6D76' }}>
+        <Box sx={{ fontSize: '13px', fontWeight: 600, color: NEUTRAL.secondary }}>
           {t('members.count', { n: state.members.length })}
         </Box>
         <Box sx={{ flex: 1 }} />

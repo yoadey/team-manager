@@ -99,12 +99,12 @@ export function PollsPage() {
                     height: '30px',
                     borderRadius: '50%',
                     background: '#FFF4F3',
-                    color: '#BA1A1A',
+                    color: NEUTRAL.error,
                     cursor: 'pointer',
                     flex: '0 0 auto',
                   }}
                 >
-                  <Sym name="delete" size={16} color="#BA1A1A" />
+                  <Sym name="delete" size={16} color={NEUTRAL.error} />
                 </ButtonBase>
               ) : null}
             </Box>

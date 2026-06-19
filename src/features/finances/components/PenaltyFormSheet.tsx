@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { t } from '@/i18n';
@@ -48,7 +48,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
           display: 'flex',
           gap: '12px',
           fontSize: '13px',
-          color: '#6A6D76',
+          color: NEUTRAL.secondary,
           lineHeight: 1.5,
           background: '#F4F4FA',
           border: '1px solid #E6E7EE',
@@ -84,12 +84,12 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
             borderRadius: '13px',
             border: '1px solid #F0C4C0',
             background: '#FFF4F3',
-            color: '#BA1A1A',
+            color: NEUTRAL.error,
             fontWeight: 600,
             cursor: 'pointer',
           }}
         >
-          <Sym name="delete" size={19} color="#BA1A1A" />
+          <Sym name="delete" size={19} color={NEUTRAL.error} />
           {t('finances.penaltyRemove')}
         </ButtonBase>
       )}

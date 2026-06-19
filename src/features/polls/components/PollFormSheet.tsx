@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, labelSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { t } from '@/i18n';
@@ -28,7 +28,7 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
         background: F[key] ? tk.primaryContainer : '#fff',
       }}
     >
-      <Sym name={icon} size={19} color={F[key] ? tk.primary : '#6A6D76'} />
+      <Sym name={icon} size={19} color={F[key] ? tk.primary : NEUTRAL.secondary} />
       <Box
         component="span"
         sx={{ fontSize: '13px', fontWeight: 600, color: F[key] ? tk.onPrimaryContainer : '#44474E' }}
@@ -52,7 +52,7 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
       <Box>
         <Box sx={labelSx}>{t('polls.answerOptions')}</Box>
         {opts.length < 2 && errs.options ? (
-          <Box sx={{ fontSize: '12px', color: '#BA1A1A', mb: '6px' }} role="alert">
+          <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }} role="alert">
             {errs.options}
           </Box>
         ) : null}

@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens, fmtMoney } from '@/styles/tokens';
+import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { EmptyState, Sym } from '@/components/ui';
 import type { Penalty } from '../types';
 import type { SheetProps } from '@/sheets/types';
@@ -109,7 +109,7 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      <Box key="i" sx={{ fontSize: '13px', color: '#6A6D76', lineHeight: 1.5, mb: '2px' }}>
+      <Box key="i" sx={{ fontSize: '13px', color: NEUTRAL.secondary, lineHeight: 1.5, mb: '2px' }}>
         {t('finances.catalogHint')}
       </Box>
       {rows.length ? rows : <EmptyState icon="gavel" text={t('finances.catalogEmpty')} />}

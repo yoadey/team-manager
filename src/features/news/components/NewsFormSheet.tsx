@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { t } from '@/i18n';
@@ -27,7 +27,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
         background: '#F4F4FA',
       }}
     >
-      <Sym name="push_pin" size={20} color={F.pinned ? tk.primary : '#9A9DA6'} />
+      <Sym name="push_pin" size={20} color={F.pinned ? tk.primary : NEUTRAL.faint} />
       <Box component="span" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
         {t('news.pinned')}
       </Box>

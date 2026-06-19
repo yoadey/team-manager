@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import { MODULE_LABELS } from '@/services/serviceLayer';
 import type { ModuleKey, PermLevel } from '@/types';
@@ -16,10 +16,10 @@ export function RolesSheet({ app, sheet }: SheetProps) {
 
   const lvl = (v: string) =>
     v === 'write'
-      ? { l: t('team.permWrite'), bg: '#D7F0D8', c: '#235C26' }
+      ? { l: t('team.permWrite'), bg: NEUTRAL.successBg, c: '#235C26' }
       : v === 'read'
         ? { l: t('team.permRead'), bg: '#D7E3FF', c: '#00315C' }
-        : { l: t('team.permNone'), bg: '#ECEDF3', c: '#9A9DA6' };
+        : { l: t('team.permNone'), bg: '#ECEDF3', c: NEUTRAL.faint };
 
   const cards = state.roles.map((r) => (
     <Box key={r.id} sx={{ border: '1px solid #E6E7EE', borderRadius: '16px', p: '14px', background: '#fff' }}>
@@ -35,7 +35,7 @@ export function RolesSheet({ app, sheet }: SheetProps) {
         <Chip
           key="b"
           label={r.system ? t('team.roleStandard') : t('team.roleCustom')}
-          color={r.system ? '#6A6D76' : tk.primary}
+          color={r.system ? NEUTRAL.secondary : tk.primary}
           bg={r.system ? '#ECEDF3' : tk.primaryContainer}
         />
       </Box>
@@ -145,7 +145,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
                 fontSize: '12px',
                 fontWeight: 600,
                 background: sel ? tk.primary : 'transparent',
-                color: sel ? tk.onPrimary : '#6A6D76',
+                color: sel ? tk.onPrimary : NEUTRAL.secondary,
               }}
             >
               {l}

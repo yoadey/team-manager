@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
 import type { Route } from '@/context/AppContext';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, Av, SectionTitle } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
 import { t } from '@/i18n';
@@ -66,7 +66,7 @@ export function TeamsSheet({ app }: SheetProps) {
               >
                 {tm.name}
               </Box>
-              <Box component="span" sx={{ display: 'block', fontSize: '12px', color: '#6A6D76' }}>
+              <Box component="span" sx={{ display: 'block', fontSize: '12px', color: NEUTRAL.secondary }}>
                 {tm.myRoles.map((r) => r.name).join(', ') + ' · ' + t('team.membersCount', { n: tm.memberCount })}
               </Box>
             </Box>
@@ -145,7 +145,10 @@ export function ProfileSheet({ app }: SheetProps) {
           <Box key="n" sx={{ fontSize: '17px', fontWeight: 700 }}>
             {S.user!.name}
           </Box>
-          <Box key="e" sx={{ fontSize: '13px', color: '#6A6D76', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <Box
+            key="e"
+            sx={{ fontSize: '13px', color: NEUTRAL.secondary, display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
             <Sym name="mail" size={15} />
             {S.user!.email}
           </Box>
@@ -204,7 +207,7 @@ export function ProfileSheet({ app }: SheetProps) {
             );
           })}
         </Box>
-        <Box key="hint" sx={{ fontSize: '12px', color: '#9A9DA6', m: '8px 2px 0', lineHeight: 1.5 }}>
+        <Box key="hint" sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '8px 2px 0', lineHeight: 1.5 }}>
           {t('team.multiRoleHint')}
         </Box>
       </Box>
@@ -223,13 +226,13 @@ export function ProfileSheet({ app }: SheetProps) {
           borderRadius: '14px',
           border: '1px solid #F0C4C0',
           background: '#FFF4F3',
-          color: '#BA1A1A',
+          color: NEUTRAL.error,
           fontWeight: 600,
           fontSize: '14px',
           cursor: 'pointer',
         }}
       >
-        <Sym name="logout" size={20} color="#BA1A1A" />
+        <Sym name="logout" size={20} color={NEUTRAL.error} />
         {t('team.logout')}
       </ButtonBase>
     </Box>

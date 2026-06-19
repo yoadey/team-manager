@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
 import type { AppNotification } from '../types';
-import { buildTokens, statusMeta, fmtDate, relTime } from '@/styles/tokens';
+import { buildTokens, statusMeta, fmtDate, relTime, NEUTRAL } from '@/styles/tokens';
 import { getIntlLocale, t } from '@/i18n';
 import { Av, EmptyState, SpinnerBox } from '@/components/ui';
 
@@ -61,11 +61,11 @@ export function NotificationsSheet({ app }: SheetProps) {
       const map: Record<string, [string, string, string, string]> = {
         event_created: ['event_available', '#1565C0', '#D7E3FF', t('notifications.eventCreated')],
         event_updated: ['edit_calendar', '#9A5B00', '#FFE5B8', t('notifications.eventUpdated')],
-        event_cancelled: ['event_busy', '#BA1A1A', '#FFDAD6', t('notifications.eventCancelled')],
-        event_reactivated: ['event_available', '#2E7D32', '#D7F0D8', t('notifications.eventReactivated')],
-        event_deleted: ['delete', '#BA1A1A', '#FFDAD6', t('notifications.eventDeleted')],
+        event_cancelled: ['event_busy', NEUTRAL.error, NEUTRAL.errorBg, t('notifications.eventCancelled')],
+        event_reactivated: ['event_available', NEUTRAL.success, NEUTRAL.successBg, t('notifications.eventReactivated')],
+        event_deleted: ['delete', NEUTRAL.error, NEUTRAL.errorBg, t('notifications.eventDeleted')],
       };
-      const m = map[n.type] || ['event', '#6A6D76', '#ECEDF3', 'Event'];
+      const m = map[n.type] || ['event', NEUTRAL.secondary, '#ECEDF3', 'Event'];
       return {
         icon: m[0],
         col: m[1],
@@ -112,7 +112,7 @@ export function NotificationsSheet({ app }: SheetProps) {
       };
     return {
       icon: 'notifications',
-      col: '#6A6D76',
+      col: NEUTRAL.secondary,
       bg: '#ECEDF3',
       line1: n.title || '',
       line2: '',
@@ -146,7 +146,7 @@ export function NotificationsSheet({ app }: SheetProps) {
               cursor: 'pointer',
               border: '1.5px solid ' + (sel ? tk.primary : '#D0D2DA'),
               background: sel ? tk.primaryContainer : '#fff',
-              color: sel ? tk.onPrimaryContainer : '#6A6D76',
+              color: sel ? tk.onPrimaryContainer : NEUTRAL.secondary,
             }}
           >
             {l}
@@ -180,7 +180,7 @@ export function NotificationsSheet({ app }: SheetProps) {
           sx={{
             fontSize: '11px',
             fontWeight: 700,
-            color: '#9A9DA6',
+            color: NEUTRAL.faint,
             letterSpacing: '.4px',
             textTransform: 'uppercase',
             m: (dayCount > 0 ? '14px' : '2px') + ' 2px 8px',
@@ -233,7 +233,7 @@ export function NotificationsSheet({ app }: SheetProps) {
             key="l2"
             sx={{
               fontSize: '12px',
-              color: '#6A6D76',
+              color: NEUTRAL.secondary,
               mt: '2px',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
@@ -244,7 +244,7 @@ export function NotificationsSheet({ app }: SheetProps) {
           </Box>
         </Box>
         <Box key="r" sx={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' }}>
-          <Box key="t" component="span" sx={{ fontSize: '11px', color: '#9A9DA6', whiteSpace: 'nowrap' }}>
+          <Box key="t" component="span" sx={{ fontSize: '11px', color: NEUTRAL.faint, whiteSpace: 'nowrap' }}>
             {relTime(n.createdAt)}
           </Box>
           {dot}
@@ -276,7 +276,10 @@ export function NotificationsSheet({ app }: SheetProps) {
     );
   });
   out.push(
-    <Box key="foot" sx={{ fontSize: '12px', color: '#9A9DA6', textAlign: 'center', p: '14px 0 4px', lineHeight: 1.5 }}>
+    <Box
+      key="foot"
+      sx={{ fontSize: '12px', color: NEUTRAL.faint, textAlign: 'center', p: '14px 0 4px', lineHeight: 1.5 }}
+    >
       {t('notifications.footer')}
     </Box>,
   );

@@ -65,7 +65,7 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
           <Chip label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} />
           {e.recurring ? <Sym name="repeat" size={15} color={NEUTRAL.faint} /> : null}
-          {cancelled ? <Chip label="Abgesagt" color="#BA1A1A" bg="#FFDAD6" icon="event_busy" /> : null}
+          {cancelled ? <Chip label="Abgesagt" color={NEUTRAL.error} bg={NEUTRAL.errorBg} icon="event_busy" /> : null}
         </Box>
         <Box
           sx={{
@@ -105,10 +105,10 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
       >
         {isPast || cancelled ? null : <Chip label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 600 }}>
-          <Box component="span" aria-label={`${e.summary.yes} zugesagt`} sx={{ color: '#2E7D32' }}>
+          <Box component="span" aria-label={`${e.summary.yes} zugesagt`} sx={{ color: NEUTRAL.success }}>
             {e.summary.yes}✓
           </Box>
-          <Box component="span" aria-label={`${e.summary.no} abgesagt`} sx={{ color: '#BA1A1A' }}>
+          <Box component="span" aria-label={`${e.summary.no} abgesagt`} sx={{ color: NEUTRAL.error }}>
             {e.summary.no}✕
           </Box>
           {e.summary.maybe ? (

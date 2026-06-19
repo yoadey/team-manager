@@ -1,3 +1,4 @@
+import { NEUTRAL } from '@/styles/tokens';
 import { Component, type ReactNode, type ErrorInfo } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
@@ -62,8 +63,8 @@ function DefaultFallback({ error, onReset }: { error: Error; onReset: () => void
           component="pre"
           sx={{
             fontSize: '12px',
-            color: '#BA1A1A',
-            background: '#FFDAD6',
+            color: NEUTRAL.error,
+            background: NEUTRAL.errorBg,
             p: '12px',
             borderRadius: '8px',
             maxWidth: '600px',
@@ -116,8 +117,8 @@ export function AppErrorFallback({ error }: { error: Error }) {
           component="pre"
           sx={{
             fontSize: '12px',
-            color: '#BA1A1A',
-            background: '#FFDAD6',
+            color: NEUTRAL.error,
+            background: NEUTRAL.errorBg,
             p: '12px',
             borderRadius: '8px',
             maxWidth: '600px',

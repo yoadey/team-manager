@@ -20,7 +20,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
   const header = (
     <Box key="hd" sx={{ display: 'flex', alignItems: 'center', gap: '10px', mb: '16px', flexWrap: 'wrap' }}>
       <Box sx={{ flex: 1, minWidth: '120px' }}>
-        <Box sx={{ fontSize: '22px', fontWeight: 800, color: '#BA1A1A' }}>{fmtMoney(f.openPenaltySum)}</Box>
+        <Box sx={{ fontSize: '22px', fontWeight: 800, color: NEUTRAL.error }}>{fmtMoney(f.openPenaltySum)}</Box>
         <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '2px' }}>{t('finances.penaltyOpenSum')}</Box>
       </Box>
       <ButtonBase
@@ -94,7 +94,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                 sx={{
                   fontSize: '14px',
                   fontWeight: 700,
-                  color: a.paid ? NEUTRAL.faint : '#BA1A1A',
+                  color: a.paid ? NEUTRAL.faint : NEUTRAL.error,
                   textDecoration: a.paid ? 'line-through' : 'none',
                 }}
               >
@@ -110,7 +110,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                     p: '7px 11px',
                     fontSize: '12px',
                     fontWeight: 600,
-                    background: a.paid ? '#ECEDF3' : '#D7F0D8',
+                    background: a.paid ? '#ECEDF3' : NEUTRAL.successBg,
                     color: a.paid ? NEUTRAL.secondary : '#235C26',
                   }}
                 >
@@ -128,11 +128,11 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                     border: 'none',
                     cursor: 'pointer',
                     background: '#FFF4F3',
-                    color: '#BA1A1A',
+                    color: NEUTRAL.error,
                     flex: '0 0 auto',
                   }}
                 >
-                  <Sym name="delete" size={18} color="#BA1A1A" />
+                  <Sym name="delete" size={18} color={NEUTRAL.error} />
                 </ButtonBase>
               ) : null}
             </Box>

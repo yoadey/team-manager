@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { todayLocalDate } from '@/utils/date';
-import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta } from '@/styles/tokens';
+import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Av, Chip, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '@/components/ui';
 import type { AttendanceRow, EventComment, TeamEvent } from '../types';
 import type { AttendanceStatus } from '@/types';
@@ -28,13 +28,13 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     <Box key="b" sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', mb: '10px' }}>
       <Chip key="tm" label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} fs={12} />
       {e.recurring ? (
-        <Chip key="r" label={t('events.weekly')} color="#6A6D76" bg="#ECEDF3" icon="repeat" fs={12} />
+        <Chip key="r" label={t('events.weekly')} color={NEUTRAL.secondary} bg="#ECEDF3" icon="repeat" fs={12} />
       ) : null}
     </Box>
   );
 
   const dateLine = (
-    <Box key="dl" sx={{ fontSize: '13px', color: '#6A6D76', fontWeight: 500, m: '0 2px 12px' }}>
+    <Box key="dl" sx={{ fontSize: '13px', color: NEUTRAL.secondary, fontWeight: 500, m: '0 2px 12px' }}>
       {fmtDateLong(e.date)}
     </Box>
   );
@@ -47,13 +47,13 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         alignItems: 'center',
         gap: '10px',
         p: '13px 14px',
-        background: '#FFDAD6',
+        background: NEUTRAL.errorBg,
         borderRadius: '14px',
         mb: '14px',
         color: '#8C1410',
       }}
     >
-      <Sym name="event_busy" size={20} color="#BA1A1A" />
+      <Sym name="event_busy" size={20} color={NEUTRAL.error} />
       <Box key="t" component="span" sx={{ flex: 1, fontSize: '13px', fontWeight: 600 }}>
         {t('events.cancelledBanner')}
       </Box>
@@ -64,7 +64,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           sx={{
             border: 'none',
             background: '#fff',
-            color: '#BA1A1A',
+            color: NEUTRAL.error,
             borderRadius: '9px',
             p: '7px 12px',
             fontSize: '12px',
@@ -105,14 +105,14 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         </Box>
       ) : null}
       <Box key="time" sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
-        <Sym name="schedule" size={20} color="#6A6D76" />
+        <Sym name="schedule" size={20} color={NEUTRAL.secondary} />
         <Box key="t" component="span" sx={{ flex: 1 }}>
           {t('events.startEnd')} <b>{hhmm(e.startTime) + '–' + hhmm(e.endTime)}</b>
         </Box>
       </Box>
       {e.location ? (
         <Box key="loc" sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
-          <Sym name="place" size={20} color="#6A6D76" />
+          <Sym name="place" size={20} color={NEUTRAL.secondary} />
           <Box key="t" component="span" sx={{ flex: 1 }}>
             {e.location}
           </Box>
@@ -126,7 +126,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       key="note"
       sx={{ display: 'flex', gap: '10px', p: '12px 14px', background: '#F4F4FA', borderRadius: '14px', mb: '14px' }}
     >
-      <Sym name="sticky_note_2" size={18} color="#6A6D76" />
+      <Sym name="sticky_note_2" size={18} color={NEUTRAL.secondary} />
       <Box key="t" component="span" sx={{ fontSize: '13px', color: '#44474E', lineHeight: 1.5 }}>
         {e.note}
       </Box>
@@ -138,7 +138,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       key="res"
       sx={{ display: 'flex', gap: '10px', p: '12px 14px', background: '#EAF6EA', borderRadius: '14px', mb: '14px' }}
     >
-      <Sym name="emoji_events" size={18} color="#2E7D32" />
+      <Sym name="emoji_events" size={18} color={NEUTRAL.success} />
       <Box key="t" component="span" sx={{ fontSize: '13px', color: '#235C26', fontWeight: 600, lineHeight: 1.5 }}>
         {t('events.result', { val: e.result })}
       </Box>
@@ -160,11 +160,11 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             background: '#F0F0F4',
             borderRadius: '14px',
             mb: '16px',
-            color: '#6A6D76',
+            color: NEUTRAL.secondary,
             fontSize: '13px',
           }}
         >
-          <Sym name="block" size={20} color="#9A9DA6" />
+          <Sym name="block" size={20} color={NEUTRAL.faint} />
           {t('events.notNominated')}
         </Box>
       );
@@ -222,14 +222,14 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             justifyContent: 'flex-start',
           }}
         >
-          <Sym name="chat_bubble" size={18} color={myC ? tk.primary : '#9A9DA6'} />
+          <Sym name="chat_bubble" size={18} color={myC ? tk.primary : NEUTRAL.faint} />
           <Box
             key="t"
             component="span"
             sx={{
               flex: 1,
               fontSize: '13px',
-              color: myC ? '#44474E' : '#9A9DA6',
+              color: myC ? '#44474E' : NEUTRAL.faint,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -237,7 +237,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           >
             {myC || t('events.commentPlaceholder')}
           </Box>
-          <Sym name={myC ? 'edit' : 'add'} size={18} color="#9A9DA6" />
+          <Sym name={myC ? 'edit' : 'add'} size={18} color={NEUTRAL.faint} />
         </ButtonBase>
       );
       respond = (
@@ -268,12 +268,21 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               'yes',
               myStatus === 'yes',
               '#fff',
-              '#2E7D32',
-              '#D7F0D8',
+              NEUTRAL.success,
+              NEUTRAL.successBg,
               '#235C26',
             )}
             {rb(t('events.rsvpMaybe'), 'help', 'maybe', myStatus === 'maybe', '#fff', '#9A5B00', '#FFE5B8', '#8A6100')}
-            {rb(t('events.rsvpNo'), 'cancel', 'no', myStatus === 'no', '#fff', '#BA1A1A', '#FFDAD6', '#8C1410')}
+            {rb(
+              t('events.rsvpNo'),
+              'cancel',
+              'no',
+              myStatus === 'no',
+              '#fff',
+              NEUTRAL.error,
+              NEUTRAL.errorBg,
+              '#8C1410',
+            )}
           </Box>
           {commentRow}
         </Box>
@@ -287,16 +296,16 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     <SectionTitle
       right={
         <Box key="s" sx={{ display: 'flex', gap: '9px', fontSize: '12px', fontWeight: 700 }}>
-          <Box key="y" component="span" sx={{ color: '#2E7D32' }}>
+          <Box key="y" component="span" sx={{ color: NEUTRAL.success }}>
             {e.summary.yes + ' ' + t('events.summaryYes', { n: '' }).replace('{n} ', '')}
           </Box>
           <Box key="mb" component="span" sx={{ color: '#9A5B00' }}>
             {e.summary.maybe + ' ' + t('events.summaryMaybe', { n: '' }).replace('{n} ', '')}
           </Box>
-          <Box key="n" component="span" sx={{ color: '#BA1A1A' }}>
+          <Box key="n" component="span" sx={{ color: NEUTRAL.error }}>
             {e.summary.no + ' ' + t('events.summaryNo', { n: '' }).replace('{n} ', '')}
           </Box>
-          <Box key="p" component="span" sx={{ color: '#6A6D76' }}>
+          <Box key="p" component="span" sx={{ color: NEUTRAL.secondary }}>
             {e.summary.pending + ' ' + t('events.summaryPending', { n: '' }).replace('{n} ', '')}
           </Box>
         </Box>
@@ -317,9 +326,9 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         m: '2px 0 12px',
       }}
     >
-      <Box key="y" sx={{ width: (e.summary.yes / total) * 100 + '%', background: '#2E7D32' }} />
+      <Box key="y" sx={{ width: (e.summary.yes / total) * 100 + '%', background: NEUTRAL.success }} />
       <Box key="mb" sx={{ width: (e.summary.maybe / total) * 100 + '%', background: '#E8910C' }} />
-      <Box key="n" sx={{ width: (e.summary.no / total) * 100 + '%', background: '#BA1A1A' }} />
+      <Box key="n" sx={{ width: (e.summary.no / total) * 100 + '%', background: NEUTRAL.error }} />
     </Box>
   );
 
@@ -357,7 +366,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     let controls: React.ReactNode[];
     if (notN) {
       controls = [
-        <Chip key="c" label={t('events.notNominatedLabel')} color="#6A6D76" bg="#ECEDF3" icon="block" />,
+        <Chip key="c" label={t('events.notNominatedLabel')} color={NEUTRAL.secondary} bg="#ECEDF3" icon="block" />,
         canEdit && !isPast ? (
           <IconBtn
             key="nom"
@@ -373,7 +382,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             key="cm"
             icon="chat_bubble"
             onClick={() => app.openComment(e, r)}
-            color="#6A6D76"
+            color={NEUTRAL.secondary}
             bg="#F4F4FA"
             title={t('events.comment')}
           />
@@ -381,14 +390,14 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       ];
     } else if (editable) {
       controls = [
-        sbtn(r, 'yes', 'check', '#2E7D32'),
+        sbtn(r, 'yes', 'check', NEUTRAL.success),
         sbtn(r, 'maybe', 'help', '#9A5B00'),
-        sbtn(r, 'no', 'close', '#BA1A1A'),
+        sbtn(r, 'no', 'close', NEUTRAL.error),
         <IconBtn
           key="cm"
           icon="chat_bubble"
           onClick={() => app.openComment(e, r)}
-          color="#6A6D76"
+          color={NEUTRAL.secondary}
           bg="#F4F4FA"
           title={t('events.comment')}
         />,
@@ -397,7 +406,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             key="rm"
             icon="person_remove"
             onClick={() => app.toggleNomination(e.id, r.userId, true)}
-            color="#9A9DA6"
+            color={NEUTRAL.faint}
             bg="#F4F4FA"
             title={t('events.deNominate')}
           />
@@ -447,7 +456,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               {r.reason}
             </Box>
           ) : (
-            <Box key="g" sx={{ fontSize: '11px', color: '#9A9DA6' }}>
+            <Box key="g" sx={{ fontSize: '11px', color: NEUTRAL.faint }}>
               {r.group + (r.absent ? ' · ' + t('events.absent') : '')}
             </Box>
           )}
@@ -519,12 +528,12 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           borderRadius: '13px',
           border: '1px solid #F0C4C0',
           background: '#FFF4F3',
-          color: '#BA1A1A',
+          color: NEUTRAL.error,
           fontWeight: 600,
           cursor: 'pointer',
         }}
       >
-        <Sym name="delete" size={19} color="#BA1A1A" />
+        <Sym name="delete" size={19} color={NEUTRAL.error} />
         {t('events.delete')}
       </ButtonBase>
     </Box>
@@ -545,7 +554,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
                   <Box key="n" component="span" sx={{ fontSize: '12px', fontWeight: 700 }}>
                     {c.name}
                   </Box>
-                  <Box key="t" component="span" sx={{ fontSize: '11px', color: '#9A9DA6' }}>
+                  <Box key="t" component="span" sx={{ fontSize: '11px', color: NEUTRAL.faint }}>
                     {fmtDateTime(c.createdAt)}
                   </Box>
                 </Box>
@@ -558,7 +567,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
                   key="del"
                   icon="delete"
                   onClick={() => app.removeEventComment(e.id, c.id)}
-                  color="#BA1A1A"
+                  color={NEUTRAL.error}
                   bg="#FFF4F3"
                   title={t('events.delete')}
                 />
@@ -566,7 +575,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             </Box>
           ))
         ) : (
-          <Box key="e" sx={{ fontSize: '13px', color: '#9A9DA6', p: '4px 2px' }}>
+          <Box key="e" sx={{ fontSize: '13px', color: NEUTRAL.faint, p: '4px 2px' }}>
             {t('events.noComments')}
           </Box>
         )}

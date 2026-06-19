@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { useCompact } from '@/layouts/useCompact';
-import { buildTokens, hhmm, typeMeta } from '@/styles/tokens';
+import { buildTokens, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
@@ -46,7 +46,10 @@ export function EventCalendar() {
   const dows = Array.from({ length: 7 }, (_, i) => dtf.format(new Date(2024, 0, 1 + i)));
   dows.forEach((d) =>
     cells.push(
-      <Box key={'h' + d} sx={{ textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#9A9DA6', p: '4px 0' }}>
+      <Box
+        key={'h' + d}
+        sx={{ textAlign: 'center', fontSize: '11px', fontWeight: 700, color: NEUTRAL.faint, p: '4px 0' }}
+      >
         {d}
       </Box>,
     ),
@@ -97,7 +100,7 @@ export function EventCalendar() {
           borderRadius: '5px',
           p: '1px 4px',
           fontSize: mobile ? '8px' : '9px',
-          color: '#6A6D76',
+          color: NEUTRAL.secondary,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -145,11 +148,11 @@ export function EventCalendar() {
         </Box>
         {chips}
         {evs.length > (mobile ? 2 : 3) ? (
-          <Box sx={{ fontSize: '9px', color: '#9A9DA6', pl: '3px' }}>{'+' + (evs.length - (mobile ? 2 : 3))}</Box>
+          <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>{'+' + (evs.length - (mobile ? 2 : 3))}</Box>
         ) : null}
         {absChips}
         {abs.length > (mobile ? 1 : 2) ? (
-          <Box sx={{ fontSize: '9px', color: '#9A9DA6', pl: '3px' }}>
+          <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>
             {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absent').slice(0, 3) + '.'}
           </Box>
         ) : null}
@@ -183,7 +186,7 @@ export function EventCalendar() {
           onChange={() => app.toggleCalAbsences()}
           style={{ width: '18px', height: '18px', accentColor: tk.primary }}
         />
-        <Sym name="beach_access" size={18} color="#6A6D76" />
+        <Sym name="beach_access" size={18} color={NEUTRAL.secondary} />
         {t('events.showAbsences')}
       </Box>
       <Card>

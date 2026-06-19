@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Av, Field, labelSx, PrimaryButton, SectionTitle, Sym, TextArea, TextInput } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
 import type { Invite } from '@/types';
@@ -53,7 +53,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
       {F.photo ? (
         <Av key="a" name="" photo={F.photo} color="#ccc" size={40} />
       ) : (
-        <Sym name="add_photo_alternate" size={24} color="#6A6D76" />
+        <Sym name="add_photo_alternate" size={24} color={NEUTRAL.secondary} />
       )}
       <Box key="l" component="span" sx={{ flex: 1, fontSize: '13px', fontWeight: 600, color: '#44474E' }}>
         {F.photo ? t('team.photoSelected') : t('team.photoUpload')}
@@ -77,7 +77,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
           alignItems: 'center',
           gap: '12px',
           fontSize: '13px',
-          color: '#6A6D76',
+          color: NEUTRAL.secondary,
           lineHeight: 1.5,
           background: '#F4F4FA',
           p: '12px 14px',
@@ -130,7 +130,7 @@ export function InviteSheet({ app, sheet }: SheetProps) {
         >
           link
         </Box>
-        <Box key="s" sx={{ fontSize: '14px', color: '#6A6D76', mt: '12px', lineHeight: 1.5 }}>
+        <Box key="s" sx={{ fontSize: '14px', color: NEUTRAL.secondary, mt: '12px', lineHeight: 1.5 }}>
           {t('team.inviteDesc2', { teamName: shortName(team.name) })
             .split(shortName(team.name))
             .reduce<React.ReactNode[]>((acc, part, i, arr) => {
@@ -190,7 +190,7 @@ export function InviteSheet({ app, sheet }: SheetProps) {
         ) : null}
       </Box>
       {inv ? (
-        <Box key="code" sx={{ textAlign: 'center', mt: '14px', fontSize: '13px', color: '#6A6D76' }}>
+        <Box key="code" sx={{ textAlign: 'center', mt: '14px', fontSize: '13px', color: NEUTRAL.secondary }}>
           {t('team.inviteCode')}{' '}
           <Box
             key="b"
@@ -306,7 +306,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
               height: '58px',
               borderRadius: '15px',
               background: '#ECEDF3',
-              color: '#9A9DA6',
+              color: NEUTRAL.faint,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -322,7 +322,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
           app.saveTeamPhoto(d),
         )}
       </Box>
-      <Box key="h" sx={{ fontSize: '12px', color: '#9A9DA6', mt: '8px', lineHeight: 1.5 }}>
+      <Box key="h" sx={{ fontSize: '12px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
         {t('team.settingsPhotoHint')}
       </Box>
     </Box>
@@ -331,7 +331,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   const visSec = (
     <Box key="vis">
       <SectionTitle>{t('team.settingsVisSection')}</SectionTitle>
-      <Box key="h" sx={{ fontSize: '12px', color: '#9A9DA6', m: '-2px 0 10px', lineHeight: 1.5 }}>
+      <Box key="h" sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-2px 0 10px', lineHeight: 1.5 }}>
         {t('team.settingsVisHint')}
       </Box>
       <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>

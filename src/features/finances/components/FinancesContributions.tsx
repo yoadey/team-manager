@@ -93,7 +93,9 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
           })}
         </Box>
       </Box>
-      <Box sx={{ fontSize: '24px', fontWeight: 800, color: pct === 100 ? '#2E7D32' : tk.primary, flex: '0 0 auto' }}>
+      <Box
+        sx={{ fontSize: '24px', fontWeight: 800, color: pct === 100 ? NEUTRAL.success : tk.primary, flex: '0 0 auto' }}
+      >
         {pct + '%'}
       </Box>
     </Box>
@@ -140,7 +142,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
                   p: '7px 12px',
                   fontSize: '12px',
                   fontWeight: 600,
-                  background: paid ? '#D7F0D8' : '#FFE5B8',
+                  background: paid ? NEUTRAL.successBg : '#FFE5B8',
                   color: paid ? '#235C26' : '#8A6100',
                   display: 'flex',
                   alignItems: 'center',
@@ -153,8 +155,8 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
             ) : (
               <Chip
                 label={paid ? t('finances.contribPaid') : t('finances.contribOpen')}
-                color={paid ? '#2E7D32' : '#9A5B00'}
-                bg={paid ? '#D7F0D8' : '#FFE5B8'}
+                color={paid ? NEUTRAL.success : '#9A5B00'}
+                bg={paid ? NEUTRAL.successBg : '#FFE5B8'}
                 icon={paid ? 'check_circle' : 'schedule'}
               />
             )}

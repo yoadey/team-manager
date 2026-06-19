@@ -101,6 +101,10 @@ export const NEUTRAL = {
   line2: '#ECEDF3',
   line3: '#E0E2EA',
   inputBorder: '#C8CAD2',
+  error: '#BA1A1A',
+  errorBg: '#FFDAD6',
+  success: '#2E7D32',
+  successBg: '#D7F0D8',
 };
 
 export interface TypeMeta {

@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens, fmtMoney } from '@/styles/tokens';
+import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, inputSx, labelSx } from '@/components/ui';
 import type { Member } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
@@ -25,7 +25,7 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
       <Box key="l" sx={labelSx}>
         {t('finances.assignPenalty')}
       </Box>
-      {errs.penaltyId ? <Box sx={{ fontSize: '12px', color: '#BA1A1A', mb: '6px' }}>{errs.penaltyId}</Box> : null}
+      {errs.penaltyId ? <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }}>{errs.penaltyId}</Box> : null}
       <Box key="b" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {(f ? f.penalties : []).map((p) => {
           const sel = F.penaltyId === p.id;

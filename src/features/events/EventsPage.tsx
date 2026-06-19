@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym, EmptyState } from '@/components/ui';
 import { EventCard } from '@/components/cards';
@@ -74,7 +74,7 @@ export function EventsPage() {
           color: '#44474E',
         }}
       >
-        <Sym name="ios_share" size={18} color="#6A6D76" />
+        <Sym name="ios_share" size={18} color={NEUTRAL.secondary} />
         {t('events.export')}
       </ButtonBase>
     </Box>

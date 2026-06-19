@@ -1,3 +1,4 @@
+import { NEUTRAL } from '@/styles/tokens';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
@@ -11,7 +12,13 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const m: Member = sheet.member!;
   const st: { quote: number | null; counted: number; yes: number } | null = sheet.stats ?? null;
   const qcol =
-    st && st.quote !== null ? (st.quote >= 80 ? '#2E7D32' : st.quote >= 50 ? '#9A5B00' : '#BA1A1A') : '#9A9DA6';
+    st && st.quote !== null
+      ? st.quote >= 80
+        ? NEUTRAL.success
+        : st.quote >= 50
+          ? '#9A5B00'
+          : NEUTRAL.error
+      : NEUTRAL.faint;
 
   const head = (
     <Box key="hd" sx={{ display: 'flex', alignItems: 'center', gap: '14px', p: '4px 2px 18px' }}>
@@ -35,7 +42,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         <Box key="v" sx={{ fontSize: '24px', fontWeight: 800, color: qcol }}>
           {st ? (st.quote === null ? '–' : st.quote + '%') : '…'}
         </Box>
-        <Box key="l" sx={{ fontSize: '11px', color: '#6A6D76', mt: '2px' }}>
+        <Box key="l" sx={{ fontSize: '11px', color: NEUTRAL.secondary, mt: '2px' }}>
           {t('members.attendanceRate')}
         </Box>
       </Box>
@@ -43,7 +50,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         <Box key="v" sx={{ fontSize: '24px', fontWeight: 800 }}>
           {m.roles.length}
         </Box>
-        <Box key="l" sx={{ fontSize: '11px', color: '#6A6D76', mt: '2px' }}>
+        <Box key="l" sx={{ fontSize: '11px', color: NEUTRAL.secondary, mt: '2px' }}>
           {m.roles.length === 1 ? t('members.role') : t('members.roles')}
         </Box>
       </Box>
@@ -58,7 +65,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
       : '—';
   const cRow = (icon: string, val: string) => (
     <Box key={icon} sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
-      <Sym name={icon} size={19} color="#6A6D76" />
+      <Sym name={icon} size={19} color={NEUTRAL.secondary} />
       <Box key="t" component="span" sx={{ flex: 1, fontSize: '14px' }}>
         {val || '—'}
       </Box>
@@ -123,12 +130,12 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
               borderRadius: '13px',
               border: '1px solid #F0C4C0',
               background: '#FFF4F3',
-              color: '#BA1A1A',
+              color: NEUTRAL.error,
               fontWeight: 600,
               cursor: 'pointer',
             }}
           >
-            <Sym name="person_remove" size={19} color="#BA1A1A" />
+            <Sym name="person_remove" size={19} color={NEUTRAL.error} />
           </ButtonBase>
         ) : null}
       </Box>
@@ -145,11 +152,11 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         background: '#F4F4FA',
         borderRadius: '13px',
         fontSize: '12px',
-        color: '#6A6D76',
+        color: NEUTRAL.secondary,
         lineHeight: 1.5,
       }}
     >
-      <Sym name="info" size={17} color="#9A9DA6" />
+      <Sym name="info" size={17} color={NEUTRAL.faint} />
       {t('members.membershipNote')}
     </Box>
   ) : null;
@@ -191,7 +198,7 @@ export function MemberFormSheet({ app }: SheetProps) {
 
   const photoRow = (
     <Box key="ph" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '4px' }}>
-      <Av key="a" name={F.name || '?'} photo={F.photo} color="#9A9DA6" size={56} font={20} />
+      <Av key="a" name={F.name || '?'} photo={F.photo} color={NEUTRAL.faint} size={56} font={20} />
       <Box
         key="u"
         component="label"
@@ -263,7 +270,7 @@ export function MemberFormSheet({ app }: SheetProps) {
   ) : null;
 
   const contactNote = (
-    <Box key="cn" sx={{ fontSize: '12px', color: '#9A9DA6', lineHeight: 1.5, display: 'flex', gap: '8px' }}>
+    <Box key="cn" sx={{ fontSize: '12px', color: NEUTRAL.faint, lineHeight: 1.5, display: 'flex', gap: '8px' }}>
       <Sym name="lock" size={15} color="#C0C2CA" />
       {t('members.contactNote')}
     </Box>

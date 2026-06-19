@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { EmptyState, SpinnerBox, Sym } from '@/components/ui';
 import { NewsCard } from '@/components/cards';
 import { t } from '@/i18n';
@@ -32,11 +32,11 @@ export function NewsPage() {
                   height: '30px',
                   borderRadius: '50%',
                   background: '#F4F4FA',
-                  color: '#9A9DA6',
+                  color: NEUTRAL.faint,
                   cursor: 'pointer',
                 }}
               >
-                <Sym name="edit" size={16} color="#9A9DA6" />
+                <Sym name="edit" size={16} color={NEUTRAL.faint} />
               </ButtonBase>
               <ButtonBase
                 onClick={() => app.removeNews(n.id)}
@@ -46,11 +46,11 @@ export function NewsPage() {
                   height: '30px',
                   borderRadius: '50%',
                   background: '#FFF4F3',
-                  color: '#BA1A1A',
+                  color: NEUTRAL.error,
                   cursor: 'pointer',
                 }}
               >
-                <Sym name="delete" size={16} color="#BA1A1A" />
+                <Sym name="delete" size={16} color={NEUTRAL.error} />
               </ButtonBase>
             </Box>
           </Box>

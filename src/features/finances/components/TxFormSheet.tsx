@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { t } from '@/i18n';
@@ -13,8 +13,8 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   const edit = sheet.mode === 'edit';
 
   const typeDefs: [string, string, string, string, string][] = [
-    ['income', t('finances.txIncome'), 'south_west', '#2E7D32', '#D7F0D8'],
-    ['expense', t('finances.txExpense'), 'north_east', '#BA1A1A', '#FFDAD6'],
+    ['income', t('finances.txIncome'), 'south_west', NEUTRAL.success, NEUTRAL.successBg],
+    ['expense', t('finances.txExpense'), 'north_east', NEUTRAL.error, NEUTRAL.errorBg],
   ];
   const typeBtns = typeDefs.map(([v, l, ic, c, bg]) => {
     const sel = F.type === v;
@@ -35,10 +35,10 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           fontWeight: 700,
           border: '1.5px solid ' + (sel ? c : '#E0E2EA'),
           background: sel ? bg : '#fff',
-          color: sel ? c : '#6A6D76',
+          color: sel ? c : NEUTRAL.secondary,
         }}
       >
-        <Sym name={ic} size={18} color={sel ? c : '#6A6D76'} />
+        <Sym name={ic} size={18} color={sel ? c : NEUTRAL.secondary} />
         {l}
       </ButtonBase>
     );
@@ -91,7 +91,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
             })}
           </Box>
         ) : null}
-        <Box key="hint" sx={{ fontSize: '11px', color: '#9A9DA6', mt: '8px', lineHeight: 1.5 }}>
+        <Box key="hint" sx={{ fontSize: '11px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
           {t('finances.txCategoryHint')}
         </Box>
       </Box>
@@ -121,12 +121,12 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
         borderRadius: '13px',
         border: '1px solid #F0C4C0',
         background: '#FFF4F3',
-        color: '#BA1A1A',
+        color: NEUTRAL.error,
         fontWeight: 600,
         cursor: 'pointer',
       }}
     >
-      <Sym name="delete" size={19} color="#BA1A1A" />
+      <Sym name="delete" size={19} color={NEUTRAL.error} />
       {t('finances.txDelete')}
     </ButtonBase>
   ) : null;
