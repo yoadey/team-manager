@@ -149,7 +149,7 @@ export function Stats() {
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '60vh', overflowY: 'auto' }}>
         {st.members.map((m) => {
           const q = m.quote === null ? 0 : m.quote;
-          const col = m.quote === null ? '#C0C2CA' : q >= 80 ? '#2E7D32' : q >= 50 ? '#9A5B00' : '#BA1A1A';
+          const col = m.quote === null ? '#C0C2CA' : q >= 80 ? NEUTRAL.success : q >= 50 ? '#9A5B00' : NEUTRAL.error;
           return (
             <Box
               key={m.userId}
@@ -226,8 +226,8 @@ export function Stats() {
                 </Box>
                 <Chip
                   label={e.enough ? 'Vollständig' : 'Zu wenig'}
-                  color={e.enough ? '#2E7D32' : '#BA1A1A'}
-                  bg={e.enough ? '#D7F0D8' : '#FFDAD6'}
+                  color={e.enough ? NEUTRAL.success : NEUTRAL.error}
+                  bg={e.enough ? NEUTRAL.successBg : NEUTRAL.errorBg}
                   icon={e.enough ? 'check_circle' : 'warning'}
                 />
               </Box>

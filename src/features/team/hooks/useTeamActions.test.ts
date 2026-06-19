@@ -96,13 +96,13 @@ describe('useTeamActions', () => {
       useTeamActions({
         api: api as never,
         S: () => stateRef,
-        setState,
+        setState: setState as never,
         activeTeam: () => makeActiveTeam() as never,
-        refreshTeams,
-        refreshMembers,
-        setFormVal,
-        afterLoginLoad,
-        toastMsg,
+        refreshTeams: refreshTeams as never,
+        refreshMembers: refreshMembers as never,
+        setFormVal: setFormVal as never,
+        afterLoginLoad: afterLoginLoad as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }
@@ -197,7 +197,7 @@ describe('useTeamActions', () => {
     await act(async () => {
       await result.current.saveTeamSettings();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.');
     expect(api.teams.updateSettings).not.toHaveBeenCalled();
   });
 
@@ -228,7 +228,7 @@ describe('useTeamActions', () => {
     await act(async () => {
       await result.current.createTeam();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Team-Name fehlt.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.');
     expect(api.teams.create).not.toHaveBeenCalled();
   });
 

@@ -77,12 +77,12 @@ describe('useEventDetailActions', () => {
       useEventDetailActions({
         api: api as never,
         S: () => stateRef,
-        setState,
+        setState: setState as never,
         activeTeam: () => ({ id: 'team1', reasonVisibilityRoles: [] }) as never,
         myRoles: () => [],
-        refreshEvents,
-        setFormVal,
-        toastMsg,
+        refreshEvents: refreshEvents as never,
+        setFormVal: setFormVal as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }
@@ -224,14 +224,14 @@ describe('useEventActionFeatures', () => {
       useEventActionFeatures({
         api: api as never,
         S: () => stateRef,
-        setState,
+        setState: setState as never,
         activeTeam: () => null,
         myRoles: () => [],
-        refreshEvents,
-        setFormVal: vi.fn(),
-        toastMsg,
-        askConfirm,
-        openEventDetail,
+        refreshEvents: refreshEvents as never,
+        setFormVal: vi.fn() as never,
+        toastMsg: toastMsg as never,
+        askConfirm: askConfirm as never,
+        openEventDetail: openEventDetail as never,
       }),
     );
   }

@@ -67,10 +67,10 @@ describe('useNewsActions', () => {
       useNewsActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        loadNews,
-        askConfirm,
-        toastMsg,
+        setState: setState as never,
+        loadNews: loadNews as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }
@@ -108,7 +108,7 @@ describe('useNewsActions', () => {
     await act(async () => {
       await result.current.saveNews();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Titel angeben');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Titel angeben.');
     expect(api.news.create).not.toHaveBeenCalled();
   });
 

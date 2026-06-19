@@ -90,11 +90,11 @@ describe('useMemberActions', () => {
       useMemberActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        refreshMembers,
-        refreshTeams,
-        askConfirm,
-        toastMsg,
+        setState: setState as never,
+        refreshMembers: refreshMembers as never,
+        refreshTeams: refreshTeams as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }
@@ -173,7 +173,7 @@ describe('useMemberActions', () => {
     await act(async () => {
       await result.current.saveMember();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte einen Namen angeben');
+    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.');
     expect(api.members.update).not.toHaveBeenCalled();
   });
 

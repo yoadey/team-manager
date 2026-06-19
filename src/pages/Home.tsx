@@ -87,7 +87,7 @@ export function Home() {
           () => app.go('events'),
         )}
         {quickStat('Offene Rückmeldungen', myPending, 'pending_actions', '#9A5B00', () => app.goEventsPending())}
-        {quickStat('Mitglieder', team.memberCount, 'group', '#2E7D32', () => app.go('members'))}
+        {quickStat('Mitglieder', team.memberCount, 'group', NEUTRAL.success, () => app.go('members'))}
       </Box>
 
       <Box sx={{ mb: '22px' }}>

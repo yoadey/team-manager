@@ -1,17 +1,18 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { EmptyState, SpinnerBox, Sym } from '@/components/ui';
 import { NewsCard } from '@/components/cards';
+import { t } from '@/i18n';
 
 export function NewsPage() {
   const app = useApp();
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
-  void t;
+  const tk = buildTokens(state.primaryColor);
+  void tk;
   if (!state.news) return <SpinnerBox />;
-  if (!state.news.length) return <EmptyState icon="campaign" text="Noch keine Neuigkeiten" />;
+  if (!state.news.length) return <EmptyState icon="campaign" text={t('news.empty')} />;
   const canEdit = app.can('news', 'write');
 
   return (
@@ -25,33 +26,31 @@ export function NewsPage() {
             <Box sx={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', gap: '6px' }}>
               <ButtonBase
                 onClick={() => app.openNewsForm(n)}
-                title="Bearbeiten"
-                aria-label="News bearbeiten"
+                aria-label={t('news.editLabel')}
                 sx={{
                   width: '30px',
                   height: '30px',
                   borderRadius: '50%',
                   background: '#F4F4FA',
-                  color: '#9A9DA6',
+                  color: NEUTRAL.faint,
                   cursor: 'pointer',
                 }}
               >
-                <Sym name="edit" size={16} color="#9A9DA6" />
+                <Sym name="edit" size={16} color={NEUTRAL.faint} />
               </ButtonBase>
               <ButtonBase
                 onClick={() => app.removeNews(n.id)}
-                title="Löschen"
-                aria-label="News löschen"
+                aria-label={t('news.deleteLabel')}
                 sx={{
                   width: '30px',
                   height: '30px',
                   borderRadius: '50%',
                   background: '#FFF4F3',
-                  color: '#BA1A1A',
+                  color: NEUTRAL.error,
                   cursor: 'pointer',
                 }}
               >
-                <Sym name="delete" size={16} color="#BA1A1A" />
+                <Sym name="delete" size={16} color={NEUTRAL.error} />
               </ButtonBase>
             </Box>
           </Box>

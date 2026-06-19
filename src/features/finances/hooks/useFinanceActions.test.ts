@@ -81,12 +81,12 @@ describe('useFinanceActions', () => {
       useFinanceActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        loadFinances,
-        loadStats,
-        refreshMembers,
-        askConfirm,
-        toastMsg,
+        setState: setState as never,
+        loadFinances: loadFinances as never,
+        loadStats: loadStats as never,
+        refreshMembers: refreshMembers as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }
@@ -226,7 +226,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.savePenaltyAssign();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Person wählen');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Person wählen.');
   });
 
   it('savePenaltyAssign shows toast when penaltyId is missing', async () => {
@@ -235,7 +235,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.savePenaltyAssign();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Strafe wählen');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Strafe wählen.');
   });
 
   it('savePenaltyAssign assigns penalty when valid', async () => {

@@ -4,6 +4,7 @@ import type { AppState } from '@/context/AppContext';
 import { validateDateRange } from '@/utils/validation';
 import { todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -57,7 +58,7 @@ export function useAbsenceActions({
       else await api.absences.create({ from: range.value!.from, to: range.value!.to, reason: f.reason });
       await Promise.all([refreshEvents(), loadAbsences()]);
       setState({ busy: null, sheet: null });
-      toastMsg(mode === 'edit' ? 'Abwesenheit aktualisiert' : 'Abwesenheit eingetragen');
+      toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -66,15 +67,15 @@ export function useAbsenceActions({
   const removeAbsence = useCallback(
     (id: string) => {
       askConfirm({
-        title: 'Abwesenheit löschen?',
-        message: 'Der Zeitraum wird entfernt. Automatisch gesetzte Absagen in diesem Zeitraum werden zurückgenommen.',
-        confirmLabel: 'Löschen',
+        title: t('events.absenceDeleteTitle'),
+        message: t('events.absenceDeleteMsg'),
+        confirmLabel: t('common.delete'),
         danger: true,
         onConfirm: async () => {
           try {
             await api.absences.remove(id);
             await Promise.all([refreshEvents(), loadAbsences()]);
-            toastMsg('Abwesenheit entfernt');
+            toastMsg(t('events.toastAbsenceDeleted'));
           } catch (err) {
             reportActionError({ setState, toastMsg }, err, 'error.delete');
           }

@@ -3,6 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { ModuleKey, PermLevel, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -42,7 +43,7 @@ export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, ref
   const saveRole = useCallback(async () => {
     const f = S().form;
     if (!f.name) {
-      toastMsg('Bitte Rollennamen angeben');
+      toastMsg(t('team.roleNameRequired'));
       return;
     }
     setState({ busy: 'save' });
@@ -50,7 +51,7 @@ export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, ref
       await api.roles.create(S().activeTeamId!, { name: f.name, permissions: f.perms });
       await refreshRoles();
       setState({ busy: null, sheet: { type: 'roles' } });
-      toastMsg('Rolle angelegt');
+      toastMsg(t('team.toastRoleCreated'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -62,13 +63,13 @@ export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, ref
       const cur = team.myRoles.map((r) => r.id);
       const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
       if (!next.length) {
-        toastMsg('Mindestens eine Rolle nötig');
+        toastMsg(t('team.roleAtLeastOne'));
         return;
       }
       try {
         await api.members.setRoles(team.membershipId, next);
         await refreshTeams();
-        toastMsg('Rollen aktualisiert');
+        toastMsg(t('team.toastRolesSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
       }

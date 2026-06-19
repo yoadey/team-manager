@@ -3,15 +3,15 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { useCompact } from '@/layouts/useCompact';
-import { buildTokens, hhmm, typeMeta } from '@/styles/tokens';
+import { buildTokens, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
-import { getIntlLocale } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
 
 export function EventCalendar() {
   const app = useApp();
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const compact = useCompact();
   const mobile = compact;
 
@@ -41,11 +41,16 @@ export function EventCalendar() {
   }
 
   const cells: React.ReactNode[] = [];
-  const dows = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  const dtf = new Intl.DateTimeFormat(getIntlLocale(), { weekday: mobile ? 'narrow' : 'short' });
+  // Build Mon–Sun headers using a known Monday (2024-01-01 was a Monday)
+  const dows = Array.from({ length: 7 }, (_, i) => dtf.format(new Date(2024, 0, 1 + i)));
   dows.forEach((d) =>
     cells.push(
-      <Box key={'h' + d} sx={{ textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#9A9DA6', p: '4px 0' }}>
-        {mobile ? d[0] : d}
+      <Box
+        key={'h' + d}
+        sx={{ textAlign: 'center', fontSize: '11px', fontWeight: 700, color: NEUTRAL.faint, p: '4px 0' }}
+      >
+        {d}
       </Box>,
     ),
   );
@@ -95,7 +100,7 @@ export function EventCalendar() {
           borderRadius: '5px',
           p: '1px 4px',
           fontSize: mobile ? '8px' : '9px',
-          color: '#6A6D76',
+          color: NEUTRAL.secondary,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -128,14 +133,14 @@ export function EventCalendar() {
           sx={{
             fontSize: mobile ? '11px' : '12px',
             fontWeight: isToday ? 800 : 500,
-            color: isToday ? t.primary : '#44474E',
+            color: isToday ? tk.primary : '#44474E',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
             width: '20px',
             height: '20px',
             borderRadius: '50%',
-            background: isToday ? t.primaryContainer : 'transparent',
+            background: isToday ? tk.primaryContainer : 'transparent',
             alignSelf: 'flex-start',
           }}
         >
@@ -143,12 +148,12 @@ export function EventCalendar() {
         </Box>
         {chips}
         {evs.length > (mobile ? 2 : 3) ? (
-          <Box sx={{ fontSize: '9px', color: '#9A9DA6', pl: '3px' }}>{'+' + (evs.length - (mobile ? 2 : 3))}</Box>
+          <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>{'+' + (evs.length - (mobile ? 2 : 3))}</Box>
         ) : null}
         {absChips}
         {abs.length > (mobile ? 1 : 2) ? (
-          <Box sx={{ fontSize: '9px', color: '#9A9DA6', pl: '3px' }}>
-            {'+' + (abs.length - (mobile ? 1 : 2)) + ' abw.'}
+          <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>
+            {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absent').slice(0, 3) + '.'}
           </Box>
         ) : null}
       </Box>,
@@ -179,10 +184,10 @@ export function EventCalendar() {
           type="checkbox"
           checked={state.calShowAbsences}
           onChange={() => app.toggleCalAbsences()}
-          style={{ width: '18px', height: '18px', accentColor: t.primary }}
+          style={{ width: '18px', height: '18px', accentColor: tk.primary }}
         />
-        <Sym name="beach_access" size={18} color="#6A6D76" />
-        Geplante Abwesenheiten anzeigen
+        <Sym name="beach_access" size={18} color={NEUTRAL.secondary} />
+        {t('events.showAbsences')}
       </Box>
       <Card>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', mb: '12px' }}>

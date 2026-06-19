@@ -2,21 +2,26 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { SheetHost } from './SheetHost';
 
-vi.mock('@/context/AppContext', () => ({
+const mocks = vi.hoisted(() => ({
   useApp: vi.fn(),
   isPageSheet: vi.fn(),
+  renderSheet: vi.fn(),
+  sheetMeta: vi.fn(),
+}));
+
+vi.mock('@/context/AppContext', () => ({
+  useApp: mocks.useApp,
+  isPageSheet: mocks.isPageSheet,
 }));
 
 vi.mock('@/sheets', () => ({
-  renderSheet: vi.fn().mockReturnValue(<div>Sheet Content</div>),
-  sheetMeta: vi.fn().mockReturnValue({ title: 'Teams', subtitle: null, hasBack: false, onBack: null }),
+  renderSheet: mocks.renderSheet,
+  sheetMeta: mocks.sheetMeta,
 }));
 
-import { useApp, isPageSheet } from '@/context/AppContext';
-import { sheetMeta as mockSheetMeta } from '@/sheets';
-const mockUseApp = useApp as ReturnType<typeof vi.fn>;
-const mockIsPageSheet = isPageSheet as ReturnType<typeof vi.fn>;
-const mockSheetMetaFn = mockSheetMeta as ReturnType<typeof vi.fn>;
+const mockUseApp = mocks.useApp;
+const mockIsPageSheet = mocks.isPageSheet;
+const mockSheetMetaFn = mocks.sheetMeta;
 
 function makeApp(sheet: unknown = null) {
   return {
@@ -32,6 +37,7 @@ describe('SheetHost', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockIsPageSheet.mockReturnValue(false);
+    mocks.renderSheet.mockReturnValue(<div>Sheet Content</div>);
     mockSheetMetaFn.mockReturnValue({ title: 'Teams', subtitle: null, hasBack: false, onBack: null });
   });
 

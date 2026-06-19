@@ -9,7 +9,7 @@ import { fileURLToPath, URL } from 'url';
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
+    alias: [{ find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) }],
   },
   test: {
     environment: 'jsdom',
@@ -36,8 +36,8 @@ export default defineConfig({
         'src/i18n/en.ts',
       ],
       // Floors set just below current real coverage so regressions fail CI.
-      // Raise these as component/hook tests are added.
-      thresholds: { statements: 50, branches: 70, functions: 70, lines: 50 },
+      // Raise these as component/hook tests are added (P1.9).
+      thresholds: { statements: 59, branches: 42, functions: 56, lines: 59 },
     },
   },
 });

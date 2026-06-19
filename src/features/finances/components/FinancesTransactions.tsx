@@ -4,6 +4,7 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { SectionTitle, EmptyState, Sym } from '@/components/ui';
 import type { FinanceOverview, Transaction } from '../types';
+import { t } from '@/i18n';
 
 type App = ReturnType<typeof useApp>;
 type Tk = ReturnType<typeof buildTokens>;
@@ -15,7 +16,7 @@ interface Props {
   canFin: boolean;
 }
 
-export function FinancesTransactions({ app, t, f, canFin }: Props) {
+export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
   const txRow = (tx: Transaction) => {
     const inner = (
       <>
@@ -25,8 +26,8 @@ export function FinancesTransactions({ app, t, f, canFin }: Props) {
             width: '38px',
             height: '38px',
             borderRadius: '11px',
-            background: tx.type === 'income' ? '#D7F0D8' : '#FFDAD6',
-            color: tx.type === 'income' ? '#2E7D32' : '#BA1A1A',
+            background: tx.type === 'income' ? NEUTRAL.successBg : NEUTRAL.errorBg,
+            color: tx.type === 'income' ? NEUTRAL.success : NEUTRAL.error,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -51,7 +52,7 @@ export function FinancesTransactions({ app, t, f, canFin }: Props) {
           </Box>
           <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>{tx.category + ' · ' + fmtDate(tx.date)}</Box>
         </Box>
-        <Box sx={{ fontSize: '15px', fontWeight: 700, color: tx.type === 'income' ? '#2E7D32' : '#BA1A1A' }}>
+        <Box sx={{ fontSize: '15px', fontWeight: 700, color: tx.type === 'income' ? NEUTRAL.success : NEUTRAL.error }}>
           {(tx.type === 'income' ? '+' : '−') + fmtMoney(tx.amount).replace('-', '')}
         </Box>
         {canFin ? <Sym name="chevron_right" size={20} color="#C0C2CA" /> : null}
@@ -94,19 +95,19 @@ export function FinancesTransactions({ app, t, f, canFin }: Props) {
                 gap: '5px',
                 border: 'none',
                 background: 'transparent',
-                color: t.primary,
+                color: tk.primary,
                 fontWeight: 700,
                 fontSize: '13px',
                 cursor: 'pointer',
               }}
             >
-              <Sym name="add" size={17} color={t.primary} />
-              Buchung
+              <Sym name="add" size={17} color={tk.primary} />
+              {t('finances.txAdd')}
             </ButtonBase>
           ) : null
         }
       >
-        {'Alle Umsätze · ' + f.transactions.length}
+        {t('finances.txListTitle', { n: f.transactions.length })}
       </SectionTitle>
       {f.transactions.length ? (
         <Box
@@ -122,7 +123,7 @@ export function FinancesTransactions({ app, t, f, canFin }: Props) {
           {f.transactions.map(txRow)}
         </Box>
       ) : (
-        <EmptyState icon="receipt_long" text="Noch keine Umsätze gebucht" />
+        <EmptyState icon="receipt_long" text={t('finances.txEmpty')} />
       )}
     </Box>
   );

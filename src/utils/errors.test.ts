@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { getErrorMessage, reportActionError } from './errors';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { getErrorMessage, reportActionError, NetworkError, ValidationError, AuthError, retryable } from './errors';
 
 describe('getErrorMessage', () => {
   it('uses Error.message', () => {
@@ -32,5 +32,95 @@ describe('reportActionError', () => {
     const toastMsg = vi.fn();
     reportActionError({ setState, toastMsg }, new Error('x'));
     expect(toastMsg.mock.calls[0][0]).toContain('Aktion fehlgeschlagen');
+  });
+
+  it('maps NetworkError to error.network i18n key', () => {
+    const setState = vi.fn();
+    const toastMsg = vi.fn();
+    reportActionError({ setState, toastMsg }, new NetworkError());
+    expect(toastMsg.mock.calls[0][0]).toBe('Verbindung zum Service fehlgeschlagen');
+  });
+
+  it('maps AuthError to error.login i18n key', () => {
+    const setState = vi.fn();
+    const toastMsg = vi.fn();
+    reportActionError({ setState, toastMsg }, new AuthError());
+    expect(toastMsg.mock.calls[0][0]).toBe('Anmeldung fehlgeschlagen');
+  });
+});
+
+describe('typed error classes', () => {
+  it('NetworkError has kind "network" and correct name', () => {
+    const err = new NetworkError('down');
+    expect(err.kind).toBe('network');
+    expect(err.name).toBe('NetworkError');
+    expect(err.message).toBe('down');
+    expect(err instanceof NetworkError).toBe(true);
+    expect(err instanceof Error).toBe(true);
+  });
+
+  it('ValidationError carries optional field', () => {
+    const err = new ValidationError('too short', 'title');
+    expect(err.kind).toBe('validation');
+    expect(err.field).toBe('title');
+    expect(err instanceof ValidationError).toBe(true);
+  });
+
+  it('AuthError has kind "auth"', () => {
+    const err = new AuthError();
+    expect(err.kind).toBe('auth');
+    expect(err instanceof AuthError).toBe(true);
+  });
+});
+
+describe('retryable', () => {
+  beforeEach(() => {
+    // Make setTimeout execute the callback immediately so tests run fast
+    // without the real backoff delay and without fake-timer/unhandledRejection issues.
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation((cb: TimerHandler) => {
+      if (typeof cb === 'function') cb();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('resolves immediately when fn succeeds on the first try', async () => {
+    const fn = vi.fn().mockResolvedValue('ok');
+    await expect(retryable(fn)).resolves.toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries up to maxRetries times on NetworkError then resolves', async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new NetworkError())
+      .mockRejectedValueOnce(new NetworkError())
+      .mockResolvedValue('recovered');
+
+    await expect(retryable(fn, 2)).resolves.toBe('recovered');
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it('throws NetworkError when all retries are exhausted', async () => {
+    const err = new NetworkError('still down');
+    const fn = vi.fn().mockRejectedValueOnce(err).mockRejectedValueOnce(err).mockRejectedValueOnce(err);
+
+    await expect(retryable(fn, 2)).rejects.toBe(err);
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry non-NetworkError errors', async () => {
+    const fn = vi.fn().mockRejectedValue(new ValidationError('bad input'));
+    await expect(retryable(fn)).rejects.toBeInstanceOf(ValidationError);
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry AuthError', async () => {
+    const fn = vi.fn().mockRejectedValue(new AuthError());
+    await expect(retryable(fn)).rejects.toBeInstanceOf(AuthError);
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,6 +5,7 @@ import type { AttendanceStatus, Role, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import { canSeeReason } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -65,7 +66,13 @@ export function useEventDetailActions({
         await refreshEvents();
         if (S().sheet && S().sheet!.type === 'eventDetail' && S().sheet!.eventId === eventId)
           await reloadDetail(eventId);
-        toastMsg(status === 'yes' ? 'Zugesagt' : status === 'maybe' ? 'Als unsicher markiert' : 'Abgesagt');
+        toastMsg(
+          status === 'yes'
+            ? t('attendance.yes')
+            : status === 'maybe'
+              ? t('events.toastStatusMaybe')
+              : t('attendance.no'),
+        );
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
       }
@@ -129,7 +136,7 @@ export function useEventDetailActions({
       const eid = s.eventId!;
       setState({ busy: null, sheet: null });
       openEventDetail(eid);
-      toastMsg('Kommentar gespeichert');
+      toastMsg(t('events.toastCommentSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -168,7 +175,7 @@ export function useEventDetailActions({
         await api.attendance.setNomination(eventId, userId, !currentlyNominated);
         await refreshEvents();
         await reloadDetail(eventId);
-        toastMsg(currentlyNominated ? 'Nicht nominiert' : 'Nominiert');
+        toastMsg(currentlyNominated ? t('attendance.not_nominated') : t('attendance.nominated'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
       }
@@ -213,19 +220,17 @@ export function useEventActionFeatures({
     async (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => {
       if (action === 'delete') {
         askConfirm({
-          title: scope === 'series' ? 'Ganze Serie löschen?' : 'Termin löschen?',
+          title: scope === 'series' ? t('events.deleteSeriesTitle') : t('events.deleteEventTitle'),
           message:
-            scope === 'series'
-              ? 'Alle Termine dieser Serie und alle Rückmeldungen werden dauerhaft entfernt.'
-              : '„' + event.title + '" und alle Rückmeldungen werden dauerhaft entfernt.',
-          confirmLabel: 'Löschen',
+            scope === 'series' ? t('events.deleteSeriesMsg') : t('events.deleteEventMsg', { title: event.title }),
+          confirmLabel: t('common.delete'),
           danger: true,
           onConfirm: async () => {
             try {
               await api.events.remove(event.id, scope);
               await refreshEvents();
               setState({ sheet: null });
-              toastMsg(scope === 'series' ? 'Serie gelöscht' : 'Termin gelöscht');
+              toastMsg(scope === 'series' ? t('events.toastSeriesDeleted') : t('events.toastEventDeleted'));
             } catch (err) {
               reportActionError({ setState, toastMsg }, err, 'error.delete');
             }
@@ -242,11 +247,11 @@ export function useEventActionFeatures({
         toastMsg(
           action === 'cancel'
             ? scope === 'series'
-              ? 'Serie abgesagt'
-              : 'Termin abgesagt'
+              ? t('events.toastSeriesCancelled')
+              : t('events.toastEventCancelled')
             : scope === 'series'
-              ? 'Serie aktiviert'
-              : 'Termin aktiviert',
+              ? t('events.toastSeriesActivated')
+              : t('events.toastEventActivated'),
         );
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);

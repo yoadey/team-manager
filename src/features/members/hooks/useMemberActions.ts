@@ -3,6 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Member } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -76,7 +77,7 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
   const saveMember = useCallback(async () => {
     const f = S().form;
     if (!f.name) {
-      toastMsg('Bitte einen Namen angeben');
+      toastMsg(t('members.fieldNameError'));
       return;
     }
     const sh = S().sheet!;
@@ -102,7 +103,7 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
       }
       setState({ busy: null, sheet: null });
       if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId);
-      toastMsg('Profil gespeichert');
+      toastMsg(t('members.toastProfileSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -112,19 +113,16 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
     (membershipId: string) => {
       const m = S().members.find((x) => x.membershipId === membershipId);
       askConfirm({
-        title: 'Mitglied entfernen?',
-        message:
-          '„' +
-          (m ? m.name : 'Das Mitglied') +
-          '" wird aus dem Team entfernt und verliert den Zugriff. Diese Aktion kann nicht rückgängig gemacht werden.',
-        confirmLabel: 'Entfernen',
+        title: t('members.removeTitle'),
+        message: t('members.removeMsg', { name: m ? m.name : '?' }),
+        confirmLabel: t('members.removeConfirm'),
         danger: true,
         onConfirm: async () => {
           try {
             await api.members.remove(membershipId);
             await refreshMembers();
             setState({ sheet: null });
-            toastMsg('Mitglied entfernt');
+            toastMsg(t('members.toastMemberRemoved'));
           } catch (err) {
             reportActionError({ setState, toastMsg }, err, 'error.delete');
           }

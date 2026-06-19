@@ -1,16 +1,24 @@
+import { NEUTRAL } from '@/styles/tokens';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { Member } from '../types';
 import type { SheetProps } from '@/sheets/types';
-import { getIntlLocale } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
+import { validateBirthday, validateEmail, validatePhone, validateRequiredText } from '@/utils/validation';
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const m: Member = sheet.member!;
   const st: { quote: number | null; counted: number; yes: number } | null = sheet.stats ?? null;
   const qcol =
-    st && st.quote !== null ? (st.quote >= 80 ? '#2E7D32' : st.quote >= 50 ? '#9A5B00' : '#BA1A1A') : '#9A9DA6';
+    st && st.quote !== null
+      ? st.quote >= 80
+        ? NEUTRAL.success
+        : st.quote >= 50
+          ? '#9A5B00'
+          : NEUTRAL.error
+      : NEUTRAL.faint;
 
   const head = (
     <Box key="hd" sx={{ display: 'flex', alignItems: 'center', gap: '14px', p: '4px 2px 18px' }}>
@@ -34,16 +42,16 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         <Box key="v" sx={{ fontSize: '24px', fontWeight: 800, color: qcol }}>
           {st ? (st.quote === null ? '–' : st.quote + '%') : '…'}
         </Box>
-        <Box key="l" sx={{ fontSize: '11px', color: '#6A6D76', mt: '2px' }}>
-          Anwesenheitsquote
+        <Box key="l" sx={{ fontSize: '11px', color: NEUTRAL.secondary, mt: '2px' }}>
+          {t('members.attendanceRate')}
         </Box>
       </Box>
       <Box key="g" sx={{ flex: 1, background: '#F4F4FA', borderRadius: '14px', p: '14px', textAlign: 'center' }}>
         <Box key="v" sx={{ fontSize: '24px', fontWeight: 800 }}>
           {m.roles.length}
         </Box>
-        <Box key="l" sx={{ fontSize: '11px', color: '#6A6D76', mt: '2px' }}>
-          {m.roles.length === 1 ? 'Rolle' : 'Rollen'}
+        <Box key="l" sx={{ fontSize: '11px', color: NEUTRAL.secondary, mt: '2px' }}>
+          {m.roles.length === 1 ? t('members.role') : t('members.roles')}
         </Box>
       </Box>
     </Box>
@@ -57,7 +65,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
       : '—';
   const cRow = (icon: string, val: string) => (
     <Box key={icon} sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
-      <Sym name={icon} size={19} color="#6A6D76" />
+      <Sym name={icon} size={19} color={NEUTRAL.secondary} />
       <Box key="t" component="span" sx={{ flex: 1, fontSize: '14px' }}>
         {val || '—'}
       </Box>
@@ -108,7 +116,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
           }}
         >
           <Sym name="edit" size={19} color="#44474E" />
-          {isMe ? 'Profil bearbeiten' : 'Bearbeiten'}
+          {isMe ? t('members.editProfile') : t('members.edit')}
         </ButtonBase>
         {canWrite && !isMe ? (
           <ButtonBase
@@ -122,12 +130,12 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
               borderRadius: '13px',
               border: '1px solid #F0C4C0',
               background: '#FFF4F3',
-              color: '#BA1A1A',
+              color: NEUTRAL.error,
               fontWeight: 600,
               cursor: 'pointer',
             }}
           >
-            <Sym name="person_remove" size={19} color="#BA1A1A" />
+            <Sym name="person_remove" size={19} color={NEUTRAL.error} />
           </ButtonBase>
         ) : null}
       </Box>
@@ -144,13 +152,12 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         background: '#F4F4FA',
         borderRadius: '13px',
         fontSize: '12px',
-        color: '#6A6D76',
+        color: NEUTRAL.secondary,
         lineHeight: 1.5,
       }}
     >
-      <Sym name="info" size={17} color="#9A9DA6" />
-      Die Team-Zugeh&ouml;rigkeit kann hier nicht ge&auml;ndert werden. Neue Mitglieder treten &uuml;ber einen
-      Einladungslink bei &ndash; bestehende lassen sich nur aus dem Team entfernen.
+      <Sym name="info" size={17} color={NEUTRAL.faint} />
+      {t('members.membershipNote')}
     </Box>
   ) : null;
 
@@ -168,12 +175,30 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
 export function MemberFormSheet({ app }: SheetProps) {
   const { state } = app;
   const F = app.state.form;
+  const errs = state.formErrors;
   const myIds: string[] = F.roleIds || [];
   const canRoles = app.can('members', 'write');
 
+  const validateName = () => {
+    const r = validateRequiredText(F.name, t('members.fieldNameError'));
+    app.setFormErrors({ name: r.ok ? '' : r.message! });
+  };
+  const validateEmail_ = () => {
+    const r = validateEmail(F.email, t('members.fieldEmailError'));
+    app.setFormErrors({ email: r.ok ? '' : r.message! });
+  };
+  const validatePhone_ = () => {
+    const r = validatePhone(F.phone, t('members.fieldPhoneError'));
+    app.setFormErrors({ phone: r.ok ? '' : r.message! });
+  };
+  const validateBirthday_ = () => {
+    const r = validateBirthday(F.birthday, t('members.fieldBirthdayError'));
+    app.setFormErrors({ birthday: r.ok ? '' : r.message! });
+  };
+
   const photoRow = (
     <Box key="ph" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '4px' }}>
-      <Av key="a" name={F.name || '?'} photo={F.photo} color="#9A9DA6" size={56} font={20} />
+      <Av key="a" name={F.name || '?'} photo={F.photo} color={NEUTRAL.faint} size={56} font={20} />
       <Box
         key="u"
         component="label"
@@ -192,7 +217,7 @@ export function MemberFormSheet({ app }: SheetProps) {
         }}
       >
         <Sym name="photo_camera" size={18} />
-        {F.photo ? 'Foto ändern' : 'Foto hochladen'}
+        {F.photo ? t('members.photoChange') : t('members.photoUpload')}
         <input
           key="f"
           type="file"
@@ -207,7 +232,7 @@ export function MemberFormSheet({ app }: SheetProps) {
   const roleChips = canRoles ? (
     <Box key="rc">
       <Box key="l" sx={labelSx}>
-        Rollen (Mehrfachauswahl)
+        {t('members.rolesMulti')}
       </Box>
       <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {state.roles.map((r) => {
@@ -245,33 +270,37 @@ export function MemberFormSheet({ app }: SheetProps) {
   ) : null;
 
   const contactNote = (
-    <Box key="cn" sx={{ fontSize: '12px', color: '#9A9DA6', lineHeight: 1.5, display: 'flex', gap: '8px' }}>
+    <Box key="cn" sx={{ fontSize: '12px', color: NEUTRAL.faint, lineHeight: 1.5, display: 'flex', gap: '8px' }}>
       <Sym name="lock" size={15} color="#C0C2CA" />
-      Kontaktdaten sind optional. Geburtstag und Adresse sieht nur das Trainerteam.
+      {t('members.contactNote')}
     </Box>
   );
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {photoRow}
-      <Field label="Name">
-        <TextInput name="name" placeholder="Vor- und Nachname" />
+      <Field label={t('members.fieldName')} required error={!!errs.name} errorText={errs.name}>
+        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} onBlur={validateName} />
       </Field>
-      <Field label="E-Mail">
-        <TextInput name="email" type="email" placeholder="name@example.de" />
+      <Field label={t('members.fieldEmail')} error={!!errs.email} errorText={errs.email}>
+        <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} onBlur={validateEmail_} />
       </Field>
-      <Field label="Telefon">
-        <TextInput name="phone" placeholder="+49 …" />
+      <Field label={t('members.fieldPhone')} error={!!errs.phone} errorText={errs.phone}>
+        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} />
       </Field>
-      <Field label="Geburtstag">
-        <TextInput name="birthday" type="date" />
+      <Field label={t('members.fieldBirthday')} error={!!errs.birthday} errorText={errs.birthday}>
+        <TextInput name="birthday" type="date" onBlur={validateBirthday_} />
       </Field>
-      <Field label="Adresse">
-        <TextInput name="address" placeholder="Straße, PLZ Ort" />
+      <Field label={t('members.fieldAddress')}>
+        <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} />
       </Field>
       {contactNote}
       {roleChips}
-      <PrimaryButton label="Profil speichern" onClick={() => app.saveMember()} busy={app.state.busy === 'save'} />
+      <PrimaryButton
+        label={t('members.saveProfile')}
+        onClick={() => app.saveMember()}
+        busy={app.state.busy === 'save'}
+      />
     </Box>
   );
 }

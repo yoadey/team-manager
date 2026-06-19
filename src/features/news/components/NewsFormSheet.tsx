@@ -1,13 +1,13 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
+import { t } from '@/i18n';
 
 export function NewsFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
-  void sheet;
+  const tk = buildTokens(state.primaryColor);
   const F = app.state.form;
   const errs = state.formErrors;
 
@@ -27,9 +27,9 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
         background: '#F4F4FA',
       }}
     >
-      <Sym name="push_pin" size={20} color={F.pinned ? t.primary : '#9A9DA6'} />
+      <Sym name="push_pin" size={20} color={F.pinned ? tk.primary : NEUTRAL.faint} />
       <Box component="span" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
-        Oben anpinnen
+        {t('news.pinned')}
       </Box>
       <Box
         component="span"
@@ -37,7 +37,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
           width: '44px',
           height: '26px',
           borderRadius: '999px',
-          background: F.pinned ? t.primary : '#C8CAD2',
+          background: F.pinned ? tk.primary : '#C8CAD2',
           position: 'relative',
         }}
       >
@@ -58,22 +58,29 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
     </ButtonBase>
   );
 
-  const validateTitle = () => app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : 'Titel fehlt.' });
-  const validateBody = () => app.setFormErrors({ body: String(F.body ?? '').trim() ? '' : 'Text fehlt.' });
+  const validateTitle = () =>
+    app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : t('news.fieldTitleError') });
+  const validateBody = () => app.setFormErrors({ body: String(F.body ?? '').trim() ? '' : t('news.fieldBodyError') });
 
   const canSubmit = !!(F.title as string | undefined)?.trim() && !!(F.body as string | undefined)?.trim();
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Field label="Titel" required error={!!errs.title} errorText={errs.title}>
-        <TextInput name="title" placeholder="Überschrift" onBlur={validateTitle} />
+      <Field label={t('news.fieldTitle')} required error={!!errs.title} errorText={errs.title}>
+        <TextInput name="title" placeholder={t('news.fieldTitlePlaceholder')} onBlur={validateTitle} maxLength={120} />
       </Field>
-      <Field label="Text" required error={!!errs.body} errorText={errs.body}>
-        <TextArea name="body" placeholder="Was gibt es Neues?" minHeight={120} onBlur={validateBody} />
+      <Field label={t('news.fieldBody')} required error={!!errs.body} errorText={errs.body}>
+        <TextArea
+          name="body"
+          placeholder={t('news.fieldBodyPlaceholder')}
+          minHeight={120}
+          onBlur={validateBody}
+          maxLength={5000}
+        />
       </Field>
       {pin}
       <PrimaryButton
-        label={sheet.mode === 'edit' ? 'Änderungen speichern' : 'Veröffentlichen'}
+        label={sheet.mode === 'edit' ? t('news.saveChanges') : t('news.publish')}
         onClick={() => app.saveNews()}
         busy={app.state.busy === 'save'}
         disabled={!canSubmit}

@@ -1,13 +1,14 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { buildTokens, typeMeta } from '@/styles/tokens';
+import { buildTokens, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Field, labelSx, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { Role } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import { t } from '@/i18n';
 
 export function EventFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const F = app.state.form;
   const errs = state.formErrors;
 
@@ -34,18 +35,22 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           fontWeight: 600,
           border: '1.5px solid ' + (sel ? meta.color : '#E0E2EA'),
           background: sel ? meta.bg : '#fff',
-          color: sel ? meta.color : '#6A6D76',
+          color: sel ? meta.color : NEUTRAL.secondary,
         }}
       >
-        <Sym name={meta.icon} size={18} color={sel ? meta.color : '#6A6D76'} />
-        {tp === 'training' ? 'Training' : tp === 'auftritt' ? 'Auftritt' : 'Event'}
+        <Sym name={meta.icon} size={18} color={sel ? meta.color : NEUTRAL.secondary} />
+        {tp === 'training'
+          ? t('events.typeTraining')
+          : tp === 'auftritt'
+            ? t('events.typeAuftritt')
+            : t('events.typeEvent')}
       </ButtonBase>
     );
   });
 
   const modeDefs: [string, string, string, string][] = [
-    ['opt_in', 'Aktiv zusagen', 'Standard offen – jeder sagt aktiv zu', 'login'],
-    ['opt_out', 'Aktiv absagen', 'Alle gelten als zugesagt', 'logout'],
+    ['opt_in', t('events.modeOptIn'), t('events.modeOptInDesc'), 'login'],
+    ['opt_out', t('events.modeOptOut'), t('events.modeOptOutDesc'), 'logout'],
   ];
   const modeBtns = modeDefs.map(([v, l, d, ic]) => {
     const sel = F.responseMode === v;
@@ -64,8 +69,8 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           textAlign: 'left',
           alignItems: 'stretch',
           justifyContent: 'flex-start',
-          border: '1.5px solid ' + (sel ? t.primary : '#E0E2EA'),
-          background: sel ? t.primaryContainer : '#fff',
+          border: '1.5px solid ' + (sel ? tk.primary : '#E0E2EA'),
+          background: sel ? tk.primaryContainer : '#fff',
         }}
       >
         <Box
@@ -76,13 +81,13 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
             gap: '6px',
             fontSize: '13px',
             fontWeight: 700,
-            color: sel ? t.onPrimaryContainer : '#44474E',
+            color: sel ? tk.onPrimaryContainer : '#44474E',
           }}
         >
-          <Sym name={ic} size={17} color={sel ? t.onPrimaryContainer : '#44474E'} />
+          <Sym name={ic} size={17} color={sel ? tk.onPrimaryContainer : '#44474E'} />
           {l}
         </Box>
-        <Box key="d" sx={{ fontSize: '11px', color: sel ? t.onPrimaryContainer : '#9A9DA6', lineHeight: 1.4 }}>
+        <Box key="d" sx={{ fontSize: '11px', color: sel ? tk.onPrimaryContainer : NEUTRAL.faint, lineHeight: 1.4 }}>
           {d}
         </Box>
       </ButtonBase>
@@ -113,8 +118,8 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           width: '22px',
           height: '22px',
           borderRadius: '7px',
-          background: F.meetTimeMandatory ? t.primary : '#fff',
-          border: '2px solid ' + (F.meetTimeMandatory ? t.primary : '#B0B3BC'),
+          background: F.meetTimeMandatory ? tk.primary : '#fff',
+          border: '2px solid ' + (F.meetTimeMandatory ? tk.primary : '#B0B3BC'),
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -124,7 +129,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         {F.meetTimeMandatory ? <Sym name="check" size={16} color="#fff" /> : null}
       </Box>
       <Box key="l" component="span" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
-        Treffzeit ist Pflichtfeld
+        {t('events.meetTimeMandatory')}
       </Box>
     </ButtonBase>
   );
@@ -147,9 +152,9 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
             justifyContent: 'flex-start',
           }}
         >
-          <Sym name="repeat" size={20} color="#6A6D76" />
+          <Sym name="repeat" size={20} color={NEUTRAL.secondary} />
           <Box key="l" component="span" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
-            Wöchentlich wiederholen
+            {t('events.recurWeekly')}
           </Box>
           <Box
             key="sw"
@@ -158,7 +163,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
               width: '44px',
               height: '26px',
               borderRadius: '999px',
-              background: F.recurring ? t.primary : '#C8CAD2',
+              background: F.recurring ? tk.primary : '#C8CAD2',
               position: 'relative',
               flex: '0 0 auto',
             }}
@@ -180,7 +185,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         </ButtonBase>
         {F.recurring ? (
           <Box key="w" sx={{ mt: '10px' }}>
-            <Field label="Anzahl Wochen">
+            <Field label={t('events.recurWeeks')}>
               <TextInput name="repeatWeeks" type="number" min="2" max="26" />
             </Field>
           </Box>
@@ -191,10 +196,10 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const nomSel = (
     <Box key="nomsel" sx={{ borderTop: '1px solid #ECEDF3', pt: '14px' }}>
       <Box key="l" sx={labelSx}>
-        Nominierte Rollen
+        {t('events.nominatedRoles')}
       </Box>
-      <Box key="h" sx={{ fontSize: '12px', color: '#9A9DA6', m: '-2px 0 9px', lineHeight: 1.45 }}>
-        Nur Mitglieder mit einer gewählten Rolle werden nominiert. Abgewählte Rollen können nicht zu-/absagen.
+      <Box key="h" sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-2px 0 9px', lineHeight: 1.45 }}>
+        {t('events.nominatedRolesHint')}
       </Box>
       <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {state.roles.map((r: Role) => {
@@ -214,7 +219,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 fontWeight: 600,
                 border: '1.5px solid ' + (sel ? r.color : '#D0D2DA'),
                 background: sel ? r.color + '1A' : '#fff',
-                color: sel ? r.color : '#9A9DA6',
+                color: sel ? r.color : NEUTRAL.faint,
               }}
             >
               <Box
@@ -237,44 +242,49 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box key="type">
         <Box key="l" sx={labelSx}>
-          Termintyp
+          {t('events.eventType')}
         </Box>
         <Box key="b" sx={{ display: 'flex', gap: '8px' }}>
           {typeBtns}
         </Box>
       </Box>
-      <Field label="Titel" required error={!!errs.title} errorText={errs.title}>
-        <TextInput name="title" placeholder="z. B. Lateinformation – Training" onBlur={req('title', 'Titel fehlt.')} />
+      <Field label={t('events.fieldTitle')} required error={!!errs.title} errorText={errs.title}>
+        <TextInput
+          name="title"
+          placeholder={t('events.fieldTitlePlaceholder')}
+          onBlur={req('title', t('events.fieldTitleError'))}
+          maxLength={100}
+        />
       </Field>
-      <Field label="Datum" required error={!!errs.date} errorText={errs.date}>
-        <TextInput name="date" type="date" onBlur={req('date', 'Datum fehlt.')} />
+      <Field label={t('events.fieldDate')} required error={!!errs.date} errorText={errs.date}>
+        <TextInput name="date" type="date" onBlur={req('date', t('events.fieldDateError'))} />
       </Field>
       <Box key="times" sx={{ display: 'flex', gap: '10px' }}>
-        <Field label="Treffzeit">
+        <Field label={t('events.fieldMeetTime')}>
           <TextInput name="meetT" type="time" />
         </Field>
-        <Field label="Beginn">
+        <Field label={t('events.fieldStartTime')}>
           <TextInput name="startT" type="time" />
         </Field>
-        <Field label="Ende">
+        <Field label={t('events.fieldEndTime')}>
           <TextInput name="endT" type="time" />
         </Field>
       </Box>
       {meetToggle}
       <Box key="mode">
         <Box key="l" sx={labelSx}>
-          Rückmeldung
+          {t('events.responseMode')}
         </Box>
         <Box key="b" sx={{ display: 'flex', gap: '8px' }}>
           {modeBtns}
         </Box>
       </Box>
       {nomSel}
-      <Field label="Ort">
-        <TextInput name="location" placeholder="Halle / Adresse" />
+      <Field label={t('events.fieldLocation')}>
+        <TextInput name="location" placeholder={t('events.fieldLocationPlaceholder')} />
       </Field>
-      <Field label="Notiz">
-        <TextArea name="note" placeholder="Hinweise für das Team…" minHeight={64} />
+      <Field label={t('events.fieldNote')}>
+        <TextArea name="note" placeholder={t('events.fieldNotePlaceholder')} minHeight={64} />
       </Field>
       {recur}
       {sheet.mode === 'edit' && F.seriesId ? (
@@ -286,12 +296,12 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
               alignItems: 'center',
               gap: '7px',
               fontSize: '12px',
-              color: '#6A6D76',
+              color: NEUTRAL.secondary,
               fontWeight: 600,
             }}
           >
-            <Sym name="repeat" size={16} color="#9A9DA6" />
-            Teil einer Serie – was soll gespeichert werden?
+            <Sym name="repeat" size={16} color={NEUTRAL.faint} />
+            {t('events.seriesHint')}
           </Box>
           <Box key="b" sx={{ display: 'flex', gap: '10px' }}>
             <ButtonBase
@@ -306,16 +316,16 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 gap: '8px',
                 p: '13px',
                 borderRadius: '13px',
-                border: '1px solid ' + t.primary,
+                border: '1px solid ' + tk.primary,
                 background: '#fff',
-                color: t.primary,
+                color: tk.primary,
                 fontWeight: 700,
                 fontSize: '14px',
                 cursor: 'pointer',
               }}
             >
-              <Sym name="event" size={18} color={t.primary} />
-              Nur dieser Termin
+              <Sym name="event" size={18} color={tk.primary} />
+              {t('events.seriesSingle')}
             </ButtonBase>
             <ButtonBase
               key="all"
@@ -330,21 +340,21 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 p: '13px',
                 borderRadius: '13px',
                 border: 'none',
-                background: t.primary,
-                color: t.onPrimary,
+                background: tk.primary,
+                color: tk.onPrimary,
                 fontWeight: 700,
                 fontSize: '14px',
                 cursor: 'pointer',
               }}
             >
-              <Sym name="repeat" size={18} color={t.onPrimary} />
-              Ganze Serie
+              <Sym name="repeat" size={18} color={tk.onPrimary} />
+              {t('events.seriesAll')}
             </ButtonBase>
           </Box>
         </Box>
       ) : (
         <PrimaryButton
-          label={sheet.mode === 'edit' ? 'Änderungen speichern' : 'Termin anlegen'}
+          label={sheet.mode === 'edit' ? t('events.saveChanges') : t('events.createEvent')}
           onClick={() => app.saveEvent('single')}
           busy={app.state.busy === 'save'}
           disabled={!canSubmit}
