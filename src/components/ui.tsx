@@ -281,11 +281,52 @@ export const inputSx: React.CSSProperties = {
   fontFamily: 'inherit',
 };
 
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({
+  label,
+  children,
+  required,
+  error,
+  errorText,
+  helperText,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  error?: boolean;
+  errorText?: string;
+  helperText?: string;
+}) {
+  const errorId = errorText ? `field-err-${label.replace(/\s+/g, '-').toLowerCase()}` : undefined;
   return (
     <Box component="label" sx={{ display: 'block' }}>
-      <Box sx={labelSx}>{label}</Box>
-      {children}
+      <Box sx={labelSx}>
+        {label}
+        {required ? (
+          <Box component="span" aria-hidden="true" sx={{ color: '#BA1A1A', ml: '2px' }}>
+            *
+          </Box>
+        ) : null}
+      </Box>
+      {React.isValidElement(children)
+        ? React.cloneElement(children as React.ReactElement<Record<string, unknown>>, {
+            'aria-required': required ? 'true' : undefined,
+            'aria-invalid': error ? 'true' : undefined,
+            'aria-describedby': errorId,
+            style: error
+              ? {
+                  ...(children as React.ReactElement<{ style?: React.CSSProperties }>).props.style,
+                  borderColor: '#BA1A1A',
+                }
+              : (children as React.ReactElement<{ style?: React.CSSProperties }>).props.style,
+          })
+        : children}
+      {errorId && errorText ? (
+        <Box id={errorId} role="alert" sx={{ fontSize: '12px', color: '#BA1A1A', mt: '4px' }}>
+          {errorText}
+        </Box>
+      ) : helperText ? (
+        <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '4px' }}>{helperText}</Box>
+      ) : null}
     </Box>
   );
 }
@@ -293,7 +334,7 @@ export function Field({ label, children }: { label: string; children: React.Reac
 type TextInputProps = React.InputHTMLAttributes<HTMLInputElement> & { name: string };
 
 /** Form-bound text input (mirrors prototype tf()). */
-export function TextInput({ name, type = 'text', placeholder, min, max, ...rest }: TextInputProps) {
+export function TextInput({ name, type = 'text', placeholder, min, max, style: styleProp, ...rest }: TextInputProps) {
   const { state, onFormInput } = useApp();
   const v = state.form[name];
   return (
@@ -305,7 +346,7 @@ export function TextInput({ name, type = 'text', placeholder, min, max, ...rest 
       value={v == null ? '' : v}
       placeholder={placeholder || ''}
       onChange={onFormInput}
-      style={inputSx}
+      style={styleProp ? { ...inputSx, ...styleProp } : inputSx}
       {...rest}
     />
   );
@@ -315,10 +356,14 @@ export function TextArea({
   name,
   placeholder,
   minHeight = 80,
+  onBlur,
+  style: styleProp,
 }: {
   name: string;
   placeholder?: string;
   minHeight?: number;
+  onBlur?: React.FocusEventHandler<HTMLTextAreaElement>;
+  style?: React.CSSProperties;
 }) {
   const { state, onFormInput } = useApp();
   const v = state.form[name];
@@ -328,7 +373,12 @@ export function TextArea({
       value={v == null ? '' : v}
       placeholder={placeholder || ''}
       onChange={onFormInput}
-      style={{ ...inputSx, minHeight, resize: 'vertical' }}
+      onBlur={onBlur}
+      style={
+        styleProp
+          ? { ...inputSx, minHeight, resize: 'vertical', ...styleProp }
+          : { ...inputSx, minHeight, resize: 'vertical' }
+      }
     />
   );
 }

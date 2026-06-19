@@ -1,9 +1,9 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
 import type {
   AttendanceStatus,
   DateRange,
+  MemberAttendanceStats,
   ModuleKey,
   PermLevel,
   Provider,
@@ -13,24 +13,75 @@ import type {
   User,
 } from '@/types';
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
-import type { FinanceOverview } from '@/features/finances';
+import type { Contribution, FinanceOverview, Penalty, Transaction } from '@/features/finances';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
 import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
-import { DEFAULT_PRESET_KEY, hhmm, todayStr } from '@/styles/tokens';
-import { validateEventForm } from '@/utils/validation';
+import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
+import { setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
+export type SheetType =
+  | 'teams'
+  | 'profile'
+  | 'more'
+  | 'teamSettings'
+  | 'createTeam'
+  | 'invite'
+  | 'notifications'
+  | 'calExport'
+  | 'eventDetail'
+  | 'eventForm'
+  | 'seriesAction'
+  | 'comment'
+  | 'absenceForm'
+  | 'memberDetail'
+  | 'memberForm'
+  | 'newsForm'
+  | 'txForm'
+  | 'penaltyCatalog'
+  | 'penaltyAssign'
+  | 'penaltyForm'
+  | 'contribForm'
+  | 'pollForm'
+  | 'roles'
+  | 'roleForm'
+  | 'confirm';
+
+export interface ConfirmConfig {
+  title?: string;
+  message?: string;
+  confirmLabel?: string;
+  danger?: boolean;
+  onConfirm?: () => void | Promise<void>;
+}
+
 export interface SheetState {
-  type: string;
+  type: SheetType;
   back?: SheetState | null;
-  [k: string]: any;
+  // Typed payload properties shared across sheet variants (all optional)
+  cfg?: ConfirmConfig;
+  mode?: 'edit' | 'create';
+  self?: boolean;
+  action?: 'cancel' | 'delete' | 'reactivate';
+  event?: TeamEvent | null;
+  eventId?: string;
+  rows?: AttendanceRow[];
+  comments?: import('@/features/events').EventComment[];
+  membershipId?: string;
+  member?: Member | null;
+  stats?: MemberAttendanceStats | null;
+  userId?: string;
+  name?: string;
+  status?: AttendanceStatus;
+  invite?: import('@/types').Invite | null;
+  copied?: boolean;
 }
 
 export interface AppState {
@@ -63,7 +114,9 @@ export interface AppState {
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
   contribMonth: string | null;
   sheet: SheetState | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   form: Record<string, any>;
+  formErrors: Record<string, string>;
   toast: string | null;
   error: string | null;
 }
@@ -99,6 +152,7 @@ const initialState: AppState = {
   contribMonth: null,
   sheet: null,
   form: {},
+  formErrors: {},
   toast: null,
   error: null,
 };
@@ -119,7 +173,9 @@ export interface AppContextValue {
   setPrimaryColor: (c: string) => void;
   // form
   onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   setFormVal: (patch: Record<string, any>) => void;
+  setFormErrors: (patch: Record<string, string>) => void;
   onFile: (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => void;
   setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
   // auth
@@ -207,21 +263,21 @@ export interface AppContextValue {
   downloadIcs: () => void;
   copyCalUrl: () => void;
   // news
-  openNewsForm: () => void;
+  openNewsForm: (n?: import('@/features/news').NewsItem) => void;
   saveNews: () => Promise<void>;
   removeNews: (id: string) => void;
   // finances
-  openTxForm: (tx?: any) => void;
+  openTxForm: (tx?: Transaction) => void;
   saveTx: () => Promise<void>;
   deleteTx: (id: string) => Promise<void>;
   openPenaltyCatalog: () => void;
-  openPenaltyForm: (p?: any) => void;
+  openPenaltyForm: (p?: Penalty) => void;
   savePenalty: () => Promise<void>;
   deletePenaltyDef: (id: string) => void;
   openPenaltyAssign: () => void;
   savePenaltyAssign: () => Promise<void>;
   deleteAssignment: (id: string) => Promise<void>;
-  openContribForm: (c: any) => void;
+  openContribForm: (c: Contribution) => void;
   saveContrib: () => Promise<void>;
   togglePenalty: (id: string) => Promise<void>;
   toggleContribution: (id: string) => Promise<void>;
@@ -230,6 +286,7 @@ export interface AppContextValue {
   openPollForm: () => void;
   savePoll: () => Promise<void>;
   togglePollOption: (poll: Poll, optId: string) => void;
+  removePoll: (id: string) => void;
 }
 
 /** Actions + helpers, without the mutable `state`. Stable across renders. */
@@ -313,7 +370,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [setState],
   );
   const setFormVal = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (patch: Record<string, any>) => setState((s) => ({ form: { ...s.form, ...patch } })),
+    [setState],
+  );
+  const setFormErrors = useCallback(
+    (patch: Record<string, string>) => setState((s) => ({ formErrors: { ...s.formErrors, ...patch } })),
     [setState],
   );
   const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
@@ -362,10 +424,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           api.news.list(teamId),
           api.notifications.list(teamId),
         ]);
-        setState({ events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount });
+        // Discard results if the user switched to a different team while loading
+        setState((s) => {
+          if (s.activeTeamId !== teamId) return {};
+          return { events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount };
+        });
       } catch (err) {
-        reportLoad(err);
-        setState({ error: t('error.load') });
+        if (S().activeTeamId === teamId) {
+          reportLoad(err);
+          setState({ error: t('error.load') });
+        }
       }
     },
     [api, setState, reportLoad],
@@ -476,6 +544,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
         const activeTeamId = teams[0].id;
         setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+        setSentryUser(user);
         await afterLoginLoad(activeTeamId);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
@@ -486,6 +555,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const logout = useCallback(() => {
     api.auth.logout();
+    setSentryUser(null);
     setState({
       phase: 'login',
       user: null,
@@ -548,7 +618,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- confirm ----------
   const askConfirm = useCallback(
-    (cfg: any) => setState((s) => ({ sheet: { type: 'confirm', cfg, back: s.sheet } })),
+    (cfg: ConfirmConfig) => setState((s) => ({ sheet: { type: 'confirm', cfg, back: s.sheet } })),
     [setState],
   );
   const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);
@@ -625,6 +695,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openPollForm,
     savePoll,
     togglePollOption,
+    removePoll,
+    openEventForm,
+    saveEvent,
+    toggleFormNomRole,
   } = useFeatureActions({
     api,
     S,
@@ -646,112 +720,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setFormVal,
     askConfirm,
   });
-
-  const openEventForm = useCallback(
-    (event: TeamEvent | null) => {
-      const f = event
-        ? {
-            id: event.id,
-            seriesId: event.seriesId || null,
-            type: event.type,
-            title: event.title,
-            date: event.date,
-            meetT: hhmm(event.meetTime),
-            startT: hhmm(event.startTime),
-            endT: hhmm(event.endTime),
-            location: event.location || '',
-            note: event.note || '',
-            meetTimeMandatory: !!event.meetTimeMandatory,
-            responseMode: event.responseMode || 'opt_in',
-            nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id),
-            recurring: false,
-            repeatWeeks: 8,
-          }
-        : {
-            type: 'training',
-            title: '',
-            date: todayStr(),
-            meetT: '19:15',
-            startT: '19:30',
-            endT: '21:30',
-            location: 'Tanzsporthalle Eilendorf',
-            note: '',
-            meetTimeMandatory: true,
-            responseMode: 'opt_out',
-            nominatedRoleIds: S().roles.map((r) => r.id),
-            recurring: false,
-            repeatWeeks: 8,
-          };
-      setState((st) => ({
-        sheet: {
-          type: 'eventForm',
-          mode: event ? 'edit' : 'create',
-          back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
-        },
-        form: f,
-      }));
-    },
-    [setState],
-  );
-  const saveEvent = useCallback(
-    async (scope: 'single' | 'series' = 'single') => {
-      const f = S().form;
-      const sh = S().sheet!;
-      const mode = sh.mode;
-      const validation = validateEventForm(f, mode);
-      if (!validation.ok) {
-        toastMsg(validation.message!);
-        return;
-      }
-      const back = sh.back;
-      setState({ busy: 'save' });
-      const payload = {
-        type: f.type,
-        title: f.title.trim(),
-        date: f.date,
-        location: f.location,
-        note: f.note,
-        meetTimeMandatory: f.meetTimeMandatory,
-        responseMode: f.responseMode,
-        meetT: f.meetT,
-        startT: f.startT,
-        endT: f.endT,
-        nominatedRoleIds: f.nominatedRoleIds,
-      };
-      try {
-        if (mode === 'edit') await api.events.update(f.id, payload, scope);
-        else
-          await api.events.create(S().activeTeamId!, {
-            ...payload,
-            recurring: f.recurring,
-            repeatWeeks: validation.value!.repeatWeeks,
-            nominatedRoleIds: f.nominatedRoleIds,
-          });
-        await refreshEvents();
-        setState({ busy: null, sheet: null });
-        if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id);
-        toastMsg(
-          mode === 'edit'
-            ? scope === 'series'
-              ? 'Ganze Serie aktualisiert'
-              : 'Termin aktualisiert'
-            : 'Termin angelegt',
-        );
-      } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
-      }
-    },
-    [api, setState, refreshEvents, openEventDetail, toastMsg],
-  );
-  const toggleFormNomRole = useCallback(
-    (roleId: string) =>
-      setState((s) => {
-        const cur = s.form.nominatedRoleIds || [];
-        const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId);
-        return { form: { ...s.form, nominatedRoleIds: next } };
-      }),
-    [setState],
-  );
 
   // ---------- bootstrap ----------
   useEffect(() => {
@@ -780,6 +748,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setPrimaryColor,
       onFormInput,
       setFormVal,
+      setFormErrors,
       onFile,
       setState,
       doLogin,
@@ -865,6 +834,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openPollForm,
       savePoll,
       togglePollOption,
+      removePoll,
     }),
     // All referenced actions are stable useCallback identities, so the object is
     // intentionally built once. Listing ~90 stable deps would add no safety.

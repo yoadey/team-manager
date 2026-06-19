@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
@@ -13,11 +14,30 @@ export function EventsPage() {
   const t = buildTokens(state.primaryColor);
   const today = todayLocalDate();
 
+  const scoped = useMemo(() => {
+    let list = state.events.filter((e) => (state.eventScope === 'upcoming' ? e.date >= today : e.date < today));
+    if (state.eventsOnlyPending && state.eventScope === 'upcoming')
+      list = list.filter((e) => e.myStatus === 'pending' && e.status !== 'cancelled');
+    return list
+      .slice()
+      .sort((a, b) => (state.eventScope === 'upcoming' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
+  }, [state.events, state.eventScope, state.eventsOnlyPending, today]);
+
   const seg = <T extends string>(label: string, val: T, cur: string, fn: (v: T) => void, flex?: string) => (
     <ButtonBase
       key={label}
       onClick={() => fn(val)}
-      sx={{ flex: flex || '0 0 auto', p: '9px 16px', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: 600, background: cur === val ? '#fff' : 'transparent', color: cur === val ? t.primary : '#5A5D66', boxShadow: cur === val ? '0 1px 3px rgba(0,0,0,.12)' : 'none' }}
+      sx={{
+        flex: flex || '0 0 auto',
+        p: '9px 16px',
+        border: 'none',
+        borderRadius: '10px',
+        fontSize: '13px',
+        fontWeight: 600,
+        background: cur === val ? '#fff' : 'transparent',
+        color: cur === val ? t.primary : '#5A5D66',
+        boxShadow: cur === val ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
+      }}
     >
       {label}
     </ButtonBase>
@@ -40,7 +60,18 @@ export function EventsPage() {
       <ButtonBase
         onClick={() => app.openCalExport()}
         title="In Google / Apple / Android Kalender einbinden"
-        sx={{ display: 'inline-flex', alignItems: 'center', gap: '7px', p: '9px 14px', borderRadius: '12px', border: '1px solid #D0D2DA', background: '#fff', fontSize: '13px', fontWeight: 600, color: '#44474E' }}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '7px',
+          p: '9px 14px',
+          borderRadius: '12px',
+          border: '1px solid #D0D2DA',
+          background: '#fff',
+          fontSize: '13px',
+          fontWeight: 600,
+          color: '#44474E',
+        }}
       >
         <Sym name="ios_share" size={18} color="#6A6D76" />
         Exportieren
@@ -48,18 +79,39 @@ export function EventsPage() {
     </Box>
   );
 
-  if (state.eventsView === 'calendar') return <Box>{toolbar}<EventCalendar /></Box>;
-  if (state.eventsView === 'absences') return <Box>{toolbar}<EventAbsences /></Box>;
+  if (state.eventsView === 'calendar')
+    return (
+      <Box>
+        {toolbar}
+        <EventCalendar />
+      </Box>
+    );
+  if (state.eventsView === 'absences')
+    return (
+      <Box>
+        {toolbar}
+        <EventAbsences />
+      </Box>
+    );
 
   const pendingFilter = state.eventsOnlyPending && state.eventScope === 'upcoming';
-  let scoped = state.events.filter((e) => (state.eventScope === 'upcoming' ? e.date >= today : e.date < today));
-  if (pendingFilter) scoped = scoped.filter((e) => e.myStatus === 'pending' && e.status !== 'cancelled');
-  scoped = scoped.slice().sort((a, b) => (state.eventScope === 'upcoming' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
 
   const filterChip = pendingFilter ? (
     <ButtonBase
       onClick={() => app.setState({ eventsOnlyPending: false })}
-      sx={{ display: 'inline-flex', alignItems: 'center', gap: '8px', mb: '14px', p: '8px 12px 8px 14px', borderRadius: '999px', border: 'none', background: '#FFE5B8', color: '#8A6100', fontSize: '13px', fontWeight: 700 }}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '8px',
+        mb: '14px',
+        p: '8px 12px 8px 14px',
+        borderRadius: '999px',
+        border: 'none',
+        background: '#FFE5B8',
+        color: '#8A6100',
+        fontSize: '13px',
+        fontWeight: 700,
+      }}
     >
       <Sym name="pending_actions" size={17} color="#8A6100" />
       Nur offene Rückmeldungen
@@ -74,7 +126,13 @@ export function EventsPage() {
         {filterChip}
         <EmptyState
           icon={pendingFilter ? 'task_alt' : 'event_busy'}
-          text={pendingFilter ? 'Alle Rückmeldungen erledigt – nichts offen' : (state.eventScope === 'upcoming' ? 'Keine anstehenden Termine' : 'Kein Termin im Archiv')}
+          text={
+            pendingFilter
+              ? 'Alle Rückmeldungen erledigt – nichts offen'
+              : state.eventScope === 'upcoming'
+                ? 'Keine anstehenden Termine'
+                : 'Kein Termin im Archiv'
+          }
         />
       </Box>
     );
@@ -85,9 +143,10 @@ export function EventsPage() {
       {toolbar}
       {filterChip}
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {scoped.map((e) => <EventCard key={e.id} e={e} />)}
+        {scoped.map((e) => (
+          <EventCard key={e.id} e={e} />
+        ))}
       </Box>
     </Box>
   );
 }
-

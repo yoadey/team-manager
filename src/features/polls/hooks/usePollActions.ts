@@ -13,14 +13,22 @@ type PollFeatureDeps = {
   setState: SetState;
   loadPolls: () => Promise<void>;
   toastMsg: (m: string) => void;
+  askConfirm: (cfg: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void | Promise<void>;
+  }) => void;
 };
 
-export function usePollActions({ api, S, setState, loadPolls, toastMsg }: PollFeatureDeps) {
+export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm }: PollFeatureDeps) {
   const openPollForm = useCallback(
     () =>
       setState({
         sheet: { type: 'pollForm' },
         form: { question: '', opt0: '', opt1: '', opt2: '', opt3: '', multiple: false, anonymous: false },
+        formErrors: {},
       }),
     [setState],
   );
@@ -71,5 +79,25 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg }: PollFe
     [votePoll],
   );
 
-  return { openPollForm, savePoll, togglePollOption };
+  const removePoll = useCallback(
+    (id: string) =>
+      askConfirm({
+        title: 'Umfrage löschen?',
+        message: 'Diese Umfrage und alle Abstimmungsergebnisse werden dauerhaft entfernt.',
+        confirmLabel: 'Löschen',
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await api.polls.remove(id);
+            await loadPolls();
+            toastMsg('Umfrage gelöscht');
+          } catch (err) {
+            reportActionError({ setState, toastMsg }, err, 'error.delete');
+          }
+        },
+      }),
+    [api, askConfirm, loadPolls, setState, toastMsg],
+  );
+
+  return { openPollForm, savePoll, togglePollOption, removePoll };
 }

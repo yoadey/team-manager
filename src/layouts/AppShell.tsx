@@ -1,12 +1,14 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp, type Route, type SheetState } from '@/context/AppContext';
-import { buildTokens, fmtDateLong, initials, NEUTRAL } from '@/styles/tokens';
+import { useApp, type Route } from '@/context/AppContext';
+import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
+import { t as tl } from '@/i18n';
+import { pageMeta } from './pageMeta';
 export { COMPACT_BP, useCompact, shortName } from './useCompact';
 
 interface NavDef {
@@ -84,20 +86,20 @@ export function Shell() {
   const content = pageSheet ? <Box sx={{ maxWidth: '860px' }}>{renderSheet(app, pageSheet)}</Box> : <RouteScreen />;
 
   const railDefs: NavDef[] = [
-    { key: 'home', label: 'Start', icon: 'home' },
-    { key: 'events', label: 'Termine', icon: 'event', badge: pending },
-    { key: 'members', label: 'Mitglieder', icon: 'group' },
-    { key: 'finances', label: 'Finanzen', icon: 'payments', gate: () => app.can('finances', 'read') },
-    { key: 'stats', label: 'Statistik', icon: 'insights' },
-    { key: 'news', label: 'Neuigkeiten', icon: 'campaign' },
-    { key: 'polls', label: 'Umfragen', icon: 'how_to_vote' },
-    { key: 'team', label: 'Team', icon: 'shield' },
+    { key: 'home', label: tl('nav.home'), icon: 'home' },
+    { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending },
+    { key: 'members', label: tl('nav.members'), icon: 'group' },
+    { key: 'finances', label: tl('nav.finances'), icon: 'payments', gate: () => app.can('finances', 'read') },
+    { key: 'stats', label: tl('nav.stats'), icon: 'insights' },
+    { key: 'news', label: tl('nav.news'), icon: 'campaign' },
+    { key: 'polls', label: tl('nav.polls'), icon: 'how_to_vote' },
+    { key: 'team', label: tl('nav.team'), icon: 'shield' },
   ];
   const bottomDefs: NavDef[] = [
-    { key: 'home', label: 'Start', icon: 'home' },
-    { key: 'events', label: 'Termine', icon: 'event', badge: pending },
-    { key: 'members', label: 'Mitglieder', icon: 'group' },
-    { key: '__more', label: 'Mehr', icon: 'apps' },
+    { key: 'home', label: tl('nav.home'), icon: 'home' },
+    { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending },
+    { key: 'members', label: tl('nav.members'), icon: 'group' },
+    { key: '__more', label: tl('nav.more'), icon: 'apps' },
   ];
 
   // ===================== MOBILE =====================
@@ -120,7 +122,7 @@ export function Shell() {
           {pageSheet ? (
             <ButtonBase
               onClick={app.closeSheet}
-              aria-label="Zurück"
+              aria-label={tl('shell.back')}
               sx={{
                 width: 38,
                 height: 38,
@@ -175,7 +177,9 @@ export function Shell() {
           </ButtonBase>
           <ButtonBase
             onClick={app.openNotifications}
-            aria-label={hasUnread ? `${state.notifUnread} ungelesene Benachrichtigungen` : 'Benachrichtigungen öffnen'}
+            aria-label={
+              hasUnread ? tl('shell.unreadNotifications', { n: state.notifUnread }) : tl('shell.openNotifications')
+            }
             sx={{
               position: 'relative',
               width: 38,
@@ -214,7 +218,7 @@ export function Shell() {
           </ButtonBase>
           <ButtonBase
             onClick={app.openProfile}
-            aria-label={`${state.user.name} – Profil öffnen`}
+            aria-label={`${state.user.name} – ${tl('shell.openProfile')}`}
             sx={{ borderRadius: '50%' }}
           >
             {myAvatar}
@@ -256,7 +260,7 @@ export function Shell() {
 
         <Box
           component="nav"
-          aria-label="Hauptnavigation"
+          aria-label={tl('nav.mainNav')}
           sx={{
             flex: '0 0 auto',
             height: 72,
@@ -375,7 +379,7 @@ export function Shell() {
                 textOverflow: 'ellipsis',
               }}
             >
-              {team.memberCount} Mitglieder
+              {tl('shell.memberCount', { n: team.memberCount })}
             </Box>
           </Box>
           <Sym name="unfold_more" size={22} color={NEUTRAL.secondary} />
@@ -383,7 +387,7 @@ export function Shell() {
 
         <Box
           component="nav"
-          aria-label="Hauptnavigation"
+          aria-label={tl('nav.mainNav')}
           sx={{
             flex: 1,
             minHeight: 0,
@@ -473,7 +477,7 @@ export function Shell() {
             >
               {state.user.name}
             </Box>
-            <Box sx={{ fontSize: '11px', color: NEUTRAL.secondary }}>Konto & Rollen</Box>
+            <Box sx={{ fontSize: '11px', color: NEUTRAL.secondary }}>{tl('shell.accountAndRoles')}</Box>
           </Box>
           <Sym name="settings" size={20} color={NEUTRAL.secondary} />
         </ButtonBase>
@@ -502,7 +506,7 @@ export function Shell() {
           {pageSheet ? (
             <ButtonBase
               onClick={app.closeSheet}
-              aria-label="Zurück"
+              aria-label={tl('shell.back')}
               sx={{
                 width: 40,
                 height: 40,
@@ -522,7 +526,9 @@ export function Shell() {
           </Box>
           <ButtonBase
             onClick={app.openNotifications}
-            aria-label={hasUnread ? `${state.notifUnread} ungelesene Benachrichtigungen` : 'Benachrichtigungen öffnen'}
+            aria-label={
+              hasUnread ? tl('shell.unreadNotifications', { n: state.notifUnread }) : tl('shell.openNotifications')
+            }
             sx={{
               position: 'relative',
               width: 44,
@@ -587,89 +593,4 @@ export function Shell() {
       </Box>
     </Box>
   );
-}
-
-interface PM {
-  title: string;
-  subtitle: string;
-  showPrimaryAction: boolean;
-  primaryActionLabel: string;
-  primaryActionIcon: string;
-  primaryAction: () => void;
-}
-function pageMeta(app: ReturnType<typeof useApp>): PM {
-  const { state } = app;
-  const pageSheet = app.activePageSheet();
-  if (pageSheet) return pageSheetMeta(app, pageSheet);
-  const noop = () => {};
-  const M: Record<Route, [string, string, boolean, string?, string?, (() => void)?]> = {
-    home: ['Willkommen zurück', 'Dein Überblick', false],
-    events: [
-      'Termine',
-      'Planung & Anwesenheit',
-      app.can('events', 'write'),
-      'Termin',
-      'add',
-      () => app.openEventForm(null),
-    ],
-    members: [
-      'Mitglieder',
-      state.members.length + ' Personen · Rollen & Gruppen',
-      app.can('settings', 'write'),
-      'Einladen',
-      'person_add',
-      () => app.openInvite(),
-    ],
-    finances: [
-      'Finanzen',
-      'Kasse, Strafen & Beiträge',
-      app.can('finances', 'write'),
-      'Buchung',
-      'add',
-      () => app.openTxForm(),
-    ],
-    stats: ['Statistik', 'Anwesenheit & Auswertung', false],
-    news: ['Neuigkeiten', 'Aktuelles fürs Team', app.can('news', 'write'), 'News', 'add', () => app.openNewsForm()],
-    polls: ['Umfragen', 'Abstimmungen im Team', app.can('polls', 'write'), 'Umfrage', 'add', () => app.openPollForm()],
-    team: ['Team', 'Struktur, Rollen & Einladungen', false],
-  };
-  const d = M[state.route] || M.home;
-  return {
-    title: d[0],
-    subtitle: d[1],
-    showPrimaryAction: !!d[2],
-    primaryActionLabel: d[3] || '',
-    primaryActionIcon: d[4] || 'add',
-    primaryAction: d[5] || noop,
-  };
-}
-
-function pageSheetMeta(app: ReturnType<typeof useApp>, s: SheetState): PM {
-  const team = app.activeTeam();
-  const base = (title: string, subtitle: string): PM => ({
-    title,
-    subtitle,
-    showPrimaryAction: false,
-    primaryActionLabel: '',
-    primaryActionIcon: 'add',
-    primaryAction: () => {},
-  });
-  if (s.type === 'eventDetail') {
-    const e = s.event;
-    return base(e ? e.title : 'Termin', e ? fmtDateLong(e.date) : 'Termin & Anwesenheit');
-  }
-  if (s.type === 'eventForm')
-    return base(
-      s.mode === 'edit' ? 'Termin bearbeiten' : 'Neuer Termin',
-      s.mode === 'edit' ? 'Änderungen am Termin' : 'Neuen Termin anlegen',
-    );
-  if (s.type === 'memberDetail') {
-    const m = s.member;
-    return base(m ? m.name : 'Mitglied', m ? m.roles.map((r: { name: string }) => r.name).join(' · ') : 'Profil');
-  }
-  if (s.type === 'memberForm') return base(s.self ? 'Mein Profil' : 'Profil bearbeiten', 'Kontaktdaten, Rollen & Foto');
-  if (s.type === 'teamSettings') return base('Team-Einstellungen', team ? shortName(team.name) : '');
-  if (s.type === 'roles') return base('Rollen & Rechte', 'Standard- und eigene Rollen');
-  if (s.type === 'roleForm') return base('Eigene Rolle', 'Rechte je Modul festlegen');
-  return base('', '');
 }

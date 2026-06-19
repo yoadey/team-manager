@@ -1,6 +1,7 @@
 import { Component, type ReactNode, type ErrorInfo } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import { t } from '@/i18n';
 
 interface Props {
   children: ReactNode;
@@ -24,6 +25,7 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     this.props.onError?.(error, info);
     if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
       console.error('[ErrorBoundary]', error, info.componentStack);
     }
   }
@@ -54,7 +56,7 @@ function DefaultFallback({ error, onReset }: { error: Error; onReset: () => void
       }}
     >
       <Box sx={{ fontSize: '32px' }}>⚠️</Box>
-      <Box sx={{ fontSize: '16px', fontWeight: 700, color: '#1A1C20' }}>Etwas ist schiefgelaufen</Box>
+      <Box sx={{ fontSize: '16px', fontWeight: 700, color: '#1A1C20' }}>{t('error_boundary.componentTitle')}</Box>
       {import.meta.env.DEV && (
         <Box
           component="pre"
@@ -84,7 +86,7 @@ function DefaultFallback({ error, onReset }: { error: Error; onReset: () => void
           fontWeight: 600,
         }}
       >
-        Neu versuchen
+        {t('error_boundary.retry')}
       </ButtonBase>
     </Box>
   );
@@ -107,8 +109,8 @@ export function AppErrorFallback({ error }: { error: Error }) {
       }}
     >
       <Box sx={{ fontSize: '48px' }}>⚠️</Box>
-      <Box sx={{ fontSize: '20px', fontWeight: 700, color: '#1A1C20' }}>Die App konnte nicht geladen werden</Box>
-      <Box sx={{ fontSize: '14px', color: '#44474E' }}>Bitte lade die Seite neu.</Box>
+      <Box sx={{ fontSize: '20px', fontWeight: 700, color: '#1A1C20' }}>{t('error_boundary.appTitle')}</Box>
+      <Box sx={{ fontSize: '14px', color: '#44474E' }}>{t('error_boundary.appSubtitle')}</Box>
       {import.meta.env.DEV && (
         <Box
           component="pre"
@@ -138,7 +140,7 @@ export function AppErrorFallback({ error }: { error: Error }) {
           fontWeight: 600,
         }}
       >
-        Seite neu laden
+        {t('error_boundary.reload')}
       </ButtonBase>
     </Box>
   );

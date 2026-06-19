@@ -96,6 +96,12 @@ export interface StatsOverview {
   to: string | null;
 }
 
+export interface MemberAttendanceStats {
+  quote: number | null;
+  counted: number;
+  yes: number;
+}
+
 export interface Provider {
   id: string;
   name: string;

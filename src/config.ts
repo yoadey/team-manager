@@ -8,6 +8,7 @@ function numberEnv(raw: string | undefined, fallback: number): number {
   if (raw == null || raw === '') return fallback;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) {
+    // eslint-disable-next-line no-console
     if (import.meta.env.DEV) console.warn(`[config] invalid numeric env value "${raw}", using fallback ${fallback}`);
     return fallback;
   }

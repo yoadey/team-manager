@@ -7,8 +7,8 @@ import { getIntlLocale } from '@/i18n';
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const m: Member = sheet.member;
-  const st: { quote: number | null; counted: number; yes: number } | null = sheet.stats;
+  const m: Member = sheet.member!;
+  const st: { quote: number | null; counted: number; yes: number } | null = sheet.stats ?? null;
   const qcol =
     st && st.quote !== null ? (st.quote >= 80 ? '#2E7D32' : st.quote >= 50 ? '#9A5B00' : '#BA1A1A') : '#9A9DA6';
 

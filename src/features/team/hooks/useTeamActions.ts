@@ -168,7 +168,7 @@ export function useTeamActions({
   }, [api, S, setState, toastMsg]);
 
   const copyInvite = useCallback(() => {
-    const inv: Invite = S().sheet!.invite;
+    const inv: Invite | null | undefined = S().sheet?.invite;
     if (!inv) return;
     try {
       navigator.clipboard.writeText(inv.link);

@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { DateRange } from '@/types';
-import type { AppState } from '@/context/AppContext';
+import type { AppState, ConfirmConfig } from '@/context/AppContext';
+import type { Contribution, Penalty, Transaction } from '../types';
 import { validateMoneyAmount, validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 
@@ -15,13 +15,7 @@ type FinanceFeatureDeps = {
   loadFinances: () => Promise<void>;
   loadStats: (range?: DateRange | null) => Promise<void>;
   refreshMembers: () => Promise<void>;
-  askConfirm: (cfg: {
-    title: string;
-    message: string;
-    confirmLabel?: string;
-    danger?: boolean;
-    onConfirm: () => void | Promise<void>;
-  }) => void;
+  askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string) => void;
 };
 
@@ -36,11 +30,11 @@ export function useFinanceActions({
   toastMsg,
 }: FinanceFeatureDeps) {
   const openTxForm = useCallback(
-    (tx?: any) => {
+    (tx?: Transaction) => {
       const f = tx
         ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category }
         : { type: 'income', title: '', amount: '', category: 'Beiträge' };
-      setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create' }, form: f });
+      setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create' }, form: f, formErrors: {} });
     },
     [setState],
   );
@@ -99,7 +93,7 @@ export function useFinanceActions({
   const openPenaltyCatalog = useCallback(() => setState({ sheet: { type: 'penaltyCatalog' } }), [setState]);
 
   const openPenaltyForm = useCallback(
-    (p?: any) =>
+    (p?: Penalty) =>
       setState((st) => ({
         sheet: {
           type: 'penaltyForm',
@@ -201,7 +195,7 @@ export function useFinanceActions({
   );
 
   const openContribForm = useCallback(
-    (c: any) =>
+    (c: Contribution) =>
       setState({
         sheet: { type: 'contribForm' },
         form: { id: c.id, label: c.label, amount: String(c.amount) },

@@ -8,6 +8,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const t = buildTokens(state.primaryColor);
   const F = app.state.form;
+  const errs = state.formErrors;
   const edit = sheet.mode === 'edit';
 
   const typeDefs: [string, string, string, string, string][] = [
@@ -17,14 +18,34 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   const typeBtns = typeDefs.map(([v, l, ic, c, bg]) => {
     const sel = F.type === v;
     return (
-      <ButtonBase key={v} onClick={() => app.setFormVal({ type: v })} sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px', p: '12px', borderRadius: '13px', cursor: 'pointer', fontSize: '14px', fontWeight: 700, border: '1.5px solid ' + (sel ? c : '#E0E2EA'), background: sel ? bg : '#fff', color: sel ? c : '#6A6D76' }}>
+      <ButtonBase
+        key={v}
+        onClick={() => app.setFormVal({ type: v })}
+        sx={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '7px',
+          p: '12px',
+          borderRadius: '13px',
+          cursor: 'pointer',
+          fontSize: '14px',
+          fontWeight: 700,
+          border: '1.5px solid ' + (sel ? c : '#E0E2EA'),
+          background: sel ? bg : '#fff',
+          color: sel ? c : '#6A6D76',
+        }}
+      >
         <Sym name={ic} size={18} color={sel ? c : '#6A6D76'} />
         {l}
       </ButtonBase>
     );
   });
 
-  const cats = [...new Set(((app.state.finances && app.state.finances.transactions) || []).map((x) => x.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+  const cats = [
+    ...new Set(((app.state.finances && app.state.finances.transactions) || []).map((x) => x.category).filter(Boolean)),
+  ].sort((a, b) => a.localeCompare(b, 'de'));
 
   const catField = (
     <Field label="Kategorie">
@@ -40,37 +61,112 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           style={inputSx}
         />
         <datalist key="dl" id="tvCatList">
-          {cats.map((c) => <option key={c} value={c} />)}
+          {cats.map((c) => (
+            <option key={c} value={c} />
+          ))}
         </datalist>
         {cats.length ? (
           <Box key="qp" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px', mt: '8px' }}>
             {cats.map((c) => {
               const sel = F.category === c;
               return (
-                <ButtonBase key={c} onClick={() => app.setFormVal({ category: c })} sx={{ p: '5px 11px', borderRadius: '999px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', border: '1px solid ' + (sel ? t.primary : '#D0D2DA'), background: sel ? t.primaryContainer : '#fff', color: sel ? t.onPrimaryContainer : '#44474E' }}>{c}</ButtonBase>
+                <ButtonBase
+                  key={c}
+                  onClick={() => app.setFormVal({ category: c })}
+                  sx={{
+                    p: '5px 11px',
+                    borderRadius: '999px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    border: '1px solid ' + (sel ? t.primary : '#D0D2DA'),
+                    background: sel ? t.primaryContainer : '#fff',
+                    color: sel ? t.onPrimaryContainer : '#44474E',
+                  }}
+                >
+                  {c}
+                </ButtonBase>
               );
             })}
           </Box>
         ) : null}
-        <Box key="hint" sx={{ fontSize: '11px', color: '#9A9DA6', mt: '8px', lineHeight: 1.5 }}>Vorhandene Kategorie wählen oder eine neue eintippen – neue Kategorien werden automatisch übernommen.</Box>
+        <Box key="hint" sx={{ fontSize: '11px', color: '#9A9DA6', mt: '8px', lineHeight: 1.5 }}>
+          Vorhandene Kategorie wählen oder eine neue eintippen – neue Kategorien werden automatisch übernommen.
+        </Box>
       </Box>
     </Field>
   );
 
   const del = edit ? (
-    <ButtonBase key="del" onClick={() => app.askConfirm({ title: 'Buchung löschen?', message: '„' + (F.title || 'Diese Buchung') + '" wird dauerhaft aus der Kasse entfernt.', confirmLabel: 'Löschen', danger: true, onConfirm: async () => { await app.deleteTx(F.id); } })} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', p: '12px', borderRadius: '13px', border: '1px solid #F0C4C0', background: '#FFF4F3', color: '#BA1A1A', fontWeight: 600, cursor: 'pointer' }}>
+    <ButtonBase
+      key="del"
+      onClick={() =>
+        app.askConfirm({
+          title: 'Buchung löschen?',
+          message: '„' + (F.title || 'Diese Buchung') + '" wird dauerhaft aus der Kasse entfernt.',
+          confirmLabel: 'Löschen',
+          danger: true,
+          onConfirm: async () => {
+            await app.deleteTx(F.id);
+          },
+        })
+      }
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        p: '12px',
+        borderRadius: '13px',
+        border: '1px solid #F0C4C0',
+        background: '#FFF4F3',
+        color: '#BA1A1A',
+        fontWeight: 600,
+        cursor: 'pointer',
+      }}
+    >
       <Sym name="delete" size={19} color="#BA1A1A" />
       Buchung löschen
     </ButtonBase>
   ) : null;
 
+  const validateTitle = () => app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : 'Bezeichnung fehlt.' });
+  const validateAmount = () => {
+    const raw = String(F.amount ?? '')
+      .trim()
+      .replace(',', '.');
+    const n = Number(raw);
+    app.setFormErrors({
+      amount: !raw ? 'Betrag fehlt.' : !Number.isFinite(n) || n <= 0 ? 'Betrag muss größer als 0 sein.' : '',
+    });
+  };
+
+  const canSubmit =
+    !!(F.title as string | undefined)?.trim() &&
+    (() => {
+      const raw = String(F.amount ?? '')
+        .trim()
+        .replace(',', '.');
+      const n = Number(raw);
+      return raw && Number.isFinite(n) && n > 0;
+    })();
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box sx={{ display: 'flex', gap: '8px' }}>{typeBtns}</Box>
-      <Field label="Bezeichnung"><TextInput name="title" placeholder="z. B. Mitgliedsbeiträge" /></Field>
-      <Field label="Betrag (€)"><TextInput name="amount" type="number" /></Field>
+      <Field label="Bezeichnung" required error={!!errs.title} errorText={errs.title}>
+        <TextInput name="title" placeholder="z. B. Mitgliedsbeiträge" onBlur={validateTitle} />
+      </Field>
+      <Field label="Betrag (€)" required error={!!errs.amount} errorText={errs.amount}>
+        <TextInput name="amount" type="number" onBlur={validateAmount} />
+      </Field>
       {catField}
-      <PrimaryButton label={edit ? 'Änderungen speichern' : 'Buchung erfassen'} onClick={() => app.saveTx()} busy={app.state.busy === 'save'} />
+      <PrimaryButton
+        label={edit ? 'Änderungen speichern' : 'Buchung erfassen'}
+        onClick={() => app.saveTx()}
+        busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
+      />
       {del}
     </Box>
   );
