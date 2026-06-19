@@ -73,6 +73,12 @@ interface ActionReporter {
   /** Clears any in-flight `busy` flag so the UI is never stuck. */
   setState: (patch: { busy: null }) => void;
   toastMsg: (m: string) => void;
+  /**
+   * Called when an AuthError (HTTP 401/403) is caught. Use to trigger logout
+   * and redirect to the login screen so the user is never left in a half-
+   * authenticated state.
+   */
+  onAuthError?: () => void;
 }
 
 /**
@@ -91,6 +97,7 @@ export function reportActionError(reporter: ActionReporter, err: unknown, fallba
     reporter.toastMsg(t('error.network'));
   } else if (err instanceof AuthError) {
     reporter.toastMsg(t('error.login'));
+    reporter.onAuthError?.();
   } else {
     reporter.toastMsg(`${t(fallbackKey)}: ${getErrorMessage(err)}`);
   }

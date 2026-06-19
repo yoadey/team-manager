@@ -240,6 +240,7 @@ export function PrimaryButton({
     <ButtonBase
       onClick={onClick}
       disabled={disabled || busy}
+      aria-busy={busy ? true : undefined}
       sx={{
         display: 'flex',
         alignItems: 'center',

@@ -1,16 +1,23 @@
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Av, Chip, Sym } from '@/components/ui';
+import { Av, Chip, Sym, inputSx } from '@/components/ui';
 import { t } from '@/i18n';
 
 export function MembersPage() {
   const app = useApp();
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
+  const [search, setSearch] = useState('');
 
-  const list = state.members;
+  const query = search.trim().toLowerCase();
+  const list = query
+    ? state.members.filter(
+        (m) => m.name.toLowerCase().includes(query) || m.roles.some((r) => r.name.toLowerCase().includes(query)),
+      )
+    : state.members;
 
   const rows = list.map((m) => {
     const isMe = m.userId === state.user!.id;
@@ -100,6 +107,14 @@ export function MembersPage() {
           {t('members.count', { n: state.members.length })}
         </Box>
         <Box sx={{ flex: 1 }} />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={t('members.searchPlaceholder')}
+          aria-label={t('members.searchPlaceholder')}
+          style={{ ...inputSx, width: '200px', padding: '8px 14px' }}
+        />
         <ButtonBase
           onClick={() => app.openRoles()}
           sx={{

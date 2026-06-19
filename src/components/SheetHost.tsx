@@ -7,6 +7,7 @@ import { NEUTRAL } from '@/styles/tokens';
 import { Sym } from './ui';
 import { renderSheet, sheetMeta } from '@/sheets';
 import { useCompact } from '@/layouts/AppShell';
+import { t } from '@/i18n';
 
 export function SheetHost() {
   const app = useApp();
@@ -54,7 +55,7 @@ export function SheetHost() {
           <Box sx={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '12px', p: '18px 20px 12px' }}>
             {meta.hasBack ? (
               <ButtonBase
-                aria-label="Zurück"
+                aria-label={t('shell.back')}
                 onClick={meta.onBack}
                 sx={{
                   width: 38,
@@ -87,7 +88,7 @@ export function SheetHost() {
               ) : null}
             </Box>
             <ButtonBase
-              aria-label="Schließen"
+              aria-label={t('shell.close')}
               onClick={app.closeSheet}
               sx={{
                 width: 38,

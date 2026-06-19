@@ -5,6 +5,9 @@ import { EventsPage } from '@/features/events';
 import { MembersPage } from '@/features/members';
 import { SpinnerBox } from '@/components/ui';
 
+// EventsPage and MembersPage cannot be code-split here because useFeatureActions
+// and sheets/index already import the feature modules statically. True lazy
+// loading requires moving feature-action hooks into per-feature modules.
 const Stats = lazy(() => import('./Stats').then((m) => ({ default: m.Stats })));
 const FinancesPage = lazy(() => import('@/features/finances').then((m) => ({ default: m.FinancesPage })));
 const NewsPage = lazy(() => import('@/features/news').then((m) => ({ default: m.NewsPage })));

@@ -368,6 +368,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const setPrimaryColor = useCallback((c: string) => setState({ primaryColor: c }), [setState]);
 
+  // ---------- auth ----------
+  // logout is defined early so data-loader callbacks can reference it in their
+  // onAuthError handler without a TDZ issue. doLogin depends on afterLoginLoad
+  // (defined below) so it stays in the data-loaders section.
+  const logout = useCallback(() => {
+    api.auth.logout();
+    setSentryUser(null);
+    setState({
+      phase: 'login',
+      user: null,
+      teams: [],
+      activeTeamId: null,
+      sheet: null,
+      events: [],
+      members: [],
+      roles: [],
+    });
+  }, [api, setState]);
+
   // ---------- form ----------
   const onFormInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -395,12 +414,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     r.readAsDataURL(f);
   }, []);
 
+  // ---------- idle session timeout ----------
+  // After IDLE_MS of no pointer/keyboard activity the user gets a toast warning,
+  // then is automatically logged out WARN_MS later.  Both timers reset on any
+  // activity so normal use is never interrupted.
+  const IDLE_MS = 30 * 60 * 1000;
+  const WARN_MS = 2 * 60 * 1000;
+
+  useEffect(() => {
+    if (state.phase !== 'app') return;
+
+    let warnTimer: ReturnType<typeof setTimeout>;
+    let logoutTimer: ReturnType<typeof setTimeout>;
+
+    const resetTimers = () => {
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+      warnTimer = setTimeout(() => {
+        toastMsg(t('session.idleWarning'));
+        logoutTimer = setTimeout(() => {
+          toastMsg(t('session.loggedOut'));
+          logout();
+        }, WARN_MS);
+      }, IDLE_MS - WARN_MS);
+    };
+
+    const events: (keyof WindowEventMap)[] = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, resetTimers, { passive: true }));
+    resetTimers();
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimers));
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+    };
+    // logout and toastMsg are stable useCallbacks; state.phase is the trigger
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase]);
+
   // ---------- data loaders ----------
   // Loaders report failures via toast + monitoring instead of leaving the UI
   // with a spinner or stale data. They never throw to their caller.
   const reportLoad = useCallback(
-    (err: unknown) => reportActionError({ setState, toastMsg }, err, 'error.load'),
-    [setState, toastMsg],
+    (err: unknown) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load'),
+    [setState, toastMsg, logout],
   );
   const loadNotifications = useCallback(async () => {
     try {
@@ -561,20 +618,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [api, setState, afterLoginLoad],
   );
-  const logout = useCallback(() => {
-    api.auth.logout();
-    setSentryUser(null);
-    setState({
-      phase: 'login',
-      user: null,
-      teams: [],
-      activeTeamId: null,
-      sheet: null,
-      events: [],
-      members: [],
-      roles: [],
-    });
-  }, [api, setState]);
 
   // ---------- nav ----------
   const closeSheet = useCallback(() => {
@@ -640,9 +683,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await cfg.onConfirm();
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err);
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err);
     }
-  }, [S, setState, toastMsg]);
+  }, [S, setState, toastMsg, logout]);
 
   // ---------- feature hooks ----------
   const {

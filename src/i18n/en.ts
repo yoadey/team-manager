@@ -59,12 +59,19 @@ export const en: Messages = {
     profile: 'My profile',
     notifications: 'Notifications',
     back: 'Back',
+    close: 'Close',
     openNotifications: 'Open notifications',
     unreadNotifications: '{n} unread notifications',
     memberCount: '{n} members',
     accountAndRoles: 'Account & Roles',
     openProfile: 'Open profile',
+    openTeamSwitcher: 'Switch team: {name}',
     skipToMain: 'Skip to main content',
+  },
+  session: {
+    idleWarning:
+      'You will be signed out in 2 minutes due to inactivity. Move the mouse or press a key to stay signed in.',
+    loggedOut: 'You have been signed out due to inactivity.',
   },
   page: {
     events: 'Events',
@@ -182,6 +189,8 @@ export const en: Messages = {
       upcoming: 'Upcoming',
       past: 'Archive',
     },
+    viewTabsLabel: 'Choose view',
+    scopeTabsLabel: 'Choose time range',
     export: 'Export',
     exportTitle: 'Add to Google / Apple / Android Calendar',
     filterPending: 'Open responses only',
@@ -302,6 +311,7 @@ export const en: Messages = {
   },
   members: {
     count: '{n} members',
+    searchPlaceholder: 'Search member…',
     rolesAndRights: 'Roles & permissions',
     attendanceRate: 'Attendance rate',
     role: 'Role',

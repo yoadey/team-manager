@@ -27,6 +27,8 @@ export function EventsPage() {
   const seg = <T extends string>(label: string, val: T, cur: string, fn: (v: T) => void, flex?: string) => (
     <ButtonBase
       key={label}
+      role="tab"
+      aria-selected={cur === val}
       onClick={() => fn(val)}
       sx={{
         flex: flex || '0 0 auto',
@@ -46,14 +48,22 @@ export function EventsPage() {
 
   const toolbar = (
     <Box sx={{ display: 'flex', gap: '10px', mb: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
-      <Box sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}>
+      <Box
+        role="tablist"
+        aria-label={t('events.viewTabsLabel')}
+        sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}
+      >
         {seg(t('events.tabs.list'), 'list', state.eventsView, (v) => app.setEventsView(v))}
         {seg(t('events.tabs.calendar'), 'calendar', state.eventsView, (v) => app.setEventsView(v))}
         {seg(t('events.tabs.absences'), 'absences', state.eventsView, (v) => app.setEventsView(v))}
       </Box>
       <Box sx={{ flex: 1 }} />
       {state.eventsView === 'list' ? (
-        <Box sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}>
+        <Box
+          role="tablist"
+          aria-label={t('events.scopeTabsLabel')}
+          sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}
+        >
           {seg(t('events.tabs.upcoming'), 'upcoming', state.eventScope, (v) => app.setState({ eventScope: v }))}
           {seg(t('events.tabs.past'), 'past', state.eventScope, (v) => app.setState({ eventScope: v }))}
         </Box>
