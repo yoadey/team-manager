@@ -8,7 +8,7 @@ vi.mock('@/context/AppContext', () => ({
 }));
 
 import { useApp } from '@/context/AppContext';
-const mockUseApp = useApp as ReturnType<typeof vi.fn>;
+const mockUseApp = vi.mocked(useApp);
 
 function makeApp(formOverrides: Record<string, unknown> = {}, errOverrides: Record<string, string> = {}) {
   const setFormErrors = vi.fn();
@@ -24,7 +24,7 @@ function makeApp(formOverrides: Record<string, unknown> = {}, errOverrides: Reco
     onFormInput: vi.fn(),
     saveContrib: vi.fn(),
   };
-  mockUseApp.mockReturnValue(app);
+  mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   return app;
 }
 

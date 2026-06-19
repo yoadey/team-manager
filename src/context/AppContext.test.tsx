@@ -262,7 +262,7 @@ describe('AppProvider / actions (app phase)', () => {
 
 // The bootstrap sets: events=write, members=read, finances=none
 describe('AppProvider / can() permission checks', () => {
-  let capturedCan: ReturnType<typeof useApp>['can'];
+  let capturedCan!: ReturnType<typeof useApp>['can'];
 
   function CanProbe({ onMount }: { onMount: (can: ReturnType<typeof useApp>['can']) => void }) {
     const { can } = useApp();
