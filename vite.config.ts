@@ -12,6 +12,10 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    headers: {
+      'Content-Security-Policy': "frame-ancestors 'none'",
+      'X-Frame-Options': 'DENY',
+    },
   },
   build: {
     // Emit source maps so Sentry can symbolicate production stack traces.

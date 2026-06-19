@@ -45,10 +45,10 @@ vi.mock('@/features/team', () => ({
 import { useApp } from '@/context/AppContext';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 
-function makeApp(route: string, canFinances = false) {
+function makeApp(route: string, hasPermission = true) {
   return {
     state: { route },
-    can: vi.fn().mockReturnValue(canFinances),
+    can: vi.fn().mockReturnValue(hasPermission),
   };
 }
 
@@ -86,7 +86,7 @@ describe('RouteScreen', () => {
   });
 
   it('renders FinancesPage for finances route with permission', async () => {
-    mockUseApp.mockReturnValue(makeApp('finances', true));
+    mockUseApp.mockReturnValue(makeApp('finances'));
     await act(async () => {
       render(<RouteScreen />);
     });

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { AttendanceRow, TeamEvent } from '../types';
 import type { AttendanceStatus, Role, TeamForUser } from '@/types';
@@ -80,8 +80,13 @@ export function useEventDetailActions({
     [api, S, refreshEvents, reloadDetail, setState, toastMsg],
   );
 
+  const inFlight = useRef(new Set<string>());
+
   const setStatusFor = useCallback(
     (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => {
+      const key = `${e.id}:${row.userId}`;
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
       void (async () => {
         try {
           await api.attendance.set(e.id, row.userId, { status, reason: row.reason || '' });
@@ -89,6 +94,8 @@ export function useEventDetailActions({
           await reloadDetail(e.id);
         } catch (err) {
           reportActionError({ setState, toastMsg }, err);
+        } finally {
+          inFlight.current.delete(key);
         }
       })();
     },

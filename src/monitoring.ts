@@ -33,9 +33,9 @@ export function captureException(error: unknown, context?: Record<string, unknow
 }
 
 /** Sets or clears the authenticated user on Sentry scope for error attribution. */
-export function setSentryUser(user: { id: string; name: string; email?: string } | null): void {
+export function setSentryUser(user: { id: string; name: string } | null): void {
   if (!config.sentryDsn) return;
-  Sentry.setUser(user ? { id: user.id, username: user.name, email: user.email } : null);
+  Sentry.setUser(user ? { id: user.id, username: user.name } : null);
 }
 
 /** Registers global handlers for otherwise-unhandled promise rejections and errors. */

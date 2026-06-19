@@ -121,6 +121,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         {canWrite && !isMe ? (
           <ButtonBase
             key="r"
+            aria-label={t('members.removeTitle')}
             onClick={() => app.removeMember(m.membershipId)}
             sx={{
               display: 'flex',

@@ -341,10 +341,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const S = () => stateRef.current;
+  const S = useCallback(() => stateRef.current, []);
 
   // ---------- helpers ----------
-  const activeTeam = useCallback(() => S().teams.find((t) => t.id === S().activeTeamId) || null, []);
+  const activeTeam = useCallback(() => S().teams.find((t) => t.id === S().activeTeamId) || null, [S]);
   const myRoles = useCallback(() => {
     const t = activeTeam();
     return t ? t.myRoles : [];
@@ -409,7 +409,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, reportLoad]);
+  }, [api, S, setState, reportLoad]);
   const afterLoginLoad = useCallback(
     async (teamId: string) => {
       setState({
@@ -439,13 +439,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return { events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount };
         });
       } catch (err) {
-        if (S().activeTeamId === teamId) {
-          reportLoad(err);
-          setState({ error: t('error.load') });
-        }
+        if (S().activeTeamId === teamId) reportLoad(err);
+        setState((s) => (s.activeTeamId === teamId ? { error: t('error.load') } : {}));
       }
     },
-    [api, setState, reportLoad],
+    [api, S, setState, reportLoad],
   );
   const refreshEvents = useCallback(async () => {
     try {
@@ -455,7 +453,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, loadNotifications, reportLoad]);
+  }, [api, S, setState, loadNotifications, reportLoad]);
   const refreshMembers = useCallback(async () => {
     try {
       const members = await api.members.list(S().activeTeamId!);
@@ -463,7 +461,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, reportLoad]);
+  }, [api, S, setState, reportLoad]);
   const refreshRoles = useCallback(async () => {
     try {
       const roles = await api.roles.list(S().activeTeamId!);
@@ -471,7 +469,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, reportLoad]);
+  }, [api, S, setState, reportLoad]);
   const refreshTeams = useCallback(async () => {
     try {
       const teams = await api.teams.listForCurrentUser();
@@ -487,7 +485,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, reportLoad]);
+  }, [api, S, setState, reportLoad]);
   const loadStats = useCallback(
     async (range?: DateRange | null) => {
       try {
@@ -498,7 +496,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         reportLoad(err);
       }
     },
-    [api, setState, reportLoad],
+    [api, S, setState, reportLoad],
   );
   const loadNews = useCallback(async () => {
     try {
@@ -508,7 +506,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, loadNotifications, reportLoad]);
+  }, [api, S, setState, loadNotifications, reportLoad]);
   const loadPolls = useCallback(async () => {
     try {
       const polls = await api.polls.list(S().activeTeamId!);
@@ -517,7 +515,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, loadNotifications, reportLoad]);
+  }, [api, S, setState, loadNotifications, reportLoad]);
   const loadAbsences = useCallback(async () => {
     try {
       const [absences, myAbsences] = await Promise.all([
@@ -528,7 +526,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch (err) {
       reportLoad(err);
     }
-  }, [api, setState, reportLoad]);
+  }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(
     (route: Route) => {
       if (route === 'finances' && !S().finances) loadFinances();
@@ -536,7 +534,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (route === 'news' && !S().news) loadNews();
       if (route === 'polls' && !S().polls) loadPolls();
     },
-    [loadFinances, loadStats, loadNews, loadPolls],
+    [S, loadFinances, loadStats, loadNews, loadPolls],
   );
 
   // ---------- auth ----------
@@ -582,7 +580,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const closeSheet = useCallback(() => {
     const s = S().sheet;
     setState({ sheet: s && s.back ? s.back : null });
-  }, [setState]);
+  }, [S, setState]);
   const go = useCallback(
     (route: Route) => {
       pushRoute(route);
@@ -603,7 +601,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       s = s.back || null;
     }
     return null;
-  }, []);
+  }, [S]);
   const selectTeam = useCallback(
     async (id: string) => {
       if (id === S().activeTeamId) {
@@ -614,20 +612,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState({ activeTeamId: id, sheet: null, route: 'home', eventScope: 'upcoming', eventsView: 'list' });
       await afterLoginLoad(id);
     },
-    [setState, closeSheet, afterLoginLoad],
+    [S, setState, closeSheet, afterLoginLoad],
   );
   const setEventsView = useCallback(
     (v: 'list' | 'calendar' | 'absences') => {
       setState({ eventsView: v });
       if (v === 'absences' && !S().absences) loadAbsences();
     },
-    [setState, loadAbsences],
+    [S, setState, loadAbsences],
   );
   const toggleCalAbsences = useCallback(() => {
     const nv = !S().calShowAbsences;
     setState({ calShowAbsences: nv });
     if (nv && !S().absences) loadAbsences();
-  }, [setState, loadAbsences]);
+  }, [S, setState, loadAbsences]);
 
   // ---------- confirm ----------
   const askConfirm = useCallback(
@@ -636,10 +634,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const cancelConfirm = useCallback(() => setState((s) => ({ sheet: (s.sheet && s.sheet.back) || null })), [setState]);
   const runConfirm = useCallback(async () => {
-    const cfg = S().sheet && S().sheet!.cfg;
+    const cfg = S().sheet?.cfg;
     setState({ sheet: null });
-    if (cfg && cfg.onConfirm) await cfg.onConfirm();
-  }, [setState]);
+    if (!cfg?.onConfirm) return;
+    try {
+      await cfg.onConfirm();
+    } catch (err) {
+      reportActionError({ setState, toastMsg }, err);
+    }
+  }, [S, setState, toastMsg]);
 
   // ---------- feature hooks ----------
   const {
@@ -860,10 +863,105 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       togglePollOption,
       removePoll,
     }),
-    // All referenced actions are stable useCallback identities, so the object is
-    // intentionally built once. Listing ~90 stable deps would add no safety.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    [
+      api,
+      activeTeam,
+      myRoles,
+      can,
+      isStaff,
+      toastMsg,
+      resetDemo,
+      setPrimaryColor,
+      onFormInput,
+      setFormVal,
+      setFormErrors,
+      onFile,
+      setState,
+      doLogin,
+      logout,
+      go,
+      goEventsPending,
+      closeSheet,
+      activePageSheet,
+      selectTeam,
+      setEventsView,
+      toggleCalAbsences,
+      openNotifications,
+      setNotifFilter,
+      loadAbsences,
+      loadFinances,
+      loadStats,
+      setMyStatus,
+      setStatusFor,
+      canSeeComment,
+      openComment,
+      submitComment,
+      postEventComment,
+      removeEventComment,
+      toggleNomination,
+      askConfirm,
+      cancelConfirm,
+      runConfirm,
+      askEventAction,
+      runEventAction,
+      openEventDetail,
+      reloadDetail,
+      openEventForm,
+      saveEvent,
+      toggleFormNomRole,
+      openMemberDetail,
+      openMemberForm,
+      toggleFormRole,
+      saveMember,
+      removeMember,
+      openRoles,
+      openCreateRole,
+      setRolePerm,
+      saveRole,
+      toggleMyRole,
+      openTeamSwitcher,
+      openProfile,
+      openMore,
+      openTeamSettings,
+      saveTeamPhoto,
+      saveTeamLogo,
+      setTeamIcon,
+      toggleReasonRole,
+      saveTeamSettings,
+      openCreateTeam,
+      createTeam,
+      openInvite,
+      copyInvite,
+      uploadMyPhoto,
+      openAbsenceForm,
+      saveAbsence,
+      removeAbsence,
+      openCalExport,
+      downloadIcs,
+      copyCalUrl,
+      openNewsForm,
+      saveNews,
+      removeNews,
+      openTxForm,
+      saveTx,
+      deleteTx,
+      openPenaltyCatalog,
+      openPenaltyForm,
+      savePenalty,
+      deletePenaltyDef,
+      openPenaltyAssign,
+      savePenaltyAssign,
+      deleteAssignment,
+      openContribForm,
+      saveContrib,
+      togglePenalty,
+      toggleContribution,
+      setStatsRange,
+      openPollForm,
+      savePoll,
+      togglePollOption,
+      removePoll,
+    ],
   );
 
   return (
