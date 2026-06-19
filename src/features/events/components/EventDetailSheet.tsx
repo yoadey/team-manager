@@ -6,10 +6,11 @@ import { Av, Chip, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '@/com
 import type { AttendanceRow, EventComment, TeamEvent } from '../types';
 import type { AttendanceStatus } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import { t } from '@/i18n';
 
 export function EventDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
 
   const e: TeamEvent | null = sheet.event ?? null;
   if (!e) return <SpinnerBox />;
@@ -26,7 +27,9 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const banner = (
     <Box key="b" sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', mb: '10px' }}>
       <Chip key="tm" label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} fs={12} />
-      {e.recurring ? <Chip key="r" label="wöchentlich" color="#6A6D76" bg="#ECEDF3" icon="repeat" fs={12} /> : null}
+      {e.recurring ? (
+        <Chip key="r" label={t('events.weekly')} color="#6A6D76" bg="#ECEDF3" icon="repeat" fs={12} />
+      ) : null}
     </Box>
   );
 
@@ -52,7 +55,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     >
       <Sym name="event_busy" size={20} color="#BA1A1A" />
       <Box key="t" component="span" sx={{ flex: 1, fontSize: '13px', fontWeight: 600 }}>
-        Dieser Termin wurde abgesagt – er bleibt sichtbar, Rückmeldungen sind nicht mehr nötig.
+        {t('events.cancelledBanner')}
       </Box>
       {canEdit ? (
         <ButtonBase
@@ -70,7 +73,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             flex: '0 0 auto',
           }}
         >
-          Aktivieren
+          {t('events.reactivate')}
         </ButtonBase>
       ) : null}
     </Box>
@@ -96,15 +99,15 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         >
           <Sym name="login" size={20} color="#8A6100" />
           <Box key="t" component="span" sx={{ flex: 1 }}>
-            <b>Treffen {hhmm(e.meetTime)}</b>
+            <b>{t('events.meetTime', { time: hhmm(e.meetTime) })}</b>
           </Box>
-          {e.meetTimeMandatory ? <Chip key="p" label="Pflicht" color="#8A6100" bg="#FCE2B8" /> : null}
+          {e.meetTimeMandatory ? <Chip key="p" label={t('events.mandatory')} color="#8A6100" bg="#FCE2B8" /> : null}
         </Box>
       ) : null}
       <Box key="time" sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
         <Sym name="schedule" size={20} color="#6A6D76" />
         <Box key="t" component="span" sx={{ flex: 1 }}>
-          Beginn–Ende <b>{hhmm(e.startTime) + '–' + hhmm(e.endTime)}</b>
+          {t('events.startEnd')} <b>{hhmm(e.startTime) + '–' + hhmm(e.endTime)}</b>
         </Box>
       </Box>
       {e.location ? (
@@ -137,7 +140,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     >
       <Sym name="emoji_events" size={18} color="#2E7D32" />
       <Box key="t" component="span" sx={{ fontSize: '13px', color: '#235C26', fontWeight: 600, lineHeight: 1.5 }}>
-        {'Ergebnis: ' + e.result}
+        {t('events.result', { val: e.result })}
       </Box>
     </Box>
   ) : null;
@@ -162,7 +165,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           }}
         >
           <Sym name="block" size={20} color="#9A9DA6" />
-          Du bist für diesen Termin nicht nominiert und kannst nicht zu-/absagen.
+          {t('events.notNominated')}
         </Box>
       );
     } else {
@@ -203,7 +206,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       const commentRow = (
         <ButtonBase
           key="mc"
-          onClick={() => app.openComment(e, { userId: me, name: 'Du', status: myStatus, reason: myC })}
+          onClick={() => app.openComment(e, { userId: me, name: t('events.meLabel'), status: myStatus, reason: myC })}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -219,7 +222,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             justifyContent: 'flex-start',
           }}
         >
-          <Sym name="chat_bubble" size={18} color={myC ? t.primary : '#9A9DA6'} />
+          <Sym name="chat_bubble" size={18} color={myC ? tk.primary : '#9A9DA6'} />
           <Box
             key="t"
             component="span"
@@ -232,7 +235,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               textOverflow: 'ellipsis',
             }}
           >
-            {myC || 'Kurzen Kommentar hinzufügen (optional)'}
+            {myC || t('events.commentPlaceholder')}
           </Box>
           <Sym name={myC ? 'edit' : 'add'} size={18} color="#9A9DA6" />
         </ButtonBase>
@@ -255,17 +258,22 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               }}
             >
               <Sym name="info" size={16} color="#9A5B00" />
-              {e.responseMode === 'opt_out'
-                ? 'Ohne Reaktion giltst du als zugesagt.'
-                : myStatus === 'no'
-                  ? 'Automatisch abgesagt (geplante Abwesenheit) – du kannst überschreiben.'
-                  : ''}
+              {e.responseMode === 'opt_out' ? t('events.autoOptOut') : myStatus === 'no' ? t('events.autoAbsent') : ''}
             </Box>
           ) : null}
           <Box key="btns" sx={{ display: 'flex', gap: '8px', mb: '10px' }}>
-            {rb('Zusagen', 'check_circle', 'yes', myStatus === 'yes', '#fff', '#2E7D32', '#D7F0D8', '#235C26')}
-            {rb('Unsicher', 'help', 'maybe', myStatus === 'maybe', '#fff', '#9A5B00', '#FFE5B8', '#8A6100')}
-            {rb('Absagen', 'cancel', 'no', myStatus === 'no', '#fff', '#BA1A1A', '#FFDAD6', '#8C1410')}
+            {rb(
+              t('events.rsvpYes'),
+              'check_circle',
+              'yes',
+              myStatus === 'yes',
+              '#fff',
+              '#2E7D32',
+              '#D7F0D8',
+              '#235C26',
+            )}
+            {rb(t('events.rsvpMaybe'), 'help', 'maybe', myStatus === 'maybe', '#fff', '#9A5B00', '#FFE5B8', '#8A6100')}
+            {rb(t('events.rsvpNo'), 'cancel', 'no', myStatus === 'no', '#fff', '#BA1A1A', '#FFDAD6', '#8C1410')}
           </Box>
           {commentRow}
         </Box>
@@ -280,21 +288,21 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       right={
         <Box key="s" sx={{ display: 'flex', gap: '9px', fontSize: '12px', fontWeight: 700 }}>
           <Box key="y" component="span" sx={{ color: '#2E7D32' }}>
-            {e.summary.yes + ' zu'}
+            {e.summary.yes + ' ' + t('events.summaryYes', { n: '' }).replace('{n} ', '')}
           </Box>
           <Box key="mb" component="span" sx={{ color: '#9A5B00' }}>
-            {e.summary.maybe + ' uns.'}
+            {e.summary.maybe + ' ' + t('events.summaryMaybe', { n: '' }).replace('{n} ', '')}
           </Box>
           <Box key="n" component="span" sx={{ color: '#BA1A1A' }}>
-            {e.summary.no + ' ab'}
+            {e.summary.no + ' ' + t('events.summaryNo', { n: '' }).replace('{n} ', '')}
           </Box>
           <Box key="p" component="span" sx={{ color: '#6A6D76' }}>
-            {e.summary.pending + ' offen'}
+            {e.summary.pending + ' ' + t('events.summaryPending', { n: '' }).replace('{n} ', '')}
           </Box>
         </Box>
       }
     >
-      Teilnehmer
+      {t('events.participants')}
     </SectionTitle>
   );
   const bar = (
@@ -349,15 +357,15 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     let controls: React.ReactNode[];
     if (notN) {
       controls = [
-        <Chip key="c" label="Nicht nominiert" color="#6A6D76" bg="#ECEDF3" icon="block" />,
+        <Chip key="c" label={t('events.notNominatedLabel')} color="#6A6D76" bg="#ECEDF3" icon="block" />,
         canEdit && !isPast ? (
           <IconBtn
             key="nom"
             icon="person_add"
             onClick={() => app.toggleNomination(e.id, r.userId, false)}
-            color={t.primary}
+            color={tk.primary}
             bg="#E7F0FF"
-            title="Nominieren"
+            title={t('events.nominate')}
           />
         ) : null,
         canEdit || mine ? (
@@ -367,7 +375,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             onClick={() => app.openComment(e, r)}
             color="#6A6D76"
             bg="#F4F4FA"
-            title="Kommentar"
+            title={t('events.comment')}
           />
         ) : null,
       ];
@@ -382,7 +390,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           onClick={() => app.openComment(e, r)}
           color="#6A6D76"
           bg="#F4F4FA"
-          title="Kommentar"
+          title={t('events.comment')}
         />,
         canEdit && !isPast ? (
           <IconBtn
@@ -391,7 +399,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             onClick={() => app.toggleNomination(e.id, r.userId, true)}
             color="#9A9DA6"
             bg="#F4F4FA"
-            title="Nicht nominieren"
+            title={t('events.deNominate')}
           />
         ) : null,
       ];
@@ -423,7 +431,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               textOverflow: 'ellipsis',
             }}
           >
-            {r.name + (mine ? ' · Du' : '')}
+            {r.name + (mine ? ' · ' + t('events.meLabel') : '')}
           </Box>
           {seeC && r.reason ? (
             <Box
@@ -440,7 +448,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             </Box>
           ) : (
             <Box key="g" sx={{ fontSize: '11px', color: '#9A9DA6' }}>
-              {r.group + (r.absent ? ' · abwesend' : '')}
+              {r.group + (r.absent ? ' · ' + t('events.absent') : '')}
             </Box>
           )}
         </Box>
@@ -473,7 +481,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         }}
       >
         <Sym name="edit" size={19} color="#44474E" />
-        Bearbeiten
+        {t('events.edit')}
       </ButtonBase>
       {!cancelled ? (
         <ButtonBase
@@ -496,7 +504,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           }}
         >
           <Sym name="event_busy" size={19} color="#8A6100" />
-          Absagen
+          {t('events.cancel')}
         </ButtonBase>
       ) : null}
       <ButtonBase
@@ -517,16 +525,16 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         }}
       >
         <Sym name="delete" size={19} color="#BA1A1A" />
-        Löschen
+        {t('events.delete')}
       </ButtonBase>
     </Box>
   ) : null;
 
-  // Kommentar-Thread
+  // Comment thread
   const cms: EventComment[] = sheet.comments || [];
   const thread = (
     <Box key="th" sx={{ mt: '22px' }}>
-      <SectionTitle>{'Kommentare' + (cms.length ? ' (' + cms.length + ')' : '')}</SectionTitle>
+      <SectionTitle>{t('events.comments') + (cms.length ? ' (' + cms.length + ')' : '')}</SectionTitle>
       <Box key="l" sx={{ display: 'flex', flexDirection: 'column', gap: '10px', mb: '12px' }}>
         {cms.length ? (
           cms.map((c) => (
@@ -552,14 +560,14 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
                   onClick={() => app.removeEventComment(e.id, c.id)}
                   color="#BA1A1A"
                   bg="#FFF4F3"
-                  title="Löschen"
+                  title={t('events.delete')}
                 />
               ) : null}
             </Box>
           ))
         ) : (
           <Box key="e" sx={{ fontSize: '13px', color: '#9A9DA6', p: '4px 2px' }}>
-            Noch keine Kommentare.
+            {t('events.noComments')}
           </Box>
         )}
       </Box>
@@ -572,15 +580,15 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           onKeyDown={(ev) => {
             if (ev.key === 'Enter') app.postEventComment(e.id);
           }}
-          placeholder="Kommentar schreiben…"
+          placeholder={t('events.commentWrite')}
           style={{ ...inputSx, flex: 1 }}
         />
         <ButtonBase
           key="b"
           onClick={() => app.postEventComment(e.id)}
           sx={{
-            background: t.primary,
-            color: t.onPrimary,
+            background: tk.primary,
+            color: tk.onPrimary,
             border: 'none',
             borderRadius: '12px',
             p: '0 16px',
@@ -590,7 +598,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             alignItems: 'center',
           }}
         >
-          <Sym name="send" size={18} color={t.onPrimary} />
+          <Sym name="send" size={18} color={tk.onPrimary} />
         </ButtonBase>
       </Box>
     </Box>

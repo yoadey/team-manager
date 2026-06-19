@@ -5,13 +5,13 @@ import { useApp } from '@/context/AppContext';
 import { useCompact } from '@/layouts/useCompact';
 import { buildTokens, hhmm, typeMeta } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
-import { getIntlLocale } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
 
 export function EventCalendar() {
   const app = useApp();
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const compact = useCompact();
   const mobile = compact;
 
@@ -128,14 +128,14 @@ export function EventCalendar() {
           sx={{
             fontSize: mobile ? '11px' : '12px',
             fontWeight: isToday ? 800 : 500,
-            color: isToday ? t.primary : '#44474E',
+            color: isToday ? tk.primary : '#44474E',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
             width: '20px',
             height: '20px',
             borderRadius: '50%',
-            background: isToday ? t.primaryContainer : 'transparent',
+            background: isToday ? tk.primaryContainer : 'transparent',
             alignSelf: 'flex-start',
           }}
         >
@@ -148,7 +148,7 @@ export function EventCalendar() {
         {absChips}
         {abs.length > (mobile ? 1 : 2) ? (
           <Box sx={{ fontSize: '9px', color: '#9A9DA6', pl: '3px' }}>
-            {'+' + (abs.length - (mobile ? 1 : 2)) + ' abw.'}
+            {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absent').slice(0, 3) + '.'}
           </Box>
         ) : null}
       </Box>,
@@ -179,10 +179,10 @@ export function EventCalendar() {
           type="checkbox"
           checked={state.calShowAbsences}
           onChange={() => app.toggleCalAbsences()}
-          style={{ width: '18px', height: '18px', accentColor: t.primary }}
+          style={{ width: '18px', height: '18px', accentColor: tk.primary }}
         />
         <Sym name="beach_access" size={18} color="#6A6D76" />
-        Geplante Abwesenheiten anzeigen
+        {t('events.showAbsences')}
       </Box>
       <Card>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '10px', mb: '12px' }}>

@@ -4,7 +4,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
 import type { AppNotification } from '../types';
 import { buildTokens, statusMeta, fmtDate, relTime } from '@/styles/tokens';
-import { getIntlLocale } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 import { Av, EmptyState, SpinnerBox } from '@/components/ui';
 
 interface NotifMeta {
@@ -25,22 +25,27 @@ function notifDayLabel(isoStr: string) {
   const b = new Date(d);
   b.setHours(0, 0, 0, 0);
   const diff = Math.round((a.getTime() - b.getTime()) / 86400000);
-  if (diff <= 0) return 'Heute';
-  if (diff === 1) return 'Gestern';
-  if (diff < 7) return 'Diese Woche';
-  if (diff < 14) return 'Letzte Woche';
+  if (diff <= 0) return t('notifications.today');
+  if (diff === 1) return t('notifications.yesterday');
+  if (diff < 7) return t('notifications.thisWeek');
+  if (diff < 14) return t('notifications.lastWeek');
   return new Intl.DateTimeFormat(getIntlLocale(), { month: 'long', year: 'numeric' }).format(d);
 }
 
 export function NotificationsSheet({ app }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const S = state;
 
   const notifMeta = (n: AppNotification): NotifMeta => {
     if (n.type === 'attendance') {
       const sm = statusMeta(n.status!);
-      const verb = n.status === 'yes' ? 'hat zugesagt' : n.status === 'no' ? 'hat abgesagt' : 'ist unsicher';
+      const verb =
+        n.status === 'yes'
+          ? t('notifications.attendanceYes')
+          : n.status === 'no'
+            ? t('notifications.attendanceNo')
+            : t('notifications.attendanceMaybe');
       return {
         col: sm.color,
         bg: sm.bg,
@@ -54,13 +59,13 @@ export function NotificationsSheet({ app }: SheetProps) {
     }
     if (n.type && n.type.indexOf('event_') === 0) {
       const map: Record<string, [string, string, string, string]> = {
-        event_created: ['event_available', '#1565C0', '#D7E3FF', 'Neuer Termin angelegt'],
-        event_updated: ['edit_calendar', '#9A5B00', '#FFE5B8', 'Termin geändert'],
-        event_cancelled: ['event_busy', '#BA1A1A', '#FFDAD6', 'Termin abgesagt'],
-        event_reactivated: ['event_available', '#2E7D32', '#D7F0D8', 'Termin wieder aktiviert'],
-        event_deleted: ['delete', '#BA1A1A', '#FFDAD6', 'Termin gelöscht'],
+        event_created: ['event_available', '#1565C0', '#D7E3FF', t('notifications.eventCreated')],
+        event_updated: ['edit_calendar', '#9A5B00', '#FFE5B8', t('notifications.eventUpdated')],
+        event_cancelled: ['event_busy', '#BA1A1A', '#FFDAD6', t('notifications.eventCancelled')],
+        event_reactivated: ['event_available', '#2E7D32', '#D7F0D8', t('notifications.eventReactivated')],
+        event_deleted: ['delete', '#BA1A1A', '#FFDAD6', t('notifications.eventDeleted')],
       };
-      const m = map[n.type] || ['event', '#6A6D76', '#ECEDF3', 'Termin'];
+      const m = map[n.type] || ['event', '#6A6D76', '#ECEDF3', 'Event'];
       return {
         icon: m[0],
         col: m[1],
@@ -76,7 +81,7 @@ export function NotificationsSheet({ app }: SheetProps) {
         icon: 'campaign',
         col: '#6750A4',
         bg: '#EADDFF',
-        line1: 'Neue Neuigkeit',
+        line1: t('notifications.newsNew'),
         line2: n.title + ' · ' + n.actorName,
         onClick: () => app.go('news'),
         group: 'other',
@@ -86,7 +91,7 @@ export function NotificationsSheet({ app }: SheetProps) {
         icon: 'how_to_vote',
         col: '#00796B',
         bg: '#9DF1E2',
-        line1: 'Neue Umfrage',
+        line1: t('notifications.pollNew'),
         line2: n.title + ' · ' + n.actorName,
         onClick: () => app.go('polls'),
         group: 'other',
@@ -96,7 +101,7 @@ export function NotificationsSheet({ app }: SheetProps) {
         icon: 'beach_access',
         col: '#8A6100',
         bg: '#FFE5B8',
-        line1: n.actorName + ' hat eine Abwesenheit eingetragen',
+        line1: n.actorName + ' ' + t('notifications.absenceLogged'),
         line2: n.title || '',
         onClick: () => {
           app.setState({ route: 'events', sheet: null, eventsView: 'absences' });
@@ -120,10 +125,10 @@ export function NotificationsSheet({ app }: SheetProps) {
 
   const filt = S.notifFilter || 'all';
   const chips: Array<[string, string]> = [
-    ['all', 'Alle'],
-    ['attendance', 'Rückmeldungen'],
-    ['events', 'Termine'],
-    ['other', 'News & Co.'],
+    ['all', t('notifications.filterAll')],
+    ['attendance', t('notifications.filterAttendance')],
+    ['events', t('notifications.filterEvents')],
+    ['other', t('notifications.filterOther')],
   ];
   const chipBar = (
     <Box key="cb" sx={{ display: 'flex', gap: '7px', flexWrap: 'wrap', mb: '14px' }}>
@@ -139,9 +144,9 @@ export function NotificationsSheet({ app }: SheetProps) {
               fontSize: '12px',
               fontWeight: 700,
               cursor: 'pointer',
-              border: '1.5px solid ' + (sel ? t.primary : '#D0D2DA'),
-              background: sel ? t.primaryContainer : '#fff',
-              color: sel ? t.onPrimaryContainer : '#6A6D76',
+              border: '1.5px solid ' + (sel ? tk.primary : '#D0D2DA'),
+              background: sel ? tk.primaryContainer : '#fff',
+              color: sel ? tk.onPrimaryContainer : '#6A6D76',
             }}
           >
             {l}
@@ -156,7 +161,7 @@ export function NotificationsSheet({ app }: SheetProps) {
     return (
       <Box>
         {chipBar}
-        <EmptyState icon="notifications_off" text="Keine Benachrichtigungen in dieser Kategorie" />
+        <EmptyState icon="notifications_off" text={t('notifications.empty')} />
       </Box>
     );
   }
@@ -214,7 +219,7 @@ export function NotificationsSheet({ app }: SheetProps) {
       <Box
         key="u"
         component="span"
-        sx={{ width: '9px', height: '9px', borderRadius: '50%', background: t.primary, flex: '0 0 auto' }}
+        sx={{ width: '9px', height: '9px', borderRadius: '50%', background: tk.primary, flex: '0 0 auto' }}
       />
     ) : null;
     const body = (
@@ -254,7 +259,7 @@ export function NotificationsSheet({ app }: SheetProps) {
       textAlign: 'left',
       p: '10px 12px',
       borderRadius: '14px',
-      border: '1px solid ' + (n.unread ? t.primaryContainer : '#ECEDF3'),
+      border: '1px solid ' + (n.unread ? tk.primaryContainer : '#ECEDF3'),
       background: n.unread ? '#FBFAFF' : '#fff',
       mb: '7px',
     } as const;
@@ -272,7 +277,7 @@ export function NotificationsSheet({ app }: SheetProps) {
   });
   out.push(
     <Box key="foot" sx={{ fontSize: '12px', color: '#9A9DA6', textAlign: 'center', p: '14px 0 4px', lineHeight: 1.5 }}>
-      Zeigt alle Benachrichtigungen der letzten zwei Monate.
+      {t('notifications.footer')}
     </Box>,
   );
   return <Box>{out}</Box>;

@@ -4,10 +4,11 @@ import { buildTokens, fmtMoney } from '@/styles/tokens';
 import { EmptyState, Sym } from '@/components/ui';
 import type { Penalty } from '../types';
 import type { SheetProps } from '@/sheets/types';
+import { t } from '@/i18n';
 
 export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   void sheet;
   const f = app.state.finances;
   const canFin = app.can('finances', 'write');
@@ -23,8 +24,8 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
             width: '36px',
             height: '36px',
             borderRadius: '10px',
-            background: t.primaryContainer,
-            color: t.primary,
+            background: tk.primaryContainer,
+            color: tk.primary,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -49,7 +50,7 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
             {p.label}
           </Box>
         </Box>
-        <Box component="b" key="a" sx={{ fontSize: '14px', color: t.primary, flex: '0 0 auto' }}>
+        <Box component="b" key="a" sx={{ fontSize: '14px', color: tk.primary, flex: '0 0 auto' }}>
           {fmtMoney(p.amount)}
         </Box>
         {canFin ? <Sym name="chevron_right" size={20} color="#C0C2CA" /> : null}
@@ -96,22 +97,22 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
         border: '1.5px dashed #C8CAD2',
         background: 'transparent',
         cursor: 'pointer',
-        color: t.primary,
+        color: tk.primary,
         fontWeight: 600,
         fontSize: '14px',
       }}
     >
-      <Sym name="add_circle" size={20} color={t.primary} />
-      Strafe zum Katalog hinzufügen
+      <Sym name="add_circle" size={20} color={tk.primary} />
+      {t('finances.catalogAdd')}
     </ButtonBase>
   ) : null;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <Box key="i" sx={{ fontSize: '13px', color: '#6A6D76', lineHeight: 1.5, mb: '2px' }}>
-        Diese Strafen können erfasst werden. Tippe zum Bearbeiten von Bezeichnung und Betrag, oder lege neue Strafen an.
+        {t('finances.catalogHint')}
       </Box>
-      {rows.length ? rows : <EmptyState icon="gavel" text="Noch keine Strafen im Katalog" />}
+      {rows.length ? rows : <EmptyState icon="gavel" text={t('finances.catalogEmpty')} />}
       {add}
     </Box>
   );

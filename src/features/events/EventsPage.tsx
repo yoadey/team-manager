@@ -7,11 +7,12 @@ import { todayLocalDate } from '@/utils/date';
 import { Sym, EmptyState } from '@/components/ui';
 import { EventCard } from '@/components/cards';
 import { EventCalendar, EventAbsences } from '@/features/events';
+import { t } from '@/i18n';
 
 export function EventsPage() {
   const app = useApp();
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const today = todayLocalDate();
 
   const scoped = useMemo(() => {
@@ -35,7 +36,7 @@ export function EventsPage() {
         fontSize: '13px',
         fontWeight: 600,
         background: cur === val ? '#fff' : 'transparent',
-        color: cur === val ? t.primary : '#5A5D66',
+        color: cur === val ? tk.primary : '#5A5D66',
         boxShadow: cur === val ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
       }}
     >
@@ -46,20 +47,20 @@ export function EventsPage() {
   const toolbar = (
     <Box sx={{ display: 'flex', gap: '10px', mb: '18px', flexWrap: 'wrap', alignItems: 'center' }}>
       <Box sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}>
-        {seg('Liste', 'list', state.eventsView, (v) => app.setEventsView(v))}
-        {seg('Kalender', 'calendar', state.eventsView, (v) => app.setEventsView(v))}
-        {seg('Abwesend', 'absences', state.eventsView, (v) => app.setEventsView(v))}
+        {seg(t('events.tabs.list'), 'list', state.eventsView, (v) => app.setEventsView(v))}
+        {seg(t('events.tabs.calendar'), 'calendar', state.eventsView, (v) => app.setEventsView(v))}
+        {seg(t('events.tabs.absences'), 'absences', state.eventsView, (v) => app.setEventsView(v))}
       </Box>
       <Box sx={{ flex: 1 }} />
       {state.eventsView === 'list' ? (
         <Box sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}>
-          {seg('Anstehend', 'upcoming', state.eventScope, (v) => app.setState({ eventScope: v }))}
-          {seg('Archiv', 'past', state.eventScope, (v) => app.setState({ eventScope: v }))}
+          {seg(t('events.tabs.upcoming'), 'upcoming', state.eventScope, (v) => app.setState({ eventScope: v }))}
+          {seg(t('events.tabs.past'), 'past', state.eventScope, (v) => app.setState({ eventScope: v }))}
         </Box>
       ) : null}
       <ButtonBase
         onClick={() => app.openCalExport()}
-        title="In Google / Apple / Android Kalender einbinden"
+        title={t('events.exportTitle')}
         sx={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -74,7 +75,7 @@ export function EventsPage() {
         }}
       >
         <Sym name="ios_share" size={18} color="#6A6D76" />
-        Exportieren
+        {t('events.export')}
       </ButtonBase>
     </Box>
   );
@@ -114,7 +115,7 @@ export function EventsPage() {
       }}
     >
       <Sym name="pending_actions" size={17} color="#8A6100" />
-      Nur offene Rückmeldungen
+      {t('events.filterPending')}
       <Sym name="close" size={17} color="#8A6100" />
     </ButtonBase>
   ) : null;
@@ -128,10 +129,10 @@ export function EventsPage() {
           icon={pendingFilter ? 'task_alt' : 'event_busy'}
           text={
             pendingFilter
-              ? 'Alle Rückmeldungen erledigt – nichts offen'
+              ? t('events.emptyPending')
               : state.eventScope === 'upcoming'
-                ? 'Keine anstehenden Termine'
-                : 'Kein Termin im Archiv'
+                ? t('events.emptyUpcoming')
+                : t('events.emptyPast')
           }
         />
       </Box>

@@ -4,14 +4,15 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens } from '@/styles/tokens';
 import { EmptyState, SpinnerBox, Sym } from '@/components/ui';
 import { NewsCard } from '@/components/cards';
+import { t } from '@/i18n';
 
 export function NewsPage() {
   const app = useApp();
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
-  void t;
+  const tk = buildTokens(state.primaryColor);
+  void tk;
   if (!state.news) return <SpinnerBox />;
-  if (!state.news.length) return <EmptyState icon="campaign" text="Noch keine Neuigkeiten" />;
+  if (!state.news.length) return <EmptyState icon="campaign" text={t('news.empty')} />;
   const canEdit = app.can('news', 'write');
 
   return (
@@ -25,8 +26,8 @@ export function NewsPage() {
             <Box sx={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', gap: '6px' }}>
               <ButtonBase
                 onClick={() => app.openNewsForm(n)}
-                title="Bearbeiten"
-                aria-label="News bearbeiten"
+                title={t('news.editLabel')}
+                aria-label={t('news.editLabel')}
                 sx={{
                   width: '30px',
                   height: '30px',
@@ -40,8 +41,8 @@ export function NewsPage() {
               </ButtonBase>
               <ButtonBase
                 onClick={() => app.removeNews(n.id)}
-                title="Löschen"
-                aria-label="News löschen"
+                title={t('news.deleteLabel')}
+                aria-label={t('news.deleteLabel')}
                 sx={{
                   width: '30px',
                   height: '30px',

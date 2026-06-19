@@ -4,13 +4,14 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Card, Chip, EmptyState, SpinnerBox, Sym } from '@/components/ui';
 import type { Poll } from './types';
+import { t } from '@/i18n';
 
 export function PollsPage() {
   const app = useApp();
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   if (!state.polls) return <SpinnerBox />;
-  if (!state.polls.length) return <EmptyState icon="how_to_vote" text="Noch keine Umfragen" />;
+  if (!state.polls.length) return <EmptyState icon="how_to_vote" text={t('polls.empty')} />;
   const canDelete = app.can('polls', 'write');
 
   return (
@@ -28,7 +29,7 @@ export function PollsPage() {
                 display: 'block',
                 width: '100%',
                 textAlign: 'left',
-                border: '1.5px solid ' + (sel ? t.primary : '#E0E2EA'),
+                border: '1.5px solid ' + (sel ? tk.primary : '#E0E2EA'),
                 background: '#fff',
                 borderRadius: '12px',
                 p: '11px 14px',
@@ -44,7 +45,7 @@ export function PollsPage() {
                   top: 0,
                   bottom: 0,
                   width: (voted ? o.pct : 0) + '%',
-                  background: sel ? t.primaryContainer : '#F0F1F5',
+                  background: sel ? tk.primaryContainer : '#F0F1F5',
                   transition: 'width .4s',
                   zIndex: 0,
                 }}
@@ -56,14 +57,14 @@ export function PollsPage() {
                     width: '20px',
                     height: '20px',
                     borderRadius: p.multiple ? '5px' : '50%',
-                    border: '2px solid ' + (sel ? t.primary : '#B0B3BC'),
+                    border: '2px solid ' + (sel ? tk.primary : '#B0B3BC'),
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     flex: '0 0 auto',
                   }}
                 >
-                  {sel ? <Sym name="check" size={14} color={t.primary} /> : null}
+                  {sel ? <Sym name="check" size={14} color={tk.primary} /> : null}
                 </Box>
                 <Box component="span" sx={{ flex: 1, fontSize: '14px', fontWeight: sel ? 700 : 500 }}>
                   {o.text}
@@ -82,7 +83,7 @@ export function PollsPage() {
             <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: '8px', mb: '12px' }}>
               <Box sx={{ flex: 1, fontSize: '16px', fontWeight: 700 }}>{p.question}</Box>
               <Chip
-                label={p.anonymous ? 'Anonym' : p.multiple ? 'Mehrfach' : 'Einfach'}
+                label={p.anonymous ? t('polls.anonymous') : p.multiple ? t('polls.multiple') : t('polls.single')}
                 color={NEUTRAL.secondary}
                 bg="#ECEDF3"
                 icon={p.anonymous ? 'visibility_off' : p.multiple ? 'checklist' : 'radio_button_checked'}
@@ -90,8 +91,8 @@ export function PollsPage() {
               {canDelete ? (
                 <ButtonBase
                   onClick={() => app.removePoll(p.id)}
-                  title="Umfrage löschen"
-                  aria-label="Umfrage löschen"
+                  title={t('polls.deleteTitle')}
+                  aria-label={t('polls.deleteLabel')}
                   sx={{
                     width: '30px',
                     height: '30px',
@@ -108,7 +109,7 @@ export function PollsPage() {
             </Box>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>{opts}</Box>
             <Box sx={{ mt: '10px', fontSize: '12px', color: NEUTRAL.faint }}>
-              {p.totalVotes + ' Stimme(n)' + (p.anonymous ? ' · anonym' : '')}
+              {p.anonymous ? t('polls.votesAnon', { n: p.totalVotes }) : t('polls.votes', { n: p.totalVotes })}
             </Box>
           </Card>
         );

@@ -3,7 +3,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { Member } from '../types';
 import type { SheetProps } from '@/sheets/types';
-import { getIntlLocale } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
@@ -35,7 +35,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
           {st ? (st.quote === null ? '–' : st.quote + '%') : '…'}
         </Box>
         <Box key="l" sx={{ fontSize: '11px', color: '#6A6D76', mt: '2px' }}>
-          Anwesenheitsquote
+          {t('members.attendanceRate')}
         </Box>
       </Box>
       <Box key="g" sx={{ flex: 1, background: '#F4F4FA', borderRadius: '14px', p: '14px', textAlign: 'center' }}>
@@ -43,7 +43,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
           {m.roles.length}
         </Box>
         <Box key="l" sx={{ fontSize: '11px', color: '#6A6D76', mt: '2px' }}>
-          {m.roles.length === 1 ? 'Rolle' : 'Rollen'}
+          {m.roles.length === 1 ? t('members.role') : t('members.roles')}
         </Box>
       </Box>
     </Box>
@@ -108,7 +108,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
           }}
         >
           <Sym name="edit" size={19} color="#44474E" />
-          {isMe ? 'Profil bearbeiten' : 'Bearbeiten'}
+          {isMe ? t('members.editProfile') : t('members.edit')}
         </ButtonBase>
         {canWrite && !isMe ? (
           <ButtonBase
@@ -149,8 +149,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
       }}
     >
       <Sym name="info" size={17} color="#9A9DA6" />
-      Die Team-Zugeh&ouml;rigkeit kann hier nicht ge&auml;ndert werden. Neue Mitglieder treten &uuml;ber einen
-      Einladungslink bei &ndash; bestehende lassen sich nur aus dem Team entfernen.
+      {t('members.membershipNote')}
     </Box>
   ) : null;
 
@@ -192,7 +191,7 @@ export function MemberFormSheet({ app }: SheetProps) {
         }}
       >
         <Sym name="photo_camera" size={18} />
-        {F.photo ? 'Foto ändern' : 'Foto hochladen'}
+        {F.photo ? t('members.photoChange') : t('members.photoUpload')}
         <input
           key="f"
           type="file"
@@ -207,7 +206,7 @@ export function MemberFormSheet({ app }: SheetProps) {
   const roleChips = canRoles ? (
     <Box key="rc">
       <Box key="l" sx={labelSx}>
-        Rollen (Mehrfachauswahl)
+        {t('members.rolesMulti')}
       </Box>
       <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {state.roles.map((r) => {
@@ -247,31 +246,35 @@ export function MemberFormSheet({ app }: SheetProps) {
   const contactNote = (
     <Box key="cn" sx={{ fontSize: '12px', color: '#9A9DA6', lineHeight: 1.5, display: 'flex', gap: '8px' }}>
       <Sym name="lock" size={15} color="#C0C2CA" />
-      Kontaktdaten sind optional. Geburtstag und Adresse sieht nur das Trainerteam.
+      {t('members.contactNote')}
     </Box>
   );
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {photoRow}
-      <Field label="Name">
-        <TextInput name="name" placeholder="Vor- und Nachname" />
+      <Field label={t('members.fieldName')}>
+        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} />
       </Field>
-      <Field label="E-Mail">
-        <TextInput name="email" type="email" placeholder="name@example.de" />
+      <Field label={t('members.fieldEmail')}>
+        <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} />
       </Field>
-      <Field label="Telefon">
-        <TextInput name="phone" placeholder="+49 …" />
+      <Field label={t('members.fieldPhone')}>
+        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} />
       </Field>
-      <Field label="Geburtstag">
+      <Field label={t('members.fieldBirthday')}>
         <TextInput name="birthday" type="date" />
       </Field>
-      <Field label="Adresse">
-        <TextInput name="address" placeholder="Straße, PLZ Ort" />
+      <Field label={t('members.fieldAddress')}>
+        <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} />
       </Field>
       {contactNote}
       {roleChips}
-      <PrimaryButton label="Profil speichern" onClick={() => app.saveMember()} busy={app.state.busy === 'save'} />
+      <PrimaryButton
+        label={t('members.saveProfile')}
+        onClick={() => app.saveMember()}
+        busy={app.state.busy === 'save'}
+      />
     </Box>
   );
 }

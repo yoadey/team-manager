@@ -5,13 +5,14 @@ import { Av, Field, labelSx, PrimaryButton, SectionTitle, Sym, TextArea, TextInp
 import { shortName } from '@/layouts/useCompact';
 import type { Invite } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import { t } from '@/i18n';
 
 const TEAM_ICONS = ['🏆', '⭐', '💃', '🕺', '🎭', '🔥', '👑', '🎯', '💎', '🦅', '⚡', '🌟'];
 
 export function CreateTeamSheet({ app, sheet }: SheetProps) {
   void sheet;
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   void team;
   const F = app.state.form;
@@ -24,8 +25,8 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         width: '48px',
         height: '48px',
         borderRadius: '13px',
-        border: '2px solid ' + (F.icon === em ? t.primary : '#E0E2EA'),
-        background: F.icon === em ? t.primaryContainer : '#fff',
+        border: '2px solid ' + (F.icon === em ? tk.primary : '#E0E2EA'),
+        background: F.icon === em ? tk.primaryContainer : '#fff',
         cursor: 'pointer',
         fontSize: '22px',
       }}
@@ -55,7 +56,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         <Sym name="add_photo_alternate" size={24} color="#6A6D76" />
       )}
       <Box key="l" component="span" sx={{ flex: 1, fontSize: '13px', fontWeight: 600, color: '#44474E' }}>
-        {F.photo ? 'Teamfoto ausgewählt' : 'Teamfoto hochladen (optional)'}
+        {F.photo ? t('team.photoSelected') : t('team.photoUpload')}
       </Box>
       <input
         key="f"
@@ -83,29 +84,29 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
           borderRadius: '13px',
         }}
       >
-        <Sym name="shield_person" size={24} color={t.primary} />
-        Du wirst automatisch Administrator des neuen Teams. Standard-Rollen werden angelegt.
+        <Sym name="shield_person" size={24} color={tk.primary} />
+        {t('team.createTeamHint')}
       </Box>
-      <Field label="Team-Name">
-        <TextInput name="name" placeholder="z. B. C-Team TSC Schwarz-Gelb" />
+      <Field label={t('team.teamNameField')}>
+        <TextInput name="name" placeholder={t('team.teamNamePlaceholder')} />
       </Field>
       <Box key="ic">
         <Box key="l" sx={labelSx}>
-          Icon
+          {t('team.iconLabel')}
         </Box>
         <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {icons}
         </Box>
       </Box>
       {photoRow}
-      <PrimaryButton label="Team anlegen" onClick={() => app.createTeam()} busy={app.state.busy === 'save'} />
+      <PrimaryButton label={t('team.createBtn')} onClick={() => app.createTeam()} busy={app.state.busy === 'save'} />
     </Box>
   );
 }
 
 export function InviteSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   const inv: Invite | null = sheet.invite ?? null;
 
@@ -118,8 +119,8 @@ export function InviteSheet({ app, sheet }: SheetProps) {
             width: '64px',
             height: '64px',
             borderRadius: '18px',
-            background: t.primaryContainer,
-            color: t.primary,
+            background: tk.primaryContainer,
+            color: tk.primary,
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -130,7 +131,12 @@ export function InviteSheet({ app, sheet }: SheetProps) {
           link
         </Box>
         <Box key="s" sx={{ fontSize: '14px', color: '#6A6D76', mt: '12px', lineHeight: 1.5 }}>
-          Teile diesen Link. Neue Mitglieder treten <b key="b">{shortName(team.name)}</b> bei. Gültig 7 Tage.
+          {t('team.inviteDesc2', { teamName: shortName(team.name) })
+            .split(shortName(team.name))
+            .reduce<React.ReactNode[]>((acc, part, i, arr) => {
+              if (i < arr.length - 1) return [...acc, part, <b key={i}>{shortName(team.name)}</b>];
+              return [...acc, part];
+            }, [])}
         </Box>
       </Box>
       <Box
@@ -158,7 +164,7 @@ export function InviteSheet({ app, sheet }: SheetProps) {
             whiteSpace: 'nowrap',
           }}
         >
-          {inv ? inv.link : 'Erzeuge Link…'}
+          {inv ? inv.link : t('team.inviteGenerating')}
         </Box>
         {inv ? (
           <ButtonBase
@@ -168,8 +174,8 @@ export function InviteSheet({ app, sheet }: SheetProps) {
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
-              background: t.primary,
-              color: t.onPrimary,
+              background: tk.primary,
+              color: tk.onPrimary,
               border: 'none',
               borderRadius: '9px',
               p: '8px 12px',
@@ -178,14 +184,14 @@ export function InviteSheet({ app, sheet }: SheetProps) {
               cursor: 'pointer',
             }}
           >
-            <Sym name="content_copy" size={16} color={t.onPrimary} />
-            {sheet.copied ? 'Kopiert' : 'Kopieren'}
+            <Sym name="content_copy" size={16} color={tk.onPrimary} />
+            {sheet.copied ? t('team.inviteCopied') : t('team.inviteCopy')}
           </ButtonBase>
         ) : null}
       </Box>
       {inv ? (
         <Box key="code" sx={{ textAlign: 'center', mt: '14px', fontSize: '13px', color: '#6A6D76' }}>
-          Beitritts-Code:{' '}
+          {t('team.inviteCode')}{' '}
           <Box
             key="b"
             component="b"
@@ -202,7 +208,7 @@ export function InviteSheet({ app, sheet }: SheetProps) {
 export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   void sheet;
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   const F = app.state.form;
   const roles = app.state.roles;
@@ -256,10 +262,12 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
 
   const logoSec = (
     <Box key="logo">
-      <SectionTitle>Logo</SectionTitle>
+      <SectionTitle>{t('team.settingsLogoSection')}</SectionTitle>
       <Box key="r" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '10px' }}>
         {logoPreview}
-        {upLabel('upload', F.logo ? 'Logo ändern' : 'Bild-Logo hochladen', (d) => app.saveTeamLogo(d))}
+        {upLabel('upload', F.logo ? t('team.settingsLogoChange') : t('team.settingsLogoUpload'), (d) =>
+          app.saveTeamLogo(d),
+        )}
       </Box>
       <Box key="em" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {TEAM_ICONS.map((em) => (
@@ -270,8 +278,8 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
               width: '44px',
               height: '44px',
               borderRadius: '12px',
-              border: '2px solid ' + (!F.logo && F.icon === em ? t.primary : '#E0E2EA'),
-              background: !F.logo && F.icon === em ? t.primaryContainer : '#fff',
+              border: '2px solid ' + (!F.logo && F.icon === em ? tk.primary : '#E0E2EA'),
+              background: !F.logo && F.icon === em ? tk.primaryContainer : '#fff',
               cursor: 'pointer',
               fontSize: '20px',
             }}
@@ -285,7 +293,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
 
   const photoSec = (
     <Box key="photo">
-      <SectionTitle>Gruppenbild</SectionTitle>
+      <SectionTitle>{t('team.settingsPhotoSection')}</SectionTitle>
       <Box key="r" sx={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
         {team.photo ? (
           <Av key="a" name={team.name} photo={team.photo} color="#ccc" size={58} />
@@ -310,19 +318,21 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
             image
           </Box>
         )}
-        {upLabel('photo_camera', team.photo ? 'Bild ändern' : 'Gruppenbild hochladen', (d) => app.saveTeamPhoto(d))}
+        {upLabel('photo_camera', team.photo ? t('team.settingsPhotoChange') : t('team.settingsPhotoUpload'), (d) =>
+          app.saveTeamPhoto(d),
+        )}
       </Box>
       <Box key="h" sx={{ fontSize: '12px', color: '#9A9DA6', mt: '8px', lineHeight: 1.5 }}>
-        Wird als Titelbild auf der Startseite und der Team-Seite angezeigt.
+        {t('team.settingsPhotoHint')}
       </Box>
     </Box>
   );
 
   const visSec = (
     <Box key="vis">
-      <SectionTitle>Sichtbarkeit von Absage-Kommentaren</SectionTitle>
+      <SectionTitle>{t('team.settingsVisSection')}</SectionTitle>
       <Box key="h" sx={{ fontSize: '12px', color: '#9A9DA6', m: '-2px 0 10px', lineHeight: 1.5 }}>
-        Welche Rollen dürfen die Kommentare bei Absagen sehen? Den eigenen Kommentar sieht jede Person selbst.
+        {t('team.settingsVisHint')}
       </Box>
       <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {roles.map((r) => {
@@ -361,17 +371,17 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-      <Field label="Team-Name">
-        <TextInput name="name" placeholder="Team-Name" />
+      <Field label={t('team.settingsNameField')}>
+        <TextInput name="name" placeholder={t('team.settingsNamePlaceholder')} />
       </Field>
-      <Field label="Teambeschreibung">
-        <TextArea name="description" placeholder="Kurze Beschreibung des Teams…" minHeight={80} />
+      <Field label={t('team.settingsDescField')}>
+        <TextArea name="description" placeholder={t('team.settingsDescPlaceholder')} minHeight={80} />
       </Field>
       {logoSec}
       {photoSec}
       {visSec}
       <PrimaryButton
-        label="Einstellungen speichern"
+        label={t('team.settingsSave')}
         onClick={() => app.saveTeamSettings()}
         busy={app.state.busy === 'save'}
       />

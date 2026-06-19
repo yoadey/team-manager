@@ -3,17 +3,18 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
+import { t } from '@/i18n';
 
 export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tk = buildTokens(state.primaryColor);
   const F = app.state.form;
   const errs = state.formErrors;
   const edit = sheet.mode === 'edit';
 
   const typeDefs: [string, string, string, string, string][] = [
-    ['income', 'Einnahme', 'south_west', '#2E7D32', '#D7F0D8'],
-    ['expense', 'Ausgabe', 'north_east', '#BA1A1A', '#FFDAD6'],
+    ['income', t('finances.txIncome'), 'south_west', '#2E7D32', '#D7F0D8'],
+    ['expense', t('finances.txExpense'), 'north_east', '#BA1A1A', '#FFDAD6'],
   ];
   const typeBtns = typeDefs.map(([v, l, ic, c, bg]) => {
     const sel = F.type === v;
@@ -48,7 +49,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   ].sort((a, b) => a.localeCompare(b, 'de'));
 
   const catField = (
-    <Field label="Kategorie">
+    <Field label={t('finances.txFieldCategory')}>
       <Box>
         <input
           key="i"
@@ -57,7 +58,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           autoComplete="off"
           value={F.category == null ? '' : F.category}
           onChange={app.onFormInput}
-          placeholder="Kategorie wählen oder neu eingeben…"
+          placeholder={t('finances.txCategoryPlaceholder')}
           style={inputSx}
         />
         <datalist key="dl" id="tvCatList">
@@ -79,9 +80,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
                     fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
-                    border: '1px solid ' + (sel ? t.primary : '#D0D2DA'),
-                    background: sel ? t.primaryContainer : '#fff',
-                    color: sel ? t.onPrimaryContainer : '#44474E',
+                    border: '1px solid ' + (sel ? tk.primary : '#D0D2DA'),
+                    background: sel ? tk.primaryContainer : '#fff',
+                    color: sel ? tk.onPrimaryContainer : '#44474E',
                   }}
                 >
                   {c}
@@ -91,7 +92,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           </Box>
         ) : null}
         <Box key="hint" sx={{ fontSize: '11px', color: '#9A9DA6', mt: '8px', lineHeight: 1.5 }}>
-          Vorhandene Kategorie wählen oder eine neue eintippen – neue Kategorien werden automatisch übernommen.
+          {t('finances.txCategoryHint')}
         </Box>
       </Box>
     </Field>
@@ -102,9 +103,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       key="del"
       onClick={() =>
         app.askConfirm({
-          title: 'Buchung löschen?',
-          message: '„' + (F.title || 'Diese Buchung') + '" wird dauerhaft aus der Kasse entfernt.',
-          confirmLabel: 'Löschen',
+          title: t('finances.txDeleteConfirmTitle'),
+          message: t('finances.txDeleteConfirmMsg', { title: String(F.title || t('finances.txDelete')) }),
+          confirmLabel: t('common.delete'),
           danger: true,
           onConfirm: async () => {
             await app.deleteTx(F.id);
@@ -126,18 +127,23 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       }}
     >
       <Sym name="delete" size={19} color="#BA1A1A" />
-      Buchung löschen
+      {t('finances.txDelete')}
     </ButtonBase>
   ) : null;
 
-  const validateTitle = () => app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : 'Bezeichnung fehlt.' });
+  const validateTitle = () =>
+    app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : t('finances.txFieldTitleError') });
   const validateAmount = () => {
     const raw = String(F.amount ?? '')
       .trim()
       .replace(',', '.');
     const n = Number(raw);
     app.setFormErrors({
-      amount: !raw ? 'Betrag fehlt.' : !Number.isFinite(n) || n <= 0 ? 'Betrag muss größer als 0 sein.' : '',
+      amount: !raw
+        ? t('finances.txFieldAmountError')
+        : !Number.isFinite(n) || n <= 0
+          ? t('finances.txFieldAmountErrorPositive')
+          : '',
     });
   };
 
@@ -154,15 +160,15 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box sx={{ display: 'flex', gap: '8px' }}>{typeBtns}</Box>
-      <Field label="Bezeichnung" required error={!!errs.title} errorText={errs.title}>
-        <TextInput name="title" placeholder="z. B. Mitgliedsbeiträge" onBlur={validateTitle} />
+      <Field label={t('finances.txFieldTitle')} required error={!!errs.title} errorText={errs.title}>
+        <TextInput name="title" placeholder={t('finances.txFieldTitlePlaceholder')} onBlur={validateTitle} />
       </Field>
-      <Field label="Betrag (€)" required error={!!errs.amount} errorText={errs.amount}>
+      <Field label={t('finances.txFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
         <TextInput name="amount" type="number" onBlur={validateAmount} />
       </Field>
       {catField}
       <PrimaryButton
-        label={edit ? 'Änderungen speichern' : 'Buchung erfassen'}
+        label={edit ? t('finances.txSaveEdit') : t('finances.txSave')}
         onClick={() => app.saveTx()}
         busy={app.state.busy === 'save'}
         disabled={!canSubmit}

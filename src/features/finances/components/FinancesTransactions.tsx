@@ -4,6 +4,7 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { SectionTitle, EmptyState, Sym } from '@/components/ui';
 import type { FinanceOverview, Transaction } from '../types';
+import { t } from '@/i18n';
 
 type App = ReturnType<typeof useApp>;
 type Tk = ReturnType<typeof buildTokens>;
@@ -15,7 +16,7 @@ interface Props {
   canFin: boolean;
 }
 
-export function FinancesTransactions({ app, t, f, canFin }: Props) {
+export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
   const txRow = (tx: Transaction) => {
     const inner = (
       <>
@@ -94,19 +95,19 @@ export function FinancesTransactions({ app, t, f, canFin }: Props) {
                 gap: '5px',
                 border: 'none',
                 background: 'transparent',
-                color: t.primary,
+                color: tk.primary,
                 fontWeight: 700,
                 fontSize: '13px',
                 cursor: 'pointer',
               }}
             >
-              <Sym name="add" size={17} color={t.primary} />
-              Buchung
+              <Sym name="add" size={17} color={tk.primary} />
+              {t('finances.txAdd')}
             </ButtonBase>
           ) : null
         }
       >
-        {'Alle Umsätze · ' + f.transactions.length}
+        {t('finances.txListTitle', { n: f.transactions.length })}
       </SectionTitle>
       {f.transactions.length ? (
         <Box
@@ -122,7 +123,7 @@ export function FinancesTransactions({ app, t, f, canFin }: Props) {
           {f.transactions.map(txRow)}
         </Box>
       ) : (
-        <EmptyState icon="receipt_long" text="Noch keine Umsätze gebucht" />
+        <EmptyState icon="receipt_long" text={t('finances.txEmpty')} />
       )}
     </Box>
   );
