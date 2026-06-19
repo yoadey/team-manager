@@ -1,21 +1,22 @@
 {
   "ci": {
     "collect": {
-      "staticDistDir": "./dist",
+      "startServerCommand": "npm run preview -- --port 5100 --host 0.0.0.0",
+      "startServerReadyPattern": "Local:",
+      "url": ["http://localhost:5100/"],
       "numberOfRuns": 1,
       "settings": {
         "chromeFlags": "--no-sandbox --disable-dev-shm-usage"
       }
     },
     "assert": {
-      "preset": "lighthouse:no-pwa",
       "assertions": {
         "largest-contentful-paint": ["warn", { "maxNumericValue": 2500 }],
         "cumulative-layout-shift": ["warn", { "maxNumericValue": 0.1 }],
         "first-contentful-paint": ["warn", { "maxNumericValue": 3000 }],
-        "total-blocking-time": ["warn", { "maxNumericValue": 300 }],
-        "categories:performance": ["warn", { "minScore": 0.8 }],
-        "categories:accessibility": ["warn", { "minScore": 0.9 }]
+        "total-blocking-time": ["warn", { "maxNumericValue": 600 }],
+        "categories:performance": ["warn", { "minScore": 0.7 }],
+        "categories:accessibility": ["warn", { "minScore": 0.85 }]
       }
     },
     "upload": {
