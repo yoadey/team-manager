@@ -259,3 +259,103 @@ describe('AppProvider / actions (app phase)', () => {
     // No crash — toast was set (auto-clears after 2600ms via setTimeout)
   });
 });
+
+// The bootstrap sets: events=write, members=read, finances=none
+describe('AppProvider / can() permission checks', () => {
+  let capturedCan: ReturnType<typeof useApp>['can'];
+
+  function CanProbe({ onMount }: { onMount: (can: ReturnType<typeof useApp>['can']) => void }) {
+    const { can } = useApp();
+    onMount(can);
+    return null;
+  }
+
+  async function renderWithPerms() {
+    let capturedActions!: ReturnType<typeof useAppActions>;
+    render(
+      <AppProvider>
+        <PhaseAndSheet
+          onMount={(a) => {
+            capturedActions = a;
+          }}
+        />
+        <CanProbe
+          onMount={(c) => {
+            capturedCan = c;
+          }}
+        />
+      </AppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    await act(async () => {
+      capturedActions.setState({
+        phase: 'app',
+        user: {
+          id: 'u1',
+          name: 'Test User',
+          email: 'test@example.com',
+          avatarColor: '#000',
+          photo: null,
+          phone: '',
+          birthday: '',
+          address: '',
+        },
+        teams: [
+          {
+            id: 'team1',
+            name: 'Test Team',
+            membershipId: 'ms1',
+            myRoles: [{ id: 'r1', name: 'Admin' }],
+            myPerms: {
+              events: 'write',
+              members: 'read',
+              finances: 'none',
+              stats: 'read',
+              news: 'write',
+              polls: 'write',
+              settings: 'none',
+            },
+          },
+        ] as never,
+        activeTeamId: 'team1',
+        roles: [],
+        events: [],
+        members: [],
+        news: [],
+        polls: [],
+      });
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+  }
+
+  it('returns true when module permission meets the required level', async () => {
+    await renderWithPerms();
+    expect(capturedCan('events', 'write')).toBe(true);
+  });
+
+  it('returns true for read when user has write permission', async () => {
+    await renderWithPerms();
+    expect(capturedCan('events', 'read')).toBe(true);
+  });
+
+  it('returns true for read when user only has read permission', async () => {
+    await renderWithPerms();
+    expect(capturedCan('members', 'read')).toBe(true);
+  });
+
+  it('returns false for write when user only has read permission', async () => {
+    await renderWithPerms();
+    expect(capturedCan('members', 'write')).toBe(false);
+  });
+
+  it('returns false when user has no permission (none)', async () => {
+    await renderWithPerms();
+    expect(capturedCan('finances', 'read')).toBe(false);
+  });
+
+  it('defaults to write level check when no level specified', async () => {
+    await renderWithPerms();
+    expect(capturedCan('events')).toBe(true);
+    expect(capturedCan('members')).toBe(false);
+  });
+});

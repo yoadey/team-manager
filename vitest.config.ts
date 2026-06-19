@@ -37,7 +37,7 @@ export default defineConfig({
       ],
       // Floors set just below current real coverage so regressions fail CI.
       // Raise these as component/hook tests are added (P1.9).
-      thresholds: { statements: 56, branches: 38, functions: 54, lines: 56 },
+      thresholds: { statements: 59, branches: 42, functions: 56, lines: 59 },
     },
   },
 });
