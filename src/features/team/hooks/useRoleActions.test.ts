@@ -71,11 +71,11 @@ describe('useRoleActions', () => {
       useRoleActions({
         api: api as never,
         S: () => stateRef,
-        setState,
+        setState: setState as never,
         activeTeam: () => makeActiveTeam(roleIds) as never,
-        refreshRoles,
-        refreshTeams,
-        toastMsg,
+        refreshRoles: refreshRoles as never,
+        refreshTeams: refreshTeams as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }

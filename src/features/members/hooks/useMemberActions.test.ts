@@ -90,11 +90,11 @@ describe('useMemberActions', () => {
       useMemberActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        refreshMembers,
-        refreshTeams,
-        askConfirm,
-        toastMsg,
+        setState: setState as never,
+        refreshMembers: refreshMembers as never,
+        refreshTeams: refreshTeams as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }

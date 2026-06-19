@@ -67,10 +67,10 @@ describe('usePollActions', () => {
       usePollActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        loadPolls,
-        toastMsg,
-        askConfirm,
+        setState: setState as never,
+        loadPolls: loadPolls as never,
+        toastMsg: toastMsg as never,
+        askConfirm: askConfirm as never,
       }),
     );
   }

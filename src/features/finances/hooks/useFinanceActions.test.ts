@@ -81,12 +81,12 @@ describe('useFinanceActions', () => {
       useFinanceActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        loadFinances,
-        loadStats,
-        refreshMembers,
-        askConfirm,
-        toastMsg,
+        setState: setState as never,
+        loadFinances: loadFinances as never,
+        loadStats: loadStats as never,
+        refreshMembers: refreshMembers as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }

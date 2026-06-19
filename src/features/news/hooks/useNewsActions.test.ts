@@ -67,10 +67,10 @@ describe('useNewsActions', () => {
       useNewsActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        loadNews,
-        askConfirm,
-        toastMsg,
+        setState: setState as never,
+        loadNews: loadNews as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }

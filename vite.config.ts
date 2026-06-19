@@ -20,10 +20,12 @@ export default defineConfig({
       output: {
         // Split large, rarely-changing vendor code into its own long-lived
         // chunks for better caching and a smaller main bundle.
-        manualChunks: {
-          react: ['react', 'react-dom'],
-          mui: ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
-          sentry: ['@sentry/react'],
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) return 'react';
+            if (id.includes('@mui') || id.includes('@emotion')) return 'mui';
+            if (id.includes('@sentry')) return 'sentry';
+          }
         },
       },
     },

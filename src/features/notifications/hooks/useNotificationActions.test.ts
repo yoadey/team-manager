@@ -61,9 +61,9 @@ describe('useNotificationActions', () => {
       useNotificationActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        loadNotifications,
-        toastMsg,
+        setState: setState as never,
+        loadNotifications: loadNotifications as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }

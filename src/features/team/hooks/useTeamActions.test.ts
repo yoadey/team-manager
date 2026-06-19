@@ -96,13 +96,13 @@ describe('useTeamActions', () => {
       useTeamActions({
         api: api as never,
         S: () => stateRef,
-        setState,
+        setState: setState as never,
         activeTeam: () => makeActiveTeam() as never,
-        refreshTeams,
-        refreshMembers,
-        setFormVal,
-        afterLoginLoad,
-        toastMsg,
+        refreshTeams: refreshTeams as never,
+        refreshMembers: refreshMembers as never,
+        setFormVal: setFormVal as never,
+        afterLoginLoad: afterLoginLoad as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }

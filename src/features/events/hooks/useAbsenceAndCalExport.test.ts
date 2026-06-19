@@ -70,11 +70,11 @@ describe('useAbsenceActions', () => {
       useAbsenceActions({
         api: api as never,
         S: () => stateRef,
-        setState,
-        refreshEvents,
-        loadAbsences,
-        askConfirm,
-        toastMsg,
+        setState: setState as never,
+        refreshEvents: refreshEvents as never,
+        loadAbsences: loadAbsences as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
       }),
     );
   }
@@ -220,9 +220,9 @@ describe('useCalExportActions', () => {
     return renderHook(() =>
       useCalExportActions({
         S: () => stateRef,
-        setState,
+        setState: setState as never,
         activeTeam: () => ({ id: 'team1', name: 'Test Team', short: 'TT' }) as never,
-        toastMsg,
+        toastMsg: toastMsg as never,
       }),
     );
   }

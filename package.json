@@ -16,7 +16,8 @@
     "test:coverage": "vitest run --coverage",
     "audit:ci": "npm audit --omit=dev --audit-level=high",
     "check:bundle": "node scripts/check-bundle-size.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "node scripts/patch-react-transition-group.mjs"
   },
   "engines": {
     "node": ">=22",
@@ -26,12 +27,12 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource/roboto": "^5.2.10",
-    "@mui/icons-material": "^6.5.0",
-    "@mui/material": "^6.5.0",
+    "@mui/icons-material": "^9.1.1",
+    "@mui/material": "^9.1.1",
     "@sentry/react": "^10.58.0",
     "material-symbols": "^0.45.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -40,10 +41,10 @@
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^22.19.21",
-    "@types/react": "^18.3.31",
-    "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.7.0",
-    "@vitest/coverage-v8": "^2.1.9",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "^4.1.9",
     "eslint": "^9.39.4",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -52,10 +53,10 @@
     "lint-staged": "^17.0.7",
     "prettier": "^3.8.4",
     "rollup-plugin-visualizer": "^7.0.1",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.61.1",
-    "vite": "^6.4.3",
-    "vitest": "^2.1.9"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.9"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
