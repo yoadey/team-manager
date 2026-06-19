@@ -41,11 +41,13 @@ export function EventCalendar() {
   }
 
   const cells: React.ReactNode[] = [];
-  const dows = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+  const dtf = new Intl.DateTimeFormat(getIntlLocale(), { weekday: mobile ? 'narrow' : 'short' });
+  // Build Mon–Sun headers using a known Monday (2024-01-01 was a Monday)
+  const dows = Array.from({ length: 7 }, (_, i) => dtf.format(new Date(2024, 0, 1 + i)));
   dows.forEach((d) =>
     cells.push(
       <Box key={'h' + d} sx={{ textAlign: 'center', fontSize: '11px', fontWeight: 700, color: '#9A9DA6', p: '4px 0' }}>
-        {mobile ? d[0] : d}
+        {d}
       </Box>,
     ),
   );

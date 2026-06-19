@@ -85,15 +85,12 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Box sx={{ fontSize: '15px', fontWeight: 700, textTransform: 'capitalize' }}>{monthName(sel)}</Box>
         <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, mt: '3px' }}>
-          {paidRows.length +
-            ' von ' +
-            rows.length +
-            ' ' +
-            t('finances.contribPaid') +
-            ' · ' +
-            fmtMoney(sum) +
-            ' von ' +
-            fmtMoney(total)}
+          {t('finances.contribSummary', {
+            paid: paidRows.length,
+            total: rows.length,
+            paidAmt: fmtMoney(sum),
+            totalAmt: fmtMoney(total),
+          })}
         </Box>
       </Box>
       <Box sx={{ fontSize: '24px', fontWeight: 800, color: pct === 100 ? '#2E7D32' : tk.primary, flex: '0 0 auto' }}>
