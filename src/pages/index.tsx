@@ -16,15 +16,24 @@ export function RouteScreen() {
 
   const page = (() => {
     switch (app.state.route) {
-      case 'home':     return <Home />;
-      case 'events':   return <EventsPage />;
-      case 'members':  return <MembersPage />;
-      case 'finances': return app.can('finances', 'read') ? <FinancesPage /> : <Home />;
-      case 'stats':    return <Stats />;
-      case 'news':     return <NewsPage />;
-      case 'polls':    return <PollsPage />;
-      case 'team':     return <TeamPage />;
-      default:         return <Home />;
+      case 'home':
+        return <Home />;
+      case 'events':
+        return app.can('events', 'read') ? <EventsPage /> : <Home />;
+      case 'members':
+        return app.can('members', 'read') ? <MembersPage /> : <Home />;
+      case 'finances':
+        return app.can('finances', 'read') ? <FinancesPage /> : <Home />;
+      case 'stats':
+        return app.can('events', 'read') ? <Stats /> : <Home />;
+      case 'news':
+        return app.can('news', 'read') ? <NewsPage /> : <Home />;
+      case 'polls':
+        return app.can('polls', 'read') ? <PollsPage /> : <Home />;
+      case 'team':
+        return app.can('members', 'read') ? <TeamPage /> : <Home />;
+      default:
+        return <Home />;
     }
   })();
 

@@ -338,6 +338,8 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       <ButtonBase
         key={st}
         title={statusMeta(st).label}
+        aria-label={statusMeta(st).label}
+        aria-pressed={sel}
         onClick={() => app.setStatusFor(e, r, st)}
         sx={{
           width: '30px',

@@ -30,7 +30,11 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
       setState({ sheet: { type: 'memberDetail', membershipId, member: m, stats: null } });
       try {
         const stats = await api.stats.attendanceFor(S().activeTeamId!, m!.userId);
-        setState((s) => (s.sheet && s.sheet.type === 'memberDetail' ? { sheet: { ...s.sheet, stats } } : {}));
+        setState((s) =>
+          s.sheet?.type === 'memberDetail' && s.sheet.membershipId === membershipId
+            ? { sheet: { ...s.sheet, stats } }
+            : {},
+        );
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.load');
       }

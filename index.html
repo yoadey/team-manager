@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1565C0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://*.ingest.sentry.io; manifest-src 'self'; worker-src 'self';" />
+    <!--
+      IMPORTANT: frame-ancestors cannot be set via <meta> — browsers ignore it here.
+      The production web server MUST emit these HTTP response headers to prevent clickjacking:
+        Content-Security-Policy: frame-ancestors 'none'
+        X-Frame-Options: DENY
+      The dev server already sends these via vite.config.ts → server.headers.
+    -->
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="apple-touch-icon" href="/icon.svg" />
