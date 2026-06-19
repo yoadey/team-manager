@@ -197,7 +197,7 @@ describe('useTeamActions', () => {
     await act(async () => {
       await result.current.saveTeamSettings();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.');
     expect(api.teams.updateSettings).not.toHaveBeenCalled();
   });
 
@@ -228,7 +228,7 @@ describe('useTeamActions', () => {
     await act(async () => {
       await result.current.createTeam();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Team-Name fehlt.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.');
     expect(api.teams.create).not.toHaveBeenCalled();
   });
 

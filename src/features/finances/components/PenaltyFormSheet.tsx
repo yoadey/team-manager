@@ -9,6 +9,38 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const create = sheet.mode === 'create';
+  const F = state.form;
+  const errs = state.formErrors;
+
+  const validateLabel = () => {
+    const v = String(F.label ?? '').trim();
+    app.setFormErrors({ label: v ? '' : t('finances.penaltyFieldLabelError') });
+  };
+
+  const validateAmount = () => {
+    const raw = String(F.amount ?? '')
+      .trim()
+      .replace(',', '.');
+    const n = Number(raw);
+    app.setFormErrors({
+      amount: !raw
+        ? t('finances.penaltyFieldAmountError')
+        : !Number.isFinite(n) || n <= 0
+          ? t('finances.penaltyFieldAmountErrorPositive')
+          : '',
+    });
+  };
+
+  const canSubmit =
+    !!String(F.label ?? '').trim() &&
+    (() => {
+      const raw = String(F.amount ?? '')
+        .trim()
+        .replace(',', '.');
+      const n = Number(raw);
+      return raw && Number.isFinite(n) && n > 0;
+    })();
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box
@@ -27,16 +59,17 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         <Sym name="gavel" size={20} color={tk.primary} />
         {create ? t('finances.penaltyFormHintCreate') : t('finances.penaltyFormHintEdit')}
       </Box>
-      <Field label={t('finances.penaltyFieldLabel')}>
-        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} />
+      <Field label={t('finances.penaltyFieldLabel')} required error={!!errs.label} errorText={errs.label}>
+        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} onBlur={validateLabel} />
       </Field>
-      <Field label={t('finances.penaltyFieldAmount')}>
-        <TextInput name="amount" type="number" />
+      <Field label={t('finances.penaltyFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
+        <TextInput name="amount" type="number" onBlur={validateAmount} />
       </Field>
       <PrimaryButton
         label={create ? t('finances.penaltySaveCreate') : t('finances.penaltySaveEdit')}
         onClick={() => app.savePenalty()}
         busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
       />
       {create ? null : (
         <ButtonBase

@@ -173,7 +173,7 @@ describe('useMemberActions', () => {
     await act(async () => {
       await result.current.saveMember();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte einen Namen angeben');
+    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.');
     expect(api.members.update).not.toHaveBeenCalled();
   });
 

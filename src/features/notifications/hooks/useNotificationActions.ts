@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { AppState } from '@/context/AppContext';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -29,7 +30,7 @@ export function useNotificationActions({ api, S, setState, loadNotifications, to
           };
         });
       } catch {
-        toastMsg('Benachrichtigungen konnten nicht als gelesen markiert werden.');
+        toastMsg(t('notifications.markReadError'));
       }
     })();
   }, [api, S, setState, loadNotifications, toastMsg]);

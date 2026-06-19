@@ -6,26 +6,36 @@ import type { Member } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
 import { t } from '@/i18n';
 
-export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
+export function PenaltyAssignSheet({ app }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  void sheet;
   const F = app.state.form;
   const f = app.state.finances;
   const members: Member[] = app.state.members || [];
+  const errs = state.formErrors;
+
+  const validatePerson = () => {
+    app.setFormErrors({ userId: F.userId ? '' : t('finances.assignPersonError') });
+  };
+
+  const canSubmit = !!F.userId && !!F.penaltyId;
 
   const penOpts = (
     <Box key="po">
       <Box key="l" sx={labelSx}>
         {t('finances.assignPenalty')}
       </Box>
+      {errs.penaltyId ? <Box sx={{ fontSize: '12px', color: '#BA1A1A', mb: '6px' }}>{errs.penaltyId}</Box> : null}
       <Box key="b" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {(f ? f.penalties : []).map((p) => {
           const sel = F.penaltyId === p.id;
           return (
             <ButtonBase
               key={p.id}
-              onClick={() => app.setFormVal({ penaltyId: p.id })}
+              onClick={() => {
+                app.setFormVal({ penaltyId: p.id });
+                app.setFormErrors({ penaltyId: '' });
+              }}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
@@ -66,8 +76,8 @@ export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
   );
 
   const memSel = (
-    <Field label={t('finances.assignPerson')}>
-      <select name="userId" value={F.userId || ''} onChange={app.onFormInput} style={inputSx}>
+    <Field label={t('finances.assignPerson')} required error={!!errs.userId} errorText={errs.userId}>
+      <select name="userId" value={F.userId || ''} onChange={app.onFormInput} onBlur={validatePerson} style={inputSx}>
         <option key="_" value="">
           {t('finances.assignPersonPlaceholder')}
         </option>
@@ -88,6 +98,7 @@ export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
         label={t('finances.assignSave')}
         onClick={() => app.savePenaltyAssign()}
         busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
       />
     </Box>
   );

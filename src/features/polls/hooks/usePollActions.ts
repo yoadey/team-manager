@@ -4,6 +4,7 @@ import type { Poll } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { validatePollForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -62,7 +63,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
       });
       await loadPolls();
       setState({ busy: null, sheet: null });
-      toastMsg('Umfrage erstellt');
+      toastMsg(t('polls.toastCreated'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -82,15 +83,15 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
   const removePoll = useCallback(
     (id: string) =>
       askConfirm({
-        title: 'Umfrage löschen?',
-        message: 'Diese Umfrage und alle Abstimmungsergebnisse werden dauerhaft entfernt.',
-        confirmLabel: 'Löschen',
+        title: t('polls.deleteConfirmTitle'),
+        message: t('polls.deleteConfirmMsg'),
+        confirmLabel: t('common.delete'),
         danger: true,
         onConfirm: async () => {
           try {
             await api.polls.remove(id);
             await loadPolls();
-            toastMsg('Umfrage gelöscht');
+            toastMsg(t('polls.toastDeleted'));
           } catch (err) {
             reportActionError({ setState, toastMsg }, err, 'error.delete');
           }

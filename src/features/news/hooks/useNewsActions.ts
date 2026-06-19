@@ -3,6 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { NewsItem } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -39,7 +40,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
   const saveNews = useCallback(async () => {
     const f = S().form;
     if (!f.title) {
-      toastMsg('Bitte Titel angeben');
+      toastMsg(t('news.titleRequired'));
       return;
     }
     setState({ busy: 'save' });
@@ -48,12 +49,12 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
         await api.news.update(f.id, { title: f.title, body: f.body, pinned: f.pinned });
         await loadNews();
         setState({ busy: null, sheet: null });
-        toastMsg('News aktualisiert');
+        toastMsg(t('news.toastUpdated'));
       } else {
         await api.news.create(S().activeTeamId!, { title: f.title, body: f.body, pinned: f.pinned });
         await loadNews();
         setState({ busy: null, sheet: null });
-        toastMsg('News veröffentlicht');
+        toastMsg(t('news.toastPublished'));
       }
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
@@ -63,15 +64,15 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
   const removeNews = useCallback(
     (id: string) =>
       askConfirm({
-        title: 'News löschen?',
-        message: 'Diese Neuigkeit wird dauerhaft entfernt.',
-        confirmLabel: 'Löschen',
+        title: t('news.deleteConfirmTitle'),
+        message: t('news.deleteConfirmMsg'),
+        confirmLabel: t('common.delete'),
         danger: true,
         onConfirm: async () => {
           try {
             await api.news.remove(id);
             await loadNews();
-            toastMsg('News gelöscht');
+            toastMsg(t('news.toastDeleted'));
           } catch (err) {
             reportActionError({ setState, toastMsg }, err, 'error.delete');
           }

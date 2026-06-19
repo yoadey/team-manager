@@ -4,6 +4,7 @@ import type { Invite, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import { validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -63,7 +64,7 @@ export function useTeamActions({
         await api.teams.updateSettings(S().activeTeamId!, { photo: dataUrl });
         await refreshTeams();
         setFormVal({ photo: dataUrl });
-        toastMsg('Gruppenbild aktualisiert');
+        toastMsg(t('team.toastPhotoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.save');
       }
@@ -77,7 +78,7 @@ export function useTeamActions({
         await api.teams.updateSettings(S().activeTeamId!, { logo: dataUrl });
         await refreshTeams();
         setFormVal({ logo: dataUrl });
-        toastMsg('Logo aktualisiert');
+        toastMsg(t('team.toastLogoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.save');
       }
@@ -109,7 +110,7 @@ export function useTeamActions({
   const saveTeamSettings = useCallback(async () => {
     const f = S().form;
     if (!f.name || !f.name.trim()) {
-      toastMsg('Bitte Team-Namen angeben');
+      toastMsg(t('team.nameRequired'));
       return;
     }
     setState({ busy: 'save' });
@@ -121,7 +122,7 @@ export function useTeamActions({
       });
       await refreshTeams();
       setState({ busy: null });
-      toastMsg('Team-Einstellungen gespeichert');
+      toastMsg(t('team.toastSettingsSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -134,7 +135,7 @@ export function useTeamActions({
 
   const createTeam = useCallback(async () => {
     const f = S().form;
-    const name = validateRequiredText(f.name, 'Team-Name fehlt.');
+    const name = validateRequiredText(f.name, t('team.nameRequired'));
     if (!name.ok) {
       toastMsg(name.message!);
       return;
@@ -151,7 +152,7 @@ export function useTeamActions({
       await refreshTeams();
       setState({ busy: null, sheet: null, activeTeamId: team.id, route: 'home', eventScope: 'upcoming' });
       await afterLoginLoad(team.id);
-      toastMsg('Team angelegt – du bist Admin');
+      toastMsg(t('team.toastTeamCreated'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -176,7 +177,7 @@ export function useTeamActions({
       /* ignore */
     }
     setState((s) => ({ sheet: { ...s.sheet!, copied: true } }));
-    toastMsg('Link kopiert');
+    toastMsg(t('team.toastLinkCopied'));
   }, [S, setState, toastMsg]);
 
   const uploadMyPhoto = useCallback(
@@ -186,7 +187,7 @@ export function useTeamActions({
         const user = await api.auth.currentUser();
         await Promise.all([refreshTeams(), refreshMembers()]);
         setState({ user });
-        toastMsg('Profilfoto aktualisiert');
+        toastMsg(t('team.toastMyPhotoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.save');
       }

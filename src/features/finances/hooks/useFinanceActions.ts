@@ -5,6 +5,7 @@ import type { AppState, ConfirmConfig } from '@/context/AppContext';
 import type { Contribution, Penalty, Transaction } from '../types';
 import { validateMoneyAmount, validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -41,12 +42,12 @@ export function useFinanceActions({
 
   const saveTx = useCallback(async () => {
     const f = S().form;
-    const title = validateRequiredText(f.title, 'Bezeichnung der Buchung fehlt.');
+    const title = validateRequiredText(f.title, t('finances.txFieldTitleError'));
     if (!title.ok) {
       toastMsg(title.message!);
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { field: 'Betrag der Buchung', positive: true });
+    const amount = validateMoneyAmount(f.amount, { positive: true });
     if (!amount.ok) {
       toastMsg(amount.message!);
       return;
@@ -69,7 +70,7 @@ export function useFinanceActions({
         });
       await loadFinances();
       setState({ busy: null, sheet: null });
-      toastMsg('Buchung gespeichert');
+      toastMsg(t('finances.toastTxSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -82,7 +83,7 @@ export function useFinanceActions({
         await api.finances.deleteTransaction(id);
         await loadFinances();
         setState({ busy: null, sheet: null });
-        toastMsg('Buchung gelöscht');
+        toastMsg(t('finances.toastTxDeleted'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.delete');
       }
@@ -107,12 +108,12 @@ export function useFinanceActions({
 
   const savePenalty = useCallback(async () => {
     const f = S().form;
-    const label = validateRequiredText(f.label, 'Bezeichnung der Strafe fehlt.');
+    const label = validateRequiredText(f.label, t('finances.penaltyFieldLabelError'));
     if (!label.ok) {
       toastMsg(label.message!);
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { field: 'Betrag der Strafe', positive: true });
+    const amount = validateMoneyAmount(f.amount, { positive: true });
     if (!amount.ok) {
       toastMsg(amount.message!);
       return;
@@ -126,7 +127,7 @@ export function useFinanceActions({
       else await api.finances.updatePenalty(f.id, { label: label.value!, amount: amount.value! });
       await loadFinances();
       setState({ busy: null, sheet: back });
-      toastMsg(create ? 'Strafe hinzugefügt' : 'Strafe gespeichert');
+      toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -135,16 +136,16 @@ export function useFinanceActions({
   const deletePenaltyDef = useCallback(
     (id: string) =>
       askConfirm({
-        title: 'Strafe entfernen?',
-        message: 'Diese Strafe wird aus dem Katalog entfernt. Bereits erfasste Strafen bleiben erhalten.',
-        confirmLabel: 'Entfernen',
+        title: t('finances.penaltyDeleteTitle'),
+        message: t('finances.penaltyDeleteMsg'),
+        confirmLabel: t('finances.penaltyDeleteConfirm'),
         danger: true,
         onConfirm: async () => {
           try {
             await api.finances.deletePenalty(id);
             await loadFinances();
             setState({ sheet: { type: 'penaltyCatalog' } });
-            toastMsg('Strafe entfernt');
+            toastMsg(t('finances.toastPenaltyRemoved'));
           } catch (err) {
             reportActionError({ setState, toastMsg }, err, 'error.delete');
           }
@@ -163,11 +164,11 @@ export function useFinanceActions({
   const savePenaltyAssign = useCallback(async () => {
     const f = S().form;
     if (!f.userId) {
-      toastMsg('Bitte Person wählen');
+      toastMsg(t('finances.assignPersonError'));
       return;
     }
     if (!f.penaltyId) {
-      toastMsg('Bitte Strafe wählen');
+      toastMsg(t('finances.assignPenaltyError'));
       return;
     }
     setState({ busy: 'save' });
@@ -175,7 +176,7 @@ export function useFinanceActions({
       await api.finances.assignPenalty(S().activeTeamId!, { userId: f.userId, penaltyId: f.penaltyId });
       await loadFinances();
       setState({ busy: null, sheet: null });
-      toastMsg('Strafe erfasst');
+      toastMsg(t('finances.toastPenaltyAssigned'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
@@ -186,7 +187,7 @@ export function useFinanceActions({
       try {
         await api.finances.deleteAssignment(id);
         await loadFinances();
-        toastMsg('Strafe gelöscht');
+        toastMsg(t('finances.toastPenaltyAssignDeleted'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.delete');
       }
@@ -205,12 +206,12 @@ export function useFinanceActions({
 
   const saveContrib = useCallback(async () => {
     const f = S().form;
-    const label = validateRequiredText(f.label, 'Bezeichnung des Beitrags fehlt.');
+    const label = validateRequiredText(f.label, t('finances.contribFieldLabelError'));
     if (!label.ok) {
       toastMsg(label.message!);
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { field: 'Betrag des Beitrags', positive: true });
+    const amount = validateMoneyAmount(f.amount, { positive: true });
     if (!amount.ok) {
       toastMsg(amount.message!);
       return;
@@ -220,7 +221,7 @@ export function useFinanceActions({
       await api.finances.updateContribution(f.id, { label: label.value!, amount: amount.value! });
       await loadFinances();
       setState({ busy: null, sheet: null });
-      toastMsg('Beitrag gespeichert');
+      toastMsg(t('finances.toastContribSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }

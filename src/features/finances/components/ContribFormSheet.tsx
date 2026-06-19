@@ -1,26 +1,55 @@
 import Box from '@mui/material/Box';
-import { buildTokens } from '@/styles/tokens';
 import { Field, PrimaryButton, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { t } from '@/i18n';
 
-export function ContribFormSheet({ app, sheet }: SheetProps) {
+export function ContribFormSheet({ app }: SheetProps) {
   const { state } = app;
-  const tk = buildTokens(state.primaryColor);
-  void tk;
-  void sheet;
+  const F = state.form;
+  const errs = state.formErrors;
+
+  const validateLabel = () => {
+    const v = String(F.label ?? '').trim();
+    app.setFormErrors({ label: v ? '' : t('finances.contribFieldLabelError') });
+  };
+
+  const validateAmount = () => {
+    const raw = String(F.amount ?? '')
+      .trim()
+      .replace(',', '.');
+    const n = Number(raw);
+    app.setFormErrors({
+      amount: !raw
+        ? t('finances.contribFieldAmountError')
+        : !Number.isFinite(n) || n <= 0
+          ? t('finances.contribFieldAmountErrorPositive')
+          : '',
+    });
+  };
+
+  const canSubmit =
+    !!String(F.label ?? '').trim() &&
+    (() => {
+      const raw = String(F.amount ?? '')
+        .trim()
+        .replace(',', '.');
+      const n = Number(raw);
+      return raw && Number.isFinite(n) && n > 0;
+    })();
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Field label={t('finances.contribFieldLabel')}>
-        <TextInput name="label" placeholder={t('finances.contribFieldLabelPlaceholder')} />
+      <Field label={t('finances.contribFieldLabel')} required error={!!errs.label} errorText={errs.label}>
+        <TextInput name="label" placeholder={t('finances.contribFieldLabelPlaceholder')} onBlur={validateLabel} />
       </Field>
-      <Field label={t('finances.contribFieldAmount')}>
-        <TextInput name="amount" type="number" />
+      <Field label={t('finances.contribFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
+        <TextInput name="amount" type="number" onBlur={validateAmount} />
       </Field>
       <PrimaryButton
         label={t('finances.contribSave')}
         onClick={() => app.saveContrib()}
         busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
       />
     </Box>
   );

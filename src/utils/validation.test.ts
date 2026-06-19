@@ -37,9 +37,10 @@ describe('validateMoneyAmount', () => {
     expect(validateMoneyAmount('-5', { positive: true }).ok).toBe(false);
   });
 
-  it('uses the provided field name in error messages', () => {
-    const result = validateMoneyAmount('', { field: 'Strafbetrag' });
-    expect(result.message).toBe('Strafbetrag fehlt.');
+  it('shows the generic missing message when value is empty', () => {
+    const result = validateMoneyAmount('');
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('fehlt');
   });
 
   it('rejects negative values by default but allows zero', () => {

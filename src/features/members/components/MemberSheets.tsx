@@ -4,6 +4,7 @@ import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/compo
 import type { Member } from '../types';
 import type { SheetProps } from '@/sheets/types';
 import { getIntlLocale, t } from '@/i18n';
+import { validateBirthday, validateEmail, validatePhone, validateRequiredText } from '@/utils/validation';
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
@@ -167,8 +168,26 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
 export function MemberFormSheet({ app }: SheetProps) {
   const { state } = app;
   const F = app.state.form;
+  const errs = state.formErrors;
   const myIds: string[] = F.roleIds || [];
   const canRoles = app.can('members', 'write');
+
+  const validateName = () => {
+    const r = validateRequiredText(F.name, t('members.fieldNameError'));
+    app.setFormErrors({ name: r.ok ? '' : r.message! });
+  };
+  const validateEmail_ = () => {
+    const r = validateEmail(F.email, t('members.fieldEmailError'));
+    app.setFormErrors({ email: r.ok ? '' : r.message! });
+  };
+  const validatePhone_ = () => {
+    const r = validatePhone(F.phone, t('members.fieldPhoneError'));
+    app.setFormErrors({ phone: r.ok ? '' : r.message! });
+  };
+  const validateBirthday_ = () => {
+    const r = validateBirthday(F.birthday, t('members.fieldBirthdayError'));
+    app.setFormErrors({ birthday: r.ok ? '' : r.message! });
+  };
 
   const photoRow = (
     <Box key="ph" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '4px' }}>
@@ -253,17 +272,17 @@ export function MemberFormSheet({ app }: SheetProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {photoRow}
-      <Field label={t('members.fieldName')}>
-        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} />
+      <Field label={t('members.fieldName')} required error={!!errs.name} errorText={errs.name}>
+        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} onBlur={validateName} />
       </Field>
-      <Field label={t('members.fieldEmail')}>
-        <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} />
+      <Field label={t('members.fieldEmail')} error={!!errs.email} errorText={errs.email}>
+        <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} onBlur={validateEmail_} />
       </Field>
-      <Field label={t('members.fieldPhone')}>
-        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} />
+      <Field label={t('members.fieldPhone')} error={!!errs.phone} errorText={errs.phone}>
+        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} />
       </Field>
-      <Field label={t('members.fieldBirthday')}>
-        <TextInput name="birthday" type="date" />
+      <Field label={t('members.fieldBirthday')} error={!!errs.birthday} errorText={errs.birthday}>
+        <TextInput name="birthday" type="date" onBlur={validateBirthday_} />
       </Field>
       <Field label={t('members.fieldAddress')}>
         <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} />
