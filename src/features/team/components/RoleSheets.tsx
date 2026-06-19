@@ -159,7 +159,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Field label={t('team.roleNameField')}>
-        <TextInput name="name" placeholder={t('team.roleNamePlaceholder')} />
+        <TextInput name="name" placeholder={t('team.roleNamePlaceholder')} maxLength={60} />
       </Field>
       <Box key="p">
         <Box key="l" sx={labelSx}>

@@ -357,12 +357,14 @@ export function TextArea({
   placeholder,
   minHeight = 80,
   onBlur,
+  maxLength,
   style: styleProp,
 }: {
   name: string;
   placeholder?: string;
   minHeight?: number;
   onBlur?: React.FocusEventHandler<HTMLTextAreaElement>;
+  maxLength?: number;
   style?: React.CSSProperties;
 }) {
   const { state, onFormInput } = useApp();
@@ -374,6 +376,7 @@ export function TextArea({
       placeholder={placeholder || ''}
       onChange={onFormInput}
       onBlur={onBlur}
+      maxLength={maxLength}
       style={
         styleProp
           ? { ...inputSx, minHeight, resize: 'vertical', ...styleProp }

@@ -65,6 +65,7 @@ export const de = {
     memberCount: '{n} Mitglieder',
     accountAndRoles: 'Konto & Rollen',
     openProfile: 'Profil öffnen',
+    skipToMain: 'Zum Hauptinhalt springen',
   },
   page: {
     events: 'Termine',

@@ -23,6 +23,8 @@ export function PollsPage() {
           return (
             <ButtonBase
               key={o.id}
+              role={p.multiple ? 'checkbox' : 'radio'}
+              aria-checked={sel}
               onClick={() => app.togglePollOption(p, o.id)}
               sx={{
                 position: 'relative',
@@ -91,7 +93,6 @@ export function PollsPage() {
               {canDelete ? (
                 <ButtonBase
                   onClick={() => app.removePoll(p.id)}
-                  title={t('polls.deleteTitle')}
                   aria-label={t('polls.deleteLabel')}
                   sx={{
                     width: '30px',
@@ -107,7 +108,13 @@ export function PollsPage() {
                 </ButtonBase>
               ) : null}
             </Box>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>{opts}</Box>
+            <Box
+              role={p.multiple ? 'group' : 'radiogroup'}
+              aria-label={p.question}
+              sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+            >
+              {opts}
+            </Box>
             <Box sx={{ mt: '10px', fontSize: '12px', color: NEUTRAL.faint }}>
               {p.anonymous ? t('polls.votesAnon', { n: p.totalVotes }) : t('polls.votes', { n: p.totalVotes })}
             </Box>

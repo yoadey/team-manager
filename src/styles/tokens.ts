@@ -96,7 +96,7 @@ export const NEUTRAL = {
   onSurface: '#1A1C20',
   onSurfaceVariant: '#44474E',
   secondary: '#6A6D76',
-  faint: '#9A9DA6',
+  faint: '#767676',
   line: '#E6E7EE',
   line2: '#ECEDF3',
   line3: '#E0E2EA',

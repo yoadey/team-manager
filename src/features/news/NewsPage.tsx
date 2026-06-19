@@ -26,7 +26,6 @@ export function NewsPage() {
             <Box sx={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', gap: '6px' }}>
               <ButtonBase
                 onClick={() => app.openNewsForm(n)}
-                title={t('news.editLabel')}
                 aria-label={t('news.editLabel')}
                 sx={{
                   width: '30px',
@@ -41,7 +40,6 @@ export function NewsPage() {
               </ButtonBase>
               <ButtonBase
                 onClick={() => app.removeNews(n.id)}
-                title={t('news.deleteLabel')}
                 aria-label={t('news.deleteLabel')}
                 sx={{
                   width: '30px',

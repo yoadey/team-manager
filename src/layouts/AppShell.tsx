@@ -102,12 +102,34 @@ export function Shell() {
     { key: '__more', label: tl('nav.more'), icon: 'apps' },
   ];
 
+  const skipLinkSx = {
+    position: 'absolute' as const,
+    left: '-9999px',
+    zIndex: 9999,
+    '&:focus': {
+      position: 'fixed' as const,
+      left: '8px',
+      top: '8px',
+      background: '#fff',
+      color: '#1A1C20',
+      padding: '10px 16px',
+      borderRadius: '8px',
+      fontSize: '14px',
+      fontWeight: 600,
+      border: '2px solid #1A1C20',
+      textDecoration: 'none',
+    },
+  };
+
   // ===================== MOBILE =====================
   if (compact) {
     return (
       <Box
         sx={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, background: NEUTRAL.surface }}
       >
+        <Box component="a" href="#main-content" sx={skipLinkSx}>
+          {tl('shell.skipToMain')}
+        </Box>
         <Box
           sx={{
             flex: '0 0 auto',
@@ -227,6 +249,7 @@ export function Shell() {
 
         <Box
           component="main"
+          id="main-content"
           sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '14px 14px 90px', position: 'relative' }}
         >
           {content}
@@ -333,6 +356,9 @@ export function Shell() {
   // ===================== DESKTOP =====================
   return (
     <Box sx={{ display: 'flex', height: '100vh', minHeight: 0, background: NEUTRAL.surface }}>
+      <Box component="a" href="#main-content" sx={skipLinkSx}>
+        {tl('shell.skipToMain')}
+      </Box>
       <Box
         sx={{
           flex: '0 0 268px',
@@ -587,7 +613,7 @@ export function Shell() {
             </ButtonBase>
           ) : null}
         </Box>
-        <Box component="main" sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '24px 28px 56px' }}>
+        <Box component="main" id="main-content" sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '24px 28px 56px' }}>
           {content}
         </Box>
       </Box>

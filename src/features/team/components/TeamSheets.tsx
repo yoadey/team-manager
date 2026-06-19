@@ -88,7 +88,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         {t('team.createTeamHint')}
       </Box>
       <Field label={t('team.teamNameField')}>
-        <TextInput name="name" placeholder={t('team.teamNamePlaceholder')} />
+        <TextInput name="name" placeholder={t('team.teamNamePlaceholder')} maxLength={60} />
       </Field>
       <Box key="ic">
         <Box key="l" sx={labelSx}>
@@ -372,7 +372,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
       <Field label={t('team.settingsNameField')}>
-        <TextInput name="name" placeholder={t('team.settingsNamePlaceholder')} />
+        <TextInput name="name" placeholder={t('team.settingsNamePlaceholder')} maxLength={60} />
       </Field>
       <Field label={t('team.settingsDescField')}>
         <TextArea name="description" placeholder={t('team.settingsDescPlaceholder')} minHeight={80} />

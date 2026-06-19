@@ -253,6 +253,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           name="title"
           placeholder={t('events.fieldTitlePlaceholder')}
           onBlur={req('title', t('events.fieldTitleError'))}
+          maxLength={100}
         />
       </Field>
       <Field label={t('events.fieldDate')} required error={!!errs.date} errorText={errs.date}>

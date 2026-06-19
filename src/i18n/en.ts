@@ -64,6 +64,7 @@ export const en: Messages = {
     memberCount: '{n} members',
     accountAndRoles: 'Account & Roles',
     openProfile: 'Open profile',
+    skipToMain: 'Skip to main content',
   },
   page: {
     events: 'Events',

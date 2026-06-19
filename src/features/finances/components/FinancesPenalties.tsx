@@ -120,7 +120,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
               {canFin ? (
                 <ButtonBase
                   onClick={() => app.deleteAssignment(a.id)}
-                  title={t('common.delete')}
+                  aria-label={t('common.delete')}
                   sx={{
                     width: '30px',
                     height: '30px',
