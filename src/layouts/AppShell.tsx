@@ -373,6 +373,7 @@ export function Shell() {
       >
         <ButtonBase
           onClick={app.openTeamSwitcher}
+          aria-label={tl('shell.openTeamSwitcher', { name: shortName(team.name) })}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -407,7 +408,7 @@ export function Shell() {
                 textOverflow: 'ellipsis',
               }}
             >
-              {tl('shell.memberCount', { n: team.memberCount })}
+              {tl('shell.memberCount', { n: team.memberCount, count: team.memberCount })}
             </Box>
           </Box>
           <Sym name="unfold_more" size={22} color={NEUTRAL.secondary} />

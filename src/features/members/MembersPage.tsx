@@ -104,7 +104,7 @@ export function MembersPage() {
     <Box sx={{ maxWidth: '820px' }}>
       <Box sx={{ display: 'flex', gap: '8px', mb: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
         <Box sx={{ fontSize: '13px', fontWeight: 600, color: NEUTRAL.secondary }}>
-          {t('members.count', { n: state.members.length })}
+          {t('members.count', { n: state.members.length, count: state.members.length })}
         </Box>
         <Box sx={{ flex: 1 }} />
         <input

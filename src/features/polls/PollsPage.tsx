@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Card, Chip, EmptyState, SpinnerBox, Sym } from '@/components/ui';
+import { Card, Chip, EmptyState, SkeletonList, Sym } from '@/components/ui';
 import type { Poll } from './types';
 import { t } from '@/i18n';
 
@@ -10,7 +10,7 @@ export function PollsPage() {
   const app = useApp();
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  if (!state.polls) return <SpinnerBox />;
+  if (!state.polls) return <SkeletonList rows={4} rowHeight={100} />;
   if (!state.polls.length) return <EmptyState icon="how_to_vote" text={t('polls.empty')} />;
   const canDelete = app.can('polls', 'write');
 
@@ -116,7 +116,9 @@ export function PollsPage() {
               {opts}
             </Box>
             <Box sx={{ mt: '10px', fontSize: '12px', color: NEUTRAL.faint }}>
-              {p.anonymous ? t('polls.votesAnon', { n: p.totalVotes }) : t('polls.votes', { n: p.totalVotes })}
+              {p.anonymous
+                ? t('polls.votesAnon', { n: p.totalVotes, count: p.totalVotes })
+                : t('polls.votes', { n: p.totalVotes, count: p.totalVotes })}
             </Box>
           </Card>
         );

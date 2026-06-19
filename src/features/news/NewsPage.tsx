@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { EmptyState, SpinnerBox, Sym } from '@/components/ui';
+import { EmptyState, SkeletonList, Sym } from '@/components/ui';
 import { NewsCard } from '@/components/cards';
 import { t } from '@/i18n';
 
@@ -11,7 +11,7 @@ export function NewsPage() {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   void tk;
-  if (!state.news) return <SpinnerBox />;
+  if (!state.news) return <SkeletonList rows={4} rowHeight={120} />;
   if (!state.news.length) return <EmptyState icon="campaign" text={t('news.empty')} />;
   const canEdit = app.can('news', 'write');
 
