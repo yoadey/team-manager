@@ -27,6 +27,15 @@ import { useFeatureActions } from './useFeatureActions';
 
 export type Phase = 'loading' | 'login' | 'app';
 export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
+
+const ALL_ROUTES: Route[] = ['home', 'events', 'members', 'finances', 'stats', 'news', 'polls', 'team'];
+function routeFromPath(path: string): Route {
+  const seg = path.replace(/^\//, '').split('/')[0] as Route;
+  return ALL_ROUTES.includes(seg) ? seg : 'home';
+}
+function pushRoute(route: Route) {
+  history.pushState({ route }, '', '/' + route);
+}
 export type SheetType =
   | 'teams'
   | 'profile'
@@ -129,7 +138,7 @@ const initialState: AppState = {
   user: null,
   teams: [],
   activeTeamId: null,
-  route: 'home',
+  route: routeFromPath(window.location.pathname),
   eventScope: 'upcoming',
   eventsView: 'list',
   eventsOnlyPending: false,
@@ -543,6 +552,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         const activeTeamId = teams[0].id;
+        history.replaceState({ route: 'home' }, '', '/home');
         setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
         setSentryUser(user);
         await afterLoginLoad(activeTeamId);
@@ -575,12 +585,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [setState]);
   const go = useCallback(
     (route: Route) => {
+      pushRoute(route);
       setState({ route, sheet: null, eventsOnlyPending: false });
       ensureRouteData(route);
     },
     [setState, ensureRouteData],
   );
   const goEventsPending = useCallback(() => {
+    pushRoute('events');
     setState({ route: 'events', sheet: null, eventsView: 'list', eventScope: 'upcoming', eventsOnlyPending: true });
     ensureRouteData('events');
   }, [setState, ensureRouteData]);
@@ -598,6 +610,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         closeSheet();
         return;
       }
+      pushRoute('home');
       setState({ activeTeamId: id, sheet: null, route: 'home', eventScope: 'upcoming', eventsView: 'list' });
       await afterLoginLoad(id);
     },
@@ -722,6 +735,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   });
 
   // ---------- bootstrap ----------
+  useEffect(() => {
+    const handler = (e: PopStateEvent) => {
+      const route: Route =
+        e.state && ALL_ROUTES.includes(e.state.route) ? e.state.route : routeFromPath(window.location.pathname);
+      setState({ route, sheet: null });
+      ensureRouteData(route);
+    };
+    window.addEventListener('popstate', handler);
+    return () => window.removeEventListener('popstate', handler);
+  }, [setState, ensureRouteData]);
+
   useEffect(() => {
     (async () => {
       try {
