@@ -1,0 +1,17 @@
+# Code owners are requested for review automatically on every pull request.
+# See https://docs.github.com/articles/about-code-owners
+
+# Default owner for everything in the repository.
+*                       @yoadey
+
+# Build, CI and dependency configuration.
+/.github/               @yoadey
+/package.json           @yoadey
+/package-lock.json      @yoadey
+/vite.config.ts         @yoadey
+/vitest.config.ts       @yoadey
+/tsconfig*.json         @yoadey
+
+# Core application state and service contract.
+/src/context/           @yoadey
+/src/services/          @yoadey

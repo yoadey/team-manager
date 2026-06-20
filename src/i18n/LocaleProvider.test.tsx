@@ -57,4 +57,20 @@ describe('LocaleProvider', () => {
     }).toThrow('useLocale must be used within LocaleProvider');
     spy.mockRestore();
   });
+
+  it('syncs <html lang> with the active locale', async () => {
+    render(
+      <LocaleProvider>
+        <LocaleConsumer />
+      </LocaleProvider>,
+    );
+    await act(async () => {
+      setLocale('en');
+    });
+    expect(document.documentElement.lang).toBe('en');
+    await act(async () => {
+      setLocale('de');
+    });
+    expect(document.documentElement.lang).toBe('de');
+  });
 });

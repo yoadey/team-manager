@@ -5,7 +5,11 @@ import type { Route } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, Av, SectionTitle } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
-import { t } from '@/i18n';
+import { t, type Locale } from '@/i18n';
+import { useLocale } from '@/i18n/LocaleProvider';
+
+/** Each language is shown in its own name (endonym), independent of UI locale. */
+const LANGUAGE_LABELS: Record<Locale, string> = { de: 'Deutsch', en: 'English' };
 
 export function TeamsSheet({ app }: SheetProps) {
   const { state } = app;
@@ -102,6 +106,7 @@ export function TeamsSheet({ app }: SheetProps) {
 
 export function ProfileSheet({ app }: SheetProps) {
   const { state } = app;
+  const { locale, setLocale, supported } = useLocale();
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   const S = state;
@@ -242,6 +247,37 @@ export function ProfileSheet({ app }: SheetProps) {
               >
                 <Sym name={icon} size={20} color={active ? tk.primary : NEUTRAL.secondary} />
                 {label}
+              </ButtonBase>
+            );
+          })}
+        </Box>
+      </Box>
+
+      <Box key="lang" sx={{ mt: '18px' }}>
+        <Box sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, mb: '8px' }}>{t('team.language')}</Box>
+        <Box sx={{ display: 'flex', gap: '6px' }}>
+          {supported.map((lng) => {
+            const active = locale === lng;
+            return (
+              <ButtonBase
+                key={lng}
+                onClick={() => setLocale(lng)}
+                aria-pressed={active}
+                sx={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  p: '10px 6px',
+                  borderRadius: '12px',
+                  border: active ? `2px solid ${tk.primary}` : `1px solid ${NEUTRAL.line}`,
+                  background: active ? tk.primaryContainer : NEUTRAL.card,
+                  color: active ? tk.primary : NEUTRAL.onSurfaceVariant,
+                  fontSize: '13px',
+                  fontWeight: 600,
+                }}
+              >
+                {LANGUAGE_LABELS[lng]}
               </ButtonBase>
             );
           })}

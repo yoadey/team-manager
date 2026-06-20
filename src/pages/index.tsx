@@ -4,6 +4,8 @@ import { Home } from './Home';
 import { EventsPage } from '@/features/events';
 import { MembersPage } from '@/features/members';
 import { SpinnerBox } from '@/components/ui';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { captureError } from '@/monitoring';
 
 // EventsPage and MembersPage cannot be code-split here because useFeatureActions
 // and sheets/index already import the feature modules statically. True lazy
@@ -40,5 +42,14 @@ export function RouteScreen() {
     }
   })();
 
-  return <Suspense fallback={<SpinnerBox />}>{page}</Suspense>;
+  // A per-route boundary keeps a crash in one feature page from taking down the
+  // whole app (navigation chrome / shell stay alive). Keying on the route resets
+  // the boundary when the user navigates away, so a previously failed page can be
+  // re-entered. Errors still propagate to Sentry via captureError; if the route
+  // boundary itself somehow fails, the app-level boundary in main.tsx catches it.
+  return (
+    <ErrorBoundary key={app.state.route} onError={captureError}>
+      <Suspense fallback={<SpinnerBox />}>{page}</Suspense>
+    </ErrorBoundary>
+  );
 }

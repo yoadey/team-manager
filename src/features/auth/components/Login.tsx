@@ -4,6 +4,7 @@ import { useApp } from '@/context/AppContext';
 import { NEUTRAL } from '@/styles/tokens';
 import { Spinner, Sym } from '@/components/ui';
 import { t } from '@/i18n';
+import { config } from '@/config';
 
 export function Login() {
   const { state, doLogin } = useApp();
@@ -19,7 +20,7 @@ export function Login() {
         justifyContent: 'center',
         p: '24px',
         overflow: 'auto',
-        background: 'radial-gradient(120% 100% at 50% 0%, #EEF0F6 0%, #E0E2EA 100%)',
+        background: `radial-gradient(120% 100% at 50% 0%, ${NEUTRAL.surface} 0%, ${NEUTRAL.appBg} 100%)`,
         animation: 'tvFade .4s ease',
       }}
     >
@@ -27,7 +28,7 @@ export function Login() {
         sx={{
           width: '100%',
           maxWidth: '420px',
-          background: '#fff',
+          background: NEUTRAL.card,
           borderRadius: '28px',
           boxShadow: '0 24px 60px rgba(20,30,55,.18)',
           p: '40px 32px 28px',
@@ -62,8 +63,8 @@ export function Login() {
           >
             SG
           </Box>
-          <Box sx={{ fontSize: '23px', fontWeight: 700, mt: '14px', color: NEUTRAL.onSurface }}>Teamverwaltung</Box>
-          <Box sx={{ fontSize: '14px', color: '#5A5D66', lineHeight: 1.5 }}>
+          <Box sx={{ fontSize: '23px', fontWeight: 700, mt: '14px', color: NEUTRAL.onSurface }}>{config.appName}</Box>
+          <Box sx={{ fontSize: '14px', color: NEUTRAL.secondary, lineHeight: 1.5 }}>
             {t('auth.loginHint')}
             <br />
             {t('auth.loginHintNote')}

@@ -533,6 +533,7 @@ export const en: Messages = {
     colorSchemeSystem: 'Auto',
     colorSchemeLight: 'Light',
     colorSchemeDark: 'Dark',
+    language: 'Language',
     logout: 'Sign out',
     toastPhotoSaved: 'Team photo updated',
     toastLogoSaved: 'Logo updated',
