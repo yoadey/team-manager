@@ -108,11 +108,6 @@ describe('EventAbsences', () => {
     const app = makeApp({ absences: [myAbsence] });
     mockUseApp.mockReturnValue(app as never);
     render(<EventAbsences />);
-    const editBtn =
-      document.querySelector('button[style*="border-radius: 50%"]') ||
-      Array.from(document.querySelectorAll('button')).find(
-        (b) => b.querySelector('[data-icon="edit"]') || b.textContent?.includes('edit'),
-      );
     const buttons = document.querySelectorAll('button');
     // Find the edit button (first icon button in the absence row)
     const absenceRowBtns = Array.from(buttons).filter((b) => !b.textContent?.includes('Abwesenheit'));

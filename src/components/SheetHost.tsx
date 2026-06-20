@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Modal from '@mui/material/Modal';
+import { useEffect, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { isPageSheet } from '@/context/AppContext';
 import { NEUTRAL } from '@/styles/tokens';
@@ -15,6 +16,20 @@ export function SheetHost() {
   const compact = useCompact();
   const cur = state.sheet;
   const modalSheet = cur && !isPageSheet(cur.type) ? cur : null;
+
+  // Capture focus origin so it can be restored when the sheet closes.
+  const triggerRef = useRef<Element | null>(null);
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    const isOpen = modalSheet !== null;
+    if (isOpen && !wasOpenRef.current) {
+      triggerRef.current = document.activeElement;
+    } else if (!isOpen && wasOpenRef.current) {
+      (triggerRef.current as HTMLElement | null)?.focus?.();
+      triggerRef.current = null;
+    }
+    wasOpenRef.current = isOpen;
+  }, [modalSheet]);
 
   if (!modalSheet) return null;
   const meta = sheetMeta(app, modalSheet);

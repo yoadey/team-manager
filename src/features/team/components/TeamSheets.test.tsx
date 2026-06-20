@@ -29,7 +29,7 @@ vi.mock('@/styles/tokens', async (importOriginal) => {
   };
 });
 
-import type { AppContextValue, AppState, SheetState } from '@/context/AppContext';
+import type { AppContextValue, AppState } from '@/context/AppContext';
 import type { Role, TeamForUser } from '@/types';
 
 // ── helpers ───────────────────────────────────────────────────────────────────

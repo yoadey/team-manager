@@ -38,7 +38,8 @@ function makeApp(overrides = {}) {
   };
 }
 
-function makeFinances(txOverrides: unknown[] = []) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeFinances(txOverrides: any[] = []) {
   return {
     balance: 100,
     income: 200,
