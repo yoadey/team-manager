@@ -193,6 +193,8 @@ export const en: Messages = {
     },
     viewTabsLabel: 'Choose view',
     scopeTabsLabel: 'Choose time range',
+    calPrevMonth: 'Previous month',
+    calNextMonth: 'Next month',
     export: 'Export',
     exportTitle: 'Add to Google / Apple / Android Calendar',
     filterPending: 'Open responses only',

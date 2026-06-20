@@ -193,6 +193,8 @@ export const de = {
     },
     viewTabsLabel: 'Ansicht wählen',
     scopeTabsLabel: 'Zeitraum wählen',
+    calPrevMonth: 'Vorheriger Monat',
+    calNextMonth: 'Nächster Monat',
     export: 'Exportieren',
     exportTitle: 'In Google / Apple / Android Kalender einbinden',
     filterPending: 'Nur offene Rückmeldungen',

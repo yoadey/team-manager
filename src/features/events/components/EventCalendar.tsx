@@ -194,6 +194,7 @@ export function EventCalendar() {
           <Box sx={{ flex: 1, fontSize: '16px', fontWeight: 700, textTransform: 'capitalize' }}>{monthLabel}</Box>
           <ButtonBase
             onClick={nav(-1)}
+            aria-label={t('events.calPrevMonth')}
             sx={{
               width: '34px',
               height: '34px',
@@ -207,6 +208,7 @@ export function EventCalendar() {
           </ButtonBase>
           <ButtonBase
             onClick={nav(1)}
+            aria-label={t('events.calNextMonth')}
             sx={{
               width: '34px',
               height: '34px',
