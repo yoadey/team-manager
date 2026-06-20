@@ -104,4 +104,11 @@ describe('ContribFormSheet', () => {
     render(<ContribFormSheet app={app as never} sheet={sheet} />);
     expect(screen.getByText('Fehler!')).toBeTruthy();
   });
+
+  it('calls saveContrib when save button is clicked and form is valid', () => {
+    const app = makeApp({ label: 'Monatsbeitrag', amount: '15' });
+    render(<ContribFormSheet app={app as never} sheet={sheet} />);
+    fireEvent.click(screen.getByRole('button', { name: /Änderungen speichern/i }));
+    expect(app.saveContrib).toHaveBeenCalled();
+  });
 });

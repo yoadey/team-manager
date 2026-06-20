@@ -111,4 +111,18 @@ describe('PenaltyFormSheet', () => {
     render(<PenaltyFormSheet app={app as never} sheet={sheet} />);
     expect(screen.getByText('Pflichtfeld')).toBeTruthy();
   });
+
+  it('clicking delete button calls deletePenaltyDef', () => {
+    const app = makeApp({ id: 'p1', label: 'Strafe', amount: '5' });
+    render(<PenaltyFormSheet app={app as never} sheet={{ mode: 'edit' } as never} />);
+    fireEvent.click(screen.getByText(/Strafe aus Katalog entfernen/i).closest('button')!);
+    expect(app.deletePenaltyDef).toHaveBeenCalledWith('p1');
+  });
+
+  it('calls savePenalty when save button is clicked with valid form', () => {
+    const app = makeApp({ label: 'Verspätung', amount: '5' });
+    render(<PenaltyFormSheet app={app as never} sheet={sheet} />);
+    fireEvent.click(screen.getByRole('button', { name: /Strafe/i }));
+    expect(app.savePenalty).toHaveBeenCalled();
+  });
 });

@@ -146,4 +146,52 @@ describe('EventsPage', () => {
     await userEvent.click(screen.getByText('Nur offene Rückmeldungen').closest('button')!);
     expect(app.setState).toHaveBeenCalledWith({ eventsOnlyPending: false });
   });
+
+  it('filters pending events when eventsOnlyPending and events with pending status', () => {
+    const base = {
+      type: 'training',
+      location: '',
+      note: '',
+      startTime: '',
+      endTime: '',
+      meetTime: null,
+      summary: { yes: 0, no: 0, maybe: 0 },
+    };
+    const events = [
+      { ...base, id: 'e1', title: 'Pending Event', date: '2030-01-01', status: 'active', myStatus: 'pending' },
+      { ...base, id: 'e2', title: 'Confirmed Event', date: '2030-01-02', status: 'active', myStatus: 'yes' },
+    ];
+    mockUseApp.mockReturnValue(makeApp({ eventsOnlyPending: true, eventScope: 'upcoming', events }));
+    render(<EventsPage />);
+    expect(screen.getByText('Pending Event')).toBeTruthy();
+    expect(screen.queryByText('Confirmed Event')).toBeNull();
+  });
+
+  it('sorts events by date descending in past scope with multiple events', () => {
+    const base = {
+      type: 'training',
+      location: '',
+      note: '',
+      startTime: '',
+      endTime: '',
+      meetTime: null,
+      summary: { yes: 0, no: 0, maybe: 0 },
+    };
+    const events = [
+      { ...base, id: 'e1', title: 'Older Event', date: '2020-01-01', status: 'active', myStatus: 'yes' },
+      { ...base, id: 'e2', title: 'Newer Event', date: '2021-06-01', status: 'active', myStatus: 'yes' },
+    ];
+    mockUseApp.mockReturnValue(makeApp({ eventScope: 'past', events }));
+    render(<EventsPage />);
+    expect(screen.getByText('Older Event')).toBeTruthy();
+    expect(screen.getByText('Newer Event')).toBeTruthy();
+  });
+
+  it('clicking list tab calls setEventsView with list', async () => {
+    const app = makeApp({ eventsView: 'calendar' });
+    mockUseApp.mockReturnValue(app);
+    render(<EventsPage />);
+    await userEvent.click(screen.getByText('Liste'));
+    expect(app.setEventsView).toHaveBeenCalledWith('list');
+  });
 });

@@ -35,10 +35,8 @@ export default defineConfig({
         'src/i18n/de.ts',
         'src/i18n/en.ts',
       ],
-      // Minimum coverage floors. Keep these at or above measured baselines so
-      // regressions fail CI; raise them as the test suite grows toward the
-      // enterprise target of 80 % statements, 70 % branches, 75 % functions.
-      thresholds: { statements: 62, branches: 45, functions: 58, lines: 62 },
+      // Enterprise-ready coverage floors.
+      thresholds: { statements: 80, branches: 65, functions: 75, lines: 80 },
     },
   },
 });

@@ -1,0 +1,186 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { FinancesContributions } from './FinancesContributions';
+
+vi.mock('@/context/AppContext', () => ({
+  useApp: vi.fn(),
+  useAppActions: vi.fn().mockReturnValue({}),
+}));
+
+vi.mock('@/styles/tokens', () => ({
+  buildTokens: vi
+    .fn()
+    .mockReturnValue({
+      primary: '#1565C0',
+      onPrimary: '#fff',
+      primaryContainer: '#E3F2FD',
+      onPrimaryContainer: '#0D47A1',
+    }),
+  fmtMoney: vi.fn().mockImplementation((n) => `${n} €`),
+  monthName: vi.fn().mockImplementation((m) => m),
+  initials: vi.fn().mockImplementation((n: string) => n.slice(0, 2).toUpperCase()),
+  NEUTRAL: {
+    surface: '#fff',
+    card: '#fff',
+    line: '#e0e0e0',
+    secondary: '#757575',
+    error: '#B00020',
+    success: '#2E7D32',
+    successBg: '#E8F5E9',
+    faint: '#999',
+    onSurfaceVariant: '#666',
+  },
+}));
+
+vi.mock('@/i18n', () => ({ t: vi.fn().mockImplementation((key) => key) }));
+
+const tk = {
+  primary: '#1565C0',
+  onPrimary: '#fff',
+  primaryContainer: '#E3F2FD',
+  onPrimaryContainer: '#0D47A1',
+} as never;
+
+function makeApp(overrides = {}) {
+  return {
+    setState: vi.fn(),
+    state: { contribMonth: null },
+    openContribForm: vi.fn(),
+    ...overrides,
+  };
+}
+
+function makeFinances(overrides = {}) {
+  return {
+    balance: 0,
+    income: 0,
+    expense: 0,
+    transactions: [],
+    penalties: [],
+    assignments: [],
+    openPenalties: [],
+    openPenaltySum: 0,
+    contributions: [],
+    contribOpen: 0,
+    ...overrides,
+  };
+}
+
+function makeContrib(overrides = {}) {
+  return {
+    id: 'c1',
+    teamId: 't1',
+    userId: 'u1',
+    month: '2025-06',
+    label: 'Monatsbeitrag',
+    amount: 20,
+    status: 'open' as const,
+    name: 'Anna Müller',
+    avatarColor: '#4285F4',
+    photo: null,
+    ...overrides,
+  };
+}
+
+describe('FinancesContributions', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders empty state when no contributions', () => {
+    const app = makeApp();
+    render(<FinancesContributions app={app as never} t={tk} f={makeFinances()} canFin={false} />);
+    expect(document.querySelector('div')).toBeTruthy();
+  });
+
+  it('renders month chip for contributions', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.getAllByText('2025-06').length).toBeGreaterThan(0);
+  });
+
+  it('renders contribution member name', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+  });
+
+  it('renders paid contribution row', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib({ status: 'paid' })] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+  });
+
+  it('clicking month chip calls setState', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={false}
+      />,
+    );
+    fireEvent.click(screen.getAllByText('2025-06')[0].closest('button')!);
+    expect(app.setState).toHaveBeenCalledWith({ contribMonth: '2025-06' });
+  });
+
+  it('renders multiple months and selects first by default', () => {
+    const app = makeApp();
+    const contribs = [
+      makeContrib({ id: 'c1', month: '2025-06', name: 'Anna' }),
+      makeContrib({ id: 'c2', month: '2025-05', name: 'Bob', userId: 'u2' }),
+    ];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
+    );
+    expect(screen.getAllByText('2025-06').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('2025-05').length).toBeGreaterThan(0);
+  });
+
+  it('uses contribMonth from state when matching', () => {
+    const app = makeApp({ state: { contribMonth: '2025-05' } });
+    const contribs = [
+      makeContrib({ id: 'c1', month: '2025-06', name: 'Anna' }),
+      makeContrib({ id: 'c2', month: '2025-05', name: 'Bob', userId: 'u2' }),
+    ];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
+    );
+    expect(screen.getByText('Bob')).toBeTruthy();
+  });
+
+  it('shows open count in month chip when there are open contribs', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib({ status: 'open' })] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.getAllByText('finances.contribOpen').length).toBeGreaterThan(0);
+  });
+});

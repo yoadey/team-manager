@@ -5,6 +5,8 @@ import {
   validateMoneyAmount,
   validatePollForm,
   validateRequiredText,
+  validatePhone,
+  validateBirthday,
 } from './validation';
 
 describe('validateMoneyAmount', () => {
@@ -169,5 +171,45 @@ describe('validateRequiredText', () => {
       ok: false,
       message: 'Pflichtfeld fehlt',
     });
+  });
+});
+
+describe('validatePhone', () => {
+  it('accepts empty value', () => {
+    expect(validatePhone('', 'ungültig')).toEqual({ ok: true, value: '' });
+  });
+
+  it('accepts a valid phone number', () => {
+    expect(validatePhone('+49 30 12345678', 'ungültig')).toEqual({ ok: true, value: '+49 30 12345678' });
+  });
+
+  it('rejects an invalid phone number', () => {
+    expect(validatePhone('not-a-phone!@#', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
+  });
+
+  it('accepts null/undefined as empty', () => {
+    expect(validatePhone(null, 'ungültig')).toEqual({ ok: true, value: '' });
+  });
+});
+
+describe('validateBirthday', () => {
+  it('accepts empty value', () => {
+    expect(validateBirthday('', 'ungültig')).toEqual({ ok: true, value: '' });
+  });
+
+  it('accepts a past date', () => {
+    expect(validateBirthday('1990-06-15', 'ungültig')).toEqual({ ok: true, value: '1990-06-15' });
+  });
+
+  it('rejects a future date', () => {
+    expect(validateBirthday('2099-01-01', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
+  });
+
+  it('rejects an invalid date format', () => {
+    expect(validateBirthday('not-a-date', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
+  });
+
+  it('rejects an invalid calendar date', () => {
+    expect(validateBirthday('2023-13-45', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
   });
 });
