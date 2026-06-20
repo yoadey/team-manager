@@ -98,6 +98,7 @@ export interface AppState {
   providers: Provider[];
   busy: string | null;
   primaryColor: string;
+  colorScheme: 'system' | 'light' | 'dark';
   user: User | null;
   teams: TeamForUser[];
   activeTeamId: string | null;
@@ -130,11 +131,18 @@ export interface AppState {
   error: string | null;
 }
 
+function loadColorScheme(): AppState['colorScheme'] {
+  const stored = localStorage.getItem('tv_color_scheme');
+  if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
+  return 'system';
+}
+
 const initialState: AppState = {
   phase: 'loading',
   providers: [],
   busy: null,
   primaryColor: DEFAULT_PRESET_KEY,
+  colorScheme: loadColorScheme(),
   user: null,
   teams: [],
   activeTeamId: null,
@@ -180,6 +188,7 @@ export interface AppContextValue {
   toastMsg: (m: string) => void;
   resetDemo: () => void;
   setPrimaryColor: (c: string) => void;
+  setColorScheme: (scheme: AppState['colorScheme']) => void;
   // form
   onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -367,6 +376,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     location.reload();
   }, []);
   const setPrimaryColor = useCallback((c: string) => setState({ primaryColor: c }), [setState]);
+  const setColorScheme = useCallback(
+    (scheme: AppState['colorScheme']) => {
+      localStorage.setItem('tv_color_scheme', scheme);
+      const html = document.documentElement;
+      if (scheme === 'system') {
+        html.removeAttribute('data-color-scheme');
+      } else {
+        html.dataset.colorScheme = scheme;
+      }
+      setState({ colorScheme: scheme });
+    },
+    [setState],
+  );
+
+  // Apply persisted color scheme on mount
+  useEffect(() => {
+    const scheme = state.colorScheme;
+    if (scheme === 'system') {
+      document.documentElement.removeAttribute('data-color-scheme');
+    } else {
+      document.documentElement.dataset.colorScheme = scheme;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------- auth ----------
   // logout is defined early so data-loader callbacks can reference it in their
@@ -816,6 +849,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastMsg,
       resetDemo,
       setPrimaryColor,
+      setColorScheme,
       onFormInput,
       setFormVal,
       setFormErrors,
@@ -915,6 +949,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastMsg,
       resetDemo,
       setPrimaryColor,
+      setColorScheme,
       onFormInput,
       setFormVal,
       setFormErrors,

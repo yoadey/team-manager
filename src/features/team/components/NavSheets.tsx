@@ -212,6 +212,42 @@ export function ProfileSheet({ app }: SheetProps) {
         </Box>
       </Box>
 
+      <Box key="cs" sx={{ mt: '18px' }}>
+        <Box sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, mb: '8px' }}>
+          {t('team.colorScheme')}
+        </Box>
+        <Box sx={{ display: 'flex', gap: '6px' }}>
+          {(['system', 'light', 'dark'] as const).map((scheme) => {
+            const active = state.colorScheme === scheme;
+            const label = t(`team.colorScheme${scheme.charAt(0).toUpperCase() + scheme.slice(1)}`);
+            const icon = scheme === 'system' ? 'brightness_auto' : scheme === 'light' ? 'light_mode' : 'dark_mode';
+            return (
+              <ButtonBase
+                key={scheme}
+                onClick={() => app.setColorScheme(scheme)}
+                sx={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  p: '10px 6px',
+                  borderRadius: '12px',
+                  border: active ? `2px solid ${tk.primary}` : `1px solid ${NEUTRAL.line}`,
+                  background: active ? tk.primaryContainer : NEUTRAL.card,
+                  color: active ? tk.primary : NEUTRAL.onSurfaceVariant,
+                  fontSize: '11px',
+                  fontWeight: 600,
+                }}
+              >
+                <Sym name={icon} size={20} color={active ? tk.primary : NEUTRAL.secondary} />
+                {label}
+              </ButtonBase>
+            );
+          })}
+        </Box>
+      </Box>
+
       <ButtonBase
         key="lo"
         onClick={() => app.logout()}
