@@ -3,12 +3,14 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
+import type { NewsFormValues } from '../types';
 import { t } from '@/i18n';
 
 export function NewsFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const F = app.state.form;
+  const F = formValues<NewsFormValues>(app.state);
   const errs = state.formErrors;
 
   const pin = (
@@ -62,7 +64,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
     app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : t('news.fieldTitleError') });
   const validateBody = () => app.setFormErrors({ body: String(F.body ?? '').trim() ? '' : t('news.fieldBodyError') });
 
-  const canSubmit = !!(F.title as string | undefined)?.trim() && !!(F.body as string | undefined)?.trim();
+  const canSubmit = !!F.title?.trim() && !!F.body?.trim();
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
-import type { NewsItem } from '../types';
+import type { NewsItem, NewsFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -25,7 +25,7 @@ type NewsDeps = {
 export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg }: NewsDeps) {
   const openNewsForm = useCallback(
     (n?: NewsItem) => {
-      const form = n
+      const form: NewsFormValues = n
         ? { id: n.id, title: n.title, body: n.body, pinned: n.pinned }
         : { title: '', body: '', pinned: false };
       setState({
@@ -38,7 +38,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
   );
 
   const saveNews = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as NewsFormValues;
     if (!f.title) {
       toastMsg(t('news.titleRequired'));
       return;
