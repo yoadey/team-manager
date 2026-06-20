@@ -87,8 +87,10 @@ export function buildTokens(presetKey: string): AppTokens {
   };
 }
 
-// Neutral / line colours used across cards & surfaces.
-export const NEUTRAL = {
+// Neutral colour palettes — light and dark.
+// All component code references NEUTRAL, which uses CSS custom properties so
+// dark-mode switching happens automatically without touching component files.
+const NEUTRAL_LIGHT = {
   appBg: '#E4E5EC',
   surface: '#FBFBFE',
   card: '#FFFFFF',
@@ -106,6 +108,40 @@ export const NEUTRAL = {
   success: '#2E7D32',
   successBg: '#D7F0D8',
 };
+
+const NEUTRAL_DARK = {
+  appBg: '#111318',
+  surface: '#1A1C20',
+  card: '#22242A',
+  sidebar: '#1E2026',
+  onSurface: '#E3E2E6',
+  onSurfaceVariant: '#C4C6CF',
+  secondary: '#8E9099',
+  faint: '#8E8E8E',
+  line: '#2E3038',
+  line2: '#292A31',
+  line3: '#2A2C33',
+  inputBorder: '#44474F',
+  error: '#FFB4AB',
+  errorBg: '#93000A',
+  success: '#7BDA7B',
+  successBg: '#1A3C1A',
+};
+
+/** Build the CSS custom-property map for a given colour scheme. */
+export function neutralCssVars(dark: boolean): Record<string, string> {
+  const src = dark ? NEUTRAL_DARK : NEUTRAL_LIGHT;
+  return Object.fromEntries(Object.entries(src).map(([k, v]) => [`--tv-neutral-${k}`, v]));
+}
+
+/**
+ * Neutral / line colours used across cards & surfaces.
+ * Values are CSS custom-property references so that toggling
+ * `data-color-scheme="dark"` on `<html>` instantly switches the whole UI.
+ */
+export const NEUTRAL: Record<keyof typeof NEUTRAL_LIGHT, string> = Object.fromEntries(
+  Object.keys(NEUTRAL_LIGHT).map((k) => [k, `var(--tv-neutral-${k})`]),
+) as Record<keyof typeof NEUTRAL_LIGHT, string>;
 
 export interface TypeMeta {
   label: string;

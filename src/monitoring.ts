@@ -9,6 +9,15 @@ export function initMonitoring(): void {
     integrations: [Sentry.browserTracingIntegration()],
     tracesSampleRate: 0.1,
     environment: import.meta.env.MODE,
+    release: (import.meta.env.VITE_BUILD_VERSION as string | undefined) || undefined,
+    beforeSend(event) {
+      // Strip PII from outgoing events — email and IP must never leave the browser.
+      if (event.user) {
+        delete event.user.email;
+        delete event.user.ip_address;
+      }
+      return event;
+    },
   });
 }
 

@@ -1,12 +1,14 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Modal from '@mui/material/Modal';
+import { useEffect, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
 import { isPageSheet } from '@/context/AppContext';
 import { NEUTRAL } from '@/styles/tokens';
 import { Sym } from './ui';
 import { renderSheet, sheetMeta } from '@/sheets';
 import { useCompact } from '@/layouts/AppShell';
+import { t } from '@/i18n';
 
 export function SheetHost() {
   const app = useApp();
@@ -14,6 +16,20 @@ export function SheetHost() {
   const compact = useCompact();
   const cur = state.sheet;
   const modalSheet = cur && !isPageSheet(cur.type) ? cur : null;
+
+  // Capture focus origin so it can be restored when the sheet closes.
+  const triggerRef = useRef<Element | null>(null);
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    const isOpen = modalSheet !== null;
+    if (isOpen && !wasOpenRef.current) {
+      triggerRef.current = document.activeElement;
+    } else if (!isOpen && wasOpenRef.current) {
+      (triggerRef.current as HTMLElement | null)?.focus?.();
+      triggerRef.current = null;
+    }
+    wasOpenRef.current = isOpen;
+  }, [modalSheet]);
 
   if (!modalSheet) return null;
   const meta = sheetMeta(app, modalSheet);
@@ -54,7 +70,7 @@ export function SheetHost() {
           <Box sx={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '12px', p: '18px 20px 12px' }}>
             {meta.hasBack ? (
               <ButtonBase
-                aria-label="Zurück"
+                aria-label={t('shell.back')}
                 onClick={meta.onBack}
                 sx={{
                   width: 38,
@@ -87,7 +103,7 @@ export function SheetHost() {
               ) : null}
             </Box>
             <ButtonBase
-              aria-label="Schließen"
+              aria-label={t('shell.close')}
               onClick={app.closeSheet}
               sx={{
                 width: 38,

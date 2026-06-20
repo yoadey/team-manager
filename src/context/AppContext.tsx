@@ -98,6 +98,7 @@ export interface AppState {
   providers: Provider[];
   busy: string | null;
   primaryColor: string;
+  colorScheme: 'system' | 'light' | 'dark';
   user: User | null;
   teams: TeamForUser[];
   activeTeamId: string | null;
@@ -130,11 +131,18 @@ export interface AppState {
   error: string | null;
 }
 
+function loadColorScheme(): AppState['colorScheme'] {
+  const stored = localStorage.getItem('tv_color_scheme');
+  if (stored === 'light' || stored === 'dark' || stored === 'system') return stored;
+  return 'system';
+}
+
 const initialState: AppState = {
   phase: 'loading',
   providers: [],
   busy: null,
   primaryColor: DEFAULT_PRESET_KEY,
+  colorScheme: loadColorScheme(),
   user: null,
   teams: [],
   activeTeamId: null,
@@ -180,6 +188,7 @@ export interface AppContextValue {
   toastMsg: (m: string) => void;
   resetDemo: () => void;
   setPrimaryColor: (c: string) => void;
+  setColorScheme: (scheme: AppState['colorScheme']) => void;
   // form
   onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -367,6 +376,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     location.reload();
   }, []);
   const setPrimaryColor = useCallback((c: string) => setState({ primaryColor: c }), [setState]);
+  const setColorScheme = useCallback(
+    (scheme: AppState['colorScheme']) => {
+      localStorage.setItem('tv_color_scheme', scheme);
+      const html = document.documentElement;
+      if (scheme === 'system') {
+        html.removeAttribute('data-color-scheme');
+      } else {
+        html.dataset.colorScheme = scheme;
+      }
+      setState({ colorScheme: scheme });
+    },
+    [setState],
+  );
+
+  // Apply persisted color scheme on mount
+  useEffect(() => {
+    const scheme = state.colorScheme;
+    if (scheme === 'system') {
+      document.documentElement.removeAttribute('data-color-scheme');
+    } else {
+      document.documentElement.dataset.colorScheme = scheme;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------- auth ----------
+  // logout is defined early so data-loader callbacks can reference it in their
+  // onAuthError handler without a TDZ issue. doLogin depends on afterLoginLoad
+  // (defined below) so it stays in the data-loaders section.
+  const logout = useCallback(() => {
+    api.auth.logout();
+    setSentryUser(null);
+    setState({
+      phase: 'login',
+      user: null,
+      teams: [],
+      activeTeamId: null,
+      sheet: null,
+      events: [],
+      members: [],
+      roles: [],
+    });
+  }, [api, setState]);
 
   // ---------- form ----------
   const onFormInput = useCallback(
@@ -395,12 +447,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     r.readAsDataURL(f);
   }, []);
 
+  // ---------- idle session timeout ----------
+  // After IDLE_MS of no pointer/keyboard activity the user gets a toast warning,
+  // then is automatically logged out WARN_MS later.  Both timers reset on any
+  // activity so normal use is never interrupted.
+  const IDLE_MS = 30 * 60 * 1000;
+  const WARN_MS = 2 * 60 * 1000;
+
+  useEffect(() => {
+    if (state.phase !== 'app') return;
+
+    let warnTimer: ReturnType<typeof setTimeout>;
+    let logoutTimer: ReturnType<typeof setTimeout>;
+
+    const resetTimers = () => {
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+      warnTimer = setTimeout(() => {
+        toastMsg(t('session.idleWarning'));
+        logoutTimer = setTimeout(() => {
+          toastMsg(t('session.loggedOut'));
+          logout();
+        }, WARN_MS);
+      }, IDLE_MS - WARN_MS);
+    };
+
+    const events: (keyof WindowEventMap)[] = ['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'];
+    events.forEach((e) => window.addEventListener(e, resetTimers, { passive: true }));
+    resetTimers();
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimers));
+      clearTimeout(warnTimer);
+      clearTimeout(logoutTimer);
+    };
+    // logout and toastMsg are stable useCallbacks; state.phase is the trigger
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase]);
+
   // ---------- data loaders ----------
   // Loaders report failures via toast + monitoring instead of leaving the UI
   // with a spinner or stale data. They never throw to their caller.
   const reportLoad = useCallback(
-    (err: unknown) => reportActionError({ setState, toastMsg }, err, 'error.load'),
-    [setState, toastMsg],
+    (err: unknown) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load'),
+    [setState, toastMsg, logout],
   );
   const loadNotifications = useCallback(async () => {
     try {
@@ -561,20 +651,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [api, setState, afterLoginLoad],
   );
-  const logout = useCallback(() => {
-    api.auth.logout();
-    setSentryUser(null);
-    setState({
-      phase: 'login',
-      user: null,
-      teams: [],
-      activeTeamId: null,
-      sheet: null,
-      events: [],
-      members: [],
-      roles: [],
-    });
-  }, [api, setState]);
 
   // ---------- nav ----------
   const closeSheet = useCallback(() => {
@@ -640,9 +716,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       await cfg.onConfirm();
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err);
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err);
     }
-  }, [S, setState, toastMsg]);
+  }, [S, setState, toastMsg, logout]);
 
   // ---------- feature hooks ----------
   const {
@@ -773,6 +849,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastMsg,
       resetDemo,
       setPrimaryColor,
+      setColorScheme,
       onFormInput,
       setFormVal,
       setFormErrors,
@@ -872,6 +949,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toastMsg,
       resetDemo,
       setPrimaryColor,
+      setColorScheme,
       onFormInput,
       setFormVal,
       setFormErrors,

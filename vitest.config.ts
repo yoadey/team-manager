@@ -35,9 +35,8 @@ export default defineConfig({
         'src/i18n/de.ts',
         'src/i18n/en.ts',
       ],
-      // Floors set just below current real coverage so regressions fail CI.
-      // Raise these as component/hook tests are added (P1.9).
-      thresholds: { statements: 59, branches: 42, functions: 56, lines: 59 },
+      // Enterprise-ready coverage floors.
+      thresholds: { statements: 80, branches: 65, functions: 75, lines: 80 },
     },
   },
 });

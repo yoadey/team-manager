@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
-import { SpinnerBox, Sym } from '@/components/ui';
+import { SkeletonList, Sym } from '@/components/ui';
 import { FinancesTransactions, FinancesPenalties, FinancesContributions } from '@/features/finances';
 import { t } from '@/i18n';
 
@@ -11,7 +11,7 @@ export function FinancesPage() {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const f = state.finances;
-  if (!f) return <SpinnerBox />;
+  if (!f) return <SkeletonList rows={5} rowHeight={64} />;
   const canFin = app.can('finances', 'write');
 
   const stat = (label: string, val: number, col: string) => (

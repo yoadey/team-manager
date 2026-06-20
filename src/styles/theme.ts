@@ -1,5 +1,5 @@
 import { createTheme, type Theme } from '@mui/material/styles';
-import { buildTokens, NEUTRAL } from './tokens';
+import { buildTokens, NEUTRAL, neutralCssVars } from './tokens';
 
 // Extend the MUI palette with the Material-3 "container" colours so they are
 // available everywhere via theme.palette.*.
@@ -45,14 +45,31 @@ export function buildMuiTheme(presetKey: string): Theme {
     components: {
       MuiCssBaseline: {
         styleOverrides: {
+          ':root': neutralCssVars(false),
+          '@media (prefers-color-scheme: dark)': {
+            ':root:not([data-color-scheme="light"])': neutralCssVars(true),
+          },
+          '[data-color-scheme="dark"]': neutralCssVars(true),
+          '[data-color-scheme="light"]': neutralCssVars(false),
           body: { backgroundColor: NEUTRAL.appBg, color: NEUTRAL.onSurface },
           '*': { boxSizing: 'border-box', WebkitTapHighlightColor: 'transparent' },
           '::-webkit-scrollbar': { width: 10, height: 10 },
-          '::-webkit-scrollbar-thumb': { background: '#C8CAD2', borderRadius: 10, border: '2px solid transparent', backgroundClip: 'content-box' },
+          '::-webkit-scrollbar-thumb': {
+            background: '#C8CAD2',
+            borderRadius: 10,
+            border: '2px solid transparent',
+            backgroundClip: 'content-box',
+          },
           '::-webkit-scrollbar-track': { background: 'transparent' },
           '@keyframes tvFade': { from: { opacity: 0 }, to: { opacity: 1 } },
-          '@keyframes tvUp': { from: { opacity: 0, transform: 'translateY(16px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
-          '@keyframes tvScale': { from: { opacity: 0, transform: 'scale(.96)' }, to: { opacity: 1, transform: 'scale(1)' } },
+          '@keyframes tvUp': {
+            from: { opacity: 0, transform: 'translateY(16px)' },
+            to: { opacity: 1, transform: 'translateY(0)' },
+          },
+          '@keyframes tvScale': {
+            from: { opacity: 0, transform: 'scale(.96)' },
+            to: { opacity: 1, transform: 'scale(1)' },
+          },
           '@keyframes tvSpin': { to: { transform: 'rotate(360deg)' } },
           '@keyframes tvSheetUp': { from: { transform: 'translateY(100%)' }, to: { transform: 'translateY(0)' } },
         },

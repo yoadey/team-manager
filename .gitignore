@@ -20,3 +20,6 @@ npm-debug.log*
 # Generated artifacts (produced by CI)
 sbom.json
 .lighthouseci/
+
+# Claude Code internal session data
+.claude/

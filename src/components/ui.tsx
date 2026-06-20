@@ -3,6 +3,7 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import MuiSkeleton from '@mui/material/Skeleton';
 import { type SxProps, type Theme } from '@mui/material/styles';
 import { initials as toInitials, NEUTRAL } from '@/styles/tokens';
 import { useApp } from '@/context/AppContext';
@@ -188,6 +189,21 @@ export function SpinnerBox() {
   );
 }
 
+/** Skeleton placeholder for list/card views while data loads. */
+export function SkeletonList({ rows = 4, rowHeight = 80 }: { rows?: number; rowHeight?: number }) {
+  return (
+    <Box
+      role="status"
+      aria-label={t('common.loading')}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '10px', maxWidth: '820px' }}
+    >
+      {Array.from({ length: rows }, (_, i) => (
+        <MuiSkeleton key={i} variant="rounded" height={rowHeight} sx={{ borderRadius: '16px' }} />
+      ))}
+    </Box>
+  );
+}
+
 export function Spinner({ size = 16, color = 'currentColor' }: { size?: number; color?: string }) {
   return (
     <Box
@@ -240,6 +256,7 @@ export function PrimaryButton({
     <ButtonBase
       onClick={onClick}
       disabled={disabled || busy}
+      aria-busy={busy ? true : undefined}
       sx={{
         display: 'flex',
         alignItems: 'center',

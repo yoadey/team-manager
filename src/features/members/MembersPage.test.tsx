@@ -112,4 +112,30 @@ describe('MembersPage', () => {
     await userEvent.click(screen.getByText('Rollen & Rechte').closest('button')!);
     expect(app.openRoles).toHaveBeenCalled();
   });
+
+  it('filters members by search query', async () => {
+    const members = [
+      makeMember({ name: 'Anna Müller', roles: [{ id: 'r1', name: 'Kapitän' }] }),
+      makeMember({ membershipId: 'ms2', userId: 'u3', name: 'Bob Schmidt', roles: [{ id: 'r1', name: 'Mitglied' }] }),
+    ];
+    mockUseApp.mockReturnValue(makeApp({ members }));
+    render(<MembersPage />);
+    const searchInput = document.querySelector('input[type="search"]')!;
+    await userEvent.type(searchInput, 'Anna');
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    expect(screen.queryByText('Bob Schmidt')).toBeNull();
+  });
+
+  it('filters members by role name', async () => {
+    const members = [
+      makeMember({ name: 'Anna Müller', roles: [{ id: 'r1', name: 'Kapitän' }] }),
+      makeMember({ membershipId: 'ms2', userId: 'u3', name: 'Bob Schmidt', roles: [{ id: 'r2', name: 'Torwart' }] }),
+    ];
+    mockUseApp.mockReturnValue(makeApp({ members }));
+    render(<MembersPage />);
+    const searchInput = document.querySelector('input[type="search"]')!;
+    await userEvent.type(searchInput, 'Kapitän');
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    expect(screen.queryByText('Bob Schmidt')).toBeNull();
+  });
 });

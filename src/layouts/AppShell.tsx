@@ -159,6 +159,7 @@ export function Shell() {
           ) : null}
           <ButtonBase
             onClick={app.openTeamSwitcher}
+            aria-label={tl('shell.openTeamSwitcher', { name: shortName(team.name) })}
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -302,6 +303,7 @@ export function Shell() {
               <ButtonBase
                 key={n.key}
                 onClick={() => (isMore ? app.openMore() : app.go(n.key as Route))}
+                aria-current={active ? 'page' : undefined}
                 sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', p: '4px 0' }}
               >
                 <Box
@@ -371,6 +373,7 @@ export function Shell() {
       >
         <ButtonBase
           onClick={app.openTeamSwitcher}
+          aria-label={tl('shell.openTeamSwitcher', { name: shortName(team.name) })}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -405,7 +408,7 @@ export function Shell() {
                 textOverflow: 'ellipsis',
               }}
             >
-              {tl('shell.memberCount', { n: team.memberCount })}
+              {tl('shell.memberCount', { n: team.memberCount, count: team.memberCount })}
             </Box>
           </Box>
           <Sym name="unfold_more" size={22} color={NEUTRAL.secondary} />
@@ -433,6 +436,7 @@ export function Shell() {
                 <ButtonBase
                   key={n.key}
                   onClick={() => app.go(n.key as Route)}
+                  aria-current={active ? 'page' : undefined}
                   sx={{
                     display: 'flex',
                     alignItems: 'center',

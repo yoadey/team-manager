@@ -57,7 +57,9 @@ function DefaultFallback({ error, onReset }: { error: Error; onReset: () => void
       }}
     >
       <Box sx={{ fontSize: '32px' }}>⚠️</Box>
-      <Box sx={{ fontSize: '16px', fontWeight: 700, color: '#1A1C20' }}>{t('error_boundary.componentTitle')}</Box>
+      <Box sx={{ fontSize: '16px', fontWeight: 700, color: NEUTRAL.onSurface }}>
+        {t('error_boundary.componentTitle')}
+      </Box>
       {import.meta.env.DEV && (
         <Box
           component="pre"
@@ -81,7 +83,7 @@ function DefaultFallback({ error, onReset }: { error: Error; onReset: () => void
           px: '20px',
           height: '40px',
           borderRadius: '10px',
-          background: '#1565C0',
+          background: NEUTRAL.error,
           color: '#fff',
           fontSize: '14px',
           fontWeight: 600,
@@ -106,12 +108,12 @@ export function AppErrorFallback({ error }: { error: Error }) {
         gap: '16px',
         p: '32px',
         textAlign: 'center',
-        background: '#E4E5EC',
+        background: NEUTRAL.appBg,
       }}
     >
       <Box sx={{ fontSize: '48px' }}>⚠️</Box>
-      <Box sx={{ fontSize: '20px', fontWeight: 700, color: '#1A1C20' }}>{t('error_boundary.appTitle')}</Box>
-      <Box sx={{ fontSize: '14px', color: '#44474E' }}>{t('error_boundary.appSubtitle')}</Box>
+      <Box sx={{ fontSize: '20px', fontWeight: 700, color: NEUTRAL.onSurface }}>{t('error_boundary.appTitle')}</Box>
+      <Box sx={{ fontSize: '14px', color: NEUTRAL.onSurfaceVariant }}>{t('error_boundary.appSubtitle')}</Box>
       {import.meta.env.DEV && (
         <Box
           component="pre"
@@ -135,7 +137,7 @@ export function AppErrorFallback({ error }: { error: Error }) {
           px: '24px',
           height: '44px',
           borderRadius: '12px',
-          background: '#1565C0',
+          background: NEUTRAL.error,
           color: '#fff',
           fontSize: '15px',
           fontWeight: 600,
