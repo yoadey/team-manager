@@ -27,7 +27,7 @@ punktueller A11y und einigen architektonischen Themen (Routing/State).
 
 ## Befunde (priorisiert, in scope)
 
-### 1 — Dark Mode faktisch gebrochen · HOCH
+### 1 — Dark Mode faktisch gebrochen · HOCH · ERLEDIGT
 
 `NEUTRAL` ist als CSS-Custom-Properties implementiert und schaltet bei
 `data-color-scheme="dark"` automatisch um (`src/styles/tokens.ts`,
@@ -39,10 +39,12 @@ dunklem Grund.
 
 - Betroffen: ~30 Dateien in `src/components`, `src/sheets`, `src/features`,
   `src/layouts`, `src/pages`. Hotspot: `EventDetailSheet.tsx`.
-- Fix: literale **Neutral**-Farben durch `NEUTRAL.*`-Tokens ersetzen; fehlende
-  semantische Töne (Warn-Akzent) als Token ergänzen (erledigt: `NEUTRAL.warn` /
-  `NEUTRAL.warnBg`). Reine Akzent-Chips (Event-Typ/Status) tragen eigene
-  Hintergründe und sind in beiden Schemata kontrastsicher → niedrigere Priorität.
+- Fix: literale **Neutral**-Farben durch `NEUTRAL.*`-Tokens ersetzt; fehlende
+  semantische Töne als Token ergänzt (`NEUTRAL.warn` / `NEUTRAL.warnBg`, light +
+  dark). Auch warn/success/error-Akzentpaare (Text + Tint-Hintergrund), die im
+  Dark Mode unleserlich wurden, auf adaptive Tokens umgestellt. Reine Marken-/
+  Typ-Akzente (Event-Typ, OAuth) und bewusste Inverse-Elemente (Toast-Snackbar,
+  Translucent-Overlays auf der farbigen Headerleiste) bleiben unverändert.
 
 ### 2 — i18n-Leaks (hardcodierte deutsche Strings) · HOCH · ERLEDIGT
 
@@ -55,37 +57,51 @@ Hardcodierte Strings blockierten den mehrsprachigen Betrieb.
 - Neue Keys in `de.ts` **und** `en.ts` ergänzt (Parität wird über den
   `Messages`-Typ beim Typecheck erzwungen).
 
-### 3 — A11y-Feinheiten · MITTEL
+### 3 — A11y-Feinheiten · MITTEL · ERLEDIGT
 
 Grundlage ist gut (Fokus-Management in Sheets, Skip-Link, `role="alert"`,
-`aria-live`, modale Semantik, Tab-/Radio-Rollen). Verbleibend:
+`aria-live`, modale Semantik, Tab-/Radio-Rollen). Umgesetzt:
 
-- Custom-Toggles/Switches auf semantische Rollen prüfen
-  (`role="switch"`/`role="checkbox"` + `aria-checked` + Tastaturaktivierung),
-  z. B. in `EventFormSheet.tsx`.
-- `aria-label` der Summary-Zähler nun lokalisiert (Teil von Befund 2).
+- Custom-Toggles auf semantische Rollen umgestellt: `role="switch"` +
+  `aria-checked` (recurring Event, News-Pin), `role="checkbox"` + `aria-checked`
+  (Treffzeit-Pflicht) sowie `role="checkbox"` für Mehrfach-Auswahl-Rollenchips
+  (Event-Nominierung, Mitglieder-Rollen, Team-Reason-Rollen).
+- `aria-label` der Summary-Zähler lokalisiert (Teil von Befund 2).
+- Hinweis: `NewsPage`-Icon-Buttons besaßen bereits `aria-label`; der
+  Events-Export-Button trägt einen sichtbaren Textlabel (kein Icon-only).
 
-### 4 — State-basiertes Routing ohne Deep-Links · MITTEL
+### 4 — State-basiertes Routing ohne Deep-Links · MITTEL · ERLEDIGT
 
 `pushRoute` synct nur das Top-Level-Segment (`/events`). Filter
 (`eventScope`, `eventsView`, `eventsOnlyPending`, `notifFilter`, `finTab`) und
 geöffnete Detail-Sheets liegen nur im State → keine bookmark-/teilbaren URLs;
 Browser-Zurück verlässt das ganze Feature statt das Sheet zu schließen.
 
-- Empfehlung: kein `react-router` (Projekt-Philosophie), sondern den bestehenden
-  `history`-Sync in `src/context/AppContext.tsx` erweitern: bookmark-relevante
-  Filter als Query-Params, Detail-Sheets als Pfadsegmente (`/events/:id`),
-  `popstate` schließt Sheets statt das Feature zu verlassen.
+- Umgesetzt (kein `react-router`): neues reines Modul `src/context/urlState.ts`
+  (build/parse, unit-getestet) + zentraler State→URL-Sync-Effekt in
+  `AppContext.tsx`. Bookmark-relevante Filter als Query-Params
+  (`/events?scope=past&view=calendar&pending=1`, `/finances?tab=strafen`),
+  Detail-Sheets als Pfadsegmente (`/events/:id`, `/members/:id`). Navigation und
+  Sheet-Öffnen erzeugen History-Einträge (`pushState`, Back schließt das Sheet);
+  Filteränderungen nutzen `replaceState`. `popstate` rekonstruiert Route, Filter
+  und offenes Detail-Sheet.
 
-### 5 — Monolithischer State-Context · MITTEL
+### 5 — Monolithischer State-Context · MITTEL · ERLEDIGT (API), Migration laufend
 
 `AppState` bündelt 34 Felder in einem Objekt. State/Actions sind bereits in
 `AppStateContext`/`AppActionsContext` getrennt, aber jede State-Änderung
 re-rendert alle State-Consumer (teils durch memoisierte Cards abgefedert).
 
-- Empfehlung: selektor-basierter Zugriff (`useAppSelector(selector)` via
-  `useSyncExternalStore`) oder Aufteilung in wenige Domänen-Provider; `useApp()`
-  als Kompatibilitäts-Shim erhalten.
+- Umgesetzt: `useAppSelector(selector)` via `useSyncExternalStore` über einen
+  leichten Subscription-Store (`AppStoreContext`); Komponenten können auf einen
+  einzelnen State-Slice subscriben und re-rendern nur bei dessen Änderung.
+  `useApp()` / `useAppActions()` bleiben unverändert als Default/Kompat-Shim.
+  Selektor-Contract dokumentiert (primitive/stabile Rückgabe); per Test
+  abgesichert.
+- Nächster Schritt (inkrementell): heiße Leaf-Komponenten (Listen/Cards,
+  Form-Inputs) schrittweise auf `useAppSelector` umstellen. Bewusst noch nicht
+  global umgestellt, da viele Feature-Tests `@/context/AppContext` flach mocken;
+  Migration erfolgt zusammen mit Anpassung dieser Mocks.
 
 ## Optional / nicht im Umsetzungsumfang
 
