@@ -63,3 +63,34 @@ export interface FinanceOverview {
   contributions: Contribution[];
   contribOpen: number;
 }
+
+// --- Editing buffer shapes for the finance sheets (amounts held as strings) ---
+
+/** Transaction create/edit sheet. */
+export interface TxFormValues extends Record<string, unknown> {
+  id?: string;
+  type: 'income' | 'expense';
+  title: string;
+  amount: string;
+  category: string;
+}
+
+/** Penalty-catalog create/edit sheet. */
+export interface PenaltyFormValues extends Record<string, unknown> {
+  id?: string;
+  label: string;
+  amount: string;
+}
+
+/** Assign-a-penalty-to-a-member sheet. */
+export interface PenaltyAssignFormValues extends Record<string, unknown> {
+  userId: string;
+  penaltyId: string | null;
+}
+
+/** Monthly-contribution edit sheet. */
+export interface ContribFormValues extends Record<string, unknown> {
+  id: string;
+  label: string;
+  amount: string;
+}

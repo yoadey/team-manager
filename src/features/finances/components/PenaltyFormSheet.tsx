@@ -3,13 +3,15 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
+import type { PenaltyFormValues } from '../types';
 import { t } from '@/i18n';
 
 export function PenaltyFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const create = sheet.mode === 'create';
-  const F = state.form;
+  const F = formValues<PenaltyFormValues>(state);
   const errs = state.formErrors;
 
   const validateLabel = () => {
@@ -74,7 +76,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
       {create ? null : (
         <ButtonBase
           key="del"
-          onClick={() => app.deletePenaltyDef(app.state.form.id)}
+          onClick={() => app.deletePenaltyDef(F.id!)}
           sx={{
             display: 'flex',
             alignItems: 'center',

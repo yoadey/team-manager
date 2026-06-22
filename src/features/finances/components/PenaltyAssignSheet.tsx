@@ -4,12 +4,14 @@ import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, inputSx, labelSx } from '@/components/ui';
 import type { Member } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
+import type { PenaltyAssignFormValues } from '../types';
 import { t } from '@/i18n';
 
 export function PenaltyAssignSheet({ app }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const F = app.state.form;
+  const F = formValues<PenaltyAssignFormValues>(app.state);
   const f = app.state.finances;
   const members: Member[] = app.state.members || [];
   const errs = state.formErrors;
