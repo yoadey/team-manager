@@ -13,14 +13,15 @@ test.describe('Events', () => {
   });
 
   test('event list loads and shows upcoming tab selected by default', async ({ page }) => {
-    // The scope tabs (upcoming/archive) should be visible in list view
-    const upcomingTab = page.getByRole('tab', { name: /upcoming|nächste/i });
+    // The scope tabs (upcoming/archive) should be visible in list view.
+    // Default locale is German, so the labels are "Anstehend" / "Archiv".
+    const upcomingTab = page.getByRole('tab', { name: /anstehend|upcoming/i });
     await expect(upcomingTab).toBeVisible({ timeout: 8_000 });
     await expect(upcomingTab).toHaveAttribute('aria-selected', 'true');
   });
 
   test('can switch to Past events', async ({ page }) => {
-    const pastTab = page.getByRole('tab', { name: /archive|vergangen/i });
+    const pastTab = page.getByRole('tab', { name: /archiv|past|vergangen/i });
     await pastTab.waitFor({ state: 'visible', timeout: 8_000 });
     await pastTab.click();
     await expect(pastTab).toHaveAttribute('aria-selected', 'true');
