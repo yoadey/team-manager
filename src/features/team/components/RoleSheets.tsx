@@ -5,6 +5,8 @@ import { Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/component
 import { MODULE_LABELS } from '@/services/serviceLayer';
 import type { ModuleKey, PermLevel } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import type { RoleFormValues } from '../types';
+import { formValues } from '@/utils/forms';
 import { t } from '@/i18n';
 
 export function RolesSheet({ app, sheet }: SheetProps) {
@@ -104,7 +106,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   void team;
-  const F = app.state.form;
+  const F = formValues<RoleFormValues>(app.state);
 
   const rows = (Object.keys(MODULE_LABELS) as ModuleKey[]).map((mod) => (
     <Box
@@ -132,7 +134,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
             ['write', t('team.permWrite')],
           ] as [PermLevel, string][]
         ).map(([v, l]) => {
-          const sel = (F.perms || {})[mod] === v;
+          const sel = F.perms?.[mod] === v;
           return (
             <ButtonBase
               key={v}

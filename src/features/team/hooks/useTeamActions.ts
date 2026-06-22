@@ -2,6 +2,8 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Invite, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
+import type { CreateTeamFormValues, TeamSettingsFormValues } from '../types';
+import { formValues } from '@/utils/forms';
 import { validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -44,18 +46,16 @@ export function useTeamActions({
   const openMore = useCallback(() => setState({ sheet: { type: 'more' } }), [setState]);
 
   const openTeamSettings = useCallback(() => {
-    const t = activeTeam()!;
-    setState({
-      sheet: { type: 'teamSettings' },
-      form: {
-        name: t.name,
-        description: t.description || '',
-        icon: t.icon,
-        logo: t.logo || null,
-        photo: t.photo,
-        reasonRoles: (t.reasonVisibilityRoles || []).slice(),
-      },
-    });
+    const team = activeTeam()!;
+    const form: TeamSettingsFormValues = {
+      name: team.name,
+      description: team.description || '',
+      icon: team.icon,
+      logo: team.logo || null,
+      photo: team.photo,
+      reasonRoles: (team.reasonVisibilityRoles || []).slice(),
+    };
+    setState({ sheet: { type: 'teamSettings' }, form });
   }, [activeTeam, setState]);
 
   const saveTeamPhoto = useCallback(
@@ -100,15 +100,15 @@ export function useTeamActions({
   const toggleReasonRole = useCallback(
     (roleId: string) =>
       setState((s) => {
-        const cur = s.form.reasonRoles || [];
-        const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId);
+        const cur = formValues<TeamSettingsFormValues>(s).reasonRoles ?? [];
+        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
         return { form: { ...s.form, reasonRoles: next } };
       }),
     [setState],
   );
 
   const saveTeamSettings = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as TeamSettingsFormValues;
     if (!f.name || !f.name.trim()) {
       toastMsg(t('team.nameRequired'));
       return;
@@ -128,13 +128,13 @@ export function useTeamActions({
     }
   }, [api, S, setState, refreshTeams, toastMsg]);
 
-  const openCreateTeam = useCallback(
-    () => setState({ sheet: { type: 'createTeam' }, form: { name: '', icon: '⭐', photo: null } }),
-    [setState],
-  );
+  const openCreateTeam = useCallback(() => {
+    const form: CreateTeamFormValues = { name: '', icon: '⭐', photo: null };
+    setState({ sheet: { type: 'createTeam' }, form });
+  }, [setState]);
 
   const createTeam = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as CreateTeamFormValues;
     const name = validateRequiredText(f.name, t('team.nameRequired'));
     if (!name.ok) {
       toastMsg(name.message!);
