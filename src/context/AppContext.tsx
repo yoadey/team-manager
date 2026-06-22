@@ -1,4 +1,13 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
 import type {
   AttendanceStatus,
@@ -321,12 +330,40 @@ export type AppActions = Omit<AppContextValue, 'state'>;
 const AppStateContext = createContext<AppState | null>(null);
 const AppActionsContext = createContext<AppActions | null>(null);
 
+/** External-store handle backing useAppSelector (fine-grained subscriptions). */
+interface AppStore {
+  subscribe: (cb: () => void) => () => void;
+  get: () => AppState;
+}
+const AppStoreContext = createContext<AppStore | null>(null);
+
 export const useApp = (): AppContextValue => {
   const actions = useContext(AppActionsContext);
   const state = useContext(AppStateContext);
   if (!actions || !state) throw new Error('useApp must be used within AppProvider');
   return useMemo(() => ({ ...actions, state }), [actions, state]);
 };
+
+/**
+ * Subscribe to a *slice* of state. The component re-renders only when the
+ * selected value changes (Object.is), instead of on every global state update
+ * like `useApp()`. Pair with `useAppActions()` for dispatch.
+ *
+ * The selector must return a primitive or a stable reference — returning a
+ * freshly-built object/array on each call defeats the equality check and can
+ * loop. Combine `useApp`'s `state` for ad-hoc reads; reach for this in hot,
+ * frequently-re-rendered leaves (lists, cards) that need one or two fields.
+ */
+export function useAppSelector<T>(selector: (s: AppState) => T): T {
+  const store = useContext(AppStoreContext);
+  if (!store) throw new Error('useAppSelector must be used within AppProvider');
+  const sel = useRef(selector);
+  sel.current = selector;
+  return useSyncExternalStore(
+    store.subscribe,
+    useCallback(() => sel.current(store.get()), [store]),
+  );
+}
 
 /**
  * Actions/helpers only — does NOT subscribe to state changes. Use in components
@@ -345,6 +382,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fine-grained subscription store backing useAppSelector. Listeners are
+  // notified after each committed state change (see effect below).
+  const listeners = useRef(new Set<() => void>());
+  const store = useMemo<AppStore>(
+    () => ({
+      subscribe: (cb) => {
+        listeners.current.add(cb);
+        return () => listeners.current.delete(cb);
+      },
+      get: () => stateRef.current,
+    }),
+    [],
+  );
+  useEffect(() => {
+    listeners.current.forEach((l) => l());
+  }, [state]);
 
   const setState = useCallback((patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setRaw((prev) => {
@@ -1091,8 +1145,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <AppActionsContext.Provider value={actions}>
-      <AppStateContext.Provider value={state}>{children}</AppStateContext.Provider>
-    </AppActionsContext.Provider>
+    <AppStoreContext.Provider value={store}>
+      <AppActionsContext.Provider value={actions}>
+        <AppStateContext.Provider value={state}>{children}</AppStateContext.Provider>
+      </AppActionsContext.Provider>
+    </AppStoreContext.Provider>
   );
 }
