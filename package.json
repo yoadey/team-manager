@@ -32,7 +32,7 @@
     "@fontsource/roboto": "^5.2.10",
     "@mui/icons-material": "^9.1.1",
     "@mui/material": "^9.1.1",
-    "@sentry/react": "^10.58.0",
+    "@sentry/react": "^10.59.0",
     "material-symbols": "^0.45.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
@@ -56,7 +56,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
-    "lint-staged": "^17.0.7",
+    "lint-staged": "^17.0.8",
     "prettier": "^3.8.4",
     "rollup-plugin-visualizer": "^7.0.1",
     "typescript": "^6.0.3",
