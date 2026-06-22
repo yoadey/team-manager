@@ -13,21 +13,30 @@ import type { SheetProps } from './types';
 
 type SheetComponent = React.ComponentType<SheetProps>;
 
-const sheetRegistry: Record<string, SheetComponent> = {
-  ...teamSheetMap,
-  ...notificationsSheetMap,
-  ...eventSheetMap,
-  ...memberSheetMap,
-  ...newsSheetMap,
-  ...pollSheetMap,
-  ...financeSheetMap,
-  confirm: ConfirmSheet,
-  seriesAction: SeriesActionSheet,
-  comment: CommentSheet,
-};
+// Built lazily on first use (runtime), NOT at module-init. The feature
+// sheet-maps come from barrels that participate in import cycles, so spreading
+// them at module-init time can read a not-yet-initialized binding and throw a
+// temporal-dead-zone error ("can't access 'eventSheetMap' before
+// initialization") in Vite's unbundled dev ESM. By the time renderSheet is first
+// called (a user opens a sheet) every module is fully initialized.
+let sheetRegistry: Record<string, SheetComponent> | null = null;
+function getSheetRegistry(): Record<string, SheetComponent> {
+  return (sheetRegistry ??= {
+    ...teamSheetMap,
+    ...notificationsSheetMap,
+    ...eventSheetMap,
+    ...memberSheetMap,
+    ...newsSheetMap,
+    ...pollSheetMap,
+    ...financeSheetMap,
+    confirm: ConfirmSheet,
+    seriesAction: SeriesActionSheet,
+    comment: CommentSheet,
+  });
+}
 
 export function renderSheet(app: AppContextValue, sheet: SheetState) {
-  const Comp = sheetRegistry[sheet.type];
+  const Comp = getSheetRegistry()[sheet.type];
   return Comp ? <Comp app={app} sheet={sheet} /> : null;
 }
 
