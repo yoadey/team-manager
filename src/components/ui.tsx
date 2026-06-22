@@ -6,7 +6,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import MuiSkeleton from '@mui/material/Skeleton';
 import { type SxProps, type Theme } from '@mui/material/styles';
 import { initials as toInitials, NEUTRAL } from '@/styles/tokens';
-import { useApp } from '@/context/AppContext';
+import { useApp, useAppActions, useAppSelector } from '@/context/AppContext';
 import { t } from '@/i18n';
 
 /** Material Symbols Outlined glyph (rendered by glyph name, like the prototype).
@@ -352,8 +352,10 @@ type TextInputProps = React.InputHTMLAttributes<HTMLInputElement> & { name: stri
 
 /** Form-bound text input (mirrors prototype tf()). */
 export function TextInput({ name, type = 'text', placeholder, min, max, style: styleProp, ...rest }: TextInputProps) {
-  const { state, onFormInput } = useApp();
-  const v = state.form[name];
+  // Subscribe only to this field so typing doesn't re-render via the whole
+  // app-state context (useApp); dispatch comes from the stable actions context.
+  const onFormInput = useAppActions().onFormInput;
+  const v = useAppSelector((s) => s.form[name]);
   return (
     <input
       name={name}
@@ -384,8 +386,8 @@ export function TextArea({
   maxLength?: number;
   style?: React.CSSProperties;
 }) {
-  const { state, onFormInput } = useApp();
-  const v = state.form[name];
+  const onFormInput = useAppActions().onFormInput;
+  const v = useAppSelector((s) => s.form[name]);
   return (
     <textarea
       name={name}

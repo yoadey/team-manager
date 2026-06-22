@@ -2,10 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { RolesSheet, RoleFormSheet } from './RoleSheets';
 
-vi.mock('@/context/AppContext', () => ({
-  useApp: vi.fn(),
-  useAppActions: vi.fn().mockReturnValue({}),
-}));
+vi.mock('@/context/AppContext', () => {
+  const useApp = vi.fn();
+  return {
+    useApp,
+    // Actions + selector derive from the per-test useApp mock so migrated
+    // atoms (TextInput/TextArea via useAppActions/useAppSelector) resolve.
+    useAppActions: vi.fn(() => useApp()),
+    useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel(useApp().state),
+  };
+});
 
 vi.mock('@/styles/tokens', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@/styles/tokens')>();
