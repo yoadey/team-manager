@@ -3,7 +3,6 @@ import { login } from './helpers';
 
 test.describe('Events', () => {
   test.beforeEach(async ({ page }) => {
-    await page.evaluate(() => localStorage.clear());
     await login(page);
     // Navigate to events
     await page

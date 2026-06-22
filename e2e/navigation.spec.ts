@@ -3,7 +3,6 @@ import { login } from './helpers';
 
 test.describe('Navigation', () => {
   test.beforeEach(async ({ page }) => {
-    await page.evaluate(() => localStorage.clear());
     await login(page);
   });
 
