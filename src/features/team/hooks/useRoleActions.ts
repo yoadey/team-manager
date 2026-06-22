@@ -2,6 +2,8 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { ModuleKey, PermLevel, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
+import type { RoleFormValues } from '../types';
+import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 
@@ -20,28 +22,25 @@ type RoleDeps = {
 export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, toastMsg }: RoleDeps) {
   const openRoles = useCallback(() => setState({ sheet: { type: 'roles' } }), [setState]);
 
-  const openCreateRole = useCallback(
-    () =>
-      setState((st) => ({
-        sheet: { type: 'roleForm', back: st.sheet },
-        form: {
-          name: '',
-          perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' },
-        },
-      })),
-    [setState],
-  );
+  const openCreateRole = useCallback(() => {
+    const form: RoleFormValues = {
+      name: '',
+      perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' },
+    };
+    setState((st) => ({ sheet: { type: 'roleForm', back: st.sheet }, form }));
+  }, [setState]);
 
   const setRolePerm = useCallback(
     (module: ModuleKey, level: PermLevel) =>
-      setState((s) => ({
-        form: { ...s.form, perms: { ...s.form.perms, [module]: level } },
-      })),
+      setState((s) => {
+        const perms = formValues<RoleFormValues>(s).perms;
+        return { form: { ...s.form, perms: { ...perms, [module]: level } } };
+      }),
     [setState],
   );
 
   const saveRole = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as RoleFormValues;
     if (!f.name) {
       toastMsg(t('team.roleNameRequired'));
       return;

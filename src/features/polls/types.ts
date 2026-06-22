@@ -16,3 +16,14 @@ export interface Poll {
   myVote: string[] | null;
   options: PollOption[];
 }
+
+/** Editing buffer shape for the poll-creation sheet. */
+export interface PollFormValues extends Record<string, unknown> {
+  question: string;
+  opt0: string;
+  opt1: string;
+  opt2: string;
+  opt3: string;
+  multiple: boolean;
+  anonymous: boolean;
+}

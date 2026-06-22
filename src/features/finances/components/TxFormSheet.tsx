@@ -3,12 +3,14 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
+import type { TxFormValues } from '../types';
 import { t } from '@/i18n';
 
 export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const F = app.state.form;
+  const F = formValues<TxFormValues>(app.state);
   const errs = state.formErrors;
   const edit = sheet.mode === 'edit';
 
@@ -108,7 +110,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           confirmLabel: t('common.delete'),
           danger: true,
           onConfirm: async () => {
-            await app.deleteTx(F.id);
+            await app.deleteTx(F.id!);
           },
         })
       }
@@ -148,7 +150,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   };
 
   const canSubmit =
-    !!(F.title as string | undefined)?.trim() &&
+    !!F.title?.trim() &&
     (() => {
       const raw = String(F.amount ?? '')
         .trim()

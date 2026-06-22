@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TeamsSheet, ProfileSheet, MoreSheet } from './NavSheets';
+import { LocaleProvider } from '@/i18n/LocaleProvider';
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
@@ -174,59 +175,59 @@ describe('ProfileSheet', () => {
 
   it('renders the user name', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText('Max Mustermann')).toBeTruthy();
   });
 
   it('renders the user email', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText('max@example.com')).toBeTruthy();
   });
 
   it('renders all roles as toggleable items', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText('Trainer')).toBeTruthy();
     expect(screen.getByText('Kassierer')).toBeTruthy();
   });
 
   it('clicking a role calls toggleMyRole with the role id', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     fireEvent.click(screen.getByText('Trainer'));
     expect(app.toggleMyRole).toHaveBeenCalledWith('r1');
   });
 
   it('renders logout button', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText('Abmelden')).toBeTruthy();
   });
 
   it('clicking logout button calls logout', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     fireEvent.click(screen.getByText('Abmelden'));
     expect(app.logout).toHaveBeenCalledTimes(1);
   });
 
   it('renders multi-role hint text', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText(/Mehrfachauswahl möglich/)).toBeTruthy();
   });
 
   it('renders the team name in the roles section title', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText(/Meine Rollen in/)).toBeTruthy();
   });
 
   it('selected role shows a checkmark icon (check text from Sym)', () => {
     const app = makeApp();
     // myRoles returns r1, so Trainer is selected
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     // Sym renders icon name as text; "check" should appear for selected role
     expect(screen.getByText('check')).toBeTruthy();
   });
@@ -234,7 +235,7 @@ describe('ProfileSheet', () => {
   it('non-selected role does not show a checkmark', () => {
     const app = makeApp();
     // myRoles returns [r1] (Trainer selected), Kassierer is not selected
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     // Both roles render; only the selected one has a check icon
     const checkmarks = screen.getAllByText('check');
     expect(checkmarks).toHaveLength(1);
@@ -242,9 +243,17 @@ describe('ProfileSheet', () => {
 
   it('renders team name in "my roles" section title', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     // Team name should appear in section heading
     expect(screen.getByText(/FC Testverein/)).toBeTruthy();
+  });
+
+  it('renders a language switcher with all supported languages', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    expect(screen.getByText('Sprache')).toBeTruthy();
+    expect(screen.getByText('Deutsch')).toBeTruthy();
+    expect(screen.getByText('English')).toBeTruthy();
   });
 });
 
@@ -326,21 +335,21 @@ describe('MoreSheet', () => {
 describe('ProfileSheet — color scheme', () => {
   it('renders color scheme buttons (system/light/dark)', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     const btns = document.querySelectorAll('button');
     expect(btns.length).toBeGreaterThan(0);
   });
 
   it('clicking light scheme calls setColorScheme', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     fireEvent.click(screen.getByText('Hell'));
     expect(app.setColorScheme).toHaveBeenCalledWith('light');
   });
 
   it('clicking dark scheme calls setColorScheme', () => {
     const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     fireEvent.click(screen.getByText('Dunkel'));
     expect(app.setColorScheme).toHaveBeenCalledWith('dark');
   });

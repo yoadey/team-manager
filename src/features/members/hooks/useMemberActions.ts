@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
-import type { Member } from '../types';
+import type { Member, MemberFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
+import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 
@@ -44,7 +45,7 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
 
   const openMemberForm = useCallback(
     (member: Member) => {
-      const f = {
+      const f: MemberFormValues = {
         membershipId: member.membershipId,
         name: member.name,
         email: member.email,
@@ -71,15 +72,15 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
   const toggleFormRole = useCallback(
     (roleId: string) =>
       setState((s) => {
-        const cur = s.form.roleIds || [];
-        const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId);
+        const cur = formValues<MemberFormValues>(s).roleIds ?? [];
+        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
         return { form: { ...s.form, roleIds: next.length ? next : cur } };
       }),
     [setState],
   );
 
   const saveMember = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as MemberFormValues;
     if (!f.name) {
       toastMsg(t('members.fieldNameError'));
       return;

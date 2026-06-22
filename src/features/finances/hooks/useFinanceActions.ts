@@ -2,7 +2,15 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { DateRange } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
-import type { Contribution, Penalty, Transaction } from '../types';
+import type {
+  Contribution,
+  ContribFormValues,
+  Penalty,
+  PenaltyAssignFormValues,
+  PenaltyFormValues,
+  Transaction,
+  TxFormValues,
+} from '../types';
 import { validateMoneyAmount, validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -32,7 +40,7 @@ export function useFinanceActions({
 }: FinanceFeatureDeps) {
   const openTxForm = useCallback(
     (tx?: Transaction) => {
-      const f = tx
+      const f: TxFormValues = tx
         ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category }
         : { type: 'income', title: '', amount: '', category: 'Beiträge' };
       setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create' }, form: f, formErrors: {} });
@@ -41,7 +49,7 @@ export function useFinanceActions({
   );
 
   const saveTx = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as TxFormValues;
     const title = validateRequiredText(f.title, t('finances.txFieldTitleError'));
     if (!title.ok) {
       toastMsg(title.message!);
@@ -55,7 +63,7 @@ export function useFinanceActions({
     setState({ busy: 'save' });
     try {
       if (S().sheet!.mode === 'edit')
-        await api.finances.updateTransaction(f.id, {
+        await api.finances.updateTransaction(f.id!, {
           type: f.type,
           title: title.value!,
           amount: amount.value!,
@@ -101,13 +109,15 @@ export function useFinanceActions({
           mode: p ? 'edit' : 'create',
           back: st.sheet && st.sheet.type === 'penaltyCatalog' ? st.sheet : null,
         },
-        form: p ? { id: p.id, label: p.label, amount: String(p.amount) } : { label: '', amount: '' },
+        form: (p
+          ? { id: p.id, label: p.label, amount: String(p.amount) }
+          : { label: '', amount: '' }) satisfies PenaltyFormValues,
       })),
     [setState],
   );
 
   const savePenalty = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as PenaltyFormValues;
     const label = validateRequiredText(f.label, t('finances.penaltyFieldLabelError'));
     if (!label.ok) {
       toastMsg(label.message!);
@@ -124,7 +134,7 @@ export function useFinanceActions({
     setState({ busy: 'save' });
     try {
       if (create) await api.finances.createPenalty(S().activeTeamId!, { label: label.value!, amount: amount.value! });
-      else await api.finances.updatePenalty(f.id, { label: label.value!, amount: amount.value! });
+      else await api.finances.updatePenalty(f.id!, { label: label.value!, amount: amount.value! });
       await loadFinances();
       setState({ busy: null, sheet: back });
       toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
@@ -158,11 +168,12 @@ export function useFinanceActions({
     if (!S().members || !S().members.length) refreshMembers();
     const f = S().finances;
     const first = f && f.penalties[0] ? f.penalties[0].id : null;
-    setState({ sheet: { type: 'penaltyAssign' }, form: { userId: '', penaltyId: first } });
+    const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };
+    setState({ sheet: { type: 'penaltyAssign' }, form });
   }, [S, refreshMembers, setState]);
 
   const savePenaltyAssign = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as PenaltyAssignFormValues;
     if (!f.userId) {
       toastMsg(t('finances.assignPersonError'));
       return;
@@ -196,16 +207,15 @@ export function useFinanceActions({
   );
 
   const openContribForm = useCallback(
-    (c: Contribution) =>
-      setState({
-        sheet: { type: 'contribForm' },
-        form: { id: c.id, label: c.label, amount: String(c.amount) },
-      }),
+    (c: Contribution) => {
+      const form: ContribFormValues = { id: c.id, label: c.label, amount: String(c.amount) };
+      setState({ sheet: { type: 'contribForm' }, form });
+    },
     [setState],
   );
 
   const saveContrib = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as ContribFormValues;
     const label = validateRequiredText(f.label, t('finances.contribFieldLabelError'));
     if (!label.ok) {
       toastMsg(label.message!);

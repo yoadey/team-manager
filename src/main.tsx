@@ -10,6 +10,11 @@ import { App } from './App';
 import { ErrorBoundary, AppErrorFallback } from './components/ErrorBoundary';
 import { LocaleProvider } from './i18n/LocaleProvider';
 import { initMonitoring, captureError, installGlobalErrorHandlers } from './monitoring';
+import { config } from './config';
+
+// Apply the configurable app name (VITE_APP_NAME) to the browser tab so the
+// static fallback in index.html can be overridden per deployment.
+document.title = config.appName;
 
 initMonitoring();
 installGlobalErrorHandlers();

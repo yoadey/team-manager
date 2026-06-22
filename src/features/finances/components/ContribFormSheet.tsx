@@ -1,11 +1,13 @@
 import Box from '@mui/material/Box';
 import { Field, PrimaryButton, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
+import type { ContribFormValues } from '../types';
 import { t } from '@/i18n';
 
 export function ContribFormSheet({ app }: SheetProps) {
   const { state } = app;
-  const F = state.form;
+  const F = formValues<ContribFormValues>(state);
   const errs = state.formErrors;
 
   const validateLabel = () => {

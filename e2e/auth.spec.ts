@@ -1,12 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers';
+import { login, gotoFresh } from './helpers';
 
 test.describe('Authentication', () => {
   test('shows login screen on first visit', async ({ page }) => {
     // Clear localStorage so there's no persisted session
-    await page.goto('/');
-    await page.evaluate(() => localStorage.clear());
-    await page.reload();
+    await gotoFresh(page);
 
     // Login card should be visible
     await expect(page.getByText('Teamverwaltung').first()).toBeVisible({ timeout: 10_000 });
@@ -14,7 +12,6 @@ test.describe('Authentication', () => {
   });
 
   test('logs in with Vereins-SSO and shows home page', async ({ page }) => {
-    await page.evaluate(() => localStorage.clear());
     await login(page);
 
     // After login the home page should show

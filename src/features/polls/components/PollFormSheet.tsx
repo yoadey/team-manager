@@ -3,13 +3,15 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, labelSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
+import type { PollFormValues } from '../types';
 import { t } from '@/i18n';
 
 export function PollFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   void sheet;
-  const F = app.state.form;
+  const F = formValues<PollFormValues>(app.state);
   const errs = state.formErrors;
 
   const toggle = (key: string, label: string, icon: string) => (
@@ -42,7 +44,7 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
     app.setFormErrors({ question: String(F.question ?? '').trim() ? '' : t('polls.fieldQuestionError') });
 
   const opts = [F.opt0, F.opt1, F.opt2, F.opt3].map((o) => String(o ?? '').trim()).filter(Boolean);
-  const canSubmit = !!(F.question as string | undefined)?.trim() && opts.length >= 2;
+  const canSubmit = !!F.question?.trim() && opts.length >= 2;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

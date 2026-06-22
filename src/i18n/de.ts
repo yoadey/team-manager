@@ -540,6 +540,7 @@ export const de = {
     colorSchemeSystem: 'Automatisch',
     colorSchemeLight: 'Hell',
     colorSchemeDark: 'Dunkel',
+    language: 'Sprache',
     logout: 'Abmelden',
     toastPhotoSaved: 'Gruppenbild aktualisiert',
     toastLogoSaved: 'Logo aktualisiert',

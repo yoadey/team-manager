@@ -35,8 +35,7 @@ type FeatureActionDeps = {
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
   toastMsg: (m: string) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setFormVal: (patch: Record<string, any>) => void;
+  setFormVal: (patch: Record<string, unknown>) => void;
   askConfirm: (cfg: ConfirmConfig) => void;
 };
 

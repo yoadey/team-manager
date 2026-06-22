@@ -21,3 +21,16 @@ export interface Member extends MemberDto {
   primaryRole: Role | null;
   perms: Permissions;
 }
+
+/** Editing buffer shape for the member edit sheet. */
+export interface MemberFormValues extends Record<string, unknown> {
+  membershipId: string;
+  name: string;
+  email: string;
+  phone: string;
+  birthday: string;
+  address: string;
+  roleIds: string[];
+  group: string;
+  photo: string | null;
+}

@@ -5,6 +5,8 @@ import { Av, Field, labelSx, PrimaryButton, SectionTitle, Sym, TextArea, TextInp
 import { shortName } from '@/layouts/useCompact';
 import type { Invite } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import type { CreateTeamFormValues, TeamSettingsFormValues } from '../types';
+import { formValues } from '@/utils/forms';
 import { t } from '@/i18n';
 
 const TEAM_ICONS = ['🏆', '⭐', '💃', '🕺', '🎭', '🔥', '👑', '🎯', '💎', '🦅', '⚡', '🌟'];
@@ -15,7 +17,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   void team;
-  const F = app.state.form;
+  const F = formValues<CreateTeamFormValues>(app.state);
 
   const icons = TEAM_ICONS.map((em) => (
     <ButtonBase
@@ -210,7 +212,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
-  const F = app.state.form;
+  const F = formValues<TeamSettingsFormValues>(app.state);
   const roles = app.state.roles;
 
   const upLabel = (icon: string, label: string, cb: (d: string) => void) => (

@@ -21,6 +21,13 @@ describe('i18n locale', () => {
     setLocale('fr');
     expect(getLocale()).toBe('de');
   });
+
+  it('persists the chosen locale to localStorage', () => {
+    setLocale('en');
+    expect(localStorage.getItem('tv_locale')).toBe('en');
+    setLocale('de');
+    expect(localStorage.getItem('tv_locale')).toBe('de');
+  });
 });
 
 describe('t()', () => {

@@ -35,7 +35,25 @@ const LOCALES: Record<Locale, LocaleConfig> = {
 export const SUPPORTED_LOCALES: Locale[] = ['de', 'en'];
 export const DEFAULT_LOCALE: Locale = 'de';
 
-let activeLocale: Locale = DEFAULT_LOCALE;
+/** localStorage key persisting the user's chosen UI language across sessions. */
+export const LOCALE_STORAGE_KEY = 'tv_locale';
+
+function isLocale(value: unknown): value is Locale {
+  return value === 'de' || value === 'en';
+}
+
+/** Reads the persisted locale, falling back to the default when unset/invalid. */
+function loadStoredLocale(): Locale {
+  try {
+    const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (isLocale(stored)) return stored;
+  } catch {
+    // localStorage may be unavailable (private mode / SSR) — ignore and default.
+  }
+  return DEFAULT_LOCALE;
+}
+
+let activeLocale: Locale = loadStoredLocale();
 const listeners = new Set<() => void>();
 
 export function getLocale(): Locale {
@@ -53,6 +71,11 @@ export function getCurrency(): string {
 export function setLocale(locale: Locale): void {
   if (locale === activeLocale || !LOCALES[locale]) return;
   activeLocale = locale;
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // Persisting is best-effort; the switch still applies for this session.
+  }
   listeners.forEach((fn) => fn());
 }
 

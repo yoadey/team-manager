@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { AppState } from '@/context/AppContext';
+import type { AbsenceFormValues } from '../types';
 import { validateDateRange } from '@/utils/validation';
 import { todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
@@ -35,7 +36,7 @@ export function useAbsenceActions({
 }: AbsenceDeps) {
   const openAbsenceForm = useCallback(
     (absence?: { id: string; from: string; to: string; reason: string } | null) => {
-      const f = absence
+      const f: AbsenceFormValues = absence
         ? { id: absence.id, from: absence.from, to: absence.to, reason: absence.reason }
         : { from: todayStr(), to: todayStr(), reason: 'Urlaub' };
       setState({ sheet: { type: 'absenceForm', mode: absence ? 'edit' : 'create' }, form: f });
@@ -44,7 +45,7 @@ export function useAbsenceActions({
   );
 
   const saveAbsence = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as AbsenceFormValues;
     const range = validateDateRange(f.from, f.to);
     if (!range.ok) {
       toastMsg(range.message!);
@@ -54,7 +55,7 @@ export function useAbsenceActions({
     setState({ busy: 'save' });
     try {
       if (mode === 'edit')
-        await api.absences.update(f.id, { from: range.value!.from, to: range.value!.to, reason: f.reason });
+        await api.absences.update(f.id!, { from: range.value!.from, to: range.value!.to, reason: f.reason });
       else await api.absences.create({ from: range.value!.from, to: range.value!.to, reason: f.reason });
       await Promise.all([refreshEvents(), loadAbsences()]);
       setState({ busy: null, sheet: null });

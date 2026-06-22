@@ -18,6 +18,12 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => subscribeLocale(() => setLocaleState(getLocale())), []);
 
+  // Keep the document language in sync so assistive technology and the browser
+  // pick the correct pronunciation/hyphenation when the user switches locale.
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
   const value: LocaleContextValue = {
     locale,
     setLocale: applyLocale,

@@ -2,6 +2,45 @@ import type { EventType, EventStatus, AttendanceStatus, ReasonVisibility, Role }
 
 export type ResponseMode = 'opt_in' | 'opt_out';
 
+// --- Editing buffer shapes for the event sheets ---
+
+/** Event create/edit sheet (times held as HH:MM strings). `id`/`seriesId` set when editing. */
+export interface EventFormValues extends Record<string, unknown> {
+  id?: string;
+  seriesId?: string | null;
+  type: EventType;
+  title: string;
+  date: string;
+  meetT: string;
+  startT: string;
+  endT: string;
+  location: string;
+  note: string;
+  meetTimeMandatory: boolean;
+  responseMode: ResponseMode;
+  nominatedRoleIds: string[];
+  recurring: boolean;
+  repeatWeeks: number;
+}
+
+/** Plan-an-absence sheet. */
+export interface AbsenceFormValues extends Record<string, unknown> {
+  id?: string;
+  from: string;
+  to: string;
+  reason: string;
+}
+
+/** Attendance-reason comment sheet (per member/event). */
+export interface AttendanceCommentFormValues extends Record<string, unknown> {
+  commentText: string;
+}
+
+/** New-event-comment input on the event detail sheet. */
+export interface EventCommentFormValues extends Record<string, unknown> {
+  newEventComment: string;
+}
+
 export interface EventSummary {
   yes: number;
   no: number;
