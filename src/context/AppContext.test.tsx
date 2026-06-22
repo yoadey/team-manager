@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import { AppProvider, useApp, useAppActions } from './AppContext';
+import { AppProvider, useApp, useAppActions, useAppSelector } from './AppContext';
 
 beforeEach(() => localStorage.clear());
 
@@ -50,6 +50,37 @@ describe('AppProvider / context split', () => {
     await act(async () => {});
     expect(seen.length).toBeGreaterThan(1);
     expect(seen.every((ref) => ref === seen[0])).toBe(true);
+  });
+
+  it('useAppSelector re-renders only when the selected slice changes', async () => {
+    let renders = 0;
+    let actions: ReturnType<typeof useAppActions> | null = null;
+    function Capture() {
+      actions = useAppActions();
+      return null;
+    }
+    function FieldProbe() {
+      const v = useAppSelector((s) => s.form['x']);
+      renders++;
+      return <div data-testid="fld">{String(v ?? '')}</div>;
+    }
+    render(
+      <AppProvider>
+        <Capture />
+        <FieldProbe />
+      </AppProvider>,
+    );
+    await waitFor(() => expect(actions).not.toBeNull());
+    const baseline = renders;
+
+    // Unrelated state change (toast) must NOT re-render the field probe.
+    await act(async () => actions!.toastMsg('hi'));
+    expect(renders).toBe(baseline);
+
+    // Selected slice change re-renders and reflects the new value.
+    await act(async () => actions!.setFormVal({ x: 'abc' }));
+    expect(screen.getByTestId('fld').textContent).toBe('abc');
+    expect(renders).toBeGreaterThan(baseline);
   });
 });
 

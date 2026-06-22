@@ -17,11 +17,14 @@ import {
   metaItem,
 } from './ui';
 
+const mockForm: Record<string, unknown> = { title: 'Hello' };
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn().mockReturnValue({
     state: { primaryColor: '#4285F4', form: { title: 'Hello' } },
     onFormInput: vi.fn(),
   }),
+  useAppActions: vi.fn(() => ({ onFormInput: vi.fn() })),
+  useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel({ form: mockForm }),
 }));
 
 describe('Sym', () => {

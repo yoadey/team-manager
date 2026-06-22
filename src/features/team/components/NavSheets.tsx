@@ -32,7 +32,7 @@ export function TeamsSheet({ app }: SheetProps) {
               borderRadius: '16px',
               cursor: 'pointer',
               border: '1px solid ' + (active ? 'transparent' : '#E6E7EE'),
-              background: active ? tk.primaryContainer : '#fff',
+              background: active ? tk.primaryContainer : NEUTRAL.card,
               justifyContent: 'flex-start',
               textAlign: 'left',
             }}
@@ -87,7 +87,7 @@ export function TeamsSheet({ app }: SheetProps) {
           gap: '12px',
           p: '14px',
           borderRadius: '16px',
-          border: '1.5px dashed #C8CAD2',
+          border: `1.5px dashed ${NEUTRAL.inputBorder}`,
           background: 'transparent',
           cursor: 'pointer',
           color: tk.primary,
@@ -178,7 +178,7 @@ export function ProfileSheet({ app }: SheetProps) {
                   borderRadius: '14px',
                   cursor: 'pointer',
                   border: '1px solid ' + (sel ? tk.primary : '#E6E7EE'),
-                  background: sel ? tk.primaryContainer : '#fff',
+                  background: sel ? tk.primaryContainer : NEUTRAL.card,
                   justifyContent: 'flex-start',
                   textAlign: 'left',
                 }}
@@ -190,8 +190,8 @@ export function ProfileSheet({ app }: SheetProps) {
                     width: '22px',
                     height: '22px',
                     borderRadius: '6px',
-                    border: '2px solid ' + (sel ? tk.primary : '#B0B3BC'),
-                    background: sel ? tk.primary : '#fff',
+                    border: '2px solid ' + (sel ? tk.primary : NEUTRAL.faint),
+                    background: sel ? tk.primary : NEUTRAL.card,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -297,7 +297,7 @@ export function ProfileSheet({ app }: SheetProps) {
           p: '13px',
           borderRadius: '14px',
           border: '1px solid #F0C4C0',
-          background: '#FFF4F3',
+          background: NEUTRAL.errorBg,
           color: NEUTRAL.error,
           fontWeight: 600,
           fontSize: '14px',
@@ -334,8 +334,8 @@ export function MoreSheet({ app }: SheetProps) {
               width: '100%',
               p: '14px',
               borderRadius: '14px',
-              border: '1px solid #E6E7EE',
-              background: '#fff',
+              border: `1px solid ${NEUTRAL.line}`,
+              background: NEUTRAL.card,
               cursor: 'pointer',
               justifyContent: 'flex-start',
               textAlign: 'left',
@@ -348,8 +348,8 @@ export function MoreSheet({ app }: SheetProps) {
                 width: '40px',
                 height: '40px',
                 borderRadius: '11px',
-                background: '#ECEDF3',
-                color: '#44474E',
+                background: NEUTRAL.line2,
+                color: NEUTRAL.onSurfaceVariant,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -363,7 +363,7 @@ export function MoreSheet({ app }: SheetProps) {
             <Box component="span" key="l" sx={{ flex: 1, textAlign: 'left', fontSize: '15px', fontWeight: 600 }}>
               {i[1]}
             </Box>
-            <Sym name="chevron_right" size={22} color="#C0C2CA" />
+            <Sym name="chevron_right" size={22} color={NEUTRAL.faint} />
           </ButtonBase>
         ))}
     </Box>

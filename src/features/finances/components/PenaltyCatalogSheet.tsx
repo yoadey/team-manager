@@ -53,15 +53,15 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
         <Box component="b" key="a" sx={{ fontSize: '14px', color: tk.primary, flex: '0 0 auto' }}>
           {fmtMoney(p.amount)}
         </Box>
-        {canFin ? <Sym name="chevron_right" size={20} color="#C0C2CA" /> : null}
+        {canFin ? <Sym name="chevron_right" size={20} color={NEUTRAL.faint} /> : null}
       </>
     );
     const baseSx = {
       display: 'flex',
       alignItems: 'center',
       gap: '11px',
-      background: '#fff',
-      border: '1px solid #E6E7EE',
+      background: NEUTRAL.card,
+      border: `1px solid ${NEUTRAL.line}`,
       borderRadius: '14px',
       p: '11px 13px',
       width: '100%',
@@ -94,7 +94,7 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
         width: '100%',
         p: '13px',
         borderRadius: '14px',
-        border: '1.5px dashed #C8CAD2',
+        border: `1.5px dashed ${NEUTRAL.inputBorder}`,
         background: 'transparent',
         cursor: 'pointer',
         color: tk.primary,

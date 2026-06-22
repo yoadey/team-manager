@@ -16,6 +16,9 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
   const pin = (
     <ButtonBase
       key="pin"
+      role="switch"
+      aria-checked={!!F.pinned}
+      aria-label={t('news.pinned')}
       onClick={() => app.setFormVal({ pinned: !F.pinned })}
       sx={{
         display: 'flex',
@@ -25,8 +28,8 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
         p: '12px 14px',
         borderRadius: '13px',
         cursor: 'pointer',
-        border: '1px solid #E6E7EE',
-        background: '#F4F4FA',
+        border: `1px solid ${NEUTRAL.line}`,
+        background: NEUTRAL.sidebar,
       }}
     >
       <Sym name="push_pin" size={20} color={F.pinned ? tk.primary : NEUTRAL.faint} />
@@ -39,7 +42,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
           width: '44px',
           height: '26px',
           borderRadius: '999px',
-          background: F.pinned ? tk.primary : '#C8CAD2',
+          background: F.pinned ? tk.primary : NEUTRAL.inputBorder,
           position: 'relative',
         }}
       >
@@ -52,7 +55,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
             width: '20px',
             height: '20px',
             borderRadius: '50%',
-            background: '#fff',
+            background: NEUTRAL.card,
             transition: 'left .2s',
           }}
         />

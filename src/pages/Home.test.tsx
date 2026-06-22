@@ -75,7 +75,7 @@ describe('Home', () => {
       }),
     );
     render(<Home />);
-    expect(screen.getByText(/brauchen deine Rückmeldung/)).toBeTruthy();
+    expect(screen.getByText(/braucht deine Rückmeldung/)).toBeTruthy();
   });
 
   it('shows "Alles beantwortet" when no pending events', () => {

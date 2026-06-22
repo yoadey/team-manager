@@ -37,8 +37,8 @@ export function EventsPage() {
         borderRadius: '10px',
         fontSize: '13px',
         fontWeight: 600,
-        background: cur === val ? '#fff' : 'transparent',
-        color: cur === val ? tk.primary : '#5A5D66',
+        background: cur === val ? NEUTRAL.card : 'transparent',
+        color: cur === val ? tk.primary : NEUTRAL.secondary,
         boxShadow: cur === val ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
       }}
     >
@@ -51,7 +51,7 @@ export function EventsPage() {
       <Box
         role="tablist"
         aria-label={t('events.viewTabsLabel')}
-        sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}
+        sx={{ display: 'flex', background: NEUTRAL.line2, borderRadius: '12px', p: '4px' }}
       >
         {seg(t('events.tabs.list'), 'list', state.eventsView, (v) => app.setEventsView(v))}
         {seg(t('events.tabs.calendar'), 'calendar', state.eventsView, (v) => app.setEventsView(v))}
@@ -62,7 +62,7 @@ export function EventsPage() {
         <Box
           role="tablist"
           aria-label={t('events.scopeTabsLabel')}
-          sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}
+          sx={{ display: 'flex', background: NEUTRAL.line2, borderRadius: '12px', p: '4px' }}
         >
           {seg(t('events.tabs.upcoming'), 'upcoming', state.eventScope, (v) => app.setState({ eventScope: v }))}
           {seg(t('events.tabs.past'), 'past', state.eventScope, (v) => app.setState({ eventScope: v }))}
@@ -77,11 +77,11 @@ export function EventsPage() {
           gap: '7px',
           p: '9px 14px',
           borderRadius: '12px',
-          border: '1px solid #D0D2DA',
-          background: '#fff',
+          border: `1px solid ${NEUTRAL.inputBorder}`,
+          background: NEUTRAL.card,
           fontSize: '13px',
           fontWeight: 600,
-          color: '#44474E',
+          color: NEUTRAL.onSurfaceVariant,
         }}
       >
         <Sym name="ios_share" size={18} color={NEUTRAL.secondary} />
@@ -118,15 +118,15 @@ export function EventsPage() {
         p: '8px 12px 8px 14px',
         borderRadius: '999px',
         border: 'none',
-        background: '#FFE5B8',
-        color: '#8A6100',
+        background: NEUTRAL.warnBg,
+        color: NEUTRAL.warn,
         fontSize: '13px',
         fontWeight: 700,
       }}
     >
-      <Sym name="pending_actions" size={17} color="#8A6100" />
+      <Sym name="pending_actions" size={17} color={NEUTRAL.warn} />
       {t('events.filterPending')}
-      <Sym name="close" size={17} color="#8A6100" />
+      <Sym name="close" size={17} color={NEUTRAL.warn} />
     </ButtonBase>
   ) : null;
 

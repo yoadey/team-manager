@@ -1,4 +1,13 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
 import type {
   AttendanceStatus,
@@ -26,15 +35,19 @@ import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
 
 export type Phase = 'loading' | 'login' | 'app';
-export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
+export { ALL_ROUTES, routeFromPath } from './urlState';
+export type { Route } from './urlState';
+import { parseLocation, buildPath, currentPath, type Route, type UrlState } from './urlState';
 
-const ALL_ROUTES: Route[] = ['home', 'events', 'members', 'finances', 'stats', 'news', 'polls', 'team'];
-function routeFromPath(path: string): Route {
-  const seg = path.replace(/^\//, '').split('/')[0] as Route;
-  return ALL_ROUTES.includes(seg) ? seg : 'home';
-}
-function pushRoute(route: Route) {
-  history.pushState({ route }, '', '/' + route);
+/** Map the active detail sheet (walking the back-stack) to a URL detail ref. */
+function detailOfSheet(sheet: SheetState | null): UrlState['detail'] {
+  let s = sheet;
+  while (s) {
+    if (s.type === 'eventDetail' && s.eventId) return { kind: 'event', id: s.eventId };
+    if (s.type === 'memberDetail' && s.membershipId) return { kind: 'member', id: s.membershipId };
+    s = s.back || null;
+  }
+  return null;
 }
 export type SheetType =
   | 'teams'
@@ -137,6 +150,8 @@ function loadColorScheme(): AppState['colorScheme'] {
   return 'system';
 }
 
+const initialLocation = parseLocation(window.location.pathname, window.location.search);
+
 const initialState: AppState = {
   phase: 'loading',
   providers: [],
@@ -146,10 +161,10 @@ const initialState: AppState = {
   user: null,
   teams: [],
   activeTeamId: null,
-  route: routeFromPath(window.location.pathname),
-  eventScope: 'upcoming',
-  eventsView: 'list',
-  eventsOnlyPending: false,
+  route: initialLocation.route,
+  eventScope: initialLocation.eventScope,
+  eventsView: initialLocation.eventsView,
+  eventsOnlyPending: initialLocation.eventsOnlyPending,
   calShowAbsences: false,
   calMonth: null,
   events: [],
@@ -165,7 +180,7 @@ const initialState: AppState = {
   notifUnread: 0,
   notifFilter: 'all',
   statsRange: null,
-  finTab: 'umsaetze',
+  finTab: initialLocation.finTab,
   contribMonth: null,
   sheet: null,
   form: {},
@@ -315,12 +330,40 @@ export type AppActions = Omit<AppContextValue, 'state'>;
 const AppStateContext = createContext<AppState | null>(null);
 const AppActionsContext = createContext<AppActions | null>(null);
 
+/** External-store handle backing useAppSelector (fine-grained subscriptions). */
+interface AppStore {
+  subscribe: (cb: () => void) => () => void;
+  get: () => AppState;
+}
+const AppStoreContext = createContext<AppStore | null>(null);
+
 export const useApp = (): AppContextValue => {
   const actions = useContext(AppActionsContext);
   const state = useContext(AppStateContext);
   if (!actions || !state) throw new Error('useApp must be used within AppProvider');
   return useMemo(() => ({ ...actions, state }), [actions, state]);
 };
+
+/**
+ * Subscribe to a *slice* of state. The component re-renders only when the
+ * selected value changes (Object.is), instead of on every global state update
+ * like `useApp()`. Pair with `useAppActions()` for dispatch.
+ *
+ * The selector must return a primitive or a stable reference — returning a
+ * freshly-built object/array on each call defeats the equality check and can
+ * loop. Combine `useApp`'s `state` for ad-hoc reads; reach for this in hot,
+ * frequently-re-rendered leaves (lists, cards) that need one or two fields.
+ */
+export function useAppSelector<T>(selector: (s: AppState) => T): T {
+  const store = useContext(AppStoreContext);
+  if (!store) throw new Error('useAppSelector must be used within AppProvider');
+  const sel = useRef(selector);
+  sel.current = selector;
+  return useSyncExternalStore(
+    store.subscribe,
+    useCallback(() => sel.current(store.get()), [store]),
+  );
+}
 
 /**
  * Actions/helpers only — does NOT subscribe to state changes. Use in components
@@ -339,6 +382,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const stateRef = useRef(state);
   stateRef.current = state;
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fine-grained subscription store backing useAppSelector. Listeners are
+  // notified after each committed state change (see effect below).
+  const listeners = useRef(new Set<() => void>());
+  const store = useMemo<AppStore>(
+    () => ({
+      subscribe: (cb) => {
+        listeners.current.add(cb);
+        return () => listeners.current.delete(cb);
+      },
+      get: () => stateRef.current,
+    }),
+    [],
+  );
+  useEffect(() => {
+    listeners.current.forEach((l) => l());
+  }, [state]);
 
   const setState = useCallback((patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setRaw((prev) => {
@@ -657,14 +717,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [S, setState]);
   const go = useCallback(
     (route: Route) => {
-      pushRoute(route);
+      // History is mirrored centrally by the URL-sync effect (state -> URL).
       setState({ route, sheet: null, eventsOnlyPending: false });
       ensureRouteData(route);
     },
     [setState, ensureRouteData],
   );
   const goEventsPending = useCallback(() => {
-    pushRoute('events');
     setState({ route: 'events', sheet: null, eventsView: 'list', eventScope: 'upcoming', eventsOnlyPending: true });
     ensureRouteData('events');
   }, [setState, ensureRouteData]);
@@ -682,7 +741,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         closeSheet();
         return;
       }
-      pushRoute('home');
       setState({ activeTeamId: id, sheet: null, route: 'home', eventScope: 'upcoming', eventsView: 'list' });
       await afterLoginLoad(id);
     },
@@ -811,17 +869,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     askConfirm,
   });
 
-  // ---------- bootstrap ----------
+  // ---------- routing: state <-> URL ----------
+  // Last path we wrote to / read from history, so the sync effect can tell a
+  // real navigation from a no-op and choose push vs. replace.
+  const lastSyncedPath = useRef(currentPath());
+
+  // URL -> state: Back/Forward reconstructs route, list filters and any open
+  // detail sheet from the address bar.
   useEffect(() => {
-    const handler = (e: PopStateEvent) => {
-      const route: Route =
-        e.state && ALL_ROUTES.includes(e.state.route) ? e.state.route : routeFromPath(window.location.pathname);
-      setState({ route, sheet: null });
-      ensureRouteData(route);
+    const handler = () => {
+      const p = parseLocation(window.location.pathname, window.location.search);
+      lastSyncedPath.current = currentPath();
+      setState({
+        route: p.route,
+        eventScope: p.eventScope,
+        eventsView: p.eventsView,
+        eventsOnlyPending: p.eventsOnlyPending,
+        finTab: p.finTab,
+        sheet: null,
+      });
+      ensureRouteData(p.route);
+      if (p.detailId && p.route === 'events') void openEventDetail(p.detailId);
+      else if (p.detailId && p.route === 'members') void openMemberDetail(p.detailId);
     };
     window.addEventListener('popstate', handler);
     return () => window.removeEventListener('popstate', handler);
-  }, [setState, ensureRouteData]);
+  }, [setState, ensureRouteData, openEventDetail, openMemberDetail]);
+
+  // state -> URL: mirror the bookmark-relevant slice into the address bar.
+  // Route changes and opening a detail sheet create history entries (so Back
+  // closes the sheet / returns to the previous view); filter tweaks replace.
+  useEffect(() => {
+    if (state.phase !== 'app') return;
+    const next: UrlState = {
+      route: state.route,
+      eventScope: state.eventScope,
+      eventsView: state.eventsView,
+      eventsOnlyPending: state.eventsOnlyPending,
+      finTab: state.finTab,
+      detail: detailOfSheet(state.sheet),
+    };
+    const target = buildPath(next);
+    if (target === lastSyncedPath.current) return;
+    const [prevPath, prevQuery] = lastSyncedPath.current.split('?');
+    const prev = parseLocation(prevPath, prevQuery ? '?' + prevQuery : '');
+    const isNavigation = prev.route !== next.route || (!prev.detailId && !!next.detail);
+    if (isNavigation) history.pushState(null, '', target);
+    else history.replaceState(null, '', target);
+    lastSyncedPath.current = target;
+  }, [
+    state.phase,
+    state.route,
+    state.eventScope,
+    state.eventsView,
+    state.eventsOnlyPending,
+    state.finTab,
+    state.sheet,
+  ]);
 
   useEffect(() => {
     (async () => {
@@ -1041,8 +1145,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <AppActionsContext.Provider value={actions}>
-      <AppStateContext.Provider value={state}>{children}</AppStateContext.Provider>
-    </AppActionsContext.Provider>
+    <AppStoreContext.Provider value={store}>
+      <AppActionsContext.Provider value={actions}>
+        <AppStateContext.Provider value={state}>{children}</AppStateContext.Provider>
+      </AppActionsContext.Provider>
+    </AppStoreContext.Provider>
   );
 }

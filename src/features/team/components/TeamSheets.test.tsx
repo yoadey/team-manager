@@ -4,9 +4,14 @@ import { CreateTeamSheet, InviteSheet, TeamSettingsSheet } from './TeamSheets';
 
 // ── mocks ─────────────────────────────────────────────────────────────────────
 
-vi.mock('@/context/AppContext', () => ({
-  useApp: vi.fn(),
-}));
+vi.mock('@/context/AppContext', () => {
+  const useApp = vi.fn();
+  return {
+    useApp,
+    useAppActions: vi.fn(() => useApp()),
+    useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel(useApp().state),
+  };
+});
 
 vi.mock('@/layouts/useCompact', () => ({
   shortName: (name: string) => name.split(' ')[0],

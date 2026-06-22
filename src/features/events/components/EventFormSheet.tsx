@@ -35,8 +35,8 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           cursor: 'pointer',
           fontSize: '12px',
           fontWeight: 600,
-          border: '1.5px solid ' + (sel ? meta.color : '#E0E2EA'),
-          background: sel ? meta.bg : '#fff',
+          border: '1.5px solid ' + (sel ? meta.color : NEUTRAL.line3),
+          background: sel ? meta.bg : NEUTRAL.card,
           color: sel ? meta.color : NEUTRAL.secondary,
         }}
       >
@@ -71,8 +71,8 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           textAlign: 'left',
           alignItems: 'stretch',
           justifyContent: 'flex-start',
-          border: '1.5px solid ' + (sel ? tk.primary : '#E0E2EA'),
-          background: sel ? tk.primaryContainer : '#fff',
+          border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
+          background: sel ? tk.primaryContainer : NEUTRAL.card,
         }}
       >
         <Box
@@ -83,10 +83,10 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
             gap: '6px',
             fontSize: '13px',
             fontWeight: 700,
-            color: sel ? tk.onPrimaryContainer : '#44474E',
+            color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
           }}
         >
-          <Sym name={ic} size={17} color={sel ? tk.onPrimaryContainer : '#44474E'} />
+          <Sym name={ic} size={17} color={sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant} />
           {l}
         </Box>
         <Box key="d" sx={{ fontSize: '11px', color: sel ? tk.onPrimaryContainer : NEUTRAL.faint, lineHeight: 1.4 }}>
@@ -99,6 +99,9 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const meetToggle = (
     <ButtonBase
       key="mm"
+      role="checkbox"
+      aria-checked={!!F.meetTimeMandatory}
+      aria-label={t('events.meetTimeMandatory')}
       onClick={() => app.setFormVal({ meetTimeMandatory: !F.meetTimeMandatory })}
       sx={{
         display: 'flex',
@@ -108,8 +111,8 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         p: '12px 14px',
         borderRadius: '13px',
         cursor: 'pointer',
-        border: '1px solid #E6E7EE',
-        background: '#F4F4FA',
+        border: `1px solid ${NEUTRAL.line}`,
+        background: NEUTRAL.sidebar,
         justifyContent: 'flex-start',
       }}
     >
@@ -120,8 +123,8 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           width: '22px',
           height: '22px',
           borderRadius: '7px',
-          background: F.meetTimeMandatory ? tk.primary : '#fff',
-          border: '2px solid ' + (F.meetTimeMandatory ? tk.primary : '#B0B3BC'),
+          background: F.meetTimeMandatory ? tk.primary : NEUTRAL.card,
+          border: '2px solid ' + (F.meetTimeMandatory ? tk.primary : NEUTRAL.faint),
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -138,9 +141,12 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
 
   const recur =
     sheet.mode === 'create' ? (
-      <Box key="rec" sx={{ borderTop: '1px solid #ECEDF3', pt: '14px' }}>
+      <Box key="rec" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '14px' }}>
         <ButtonBase
           key="tg"
+          role="switch"
+          aria-checked={!!F.recurring}
+          aria-label={t('events.recurWeekly')}
           onClick={() => app.setFormVal({ recurring: !F.recurring })}
           sx={{
             display: 'flex',
@@ -165,7 +171,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
               width: '44px',
               height: '26px',
               borderRadius: '999px',
-              background: F.recurring ? tk.primary : '#C8CAD2',
+              background: F.recurring ? tk.primary : NEUTRAL.inputBorder,
               position: 'relative',
               flex: '0 0 auto',
             }}
@@ -179,7 +185,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 width: '20px',
                 height: '20px',
                 borderRadius: '50%',
-                background: '#fff',
+                background: NEUTRAL.card,
                 transition: 'left .2s',
               }}
             />
@@ -196,7 +202,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
     ) : null;
 
   const nomSel = (
-    <Box key="nomsel" sx={{ borderTop: '1px solid #ECEDF3', pt: '14px' }}>
+    <Box key="nomsel" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '14px' }}>
       <Box key="l" sx={labelSx}>
         {t('events.nominatedRoles')}
       </Box>
@@ -209,6 +215,9 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           return (
             <ButtonBase
               key={r.id}
+              role="checkbox"
+              aria-checked={sel}
+              aria-label={r.name}
               onClick={() => app.toggleFormNomRole(r.id)}
               sx={{
                 display: 'inline-flex',
@@ -219,15 +228,15 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 cursor: 'pointer',
                 fontSize: '13px',
                 fontWeight: 600,
-                border: '1.5px solid ' + (sel ? r.color : '#D0D2DA'),
-                background: sel ? r.color + '1A' : '#fff',
+                border: '1.5px solid ' + (sel ? r.color : NEUTRAL.inputBorder),
+                background: sel ? r.color + '1A' : NEUTRAL.card,
                 color: sel ? r.color : NEUTRAL.faint,
               }}
             >
               <Box
                 key="d"
                 component="span"
-                sx={{ width: '9px', height: '9px', borderRadius: '50%', background: sel ? r.color : '#C0C2CA' }}
+                sx={{ width: '9px', height: '9px', borderRadius: '50%', background: sel ? r.color : NEUTRAL.faint }}
               />
               {r.name}
               {sel ? <Sym name="check" size={16} color={r.color} /> : null}
@@ -319,7 +328,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 p: '13px',
                 borderRadius: '13px',
                 border: '1px solid ' + tk.primary,
-                background: '#fff',
+                background: NEUTRAL.card,
                 color: tk.primary,
                 fontWeight: 700,
                 fontSize: '14px',

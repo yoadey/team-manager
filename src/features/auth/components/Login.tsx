@@ -135,15 +135,15 @@ export function Login() {
             mt: '24px',
             p: '14px',
             borderRadius: '14px',
-            background: '#FFF7E6',
+            background: NEUTRAL.warnBg,
             border: '1px solid #F0DBA8',
             display: 'flex',
             gap: '10px',
             alignItems: 'flex-start',
           }}
         >
-          <Sym name="install_mobile" size={18} color="#8A6100" sx={{ lineHeight: 1.2 }} />
-          <Box sx={{ fontSize: '12px', color: '#6B5413', lineHeight: 1.5 }}>
+          <Sym name="install_mobile" size={18} color={NEUTRAL.warn} sx={{ lineHeight: 1.2 }} />
+          <Box sx={{ fontSize: '12px', color: NEUTRAL.warn, lineHeight: 1.5 }}>
             {t('auth.pwaInstallable')} <b>{t('auth.pwaIosLabel')}</b> {t('auth.pwaIosHint')}
           </Box>
         </Box>

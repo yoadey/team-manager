@@ -60,12 +60,12 @@ export function NotificationsSheet({ app }: SheetProps) {
     if (n.type && n.type.indexOf('event_') === 0) {
       const map: Record<string, [string, string, string, string]> = {
         event_created: ['event_available', '#1565C0', '#D7E3FF', t('notifications.eventCreated')],
-        event_updated: ['edit_calendar', '#9A5B00', '#FFE5B8', t('notifications.eventUpdated')],
+        event_updated: ['edit_calendar', NEUTRAL.warn, '#FFE5B8', t('notifications.eventUpdated')],
         event_cancelled: ['event_busy', NEUTRAL.error, NEUTRAL.errorBg, t('notifications.eventCancelled')],
         event_reactivated: ['event_available', NEUTRAL.success, NEUTRAL.successBg, t('notifications.eventReactivated')],
         event_deleted: ['delete', NEUTRAL.error, NEUTRAL.errorBg, t('notifications.eventDeleted')],
       };
-      const m = map[n.type] || ['event', NEUTRAL.secondary, '#ECEDF3', 'Event'];
+      const m = map[n.type] || ['event', NEUTRAL.secondary, NEUTRAL.line2, 'Event'];
       return {
         icon: m[0],
         col: m[1],
@@ -99,7 +99,7 @@ export function NotificationsSheet({ app }: SheetProps) {
     if (n.type === 'absence')
       return {
         icon: 'beach_access',
-        col: '#8A6100',
+        col: NEUTRAL.warn,
         bg: '#FFE5B8',
         line1: n.actorName + ' ' + t('notifications.absenceLogged'),
         line2: n.title || '',
@@ -113,7 +113,7 @@ export function NotificationsSheet({ app }: SheetProps) {
     return {
       icon: 'notifications',
       col: NEUTRAL.secondary,
-      bg: '#ECEDF3',
+      bg: NEUTRAL.line2,
       line1: n.title || '',
       line2: '',
       onClick: null,
@@ -144,8 +144,8 @@ export function NotificationsSheet({ app }: SheetProps) {
               fontSize: '12px',
               fontWeight: 700,
               cursor: 'pointer',
-              border: '1.5px solid ' + (sel ? tk.primary : '#D0D2DA'),
-              background: sel ? tk.primaryContainer : '#fff',
+              border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.inputBorder),
+              background: sel ? tk.primaryContainer : NEUTRAL.card,
               color: sel ? tk.onPrimaryContainer : NEUTRAL.secondary,
             }}
           >
@@ -226,7 +226,10 @@ export function NotificationsSheet({ app }: SheetProps) {
       <>
         {lead}
         <Box key="m" sx={{ flex: 1, minWidth: 0 }}>
-          <Box key="l1" sx={{ fontSize: '14px', fontWeight: n.unread ? 700 : 600, color: '#1A1C20', lineHeight: 1.3 }}>
+          <Box
+            key="l1"
+            sx={{ fontSize: '14px', fontWeight: n.unread ? 700 : 600, color: NEUTRAL.onSurface, lineHeight: 1.3 }}
+          >
             {m.line1}
           </Box>
           <Box
@@ -259,8 +262,8 @@ export function NotificationsSheet({ app }: SheetProps) {
       textAlign: 'left',
       p: '10px 12px',
       borderRadius: '14px',
-      border: '1px solid ' + (n.unread ? tk.primaryContainer : '#ECEDF3'),
-      background: n.unread ? '#FBFAFF' : '#fff',
+      border: '1px solid ' + (n.unread ? tk.primaryContainer : NEUTRAL.line2),
+      background: n.unread ? NEUTRAL.surface : NEUTRAL.card,
       mb: '7px',
     } as const;
     out.push(

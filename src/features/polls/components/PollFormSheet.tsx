@@ -26,14 +26,14 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
         p: '12px',
         borderRadius: '13px',
         cursor: 'pointer',
-        border: '1px solid ' + (F[key] ? tk.primary : '#E0E2EA'),
-        background: F[key] ? tk.primaryContainer : '#fff',
+        border: '1px solid ' + (F[key] ? tk.primary : NEUTRAL.line3),
+        background: F[key] ? tk.primaryContainer : NEUTRAL.card,
       }}
     >
       <Sym name={icon} size={19} color={F[key] ? tk.primary : NEUTRAL.secondary} />
       <Box
         component="span"
-        sx={{ fontSize: '13px', fontWeight: 600, color: F[key] ? tk.onPrimaryContainer : '#44474E' }}
+        sx={{ fontSize: '13px', fontWeight: 600, color: F[key] ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant }}
       >
         {label}
       </Box>

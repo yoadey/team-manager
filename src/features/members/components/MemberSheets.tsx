@@ -17,7 +17,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
       ? st.quote >= 80
         ? NEUTRAL.success
         : st.quote >= 50
-          ? '#9A5B00'
+          ? NEUTRAL.warn
           : NEUTRAL.error
       : NEUTRAL.faint;
 
@@ -39,7 +39,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
 
   const stats = (
     <Box key="st" sx={{ display: 'flex', gap: '10px', mb: '16px' }}>
-      <Box key="q" sx={{ flex: 1, background: '#F4F4FA', borderRadius: '14px', p: '14px', textAlign: 'center' }}>
+      <Box key="q" sx={{ flex: 1, background: NEUTRAL.sidebar, borderRadius: '14px', p: '14px', textAlign: 'center' }}>
         <Box key="v" sx={{ fontSize: '24px', fontWeight: 800, color: qcol }}>
           {st ? (st.quote === null ? '–' : st.quote + '%') : '…'}
         </Box>
@@ -47,7 +47,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
           {t('members.attendanceRate')}
         </Box>
       </Box>
-      <Box key="g" sx={{ flex: 1, background: '#F4F4FA', borderRadius: '14px', p: '14px', textAlign: 'center' }}>
+      <Box key="g" sx={{ flex: 1, background: NEUTRAL.sidebar, borderRadius: '14px', p: '14px', textAlign: 'center' }}>
         <Box key="v" sx={{ fontSize: '24px', fontWeight: 800 }}>
           {m.roles.length}
         </Box>
@@ -65,7 +65,10 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         )
       : '—';
   const cRow = (icon: string, val: string) => (
-    <Box key={icon} sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
+    <Box
+      key={icon}
+      sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: NEUTRAL.card }}
+    >
       <Sym name={icon} size={19} color={NEUTRAL.secondary} />
       <Box key="t" component="span" sx={{ flex: 1, fontSize: '14px' }}>
         {val || '—'}
@@ -82,7 +85,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         gap: '1px',
         borderRadius: '14px',
         overflow: 'hidden',
-        border: '1px solid #E6E7EE',
+        border: `1px solid ${NEUTRAL.line}`,
       }}
     >
       {cRow('mail', m.email)}
@@ -108,15 +111,15 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
             gap: '8px',
             p: '12px',
             borderRadius: '13px',
-            border: '1px solid #C8CAD2',
-            background: '#fff',
-            color: '#44474E',
+            border: `1px solid ${NEUTRAL.inputBorder}`,
+            background: NEUTRAL.card,
+            color: NEUTRAL.onSurfaceVariant,
             fontWeight: 600,
             fontSize: '14px',
             cursor: 'pointer',
           }}
         >
-          <Sym name="edit" size={19} color="#44474E" />
+          <Sym name="edit" size={19} color={NEUTRAL.onSurfaceVariant} />
           {isMe ? t('members.editProfile') : t('members.edit')}
         </ButtonBase>
         {canWrite && !isMe ? (
@@ -131,7 +134,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
               p: '12px 16px',
               borderRadius: '13px',
               border: '1px solid #F0C4C0',
-              background: '#FFF4F3',
+              background: NEUTRAL.errorBg,
               color: NEUTRAL.error,
               fontWeight: 600,
               cursor: 'pointer',
@@ -151,7 +154,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
         gap: '9px',
         mt: '14px',
         p: '11px 13px',
-        background: '#F4F4FA',
+        background: NEUTRAL.sidebar,
         borderRadius: '13px',
         fontSize: '12px',
         color: NEUTRAL.secondary,
@@ -210,12 +213,12 @@ export function MemberFormSheet({ app }: SheetProps) {
           gap: '8px',
           p: '9px 14px',
           borderRadius: '12px',
-          border: '1px solid #C8CAD2',
-          background: '#fff',
+          border: `1px solid ${NEUTRAL.inputBorder}`,
+          background: NEUTRAL.card,
           cursor: 'pointer',
           fontSize: '13px',
           fontWeight: 600,
-          color: '#44474E',
+          color: NEUTRAL.onSurfaceVariant,
         }}
       >
         <Sym name="photo_camera" size={18} />
@@ -242,6 +245,9 @@ export function MemberFormSheet({ app }: SheetProps) {
           return (
             <ButtonBase
               key={r.id}
+              role="checkbox"
+              aria-checked={sel}
+              aria-label={r.name}
               onClick={() => app.toggleFormRole(r.id)}
               sx={{
                 display: 'inline-flex',
@@ -252,9 +258,9 @@ export function MemberFormSheet({ app }: SheetProps) {
                 cursor: 'pointer',
                 fontSize: '13px',
                 fontWeight: 600,
-                border: '1.5px solid ' + (sel ? r.color : '#D0D2DA'),
-                background: sel ? r.color + '1A' : '#fff',
-                color: sel ? r.color : '#44474E',
+                border: '1.5px solid ' + (sel ? r.color : NEUTRAL.inputBorder),
+                background: sel ? r.color + '1A' : NEUTRAL.card,
+                color: sel ? r.color : NEUTRAL.onSurfaceVariant,
               }}
             >
               <Box
@@ -273,7 +279,7 @@ export function MemberFormSheet({ app }: SheetProps) {
 
   const contactNote = (
     <Box key="cn" sx={{ fontSize: '12px', color: NEUTRAL.faint, lineHeight: 1.5, display: 'flex', gap: '8px' }}>
-      <Sym name="lock" size={15} color="#C0C2CA" />
+      <Sym name="lock" size={15} color={NEUTRAL.faint} />
       {t('members.contactNote')}
     </Box>
   );

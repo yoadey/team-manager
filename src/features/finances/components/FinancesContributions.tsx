@@ -46,8 +46,8 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
               p: '9px 14px',
               borderRadius: '12px',
               cursor: 'pointer',
-              border: '1.5px solid ' + (s ? tk.primary : '#D0D2DA'),
-              background: s ? tk.primaryContainer : '#fff',
+              border: '1.5px solid ' + (s ? tk.primary : NEUTRAL.inputBorder),
+              background: s ? tk.primaryContainer : NEUTRAL.card,
               color: s ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
             }}
           >
@@ -75,7 +75,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
         display: 'flex',
         alignItems: 'center',
         gap: '14px',
-        background: '#fff',
+        background: NEUTRAL.card,
         border: `1px solid ${NEUTRAL.line}`,
         borderRadius: '16px',
         p: '15px 16px',
@@ -111,7 +111,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
               display: 'flex',
               alignItems: 'center',
               gap: '11px',
-              background: '#fff',
+              background: NEUTRAL.card,
               border: `1px solid ${NEUTRAL.line}`,
               borderRadius: '14px',
               p: '10px 13px',
@@ -143,19 +143,23 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
                   fontSize: '12px',
                   fontWeight: 600,
                   background: paid ? NEUTRAL.successBg : '#FFE5B8',
-                  color: paid ? '#235C26' : '#8A6100',
+                  color: paid ? NEUTRAL.success : NEUTRAL.warn,
                   display: 'flex',
                   alignItems: 'center',
                   gap: '5px',
                 }}
               >
-                <Sym name={paid ? 'check_circle' : 'schedule'} size={15} color={paid ? '#235C26' : '#8A6100'} />
+                <Sym
+                  name={paid ? 'check_circle' : 'schedule'}
+                  size={15}
+                  color={paid ? NEUTRAL.success : NEUTRAL.warn}
+                />
                 {paid ? t('finances.contribPaid') : t('finances.contribOpen')}
               </ButtonBase>
             ) : (
               <Chip
                 label={paid ? t('finances.contribPaid') : t('finances.contribOpen')}
-                color={paid ? NEUTRAL.success : '#9A5B00'}
+                color={paid ? NEUTRAL.success : NEUTRAL.warn}
                 bg={paid ? NEUTRAL.successBg : '#FFE5B8'}
                 icon={paid ? 'check_circle' : 'schedule'}
               />

@@ -5,7 +5,7 @@ import { useAppActions } from '@/context/AppContext';
 import { useCompact } from '@/layouts/AppShell';
 import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '@/styles/tokens';
 import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
-import { getIntlLocale } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 import type { TeamEvent } from '@/features/events';
 import type { NewsItem } from '@/features/news';
 import { Av, Chip, Sym, metaItem } from './ui';
@@ -32,7 +32,7 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
         gap: '13px',
         width: '100%',
         textAlign: 'left',
-        background: '#fff',
+        background: NEUTRAL.card,
         border: `1px solid ${NEUTRAL.line}`,
         borderRadius: '18px',
         p: '13px 15px',
@@ -65,7 +65,9 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
           <Chip label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} />
           {e.recurring ? <Sym name="repeat" size={15} color={NEUTRAL.faint} /> : null}
-          {cancelled ? <Chip label="Abgesagt" color={NEUTRAL.error} bg={NEUTRAL.errorBg} icon="event_busy" /> : null}
+          {cancelled ? (
+            <Chip label={t('events.cancelledLabel')} color={NEUTRAL.error} bg={NEUTRAL.errorBg} icon="event_busy" />
+          ) : null}
         </Box>
         <Box
           sx={{
@@ -90,7 +92,7 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
           }}
         >
           {metaItem('schedule', hhmm(e.startTime) + '–' + hhmm(e.endTime), 'time')}
-          {e.meetTime ? metaItem('login', 'Treff ' + hhmm(e.meetTime), 'meet') : null}
+          {e.meetTime ? metaItem('login', t('events.meetTime', { time: hhmm(e.meetTime) }), 'meet') : null}
           {e.location && !compact ? metaItem('place', e.location, 'loc') : null}
         </Box>
       </Box>
@@ -105,14 +107,26 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
       >
         {isPast || cancelled ? null : <Chip label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 600 }}>
-          <Box component="span" aria-label={`${e.summary.yes} zugesagt`} sx={{ color: NEUTRAL.success }}>
+          <Box
+            component="span"
+            aria-label={t('events.summaryAriaYes', { n: e.summary.yes })}
+            sx={{ color: NEUTRAL.success }}
+          >
             {e.summary.yes}✓
           </Box>
-          <Box component="span" aria-label={`${e.summary.no} abgesagt`} sx={{ color: NEUTRAL.error }}>
+          <Box
+            component="span"
+            aria-label={t('events.summaryAriaNo', { n: e.summary.no })}
+            sx={{ color: NEUTRAL.error }}
+          >
             {e.summary.no}✕
           </Box>
           {e.summary.maybe ? (
-            <Box component="span" aria-label={`${e.summary.maybe} vielleicht`} sx={{ color: '#9A5B00' }}>
+            <Box
+              component="span"
+              aria-label={t('events.summaryAriaMaybe', { n: e.summary.maybe })}
+              sx={{ color: NEUTRAL.warn }}
+            >
               {e.summary.maybe}?
             </Box>
           ) : null}
@@ -135,7 +149,7 @@ export const NewsCard = memo(function NewsCard({
 }) {
   const t = buildTokens(primaryColor);
   return (
-    <Box sx={{ background: '#fff', border: `1px solid ${NEUTRAL.line}`, borderRadius: '16px', p: '15px 16px' }}>
+    <Box sx={{ background: NEUTRAL.card, border: `1px solid ${NEUTRAL.line}`, borderRadius: '16px', p: '15px 16px' }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: '9px', mb: '7px' }}>
         <Av name={n.authorName} photo={n.authorPhoto} color={n.authorColor} size={28} font={11} />
         <Box sx={{ flex: 1, minWidth: 0 }}>
