@@ -20,7 +20,7 @@ export function Root() {
           alignItems: 'center',
           justifyContent: 'center',
           gap: '18px',
-          color: '#5A5D66',
+          color: NEUTRAL.secondary,
           background: NEUTRAL.appBg,
         }}
       >
@@ -30,7 +30,7 @@ export function Root() {
           sx={{
             width: 42,
             height: 42,
-            border: '4px solid #CDD0D9',
+            border: `4px solid ${NEUTRAL.line3}`,
             borderTopColor: state.primaryColor,
             borderRadius: '50%',
             animation: 'tvSpin .8s linear infinite',

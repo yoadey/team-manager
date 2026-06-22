@@ -4,6 +4,7 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
+import { t as tr } from '@/i18n';
 import type { DateRange } from '@/types';
 
 export function Stats() {
@@ -21,10 +22,10 @@ export function Stats() {
   };
   const R: DateRange = state.statsRange || { from: null, to: null };
   const presets: [string, string, DateRange | null][] = [
-    ['all', 'Gesamt', null],
-    ['3m', '3 Monate', { from: ago(3), to: today }],
-    ['6m', '6 Monate', { from: ago(6), to: today }],
-    ['12m', '12 Monate', { from: ago(12), to: today }],
+    ['all', tr('stats.presetAll'), null],
+    ['3m', tr('stats.presetMonths', { n: 3 }), { from: ago(3), to: today }],
+    ['6m', tr('stats.presetMonths', { n: 6 }), { from: ago(6), to: today }],
+    ['12m', tr('stats.presetMonths', { n: 12 }), { from: ago(12), to: today }],
   ];
   const activeKey =
     !R || (!R.from && !R.to)
@@ -47,8 +48,8 @@ export function Stats() {
               fontSize: '13px',
               fontWeight: 600,
               cursor: 'pointer',
-              border: '1.5px solid ' + (sel ? t.primary : '#D0D2DA'),
-              background: sel ? t.primaryContainer : '#fff',
+              border: '1.5px solid ' + (sel ? t.primary : NEUTRAL.inputBorder),
+              background: sel ? t.primaryContainer : NEUTRAL.card,
               color: sel ? t.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
             }}
           >
@@ -95,7 +96,7 @@ export function Stats() {
         display: 'flex',
         alignItems: 'center',
         gap: '20px',
-        background: '#fff',
+        background: NEUTRAL.card,
         border: `1px solid ${NEUTRAL.line}`,
         borderRadius: '20px',
         p: '20px',
@@ -104,13 +105,13 @@ export function Stats() {
     >
       <Box
         role="img"
-        aria-label={`Durchschnittliche Anwesenheitsquote: ${st.avg}%`}
+        aria-label={tr('stats.ringAria', { avg: st.avg })}
         sx={{
           width: '96px',
           height: '96px',
           borderRadius: '50%',
           flex: '0 0 auto',
-          background: 'conic-gradient(' + t.primary + ' ' + st.avg * 3.6 + 'deg, #ECEDF3 0deg)',
+          background: 'conic-gradient(' + t.primary + ' ' + st.avg * 3.6 + 'deg, ' + NEUTRAL.line2 + ' 0deg)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -121,7 +122,7 @@ export function Stats() {
             width: '72px',
             height: '72px',
             borderRadius: '50%',
-            background: '#fff',
+            background: NEUTRAL.card,
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -129,15 +130,13 @@ export function Stats() {
           }}
         >
           <Box sx={{ fontSize: '22px', fontWeight: 800, color: t.primary }}>{st.avg + '%'}</Box>
-          <Box sx={{ fontSize: '10px', color: NEUTRAL.faint }}>Ø Quote</Box>
+          <Box sx={{ fontSize: '10px', color: NEUTRAL.faint }}>{tr('stats.avgQuote')}</Box>
         </Box>
       </Box>
       <Box sx={{ flex: 1 }}>
-        <Box sx={{ fontSize: '16px', fontWeight: 700 }}>Team-Anwesenheit</Box>
+        <Box sx={{ fontSize: '16px', fontWeight: 700 }}>{tr('stats.teamAttendance')}</Box>
         <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, mt: '4px', lineHeight: 1.5 }}>
-          {'Durchschnittliche Zusagequote über ' +
-            st.pastCount +
-            ' vergangene Termine. Nicht nominierte Termine zählen nicht.'}
+          {tr('stats.teamAttendanceDesc', { n: st.pastCount })}
         </Box>
       </Box>
     </Box>
@@ -145,11 +144,12 @@ export function Stats() {
 
   const memberBars = (
     <Box key="mb" sx={{ mb: '22px' }}>
-      <SectionTitle>Quote pro Person</SectionTitle>
+      <SectionTitle>{tr('stats.quotePerPerson')}</SectionTitle>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '60vh', overflowY: 'auto' }}>
         {st.members.map((m) => {
           const q = m.quote === null ? 0 : m.quote;
-          const col = m.quote === null ? '#C0C2CA' : q >= 80 ? NEUTRAL.success : q >= 50 ? '#9A5B00' : NEUTRAL.error;
+          const col =
+            m.quote === null ? NEUTRAL.faint : q >= 80 ? NEUTRAL.success : q >= 50 ? NEUTRAL.warn : NEUTRAL.error;
           return (
             <Box
               key={m.userId}
@@ -157,7 +157,7 @@ export function Stats() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px',
-                background: '#fff',
+                background: NEUTRAL.card,
                 border: `1px solid ${NEUTRAL.line}`,
                 borderRadius: '14px',
                 p: '11px 14px',
@@ -171,8 +171,11 @@ export function Stats() {
                   aria-valuenow={q}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  aria-label={`${m.name}: ${m.quote === null ? 'keine Daten' : q + '% Anwesenheit'}`}
-                  sx={{ height: '8px', borderRadius: '5px', background: '#ECEDF3', overflow: 'hidden' }}
+                  aria-label={tr('stats.memberAria', {
+                    name: m.name,
+                    value: m.quote === null ? tr('stats.noData') : tr('stats.attendancePct', { q }),
+                  })}
+                  sx={{ height: '8px', borderRadius: '5px', background: NEUTRAL.line2, overflow: 'hidden' }}
                 >
                   <Box sx={{ height: '100%', width: q + '%', background: col, borderRadius: '5px' }} />
                 </Box>
@@ -189,7 +192,7 @@ export function Stats() {
 
   const eventsSec = (
     <Box key="ev">
-      <SectionTitle>Aufstellung je Termin</SectionTitle>
+      <SectionTitle>{tr('stats.lineupPerEvent')}</SectionTitle>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {st.events.length ? (
           st.events.map((e) => {
@@ -201,7 +204,7 @@ export function Stats() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '12px',
-                  background: '#fff',
+                  background: NEUTRAL.card,
                   border: `1px solid ${NEUTRAL.line}`,
                   borderRadius: '14px',
                   p: '11px 14px',
@@ -221,11 +224,11 @@ export function Stats() {
                     {e.title}
                   </Box>
                   <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
-                    {fmtDate(e.date) + ' · ' + e.yes + '/' + e.nominated + ' anwesend'}
+                    {fmtDate(e.date) + ' · ' + tr('stats.present', { yes: e.yes, nominated: e.nominated })}
                   </Box>
                 </Box>
                 <Chip
-                  label={e.enough ? 'Vollständig' : 'Zu wenig'}
+                  label={e.enough ? tr('stats.complete') : tr('stats.tooFew')}
                   color={e.enough ? NEUTRAL.success : NEUTRAL.error}
                   bg={e.enough ? NEUTRAL.successBg : NEUTRAL.errorBg}
                   icon={e.enough ? 'check_circle' : 'warning'}
@@ -234,7 +237,7 @@ export function Stats() {
             );
           })
         ) : (
-          <EmptyState icon="insights" text="Noch keine vergangenen Termine" />
+          <EmptyState icon="insights" text={tr('stats.emptyPast')} />
         )}
       </Box>
     </Box>

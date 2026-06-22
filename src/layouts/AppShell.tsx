@@ -110,13 +110,13 @@ export function Shell() {
       position: 'fixed' as const,
       left: '8px',
       top: '8px',
-      background: '#fff',
-      color: '#1A1C20',
+      background: NEUTRAL.card,
+      color: NEUTRAL.onSurface,
       padding: '10px 16px',
       borderRadius: '8px',
       fontSize: '14px',
       fontWeight: 600,
-      border: '2px solid #1A1C20',
+      border: `2px solid ${NEUTRAL.onSurface}`,
       textDecoration: 'none',
     },
   };
@@ -344,7 +344,10 @@ export function Shell() {
                     </Box>
                   ) : null}
                 </Box>
-                <Box component="span" sx={{ fontSize: '11px', fontWeight: 600, color: active ? '#1A1C20' : '#5A5D66' }}>
+                <Box
+                  component="span"
+                  sx={{ fontSize: '11px', fontWeight: 600, color: active ? NEUTRAL.onSurface : NEUTRAL.secondary }}
+                >
                   {n.label}
                 </Box>
               </ButtonBase>
@@ -488,7 +491,7 @@ export function Shell() {
             m: '12px',
             p: '10px 12px',
             borderRadius: '16px',
-            background: '#fff',
+            background: NEUTRAL.card,
             border: `1px solid ${NEUTRAL.line}`,
             textAlign: 'left',
             justifyContent: 'flex-start',
@@ -542,7 +545,7 @@ export function Shell() {
                 height: 40,
                 borderRadius: '50%',
                 border: `1px solid ${NEUTRAL.line3}`,
-                background: '#fff',
+                background: NEUTRAL.card,
                 color: NEUTRAL.onSurfaceVariant,
                 flex: '0 0 auto',
               }}
@@ -565,7 +568,7 @@ export function Shell() {
               height: 44,
               borderRadius: '50%',
               border: `1px solid ${NEUTRAL.line3}`,
-              background: '#fff',
+              background: NEUTRAL.card,
               color: NEUTRAL.onSurfaceVariant,
               flex: '0 0 auto',
             }}
@@ -589,7 +592,7 @@ export function Shell() {
                   alignItems: 'center',
                   justifyContent: 'center',
                   px: '5px',
-                  border: '2px solid #fff',
+                  border: `2px solid ${NEUTRAL.card}`,
                 }}
               >
                 {notifBadge}

@@ -179,7 +179,7 @@ export function SpinnerBox() {
         sx={{
           width: 34,
           height: 34,
-          border: '3px solid #D5D8E0',
+          border: `3px solid ${NEUTRAL.line3}`,
           borderTopColor: primaryColor,
           borderRadius: '50%',
           animation: 'tvSpin .8s linear infinite',
@@ -227,7 +227,7 @@ export function Card({ children, sx }: { children: React.ReactNode; sx?: SxProps
   return (
     <Box
       sx={{
-        background: '#fff',
+        background: NEUTRAL.card,
         border: `1px solid ${NEUTRAL.line}`,
         borderRadius: '18px',
         p: '16px',
@@ -293,7 +293,7 @@ export const inputSx: React.CSSProperties = {
   padding: '12px 14px',
   fontSize: '14px',
   outline: 'none',
-  background: '#fff',
+  background: NEUTRAL.card,
   color: NEUTRAL.onSurface,
   fontFamily: 'inherit',
 };
