@@ -33,7 +33,7 @@ export function MembersPage() {
           width: '100%',
           textAlign: 'left',
           justifyContent: 'flex-start',
-          background: '#fff',
+          background: NEUTRAL.card,
           border: `1px solid ${NEUTRAL.line}`,
           borderRadius: '16px',
           p: '12px 14px',
@@ -86,7 +86,7 @@ export function MembersPage() {
                 fontSize: '11px',
                 fontWeight: 700,
                 color: NEUTRAL.secondary,
-                background: '#ECEDF3',
+                background: NEUTRAL.line2,
                 p: '4px 8px',
                 borderRadius: '999px',
               }}
@@ -123,11 +123,11 @@ export function MembersPage() {
             gap: '7px',
             p: '8px 14px',
             borderRadius: '999px',
-            border: '1px solid #D0D2DA',
-            background: '#fff',
+            border: `1px solid ${NEUTRAL.inputBorder}`,
+            background: NEUTRAL.card,
             fontSize: '13px',
             fontWeight: 600,
-            color: '#44474E',
+            color: NEUTRAL.onSurfaceVariant,
           }}
         >
           <Sym name="admin_panel_settings" size={18} color="#44474E" />

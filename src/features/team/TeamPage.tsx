@@ -22,7 +22,7 @@ export function TeamPage() {
         width: '100%',
         textAlign: 'left',
         justifyContent: 'flex-start',
-        background: '#fff',
+        background: NEUTRAL.card,
         border: `1px solid ${NEUTRAL.line}`,
         borderRadius: '16px',
         p: '15px 16px',
@@ -68,7 +68,7 @@ export function TeamPage() {
               backgroundSize: 'cover',
               backgroundPosition: 'center',
             }
-          : { background: '#fff', border: `1px solid ${NEUTRAL.line}` }),
+          : { background: NEUTRAL.card, border: `1px solid ${NEUTRAL.line}` }),
       }}
     >
       <Box
@@ -196,7 +196,7 @@ export function TeamPage() {
         width: '100%',
         p: '14px',
         borderRadius: '16px',
-        border: '1.5px dashed #C8CAD2',
+        border: `1.5px dashed ${NEUTRAL.inputBorder}`,
         background: 'transparent',
         color: tk.primary,
         fontWeight: 600,

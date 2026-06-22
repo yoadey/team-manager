@@ -108,8 +108,8 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         p: '12px 14px',
         borderRadius: '13px',
         cursor: 'pointer',
-        border: '1px solid #E6E7EE',
-        background: '#F4F4FA',
+        border: `1px solid ${NEUTRAL.line}`,
+        background: NEUTRAL.sidebar,
         justifyContent: 'flex-start',
       }}
     >
@@ -138,7 +138,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
 
   const recur =
     sheet.mode === 'create' ? (
-      <Box key="rec" sx={{ borderTop: '1px solid #ECEDF3', pt: '14px' }}>
+      <Box key="rec" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '14px' }}>
         <ButtonBase
           key="tg"
           onClick={() => app.setFormVal({ recurring: !F.recurring })}
@@ -179,7 +179,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 width: '20px',
                 height: '20px',
                 borderRadius: '50%',
-                background: '#fff',
+                background: NEUTRAL.card,
                 transition: 'left .2s',
               }}
             />
@@ -196,7 +196,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
     ) : null;
 
   const nomSel = (
-    <Box key="nomsel" sx={{ borderTop: '1px solid #ECEDF3', pt: '14px' }}>
+    <Box key="nomsel" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '14px' }}>
       <Box key="l" sx={labelSx}>
         {t('events.nominatedRoles')}
       </Box>
@@ -319,7 +319,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
                 p: '13px',
                 borderRadius: '13px',
                 border: '1px solid ' + tk.primary,
-                background: '#fff',
+                background: NEUTRAL.card,
                 color: tk.primary,
                 fontWeight: 700,
                 fontSize: '14px',

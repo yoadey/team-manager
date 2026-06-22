@@ -47,8 +47,8 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         gap: '12px',
         p: '12px 14px',
         borderRadius: '13px',
-        border: '1px dashed #C8CAD2',
-        background: '#F4F4FA',
+        border: `1px dashed ${NEUTRAL.inputBorder}`,
+        background: NEUTRAL.sidebar,
         cursor: 'pointer',
       }}
     >
@@ -57,7 +57,11 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
       ) : (
         <Sym name="add_photo_alternate" size={24} color={NEUTRAL.secondary} />
       )}
-      <Box key="l" component="span" sx={{ flex: 1, fontSize: '13px', fontWeight: 600, color: '#44474E' }}>
+      <Box
+        key="l"
+        component="span"
+        sx={{ flex: 1, fontSize: '13px', fontWeight: 600, color: NEUTRAL.onSurfaceVariant }}
+      >
         {F.photo ? t('team.photoSelected') : t('team.photoUpload')}
       </Box>
       <input
@@ -81,7 +85,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
           fontSize: '13px',
           color: NEUTRAL.secondary,
           lineHeight: 1.5,
-          background: '#F4F4FA',
+          background: NEUTRAL.sidebar,
           p: '12px 14px',
           borderRadius: '13px',
         }}
@@ -147,8 +151,8 @@ export function InviteSheet({ app, sheet }: SheetProps) {
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          background: '#F4F4FA',
-          border: '1px solid #E0E2EA',
+          background: NEUTRAL.sidebar,
+          border: `1px solid ${NEUTRAL.line3}`,
           borderRadius: '13px',
           p: '12px 14px',
         }}
@@ -160,7 +164,7 @@ export function InviteSheet({ app, sheet }: SheetProps) {
             flex: 1,
             fontSize: '13px',
             fontFamily: 'monospace',
-            color: '#1A1C20',
+            color: NEUTRAL.onSurface,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -197,7 +201,7 @@ export function InviteSheet({ app, sheet }: SheetProps) {
           <Box
             key="b"
             component="b"
-            sx={{ fontFamily: 'monospace', fontSize: '15px', letterSpacing: '1px', color: '#1A1C20' }}
+            sx={{ fontFamily: 'monospace', fontSize: '15px', letterSpacing: '1px', color: NEUTRAL.onSurface }}
           >
             {inv.code}
           </Box>
@@ -225,12 +229,12 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
         gap: '8px',
         p: '9px 14px',
         borderRadius: '12px',
-        border: '1px solid #C8CAD2',
-        background: '#fff',
+        border: `1px solid ${NEUTRAL.inputBorder}`,
+        background: NEUTRAL.card,
         cursor: 'pointer',
         fontSize: '13px',
         fontWeight: 600,
-        color: '#44474E',
+        color: NEUTRAL.onSurfaceVariant,
       }}
     >
       <Sym name={icon} size={18} />
@@ -307,7 +311,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
               width: '58px',
               height: '58px',
               borderRadius: '15px',
-              background: '#ECEDF3',
+              background: NEUTRAL.line2,
               color: NEUTRAL.faint,
               display: 'flex',
               alignItems: 'center',

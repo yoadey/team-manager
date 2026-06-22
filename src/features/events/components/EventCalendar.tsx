@@ -96,7 +96,7 @@ export function EventCalendar() {
           display: 'flex',
           alignItems: 'center',
           gap: '3px',
-          background: '#F0F0F4',
+          background: NEUTRAL.line2,
           borderRadius: '5px',
           p: '1px 4px',
           fontSize: mobile ? '8px' : '9px',
@@ -118,7 +118,7 @@ export function EventCalendar() {
         key={'c' + i}
         sx={{
           minHeight: mobile ? '58px' : '76px',
-          border: '1px solid #ECEDF3',
+          border: `1px solid ${NEUTRAL.line2}`,
           borderRadius: '9px',
           p: mobile ? '3px' : '5px',
           background: inMonth ? '#fff' : '#F7F7FB',
@@ -176,7 +176,7 @@ export function EventCalendar() {
           mb: '12px',
           cursor: 'pointer',
           fontSize: '13px',
-          color: '#44474E',
+          color: NEUTRAL.onSurfaceVariant,
           fontWeight: 500,
         }}
       >
@@ -199,9 +199,9 @@ export function EventCalendar() {
               width: '34px',
               height: '34px',
               borderRadius: '50%',
-              border: '1px solid #E0E2EA',
-              background: '#fff',
-              color: '#44474E',
+              border: `1px solid ${NEUTRAL.line3}`,
+              background: NEUTRAL.card,
+              color: NEUTRAL.onSurfaceVariant,
             }}
           >
             <Sym name="chevron_left" size={22} color="#44474E" />
@@ -213,9 +213,9 @@ export function EventCalendar() {
               width: '34px',
               height: '34px',
               borderRadius: '50%',
-              border: '1px solid #E0E2EA',
-              background: '#fff',
-              color: '#44474E',
+              border: `1px solid ${NEUTRAL.line3}`,
+              background: NEUTRAL.card,
+              color: NEUTRAL.onSurfaceVariant,
             }}
           >
             <Sym name="chevron_right" size={22} color="#44474E" />

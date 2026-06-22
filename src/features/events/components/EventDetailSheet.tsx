@@ -64,7 +64,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           onClick={() => app.askEventAction('reactivate', e)}
           sx={{
             border: 'none',
-            background: '#fff',
+            background: NEUTRAL.card,
             color: NEUTRAL.error,
             borderRadius: '9px',
             p: '7px 12px',
@@ -89,7 +89,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         gap: '1px',
         borderRadius: '16px',
         overflow: 'hidden',
-        border: '1px solid #E6E7EE',
+        border: `1px solid ${NEUTRAL.line}`,
         mb: '14px',
       }}
     >
@@ -105,14 +105,20 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           {e.meetTimeMandatory ? <Chip key="p" label={t('events.mandatory')} color="#8A6100" bg="#FCE2B8" /> : null}
         </Box>
       ) : null}
-      <Box key="time" sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
+      <Box
+        key="time"
+        sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: NEUTRAL.card }}
+      >
         <Sym name="schedule" size={20} color={NEUTRAL.secondary} />
         <Box key="t" component="span" sx={{ flex: 1 }}>
           {t('events.startEnd')} <b>{hhmm(e.startTime) + '–' + hhmm(e.endTime)}</b>
         </Box>
       </Box>
       {e.location ? (
-        <Box key="loc" sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#fff' }}>
+        <Box
+          key="loc"
+          sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: NEUTRAL.card }}
+        >
           <Sym name="place" size={20} color={NEUTRAL.secondary} />
           <Box key="t" component="span" sx={{ flex: 1 }}>
             {e.location}
@@ -125,10 +131,17 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const note = e.note ? (
     <Box
       key="note"
-      sx={{ display: 'flex', gap: '10px', p: '12px 14px', background: '#F4F4FA', borderRadius: '14px', mb: '14px' }}
+      sx={{
+        display: 'flex',
+        gap: '10px',
+        p: '12px 14px',
+        background: NEUTRAL.sidebar,
+        borderRadius: '14px',
+        mb: '14px',
+      }}
     >
       <Sym name="sticky_note_2" size={18} color={NEUTRAL.secondary} />
-      <Box key="t" component="span" sx={{ fontSize: '13px', color: '#44474E', lineHeight: 1.5 }}>
+      <Box key="t" component="span" sx={{ fontSize: '13px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.5 }}>
         {e.note}
       </Box>
     </Box>
@@ -158,7 +171,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             alignItems: 'center',
             gap: '10px',
             p: '13px 14px',
-            background: '#F0F0F4',
+            background: NEUTRAL.line2,
             borderRadius: '14px',
             mb: '16px',
             color: NEUTRAL.secondary,
@@ -216,8 +229,8 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             mb: '16px',
             p: '11px 13px',
             borderRadius: '13px',
-            border: '1px solid #E6E7EE',
-            background: '#fff',
+            border: `1px solid ${NEUTRAL.line}`,
+            background: NEUTRAL.card,
             cursor: 'pointer',
             textAlign: 'left',
             justifyContent: 'flex-start',
@@ -323,7 +336,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         borderRadius: '6px',
         overflow: 'hidden',
         display: 'flex',
-        background: '#ECEDF3',
+        background: NEUTRAL.line2,
         m: '2px 0 12px',
       }}
     >
@@ -427,7 +440,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           gap: '10px',
           p: '8px',
           borderRadius: '12px',
-          background: '#fff',
+          background: NEUTRAL.card,
           opacity: notN ? 0.72 : 1,
         }}
       >
@@ -484,9 +497,9 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           gap: '8px',
           p: '12px',
           borderRadius: '13px',
-          border: '1px solid #C8CAD2',
-          background: '#fff',
-          color: '#44474E',
+          border: `1px solid ${NEUTRAL.inputBorder}`,
+          background: NEUTRAL.card,
+          color: NEUTRAL.onSurfaceVariant,
           fontWeight: 600,
           fontSize: '14px',
           cursor: 'pointer',
@@ -552,7 +565,10 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           cms.map((c) => (
             <Box key={c.id} sx={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
               <Av name={c.name} photo={c.photo} color={c.color} size={32} font={12} />
-              <Box key="m" sx={{ flex: 1, minWidth: 0, background: '#F4F4FA', borderRadius: '12px', p: '9px 12px' }}>
+              <Box
+                key="m"
+                sx={{ flex: 1, minWidth: 0, background: NEUTRAL.sidebar, borderRadius: '12px', p: '9px 12px' }}
+              >
                 <Box key="h" sx={{ display: 'flex', alignItems: 'center', gap: '7px', mb: '2px' }}>
                   <Box key="n" component="span" sx={{ fontSize: '12px', fontWeight: 700 }}>
                     {c.name}
@@ -561,7 +577,10 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
                     {fmtDateTime(c.createdAt)}
                   </Box>
                 </Box>
-                <Box key="b" sx={{ fontSize: '13px', color: '#44474E', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                <Box
+                  key="b"
+                  sx={{ fontSize: '13px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.45, wordBreak: 'break-word' }}
+                >
                   {c.text}
                 </Box>
               </Box>

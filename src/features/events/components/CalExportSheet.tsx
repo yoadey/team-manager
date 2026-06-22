@@ -53,7 +53,10 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
 
       <PrimaryButton label={t('events.calDownload')} onClick={() => app.downloadIcs()} />
 
-      <Box key="sub" sx={{ border: '1px solid #E6E7EE', borderRadius: '16px', p: '14px', background: '#fff' }}>
+      <Box
+        key="sub"
+        sx={{ border: `1px solid ${NEUTRAL.line}`, borderRadius: '16px', p: '14px', background: NEUTRAL.card }}
+      >
         <Box
           key="h"
           sx={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, mb: '4px' }}
@@ -70,8 +73,8 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            background: '#F4F4FA',
-            border: '1px solid #E0E2EA',
+            background: NEUTRAL.sidebar,
+            border: `1px solid ${NEUTRAL.line3}`,
             borderRadius: '12px',
             p: '10px 12px',
           }}
@@ -83,7 +86,7 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
               flex: 1,
               fontSize: '12px',
               fontFamily: 'monospace',
-              color: '#1A1C20',
+              color: NEUTRAL.onSurface,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -115,7 +118,7 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
         </Box>
       </Box>
 
-      <Box key="hints" sx={{ borderTop: '1px solid #ECEDF3', pt: '6px' }}>
+      <Box key="hints" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '6px' }}>
         {hint('calendar_month', t('events.calGoogle'), t('events.calGoogleDesc'))}
         {hint('phone_iphone', t('events.calApple'), t('events.calAppleDesc'))}
         {hint('download', t('events.calOneTime'), t('events.calOneTimeDesc'))}

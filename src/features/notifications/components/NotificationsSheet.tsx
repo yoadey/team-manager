@@ -226,7 +226,10 @@ export function NotificationsSheet({ app }: SheetProps) {
       <>
         {lead}
         <Box key="m" sx={{ flex: 1, minWidth: 0 }}>
-          <Box key="l1" sx={{ fontSize: '14px', fontWeight: n.unread ? 700 : 600, color: '#1A1C20', lineHeight: 1.3 }}>
+          <Box
+            key="l1"
+            sx={{ fontSize: '14px', fontWeight: n.unread ? 700 : 600, color: NEUTRAL.onSurface, lineHeight: 1.3 }}
+          >
             {m.line1}
           </Box>
           <Box

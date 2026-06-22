@@ -31,7 +31,7 @@ export function NewsPage() {
                   width: '30px',
                   height: '30px',
                   borderRadius: '50%',
-                  background: '#F4F4FA',
+                  background: NEUTRAL.sidebar,
                   color: NEUTRAL.faint,
                   cursor: 'pointer',
                 }}

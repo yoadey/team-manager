@@ -25,7 +25,7 @@ export function EventAbsences() {
           display: 'flex',
           alignItems: 'center',
           gap: '12px',
-          background: '#fff',
+          background: NEUTRAL.card,
           border: `1px solid ${NEUTRAL.line}`,
           borderRadius: '15px',
           p: '12px 14px',
@@ -53,8 +53,8 @@ export function EventAbsences() {
               height: '34px',
               borderRadius: '50%',
               border: 'none',
-              background: '#F4F4FA',
-              color: '#44474E',
+              background: NEUTRAL.sidebar,
+              color: NEUTRAL.onSurfaceVariant,
               flex: '0 0 auto',
             }}
           >
@@ -93,7 +93,7 @@ export function EventAbsences() {
           width: '100%',
           p: '13px',
           borderRadius: '14px',
-          border: '1.5px dashed #C8CAD2',
+          border: `1.5px dashed ${NEUTRAL.inputBorder}`,
           background: 'transparent',
           color: tk.primary,
           fontWeight: 600,

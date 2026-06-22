@@ -63,7 +63,7 @@ export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
       alignItems: 'center',
       gap: '12px',
       p: '12px 14px',
-      background: '#fff',
+      background: NEUTRAL.card,
       width: '100%',
       textAlign: 'left',
       border: 'none',

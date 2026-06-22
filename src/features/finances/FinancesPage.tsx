@@ -20,7 +20,7 @@ export function FinancesPage() {
       sx={{
         flex: 1,
         minWidth: '120px',
-        background: '#fff',
+        background: NEUTRAL.card,
         border: `1px solid ${NEUTRAL.line}`,
         borderRadius: '16px',
         p: '15px',
@@ -65,7 +65,7 @@ export function FinancesPage() {
         {stat(t('finances.income'), f.income, NEUTRAL.success)}
         {stat(t('finances.expense'), f.expense, NEUTRAL.error)}
       </Box>
-      <Box sx={{ display: 'flex', gap: '4px', background: '#ECEDF3', borderRadius: '14px', p: '4px', mb: '18px' }}>
+      <Box sx={{ display: 'flex', gap: '4px', background: NEUTRAL.line2, borderRadius: '14px', p: '4px', mb: '18px' }}>
         {tabDef.map(([k, l, ic]) => {
           const sel = tab === k;
           return (

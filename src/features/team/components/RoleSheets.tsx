@@ -24,7 +24,10 @@ export function RolesSheet({ app, sheet }: SheetProps) {
         : { l: t('team.permNone'), bg: '#ECEDF3', c: NEUTRAL.faint };
 
   const cards = state.roles.map((r) => (
-    <Box key={r.id} sx={{ border: '1px solid #E6E7EE', borderRadius: '16px', p: '14px', background: '#fff' }}>
+    <Box
+      key={r.id}
+      sx={{ border: `1px solid ${NEUTRAL.line}`, borderRadius: '16px', p: '14px', background: NEUTRAL.card }}
+    >
       <Box key="h" sx={{ display: 'flex', alignItems: 'center', gap: '10px', mb: '10px' }}>
         <Box
           key="d"
@@ -79,7 +82,7 @@ export function RolesSheet({ app, sheet }: SheetProps) {
         gap: '12px',
         p: '14px',
         borderRadius: '16px',
-        border: '1.5px dashed #C8CAD2',
+        border: `1.5px dashed ${NEUTRAL.inputBorder}`,
         background: 'transparent',
         cursor: 'pointer',
         color: tk.primary,
@@ -116,7 +119,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
         alignItems: 'center',
         gap: '10px',
         p: '8px 12px',
-        background: '#F4F4FA',
+        background: NEUTRAL.sidebar,
         borderRadius: '12px',
       }}
     >
@@ -125,7 +128,13 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
       </Box>
       <Box
         key="b"
-        sx={{ display: 'flex', background: '#fff', borderRadius: '9px', p: '3px', border: '1px solid #E0E2EA' }}
+        sx={{
+          display: 'flex',
+          background: NEUTRAL.card,
+          borderRadius: '9px',
+          p: '3px',
+          border: `1px solid ${NEUTRAL.line3}`,
+        }}
       >
         {(
           [

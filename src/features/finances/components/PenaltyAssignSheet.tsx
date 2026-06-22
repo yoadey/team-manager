@@ -64,7 +64,11 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
                   boxShadow: sel ? 'inset 0 0 0 3px #fff' : 'none',
                 }}
               />
-              <Box component="span" key="lb" sx={{ flex: 1, fontSize: '14px', fontWeight: 600, color: '#44474E' }}>
+              <Box
+                component="span"
+                key="lb"
+                sx={{ flex: 1, fontSize: '14px', fontWeight: 600, color: NEUTRAL.onSurfaceVariant }}
+              >
                 {p.label}
               </Box>
               <Box component="b" key="a" sx={{ fontSize: '14px', color: tk.primary }}>

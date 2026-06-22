@@ -32,7 +32,7 @@ export function PollsPage() {
                 width: '100%',
                 textAlign: 'left',
                 border: '1.5px solid ' + (sel ? tk.primary : '#E0E2EA'),
-                background: '#fff',
+                background: NEUTRAL.card,
                 borderRadius: '12px',
                 p: '11px 14px',
                 cursor: 'pointer',

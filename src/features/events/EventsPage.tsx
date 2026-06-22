@@ -51,7 +51,7 @@ export function EventsPage() {
       <Box
         role="tablist"
         aria-label={t('events.viewTabsLabel')}
-        sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}
+        sx={{ display: 'flex', background: NEUTRAL.line2, borderRadius: '12px', p: '4px' }}
       >
         {seg(t('events.tabs.list'), 'list', state.eventsView, (v) => app.setEventsView(v))}
         {seg(t('events.tabs.calendar'), 'calendar', state.eventsView, (v) => app.setEventsView(v))}
@@ -62,7 +62,7 @@ export function EventsPage() {
         <Box
           role="tablist"
           aria-label={t('events.scopeTabsLabel')}
-          sx={{ display: 'flex', background: '#ECEDF3', borderRadius: '12px', p: '4px' }}
+          sx={{ display: 'flex', background: NEUTRAL.line2, borderRadius: '12px', p: '4px' }}
         >
           {seg(t('events.tabs.upcoming'), 'upcoming', state.eventScope, (v) => app.setState({ eventScope: v }))}
           {seg(t('events.tabs.past'), 'past', state.eventScope, (v) => app.setState({ eventScope: v }))}
@@ -77,11 +77,11 @@ export function EventsPage() {
           gap: '7px',
           p: '9px 14px',
           borderRadius: '12px',
-          border: '1px solid #D0D2DA',
-          background: '#fff',
+          border: `1px solid ${NEUTRAL.inputBorder}`,
+          background: NEUTRAL.card,
           fontSize: '13px',
           fontWeight: 600,
-          color: '#44474E',
+          color: NEUTRAL.onSurfaceVariant,
         }}
       >
         <Sym name="ios_share" size={18} color={NEUTRAL.secondary} />
