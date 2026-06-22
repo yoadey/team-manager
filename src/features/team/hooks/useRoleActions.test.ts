@@ -108,7 +108,7 @@ describe('useRoleActions', () => {
     act(() => {
       result.current.setRolePerm('finances', 'write');
     });
-    expect(stateRef.form.perms.finances).toBe('write');
+    expect((stateRef.form.perms as Record<string, string>).finances).toBe('write');
   });
 
   it('saveRole shows toast when name is empty', async () => {

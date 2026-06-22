@@ -1,8 +1,9 @@
 import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
-import type { AttendanceRow, TeamEvent } from '../types';
+import type { AttendanceRow, AttendanceCommentFormValues, EventCommentFormValues, TeamEvent } from '../types';
 import type { AttendanceStatus, Role, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
+import { formValues } from '@/utils/forms';
 import { canSeeReason } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -16,8 +17,7 @@ type EventFeatureDeps = {
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
   refreshEvents: () => Promise<void>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setFormVal: (patch: Record<string, any>) => void;
+  setFormVal: (patch: Record<string, unknown>) => void;
   toastMsg: (m: string) => void;
 };
 
@@ -125,7 +125,7 @@ export function useEventDetailActions({
           status: row.status,
           back: st.sheet,
         },
-        form: { commentText: row.reason || '' },
+        form: { commentText: row.reason || '' } satisfies AttendanceCommentFormValues,
       }));
     },
     [setState],
@@ -137,7 +137,7 @@ export function useEventDetailActions({
     try {
       await api.attendance.set(s.eventId!, s.userId!, {
         status: s.status!,
-        reason: (S().form.commentText as string) || '',
+        reason: formValues<AttendanceCommentFormValues>(S()).commentText || '',
       });
       await refreshEvents();
       const eid = s.eventId!;
@@ -151,7 +151,7 @@ export function useEventDetailActions({
 
   const postEventComment = useCallback(
     async (eventId: string) => {
-      const txt = (S().form.newEventComment || '').trim();
+      const txt = (formValues<EventCommentFormValues>(S()).newEventComment || '').trim();
       if (!txt) return;
       try {
         await api.events.addComment(eventId, txt);

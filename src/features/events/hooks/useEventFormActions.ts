@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
-import type { TeamEvent } from '../types';
+import type { EventFormValues, TeamEvent } from '../types';
 import type { AppState } from '@/context/AppContext';
+import { formValues } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
 import { validateEventForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
@@ -20,7 +21,7 @@ type EventFormDeps = {
 export function useEventFormActions({ api, S, setState, refreshEvents, openEventDetail, toastMsg }: EventFormDeps) {
   const openEventForm = useCallback(
     (event: TeamEvent | null) => {
-      const f = event
+      const f: EventFormValues = event
         ? {
             id: event.id,
             seriesId: event.seriesId || null,
@@ -68,7 +69,7 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
 
   const saveEvent = useCallback(
     async (scope: 'single' | 'series' = 'single') => {
-      const f = S().form;
+      const f = S().form as EventFormValues;
       const sh = S().sheet!;
       const mode = sh.mode;
       const validation = validateEventForm(f, mode);
@@ -92,7 +93,7 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
         nominatedRoleIds: f.nominatedRoleIds,
       };
       try {
-        if (mode === 'edit') await api.events.update(f.id, payload, scope);
+        if (mode === 'edit') await api.events.update(f.id!, payload, scope);
         else
           await api.events.create(S().activeTeamId!, {
             ...payload,
@@ -102,7 +103,7 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
           });
         await refreshEvents();
         setState({ busy: null, sheet: null });
-        if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id);
+        if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
         toastMsg(
           mode === 'edit'
             ? scope === 'series'
@@ -120,8 +121,8 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
   const toggleFormNomRole = useCallback(
     (roleId: string) =>
       setState((s) => {
-        const cur = s.form.nominatedRoleIds || [];
-        const next = cur.includes(roleId) ? cur.filter((x: string) => x !== roleId) : cur.concat(roleId);
+        const cur = formValues<EventFormValues>(s).nominatedRoleIds ?? [];
+        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
         return { form: { ...s.form, nominatedRoleIds: next } };
       }),
     [setState],

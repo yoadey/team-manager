@@ -4,12 +4,14 @@ import { buildTokens, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Field, labelSx, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { Role } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
+import type { EventFormValues } from '../types';
 import { t } from '@/i18n';
 
 export function EventFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const F = app.state.form;
+  const F = formValues<EventFormValues>(app.state);
   const errs = state.formErrors;
 
   const req = (field: string, msg: string) => () =>
@@ -236,7 +238,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
     </Box>
   );
 
-  const canSubmit = !!(F.title as string | undefined)?.trim() && !!F.date;
+  const canSubmit = !!F.title?.trim() && !!F.date;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

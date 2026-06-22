@@ -360,7 +360,7 @@ export function TextInput({ name, type = 'text', placeholder, min, max, style: s
       type={type}
       min={min}
       max={max}
-      value={v == null ? '' : v}
+      value={v == null ? '' : String(v)}
       placeholder={placeholder || ''}
       onChange={onFormInput}
       style={styleProp ? { ...inputSx, ...styleProp } : inputSx}
@@ -389,7 +389,7 @@ export function TextArea({
   return (
     <textarea
       name={name}
-      value={v == null ? '' : v}
+      value={v == null ? '' : String(v)}
       placeholder={placeholder || ''}
       onChange={onFormInput}
       onBlur={onBlur}

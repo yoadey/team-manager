@@ -3,9 +3,10 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { todayLocalDate } from '@/utils/date';
 import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Av, Chip, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '@/components/ui';
-import type { AttendanceRow, EventComment, TeamEvent } from '../types';
+import type { AttendanceRow, EventComment, EventCommentFormValues, TeamEvent } from '../types';
 import type { AttendanceStatus } from '@/types';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
 import { t } from '@/i18n';
 
 export function EventDetailSheet({ app, sheet }: SheetProps) {
@@ -586,7 +587,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         <input
           key="i"
           name="newEventComment"
-          value={app.state.form.newEventComment || ''}
+          value={formValues<EventCommentFormValues>(app.state).newEventComment || ''}
           onChange={(ev) => app.onFormInput(ev)}
           onKeyDown={(ev) => {
             if (ev.key === 'Enter') app.postEventComment(e.id);

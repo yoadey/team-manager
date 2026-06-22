@@ -124,8 +124,8 @@ export interface AppState {
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
   contribMonth: string | null;
   sheet: SheetState | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  form: Record<string, any>;
+  /** Shared editing buffer for the active sheet; read typed via formValues<T>() (src/utils/forms.ts). */
+  form: Record<string, unknown>;
   formErrors: Record<string, string>;
   toast: string | null;
   error: string | null;
@@ -191,8 +191,7 @@ export interface AppContextValue {
   setColorScheme: (scheme: AppState['colorScheme']) => void;
   // form
   onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setFormVal: (patch: Record<string, any>) => void;
+  setFormVal: (patch: Record<string, unknown>) => void;
   setFormErrors: (patch: Record<string, string>) => void;
   onFile: (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => void;
   setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -431,8 +430,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [setState],
   );
   const setFormVal = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (patch: Record<string, any>) => setState((s) => ({ form: { ...s.form, ...patch } })),
+    (patch: Record<string, unknown>) => setState((s) => ({ form: { ...s.form, ...patch } })),
     [setState],
   );
   const setFormErrors = useCallback(
