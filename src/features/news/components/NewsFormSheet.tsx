@@ -39,7 +39,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
           width: '44px',
           height: '26px',
           borderRadius: '999px',
-          background: F.pinned ? tk.primary : '#C8CAD2',
+          background: F.pinned ? tk.primary : NEUTRAL.inputBorder,
           position: 'relative',
         }}
       >

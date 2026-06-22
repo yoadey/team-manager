@@ -129,16 +129,16 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
         sx={{
           display: 'flex',
           gap: '10px',
-          background: '#FFF7E6',
+          background: NEUTRAL.warnBg,
           border: '1px solid #F0DBA8',
           borderRadius: '13px',
           p: '12px 14px',
           fontSize: '12px',
-          color: '#6B5413',
+          color: NEUTRAL.warn,
           lineHeight: 1.5,
         }}
       >
-        <Sym name="info" size={18} color="#8A6100" />
+        <Sym name="info" size={18} color={NEUTRAL.warn} />
         {t('events.calPrototypeNote')}
       </Box>
     </Box>

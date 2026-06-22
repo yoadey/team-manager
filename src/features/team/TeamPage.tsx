@@ -34,21 +34,21 @@ export function TeamPage() {
           width: '44px',
           height: '44px',
           borderRadius: '12px',
-          background: accent ? tk.primaryContainer : '#ECEDF3',
-          color: accent ? tk.primary : '#44474E',
+          background: accent ? tk.primaryContainer : NEUTRAL.line2,
+          color: accent ? tk.primary : NEUTRAL.onSurfaceVariant,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           flex: '0 0 auto',
         }}
       >
-        <Sym name={icon} size={22} color={accent ? tk.primary : '#44474E'} />
+        <Sym name={icon} size={22} color={accent ? tk.primary : NEUTRAL.onSurfaceVariant} />
       </Box>
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Box sx={{ fontSize: '15px', fontWeight: 600 }}>{title}</Box>
         <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '2px' }}>{sub}</Box>
       </Box>
-      <Sym name="chevron_right" size={22} color="#C0C2CA" />
+      <Sym name="chevron_right" size={22} color={NEUTRAL.faint} />
     </ButtonBase>
   );
 
@@ -61,7 +61,7 @@ export function TeamPage() {
         borderRadius: '20px',
         p: '20px',
         mb: '18px',
-        color: team.photo ? '#fff' : '#1A1C20',
+        color: team.photo ? '#fff' : NEUTRAL.onSurface,
         ...(team.photo
           ? {
               backgroundImage: `linear-gradient(90deg, rgba(10,12,20,.72), rgba(10,12,20,.3)), url(${team.photo})`,
@@ -86,7 +86,7 @@ export function TeamPage() {
           ...(team.logo
             ? { backgroundImage: `url(${team.logo})`, backgroundSize: 'cover', backgroundPosition: 'center' }
             : team.photo
-              ? { background: 'rgba(255,255,255,.2)', color: '#fff' }
+              ? { background: 'rgba(255,255,255,.2)', color: NEUTRAL.card }
               : { background: team.iconBg, color: team.iconFg }),
         }}
       >
@@ -147,7 +147,7 @@ export function TeamPage() {
               width: '100%',
               textAlign: 'left',
               justifyContent: 'flex-start',
-              background: active ? tk.primaryContainer : '#fff',
+              background: active ? tk.primaryContainer : NEUTRAL.card,
               border: `1px solid ${active ? 'transparent' : NEUTRAL.line}`,
               borderRadius: '16px',
               p: '13px 15px',

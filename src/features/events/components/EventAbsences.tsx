@@ -58,7 +58,7 @@ export function EventAbsences() {
               flex: '0 0 auto',
             }}
           >
-            <Sym name="edit" size={18} color="#44474E" />
+            <Sym name="edit" size={18} color={NEUTRAL.onSurfaceVariant} />
           </ButtonBase>
         ) : null}
         {isMe ? (
@@ -69,7 +69,7 @@ export function EventAbsences() {
               height: '34px',
               borderRadius: '50%',
               border: 'none',
-              background: '#FFF4F3',
+              background: NEUTRAL.errorBg,
               color: NEUTRAL.error,
               flex: '0 0 auto',
             }}

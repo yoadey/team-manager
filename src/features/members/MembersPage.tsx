@@ -95,7 +95,7 @@ export function MembersPage() {
             </Box>
           ) : null}
         </Box>
-        <Sym name="chevron_right" size={22} color="#C0C2CA" />
+        <Sym name="chevron_right" size={22} color={NEUTRAL.faint} />
       </ButtonBase>
     );
   });
@@ -130,7 +130,7 @@ export function MembersPage() {
             color: NEUTRAL.onSurfaceVariant,
           }}
         >
-          <Sym name="admin_panel_settings" size={18} color="#44474E" />
+          <Sym name="admin_panel_settings" size={18} color={NEUTRAL.onSurfaceVariant} />
           {t('members.rolesAndRights')}
         </ButtonBase>
       </Box>

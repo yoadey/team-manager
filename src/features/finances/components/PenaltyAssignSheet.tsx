@@ -47,8 +47,8 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
                 cursor: 'pointer',
                 textAlign: 'left',
                 justifyContent: 'flex-start',
-                border: '1.5px solid ' + (sel ? tk.primary : '#E0E2EA'),
-                background: sel ? tk.primaryContainer : '#fff',
+                border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
+                background: sel ? tk.primaryContainer : NEUTRAL.card,
               }}
             >
               <Box
@@ -59,8 +59,8 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
                   height: '18px',
                   borderRadius: '50%',
                   flex: '0 0 auto',
-                  border: '2px solid ' + (sel ? tk.primary : '#C0C2CA'),
-                  background: sel ? tk.primary : '#fff',
+                  border: '2px solid ' + (sel ? tk.primary : NEUTRAL.faint),
+                  background: sel ? tk.primary : NEUTRAL.card,
                   boxShadow: sel ? 'inset 0 0 0 3px #fff' : 'none',
                 }}
               />

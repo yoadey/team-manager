@@ -27,8 +27,8 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         width: '48px',
         height: '48px',
         borderRadius: '13px',
-        border: '2px solid ' + (F.icon === em ? tk.primary : '#E0E2EA'),
-        background: F.icon === em ? tk.primaryContainer : '#fff',
+        border: '2px solid ' + (F.icon === em ? tk.primary : NEUTRAL.line3),
+        background: F.icon === em ? tk.primaryContainer : NEUTRAL.card,
         cursor: 'pointer',
         fontSize: '22px',
       }}
@@ -53,7 +53,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
       }}
     >
       {F.photo ? (
-        <Av key="a" name="" photo={F.photo} color="#ccc" size={40} />
+        <Av key="a" name="" photo={F.photo} color={NEUTRAL.inputBorder} size={40} />
       ) : (
         <Sym name="add_photo_alternate" size={24} color={NEUTRAL.secondary} />
       )}
@@ -284,8 +284,8 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
               width: '44px',
               height: '44px',
               borderRadius: '12px',
-              border: '2px solid ' + (!F.logo && F.icon === em ? tk.primary : '#E0E2EA'),
-              background: !F.logo && F.icon === em ? tk.primaryContainer : '#fff',
+              border: '2px solid ' + (!F.logo && F.icon === em ? tk.primary : NEUTRAL.line3),
+              background: !F.logo && F.icon === em ? tk.primaryContainer : NEUTRAL.card,
               cursor: 'pointer',
               fontSize: '20px',
             }}
@@ -302,7 +302,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
       <SectionTitle>{t('team.settingsPhotoSection')}</SectionTitle>
       <Box key="r" sx={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
         {team.photo ? (
-          <Av key="a" name={team.name} photo={team.photo} color="#ccc" size={58} />
+          <Av key="a" name={team.name} photo={team.photo} color={NEUTRAL.inputBorder} size={58} />
         ) : (
           <Box
             key="i"
@@ -356,9 +356,9 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
                 cursor: 'pointer',
                 fontSize: '13px',
                 fontWeight: 600,
-                border: '1.5px solid ' + (sel ? r.color : '#D0D2DA'),
-                background: sel ? r.color + '1A' : '#fff',
-                color: sel ? r.color : '#44474E',
+                border: '1.5px solid ' + (sel ? r.color : NEUTRAL.inputBorder),
+                background: sel ? r.color + '1A' : NEUTRAL.card,
+                color: sel ? r.color : NEUTRAL.onSurfaceVariant,
               }}
             >
               <Box

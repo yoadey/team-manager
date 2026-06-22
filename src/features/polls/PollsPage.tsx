@@ -31,7 +31,7 @@ export function PollsPage() {
                 display: 'block',
                 width: '100%',
                 textAlign: 'left',
-                border: '1.5px solid ' + (sel ? tk.primary : '#E0E2EA'),
+                border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
                 background: NEUTRAL.card,
                 borderRadius: '12px',
                 p: '11px 14px',
@@ -59,7 +59,7 @@ export function PollsPage() {
                     width: '20px',
                     height: '20px',
                     borderRadius: p.multiple ? '5px' : '50%',
-                    border: '2px solid ' + (sel ? tk.primary : '#B0B3BC'),
+                    border: '2px solid ' + (sel ? tk.primary : NEUTRAL.faint),
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -87,7 +87,7 @@ export function PollsPage() {
               <Chip
                 label={p.anonymous ? t('polls.anonymous') : p.multiple ? t('polls.multiple') : t('polls.single')}
                 color={NEUTRAL.secondary}
-                bg="#ECEDF3"
+                bg={NEUTRAL.line2}
                 icon={p.anonymous ? 'visibility_off' : p.multiple ? 'checklist' : 'radio_button_checked'}
               />
               {canDelete ? (
@@ -98,7 +98,7 @@ export function PollsPage() {
                     width: '30px',
                     height: '30px',
                     borderRadius: '50%',
-                    background: '#FFF4F3',
+                    background: NEUTRAL.errorBg,
                     color: NEUTRAL.error,
                     cursor: 'pointer',
                     flex: '0 0 auto',

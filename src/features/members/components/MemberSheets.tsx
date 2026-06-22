@@ -17,7 +17,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
       ? st.quote >= 80
         ? NEUTRAL.success
         : st.quote >= 50
-          ? '#9A5B00'
+          ? NEUTRAL.warn
           : NEUTRAL.error
       : NEUTRAL.faint;
 
@@ -119,7 +119,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
             cursor: 'pointer',
           }}
         >
-          <Sym name="edit" size={19} color="#44474E" />
+          <Sym name="edit" size={19} color={NEUTRAL.onSurfaceVariant} />
           {isMe ? t('members.editProfile') : t('members.edit')}
         </ButtonBase>
         {canWrite && !isMe ? (
@@ -134,7 +134,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
               p: '12px 16px',
               borderRadius: '13px',
               border: '1px solid #F0C4C0',
-              background: '#FFF4F3',
+              background: NEUTRAL.errorBg,
               color: NEUTRAL.error,
               fontWeight: 600,
               cursor: 'pointer',
@@ -255,9 +255,9 @@ export function MemberFormSheet({ app }: SheetProps) {
                 cursor: 'pointer',
                 fontSize: '13px',
                 fontWeight: 600,
-                border: '1.5px solid ' + (sel ? r.color : '#D0D2DA'),
-                background: sel ? r.color + '1A' : '#fff',
-                color: sel ? r.color : '#44474E',
+                border: '1.5px solid ' + (sel ? r.color : NEUTRAL.inputBorder),
+                background: sel ? r.color + '1A' : NEUTRAL.card,
+                color: sel ? r.color : NEUTRAL.onSurfaceVariant,
               }}
             >
               <Box
@@ -276,7 +276,7 @@ export function MemberFormSheet({ app }: SheetProps) {
 
   const contactNote = (
     <Box key="cn" sx={{ fontSize: '12px', color: NEUTRAL.faint, lineHeight: 1.5, display: 'flex', gap: '8px' }}>
-      <Sym name="lock" size={15} color="#C0C2CA" />
+      <Sym name="lock" size={15} color={NEUTRAL.faint} />
       {t('members.contactNote')}
     </Box>
   );

@@ -53,7 +53,7 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
         <Box component="b" key="a" sx={{ fontSize: '14px', color: tk.primary, flex: '0 0 auto' }}>
           {fmtMoney(p.amount)}
         </Box>
-        {canFin ? <Sym name="chevron_right" size={20} color="#C0C2CA" /> : null}
+        {canFin ? <Sym name="chevron_right" size={20} color={NEUTRAL.faint} /> : null}
       </>
     );
     const baseSx = {

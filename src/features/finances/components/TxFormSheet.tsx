@@ -35,8 +35,8 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           cursor: 'pointer',
           fontSize: '14px',
           fontWeight: 700,
-          border: '1.5px solid ' + (sel ? c : '#E0E2EA'),
-          background: sel ? bg : '#fff',
+          border: '1.5px solid ' + (sel ? c : NEUTRAL.line3),
+          background: sel ? bg : NEUTRAL.card,
           color: sel ? c : NEUTRAL.secondary,
         }}
       >
@@ -82,9 +82,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
                     fontSize: '12px',
                     fontWeight: 600,
                     cursor: 'pointer',
-                    border: '1px solid ' + (sel ? tk.primary : '#D0D2DA'),
-                    background: sel ? tk.primaryContainer : '#fff',
-                    color: sel ? tk.onPrimaryContainer : '#44474E',
+                    border: '1px solid ' + (sel ? tk.primary : NEUTRAL.inputBorder),
+                    background: sel ? tk.primaryContainer : NEUTRAL.card,
+                    color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
                   }}
                 >
                   {c}
@@ -122,7 +122,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
         p: '12px',
         borderRadius: '13px',
         border: '1px solid #F0C4C0',
-        background: '#FFF4F3',
+        background: NEUTRAL.errorBg,
         color: NEUTRAL.error,
         fontWeight: 600,
         cursor: 'pointer',

@@ -121,7 +121,7 @@ export function EventCalendar() {
           border: `1px solid ${NEUTRAL.line2}`,
           borderRadius: '9px',
           p: mobile ? '3px' : '5px',
-          background: inMonth ? '#fff' : '#F7F7FB',
+          background: inMonth ? NEUTRAL.card : NEUTRAL.sidebar,
           opacity: inMonth ? 1 : 0.55,
           display: 'flex',
           flexDirection: 'column',
@@ -133,7 +133,7 @@ export function EventCalendar() {
           sx={{
             fontSize: mobile ? '11px' : '12px',
             fontWeight: isToday ? 800 : 500,
-            color: isToday ? tk.primary : '#44474E',
+            color: isToday ? tk.primary : NEUTRAL.onSurfaceVariant,
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
@@ -204,7 +204,7 @@ export function EventCalendar() {
               color: NEUTRAL.onSurfaceVariant,
             }}
           >
-            <Sym name="chevron_left" size={22} color="#44474E" />
+            <Sym name="chevron_left" size={22} color={NEUTRAL.onSurfaceVariant} />
           </ButtonBase>
           <ButtonBase
             onClick={nav(1)}
@@ -218,7 +218,7 @@ export function EventCalendar() {
               color: NEUTRAL.onSurfaceVariant,
             }}
           >
-            <Sym name="chevron_right" size={22} color="#44474E" />
+            <Sym name="chevron_right" size={22} color={NEUTRAL.onSurfaceVariant} />
           </ButtonBase>
         </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}>{cells}</Box>

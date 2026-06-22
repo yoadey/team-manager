@@ -84,8 +84,8 @@ export function FinancesPage() {
                 cursor: 'pointer',
                 fontSize: '13px',
                 fontWeight: 700,
-                background: sel ? '#fff' : 'transparent',
-                color: sel ? tk.primary : '#5A5D66',
+                background: sel ? NEUTRAL.card : 'transparent',
+                color: sel ? tk.primary : NEUTRAL.secondary,
                 boxShadow: sel ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
               }}
             >

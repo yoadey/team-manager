@@ -17,13 +17,13 @@ export function AbsenceFormSheet({ app, sheet }: SheetProps) {
           fontSize: '13px',
           color: NEUTRAL.secondary,
           lineHeight: 1.5,
-          background: '#FFF7E6',
+          background: NEUTRAL.warnBg,
           border: '1px solid #F0DBA8',
           p: '12px 14px',
           borderRadius: '13px',
         }}
       >
-        <Sym name="info" size={20} color="#8A6100" />
+        <Sym name="info" size={20} color={NEUTRAL.warn} />
         {t('events.absenceHint')}
       </Box>
       <Box sx={{ display: 'flex', gap: '10px' }}>

@@ -85,7 +85,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
             p: '12px',
             borderRadius: '13px',
             border: '1px solid #F0C4C0',
-            background: '#FFF4F3',
+            background: NEUTRAL.errorBg,
             color: NEUTRAL.error,
             fontWeight: 600,
             cursor: 'pointer',

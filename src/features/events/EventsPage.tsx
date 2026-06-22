@@ -37,8 +37,8 @@ export function EventsPage() {
         borderRadius: '10px',
         fontSize: '13px',
         fontWeight: 600,
-        background: cur === val ? '#fff' : 'transparent',
-        color: cur === val ? tk.primary : '#5A5D66',
+        background: cur === val ? NEUTRAL.card : 'transparent',
+        color: cur === val ? tk.primary : NEUTRAL.secondary,
         boxShadow: cur === val ? '0 1px 3px rgba(0,0,0,.12)' : 'none',
       }}
     >
@@ -118,15 +118,15 @@ export function EventsPage() {
         p: '8px 12px 8px 14px',
         borderRadius: '999px',
         border: 'none',
-        background: '#FFE5B8',
-        color: '#8A6100',
+        background: NEUTRAL.warnBg,
+        color: NEUTRAL.warn,
         fontSize: '13px',
         fontWeight: 700,
       }}
     >
-      <Sym name="pending_actions" size={17} color="#8A6100" />
+      <Sym name="pending_actions" size={17} color={NEUTRAL.warn} />
       {t('events.filterPending')}
-      <Sym name="close" size={17} color="#8A6100" />
+      <Sym name="close" size={17} color={NEUTRAL.warn} />
     </ButtonBase>
   ) : null;
 

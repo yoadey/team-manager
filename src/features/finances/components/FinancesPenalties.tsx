@@ -110,8 +110,8 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                     p: '7px 11px',
                     fontSize: '12px',
                     fontWeight: 600,
-                    background: a.paid ? '#ECEDF3' : NEUTRAL.successBg,
-                    color: a.paid ? NEUTRAL.secondary : '#235C26',
+                    background: a.paid ? NEUTRAL.line2 : NEUTRAL.successBg,
+                    color: a.paid ? NEUTRAL.secondary : NEUTRAL.success,
                   }}
                 >
                   {a.paid ? t('finances.penaltyOpen') : t('finances.penaltyPaid')}
@@ -127,7 +127,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                     borderRadius: '8px',
                     border: 'none',
                     cursor: 'pointer',
-                    background: '#FFF4F3',
+                    background: NEUTRAL.errorBg,
                     color: NEUTRAL.error,
                     flex: '0 0 auto',
                   }}

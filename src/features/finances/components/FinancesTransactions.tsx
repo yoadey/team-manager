@@ -55,7 +55,7 @@ export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
         <Box sx={{ fontSize: '15px', fontWeight: 700, color: tx.type === 'income' ? NEUTRAL.success : NEUTRAL.error }}>
           {(tx.type === 'income' ? '+' : '−') + fmtMoney(tx.amount).replace('-', '')}
         </Box>
-        {canFin ? <Sym name="chevron_right" size={20} color="#C0C2CA" /> : null}
+        {canFin ? <Sym name="chevron_right" size={20} color={NEUTRAL.faint} /> : null}
       </>
     );
     const st = {

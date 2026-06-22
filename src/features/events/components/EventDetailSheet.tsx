@@ -29,7 +29,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     <Box key="b" sx={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', mb: '10px' }}>
       <Chip key="tm" label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} fs={12} />
       {e.recurring ? (
-        <Chip key="r" label={t('events.weekly')} color={NEUTRAL.secondary} bg="#ECEDF3" icon="repeat" fs={12} />
+        <Chip key="r" label={t('events.weekly')} color={NEUTRAL.secondary} bg={NEUTRAL.line2} icon="repeat" fs={12} />
       ) : null}
     </Box>
   );
@@ -51,7 +51,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         background: NEUTRAL.errorBg,
         borderRadius: '14px',
         mb: '14px',
-        color: '#8C1410',
+        color: NEUTRAL.error,
       }}
     >
       <Sym name="event_busy" size={20} color={NEUTRAL.error} />
@@ -96,13 +96,15 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       {e.meetTime ? (
         <Box
           key="meet"
-          sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: '#FFF7E6' }}
+          sx={{ display: 'flex', alignItems: 'center', gap: '12px', p: '13px 14px', background: NEUTRAL.warnBg }}
         >
-          <Sym name="login" size={20} color="#8A6100" />
+          <Sym name="login" size={20} color={NEUTRAL.warn} />
           <Box key="t" component="span" sx={{ flex: 1 }}>
             <b>{t('events.meetTime', { time: hhmm(e.meetTime) })}</b>
           </Box>
-          {e.meetTimeMandatory ? <Chip key="p" label={t('events.mandatory')} color="#8A6100" bg="#FCE2B8" /> : null}
+          {e.meetTimeMandatory ? (
+            <Chip key="p" label={t('events.mandatory')} color={NEUTRAL.warn} bg={NEUTRAL.warnBg} />
+          ) : null}
         </Box>
       ) : null}
       <Box
@@ -150,10 +152,17 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const result = e.result ? (
     <Box
       key="res"
-      sx={{ display: 'flex', gap: '10px', p: '12px 14px', background: '#EAF6EA', borderRadius: '14px', mb: '14px' }}
+      sx={{
+        display: 'flex',
+        gap: '10px',
+        p: '12px 14px',
+        background: NEUTRAL.successBg,
+        borderRadius: '14px',
+        mb: '14px',
+      }}
     >
       <Sym name="emoji_events" size={18} color={NEUTRAL.success} />
-      <Box key="t" component="span" sx={{ fontSize: '13px', color: '#235C26', fontWeight: 600, lineHeight: 1.5 }}>
+      <Box key="t" component="span" sx={{ fontSize: '13px', color: NEUTRAL.success, fontWeight: 600, lineHeight: 1.5 }}>
         {t('events.result', { val: e.result })}
       </Box>
     </Box>
@@ -243,7 +252,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             sx={{
               flex: 1,
               fontSize: '13px',
-              color: myC ? '#44474E' : NEUTRAL.faint,
+              color: myC ? NEUTRAL.onSurfaceVariant : NEUTRAL.faint,
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -261,8 +270,8 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               key="auto"
               sx={{
                 fontSize: '12px',
-                color: '#9A5B00',
-                background: '#FFF1D6',
+                color: NEUTRAL.warn,
+                background: NEUTRAL.warnBg,
                 borderRadius: '10px',
                 p: '8px 12px',
                 mb: '10px',
@@ -271,7 +280,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
                 gap: '7px',
               }}
             >
-              <Sym name="info" size={16} color="#9A5B00" />
+              <Sym name="info" size={16} color={NEUTRAL.warn} />
               {e.responseMode === 'opt_out' ? t('events.autoOptOut') : myStatus === 'no' ? t('events.autoAbsent') : ''}
             </Box>
           ) : null}
@@ -284,9 +293,18 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               '#fff',
               NEUTRAL.success,
               NEUTRAL.successBg,
-              '#235C26',
+              NEUTRAL.success,
             )}
-            {rb(t('events.rsvpMaybe'), 'help', 'maybe', myStatus === 'maybe', '#fff', '#9A5B00', '#FFE5B8', '#8A6100')}
+            {rb(
+              t('events.rsvpMaybe'),
+              'help',
+              'maybe',
+              myStatus === 'maybe',
+              '#fff',
+              NEUTRAL.warn,
+              NEUTRAL.warnBg,
+              NEUTRAL.warn,
+            )}
             {rb(
               t('events.rsvpNo'),
               'cancel',
@@ -295,7 +313,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               '#fff',
               NEUTRAL.error,
               NEUTRAL.errorBg,
-              '#8C1410',
+              NEUTRAL.error,
             )}
           </Box>
           {commentRow}
@@ -313,7 +331,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           <Box key="y" component="span" sx={{ color: NEUTRAL.success }}>
             {e.summary.yes + ' ' + t('events.summaryYes', { n: '' }).replace('{n} ', '')}
           </Box>
-          <Box key="mb" component="span" sx={{ color: '#9A5B00' }}>
+          <Box key="mb" component="span" sx={{ color: NEUTRAL.warn }}>
             {e.summary.maybe + ' ' + t('events.summaryMaybe', { n: '' }).replace('{n} ', '')}
           </Box>
           <Box key="n" component="span" sx={{ color: NEUTRAL.error }}>
@@ -362,7 +380,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           border: 'none',
           cursor: 'pointer',
           background: sel ? col : '#F1F2F6',
-          color: sel ? '#fff' : '#A2A7B0',
+          color: sel ? '#fff' : NEUTRAL.faint,
           fontFamily: "'Material Symbols Outlined'",
           fontSize: '17px',
           flex: '0 0 auto',
@@ -382,7 +400,13 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     let controls: React.ReactNode[];
     if (notN) {
       controls = [
-        <Chip key="c" label={t('events.notNominatedLabel')} color={NEUTRAL.secondary} bg="#ECEDF3" icon="block" />,
+        <Chip
+          key="c"
+          label={t('events.notNominatedLabel')}
+          color={NEUTRAL.secondary}
+          bg={NEUTRAL.line2}
+          icon="block"
+        />,
         canEdit && !isPast ? (
           <IconBtn
             key="nom"
@@ -399,7 +423,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             icon="chat_bubble"
             onClick={() => app.openComment(e, r)}
             color={NEUTRAL.secondary}
-            bg="#F4F4FA"
+            bg={NEUTRAL.sidebar}
             title={t('events.comment')}
           />
         ) : null,
@@ -407,14 +431,14 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     } else if (editable) {
       controls = [
         sbtn(r, 'yes', 'check', NEUTRAL.success),
-        sbtn(r, 'maybe', 'help', '#9A5B00'),
+        sbtn(r, 'maybe', 'help', NEUTRAL.warn),
         sbtn(r, 'no', 'close', NEUTRAL.error),
         <IconBtn
           key="cm"
           icon="chat_bubble"
           onClick={() => app.openComment(e, r)}
           color={NEUTRAL.secondary}
-          bg="#F4F4FA"
+          bg={NEUTRAL.sidebar}
           title={t('events.comment')}
         />,
         canEdit && !isPast ? (
@@ -423,7 +447,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             icon="person_remove"
             onClick={() => app.toggleNomination(e.id, r.userId, true)}
             color={NEUTRAL.faint}
-            bg="#F4F4FA"
+            bg={NEUTRAL.sidebar}
             title={t('events.deNominate')}
           />
         ) : null,
@@ -463,7 +487,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               key="r"
               sx={{
                 fontSize: '11px',
-                color: '#9A5B00',
+                color: NEUTRAL.warn,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -505,7 +529,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           cursor: 'pointer',
         }}
       >
-        <Sym name="edit" size={19} color="#44474E" />
+        <Sym name="edit" size={19} color={NEUTRAL.onSurfaceVariant} />
         {t('events.edit')}
       </ButtonBase>
       {!cancelled ? (
@@ -521,14 +545,14 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             p: '12px',
             borderRadius: '13px',
             border: '1px solid #F0D9A8',
-            background: '#FFF7E6',
-            color: '#8A6100',
+            background: NEUTRAL.warnBg,
+            color: NEUTRAL.warn,
             fontWeight: 600,
             fontSize: '14px',
             cursor: 'pointer',
           }}
         >
-          <Sym name="event_busy" size={19} color="#8A6100" />
+          <Sym name="event_busy" size={19} color={NEUTRAL.warn} />
           {t('events.cancel')}
         </ButtonBase>
       ) : null}
@@ -543,7 +567,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           p: '12px 16px',
           borderRadius: '13px',
           border: '1px solid #F0C4C0',
-          background: '#FFF4F3',
+          background: NEUTRAL.errorBg,
           color: NEUTRAL.error,
           fontWeight: 600,
           cursor: 'pointer',
@@ -590,7 +614,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
                   icon="delete"
                   onClick={() => app.removeEventComment(e.id, c.id)}
                   color={NEUTRAL.error}
-                  bg="#FFF4F3"
+                  bg={NEUTRAL.errorBg}
                   title={t('events.delete')}
                 />
               ) : null}

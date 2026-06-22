@@ -18,10 +18,10 @@ export function RolesSheet({ app, sheet }: SheetProps) {
 
   const lvl = (v: string) =>
     v === 'write'
-      ? { l: t('team.permWrite'), bg: NEUTRAL.successBg, c: '#235C26' }
+      ? { l: t('team.permWrite'), bg: NEUTRAL.successBg, c: NEUTRAL.success }
       : v === 'read'
         ? { l: t('team.permRead'), bg: '#D7E3FF', c: '#00315C' }
-        : { l: t('team.permNone'), bg: '#ECEDF3', c: NEUTRAL.faint };
+        : { l: t('team.permNone'), bg: NEUTRAL.line2, c: NEUTRAL.faint };
 
   const cards = state.roles.map((r) => (
     <Box
@@ -41,7 +41,7 @@ export function RolesSheet({ app, sheet }: SheetProps) {
           key="b"
           label={r.system ? t('team.roleStandard') : t('team.roleCustom')}
           color={r.system ? NEUTRAL.secondary : tk.primary}
-          bg={r.system ? '#ECEDF3' : tk.primaryContainer}
+          bg={r.system ? NEUTRAL.line2 : tk.primaryContainer}
         />
       </Box>
       <Box key="p" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
