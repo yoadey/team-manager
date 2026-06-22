@@ -16,6 +16,9 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
   const pin = (
     <ButtonBase
       key="pin"
+      role="switch"
+      aria-checked={!!F.pinned}
+      aria-label={t('news.pinned')}
       onClick={() => app.setFormVal({ pinned: !F.pinned })}
       sx={{
         display: 'flex',

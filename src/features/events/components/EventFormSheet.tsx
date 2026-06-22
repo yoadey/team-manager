@@ -99,6 +99,9 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const meetToggle = (
     <ButtonBase
       key="mm"
+      role="checkbox"
+      aria-checked={!!F.meetTimeMandatory}
+      aria-label={t('events.meetTimeMandatory')}
       onClick={() => app.setFormVal({ meetTimeMandatory: !F.meetTimeMandatory })}
       sx={{
         display: 'flex',
@@ -141,6 +144,9 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <Box key="rec" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '14px' }}>
         <ButtonBase
           key="tg"
+          role="switch"
+          aria-checked={!!F.recurring}
+          aria-label={t('events.recurWeekly')}
           onClick={() => app.setFormVal({ recurring: !F.recurring })}
           sx={{
             display: 'flex',
@@ -209,6 +215,9 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           return (
             <ButtonBase
               key={r.id}
+              role="checkbox"
+              aria-checked={sel}
+              aria-label={r.name}
               onClick={() => app.toggleFormNomRole(r.id)}
               sx={{
                 display: 'inline-flex',

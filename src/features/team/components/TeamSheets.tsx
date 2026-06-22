@@ -346,6 +346,9 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
           return (
             <ButtonBase
               key={r.id}
+              role="checkbox"
+              aria-checked={sel}
+              aria-label={r.name}
               onClick={() => app.toggleReasonRole(r.id)}
               sx={{
                 display: 'inline-flex',

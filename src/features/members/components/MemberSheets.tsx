@@ -245,6 +245,9 @@ export function MemberFormSheet({ app }: SheetProps) {
           return (
             <ButtonBase
               key={r.id}
+              role="checkbox"
+              aria-checked={sel}
+              aria-label={r.name}
               onClick={() => app.toggleFormRole(r.id)}
               sx={{
                 display: 'inline-flex',
