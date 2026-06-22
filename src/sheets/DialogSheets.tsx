@@ -4,11 +4,12 @@ import type { SheetProps } from './types';
 import { buildTokens, statusMeta, NEUTRAL } from '@/styles/tokens';
 import { Sym, Chip, PrimaryButton, inputSx } from '@/components/ui';
 import { formValues } from '@/utils/forms';
+import { t } from '@/i18n';
 import type { AttendanceCommentFormValues } from '@/features/events/types';
 
 export function ConfirmSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const t = buildTokens(state.primaryColor);
+  const tok = buildTokens(state.primaryColor);
   const c = sheet.cfg || {};
   const danger = !!c.danger;
   return (
@@ -19,8 +20,8 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
           width: '56px',
           height: '56px',
           borderRadius: '16px',
-          background: danger ? NEUTRAL.errorBg : t.primaryContainer,
-          color: danger ? NEUTRAL.error : t.primary,
+          background: danger ? NEUTRAL.errorBg : tok.primaryContainer,
+          color: danger ? NEUTRAL.error : tok.primary,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -30,8 +31,8 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
       >
         {danger ? 'warning' : 'help'}
       </Box>
-      <Box key="m" sx={{ fontSize: '14px', color: '#44474E', lineHeight: 1.55 }}>
-        {c.message || 'Bist du sicher?'}
+      <Box key="m" sx={{ fontSize: '14px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.55 }}>
+        {c.message || t('common.areYouSure')}
       </Box>
       <Box key="b" sx={{ display: 'flex', gap: '10px' }}>
         <ButtonBase
@@ -41,15 +42,15 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
             flex: 1,
             p: '13px',
             borderRadius: '13px',
-            border: '1px solid #C8CAD2',
-            background: '#fff',
-            color: '#44474E',
+            border: `1px solid ${NEUTRAL.inputBorder}`,
+            background: NEUTRAL.card,
+            color: NEUTRAL.onSurfaceVariant,
             fontWeight: 600,
             fontSize: '14px',
             cursor: 'pointer',
           }}
         >
-          Abbrechen
+          {t('common.cancel')}
         </ButtonBase>
         <ButtonBase
           key="ok"
@@ -59,14 +60,14 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
             p: '13px',
             borderRadius: '13px',
             border: 'none',
-            background: danger ? NEUTRAL.error : t.primary,
-            color: '#fff',
+            background: danger ? NEUTRAL.error : tok.primary,
+            color: NEUTRAL.card,
             fontWeight: 700,
             fontSize: '14px',
             cursor: 'pointer',
           }}
         >
-          {c.confirmLabel || 'Bestätigen'}
+          {c.confirmLabel || t('common.confirm')}
         </ButtonBase>
       </Box>
     </Box>
@@ -76,21 +77,9 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
 export function SeriesActionSheet({ app, sheet }: SheetProps) {
   const act = sheet.action!;
   const cfg: Record<string, { d: string; ic: string; col: string }> = {
-    cancel: {
-      d: 'Diesen Termin oder die ganze Serie absagen? Abgesagte Termine bleiben in der Liste sichtbar, Rückmeldungen sind nicht mehr nötig.',
-      ic: 'event_busy',
-      col: '#8A6100',
-    },
-    delete: {
-      d: 'Diesen Termin oder die ganze Serie löschen? Gelöschte Termine werden vollständig und unwiderruflich entfernt.',
-      ic: 'delete',
-      col: NEUTRAL.error,
-    },
-    reactivate: {
-      d: 'Diesen Termin oder die ganze Serie wieder aktivieren?',
-      ic: 'event_available',
-      col: NEUTRAL.success,
-    },
+    cancel: { d: t('events.seriesCancelDesc'), ic: 'event_busy', col: NEUTRAL.warn },
+    delete: { d: t('events.seriesDeleteDesc'), ic: 'delete', col: NEUTRAL.error },
+    reactivate: { d: t('events.seriesReactivateDesc'), ic: 'event_available', col: NEUTRAL.success },
   };
   const L = cfg[act] || cfg.cancel;
 
@@ -106,8 +95,8 @@ export function SeriesActionSheet({ app, sheet }: SheetProps) {
         p: '15px',
         borderRadius: '15px',
         cursor: 'pointer',
-        border: '1px solid #E0E2EA',
-        background: '#fff',
+        border: `1px solid ${NEUTRAL.line3}`,
+        background: NEUTRAL.card,
         textAlign: 'left',
         justifyContent: 'flex-start',
       }}
@@ -139,7 +128,7 @@ export function SeriesActionSheet({ app, sheet }: SheetProps) {
           {sub}
         </Box>
       </Box>
-      <Sym name="chevron_right" size={20} color="#C0C2CA" />
+      <Sym name="chevron_right" size={20} color={NEUTRAL.faint} />
     </ButtonBase>
   );
 
@@ -147,12 +136,12 @@ export function SeriesActionSheet({ app, sheet }: SheetProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
       <Box key="h" sx={{ display: 'flex', gap: '11px', alignItems: 'flex-start', mb: '2px' }}>
         <Sym name={L.ic} size={24} color={L.col} />
-        <Box key="d" sx={{ flex: 1, fontSize: '13px', color: '#44474E', lineHeight: 1.5 }}>
+        <Box key="d" sx={{ flex: 1, fontSize: '13px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.5 }}>
           {L.d}
         </Box>
       </Box>
-      {opt('single', 'Nur diesen Termin', 'Betrifft ausschließlich diesen einen Termin', 'event')}
-      {opt('series', 'Ganze Serie', 'Betrifft alle Termine dieser Serie', 'repeat')}
+      {opt('single', t('events.seriesScopeSingle'), t('events.seriesScopeSingleSub'), 'event')}
+      {opt('series', t('events.seriesScopeSeries'), t('events.seriesScopeSeriesSub'), 'repeat')}
     </Box>
   );
 }
@@ -170,7 +159,7 @@ export function CommentSheet({ app, sheet }: SheetProps) {
       >
         <Chip key="c" label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />
         <Box component="span" key="n">
-          {isMe ? 'Dein Kommentar' : 'Kommentar für ' + sheet.name}
+          {isMe ? t('attendance.yourComment') : t('attendance.commentFor', { name: sheet.name ?? '' })}
         </Box>
       </Box>
       <textarea
@@ -178,16 +167,20 @@ export function CommentSheet({ app, sheet }: SheetProps) {
         name="commentText"
         value={F.commentText || ''}
         onChange={(e) => app.onFormInput(e)}
-        placeholder="Kurzer Kommentar (optional)…"
+        placeholder={t('attendance.commentPlaceholder')}
         style={{ ...inputSx, minHeight: '100px', resize: 'vertical' }}
       />
       {sheet.status === 'no' ? (
         <Box key="h" sx={{ display: 'flex', gap: '8px', fontSize: '12px', color: NEUTRAL.secondary, lineHeight: 1.5 }}>
           <Sym name="visibility" size={16} color={NEUTRAL.faint} />
-          Absage-Kommentare sehen nur die in den Team-Einstellungen freigegebenen Rollen.
+          {t('attendance.cancelCommentsHint')}
         </Box>
       ) : null}
-      <PrimaryButton label="Kommentar speichern" onClick={() => app.submitComment()} busy={state.busy === 'save'} />
+      <PrimaryButton
+        label={t('attendance.saveComment')}
+        onClick={() => app.submitComment()}
+        busy={state.busy === 'save'}
+      />
     </Box>
   );
 }

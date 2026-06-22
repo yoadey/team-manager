@@ -107,6 +107,8 @@ const NEUTRAL_LIGHT = {
   errorBg: '#FFDAD6',
   success: '#2E7D32',
   successBg: '#D7F0D8',
+  warn: '#8A6100',
+  warnBg: '#FFE7B0',
 };
 
 const NEUTRAL_DARK = {
@@ -126,6 +128,8 @@ const NEUTRAL_DARK = {
   errorBg: '#93000A',
   success: '#7BDA7B',
   successBg: '#1A3C1A',
+  warn: '#F2C06B',
+  warnBg: '#3A2A00',
 };
 
 /** Build the CSS custom-property map for a given colour scheme. */
