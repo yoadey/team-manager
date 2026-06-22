@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
-import type { Poll } from '../types';
+import type { Poll, PollFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { validatePollForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
@@ -24,15 +24,18 @@ type PollFeatureDeps = {
 };
 
 export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm }: PollFeatureDeps) {
-  const openPollForm = useCallback(
-    () =>
-      setState({
-        sheet: { type: 'pollForm' },
-        form: { question: '', opt0: '', opt1: '', opt2: '', opt3: '', multiple: false, anonymous: false },
-        formErrors: {},
-      }),
-    [setState],
-  );
+  const openPollForm = useCallback(() => {
+    const form: PollFormValues = {
+      question: '',
+      opt0: '',
+      opt1: '',
+      opt2: '',
+      opt3: '',
+      multiple: false,
+      anonymous: false,
+    };
+    setState({ sheet: { type: 'pollForm' }, form, formErrors: {} });
+  }, [setState]);
 
   const votePoll = useCallback(
     async (pollId: string, optionIds: string[]) => {
@@ -47,7 +50,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
   );
 
   const savePoll = useCallback(async () => {
-    const f = S().form;
+    const f = S().form as PollFormValues;
     const poll = validatePollForm(f);
     if (!poll.ok) {
       toastMsg(poll.message!);

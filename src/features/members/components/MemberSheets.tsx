@@ -2,8 +2,9 @@ import { NEUTRAL } from '@/styles/tokens';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
-import type { Member } from '../types';
+import type { Member, MemberFormValues } from '../types';
 import type { SheetProps } from '@/sheets/types';
+import { formValues } from '@/utils/forms';
 import { getIntlLocale, t } from '@/i18n';
 import { validateBirthday, validateEmail, validatePhone, validateRequiredText } from '@/utils/validation';
 
@@ -175,7 +176,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
 
 export function MemberFormSheet({ app }: SheetProps) {
   const { state } = app;
-  const F = app.state.form;
+  const F = formValues<MemberFormValues>(app.state);
   const errs = state.formErrors;
   const myIds: string[] = F.roleIds || [];
   const canRoles = app.can('members', 'write');
