@@ -1,25 +1,36 @@
-node_modules
-dist
-dist-ssr
-coverage
-*.local
+# Frontend
+frontend/node_modules
+frontend/dist
+frontend/dist-ssr
+frontend/coverage
+frontend/*.local
+frontend/.DS_Store
+frontend/*.tsbuildinfo
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/sbom.json
+frontend/.lighthouseci/
+
+# Backend
+backend/bin/
+backend/tmp/
+backend/internal/gen/
+
+# Editor / OS
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
 *.log
 npm-debug.log*
 
-# TS build info
-*.tsbuildinfo
-
 # Local env (never commit secrets)
 .env
 .env.local
 .env.*.local
 
-# Generated artifacts (produced by CI)
-sbom.json
-.lighthouseci/
-
 # Claude Code internal session data
 .claude/
+
+# Root node_modules (husky)
+node_modules

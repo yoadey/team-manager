@@ -1,0 +1,2506 @@
+openapi: "3.0.3"
+
+info:
+  title: Team Manager API
+  description: REST API for the Teamverwaltung sports-club management application.
+  version: "1.0.0"
+  contact:
+    name: Team Manager
+    url: https://github.com/yoadey/team-manager
+
+servers:
+  - url: /api/v1
+    description: Current server
+
+security:
+  - bearerAuth: []
+
+# ─── Tags ────────────────────────────────────────────────────────────────────
+tags:
+  - name: auth
+  - name: teams
+  - name: members
+  - name: roles
+  - name: events
+  - name: attendance
+  - name: absences
+  - name: news
+  - name: polls
+  - name: notifications
+  - name: finances
+  - name: stats
+
+# ─── Paths ───────────────────────────────────────────────────────────────────
+paths:
+
+  # ── Auth ────────────────────────────────────────────────────────────────────
+
+  /auth/providers:
+    get:
+      tags: [auth]
+      operationId: listProviders
+      summary: List available login providers
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Provider"
+
+  /auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Authenticate with email + password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Invalidate current session
+      responses:
+        "204":
+          description: No Content
+
+  /auth/me:
+    get:
+      tags: [auth]
+      operationId: getCurrentUser
+      summary: Get authenticated user profile
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me/photo:
+    get:
+      tags: [auth]
+      operationId: getMyPhoto
+      summary: Get user profile photo
+      responses:
+        "200":
+          description: JPEG image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [auth]
+      operationId: uploadMyPhoto
+      summary: Upload / replace profile photo (scaled to max 800×800 px)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  # ── Teams ───────────────────────────────────────────────────────────────────
+
+  /teams:
+    get:
+      tags: [teams]
+      operationId: listTeams
+      summary: List teams the authenticated user belongs to
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamForUser"
+    post:
+      tags: [teams]
+      operationId: createTeam
+      summary: Create a new team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTeamRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamForUser"
+
+  /teams/{teamId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [teams]
+      operationId: getTeam
+      summary: Get a single team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [teams]
+      operationId: updateTeam
+      summary: Update team settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTeamRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+
+  /teams/{teamId}/photo:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [teams]
+      operationId: getTeamPhoto
+      summary: Get team photo
+      responses:
+        "200":
+          description: JPEG image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [teams]
+      operationId: uploadTeamPhoto
+      summary: Upload team photo (scaled to max 800×800 px)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+
+  /teams/{teamId}/logo:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [teams]
+      operationId: getTeamLogo
+      summary: Get team logo
+      responses:
+        "200":
+          description: JPEG image
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [teams]
+      operationId: uploadTeamLogo
+      summary: Upload team logo (scaled to max 800×800 px)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [logo]
+              properties:
+                logo:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Team"
+
+  /teams/{teamId}/invite:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [teams]
+      operationId: createInvite
+      summary: Generate a 7-day invite link
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invite"
+
+  # ── Members ─────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/members:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [members]
+      operationId: listMembers
+      summary: List team members
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Member"
+    post:
+      tags: [members]
+      operationId: addMember
+      summary: Add a member to the team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddMemberRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+
+  /teams/{teamId}/members/{membershipId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/membershipId"
+    patch:
+      tags: [members]
+      operationId: updateMember
+      summary: Update member profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMemberRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+    delete:
+      tags: [members]
+      operationId: removeMember
+      summary: Remove member from team
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/members/{membershipId}/roles:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/membershipId"
+    put:
+      tags: [members]
+      operationId: setMemberRoles
+      summary: Replace member role assignments
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetRolesRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+
+  # ── Roles ───────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/roles:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [roles]
+      operationId: listRoles
+      summary: List team roles
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Role"
+    post:
+      tags: [roles]
+      operationId: createRole
+      summary: Create a custom role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoleRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+
+  /teams/{teamId}/roles/{roleId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/roleId"
+    patch:
+      tags: [roles]
+      operationId: updateRole
+      summary: Update role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoleRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Role"
+    delete:
+      tags: [roles]
+      operationId: deleteRole
+      summary: Delete role
+      responses:
+        "204":
+          description: No Content
+
+  # ── Events ──────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/events:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [events]
+      operationId: listEvents
+      summary: List events
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [upcoming, past, all]
+            default: upcoming
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TeamEvent"
+    post:
+      tags: [events]
+      operationId: createEvent
+      summary: Create event (recurring → creates series + instances)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateEventRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamEvent"
+
+  /teams/{teamId}/events/{eventId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/eventId"
+    get:
+      tags: [events]
+      operationId: getEvent
+      summary: Get single event with attendance summary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamEvent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [events]
+      operationId: updateEvent
+      summary: Update event
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [single, series]
+            default: single
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateEventRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamEvent"
+    delete:
+      tags: [events]
+      operationId: deleteEvent
+      summary: Delete event
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [single, series]
+            default: single
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/events/{eventId}/status:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/eventId"
+    post:
+      tags: [events]
+      operationId: setEventStatus
+      summary: Activate or cancel event
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [single, series]
+            default: single
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetEventStatusRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamEvent"
+
+  /teams/{teamId}/events/{eventId}/comments:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/eventId"
+    get:
+      tags: [events]
+      operationId: listEventComments
+      summary: List comments for event
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventComment"
+    post:
+      tags: [events]
+      operationId: addEventComment
+      summary: Add comment to event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCommentRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventComment"
+
+  /teams/{teamId}/events/{eventId}/comments/{commentId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/eventId"
+      - name: commentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [events]
+      operationId: deleteEventComment
+      summary: Delete comment
+      responses:
+        "204":
+          description: No Content
+
+  # ── Attendance ──────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/events/{eventId}/attendance:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/eventId"
+    get:
+      tags: [attendance]
+      operationId: listAttendance
+      summary: Get attendance matrix for event
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AttendanceRow"
+    post:
+      tags: [attendance]
+      operationId: setAttendance
+      summary: Set attendance status for a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetAttendanceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceRecord"
+
+  /teams/{teamId}/events/{eventId}/attendance/nominations:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/eventId"
+    put:
+      tags: [attendance]
+      operationId: setNomination
+      summary: Nominate or denominate a member for event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetNominationRequest"
+      responses:
+        "204":
+          description: No Content
+
+  # ── Absences ────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/absences:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [absences]
+      operationId: listAbsences
+      summary: List absences for the team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Absence"
+    post:
+      tags: [absences]
+      operationId: createAbsence
+      summary: Create absence entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAbsenceRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Absence"
+
+  /teams/{teamId}/absences/mine:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [absences]
+      operationId: listMyAbsences
+      summary: List authenticated user's own absences
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Absence"
+
+  /teams/{teamId}/absences/{absenceId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: absenceId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [absences]
+      operationId: updateAbsence
+      summary: Update absence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAbsenceRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Absence"
+    delete:
+      tags: [absences]
+      operationId: deleteAbsence
+      summary: Delete absence
+      responses:
+        "204":
+          description: No Content
+
+  # ── News ────────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/news:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [news]
+      operationId: listNews
+      summary: List team news
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NewsItem"
+    post:
+      tags: [news]
+      operationId: createNews
+      summary: Create news item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateNewsRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewsItem"
+
+  /teams/{teamId}/news/{newsId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: newsId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [news]
+      operationId: updateNews
+      summary: Update news item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNewsRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NewsItem"
+    delete:
+      tags: [news]
+      operationId: deleteNews
+      summary: Delete news item
+      responses:
+        "204":
+          description: No Content
+
+  # ── Polls ───────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/polls:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [polls]
+      operationId: listPolls
+      summary: List polls with vote counts
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Poll"
+    post:
+      tags: [polls]
+      operationId: createPoll
+      summary: Create poll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePollRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Poll"
+
+  /teams/{teamId}/polls/{pollId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: pollId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [polls]
+      operationId: deletePoll
+      summary: Delete poll
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/polls/{pollId}/vote:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: pollId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [polls]
+      operationId: votePoll
+      summary: Cast vote on poll
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VotePollRequest"
+      responses:
+        "200":
+          description: Updated poll
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Poll"
+
+  # ── Notifications ───────────────────────────────────────────────────────────
+
+  /teams/{teamId}/notifications:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [notifications]
+      operationId: listNotifications
+      summary: List team notifications (last 62 days)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationsResult"
+
+  /teams/{teamId}/notifications/seen:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [notifications]
+      operationId: markNotificationsSeen
+      summary: Mark all notifications as seen
+      responses:
+        "204":
+          description: No Content
+
+  # ── Finances ────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/finances:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [finances]
+      operationId: getFinanceOverview
+      summary: Get full financial overview
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceOverview"
+
+  /teams/{teamId}/finances/transactions:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [finances]
+      operationId: createTransaction
+      summary: Add income or expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTransactionRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /teams/{teamId}/finances/transactions/{transactionId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: transactionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [finances]
+      operationId: updateTransaction
+      summary: Update transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTransactionRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+    delete:
+      tags: [finances]
+      operationId: deleteTransaction
+      summary: Delete transaction
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/finances/penalties:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [finances]
+      operationId: createPenalty
+      summary: Create penalty template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePenaltyRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Penalty"
+
+  /teams/{teamId}/finances/penalties/{penaltyId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: penaltyId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [finances]
+      operationId: updatePenalty
+      summary: Update penalty template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePenaltyRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Penalty"
+    delete:
+      tags: [finances]
+      operationId: deletePenalty
+      summary: Delete penalty template and all assignments
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/finances/penalty-assignments:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [finances]
+      operationId: createPenaltyAssignment
+      summary: Assign penalty to member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePenaltyAssignmentRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenaltyAssignment"
+
+  /teams/{teamId}/finances/penalty-assignments/{assignmentId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: assignmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [finances]
+      operationId: deletePenaltyAssignment
+      summary: Remove penalty assignment
+      responses:
+        "204":
+          description: No Content
+
+  /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: assignmentId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [finances]
+      operationId: togglePenaltyPaid
+      summary: Toggle paid status of penalty assignment
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PenaltyAssignment"
+
+  /teams/{teamId}/finances/contributions/{contributionId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: contributionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    patch:
+      tags: [finances]
+      operationId: updateContribution
+      summary: Update contribution amount or label
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateContributionRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contribution"
+
+  /teams/{teamId}/finances/contributions/{contributionId}/toggle:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: contributionId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      tags: [finances]
+      operationId: toggleContribution
+      summary: Toggle contribution paid/open
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contribution"
+
+  # ── Stats ───────────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/stats:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: getStatsOverview
+      summary: Team attendance statistics
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatsOverview"
+
+  /teams/{teamId}/stats/members/{userId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: userId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [stats]
+      operationId: getMemberStats
+      summary: Individual member attendance statistics
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberAttendanceStats"
+
+# ─── Components ───────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    teamId:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    membershipId:
+      name: membershipId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    eventId:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    roleId:
+      name: roleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Not Found
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: Forbidden
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+
+    # ── Primitives / Enums ────────────────────────────────────────────────────
+
+    Problem:
+      type: object
+      description: RFC 9457 Problem Details
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+
+    PermLevel:
+      type: string
+      enum: [none, read, write]
+
+    Permissions:
+      type: object
+      description: Per-module permission levels
+      required: [events, members, finances, news, polls, settings]
+      properties:
+        events:
+          $ref: "#/components/schemas/PermLevel"
+        members:
+          $ref: "#/components/schemas/PermLevel"
+        finances:
+          $ref: "#/components/schemas/PermLevel"
+        news:
+          $ref: "#/components/schemas/PermLevel"
+        polls:
+          $ref: "#/components/schemas/PermLevel"
+        settings:
+          $ref: "#/components/schemas/PermLevel"
+
+    EventType:
+      type: string
+      enum: [training, auftritt, event]
+
+    EventStatus:
+      type: string
+      enum: [active, cancelled]
+
+    AttendanceStatus:
+      type: string
+      enum: [yes, no, maybe, pending, not_nominated]
+
+    ResponseMode:
+      type: string
+      enum: [opt_in, opt_out]
+
+    TransactionType:
+      type: string
+      enum: [income, expense]
+
+    ContributionStatus:
+      type: string
+      enum: [paid, open]
+
+    NotificationType:
+      type: string
+      enum:
+        - attendance
+        - event_created
+        - event_updated
+        - event_cancelled
+        - event_reactivated
+        - event_deleted
+        - news
+        - poll
+        - absence
+
+    # ── Auth ─────────────────────────────────────────────────────────────────
+
+    Provider:
+      type: object
+      required: [id, name, sub, glyph, bg, fg]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sub:
+          type: string
+        glyph:
+          type: string
+        bg:
+          type: string
+        fg:
+          type: string
+        border:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+
+    LoginResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+
+    User:
+      type: object
+      required: [id, name, email, avatarColor]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        avatarColor:
+          type: string
+        birthday:
+          type: string
+          format: date
+        address:
+          type: string
+        hasPhoto:
+          type: boolean
+
+    # ── Teams ────────────────────────────────────────────────────────────────
+
+    Team:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        short:
+          type: string
+        icon:
+          type: string
+        iconBg:
+          type: string
+        iconFg:
+          type: string
+        description:
+          type: string
+        hasPhoto:
+          type: boolean
+        hasLogo:
+          type: boolean
+        reasonVisibilityRoleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    TeamForUser:
+      allOf:
+        - $ref: "#/components/schemas/Team"
+        - type: object
+          required: [myRoles, myPerms, membershipId, memberCount]
+          properties:
+            myRoles:
+              type: array
+              items:
+                $ref: "#/components/schemas/Role"
+            myPerms:
+              $ref: "#/components/schemas/Permissions"
+            membershipId:
+              type: string
+              format: uuid
+            memberCount:
+              type: integer
+
+    CreateTeamRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        icon:
+          type: string
+        iconBg:
+          type: string
+        iconFg:
+          type: string
+
+    UpdateTeamRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        short:
+          type: string
+        icon:
+          type: string
+        iconBg:
+          type: string
+        iconFg:
+          type: string
+        description:
+          type: string
+        reasonVisibilityRoleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    Invite:
+      type: object
+      required: [id, teamId, code, link, createdAt, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        code:
+          type: string
+        link:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+
+    # ── Members & Roles ──────────────────────────────────────────────────────
+
+    Role:
+      type: object
+      required: [id, teamId, name, system, permissions]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        system:
+          type: boolean
+        color:
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+
+    CreateRoleRequest:
+      type: object
+      required: [name, permissions]
+      properties:
+        name:
+          type: string
+        color:
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+
+    UpdateRoleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        color:
+          type: string
+        permissions:
+          $ref: "#/components/schemas/Permissions"
+
+    Member:
+      type: object
+      required: [membershipId, userId, name, email, avatarColor, roles, joinedAt]
+      properties:
+        membershipId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthday:
+          type: string
+          format: date
+        address:
+          type: string
+        avatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+        group:
+          type: string
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+        primaryRole:
+          $ref: "#/components/schemas/Role"
+        perms:
+          $ref: "#/components/schemas/Permissions"
+        joinedAt:
+          type: string
+          format: date-time
+
+    AddMemberRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        group:
+          type: string
+
+    UpdateMemberRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        birthday:
+          type: string
+          format: date
+        address:
+          type: string
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        group:
+          type: string
+
+    SetRolesRequest:
+      type: object
+      required: [roleIds]
+      properties:
+        roleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    # ── Events ───────────────────────────────────────────────────────────────
+
+    EventSummary:
+      type: object
+      required: [yes, no, maybe, pending, notNominated, nominated, total]
+      properties:
+        yes:
+          type: integer
+        no:
+          type: integer
+        maybe:
+          type: integer
+        pending:
+          type: integer
+        notNominated:
+          type: integer
+        nominated:
+          type: integer
+        total:
+          type: integer
+
+    TeamEvent:
+      type: object
+      required: [id, teamId, type, title, date, status, recurring, summary]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        seriesId:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/EventType"
+        title:
+          type: string
+        date:
+          type: string
+          format: date
+        location:
+          type: string
+        note:
+          type: string
+        result:
+          type: string
+        meetTime:
+          type: string
+          description: "HH:mm"
+        startTime:
+          type: string
+          description: "HH:mm"
+        endTime:
+          type: string
+          description: "HH:mm"
+        meetTimeMandatory:
+          type: boolean
+        responseMode:
+          $ref: "#/components/schemas/ResponseMode"
+        nominatedRoleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        recurring:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/EventStatus"
+        summary:
+          $ref: "#/components/schemas/EventSummary"
+        myStatus:
+          $ref: "#/components/schemas/AttendanceStatus"
+        myAuto:
+          type: boolean
+        myReason:
+          type: string
+
+    CreateEventRequest:
+      type: object
+      required: [type, title, date]
+      properties:
+        type:
+          $ref: "#/components/schemas/EventType"
+        title:
+          type: string
+        date:
+          type: string
+          format: date
+        location:
+          type: string
+        note:
+          type: string
+        meetTime:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        meetTimeMandatory:
+          type: boolean
+        responseMode:
+          $ref: "#/components/schemas/ResponseMode"
+        nominatedRoleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+        recurring:
+          type: boolean
+        repeatWeeks:
+          type: integer
+          minimum: 1
+
+    UpdateEventRequest:
+      type: object
+      properties:
+        type:
+          $ref: "#/components/schemas/EventType"
+        title:
+          type: string
+        date:
+          type: string
+          format: date
+        location:
+          type: string
+        note:
+          type: string
+        meetTime:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        meetTimeMandatory:
+          type: boolean
+        responseMode:
+          $ref: "#/components/schemas/ResponseMode"
+        nominatedRoleIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    SetEventStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: "#/components/schemas/EventStatus"
+
+    EventComment:
+      type: object
+      required: [id, eventId, userId, text, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        text:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        authorName:
+          type: string
+        authorColor:
+          type: string
+        hasAuthorPhoto:
+          type: boolean
+
+    AddCommentRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          minLength: 1
+
+    # ── Attendance ───────────────────────────────────────────────────────────
+
+    AttendanceRecord:
+      type: object
+      required: [id, eventId, userId, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AttendanceStatus"
+        reason:
+          type: string
+        reasonId:
+          type: string
+        reasonVisibility:
+          type: string
+          enum: [trainers, team]
+        at:
+          type: string
+          format: date-time
+
+    AttendanceRow:
+      type: object
+      required: [userId, name, avatarColor, status]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        avatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+        group:
+          type: string
+        primaryRole:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/AttendanceStatus"
+        reason:
+          type: string
+        reasonId:
+          type: string
+        reasonVisibility:
+          type: string
+          enum: [trainers, team]
+        auto:
+          type: boolean
+        absent:
+          type: boolean
+
+    SetAttendanceRequest:
+      type: object
+      required: [userId, status]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AttendanceStatus"
+        reason:
+          type: string
+        reasonId:
+          type: string
+        reasonVisibility:
+          type: string
+          enum: [trainers, team]
+
+    SetNominationRequest:
+      type: object
+      required: [userId, nominated]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        nominated:
+          type: boolean
+
+    # ── Absences ─────────────────────────────────────────────────────────────
+
+    Absence:
+      type: object
+      required: [id, userId, from, to, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        memberName:
+          type: string
+        memberAvatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+        roleColor:
+          type: string
+        roleName:
+          type: string
+
+    CreateAbsenceRequest:
+      type: object
+      required: [userId, from, to]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        reason:
+          type: string
+
+    UpdateAbsenceRequest:
+      type: object
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        reason:
+          type: string
+
+    # ── News ─────────────────────────────────────────────────────────────────
+
+    NewsItem:
+      type: object
+      required: [id, teamId, authorId, title, body, pinned, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        authorId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        body:
+          type: string
+        pinned:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        authorName:
+          type: string
+        authorColor:
+          type: string
+        hasAuthorPhoto:
+          type: boolean
+
+    CreateNewsRequest:
+      type: object
+      required: [title, body]
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        pinned:
+          type: boolean
+          default: false
+
+    UpdateNewsRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        pinned:
+          type: boolean
+
+    # ── Polls ────────────────────────────────────────────────────────────────
+
+    PollOption:
+      type: object
+      required: [id, text, count, pct]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        count:
+          type: integer
+        pct:
+          type: number
+          format: float
+        voters:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              color:
+                type: string
+              hasPhoto:
+                type: boolean
+
+    Poll:
+      type: object
+      required: [id, question, multiple, anonymous, createdAt, totalVotes, options]
+      properties:
+        id:
+          type: string
+          format: uuid
+        question:
+          type: string
+        multiple:
+          type: boolean
+        anonymous:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        totalVotes:
+          type: integer
+        myVote:
+          type: array
+          items:
+            type: string
+            format: uuid
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/PollOption"
+
+    CreatePollRequest:
+      type: object
+      required: [question, options]
+      properties:
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+          minItems: 2
+          maxItems: 4
+        multiple:
+          type: boolean
+          default: false
+        anonymous:
+          type: boolean
+          default: false
+
+    VotePollRequest:
+      type: object
+      required: [optionIds]
+      properties:
+        optionIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 1
+
+    # ── Notifications ────────────────────────────────────────────────────────
+
+    AppNotification:
+      type: object
+      required: [id, teamId, type, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/NotificationType"
+        actorId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/AttendanceStatus"
+        title:
+          type: string
+        eventId:
+          type: string
+          format: uuid
+        eventTitle:
+          type: string
+        eventDate:
+          type: string
+          format: date
+        note:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        actorName:
+          type: string
+        actorColor:
+          type: string
+        hasActorPhoto:
+          type: boolean
+        unread:
+          type: boolean
+
+    NotificationsResult:
+      type: object
+      required: [items, unreadCount]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppNotification"
+        unreadCount:
+          type: integer
+
+    # ── Finances ─────────────────────────────────────────────────────────────
+
+    Transaction:
+      type: object
+      required: [id, teamId, type, title, amount, date]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        title:
+          type: string
+        amount:
+          type: number
+          format: double
+        date:
+          type: string
+          format: date
+        category:
+          type: string
+
+    CreateTransactionRequest:
+      type: object
+      required: [type, title, amount]
+      properties:
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        title:
+          type: string
+        amount:
+          type: number
+          format: double
+        category:
+          type: string
+
+    UpdateTransactionRequest:
+      type: object
+      properties:
+        type:
+          $ref: "#/components/schemas/TransactionType"
+        title:
+          type: string
+        amount:
+          type: number
+          format: double
+        category:
+          type: string
+
+    Penalty:
+      type: object
+      required: [id, teamId, label, amount]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        label:
+          type: string
+        amount:
+          type: number
+          format: double
+
+    CreatePenaltyRequest:
+      type: object
+      required: [label, amount]
+      properties:
+        label:
+          type: string
+        amount:
+          type: number
+          format: double
+
+    UpdatePenaltyRequest:
+      type: object
+      properties:
+        label:
+          type: string
+        amount:
+          type: number
+          format: double
+
+    PenaltyAssignment:
+      type: object
+      required: [id, teamId, userId, penaltyId, paid, date]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        penaltyId:
+          type: string
+          format: uuid
+        paid:
+          type: boolean
+        date:
+          type: string
+          format: date
+        memberName:
+          type: string
+        memberAvatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+        label:
+          type: string
+        amount:
+          type: number
+          format: double
+
+    CreatePenaltyAssignmentRequest:
+      type: object
+      required: [userId, penaltyId]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        penaltyId:
+          type: string
+          format: uuid
+
+    OpenPenalty:
+      type: object
+      required: [userId, name, avatarColor, amount]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        avatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+        amount:
+          type: number
+          format: double
+
+    Contribution:
+      type: object
+      required: [id, teamId, userId, month, amount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        teamId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        month:
+          type: string
+          description: "YYYY-MM"
+        label:
+          type: string
+        amount:
+          type: number
+          format: double
+        status:
+          $ref: "#/components/schemas/ContributionStatus"
+        memberName:
+          type: string
+        memberAvatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+
+    UpdateContributionRequest:
+      type: object
+      properties:
+        label:
+          type: string
+        amount:
+          type: number
+          format: double
+
+    FinanceOverview:
+      type: object
+      required: [balance, income, expense, transactions, penalties, assignments, openPenalties, openPenaltySum, contributions, contribOpen]
+      properties:
+        balance:
+          type: number
+          format: double
+        income:
+          type: number
+          format: double
+        expense:
+          type: number
+          format: double
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        penalties:
+          type: array
+          items:
+            $ref: "#/components/schemas/Penalty"
+        assignments:
+          type: array
+          items:
+            $ref: "#/components/schemas/PenaltyAssignment"
+        openPenalties:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpenPenalty"
+        openPenaltySum:
+          type: number
+          format: double
+        contributions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Contribution"
+        contribOpen:
+          type: integer
+
+    # ── Stats ────────────────────────────────────────────────────────────────
+
+    MemberAttendanceStats:
+      type: object
+      required: [quote, counted, yes]
+      properties:
+        quote:
+          type: number
+          format: float
+        counted:
+          type: integer
+        yes:
+          type: integer
+
+    MemberStat:
+      type: object
+      required: [userId, name, avatarColor, quote, counted, yes]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        avatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+        quote:
+          type: number
+          format: float
+        counted:
+          type: integer
+        yes:
+          type: integer
+
+    EventStat:
+      type: object
+      required: [id, title, type, date, yes, nominated, pct, enough]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        type:
+          $ref: "#/components/schemas/EventType"
+        date:
+          type: string
+          format: date
+        yes:
+          type: integer
+        nominated:
+          type: integer
+        pct:
+          type: number
+          format: float
+        enough:
+          type: boolean
+
+    StatsOverview:
+      type: object
+      required: [avg, members, events, pastCount, from, to]
+      properties:
+        avg:
+          type: number
+          format: float
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemberStat"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventStat"
+        pastCount:
+          type: integer
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
