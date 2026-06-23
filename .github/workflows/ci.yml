@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  # ─── Frontend Jobs ───────────────────────────────────────────────────────────
+  # ── Frontend ──────────────────────────────────────────────────────────────
 
   frontend-lint:
     name: Frontend · Lint
@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
@@ -51,13 +51,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run test:coverage
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
+          name: frontend-coverage
           path: frontend/coverage/
           retention-days: 7
 
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run audit:ci
@@ -89,7 +89,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
@@ -119,13 +119,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bundle-stats
-          path: |
-            frontend/dist/stats.html
+          name: frontend-bundle-stats
+          path: frontend/dist/stats.html
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
-          name: sbom
+          name: frontend-sbom
           path: frontend/sbom.json
           retention-days: 30
 
@@ -141,7 +140,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Install Playwright browsers
@@ -170,7 +169,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
@@ -179,7 +178,7 @@ jobs:
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
 
-  # ─── Backend Jobs ────────────────────────────────────────────────────────────
+  # ── Backend ───────────────────────────────────────────────────────────────
 
   backend-lint:
     name: Backend · Lint
@@ -193,9 +192,11 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: Install golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
-      - run: golangci-lint run ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+          working-directory: backend
 
   backend-test:
     name: Backend · Test
@@ -203,30 +204,18 @@ jobs:
     defaults:
       run:
         working-directory: backend
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: teammanager
-          POSTGRES_PASSWORD: teammanager
-          POSTGRES_DB: teammanager_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - run: go test ./... -race -coverprofile=coverage.out
+      - uses: docker/setup-buildx-action@v3
+      - run: go test ./... -race -count=1 -coverprofile=coverage.out -timeout=300s
         env:
-          DATABASE_URL: postgres://teammanager:teammanager@localhost:5432/teammanager_test?sslmode=disable
-      - uses: actions/upload-artifact@v4
+          TESTCONTAINERS_RYUK_DISABLED: "true"
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
         with:
           name: backend-coverage
           path: backend/coverage.out
@@ -245,4 +234,23 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - run: go build -o bin/server ./cmd/server
+      - run: go build -v -ldflags="-s -w" -o bin/server ./cmd/server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-binary
+          path: backend/bin/server
+          retention-days: 7
+
+  backend-security:
+    name: Backend · Security (govulncheck)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...

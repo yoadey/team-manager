@@ -1,0 +1,211 @@
+package finances
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/auth"
+	"github.com/yoadey/team-manager/backend/internal/gen"
+)
+
+// financeService is the interface the Handler relies on.
+type financeService interface {
+	GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error)
+	CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error)
+	UpdateTransaction(ctx context.Context, id uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
+	DeleteTransaction(ctx context.Context, id uuid.UUID) error
+	CreatePenalty(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error)
+	UpdatePenalty(ctx context.Context, id uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error)
+	DeletePenalty(ctx context.Context, id uuid.UUID) error
+	CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
+	DeleteAssignment(ctx context.Context, id uuid.UUID) error
+	ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error)
+	UpdateContribution(ctx context.Context, id uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
+	ToggleContribution(ctx context.Context, id uuid.UUID) (*gen.Contribution, error)
+}
+
+// Handler implements the finance-related methods of gen.StrictServerInterface.
+type Handler struct {
+	svc    financeService
+	logger *slog.Logger
+}
+
+// NewHandler creates a new Handler.
+func NewHandler(svc financeService, logger *slog.Logger) *Handler {
+	return &Handler{svc: svc, logger: logger}
+}
+
+// GetFinanceOverview returns the full finance overview for a team.
+func (h *Handler) GetFinanceOverview(ctx context.Context, req gen.GetFinanceOverviewRequestObject) (gen.GetFinanceOverviewResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	overview, err := h.svc.GetOverview(ctx, uuid.UUID(req.TeamId))
+	if err != nil {
+		h.logger.ErrorContext(ctx, "GetFinanceOverview failed", "err", err)
+		return nil, apierror.Internal("failed to get finance overview")
+	}
+	return gen.GetFinanceOverview200JSONResponse(*overview), nil
+}
+
+// CreateTransaction creates a new financial transaction.
+func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransactionRequestObject) (gen.CreateTransactionResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	t, err := h.svc.CreateTransaction(ctx, uuid.UUID(req.TeamId), req.Body)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
+		return nil, apierror.Internal("failed to create transaction")
+	}
+	return gen.CreateTransaction201JSONResponse(*t), nil
+}
+
+// UpdateTransaction applies a partial update to a transaction.
+func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransactionRequestObject) (gen.UpdateTransactionResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	t, err := h.svc.UpdateTransaction(ctx, openapi_types.UUID(req.TransactionId), req.Body)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "UpdateTransaction failed", "err", err)
+		return nil, apierror.Internal("failed to update transaction")
+	}
+	return gen.UpdateTransaction200JSONResponse(*t), nil
+}
+
+// DeleteTransaction removes a transaction.
+func (h *Handler) DeleteTransaction(ctx context.Context, req gen.DeleteTransactionRequestObject) (gen.DeleteTransactionResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if err := h.svc.DeleteTransaction(ctx, openapi_types.UUID(req.TransactionId)); err != nil {
+		h.logger.ErrorContext(ctx, "DeleteTransaction failed", "err", err)
+		return nil, apierror.Internal("failed to delete transaction")
+	}
+	return gen.DeleteTransaction204Response{}, nil
+}
+
+// CreatePenalty creates a new penalty definition.
+func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyRequestObject) (gen.CreatePenaltyResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	p, err := h.svc.CreatePenalty(ctx, uuid.UUID(req.TeamId), req.Body)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
+		return nil, apierror.Internal("failed to create penalty")
+	}
+	return gen.CreatePenalty201JSONResponse(*p), nil
+}
+
+// UpdatePenalty applies a partial update to a penalty definition.
+func (h *Handler) UpdatePenalty(ctx context.Context, req gen.UpdatePenaltyRequestObject) (gen.UpdatePenaltyResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	p, err := h.svc.UpdatePenalty(ctx, openapi_types.UUID(req.PenaltyId), req.Body)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "UpdatePenalty failed", "err", err)
+		return nil, apierror.Internal("failed to update penalty")
+	}
+	return gen.UpdatePenalty200JSONResponse(*p), nil
+}
+
+// DeletePenalty removes a penalty definition.
+func (h *Handler) DeletePenalty(ctx context.Context, req gen.DeletePenaltyRequestObject) (gen.DeletePenaltyResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if err := h.svc.DeletePenalty(ctx, openapi_types.UUID(req.PenaltyId)); err != nil {
+		h.logger.ErrorContext(ctx, "DeletePenalty failed", "err", err)
+		return nil, apierror.Internal("failed to delete penalty")
+	}
+	return gen.DeletePenalty204Response{}, nil
+}
+
+// CreatePenaltyAssignment assigns a penalty to a team member.
+func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePenaltyAssignmentRequestObject) (gen.CreatePenaltyAssignmentResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	a, err := h.svc.CreateAssignment(ctx, uuid.UUID(req.TeamId), req.Body)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "CreatePenaltyAssignment failed", "err", err)
+		return nil, apierror.Internal("failed to create penalty assignment")
+	}
+	return gen.CreatePenaltyAssignment201JSONResponse(*a), nil
+}
+
+// DeletePenaltyAssignment removes a penalty assignment.
+func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePenaltyAssignmentRequestObject) (gen.DeletePenaltyAssignmentResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if err := h.svc.DeleteAssignment(ctx, openapi_types.UUID(req.AssignmentId)); err != nil {
+		h.logger.ErrorContext(ctx, "DeletePenaltyAssignment failed", "err", err)
+		return nil, apierror.Internal("failed to delete penalty assignment")
+	}
+	return gen.DeletePenaltyAssignment204Response{}, nil
+}
+
+// TogglePenaltyPaid flips the paid flag on a penalty assignment.
+func (h *Handler) TogglePenaltyPaid(ctx context.Context, req gen.TogglePenaltyPaidRequestObject) (gen.TogglePenaltyPaidResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	a, err := h.svc.ToggleAssignmentPaid(ctx, uuid.UUID(req.TeamId), openapi_types.UUID(req.AssignmentId))
+	if err != nil {
+		h.logger.ErrorContext(ctx, "TogglePenaltyPaid failed", "err", err)
+		return nil, apierror.Internal("failed to toggle penalty paid status")
+	}
+	return gen.TogglePenaltyPaid200JSONResponse(*a), nil
+}
+
+// UpdateContribution applies a partial update to a contribution.
+func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContributionRequestObject) (gen.UpdateContributionResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	c, err := h.svc.UpdateContribution(ctx, openapi_types.UUID(req.ContributionId), req.Body)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "UpdateContribution failed", "err", err)
+		return nil, apierror.Internal("failed to update contribution")
+	}
+	return gen.UpdateContribution200JSONResponse(*c), nil
+}
+
+// ToggleContribution flips a contribution's status between open and paid.
+func (h *Handler) ToggleContribution(ctx context.Context, req gen.ToggleContributionRequestObject) (gen.ToggleContributionResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	c, err := h.svc.ToggleContribution(ctx, openapi_types.UUID(req.ContributionId))
+	if err != nil {
+		h.logger.ErrorContext(ctx, "ToggleContribution failed", "err", err)
+		return nil, apierror.Internal("failed to toggle contribution status")
+	}
+	return gen.ToggleContribution200JSONResponse(*c), nil
+}

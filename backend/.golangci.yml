@@ -1,0 +1,72 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - contextcheck
+    - cyclop
+    - dupl
+    - exhaustive
+    - gocognit
+    - gocritic
+    - godot
+    - goerr113
+    - gofumpt
+    - gosec
+    - misspell
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - tparallel
+    - unconvert
+    - unparam
+    - wrapcheck
+
+linters-settings:
+  cyclop:
+    max-complexity: 15
+  gocognit:
+    min-complexity: 20
+  gosec:
+    excludes:
+      - G115  # integer overflow (false positive in test helpers)
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+  revive:
+    rules:
+      - name: exported
+        disabled: true
+  goerr113:
+    check-wrapped: true
+  wrapcheck:
+    ignorePackageGlobs:
+      - github.com/yoadey/team-manager/backend/internal/*
+
+issues:
+  exclude-rules:
+    - path: "_test\\.go"
+      linters:
+        - goerr113
+        - wrapcheck
+        - gosec
+        - dupl
+        - gocognit
+        - cyclop
+    - path: "internal/gen/"
+      linters:
+        - all
+  max-issues-per-linter: 50
+  max-same-issues: 10

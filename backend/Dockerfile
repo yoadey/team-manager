@@ -3,11 +3,12 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o bin/server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /server ./cmd/server
 
 FROM gcr.io/distroless/static-debian12
-COPY --from=builder /app/bin/server /server
-COPY --from=builder /app/internal/db/migrations /migrations
-ENV MIGRATIONS_DIR=/migrations
+COPY --from=builder /server /server
+COPY --from=builder /app/internal/db/migrations /internal/db/migrations
+ENV MIGRATIONS_DIR=/internal/db/migrations
 EXPOSE 8080
+USER nonroot:nonroot
 ENTRYPOINT ["/server"]

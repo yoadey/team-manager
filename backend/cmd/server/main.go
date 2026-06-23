@@ -12,16 +12,30 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pressly/goose/v3"
-	_ "github.com/pressly/goose/v3/database"
 
+	"github.com/yoadey/team-manager/backend/internal/absences"
+	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/config"
+	"github.com/yoadey/team-manager/backend/internal/db"
+	"github.com/yoadey/team-manager/backend/internal/events"
+	"github.com/yoadey/team-manager/backend/internal/finances"
+	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/members"
+	"github.com/yoadey/team-manager/backend/internal/middleware"
+	"github.com/yoadey/team-manager/backend/internal/news"
+	"github.com/yoadey/team-manager/backend/internal/notifications"
+	"github.com/yoadey/team-manager/backend/internal/polls"
+	"github.com/yoadey/team-manager/backend/internal/roles"
+	"github.com/yoadey/team-manager/backend/internal/server"
+	"github.com/yoadey/team-manager/backend/internal/stats"
+	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+
+	// ─── Config ──────────────────────────────────────────────────────────────
 
 	cfg, err := config.Load()
 	if err != nil {
@@ -29,42 +43,155 @@ func main() {
 		os.Exit(1)
 	}
 
+	// ─── Database ─────────────────────────────────────────────────────────────
+
 	ctx := context.Background()
 
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	pool, err := db.Connect(ctx, cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("database connection failed", "err", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
 
-	if err := pool.Ping(ctx); err != nil {
-		slog.Error("database ping failed", "err", err)
-		os.Exit(1)
-	}
-
-	if err := runMigrations(ctx, cfg); err != nil {
+	if err := db.RunMigrations(ctx, pool, cfg.MigrationsDir); err != nil {
 		slog.Error("migrations failed", "err", err)
 		os.Exit(1)
 	}
 
-	r := chi.NewRouter()
-	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.RealIP)
-	r.Use(chimiddleware.Logger)
-	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.Timeout(30 * time.Second))
-	r.Use(corsMiddleware(cfg.AllowedOrigins))
+	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+	authRepo := auth.NewRepository(pool)
+	authSvc, err := auth.NewService(authRepo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	if err != nil {
+		slog.Error("auth service init failed", "err", err)
+		os.Exit(1)
+	}
+	authHandler := auth.NewHandler(authSvc, logger)
+
+	// ─── Teams ───────────────────────────────────────────────────────────────
+
+	teamsRepo := teams.NewRepository(pool)
+	teamsSvc := teams.NewService(teamsRepo)
+	teamsHandler := teams.NewHandler(teamsSvc, logger)
+
+	// ─── Members ─────────────────────────────────────────────────────────────
+
+	membersRepo := members.NewRepository(pool)
+	membersSvc := members.NewService(membersRepo)
+	membersHandler := members.NewHandler(membersSvc, logger)
+
+	// ─── Roles ───────────────────────────────────────────────────────────────
+
+	rolesRepo := roles.NewRepository(pool)
+	rolesSvc := roles.NewService(rolesRepo)
+	rolesHandler := roles.NewHandler(rolesSvc, logger)
+
+	// ─── Events ──────────────────────────────────────────────────────────────
+
+	eventsRepo := events.NewRepository(pool)
+	eventsSvc := events.NewService(eventsRepo)
+	eventsHandler := events.NewHandler(eventsSvc, logger)
+
+	// ─── Absences ────────────────────────────────────────────────────────────
+
+	absencesRepo := absences.NewRepository(pool)
+	absencesSvc := absences.NewService(absencesRepo)
+	absencesHandler := absences.NewHandler(absencesSvc, logger)
+
+	// ─── News ────────────────────────────────────────────────────────────────
+
+	newsRepo := news.NewRepository(pool)
+	newsSvc := news.NewService(newsRepo)
+	newsHandler := news.NewHandler(newsSvc, logger)
+
+	// ─── Polls ───────────────────────────────────────────────────────────────
+
+	pollsRepo := polls.NewRepository(pool)
+	pollsSvc := polls.NewService(pollsRepo)
+	pollsHandler := polls.NewHandler(pollsSvc, logger)
+
+	// ─── Notifications ────────────────────────────────────────────────────────
+
+	notifRepo := notifications.NewRepository(pool)
+	notifSvc := notifications.NewService(notifRepo)
+	notifHandler := notifications.NewHandler(notifSvc, logger)
+
+	// ─── Finances ─────────────────────────────────────────────────────────────
+
+	financesRepo := finances.NewRepository(pool)
+	financesSvc := finances.NewService(financesRepo)
+	financesHandler := finances.NewHandler(financesSvc, logger)
+
+	// ─── Stats ───────────────────────────────────────────────────────────────
+
+	statsRepo := stats.NewRepository(pool)
+	statsSvc := stats.NewService(statsRepo)
+	statsHandler := stats.NewHandler(statsSvc, logger)
+
+	// ─── Aggregated server ───────────────────────────────────────────────────
+
+	srv := server.New(
+		authHandler,
+		teamsHandler,
+		membersHandler,
+		rolesHandler,
+		eventsHandler,
+		absencesHandler,
+		newsHandler,
+		pollsHandler,
+		notifHandler,
+		financesHandler,
+		statsHandler,
+	)
+
+	// Wrap the strict server in the generated strict handler adapter.
+	strictSrv := gen.NewStrictHandler(srv, nil)
+
+	// ─── Router ──────────────────────────────────────────────────────────────
+
+	r := chi.NewRouter()
+
+	// Global middleware (applied to all routes, in order).
+	r.Use(middleware.Recoverer(logger))
+	r.Use(middleware.RequestID)
+	r.Use(chimiddleware.RealIP)
+	r.Use(middleware.Logger(logger))
+	r.Use(chimiddleware.Timeout(30 * time.Second))
+	r.Use(middleware.CORS(cfg.AllowedOrigins))
+	r.Use(middleware.RateLimit(100))
+
+	// Health check (no auth).
+	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := pool.Ping(r.Context()); err != nil {
+			slog.ErrorContext(r.Context(), "healthz db ping failed", "err", err)
+			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	// TODO: mount feature routers here as they are implemented
-	// r.Mount("/api/v1", apiRouter(pool, cfg))
+	// API routes under /api/v1.
+	r.Route("/api/v1", func(r chi.Router) {
+		// Public auth endpoints — no JWT required.
+		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.ListProviders(w, req)
+		})
+		r.Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.Login(w, req)
+		})
 
-	srv := &http.Server{
+		// All other endpoints require a valid JWT.
+		r.Group(func(r chi.Router) {
+			r.Use(authHandler.AuthMiddleware)
+			gen.HandlerFromMuxWithBaseURL(strictSrv, r, "")
+		})
+	})
+
+	// ─── HTTP server ─────────────────────────────────────────────────────────
+
+	httpSrv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
 		ReadTimeout:  15 * time.Second,
@@ -74,11 +201,13 @@ func main() {
 
 	go func() {
 		slog.Info("server starting", "port", cfg.Port)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("server error", "err", err)
 			os.Exit(1)
 		}
 	}()
+
+	// ─── Graceful shutdown ───────────────────────────────────────────────────
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -87,42 +216,7 @@ func main() {
 	slog.Info("shutting down server")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil {
+	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
-	}
-}
-
-func runMigrations(ctx context.Context, cfg *config.Config) error {
-	provider, err := goose.NewProvider(goose.DialectPostgres, nil, os.DirFS(cfg.MigrationsDir))
-	if err != nil {
-		return err
-	}
-	results, err := provider.Up(ctx)
-	for _, r := range results {
-		slog.Info("migration", "file", r.Source.Path, "duration", r.Duration)
-	}
-	return err
-}
-
-func corsMiddleware(origins []string) func(http.Handler) http.Handler {
-	allowed := make(map[string]bool, len(origins))
-	for _, o := range origins {
-		allowed[o] = true
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			origin := r.Header.Get("Origin")
-			if allowed[origin] {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,PUT,DELETE,OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Authorization,Content-Type")
-				w.Header().Set("Access-Control-Max-Age", "86400")
-			}
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
 	}
 }
