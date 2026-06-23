@@ -90,7 +90,9 @@ export function buildTokens(presetKey: string): AppTokens {
 // Neutral colour palettes — light and dark.
 // All component code references NEUTRAL, which uses CSS custom properties so
 // dark-mode switching happens automatically without touching component files.
-const NEUTRAL_LIGHT = {
+// NEUTRAL_LIGHT is exported so the MUI palette can receive concrete hex values
+// (MUI's color utilities cannot parse CSS var() references).
+export const NEUTRAL_LIGHT = {
   appBg: '#E4E5EC',
   surface: '#FBFBFE',
   card: '#FFFFFF',
