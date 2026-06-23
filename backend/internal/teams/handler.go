@@ -13,6 +13,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // teamService is the interface the Handler relies on.
@@ -61,6 +62,9 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 	}
 	if request.Body == nil {
 		return nil, fmt.Errorf("teams.Handler.CreateTeam: missing body")
+	}
+	if err := validate.Name(request.Body.Name); err != nil {
+		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
 	}
 
 	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name)
@@ -167,7 +171,7 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 	}
 	defer part.Close()
 
-	data, err := io.ReadAll(part)
+	data, err := io.ReadAll(io.LimitReader(part, 10<<20)) // 10 MB max
 	if err != nil {
 		return nil, fmt.Errorf("teams.Handler.UploadTeamPhoto: read file data: %w", err)
 	}

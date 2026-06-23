@@ -17,11 +17,10 @@ import (
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	listByTeam          func(ctx context.Context, teamID uuid.UUID) ([]*news.NewsRow, error)
-	create              func(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error)
-	update              func(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error)
-	delete              func(ctx context.Context, id uuid.UUID) error
-	insertNotification  func(ctx context.Context, teamID, actorID uuid.UUID, title string) error
+	listByTeam func(ctx context.Context, teamID uuid.UUID) ([]*news.NewsRow, error)
+	create     func(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error)
+	update     func(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error)
+	delete     func(ctx context.Context, id uuid.UUID) error
 }
 
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*news.NewsRow, error) {
@@ -35,12 +34,6 @@ func (m *mockRepo) Update(ctx context.Context, id uuid.UUID, title, body *string
 }
 func (m *mockRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.delete(ctx, id)
-}
-func (m *mockRepo) InsertNotification(ctx context.Context, teamID, actorID uuid.UUID, title string) error {
-	if m.insertNotification != nil {
-		return m.insertNotification(ctx, teamID, actorID, title)
-	}
-	return nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -76,7 +69,7 @@ func TestService_ListByTeam(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo)
+	svc := news.NewService(repo, nil)
 	result, err := svc.ListByTeam(context.Background(), teamID)
 
 	require.NoError(t, err)
@@ -101,7 +94,7 @@ func TestService_Create(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo)
+	svc := news.NewService(repo, nil)
 	body := &gen.CreateNewsRequest{
 		Title: "Team Update",
 		Body:  "We won the match!",
@@ -128,7 +121,7 @@ func TestService_Update(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo)
+	svc := news.NewService(repo, nil)
 	result, err := svc.Update(context.Background(), id, &gen.UpdateNewsRequest{Title: &newTitle})
 
 	require.NoError(t, err)
@@ -149,7 +142,7 @@ func TestService_Delete(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo)
+	svc := news.NewService(repo, nil)
 	err := svc.Delete(context.Background(), id)
 
 	require.NoError(t, err)

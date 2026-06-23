@@ -73,19 +73,26 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 
 // ListEvents returns events for a team filtered by scope.
 func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string) ([]EventRow, error) {
-	var scopeClause string
-	today := time.Now().UTC().Format("2006-01-02")
+	today := time.Now().UTC()
+
+	var (
+		q    string
+		args []any
+	)
+
 	switch scope {
 	case "past":
-		scopeClause = fmt.Sprintf("AND date < '%s'", today)
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date < $2 ORDER BY date DESC`, selectEventFields)
+		args = []any{teamID, today}
 	case "upcoming":
-		scopeClause = fmt.Sprintf("AND date >= '%s'", today)
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date >= $2 ORDER BY date ASC`, selectEventFields)
+		args = []any{teamID, today}
 	default:
-		scopeClause = ""
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 ORDER BY date ASC`, selectEventFields)
+		args = []any{teamID}
 	}
 
-	q := fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 %s ORDER BY date ASC`, selectEventFields, scopeClause)
-	rows, err := r.pool.Query(ctx, q, teamID)
+	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.ListEvents: %w", err)
 	}

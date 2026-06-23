@@ -11,6 +11,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // eventService is the interface the Handler relies on.
@@ -73,6 +74,9 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if err := validate.Name(request.Body.Title); err != nil {
+		return nil, apierror.BadRequest("title: " + err.Error())
 	}
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)

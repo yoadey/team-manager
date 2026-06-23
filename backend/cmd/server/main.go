@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/yoadey/team-manager/backend/internal/absences"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -20,6 +21,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 	"github.com/yoadey/team-manager/backend/internal/members"
 	"github.com/yoadey/team-manager/backend/internal/middleware"
 	"github.com/yoadey/team-manager/backend/internal/news"
@@ -59,6 +61,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := jobs.MigrateRiver(ctx, pool); err != nil {
+		slog.Error("river migrations failed", "err", err)
+		os.Exit(1)
+	}
+
+	// ─── River job queue ──────────────────────────────────────────────────────
+
+	jobsClient, riverClient, err := jobs.NewClient(pool)
+	if err != nil {
+		slog.Error("river client init failed", "err", err)
+		os.Exit(1)
+	}
+	if err := riverClient.Start(ctx); err != nil {
+		slog.Error("river worker start failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := riverClient.Stop(ctx); err != nil {
+			slog.Error("river worker stop failed", "err", err)
+		}
+	}()
+
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
 	authRepo := auth.NewRepository(pool)
@@ -90,7 +114,7 @@ func main() {
 	// ─── Events ──────────────────────────────────────────────────────────────
 
 	eventsRepo := events.NewRepository(pool)
-	eventsSvc := events.NewService(eventsRepo)
+	eventsSvc := events.NewService(eventsRepo, jobsClient)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
 
 	// ─── Absences ────────────────────────────────────────────────────────────
@@ -102,13 +126,13 @@ func main() {
 	// ─── News ────────────────────────────────────────────────────────────────
 
 	newsRepo := news.NewRepository(pool)
-	newsSvc := news.NewService(newsRepo)
+	newsSvc := news.NewService(newsRepo, jobsClient)
 	newsHandler := news.NewHandler(newsSvc, logger)
 
 	// ─── Polls ───────────────────────────────────────────────────────────────
 
 	pollsRepo := polls.NewRepository(pool)
-	pollsSvc := polls.NewService(pollsRepo)
+	pollsSvc := polls.NewService(pollsRepo, jobsClient)
 	pollsHandler := polls.NewHandler(pollsSvc, logger)
 
 	// ─── Notifications ────────────────────────────────────────────────────────
@@ -153,38 +177,50 @@ func main() {
 	r := chi.NewRouter()
 
 	// Global middleware (applied to all routes, in order).
+	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.Recoverer(logger))
 	r.Use(middleware.RequestID)
 	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(logger))
+	r.Use(middleware.Metrics)
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.RateLimit(100))
+	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
 
-	// Health check (no auth).
+	// Internal endpoints (no auth, no external prefix).
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		if err := pool.Ping(r.Context()); err != nil {
-			slog.ErrorContext(r.Context(), "healthz db ping failed", "err", err)
-			http.Error(w, "db unavailable", http.StatusServiceUnavailable)
-			return
-		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		if err := pool.Ping(r.Context()); err != nil {
+			slog.ErrorContext(r.Context(), "readyz db ping failed", "err", err)
+			http.Error(w, `{"status":"unavailable","db":"down"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	r.Handle("/metrics", promhttp.Handler())
 
 	// API routes under /api/v1.
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public auth endpoints — no JWT required.
+		// Per-IP brute-force protection: max 10 login attempts per minute.
+		r.With(middleware.PerIPRateLimit(10, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.Login(w, req)
+		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.ListProviders(w, req)
-		})
-		r.Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
-			strictSrv.Login(w, req)
 		})
 
 		// All other endpoints require a valid JWT.
 		r.Group(func(r chi.Router) {
 			r.Use(authHandler.AuthMiddleware)
+			// Team-scoped endpoints additionally require the caller to be a member.
+			r.Use(middleware.RequireMembership(membersRepo))
 			gen.HandlerFromMuxWithBaseURL(strictSrv, r, "")
 		})
 	})

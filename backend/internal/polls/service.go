@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 )
 
 // pollRepo is the interface the Service relies on.
@@ -20,14 +21,20 @@ type pollRepo interface {
 	ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error
 }
 
+// jobEnqueuer is satisfied by *jobs.Client.
+type jobEnqueuer interface {
+	EnqueueNotification(ctx context.Context, args jobs.NotificationArgs) error
+}
+
 // Service implements polls business logic.
 type Service struct {
 	repo pollRepo
+	jobs jobEnqueuer
 }
 
 // NewService creates a new Service.
-func NewService(repo pollRepo) *Service {
-	return &Service{repo: repo}
+func NewService(repo pollRepo, enq jobEnqueuer) *Service {
+	return &Service{repo: repo, jobs: enq}
 }
 
 // ListByTeam returns all polls for the given team with full vote data.
@@ -64,6 +71,16 @@ func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body 
 	pr, err := s.repo.FindByID(ctx, pollID)
 	if err != nil {
 		return gen.Poll{}, err
+	}
+	// Enqueue notification (best-effort; ignore error so it doesn't fail the request).
+	if s.jobs != nil {
+		question := body.Question
+		_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+			TeamID:  teamID,
+			Type:    "poll",
+			ActorID: creatorID,
+			Title:   &question,
+		})
 	}
 	return s.buildPoll(ctx, pr, creatorID)
 }

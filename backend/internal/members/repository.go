@@ -236,6 +236,19 @@ func (r *Repository) RemoveMember(ctx context.Context, membershipID string) erro
 	return nil
 }
 
+// IsMember returns true when the user is an active member of the team.
+func (r *Repository) IsMember(ctx context.Context, teamID, userID uuid.UUID) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)`,
+		teamID, userID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("members.Repository.IsMember: %w", err)
+	}
+	return exists, nil
+}
+
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
 func (r *Repository) getMemberByMembershipID(ctx context.Context, membershipID string) (*MemberRow, error) {

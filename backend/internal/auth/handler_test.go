@@ -173,13 +173,13 @@ func TestHandler_Login_Success(t *testing.T) {
 	svc := &mockAuthService{
 		login: func(_ context.Context, email, password string) (string, *auth.UserRow, error) {
 			assert.Equal(t, "test@example.com", email)
-			assert.Equal(t, "secret", password)
+			assert.Equal(t, "Secret123!", password)
 			return "jwt.token.here", user, nil
 		},
 	}
 	h := auth.NewHandler(svc, slog.Default())
 
-	body := `{"email":"test@example.com","password":"secret"}`
+	body := `{"email":"test@example.com","password":"Secret123!"}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

@@ -123,7 +123,7 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo)
+	svc := events.NewService(repo, nil)
 	result, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming")
 	require.NoError(t, err)
 	assert.Len(t, result, 3)
@@ -161,7 +161,7 @@ func TestEventService_CreateEvent_Recurring(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo)
+	svc := events.NewService(repo, nil)
 	repeatWeeks := 3
 	recurring := true
 	body := &gen.CreateEventRequest{
@@ -206,7 +206,7 @@ func TestEventService_SetAttendance(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo)
+	svc := events.NewService(repo, nil)
 	req := gen.SetAttendanceRequest{
 		UserId: openapi_types.UUID(userID),
 		Status: gen.Yes,

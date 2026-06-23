@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 )
 
 // newsRepo is the interface the Service relies on.
@@ -15,17 +16,22 @@ type newsRepo interface {
 	Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error)
 	Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error)
 	Delete(ctx context.Context, id uuid.UUID) error
-	InsertNotification(ctx context.Context, teamID, actorID uuid.UUID, title string) error
+}
+
+// jobEnqueuer is satisfied by *jobs.Client.
+type jobEnqueuer interface {
+	EnqueueNotification(ctx context.Context, args jobs.NotificationArgs) error
 }
 
 // Service implements news business logic.
 type Service struct {
 	repo newsRepo
+	jobs jobEnqueuer
 }
 
 // NewService creates a new Service.
-func NewService(repo newsRepo) *Service {
-	return &Service{repo: repo}
+func NewService(repo newsRepo, enq jobEnqueuer) *Service {
+	return &Service{repo: repo, jobs: enq}
 }
 
 // ListByTeam returns all news items for the given team.
@@ -41,7 +47,7 @@ func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]gen.NewsI
 	return result, nil
 }
 
-// Create adds a new news item and optionally fires a notification.
+// Create adds a new news item and enqueues a notification job.
 func (s *Service) Create(ctx context.Context, teamID, authorID uuid.UUID, body *gen.CreateNewsRequest) (gen.NewsItem, error) {
 	pinned := false
 	if body.Pinned != nil {
@@ -51,8 +57,16 @@ func (s *Service) Create(ctx context.Context, teamID, authorID uuid.UUID, body *
 	if err != nil {
 		return gen.NewsItem{}, err
 	}
-	// Fire notification (best-effort, ignore error so it doesn't fail the request).
-	_ = s.repo.InsertNotification(ctx, teamID, authorID, body.Title)
+	// Fire notification via River (best-effort; ignore error so it doesn't fail the request).
+	if s.jobs != nil {
+		title := body.Title
+		_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+			TeamID:  teamID,
+			Type:    "news",
+			ActorID: authorID,
+			Title:   &title,
+		})
+	}
 	return toGenNewsItem(row), nil
 }
 

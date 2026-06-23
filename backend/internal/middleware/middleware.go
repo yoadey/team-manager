@@ -92,26 +92,49 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
+var rateLimitHandler = httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	body := map[string]any{
+		"type":   "https://teammanager.example/errors/too-many-requests",
+		"title":  "Too Many Requests",
+		"status": http.StatusTooManyRequests,
+		"detail": "rate limit exceeded; please slow down",
+	}
+	_ = json.NewEncoder(w).Encode(body)
+})
+
 // RateLimit returns middleware that limits requests to requestsPerSecond per
-// second using a sliding-window counter. Clients that exceed the limit receive
-// a 429 Too Many Requests response with an RFC 9457 Problem Details body.
+// second (global, across all clients) using a sliding-window counter.
 func RateLimit(requestsPerSecond int) func(http.Handler) http.Handler {
-	limiter := httprate.NewRateLimiter(
-		requestsPerSecond,
-		time.Second,
-		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/problem+json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			body := map[string]any{
-				"type":   "https://teammanager.example/errors/too-many-requests",
-				"title":  "Too Many Requests",
-				"status": http.StatusTooManyRequests,
-				"detail": "rate limit exceeded; please slow down",
+	return httprate.NewRateLimiter(requestsPerSecond, time.Second, rateLimitHandler).Handler
+}
+
+// PerIPRateLimit returns middleware that limits each unique remote IP to
+// requestsPerPeriod within period. Intended for sensitive endpoints such as
+// login where brute-force protection is critical.
+func PerIPRateLimit(requestsPerPeriod int, period time.Duration) func(http.Handler) http.Handler {
+	return httprate.NewRateLimiter(
+		requestsPerPeriod,
+		period,
+		rateLimitHandler,
+		httprate.WithKeyFuncs(httprate.KeyByRealIP),
+	).Handler
+}
+
+// ─── Body Size Limiter ───────────────────────────────────────────────────────
+
+// BodyLimit wraps each request body with an io.LimitedReader capped at maxBytes.
+// Requests whose bodies exceed the limit result in a 413 Request Entity Too Large.
+func BodyLimit(maxBytes int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Body != nil {
+				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 			}
-			_ = json.NewEncoder(w).Encode(body)
-		}),
-	)
-	return limiter.Handler
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // ─── CORS ────────────────────────────────────────────────────────────────────

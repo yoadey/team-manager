@@ -6,8 +6,10 @@ import (
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"github.com/google/uuid"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 )
 
 // eventRepo is the interface the Service relies on.
@@ -29,14 +31,20 @@ type eventRepo interface {
 	DeleteComment(ctx context.Context, commentID, userID string) error
 }
 
+// jobEnqueuer is satisfied by *jobs.Client.
+type jobEnqueuer interface {
+	EnqueueNotification(ctx context.Context, args jobs.NotificationArgs) error
+}
+
 // Service implements event business logic.
 type Service struct {
 	repo eventRepo
+	jobs jobEnqueuer
 }
 
 // NewService creates a new Service.
-func NewService(repo eventRepo) *Service {
-	return &Service{repo: repo}
+func NewService(repo eventRepo, enq jobEnqueuer) *Service {
+	return &Service{repo: repo, jobs: enq}
 }
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
@@ -134,6 +142,25 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		return nil, fmt.Errorf("events.Service.CreateEvent: no row returned")
 	}
 
+	// Enqueue notification (best-effort; ignore error so it doesn't fail the request).
+	if s.jobs != nil {
+		if teamUUID, err2 := uuid.Parse(teamID); err2 == nil {
+			if actorUUID, err2 := uuid.Parse(userID); err2 == nil {
+				evID := row.Id
+				evTitle := row.Title
+				evDate := row.Date
+				_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+					TeamID:     teamUUID,
+					Type:       "event_created",
+					ActorID:    actorUUID,
+					EventID:    &evID,
+					EventTitle: &evTitle,
+					EventDate:  &evDate,
+				})
+			}
+		}
+	}
+
 	ev, err := s.enrichEvent(ctx, *row, userID)
 	if err != nil {
 		return nil, err
@@ -205,6 +232,23 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, status, scope 
 	row, err := s.repo.SetStatus(ctx, eventID, status, scope)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.SetStatus: %w", err)
+	}
+
+	// Enqueue cancellation notification (best-effort).
+	if s.jobs != nil && status == "cancelled" {
+		if actorUUID, err2 := uuid.Parse(userID); err2 == nil {
+			evID := row.Id
+			evTitle := row.Title
+			evDate := row.Date
+			_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+				TeamID:     row.TeamId,
+				Type:       "event_cancelled",
+				ActorID:    actorUUID,
+				EventID:    &evID,
+				EventTitle: &evTitle,
+				EventDate:  &evDate,
+			})
+		}
 	}
 
 	ev, err := s.enrichEvent(ctx, *row, userID)

@@ -13,6 +13,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // authService is the interface the Handler relies on.
@@ -55,6 +56,17 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 	if request.Body == nil {
 		return gen.Login401ApplicationProblemPlusJSONResponse{
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("missing request body"),
+		}, nil
+	}
+
+	if err := validate.Email(string(request.Body.Email)); err != nil {
+		return gen.Login401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
+		}, nil
+	}
+	if err := validate.PasswordStrength(request.Body.Password); err != nil {
+		return gen.Login401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
 		}, nil
 	}
 
@@ -124,7 +136,7 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 	}
 	defer part.Close()
 
-	data, err := io.ReadAll(part)
+	data, err := io.ReadAll(io.LimitReader(part, 10<<20)) // 10 MB max
 	if err != nil {
 		return nil, errBadRequest("cannot read file data: " + err.Error())
 	}
