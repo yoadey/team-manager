@@ -14,7 +14,7 @@ import (
 
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
-	ListEvents(ctx context.Context, teamID string, scope string) ([]EventRow, error)
+	ListEvents(ctx context.Context, teamID string, scope string, limit, offset int) ([]EventRow, error)
 	GetEvent(ctx context.Context, eventID string) (*EventRow, error)
 	CreateEvent(ctx context.Context, teamID string, params CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params CreateEventParams) ([]EventRow, error)
@@ -26,7 +26,7 @@ type eventRepo interface {
 	ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error)
 	SetAttendance(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
 	SetNomination(ctx context.Context, eventID, userID string, nominated bool) error
-	ListComments(ctx context.Context, eventID string) ([]CommentRow, error)
+	ListComments(ctx context.Context, eventID string, limit, offset int) ([]CommentRow, error)
 	AddComment(ctx context.Context, eventID, userID, text string) (*CommentRow, error)
 	DeleteComment(ctx context.Context, commentID, userID string) error
 }
@@ -49,9 +49,9 @@ func NewService(repo eventRepo, enq jobEnqueuer) *Service {
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
 
-// ListEvents returns all events for a team enriched with attendance summary and user's status.
-func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope string) ([]gen.TeamEvent, error) {
-	rows, err := s.repo.ListEvents(ctx, teamID, scope)
+// ListEvents returns paginated events for a team enriched with attendance summary and user's status.
+func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope string, limit, offset int) ([]gen.TeamEvent, error) {
+	rows, err := s.repo.ListEvents(ctx, teamID, scope, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 	}
@@ -260,9 +260,9 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, status, scope 
 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
-// ListComments returns all comments for an event.
-func (s *Service) ListComments(ctx context.Context, eventID string) ([]gen.EventComment, error) {
-	rows, err := s.repo.ListComments(ctx, eventID)
+// ListComments returns paginated comments for an event.
+func (s *Service) ListComments(ctx context.Context, eventID string, limit, offset int) ([]gen.EventComment, error) {
+	rows, err := s.repo.ListComments(ctx, eventID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.ListComments: %w", err)
 	}

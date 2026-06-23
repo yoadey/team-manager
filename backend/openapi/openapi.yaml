@@ -307,6 +307,9 @@ paths:
       tags: [members]
       operationId: listMembers
       summary: List team members
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
           description: OK
@@ -466,6 +469,8 @@ paths:
             type: string
             enum: [upcoming, past, all]
             default: upcoming
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
           description: OK
@@ -586,6 +591,9 @@ paths:
       tags: [events]
       operationId: listEventComments
       summary: List comments for event
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
           description: OK
@@ -695,6 +703,9 @@ paths:
       tags: [absences]
       operationId: listAbsences
       summary: List absences for the team
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
           description: OK
@@ -729,6 +740,9 @@ paths:
       tags: [absences]
       operationId: listMyAbsences
       summary: List authenticated user's own absences
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
           description: OK
@@ -782,6 +796,9 @@ paths:
       tags: [news]
       operationId: listNews
       summary: List team news
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
           description: OK
@@ -852,6 +869,9 @@ paths:
       tags: [polls]
       operationId: listPolls
       summary: List polls with vote counts
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
           description: OK
@@ -1271,6 +1291,21 @@ components:
       schema:
         type: string
         format: uuid
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 50
+    offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
 
   responses:
     Unauthorized:

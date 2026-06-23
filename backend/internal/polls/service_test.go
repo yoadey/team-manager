@@ -17,7 +17,7 @@ import (
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	listByTeam   func(ctx context.Context, teamID uuid.UUID) ([]*polls.PollRow, error)
+	listByTeam   func(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*polls.PollRow, error)
 	findByID     func(ctx context.Context, id uuid.UUID) (*polls.PollRow, error)
 	create       func(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
 	delete       func(ctx context.Context, id uuid.UUID) error
@@ -26,8 +26,8 @@ type mockRepo struct {
 	replaceVotes func(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error
 }
 
-func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*polls.PollRow, error) {
-	return m.listByTeam(ctx, teamID)
+func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*polls.PollRow, error) {
+	return m.listByTeam(ctx, teamID, limit, offset)
 }
 func (m *mockRepo) FindByID(ctx context.Context, id uuid.UUID) (*polls.PollRow, error) {
 	return m.findByID(ctx, id)
@@ -93,7 +93,7 @@ func TestService_ListByTeam(t *testing.T) {
 	opt := makeOptionRow()
 
 	repo := &mockRepo{
-		listByTeam: func(_ context.Context, tid uuid.UUID) ([]*polls.PollRow, error) {
+		listByTeam: func(_ context.Context, tid uuid.UUID, _, _ int) ([]*polls.PollRow, error) {
 			assert.Equal(t, teamID, tid)
 			return []*polls.PollRow{pr}, nil
 		},
@@ -104,7 +104,7 @@ func TestService_ListByTeam(t *testing.T) {
 	}
 
 	svc := polls.NewService(repo, nil)
-	result, err := svc.ListByTeam(context.Background(), teamID, userID)
+	result, err := svc.ListByTeam(context.Background(), teamID, userID, 50, 0)
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)

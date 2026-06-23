@@ -15,7 +15,7 @@ import (
 
 // memberRepo is the interface the Service relies on.
 type memberRepo interface {
-	ListMembers(ctx context.Context, teamID string) ([]MemberRow, error)
+	ListMembers(ctx context.Context, teamID string, limit, offset int) ([]MemberRow, error)
 	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error)
 	UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*MemberRow, error)
 	SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*MemberRow, error)
@@ -32,9 +32,9 @@ func NewService(repo memberRepo) *Service {
 	return &Service{repo: repo}
 }
 
-// ListMembers returns all members of a team as gen.Member objects.
-func (s *Service) ListMembers(ctx context.Context, teamID string) ([]gen.Member, error) {
-	rows, err := s.repo.ListMembers(ctx, teamID)
+// ListMembers returns paginated members of a team as gen.Member objects.
+func (s *Service) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error) {
+	rows, err := s.repo.ListMembers(ctx, teamID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("members.Service.ListMembers: %w", err)
 	}

@@ -34,6 +34,8 @@
     "@mui/material": "^9.1.1",
     "@sentry/react": "^10.58.0",
     "material-symbols": "^0.45.2",
+    "openapi-fetch": "^0.17.0",
+    "openapi-typescript": "^7.13.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

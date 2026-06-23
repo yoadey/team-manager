@@ -71,17 +71,17 @@ func TestEventRepository_CreateAndListEvents(t *testing.T) {
 	assert.Equal(t, "Training B", e2.Title)
 
 	// List all.
-	all, err := repo.ListEvents(ctx, testTeamID, "all")
+	all, err := repo.ListEvents(ctx, testTeamID, "all", 50, 0)
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 
 	// List upcoming (both events are today or future).
-	upcoming, err := repo.ListEvents(ctx, testTeamID, "upcoming")
+	upcoming, err := repo.ListEvents(ctx, testTeamID, "upcoming", 50, 0)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(upcoming), 1)
 
 	// List past (no past events seeded).
-	past, err := repo.ListEvents(ctx, testTeamID, "past")
+	past, err := repo.ListEvents(ctx, testTeamID, "past", 50, 0)
 	require.NoError(t, err)
 	assert.Len(t, past, 0)
 }

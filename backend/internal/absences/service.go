@@ -11,8 +11,8 @@ import (
 
 // absenceRepo is the interface the Service relies on.
 type absenceRepo interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*AbsenceRow, error)
-	ListByUser(ctx context.Context, teamID, userID uuid.UUID) ([]*AbsenceRow, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*AbsenceRow, error)
+	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*AbsenceRow, error)
 	Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error)
 	Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -28,9 +28,9 @@ func NewService(repo absenceRepo) *Service {
 	return &Service{repo: repo}
 }
 
-// ListByTeam returns all absences for the given team.
-func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]gen.Absence, error) {
-	rows, err := s.repo.ListByTeam(ctx, teamID)
+// ListByTeam returns paginated absences for the given team.
+func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.Absence, error) {
+	rows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -41,9 +41,9 @@ func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]gen.Absen
 	return result, nil
 }
 
-// ListByUser returns absences for the authenticated user in the given team.
-func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID) ([]gen.Absence, error) {
-	rows, err := s.repo.ListByUser(ctx, teamID, userID)
+// ListByUser returns paginated absences for the authenticated user in the given team.
+func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]gen.Absence, error) {
+	rows, err := s.repo.ListByUser(ctx, teamID, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

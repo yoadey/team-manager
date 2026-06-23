@@ -1,4 +1,4 @@
-.PHONY: dev build generate migrate test lint install tools
+.PHONY: dev build generate generate-ts migrate test lint install tools
 
 ## Install all tools (run once after cloning)
 install:
@@ -10,9 +10,13 @@ install:
 dev:
 	docker compose up --build
 
-## Generate code from OpenAPI spec
+## Generate Go server code from OpenAPI spec
 generate:
 	cd backend && make generate
+
+## Generate TypeScript client types from OpenAPI spec
+generate-ts:
+	npm --prefix frontend exec -- openapi-typescript backend/openapi/openapi.yaml -o frontend/src/api/types.gen.ts
 
 ## Run DB migrations
 migrate:

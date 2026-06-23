@@ -21,15 +21,15 @@ import (
 // ─── mock service ─────────────────────────────────────────────────────────────
 
 type mockMemberService struct {
-	listMembers  func(ctx context.Context, teamID string) ([]gen.Member, error)
+	listMembers  func(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error)
 	addMember    func(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error)
 	updateMember func(ctx context.Context, membershipID string, patch members.MemberPatch) (*gen.Member, error)
 	setRoles     func(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error)
 	removeMember func(ctx context.Context, membershipID string) error
 }
 
-func (m *mockMemberService) ListMembers(ctx context.Context, teamID string) ([]gen.Member, error) {
-	return m.listMembers(ctx, teamID)
+func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error) {
+	return m.listMembers(ctx, teamID, limit, offset)
 }
 func (m *mockMemberService) AddMember(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error) {
 	return m.addMember(ctx, teamID, params)
@@ -74,7 +74,7 @@ func TestMemberHandler_ListMembers(t *testing.T) {
 	member := fixedGenMember()
 
 	svc := &mockMemberService{
-		listMembers: func(_ context.Context, _ string) ([]gen.Member, error) {
+		listMembers: func(_ context.Context, _ string, _, _ int) ([]gen.Member, error) {
 			return []gen.Member{member}, nil
 		},
 	}

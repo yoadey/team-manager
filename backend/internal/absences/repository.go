@@ -47,9 +47,9 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 }
 
 // ListByTeam returns all absences for a team, enriched with user and role info.
-func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*AbsenceRow, error) {
-	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 ORDER BY a.id, a.from_date DESC`, selectAbsenceFields, absenceJoins)
-	rows, err := r.pool.Query(ctx, q, teamID)
+func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*AbsenceRow, error) {
+	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 ORDER BY a.id, a.from_date DESC LIMIT $2 OFFSET $3`, selectAbsenceFields, absenceJoins)
+	rows, err := r.pool.Query(ctx, q, teamID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.ListByTeam: %w", err)
 	}
@@ -67,9 +67,9 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*Absen
 }
 
 // ListByUser returns absences for a specific user in a team.
-func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID) ([]*AbsenceRow, error) {
-	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 AND a.user_id = $2 ORDER BY a.id, a.from_date DESC`, selectAbsenceFields, absenceJoins)
-	rows, err := r.pool.Query(ctx, q, teamID, userID)
+func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*AbsenceRow, error) {
+	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 AND a.user_id = $2 ORDER BY a.id, a.from_date DESC LIMIT $3 OFFSET $4`, selectAbsenceFields, absenceJoins)
+	rows, err := r.pool.Query(ctx, q, teamID, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.ListByUser: %w", err)
 	}

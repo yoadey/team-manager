@@ -17,14 +17,14 @@ import (
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	listByTeam func(ctx context.Context, teamID uuid.UUID) ([]*news.NewsRow, error)
+	listByTeam func(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*news.NewsRow, error)
 	create     func(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error)
 	update     func(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error)
 	delete     func(ctx context.Context, id uuid.UUID) error
 }
 
-func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*news.NewsRow, error) {
-	return m.listByTeam(ctx, teamID)
+func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*news.NewsRow, error) {
+	return m.listByTeam(ctx, teamID, limit, offset)
 }
 func (m *mockRepo) Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error) {
 	return m.create(ctx, teamID, authorID, title, body, pinned)
@@ -63,14 +63,14 @@ func TestService_ListByTeam(t *testing.T) {
 	row := makeNewsRow()
 
 	repo := &mockRepo{
-		listByTeam: func(_ context.Context, tid uuid.UUID) ([]*news.NewsRow, error) {
+		listByTeam: func(_ context.Context, tid uuid.UUID, _, _ int) ([]*news.NewsRow, error) {
 			assert.Equal(t, teamID, tid)
 			return []*news.NewsRow{row}, nil
 		},
 	}
 
 	svc := news.NewService(repo, nil)
-	result, err := svc.ListByTeam(context.Background(), teamID)
+	result, err := svc.ListByTeam(context.Background(), teamID, 50, 0)
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)

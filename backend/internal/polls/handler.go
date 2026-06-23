@@ -10,11 +10,12 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // pollService is the interface the Handler relies on.
 type pollService interface {
-	ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID) ([]gen.Poll, error)
+	ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit, offset int) ([]gen.Poll, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error)
 	Vote(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -31,13 +32,14 @@ func NewHandler(svc pollService, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// ListPolls returns all polls for the team.
+// ListPolls returns paginated polls for the team.
 func (h *Handler) ListPolls(ctx context.Context, req gen.ListPollsRequestObject) (gen.ListPollsResponseObject, error) {
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	polls, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId), user.Id)
+	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
+	polls, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId), user.Id, limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListPolls failed", "err", err)
 		return nil, apierror.Internal("failed to list polls")

@@ -37,15 +37,16 @@ func scanNews(row interface{ Scan(dest ...any) error }) (*NewsRow, error) {
 }
 
 // ListByTeam returns all news items for a team, pinned first then newest first.
-func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*NewsRow, error) {
+func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*NewsRow, error) {
 	q := fmt.Sprintf(`
 		SELECT %s
 		FROM news n
 		JOIN users u ON u.id = n.author_id
 		WHERE n.team_id = $1
 		ORDER BY n.pinned DESC, n.created_at DESC
+		LIMIT $2 OFFSET $3
 	`, selectNewsFields)
-	rows, err := r.pool.Query(ctx, q, teamID)
+	rows, err := r.pool.Query(ctx, q, teamID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("news.Repository.ListByTeam: %w", err)
 	}

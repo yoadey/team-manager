@@ -24,7 +24,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 // ListMembers returns all members of a team with their roles.
-func (r *Repository) ListMembers(ctx context.Context, teamID string) ([]MemberRow, error) {
+func (r *Repository) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]MemberRow, error) {
 	// First, get all memberships + user data for the team.
 	rows, err := r.pool.Query(ctx, `
 		SELECT m.id, u.id, u.name, u.email, u.phone,
@@ -35,7 +35,8 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string) ([]MemberRo
 		JOIN users u ON u.id = m.user_id
 		WHERE m.team_id = $1
 		ORDER BY u.name
-	`, teamID)
+		LIMIT $2 OFFSET $3
+	`, teamID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.ListMembers: %w", err)
 	}

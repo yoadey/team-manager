@@ -19,11 +19,11 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 // ListByTeam returns all polls for a team.
-func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*PollRow, error) {
+func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*PollRow, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at
-		 FROM polls WHERE team_id = $1 ORDER BY created_at DESC`,
-		teamID,
+		 FROM polls WHERE team_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+		teamID, limit, offset,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("polls.Repository.ListByTeam: %w", err)

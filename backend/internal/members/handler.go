@@ -11,11 +11,12 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // memberService is the interface the Handler relies on.
 type memberService interface {
-	ListMembers(ctx context.Context, teamID string) ([]gen.Member, error)
+	ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error)
 	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*gen.Member, error)
 	UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error)
@@ -33,9 +34,10 @@ func NewHandler(svc memberService, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// ListMembers returns all members of a team.
+// ListMembers returns paginated members of a team.
 func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
-	members, err := h.svc.ListMembers(ctx, request.TeamId.String())
+	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
+	members, err := h.svc.ListMembers(ctx, request.TeamId.String(), limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListMembers failed", "err", err)
 		return nil, err

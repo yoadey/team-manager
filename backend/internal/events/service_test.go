@@ -18,7 +18,7 @@ import (
 
 // mockSvcRepo satisfies the unexported eventRepo interface via structural typing.
 type mockSvcRepo struct {
-	listEventsFn          func(ctx context.Context, teamID, scope string) ([]events.EventRow, error)
+	listEventsFn          func(ctx context.Context, teamID, scope string, limit, offset int) ([]events.EventRow, error)
 	getEventFn            func(ctx context.Context, eventID string) (*events.EventRow, error)
 	createEventFn         func(ctx context.Context, teamID string, params events.CreateEventParams) (*events.EventRow, error)
 	createSeriesFn        func(ctx context.Context, teamID string, params events.CreateEventParams) ([]events.EventRow, error)
@@ -30,13 +30,13 @@ type mockSvcRepo struct {
 	listAttendanceFn      func(ctx context.Context, eventID string) ([]events.AttendanceEnriched, error)
 	setAttendanceFn       func(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
 	setNominationFn       func(ctx context.Context, eventID, userID string, nominated bool) error
-	listCommentsFn        func(ctx context.Context, eventID string) ([]events.CommentRow, error)
+	listCommentsFn        func(ctx context.Context, eventID string, limit, offset int) ([]events.CommentRow, error)
 	addCommentFn          func(ctx context.Context, eventID, userID, text string) (*events.CommentRow, error)
 	deleteCommentFn       func(ctx context.Context, commentID, userID string) error
 }
 
-func (m *mockSvcRepo) ListEvents(ctx context.Context, teamID, scope string) ([]events.EventRow, error) {
-	return m.listEventsFn(ctx, teamID, scope)
+func (m *mockSvcRepo) ListEvents(ctx context.Context, teamID, scope string, limit, offset int) ([]events.EventRow, error) {
+	return m.listEventsFn(ctx, teamID, scope, limit, offset)
 }
 func (m *mockSvcRepo) GetEvent(ctx context.Context, eventID string) (*events.EventRow, error) {
 	return m.getEventFn(ctx, eventID)
@@ -71,8 +71,8 @@ func (m *mockSvcRepo) SetAttendance(ctx context.Context, eventID, userID string,
 func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, userID string, nominated bool) error {
 	return m.setNominationFn(ctx, eventID, userID, nominated)
 }
-func (m *mockSvcRepo) ListComments(ctx context.Context, eventID string) ([]events.CommentRow, error) {
-	return m.listCommentsFn(ctx, eventID)
+func (m *mockSvcRepo) ListComments(ctx context.Context, eventID string, limit, offset int) ([]events.CommentRow, error) {
+	return m.listCommentsFn(ctx, eventID, limit, offset)
 }
 func (m *mockSvcRepo) AddComment(ctx context.Context, eventID, userID, text string) (*events.CommentRow, error) {
 	return m.addCommentFn(ctx, eventID, userID, text)
@@ -115,7 +115,7 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 
 	capturedScope := ""
 	repo := &mockSvcRepo{
-		listEventsFn: func(_ context.Context, _, scope string) ([]events.EventRow, error) {
+		listEventsFn: func(_ context.Context, _, scope string, _, _ int) ([]events.EventRow, error) {
 			capturedScope = scope
 			return rows, nil
 		},
@@ -124,7 +124,7 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 	}
 
 	svc := events.NewService(repo, nil)
-	result, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming")
+	result, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming", 50, 0)
 	require.NoError(t, err)
 	assert.Len(t, result, 3)
 	assert.Equal(t, "upcoming", capturedScope, "scope should be passed through to repository")

@@ -72,7 +72,7 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 // ─── ListEvents ─────────────────────────────────────────────────────────────
 
 // ListEvents returns events for a team filtered by scope.
-func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string) ([]EventRow, error) {
+func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string, limit, offset int) ([]EventRow, error) {
 	today := time.Now().UTC()
 
 	var (
@@ -82,14 +82,14 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string
 
 	switch scope {
 	case "past":
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date < $2 ORDER BY date DESC`, selectEventFields)
-		args = []any{teamID, today}
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date < $2 ORDER BY date DESC LIMIT $3 OFFSET $4`, selectEventFields)
+		args = []any{teamID, today, limit, offset}
 	case "upcoming":
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date >= $2 ORDER BY date ASC`, selectEventFields)
-		args = []any{teamID, today}
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date >= $2 ORDER BY date ASC LIMIT $3 OFFSET $4`, selectEventFields)
+		args = []any{teamID, today, limit, offset}
 	default:
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 ORDER BY date ASC`, selectEventFields)
-		args = []any{teamID}
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 ORDER BY date ASC LIMIT $2 OFFSET $3`, selectEventFields)
+		args = []any{teamID, limit, offset}
 	}
 
 	rows, err := r.pool.Query(ctx, q, args...)
@@ -547,7 +547,7 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, userID string, 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
 // ListComments returns all comments for an event, enriched with user data.
-func (r *Repository) ListComments(ctx context.Context, eventID string) ([]CommentRow, error) {
+func (r *Repository) ListComments(ctx context.Context, eventID string, limit, offset int) ([]CommentRow, error) {
 	q := `
 		SELECT
 			c.id, c.event_id, c.user_id, c.text, c.created_at,
@@ -558,8 +558,9 @@ func (r *Repository) ListComments(ctx context.Context, eventID string) ([]Commen
 		JOIN users u ON u.id = c.user_id
 		WHERE c.event_id = $1
 		ORDER BY c.created_at ASC
+		LIMIT $2 OFFSET $3
 	`
-	rows, err := r.pool.Query(ctx, q, eventID)
+	rows, err := r.pool.Query(ctx, q, eventID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.ListComments: %w", err)
 	}

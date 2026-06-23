@@ -12,7 +12,7 @@ import (
 
 // newsRepo is the interface the Service relies on.
 type newsRepo interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*NewsRow, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*NewsRow, error)
 	Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error)
 	Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -34,9 +34,9 @@ func NewService(repo newsRepo, enq jobEnqueuer) *Service {
 	return &Service{repo: repo, jobs: enq}
 }
 
-// ListByTeam returns all news items for the given team.
-func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID) ([]gen.NewsItem, error) {
-	rows, err := s.repo.ListByTeam(ctx, teamID)
+// ListByTeam returns paginated news items for the given team.
+func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.NewsItem, error) {
+	rows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

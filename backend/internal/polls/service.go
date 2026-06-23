@@ -12,7 +12,7 @@ import (
 
 // pollRepo is the interface the Service relies on.
 type pollRepo interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]*PollRow, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*PollRow, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*PollRow, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -37,9 +37,9 @@ func NewService(repo pollRepo, enq jobEnqueuer) *Service {
 	return &Service{repo: repo, jobs: enq}
 }
 
-// ListByTeam returns all polls for the given team with full vote data.
-func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID) ([]gen.Poll, error) {
-	pollRows, err := s.repo.ListByTeam(ctx, teamID)
+// ListByTeam returns paginated polls for the given team with full vote data.
+func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit, offset int) ([]gen.Poll, error) {
+	pollRows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

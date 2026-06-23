@@ -11,18 +11,19 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // eventService is the interface the Handler relies on.
 type eventService interface {
-	ListEvents(ctx context.Context, teamID, userID, scope string) ([]gen.TeamEvent, error)
+	ListEvents(ctx context.Context, teamID, userID, scope string, limit, offset int) ([]gen.TeamEvent, error)
 	CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error)
 	GetEvent(ctx context.Context, teamID, userID, eventID string) (*gen.TeamEvent, error)
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
 	DeleteEvent(ctx context.Context, eventID, scope string) error
 	SetStatus(ctx context.Context, userID, eventID, status, scope string) (*gen.TeamEvent, error)
-	ListComments(ctx context.Context, eventID string) ([]gen.EventComment, error)
+	ListComments(ctx context.Context, eventID string, limit, offset int) ([]gen.EventComment, error)
 	AddComment(ctx context.Context, eventID, userID, text string) (*gen.EventComment, error)
 	DeleteComment(ctx context.Context, commentID, userID string) error
 	ListAttendance(ctx context.Context, eventID string) ([]gen.AttendanceRow, error)
@@ -43,7 +44,7 @@ func NewHandler(svc eventService, logger *slog.Logger) *Handler {
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
 
-// ListEvents returns all events for a team.
+// ListEvents returns paginated events for a team.
 func (h *Handler) ListEvents(ctx context.Context, request gen.ListEventsRequestObject) (gen.ListEventsResponseObject, error) {
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
@@ -54,8 +55,9 @@ func (h *Handler) ListEvents(ctx context.Context, request gen.ListEventsRequestO
 	if request.Params.Scope != nil {
 		scope = string(*request.Params.Scope)
 	}
+	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
 
-	evts, err := h.svc.ListEvents(ctx, request.TeamId.String(), user.Id.String(), scope)
+	evts, err := h.svc.ListEvents(ctx, request.TeamId.String(), user.Id.String(), scope, limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListEvents failed", "err", err)
 		return nil, apierror.Internal("failed to list events")
@@ -190,14 +192,15 @@ func (h *Handler) SetEventStatus(ctx context.Context, request gen.SetEventStatus
 
 // ─── ListEventComments ───────────────────────────────────────────────────────
 
-// ListEventComments returns all comments for an event.
+// ListEventComments returns paginated comments for an event.
 func (h *Handler) ListEventComments(ctx context.Context, request gen.ListEventCommentsRequestObject) (gen.ListEventCommentsResponseObject, error) {
 	_, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 
-	comments, err := h.svc.ListComments(ctx, request.EventId.String())
+	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
+	comments, err := h.svc.ListComments(ctx, request.EventId.String(), limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListEventComments failed", "err", err)
 		return nil, apierror.Internal("failed to list comments")

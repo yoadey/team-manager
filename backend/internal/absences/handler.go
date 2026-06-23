@@ -9,12 +9,13 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // absenceService is the interface the Handler relies on.
 type absenceService interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]gen.Absence, error)
-	ListByUser(ctx context.Context, teamID, userID uuid.UUID) ([]gen.Absence, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.Absence, error)
+	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]gen.Absence, error)
 	Create(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
 	Update(ctx context.Context, id uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -31,12 +32,13 @@ func NewHandler(svc absenceService, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// ListAbsences returns all absences for a team.
+// ListAbsences returns paginated absences for a team.
 func (h *Handler) ListAbsences(ctx context.Context, req gen.ListAbsencesRequestObject) (gen.ListAbsencesResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	absences, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId))
+	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
+	absences, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId), limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")
@@ -60,13 +62,14 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	return gen.CreateAbsence201JSONResponse(absence), nil
 }
 
-// ListMyAbsences returns the authenticated user's own absences.
+// ListMyAbsences returns paginated absences for the authenticated user.
 func (h *Handler) ListMyAbsences(ctx context.Context, req gen.ListMyAbsencesRequestObject) (gen.ListMyAbsencesResponseObject, error) {
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	absences, err := h.svc.ListByUser(ctx, uuid.UUID(req.TeamId), user.Id)
+	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
+	absences, err := h.svc.ListByUser(ctx, uuid.UUID(req.TeamId), user.Id, limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListMyAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")

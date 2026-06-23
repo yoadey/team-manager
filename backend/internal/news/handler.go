@@ -9,11 +9,12 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // newsService is the interface the Handler relies on.
 type newsService interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID) ([]gen.NewsItem, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.NewsItem, error)
 	Create(ctx context.Context, teamID, authorID uuid.UUID, body *gen.CreateNewsRequest) (gen.NewsItem, error)
 	Update(ctx context.Context, id uuid.UUID, body *gen.UpdateNewsRequest) (gen.NewsItem, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -30,12 +31,13 @@ func NewHandler(svc newsService, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// ListNews returns all news items for the team.
+// ListNews returns paginated news items for the team.
 func (h *Handler) ListNews(ctx context.Context, req gen.ListNewsRequestObject) (gen.ListNewsResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	items, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId))
+	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
+	items, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId), limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListNews failed", "err", err)
 		return nil, apierror.Internal("failed to list news")
