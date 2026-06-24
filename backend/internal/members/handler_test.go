@@ -31,15 +31,19 @@ type mockMemberService struct {
 func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error) {
 	return m.listMembers(ctx, teamID, limit, offset)
 }
+
 func (m *mockMemberService) AddMember(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error) {
 	return m.addMember(ctx, teamID, params)
 }
+
 func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID string, patch members.MemberPatch) (*gen.Member, error) {
 	return m.updateMember(ctx, membershipID, patch)
 }
+
 func (m *mockMemberService) SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error) {
 	return m.setRoles(ctx, membershipID, roleIDs)
 }
+
 func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID string) error {
 	return m.removeMember(ctx, membershipID)
 }

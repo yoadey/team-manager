@@ -28,18 +28,23 @@ type mockRepo struct {
 func (m *mockRepo) FindUserByEmail(ctx context.Context, email string) (*auth.UserRow, error) {
 	return m.userByEmail(ctx, email)
 }
+
 func (m *mockRepo) FindUserByID(ctx context.Context, id string) (*auth.UserRow, error) {
 	return m.userByID(ctx, id)
 }
+
 func (m *mockRepo) CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error) {
 	return m.createSess(ctx, userID, tokenHash, expiresAt)
 }
+
 func (m *mockRepo) FindSession(ctx context.Context, tokenHash string) (*auth.SessionRow, error) {
 	return m.findSess(ctx, tokenHash)
 }
+
 func (m *mockRepo) DeleteSession(ctx context.Context, tokenHash string) error {
 	return m.deleteSess(ctx, tokenHash)
 }
+
 func (m *mockRepo) UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error {
 	return m.updatePhoto(ctx, userID, data, mime)
 }

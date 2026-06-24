@@ -79,13 +79,15 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string
 	results, err := provider.Up(ctx)
 	for _, r := range results {
 		if r.Error != nil {
-			slog.ErrorContext(ctx, "migration failed",
+			slog.ErrorContext(
+				ctx, "migration failed",
 				slog.String("file", r.Source.Path),
 				slog.Any("error", r.Error),
 			)
 			continue
 		}
-		slog.InfoContext(ctx, "migration applied",
+		slog.InfoContext(
+			ctx, "migration applied",
 			slog.String("file", r.Source.Path),
 			slog.Duration("duration", r.Duration),
 		)

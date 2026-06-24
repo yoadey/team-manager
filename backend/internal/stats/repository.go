@@ -1,9 +1,9 @@
 package stats
 
 import (
-	"time"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"

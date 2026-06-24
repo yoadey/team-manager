@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,21 +29,27 @@ type mockRepo struct {
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*polls.PollRow, error) {
 	return m.listByTeam(ctx, teamID, limit, offset)
 }
+
 func (m *mockRepo) FindByID(ctx context.Context, id uuid.UUID) (*polls.PollRow, error) {
 	return m.findByID(ctx, id)
 }
+
 func (m *mockRepo) Create(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error) {
 	return m.create(ctx, teamID, creatorID, question, multiple, anonymous, options)
 }
+
 func (m *mockRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.delete(ctx, id)
 }
+
 func (m *mockRepo) ListOptions(ctx context.Context, pollID uuid.UUID) ([]*polls.PollOptionRow, error) {
 	return m.listOptions(ctx, pollID)
 }
+
 func (m *mockRepo) ListVotes(ctx context.Context, pollID uuid.UUID) ([]*polls.PollVoteRow, error) {
 	return m.listVotes(ctx, pollID)
 }
+
 func (m *mockRepo) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error {
 	return m.replaceVotes(ctx, pollID, userID, optionIDs, multiple)
 }

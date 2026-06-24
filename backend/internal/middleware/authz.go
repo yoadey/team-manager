@@ -83,12 +83,12 @@ var routeModule = map[string]string{
 // selfServiceWritePaths lists sub-paths (after {teamId}) that any member may
 // mutate regardless of module write permission.
 var selfServiceWritePaths = map[string]bool{
-	"events/attendance":    true,
-	"events/comments":      true,
-	"polls/vote":           true,
-	"absences":             true,
-	"absences/mine":        true,
-	"notifications/seen":   true,
+	"events/attendance":  true,
+	"events/comments":    true,
+	"polls/vote":         true,
+	"absences":           true,
+	"absences/mine":      true,
+	"notifications/seen": true,
 }
 
 // RequirePermission enforces module-level write access for mutating HTTP methods

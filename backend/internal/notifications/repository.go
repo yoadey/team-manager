@@ -1,9 +1,9 @@
 package notifications
 
 import (
-	"time"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -65,7 +65,8 @@ func (r *Repository) ListByTeamAndUser(ctx context.Context, teamID, userID uuid.
 func (r *Repository) MarkSeen(ctx context.Context, teamID, userID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`INSERT INTO notif_seen (team_id, user_id, seen_at) VALUES ($1, $2, now())
 		 ON CONFLICT (team_id, user_id) DO UPDATE SET seen_at = now()`,
 		teamID, userID,

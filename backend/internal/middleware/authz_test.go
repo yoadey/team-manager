@@ -156,28 +156,42 @@ func TestRequirePermission_Mutations(t *testing.T) {
 		{"create poll read denied", http.MethodPost, "/api/v1/teams/" + tid + "/polls", allReadPerms(), http.StatusForbidden},
 		// roles (settings module)
 		{"create role write ok", http.MethodPost, "/api/v1/teams/" + tid + "/roles", allWritePerms(), http.StatusOK},
-		{"create role settings denied", http.MethodPost, "/api/v1/teams/" + tid + "/roles",
-			teams.PermissionsJSON{Events: "write", Members: "write", Settings: "read"}, http.StatusForbidden},
+		{
+			"create role settings denied", http.MethodPost, "/api/v1/teams/" + tid + "/roles",
+			teams.PermissionsJSON{Events: "write", Members: "write", Settings: "read"},
+			http.StatusForbidden,
+		},
 		// self-service: attendance (POST) — any member may write
-		{"attendance self-service ok (read perms)", http.MethodPost,
+		{
+			"attendance self-service ok (read perms)", http.MethodPost,
 			"/api/v1/teams/" + tid + "/events/" + evID + "/attendance",
-			allReadPerms(), http.StatusOK},
+			allReadPerms(), http.StatusOK,
+		},
 		// self-service: poll vote
-		{"poll vote self-service ok (read perms)", http.MethodPost,
+		{
+			"poll vote self-service ok (read perms)", http.MethodPost,
 			"/api/v1/teams/" + tid + "/polls/" + uuid.New().String() + "/vote",
-			allReadPerms(), http.StatusOK},
+			allReadPerms(), http.StatusOK,
+		},
 		// self-service: absences
-		{"absences self-service ok (no perms)", http.MethodPost,
+		{
+			"absences self-service ok (no perms)", http.MethodPost,
 			"/api/v1/teams/" + tid + "/absences",
-			teams.PermissionsJSON{}, http.StatusOK},
+			teams.PermissionsJSON{},
+			http.StatusOK,
+		},
 		// self-service: event comments POST
-		{"event comment self-service ok (read perms)", http.MethodPost,
+		{
+			"event comment self-service ok (read perms)", http.MethodPost,
 			"/api/v1/teams/" + tid + "/events/" + evID + "/comments",
-			allReadPerms(), http.StatusOK},
+			allReadPerms(), http.StatusOK,
+		},
 		// self-service: notifications/seen
-		{"notifications seen self-service ok (read perms)", http.MethodPost,
+		{
+			"notifications seen self-service ok (read perms)", http.MethodPost,
 			"/api/v1/teams/" + tid + "/notifications/seen",
-			allReadPerms(), http.StatusOK},
+			allReadPerms(), http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {

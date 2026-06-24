@@ -30,6 +30,7 @@ type mockStatsService struct {
 func (m *mockStatsService) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error) {
 	return m.getOverview(ctx, teamID, from, to)
 }
+
 func (m *mockStatsService) GetMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error) {
 	return m.getMemberStats(ctx, teamID, userID, from, to)
 }

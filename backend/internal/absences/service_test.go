@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -27,15 +27,19 @@ type mockRepo struct {
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error) {
 	return m.listByTeam(ctx, teamID, limit, offset)
 }
+
 func (m *mockRepo) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error) {
 	return m.listByUser(ctx, teamID, userID, limit, offset)
 }
+
 func (m *mockRepo) Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*absences.AbsenceRow, error) {
 	return m.create(ctx, teamID, userID, fromDate, toDate, reason)
 }
+
 func (m *mockRepo) Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*absences.AbsenceRow, error) {
 	return m.update(ctx, id, fromDate, toDate, reason)
 }
+
 func (m *mockRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.delete(ctx, id)
 }

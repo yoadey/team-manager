@@ -21,7 +21,8 @@ const (
 
 func seedTeamAndUser(t *testing.T, pool interface {
 	Exec(context.Context, string, ...any) (interface{ RowsAffected() int64 }, error)
-}) {
+},
+) {
 	t.Helper()
 }
 

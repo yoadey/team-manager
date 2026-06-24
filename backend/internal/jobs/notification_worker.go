@@ -20,7 +20,7 @@ import (
 // NotificationArgs carries the data required to persist a single notification row.
 type NotificationArgs struct {
 	TeamID     uuid.UUID  `json:"team_id"`
-	Type       string     `json:"type"`  // "news" | "event_created" | "event_cancelled" | "poll"
+	Type       string     `json:"type"` // "news" | "event_created" | "event_cancelled" | "poll"
 	ActorID    uuid.UUID  `json:"actor_id"`
 	EventID    *uuid.UUID `json:"event_id,omitempty"`
 	EventTitle *string    `json:"event_title,omitempty"`

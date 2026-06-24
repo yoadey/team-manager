@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 	dockerclient "github.com/moby/moby/client"
+	"github.com/pressly/goose/v3"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -53,7 +53,8 @@ func NewTestDB(t *testing.T) *pgxpool.Pool {
 
 	ctx := context.Background()
 
-	ctr, err := tcpostgres.Run(ctx,
+	ctr, err := tcpostgres.Run(
+		ctx,
 		"postgres:17",
 		tcpostgres.WithDatabase("testdb"),
 		tcpostgres.WithUsername("testuser"),
@@ -170,4 +171,3 @@ func TruncateTables(t *testing.T, pool *pgxpool.Pool, tables ...string) {
 		t.Fatalf("testutil: commit truncate: %v", err)
 	}
 }
-

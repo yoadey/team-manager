@@ -32,12 +32,15 @@ type mockRoleService struct {
 func (m *mockRoleService) ListRoles(ctx context.Context, teamID uuid.UUID) ([]gen.Role, error) {
 	return m.listRoles(ctx, teamID)
 }
+
 func (m *mockRoleService) CreateRole(ctx context.Context, teamID uuid.UUID, body *gen.CreateRoleJSONRequestBody) (*gen.Role, error) {
 	return m.createRole(ctx, teamID, body)
 }
+
 func (m *mockRoleService) UpdateRole(ctx context.Context, roleID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
 	return m.updateRole(ctx, roleID, body)
 }
+
 func (m *mockRoleService) DeleteRole(ctx context.Context, roleID uuid.UUID) error {
 	return m.deleteRole(ctx, roleID)
 }

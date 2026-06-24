@@ -8,13 +8,13 @@ import (
 
 // AbsenceRow mirrors the DB absences table.
 type AbsenceRow struct {
-	Id          uuid.UUID
-	UserId      uuid.UUID
-	TeamId      uuid.UUID
-	FromDate    time.Time
-	ToDate      time.Time
-	Reason      *string
-	CreatedAt   time.Time
+	Id        uuid.UUID
+	UserId    uuid.UUID
+	TeamId    uuid.UUID
+	FromDate  time.Time
+	ToDate    time.Time
+	Reason    *string
+	CreatedAt time.Time
 	// Joined from users
 	MemberName        *string
 	MemberAvatarColor *string

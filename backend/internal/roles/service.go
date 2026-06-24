@@ -101,4 +101,3 @@ func toInternalPermissions(p gen.Permissions) teams.PermissionsJSON {
 		Settings: string(p.Settings),
 	}
 }
-

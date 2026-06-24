@@ -15,41 +15,49 @@ import (
 // ─── mock repository ─────────────────────────────────────────────────────────
 
 type mockTeamRepo struct {
-	listTeamsForUser    func(ctx context.Context, userID string) ([]teams.TeamRow, error)
-	getTeam             func(ctx context.Context, teamID string) (*teams.TeamRow, error)
-	createTeam          func(ctx context.Context, name, creatorUserID string) (*teams.TeamRow, error)
-	updateTeam          func(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error)
-	getMemberCount      func(ctx context.Context, teamID string) (int, error)
-	getMembership       func(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error)
+	listTeamsForUser      func(ctx context.Context, userID string) ([]teams.TeamRow, error)
+	getTeam               func(ctx context.Context, teamID string) (*teams.TeamRow, error)
+	createTeam            func(ctx context.Context, name, creatorUserID string) (*teams.TeamRow, error)
+	updateTeam            func(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error)
+	getMemberCount        func(ctx context.Context, teamID string) (int, error)
+	getMembership         func(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error)
 	getRolesForMembership func(ctx context.Context, membershipID string) ([]teams.RoleRow, error)
-	createInvite        func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
-	updateTeamPhoto     func(ctx context.Context, teamID string, data []byte, mime string) error
+	createInvite          func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
+	updateTeamPhoto       func(ctx context.Context, teamID string, data []byte, mime string) error
 }
 
 func (m *mockTeamRepo) ListTeamsForUser(ctx context.Context, userID string) ([]teams.TeamRow, error) {
 	return m.listTeamsForUser(ctx, userID)
 }
+
 func (m *mockTeamRepo) GetTeam(ctx context.Context, teamID string) (*teams.TeamRow, error) {
 	return m.getTeam(ctx, teamID)
 }
+
 func (m *mockTeamRepo) CreateTeam(ctx context.Context, name, creatorUserID string) (*teams.TeamRow, error) {
 	return m.createTeam(ctx, name, creatorUserID)
 }
+
 func (m *mockTeamRepo) UpdateTeam(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error) {
 	return m.updateTeam(ctx, teamID, patch)
 }
+
 func (m *mockTeamRepo) GetMemberCount(ctx context.Context, teamID string) (int, error) {
 	return m.getMemberCount(ctx, teamID)
 }
+
 func (m *mockTeamRepo) GetMembership(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error) {
 	return m.getMembership(ctx, teamID, userID)
 }
+
 func (m *mockTeamRepo) GetRolesForMembership(ctx context.Context, membershipID string) ([]teams.RoleRow, error) {
 	return m.getRolesForMembership(ctx, membershipID)
 }
+
 func (m *mockTeamRepo) CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error) {
 	return m.createInvite(ctx, teamID, ttl)
 }
+
 func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
 	return m.updateTeamPhoto(ctx, teamID, data, mime)
 }
@@ -58,9 +66,9 @@ func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID string, data 
 
 func fixedTeamRow(id uuid.UUID, name string) teams.TeamRow {
 	return teams.TeamRow{
-		Id:        id,
-		Name:      name,
-		CreatedAt: time.Now(),
+		Id:                      id,
+		Name:                    name,
+		CreatedAt:               time.Now(),
 		ReasonVisibilityRoleIDs: []uuid.UUID{},
 	}
 }

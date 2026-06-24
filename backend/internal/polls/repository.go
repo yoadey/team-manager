@@ -1,9 +1,9 @@
 package polls
 
 import (
-	"time"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,7 +23,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*PollRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.pool.Query(
+		ctx,
 		`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at
 		 FROM polls WHERE team_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		teamID, limit, offset,
@@ -49,7 +50,8 @@ func (r *Repository) FindByID(ctx context.Context, id uuid.UUID) (*PollRow, erro
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	p := &PollRow{}
-	err := r.pool.QueryRow(ctx,
+	err := r.pool.QueryRow(
+		ctx,
 		`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at FROM polls WHERE id = $1`,
 		id,
 	).Scan(&p.Id, &p.TeamId, &p.CreatorId, &p.Question, &p.Multiple, &p.Anonymous, &p.CreatedAt)
@@ -64,7 +66,8 @@ func (r *Repository) Create(ctx context.Context, teamID, creatorID uuid.UUID, qu
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var pollID uuid.UUID
-	err := r.pool.QueryRow(ctx,
+	err := r.pool.QueryRow(
+		ctx,
 		`INSERT INTO polls (team_id, creator_id, question, multiple, anonymous) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 		teamID, creatorID, question, multiple, anonymous,
 	).Scan(&pollID)
@@ -72,7 +75,8 @@ func (r *Repository) Create(ctx context.Context, teamID, creatorID uuid.UUID, qu
 		return uuid.Nil, fmt.Errorf("polls.Repository.Create: %w", err)
 	}
 	for i, opt := range options {
-		_, err := r.pool.Exec(ctx,
+		_, err := r.pool.Exec(
+			ctx,
 			`INSERT INTO poll_options (poll_id, text, sort_order) VALUES ($1, $2, $3)`,
 			pollID, opt, i,
 		)
@@ -98,7 +102,8 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 func (r *Repository) ListOptions(ctx context.Context, pollID uuid.UUID) ([]*PollOptionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.pool.Query(
+		ctx,
 		`SELECT id, poll_id, text, sort_order FROM poll_options WHERE poll_id = $1 ORDER BY sort_order`,
 		pollID,
 	)
@@ -122,7 +127,8 @@ func (r *Repository) ListOptions(ctx context.Context, pollID uuid.UUID) ([]*Poll
 func (r *Repository) ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVoteRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx,
+	rows, err := r.pool.Query(
+		ctx,
 		`SELECT pv.poll_id, pv.option_id, pv.user_id,
 		        u.name, u.avatar_color, COALESCE(u.photo_data, ''::bytea)
 		 FROM poll_votes pv
@@ -152,7 +158,8 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	// Always delete existing votes for this user+poll before inserting.
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`DELETE FROM poll_votes WHERE poll_id = $1 AND user_id = $2`,
 		pollID, userID,
 	)
@@ -165,7 +172,8 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 			// For single-choice polls only accept the first option.
 			break
 		}
-		_, err := r.pool.Exec(ctx,
+		_, err := r.pool.Exec(
+			ctx,
 			`INSERT INTO poll_votes (poll_id, option_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
 			pollID, optID, userID,
 		)

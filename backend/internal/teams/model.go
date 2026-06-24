@@ -8,19 +8,19 @@ import (
 
 // TeamRow mirrors the DB teams table.
 type TeamRow struct {
-	Id                       uuid.UUID
-	Name                     string
-	Short                    *string
-	Icon                     *string
-	IconBg                   *string
-	IconFg                   *string
-	PhotoData                []byte
-	PhotoMime                *string
-	LogoData                 []byte
-	LogoMime                 *string
-	Description              *string
-	ReasonVisibilityRoleIDs  []uuid.UUID
-	CreatedAt                time.Time
+	Id                      uuid.UUID
+	Name                    string
+	Short                   *string
+	Icon                    *string
+	IconBg                  *string
+	IconFg                  *string
+	PhotoData               []byte
+	PhotoMime               *string
+	LogoData                []byte
+	LogoMime                *string
+	Description             *string
+	ReasonVisibilityRoleIDs []uuid.UUID
+	CreatedAt               time.Time
 }
 
 // MembershipRow mirrors the DB memberships table.

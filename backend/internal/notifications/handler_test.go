@@ -30,6 +30,7 @@ type mockNotifService struct {
 func (m *mockNotifService) List(ctx context.Context, teamID, userID uuid.UUID) (gen.NotificationsResult, error) {
 	return m.list(ctx, teamID, userID)
 }
+
 func (m *mockNotifService) MarkSeen(ctx context.Context, teamID, userID uuid.UUID) error {
 	return m.markSeen(ctx, teamID, userID)
 }

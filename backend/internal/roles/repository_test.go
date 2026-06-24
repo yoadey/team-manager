@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/google/uuid"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
-	"github.com/google/uuid"
 )
 
 func TestRolesRepository_CreateAndList(t *testing.T) {
@@ -106,7 +106,8 @@ func TestRolesRepository_DeleteSystemRole_Fails(t *testing.T) {
 	require.NoError(t, err)
 
 	var roleID string
-	err = pool.QueryRow(ctx,
+	err = pool.QueryRow(
+		ctx,
 		`INSERT INTO roles (team_id, name, system) VALUES ($1, 'Admin', true) RETURNING id`, tid,
 	).Scan(&roleID)
 	require.NoError(t, err)

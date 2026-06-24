@@ -32,7 +32,8 @@ const selectUserFields = `
 // the order defined by selectUserFields.
 func scanUser(row interface {
 	Scan(dest ...any) error
-}) (*UserRow, error) {
+},
+) (*UserRow, error) {
 	u := &UserRow{}
 	err := row.Scan(
 		&u.Id, &u.Name, &u.Email, &u.Phone, &u.AvatarColor,
@@ -40,7 +41,7 @@ func scanUser(row interface {
 		&u.Birthday, &u.Address, &u.PasswordHash, &u.CreatedAt,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("auth.scanUser: %w", err)
 	}
 	return u, nil
 }
@@ -72,7 +73,7 @@ func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, err
 }
 
 // CreateSession inserts a new session row and returns it.
-func (r *Repository) CreateSession(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) (*SessionRow, error) {
+func (r *Repository) CreateSession(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*SessionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
@@ -124,7 +125,8 @@ func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error 
 func (r *Repository) UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`UPDATE users SET photo_data = $2, photo_mime = $3 WHERE id = $1`,
 		userID, data, mime,
 	)
@@ -134,5 +136,5 @@ func (r *Repository) UpdateUserPhoto(ctx context.Context, userID string, data []
 	return nil
 }
 
-// ensure uuid is used (uuid.UUID fields in UserRow/SessionRow)
+// ensure uuid is used (uuid.UUID fields in UserRow/SessionRow).
 var _ = uuid.UUID{}

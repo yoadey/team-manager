@@ -20,7 +20,8 @@ func TestRepository_FindUserByEmail(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert a test user directly.
-	_, err := pool.Exec(ctx,
+	_, err := pool.Exec(
+		ctx,
 		`INSERT INTO users (id, name, email, avatar_color, password_hash)
 		 VALUES ('11111111-1111-1111-1111-111111111111', 'Alice', 'alice@example.com', '#ff0000', 'hash1')`,
 	)
@@ -42,7 +43,8 @@ func TestRepository_FindUserByID(t *testing.T) {
 	repo := auth.NewRepository(pool)
 	ctx := context.Background()
 
-	_, err := pool.Exec(ctx,
+	_, err := pool.Exec(
+		ctx,
 		`INSERT INTO users (id, name, email, avatar_color)
 		 VALUES ('22222222-2222-2222-2222-222222222222', 'Bob', 'bob@example.com', '#00ff00')`,
 	)
@@ -62,7 +64,8 @@ func TestRepository_CreateAndFindSession(t *testing.T) {
 	ctx := context.Background()
 
 	// Need a user first (FK constraint).
-	_, err := pool.Exec(ctx,
+	_, err := pool.Exec(
+		ctx,
 		`INSERT INTO users (id, name, email, avatar_color)
 		 VALUES ('33333333-3333-3333-3333-333333333333', 'Carol', 'carol@example.com', '#0000ff')`,
 	)
@@ -90,7 +93,8 @@ func TestRepository_DeleteSession(t *testing.T) {
 	repo := auth.NewRepository(pool)
 	ctx := context.Background()
 
-	_, err := pool.Exec(ctx,
+	_, err := pool.Exec(
+		ctx,
 		`INSERT INTO users (id, name, email, avatar_color)
 		 VALUES ('44444444-4444-4444-4444-444444444444', 'Dave', 'dave@example.com', '#ffffff')`,
 	)

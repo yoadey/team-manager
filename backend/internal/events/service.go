@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
@@ -361,12 +361,12 @@ func (s *Service) enrichEvent(ctx context.Context, row EventRow, userID string) 
 // toGenEvent maps an EventRow + summary to gen.TeamEvent.
 func toGenEvent(row EventRow, summary EventSummaryData) gen.TeamEvent {
 	ev := gen.TeamEvent{
-		Id:       openapi_types.UUID(row.Id),
-		TeamId:   openapi_types.UUID(row.TeamId),
-		Type:     gen.EventType(row.Type),
-		Title:    row.Title,
-		Date:     openapi_types.Date{Time: row.Date},
-		Status:   gen.EventStatus(row.Status),
+		Id:        openapi_types.UUID(row.Id),
+		TeamId:    openapi_types.UUID(row.TeamId),
+		Type:      gen.EventType(row.Type),
+		Title:     row.Title,
+		Date:      openapi_types.Date{Time: row.Date},
+		Status:    gen.EventStatus(row.Status),
 		Recurring: row.SeriesId != nil,
 		Summary: gen.EventSummary{
 			Yes:          summary.Yes,

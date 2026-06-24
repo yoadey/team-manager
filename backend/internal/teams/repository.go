@@ -401,7 +401,8 @@ func (r *Repository) CreateInvite(ctx context.Context, teamID string, ttl time.D
 func (r *Repository) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`UPDATE teams SET photo_data = $2, photo_mime = $3 WHERE id = $1`,
 		teamID, data, mime,
 	)

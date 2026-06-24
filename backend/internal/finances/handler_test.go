@@ -40,36 +40,47 @@ type mockFinanceService struct {
 func (m *mockFinanceService) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error) {
 	return m.getOverview(ctx, teamID)
 }
+
 func (m *mockFinanceService) CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
 	return m.createTransaction(ctx, teamID, body)
 }
+
 func (m *mockFinanceService) UpdateTransaction(ctx context.Context, id uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error) {
 	return m.updateTransaction(ctx, id, body)
 }
+
 func (m *mockFinanceService) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
 	return m.deleteTransaction(ctx, id)
 }
+
 func (m *mockFinanceService) CreatePenalty(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
 	return m.createPenalty(ctx, teamID, body)
 }
+
 func (m *mockFinanceService) UpdatePenalty(ctx context.Context, id uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error) {
 	return m.updatePenalty(ctx, id, body)
 }
+
 func (m *mockFinanceService) DeletePenalty(ctx context.Context, id uuid.UUID) error {
 	return m.deletePenalty(ctx, id)
 }
+
 func (m *mockFinanceService) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error) {
 	return m.createAssignment(ctx, teamID, body)
 }
+
 func (m *mockFinanceService) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 	return m.deleteAssignment(ctx, id)
 }
+
 func (m *mockFinanceService) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error) {
 	return m.toggleAssignmentPaid(ctx, teamID, id)
 }
+
 func (m *mockFinanceService) UpdateContribution(ctx context.Context, id uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
 	return m.updateContribution(ctx, id, body)
 }
+
 func (m *mockFinanceService) ToggleContribution(ctx context.Context, id uuid.UUID) (*gen.Contribution, error) {
 	return m.toggleContribution(ctx, id)
 }

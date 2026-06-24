@@ -1,9 +1,9 @@
 package absences
 
 import (
-	"time"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -96,7 +96,8 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var id uuid.UUID
-	err := r.pool.QueryRow(ctx,
+	err := r.pool.QueryRow(
+		ctx,
 		`INSERT INTO absences (user_id, team_id, from_date, to_date, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 		userID, teamID, fromDate, toDate, reason,
 	).Scan(&id)
@@ -110,7 +111,8 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`UPDATE absences SET
 			from_date = COALESCE($2::date, from_date),
 			to_date   = COALESCE($3::date, to_date),

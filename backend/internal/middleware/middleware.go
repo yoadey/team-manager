@@ -79,7 +79,8 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(rw, r)
 
-			logger.InfoContext(r.Context(), "request",
+			logger.InfoContext(
+				r.Context(), "request",
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", rw.status),
@@ -187,7 +188,8 @@ func Recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 			defer func() {
 				if rec := recover(); rec != nil {
 					stack := debug.Stack()
-					logger.ErrorContext(r.Context(), "panic recovered",
+					logger.ErrorContext(
+						r.Context(), "panic recovered",
 						slog.Any("panic", rec),
 						slog.String("stack", string(stack)),
 						slog.String("method", r.Method),

@@ -34,21 +34,27 @@ type mockTeamService struct {
 func (m *mockTeamService) ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error) {
 	return m.listForUser(ctx, userID)
 }
+
 func (m *mockTeamService) CreateTeam(ctx context.Context, userID, name string) (*gen.TeamForUser, error) {
 	return m.createTeam(ctx, userID, name)
 }
+
 func (m *mockTeamService) GetTeam(ctx context.Context, teamID string) (*gen.Team, error) {
 	return m.getTeam(ctx, teamID)
 }
+
 func (m *mockTeamService) UpdateTeam(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error) {
 	return m.updateTeam(ctx, teamID, patch)
 }
+
 func (m *mockTeamService) CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error) {
 	return m.createInvite(ctx, teamID)
 }
+
 func (m *mockTeamService) GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error) {
 	return m.getTeamPhotoData(ctx, teamID)
 }
+
 func (m *mockTeamService) UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error) {
 	return m.updatePhoto(ctx, teamID, data, mime)
 }
@@ -61,6 +67,7 @@ type fakeAuthSvc struct {
 func (f *fakeAuthSvc) Login(_ context.Context, _, _ string) (string, *auth.UserRow, error) {
 	return "token", f.user, nil
 }
+
 func (f *fakeAuthSvc) ValidateToken(_ context.Context, _ string) (*auth.UserRow, error) {
 	return f.user, nil
 }

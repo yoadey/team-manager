@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,12 +26,15 @@ type mockRepo struct {
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*news.NewsRow, error) {
 	return m.listByTeam(ctx, teamID, limit, offset)
 }
+
 func (m *mockRepo) Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error) {
 	return m.create(ctx, teamID, authorID, title, body, pinned)
 }
+
 func (m *mockRepo) Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error) {
 	return m.update(ctx, id, title, body, pinned)
 }
+
 func (m *mockRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return m.delete(ctx, id)
 }

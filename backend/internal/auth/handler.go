@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -134,7 +135,11 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 	if err != nil {
 		return nil, errBadRequest("cannot read multipart: " + err.Error())
 	}
-	defer part.Close()
+	defer func() {
+		if err := part.Close(); err != nil {
+			h.logger.ErrorContext(ctx, "close multipart part", "err", err)
+		}
+	}()
 
 	data, err := io.ReadAll(io.LimitReader(part, 10<<20)) // 10 MB max
 	if err != nil {
@@ -150,7 +155,7 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 	updated, err := h.svc.UpdatePhoto(ctx, user.Id.String(), data, ct)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "update photo failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("auth.Handler.UploadMyPhoto: %w", err)
 	}
 
 	return gen.UploadMyPhoto200JSONResponse(toGenUser(updated)), nil
@@ -159,7 +164,7 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 // Logout invalidates the current session.
 func (h *Handler) Logout(ctx context.Context, _ gen.LogoutRequestObject) (gen.LogoutResponseObject, error) {
 	// The raw token is stored in context by AuthMiddleware.
-	rawToken, _ := ctx.Value(rawTokenContextKey).(string)
+	rawToken, _ := ctx.Value(rawBearerContextKey).(string)
 	tokenHash := sha256Hex(rawToken)
 	if err := h.svc.Logout(ctx, tokenHash); err != nil {
 		h.logger.WarnContext(ctx, "logout failed", "err", err)
@@ -169,8 +174,8 @@ func (h *Handler) Logout(ctx context.Context, _ gen.LogoutRequestObject) (gen.Lo
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
-// rawTokenContextKey is used internally to pass the raw Bearer token through context.
-const rawTokenContextKey contextKey = "auth_raw_token"
+// rawBearerContextKey is used internally to pass the raw Bearer token through context.
+const rawBearerContextKey contextKey = "auth_raw_token" //nolint:gosec // not a credential
 
 // AuthMiddleware extracts and validates the Bearer token from the Authorization
 // header. Unauthenticated requests receive a 401 Problem Details response.
@@ -191,7 +196,7 @@ func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), userContextKey, user)
-		ctx = context.WithValue(ctx, rawTokenContextKey, rawToken)
+		ctx = context.WithValue(ctx, rawBearerContextKey, rawToken)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -213,7 +218,7 @@ func ContextWithUser(ctx context.Context, user *UserRow) context.Context {
 func toGenUser(u *UserRow) gen.User {
 	hasPhoto := len(u.PhotoData) > 0
 	gu := gen.User{
-		Id:          openapi_types.UUID(u.Id),
+		Id:          u.Id,
 		Name:        u.Name,
 		Email:       openapi_types.Email(u.Email),
 		AvatarColor: u.AvatarColor,
@@ -275,5 +280,5 @@ func (e *handlerError) Error() string { return e.message }
 func errUnauthorized(msg string) error { return &handlerError{status: 401, message: msg} }
 func errBadRequest(msg string) error   { return &handlerError{status: 400, message: msg} }
 
-// ensure time is used (time.Time in UserRow.Birthday)
+// ensure time is used (time.Time in UserRow.Birthday).
 var _ = time.Time{}

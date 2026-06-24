@@ -26,15 +26,19 @@ type mockMemberRepo struct {
 func (m *mockMemberRepo) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]members.MemberRow, error) {
 	return m.listMembers(ctx, teamID, limit, offset)
 }
+
 func (m *mockMemberRepo) AddMember(ctx context.Context, teamID string, params members.AddMemberParams) (*members.MemberRow, error) {
 	return m.addMember(ctx, teamID, params)
 }
+
 func (m *mockMemberRepo) UpdateMember(ctx context.Context, membershipID string, patch members.MemberPatch) (*members.MemberRow, error) {
 	return m.updateMember(ctx, membershipID, patch)
 }
+
 func (m *mockMemberRepo) SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*members.MemberRow, error) {
 	return m.setRoles(ctx, membershipID, roleIDs)
 }
+
 func (m *mockMemberRepo) RemoveMember(ctx context.Context, membershipID string) error {
 	return m.removeMember(ctx, membershipID)
 }

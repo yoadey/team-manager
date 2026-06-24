@@ -1,11 +1,11 @@
 package members
 
 import (
-	"time"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -253,7 +253,8 @@ func (r *Repository) IsMember(ctx context.Context, teamID, userID uuid.UUID) (bo
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var exists bool
-	err := r.pool.QueryRow(ctx,
+	err := r.pool.QueryRow(
+		ctx,
 		`SELECT EXISTS(SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)`,
 		teamID, userID,
 	).Scan(&exists)

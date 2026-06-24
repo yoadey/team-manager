@@ -1,9 +1,9 @@
 package news
 
 import (
-	"time"
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -71,7 +71,8 @@ func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, tit
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var id uuid.UUID
-	err := r.pool.QueryRow(ctx,
+	err := r.pool.QueryRow(
+		ctx,
 		`INSERT INTO news (team_id, author_id, title, body, pinned) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 		teamID, authorID, title, body, pinned,
 	).Scan(&id)
@@ -85,7 +86,8 @@ func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, tit
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`UPDATE news SET
 			title  = COALESCE($2, title),
 			body   = COALESCE($3, body),
@@ -114,7 +116,8 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 func (r *Repository) InsertNotification(ctx context.Context, teamID, actorID uuid.UUID, title string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`INSERT INTO notifications (team_id, type, actor_id, status, title) VALUES ($1, 'news', $2, 'info', $3)`,
 		teamID, actorID, title,
 	)

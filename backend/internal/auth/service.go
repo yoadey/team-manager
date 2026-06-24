@@ -21,6 +21,17 @@ import (
 	"golang.org/x/image/draw"
 )
 
+// Sentinel errors for the auth package.
+var (
+	ErrInvalidCredentials      = errors.New("invalid credentials")
+	ErrDecodePrivateKeyPEM     = errors.New("auth.NewService: failed to decode private key PEM")
+	ErrPrivateKeyNotRSA        = errors.New("auth.NewService: private key is not RSA")
+	ErrDecodePublicKeyPEM      = errors.New("auth.NewService: failed to decode public key PEM")
+	ErrPublicKeyNotRSA         = errors.New("auth.NewService: public key is not RSA")
+	ErrMissingJTIClaim         = errors.New("auth.Service.ValidateToken: missing jti claim")
+	ErrUnexpectedSigningMethod = errors.New("auth.Service.ValidateToken: unexpected signing method")
+)
+
 // authRepo is the interface the Service relies on. A *Repository satisfies it.
 type authRepo interface {
 	FindUserByEmail(ctx context.Context, email string) (*UserRow, error)
@@ -56,7 +67,7 @@ func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL ti
 	} else {
 		privBlock, _ := pem.Decode([]byte(privateKeyPEM))
 		if privBlock == nil {
-			return nil, errors.New("auth.NewService: failed to decode private key PEM")
+			return nil, ErrDecodePrivateKeyPEM
 		}
 		privKey, err := x509.ParsePKCS8PrivateKey(privBlock.Bytes)
 		if err != nil {
@@ -69,12 +80,12 @@ func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL ti
 		var ok bool
 		priv, ok = privKey.(*rsa.PrivateKey)
 		if !ok {
-			return nil, errors.New("auth.NewService: private key is not RSA")
+			return nil, ErrPrivateKeyNotRSA
 		}
 
 		pubBlock, _ := pem.Decode([]byte(publicKeyPEM))
 		if pubBlock == nil {
-			return nil, errors.New("auth.NewService: failed to decode public key PEM")
+			return nil, ErrDecodePublicKeyPEM
 		}
 		pubKey, err := x509.ParsePKIXPublicKey(pubBlock.Bytes)
 		if err != nil {
@@ -82,7 +93,7 @@ func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL ti
 		}
 		pub, ok = pubKey.(*rsa.PublicKey)
 		if !ok {
-			return nil, errors.New("auth.NewService: public key is not RSA")
+			return nil, ErrPublicKeyNotRSA
 		}
 	}
 
@@ -98,11 +109,11 @@ func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL ti
 func (s *Service) Login(ctx context.Context, email, password string) (token string, user *UserRow, err error) {
 	user, err = s.repo.FindUserByEmail(ctx, email)
 	if err != nil {
-		return "", nil, errors.New("invalid credentials")
+		return "", nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return "", nil, errors.New("invalid credentials")
+		return "", nil, ErrInvalidCredentials
 	}
 
 	// Generate a random token and derive its SHA-256 hash for storage.
@@ -142,7 +153,7 @@ func (s *Service) ValidateToken(ctx context.Context, tokenString string) (*UserR
 	claims := &Claims{}
 	_, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+			return nil, fmt.Errorf("%w: %v", ErrUnexpectedSigningMethod, t.Header["alg"])
 		}
 		return s.jwtPublicKey, nil
 	})
@@ -151,9 +162,9 @@ func (s *Service) ValidateToken(ctx context.Context, tokenString string) (*UserR
 	}
 
 	// Derive the session hash from the embedded raw token (JWT ID).
-	rawToken := claims.RegisteredClaims.ID
+	rawToken := claims.ID
 	if rawToken == "" {
-		return nil, errors.New("auth.Service.ValidateToken: missing jti claim")
+		return nil, ErrMissingJTIClaim
 	}
 	tokenHash := sha256Hex(rawToken)
 
@@ -173,7 +184,10 @@ func (s *Service) ValidateToken(ctx context.Context, tokenString string) (*UserR
 // Logout deletes the session associated with the given raw token (or token hash).
 // The caller passes the tokenHash directly.
 func (s *Service) Logout(ctx context.Context, tokenHash string) error {
-	return s.repo.DeleteSession(ctx, tokenHash)
+	if err := s.repo.DeleteSession(ctx, tokenHash); err != nil {
+		return fmt.Errorf("auth.Service.Logout: %w", err)
+	}
+	return nil
 }
 
 // HashPassword hashes a plain-text password using bcrypt cost 12.
@@ -211,7 +225,7 @@ func (s *Service) UpdatePhoto(ctx context.Context, userID string, data []byte, m
 func generateTokenAndHash() (rawToken, tokenHash string, err error) {
 	b := make([]byte, 32)
 	if _, err = rand.Read(b); err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("auth.generateTokenAndHash: %w", err)
 	}
 	rawToken = hex.EncodeToString(b)
 	tokenHash = sha256Hex(rawToken)
@@ -255,7 +269,7 @@ func resizeImage(data []byte, mime string) ([]byte, error) {
 	}
 
 	// Compute new dimensions preserving aspect ratio.
-	newW, newH := w, h
+	var newW, newH int
 	if w > h {
 		newH = h * maxPhotoDim / w
 		newW = maxPhotoDim
