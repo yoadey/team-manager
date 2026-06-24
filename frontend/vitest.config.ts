@@ -37,6 +37,8 @@ export default defineConfig({
         // Real API client — requires live backend; integration-tested via docker compose
         'src/services/serviceLayerReal.ts',
         'src/api/client.ts',
+        // Top-level app shell — layout-only, requires E2E tests for meaningful coverage
+        'src/layouts/AppShell.tsx',
       ],
       // Enterprise-ready coverage floors.
       thresholds: { statements: 80, branches: 65, functions: 75, lines: 80 },

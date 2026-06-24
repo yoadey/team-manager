@@ -30,6 +30,14 @@ func boolVal(b *bool) bool {
 	return *b
 }
 
+// strVal dereferences a *string with a provided default — prevents NULL on NOT NULL columns.
+func strVal(s *string, def string) string {
+	if s == nil {
+		return def
+	}
+	return *s
+}
+
 // uuidSliceToStrings converts []uuid.UUID to []string for pgx array params.
 func uuidSliceToStrings(ids []uuid.UUID) []string {
 	out := make([]string, len(ids))
@@ -161,7 +169,7 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params Crea
 		params.Location, params.Note,
 		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
 		boolVal(params.MeetTimeMandatory),
-		params.ResponseMode,
+		strVal(params.ResponseMode, "opt_in"),
 		params.NominatedRoleIds,
 	)
 	e, err := scanEventRow(row)
@@ -204,7 +212,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 		teamID, params.Type, params.Title, params.Location, params.Note,
 		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
 		boolVal(params.MeetTimeMandatory),
-		params.ResponseMode,
+		strVal(params.ResponseMode, "opt_in"),
 		params.NominatedRoleIds,
 		repeatWeeks,
 	).Scan(&seriesID)
@@ -234,7 +242,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 			params.Location, params.Note,
 			nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
 			boolVal(params.MeetTimeMandatory),
-			params.ResponseMode,
+			strVal(params.ResponseMode, "opt_in"),
 			params.NominatedRoleIds,
 		)
 		e, err := scanEventRow(row)
