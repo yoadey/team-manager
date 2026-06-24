@@ -38,6 +38,14 @@ func strVal(s *string, def string) string {
 	return *s
 }
 
+// uuidSlice coalesces a nil UUID slice to empty — prevents NULL on NOT NULL array columns.
+func uuidSlice(ids []uuid.UUID) []uuid.UUID {
+	if ids == nil {
+		return []uuid.UUID{}
+	}
+	return ids
+}
+
 // uuidSliceToStrings converts []uuid.UUID to []string for pgx array params.
 func uuidSliceToStrings(ids []uuid.UUID) []string {
 	out := make([]string, len(ids))
@@ -164,13 +172,14 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params Crea
 		RETURNING %s
 	`, selectEventFields)
 
-	row := r.pool.QueryRow(ctx, q,
+	row := r.pool.QueryRow(
+		ctx, q,
 		teamID, params.Type, params.Title, params.Date,
 		params.Location, params.Note,
 		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
 		boolVal(params.MeetTimeMandatory),
 		strVal(params.ResponseMode, "opt_in"),
-		params.NominatedRoleIds,
+		uuidSlice(params.NominatedRoleIds),
 	)
 	e, err := scanEventRow(row)
 	if err != nil {
@@ -208,12 +217,13 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 		)
 		RETURNING id
 	`
-	err = tx.QueryRow(ctx, seriesQ,
+	err = tx.QueryRow(
+		ctx, seriesQ,
 		teamID, params.Type, params.Title, params.Location, params.Note,
 		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
 		boolVal(params.MeetTimeMandatory),
 		strVal(params.ResponseMode, "opt_in"),
-		params.NominatedRoleIds,
+		uuidSlice(params.NominatedRoleIds),
 		repeatWeeks,
 	).Scan(&seriesID)
 	if err != nil {
@@ -237,13 +247,14 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 	var events []EventRow
 	for i := 0; i < repeatWeeks; i++ {
 		eventDate := params.Date.AddDate(0, 0, i*7)
-		row := tx.QueryRow(ctx, eventQ,
+		row := tx.QueryRow(
+			ctx, eventQ,
 			teamID, seriesID, params.Type, params.Title, eventDate,
 			params.Location, params.Note,
 			nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
 			boolVal(params.MeetTimeMandatory),
 			strVal(params.ResponseMode, "opt_in"),
-			params.NominatedRoleIds,
+			uuidSlice(params.NominatedRoleIds),
 		)
 		e, err := scanEventRow(row)
 		if err != nil {
@@ -574,7 +585,8 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, userID string, 
 	}
 
 	// Remove not_nominated record so the user reverts to pending/default.
-	_, err := r.pool.Exec(ctx,
+	_, err := r.pool.Exec(
+		ctx,
 		`DELETE FROM attendance WHERE event_id = $1 AND user_id = $2 AND status = 'not_nominated'`,
 		eventID, userID,
 	)
@@ -659,7 +671,8 @@ func (r *Repository) AddComment(ctx context.Context, eventID, userID, text strin
 func (r *Repository) DeleteComment(ctx context.Context, commentID, userID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx,
+	tag, err := r.pool.Exec(
+		ctx,
 		`DELETE FROM event_comments WHERE id = $1 AND user_id = $2`,
 		commentID, userID,
 	)
