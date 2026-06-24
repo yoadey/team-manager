@@ -55,7 +55,7 @@ func scanTeam(row interface{ Scan(dest ...any) error }) (*TeamRow, error) {
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	return tr, nil
 }
@@ -107,7 +107,7 @@ func (r *Repository) GetTeam(ctx context.Context, teamID string) (*TeamRow, erro
 
 // CreateTeam inserts a new team, a membership for the creator, and two default roles
 // (Admin with all-write, Member with events/news/polls read).
-func (r *Repository) CreateTeam(ctx context.Context, name string, creatorUserID string) (*TeamRow, error) {
+func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string) (*TeamRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -419,7 +419,7 @@ func scanRole(row interface{ Scan(dest ...any) error }) (*RoleRow, error) {
 	var permJSON []byte
 	err := row.Scan(&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permJSON)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	if err := json.Unmarshal(permJSON, &rr.Permissions); err != nil {
 		return nil, fmt.Errorf("unmarshal permissions: %w", err)

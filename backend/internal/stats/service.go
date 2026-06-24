@@ -29,15 +29,15 @@ func NewService(repo statsRepo) *Service {
 }
 
 // defaultDateRange returns from = 90 days ago, to = today if not specified.
-func defaultDateRange(from, to *openapi_types.Date) (string, string) {
+func defaultDateRange(from, to *openapi_types.Date) (fromStr, toStr string) {
 	now := time.Now()
-	toStr := now.Format("2006-01-02")
-	fromStr := now.AddDate(0, -3, 0).Format("2006-01-02")
+	toStr = now.Format("2006-01-02")
+	fromStr = now.AddDate(0, -3, 0).Format("2006-01-02")
 	if from != nil {
-		fromStr = from.Time.Format("2006-01-02")
+		fromStr = from.Format("2006-01-02")
 	}
 	if to != nil {
-		toStr = to.Time.Format("2006-01-02")
+		toStr = to.Format("2006-01-02")
 	}
 	return fromStr, toStr
 }
@@ -63,7 +63,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 		totalQuote += q
 		hp := m.HasPhoto
 		genMembers = append(genMembers, gen.MemberStat{
-			UserId:      openapi_types.UUID(m.UserID),
+			UserId:      m.UserID,
 			Name:        m.Name,
 			AvatarColor: m.AvatarColor,
 			HasPhoto:    &hp,
@@ -82,7 +82,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 	for _, e := range events {
 		pct := quote(e.Yes, e.Counted)
 		genEvents = append(genEvents, gen.EventStat{
-			Id:        openapi_types.UUID(e.EventID),
+			Id:        e.EventID,
 			Title:     e.Title,
 			Date:      parseDateOrZero(e.Date),
 			Yes:       e.Yes,

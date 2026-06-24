@@ -313,9 +313,8 @@ func (r *Repository) updateSeriesEvents(ctx context.Context, seriesID string, pa
 
 // buildUpdateSets constructs a SET clause and args slice for an UPDATE query.
 // The event ID is appended as the last arg (placeholder = len(args)).
-func buildUpdateSets(params *UpdateEventParams, eventID string) (string, []interface{}) {
+func buildUpdateSets(params *UpdateEventParams, eventID string) (setSQL string, args []interface{}) {
 	var sets []string
-	var args []interface{}
 	idx := 1
 
 	add := func(col string, val interface{}) {

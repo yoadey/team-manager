@@ -128,7 +128,7 @@ func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMem
 }
 
 // UpdateMember applies a partial update to the user fields and optionally the group.
-func (r *Repository) UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*MemberRow, error) {
+func (r *Repository) UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*MemberRow, error) { //nolint:gocognit,cyclop // complexity inherent in dynamic SQL builder
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	// Get user_id from membership first.
@@ -392,10 +392,10 @@ func scanMemberRow(row interface{ Scan(dest ...any) error }) (*MemberRow, error)
 		&mr.Group, &mr.JoinedAt,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	return mr, nil
 }
 
-// ensure uuid is used
+// ensure uuid is used.
 var _ = uuid.UUID{}

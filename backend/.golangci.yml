@@ -51,9 +51,10 @@ linters:
         - name: exported
           disabled: true
     wrapcheck:
-      ignorePackageGlobs:
-        - github.com/jackc/pgx/v5*
-        - crypto/rand*
+      ignore-package-globs:
+        - github.com/jackc/pgx/v5
+        - github.com/jackc/pgx/v5/*
+        - crypto/rand
 
   exclusions:
     rules:

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -114,7 +113,7 @@ func TestService_ListByTeam(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, openapi_types.UUID(pollID), result[0].Id)
+	assert.Equal(t, pollID, result[0].Id)
 	assert.Equal(t, "Best player?", result[0].Question)
 	require.Len(t, result[0].Options, 1)
 	assert.Equal(t, "Alice", result[0].Options[0].Text)

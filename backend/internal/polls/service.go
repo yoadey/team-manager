@@ -2,6 +2,7 @@ package polls
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -41,7 +42,7 @@ func NewService(repo pollRepo, enq jobEnqueuer) *Service {
 func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit, offset int) ([]gen.Poll, error) {
 	pollRows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
 	}
 	result := make([]gen.Poll, 0, len(pollRows))
 	for _, pr := range pollRows {
@@ -66,11 +67,11 @@ func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body 
 	}
 	pollID, err := s.repo.Create(ctx, teamID, creatorID, body.Question, multiple, anonymous, body.Options)
 	if err != nil {
-		return gen.Poll{}, err
+		return gen.Poll{}, fmt.Errorf("polls.Service.Create: %w", err)
 	}
 	pr, err := s.repo.FindByID(ctx, pollID)
 	if err != nil {
-		return gen.Poll{}, err
+		return gen.Poll{}, fmt.Errorf("polls.Service.Create FindByID: %w", err)
 	}
 	// Enqueue notification (best-effort; ignore error so it doesn't fail the request).
 	if s.jobs != nil {
@@ -89,28 +90,31 @@ func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body 
 func (s *Service) Vote(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error) {
 	pr, err := s.repo.FindByID(ctx, pollID)
 	if err != nil {
-		return gen.Poll{}, err
+		return gen.Poll{}, fmt.Errorf("polls.Service.Vote FindByID: %w", err)
 	}
 	if err := s.repo.ReplaceVotes(ctx, pollID, userID, optionIDs, pr.Multiple); err != nil {
-		return gen.Poll{}, err
+		return gen.Poll{}, fmt.Errorf("polls.Service.Vote ReplaceVotes: %w", err)
 	}
 	return s.buildPoll(ctx, pr, userID)
 }
 
 // Delete removes a poll by ID.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("polls.Service.Delete: %w", err)
+	}
+	return nil
 }
 
 // buildPoll assembles a gen.Poll from a row, its options, and votes.
 func (s *Service) buildPoll(ctx context.Context, pr *PollRow, currentUserID uuid.UUID) (gen.Poll, error) {
 	options, err := s.repo.ListOptions(ctx, pr.Id)
 	if err != nil {
-		return gen.Poll{}, err
+		return gen.Poll{}, fmt.Errorf("polls.Service.buildPoll ListOptions: %w", err)
 	}
 	votes, err := s.repo.ListVotes(ctx, pr.Id)
 	if err != nil {
-		return gen.Poll{}, err
+		return gen.Poll{}, fmt.Errorf("polls.Service.buildPoll ListVotes: %w", err)
 	}
 
 	// Count votes per option and track my votes.
@@ -124,7 +128,7 @@ func (s *Service) buildPoll(ctx context.Context, pr *PollRow, currentUserID uuid
 		votersByOption[v.OptionId] = append(votersByOption[v.OptionId], v)
 		totalVoters[v.UserId] = struct{}{}
 		if v.UserId == currentUserID {
-			myVoteIDs = append(myVoteIDs, openapi_types.UUID(v.OptionId))
+			myVoteIDs = append(myVoteIDs, v.OptionId)
 		}
 	}
 	total := len(totalVoters)
@@ -137,7 +141,7 @@ func (s *Service) buildPoll(ctx context.Context, pr *PollRow, currentUserID uuid
 			pct = float32(count) / float32(total) * 100
 		}
 		po := gen.PollOption{
-			Id:    openapi_types.UUID(opt.Id),
+			Id:    opt.Id,
 			Text:  opt.Text,
 			Count: count,
 			Pct:   pct,
@@ -167,7 +171,7 @@ func (s *Service) buildPoll(ctx context.Context, pr *PollRow, currentUserID uuid
 	}
 
 	poll := gen.Poll{
-		Id:         openapi_types.UUID(pr.Id),
+		Id:         pr.Id,
 		Question:   pr.Question,
 		Multiple:   pr.Multiple,
 		Anonymous:  pr.Anonymous,

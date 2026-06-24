@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -24,7 +25,7 @@ func TestRequestID_GeneratesID(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -40,7 +41,7 @@ func TestRequestID_PropagatesExistingID(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req.Header.Set("X-Request-ID", existingID)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -50,7 +51,7 @@ func TestRequestID_PropagatesExistingID(t *testing.T) {
 }
 
 func TestGetRequestID_EmptyWhenMissing(t *testing.T) {
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	assert.Empty(t, middleware.GetRequestID(req.Context()))
 }
 
@@ -66,7 +67,7 @@ func TestLogger_LogsRequestFields(t *testing.T) {
 
 	handler := middleware.RequestID(middleware.Logger(logger)(inner))
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/teams", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/teams", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -91,7 +92,7 @@ func TestLogger_DefaultStatus200(t *testing.T) {
 		// do not call WriteHeader explicitly
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/healthz", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -108,7 +109,7 @@ func TestCORS_AllowedOrigin(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/data", http.NoBody)
 	req.Header.Set("Origin", "https://app.example.com")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -124,7 +125,7 @@ func TestCORS_UnknownOrigin_NoHeaders(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/data", http.NoBody)
 	req.Header.Set("Origin", "https://evil.example.com")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -139,7 +140,7 @@ func TestCORS_Preflight_ReturnsNoContent(t *testing.T) {
 		t.Fatal("inner handler must not be called for preflight")
 	}))
 
-	req := httptest.NewRequest(http.MethodOptions, "/api/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, "/api/data", http.NoBody)
 	req.Header.Set("Origin", "https://app.example.com")
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	rec := httptest.NewRecorder()
@@ -158,7 +159,7 @@ func TestCORS_Preflight_UnknownOrigin(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest(http.MethodOptions, "/api/data", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodOptions, "/api/data", http.NoBody)
 	req.Header.Set("Origin", "https://attacker.example.com")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -179,7 +180,7 @@ func TestRecoverer_CatchesPanic(t *testing.T) {
 		})),
 	)
 
-	req := httptest.NewRequest(http.MethodGet, "/crash", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/crash", http.NoBody)
 	rec := httptest.NewRecorder()
 
 	// Must not panic the test itself.
@@ -207,7 +208,7 @@ func TestRecoverer_NoPanic_PassesThrough(t *testing.T) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	req := httptest.NewRequest(http.MethodGet, "/ok", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ok", http.NoBody)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -45,7 +44,7 @@ func (h *Handler) GetFinanceOverview(ctx context.Context, req gen.GetFinanceOver
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	overview, err := h.svc.GetOverview(ctx, uuid.UUID(req.TeamId))
+	overview, err := h.svc.GetOverview(ctx, req.TeamId)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "GetFinanceOverview failed", "err", err)
 		return nil, apierror.Internal("failed to get finance overview")
@@ -67,7 +66,7 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
-	t, err := h.svc.CreateTransaction(ctx, uuid.UUID(req.TeamId), req.Body)
+	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to create transaction")
@@ -83,7 +82,7 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	t, err := h.svc.UpdateTransaction(ctx, openapi_types.UUID(req.TransactionId), req.Body)
+	t, err := h.svc.UpdateTransaction(ctx, req.TransactionId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "UpdateTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to update transaction")
@@ -96,7 +95,7 @@ func (h *Handler) DeleteTransaction(ctx context.Context, req gen.DeleteTransacti
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeleteTransaction(ctx, openapi_types.UUID(req.TransactionId)); err != nil {
+	if err := h.svc.DeleteTransaction(ctx, req.TransactionId); err != nil {
 		h.logger.ErrorContext(ctx, "DeleteTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to delete transaction")
 	}
@@ -117,7 +116,7 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	if err := validate.MaxLen(req.Body.Label, 255, "label"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
-	p, err := h.svc.CreatePenalty(ctx, uuid.UUID(req.TeamId), req.Body)
+	p, err := h.svc.CreatePenalty(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to create penalty")
@@ -133,7 +132,7 @@ func (h *Handler) UpdatePenalty(ctx context.Context, req gen.UpdatePenaltyReques
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	p, err := h.svc.UpdatePenalty(ctx, openapi_types.UUID(req.PenaltyId), req.Body)
+	p, err := h.svc.UpdatePenalty(ctx, req.PenaltyId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "UpdatePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to update penalty")
@@ -146,7 +145,7 @@ func (h *Handler) DeletePenalty(ctx context.Context, req gen.DeletePenaltyReques
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeletePenalty(ctx, openapi_types.UUID(req.PenaltyId)); err != nil {
+	if err := h.svc.DeletePenalty(ctx, req.PenaltyId); err != nil {
 		h.logger.ErrorContext(ctx, "DeletePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to delete penalty")
 	}
@@ -161,7 +160,7 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	a, err := h.svc.CreateAssignment(ctx, uuid.UUID(req.TeamId), req.Body)
+	a, err := h.svc.CreateAssignment(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreatePenaltyAssignment failed", "err", err)
 		return nil, apierror.Internal("failed to create penalty assignment")
@@ -174,7 +173,7 @@ func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePen
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeleteAssignment(ctx, openapi_types.UUID(req.AssignmentId)); err != nil {
+	if err := h.svc.DeleteAssignment(ctx, req.AssignmentId); err != nil {
 		h.logger.ErrorContext(ctx, "DeletePenaltyAssignment failed", "err", err)
 		return nil, apierror.Internal("failed to delete penalty assignment")
 	}
@@ -186,7 +185,7 @@ func (h *Handler) TogglePenaltyPaid(ctx context.Context, req gen.TogglePenaltyPa
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	a, err := h.svc.ToggleAssignmentPaid(ctx, uuid.UUID(req.TeamId), openapi_types.UUID(req.AssignmentId))
+	a, err := h.svc.ToggleAssignmentPaid(ctx, req.TeamId, req.AssignmentId)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "TogglePenaltyPaid failed", "err", err)
 		return nil, apierror.Internal("failed to toggle penalty paid status")
@@ -202,7 +201,7 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	c, err := h.svc.UpdateContribution(ctx, openapi_types.UUID(req.ContributionId), req.Body)
+	c, err := h.svc.UpdateContribution(ctx, req.ContributionId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "UpdateContribution failed", "err", err)
 		return nil, apierror.Internal("failed to update contribution")
@@ -215,7 +214,7 @@ func (h *Handler) ToggleContribution(ctx context.Context, req gen.ToggleContribu
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	c, err := h.svc.ToggleContribution(ctx, openapi_types.UUID(req.ContributionId))
+	c, err := h.svc.ToggleContribution(ctx, req.ContributionId)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ToggleContribution failed", "err", err)
 		return nil, apierror.Internal("failed to toggle contribution status")

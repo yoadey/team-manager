@@ -19,13 +19,6 @@ const (
 	testUserID = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 )
 
-func seedTeamAndUser(t *testing.T, pool interface {
-	Exec(context.Context, string, ...any) (interface{ RowsAffected() int64 }, error)
-},
-) {
-	t.Helper()
-}
-
 func makeCreateParams(title string, date time.Time) events.CreateEventParams {
 	return events.CreateEventParams{
 		Type:  "training",

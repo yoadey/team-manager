@@ -19,5 +19,5 @@ func Parse(limit, offset *int) (l, o int) {
 	if offset != nil && *offset > 0 {
 		o = *offset
 	}
-	return
+	return l, o
 }

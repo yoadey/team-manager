@@ -109,7 +109,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.Finan
 	for _, o := range openByUser {
 		hp := o.HasPhoto
 		genOpen = append(genOpen, gen.OpenPenalty{
-			UserId:      openapi_types.UUID(o.UserID),
+			UserId:      o.UserID,
 			Name:        o.Name,
 			AvatarColor: o.AvatarColor,
 			HasPhoto:    &hp,
@@ -170,7 +170,10 @@ func (s *Service) UpdateTransaction(ctx context.Context, id uuid.UUID, body *gen
 
 // DeleteTransaction deletes a transaction.
 func (s *Service) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
-	return s.repo.DeleteTransaction(ctx, id)
+	if err := s.repo.DeleteTransaction(ctx, id); err != nil {
+		return fmt.Errorf("finances.Service.DeleteTransaction: %w", err)
+	}
+	return nil
 }
 
 // ─── Penalties ────────────────────────────────────────────────────────────────
@@ -198,15 +201,18 @@ func (s *Service) UpdatePenalty(ctx context.Context, id uuid.UUID, body *gen.Upd
 
 // DeletePenalty deletes a penalty definition.
 func (s *Service) DeletePenalty(ctx context.Context, id uuid.UUID) error {
-	return s.repo.DeletePenalty(ctx, id)
+	if err := s.repo.DeletePenalty(ctx, id); err != nil {
+		return fmt.Errorf("finances.Service.DeletePenalty: %w", err)
+	}
+	return nil
 }
 
 // ─── Assignments ──────────────────────────────────────────────────────────────
 
 // CreateAssignment creates a penalty assignment.
 func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error) {
-	penaltyID := uuid.UUID(body.PenaltyId)
-	userID := uuid.UUID(body.UserId)
+	penaltyID := body.PenaltyId
+	userID := body.UserId
 	a, err := s.repo.CreateAssignment(ctx, teamID, userID, penaltyID)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateAssignment: %w", err)
@@ -229,7 +235,10 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 
 // DeleteAssignment deletes a penalty assignment.
 func (s *Service) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
-	return s.repo.DeleteAssignment(ctx, id)
+	if err := s.repo.DeleteAssignment(ctx, id); err != nil {
+		return fmt.Errorf("finances.Service.DeleteAssignment: %w", err)
+	}
+	return nil
 }
 
 // ToggleAssignmentPaid flips the paid flag.
@@ -281,8 +290,8 @@ func (s *Service) ToggleContribution(ctx context.Context, id uuid.UUID) (*gen.Co
 
 func toGenTransaction(t TransactionRow) gen.Transaction {
 	return gen.Transaction{
-		Id:       openapi_types.UUID(t.ID),
-		TeamId:   openapi_types.UUID(t.TeamID),
+		Id:       t.ID,
+		TeamId:   t.TeamID,
 		Type:     gen.TransactionType(t.Type),
 		Title:    t.Title,
 		Amount:   t.Amount,
@@ -293,8 +302,8 @@ func toGenTransaction(t TransactionRow) gen.Transaction {
 
 func toGenPenalty(p PenaltyRow) gen.Penalty {
 	return gen.Penalty{
-		Id:     openapi_types.UUID(p.ID),
-		TeamId: openapi_types.UUID(p.TeamID),
+		Id:     p.ID,
+		TeamId: p.TeamID,
 		Label:  p.Label,
 		Amount: p.Amount,
 	}
@@ -302,10 +311,10 @@ func toGenPenalty(p PenaltyRow) gen.Penalty {
 
 func toGenAssignment(a PenaltyAssignmentRow) gen.PenaltyAssignment {
 	return gen.PenaltyAssignment{
-		Id:                openapi_types.UUID(a.ID),
-		TeamId:            openapi_types.UUID(a.TeamID),
-		UserId:            openapi_types.UUID(a.UserID),
-		PenaltyId:         openapi_types.UUID(a.PenaltyID),
+		Id:                a.ID,
+		TeamId:            a.TeamID,
+		UserId:            a.UserID,
+		PenaltyId:         a.PenaltyID,
 		Paid:              a.Paid,
 		Date:              openapi_types.Date{Time: a.Date},
 		Label:             a.PenaltyLabel,
@@ -318,9 +327,9 @@ func toGenAssignment(a PenaltyAssignmentRow) gen.PenaltyAssignment {
 
 func toGenContribution(c ContributionRow) gen.Contribution {
 	return gen.Contribution{
-		Id:                openapi_types.UUID(c.ID),
-		TeamId:            openapi_types.UUID(c.TeamID),
-		UserId:            openapi_types.UUID(c.UserID),
+		Id:                c.ID,
+		TeamId:            c.TeamID,
+		UserId:            c.UserID,
 		Month:             c.Month,
 		Label:             c.Label,
 		Amount:            c.Amount,

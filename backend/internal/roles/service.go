@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/teams"
@@ -85,8 +84,8 @@ func toGenRole(r teams.RoleRow) gen.Role {
 	_ = json.Unmarshal(permBytes, &perms)
 
 	return gen.Role{
-		Id:          openapi_types.UUID(r.Id),
-		TeamId:      openapi_types.UUID(r.TeamID),
+		Id:          r.Id,
+		TeamId:      r.TeamID,
 		Name:        r.Name,
 		System:      r.System,
 		Color:       r.Color,

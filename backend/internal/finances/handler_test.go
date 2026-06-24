@@ -88,14 +88,14 @@ func (m *mockFinanceService) ToggleContribution(ctx context.Context, id uuid.UUI
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 var (
-	testTeamID = openapi_types.UUID(uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
-	testUserID = openapi_types.UUID(uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))
-	testTxID   = openapi_types.UUID(uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"))
+	testTeamID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	testUserID = uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	testTxID   = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
 )
 
 func authedCtx() context.Context {
 	user := &auth.UserRow{
-		Id:          uuid.UUID(testUserID),
+		Id:          testUserID,
 		Name:        "Test User",
 		Email:       "test@example.com",
 		AvatarColor: "#6366f1",

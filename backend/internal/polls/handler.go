@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -40,7 +39,7 @@ func (h *Handler) ListPolls(ctx context.Context, req gen.ListPollsRequestObject)
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
-	polls, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId), user.Id, limit, offset)
+	polls, err := h.svc.ListByTeam(ctx, req.TeamId, user.Id, limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListPolls failed", "err", err)
 		return nil, apierror.Internal("failed to list polls")
@@ -72,7 +71,7 @@ func (h *Handler) CreatePoll(ctx context.Context, req gen.CreatePollRequestObjec
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
-	poll, err := h.svc.Create(ctx, uuid.UUID(req.TeamId), user.Id, req.Body)
+	poll, err := h.svc.Create(ctx, req.TeamId, user.Id, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreatePoll failed", "err", err)
 		return nil, apierror.Internal("failed to create poll")
@@ -89,11 +88,8 @@ func (h *Handler) VotePoll(ctx context.Context, req gen.VotePollRequestObject) (
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	optionIDs := make([]uuid.UUID, 0, len(req.Body.OptionIds))
-	for _, oid := range req.Body.OptionIds {
-		optionIDs = append(optionIDs, uuid.UUID(openapi_types.UUID(oid)))
-	}
-	poll, err := h.svc.Vote(ctx, uuid.UUID(req.PollId), user.Id, optionIDs)
+	optionIDs := append([]uuid.UUID(nil), req.Body.OptionIds...)
+	poll, err := h.svc.Vote(ctx, req.PollId, user.Id, optionIDs)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "VotePoll failed", "err", err)
 		return nil, apierror.Internal("failed to vote on poll")
@@ -106,7 +102,7 @@ func (h *Handler) DeletePoll(ctx context.Context, req gen.DeletePollRequestObjec
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.Delete(ctx, uuid.UUID(req.PollId)); err != nil {
+	if err := h.svc.Delete(ctx, req.PollId); err != nil {
 		h.logger.ErrorContext(ctx, "DeletePoll failed", "err", err)
 		return nil, apierror.Internal("failed to delete poll")
 	}

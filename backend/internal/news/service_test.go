@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -77,7 +76,7 @@ func TestService_ListByTeam(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, openapi_types.UUID(row.Id), result[0].Id)
+	assert.Equal(t, row.Id, result[0].Id)
 	assert.Equal(t, row.Title, result[0].Title)
 }
 
@@ -105,7 +104,7 @@ func TestService_Create(t *testing.T) {
 	result, err := svc.Create(context.Background(), teamID, authorID, body)
 
 	require.NoError(t, err)
-	assert.Equal(t, openapi_types.UUID(row.Id), result.Id)
+	assert.Equal(t, row.Id, result.Id)
 	assert.Equal(t, row.Title, result.Title)
 }
 
@@ -128,7 +127,7 @@ func TestService_Update(t *testing.T) {
 	result, err := svc.Update(context.Background(), id, &gen.UpdateNewsRequest{Title: &newTitle})
 
 	require.NoError(t, err)
-	assert.Equal(t, openapi_types.UUID(row.Id), result.Id)
+	assert.Equal(t, row.Id, result.Id)
 }
 
 func TestService_Delete(t *testing.T) {

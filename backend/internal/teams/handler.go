@@ -9,7 +9,6 @@ import (
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -121,7 +120,7 @@ func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestO
 	if request.Body.ReasonVisibilityRoleIds != nil {
 		ids := make([]string, len(*request.Body.ReasonVisibilityRoleIds))
 		for i, u := range *request.Body.ReasonVisibilityRoleIds {
-			ids[i] = openapi_types.UUID(u).String()
+			ids[i] = u.String()
 		}
 		patch.ReasonVisibilityRoleIDs = ids
 	}

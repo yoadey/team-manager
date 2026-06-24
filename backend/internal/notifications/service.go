@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -29,7 +30,7 @@ func NewService(repo notifRepo) *Service {
 func (s *Service) List(ctx context.Context, teamID, userID uuid.UUID) (gen.NotificationsResult, error) {
 	rows, err := s.repo.ListByTeamAndUser(ctx, teamID, userID)
 	if err != nil {
-		return gen.NotificationsResult{}, err
+		return gen.NotificationsResult{}, fmt.Errorf("notifications.Service.List: %w", err)
 	}
 
 	items := make([]gen.AppNotification, 0, len(rows))
@@ -49,22 +50,25 @@ func (s *Service) List(ctx context.Context, teamID, userID uuid.UUID) (gen.Notif
 
 // MarkSeen records that the user has seen all notifications.
 func (s *Service) MarkSeen(ctx context.Context, teamID, userID uuid.UUID) error {
-	return s.repo.MarkSeen(ctx, teamID, userID)
+	if err := s.repo.MarkSeen(ctx, teamID, userID); err != nil {
+		return fmt.Errorf("notifications.Service.MarkSeen: %w", err)
+	}
+	return nil
 }
 
 // toGenNotification maps a NotificationRow to the generated gen.AppNotification type.
 func toGenNotification(row *NotificationRow) gen.AppNotification {
 	hasPhoto := len(row.PhotoData) > 0
 	n := gen.AppNotification{
-		Id:            openapi_types.UUID(row.Id),
-		TeamId:        openapi_types.UUID(row.TeamId),
+		Id:            row.Id,
+		TeamId:        row.TeamId,
 		Type:          gen.NotificationType(row.Type),
 		CreatedAt:     row.CreatedAt,
 		HasActorPhoto: &hasPhoto,
 		Unread:        &row.Unread,
 	}
 	if row.ActorId != nil {
-		uid := openapi_types.UUID(*row.ActorId)
+		uid := *row.ActorId
 		n.ActorId = &uid
 	}
 	if row.ActorName != nil {
@@ -81,7 +85,7 @@ func toGenNotification(row *NotificationRow) gen.AppNotification {
 		n.Title = row.Title
 	}
 	if row.EventId != nil {
-		uid := openapi_types.UUID(*row.EventId)
+		uid := *row.EventId
 		n.EventId = &uid
 	}
 	if row.EventTitle != nil {

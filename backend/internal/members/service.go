@@ -106,8 +106,8 @@ func toGenMember(mr MemberRow) gen.Member {
 	perms := teams.MergePermissions(mr.Roles)
 
 	m := gen.Member{
-		MembershipId: openapi_types.UUID(mr.MembershipID),
-		UserId:       openapi_types.UUID(mr.UserID),
+		MembershipId: mr.MembershipID,
+		UserId:       mr.UserID,
 		Name:         mr.Name,
 		Email:        openapi_types.Email(mr.Email),
 		Phone:        mr.Phone,
@@ -133,8 +133,8 @@ func toGenMember(mr MemberRow) gen.Member {
 
 func toGenRole(r teams.RoleRow) gen.Role {
 	return gen.Role{
-		Id:     openapi_types.UUID(r.Id),
-		TeamId: openapi_types.UUID(r.TeamID),
+		Id:     r.Id,
+		TeamId: r.TeamID,
 		Name:   r.Name,
 		System: r.System,
 		Color:  r.Color,

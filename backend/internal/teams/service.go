@@ -22,7 +22,7 @@ const inviteTTL = 7 * 24 * time.Hour
 type teamRepo interface {
 	ListTeamsForUser(ctx context.Context, userID string) ([]TeamRow, error)
 	GetTeam(ctx context.Context, teamID string) (*TeamRow, error)
-	CreateTeam(ctx context.Context, name string, creatorUserID string) (*TeamRow, error)
+	CreateTeam(ctx context.Context, name, creatorUserID string) (*TeamRow, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error)
 	GetMemberCount(ctx context.Context, teamID string) (int, error)
 	GetMembership(ctx context.Context, teamID, userID string) (*MembershipRow, error)
@@ -105,8 +105,8 @@ func (s *Service) CreateInvite(ctx context.Context, teamID string) (*gen.Invite,
 	}
 	link := fmt.Sprintf("https://teammanager.example/join/%s/%s", teamID, inv.Code)
 	return &gen.Invite{
-		Id:        openapi_types.UUID(inv.Id),
-		TeamId:    openapi_types.UUID(inv.TeamID),
+		Id:        inv.Id,
+		TeamId:    inv.TeamID,
 		Code:      inv.Code,
 		Link:      link,
 		ExpiresAt: inv.ExpiresAt,
@@ -115,7 +115,7 @@ func (s *Service) CreateInvite(ctx context.Context, teamID string) (*gen.Invite,
 }
 
 // GetTeamPhotoData returns the raw photo bytes and MIME type for the given team.
-func (s *Service) GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error) {
+func (s *Service) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
 	tr, err := s.repo.GetTeam(ctx, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -126,7 +126,7 @@ func (s *Service) GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, 
 	if len(tr.PhotoData) == 0 {
 		return nil, "", pgx.ErrNoRows
 	}
-	mime := "image/jpeg"
+	mime = "image/jpeg"
 	if tr.PhotoMime != nil && *tr.PhotoMime != "" {
 		mime = *tr.PhotoMime
 	}
@@ -177,7 +177,7 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 	hasLogo := len(tr.LogoData) > 0
 
 	tfu := &gen.TeamForUser{
-		Id:           openapi_types.UUID(tr.Id),
+		Id:           tr.Id,
 		Name:         tr.Name,
 		Short:        tr.Short,
 		Icon:         tr.Icon,
@@ -187,16 +187,14 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 		HasPhoto:     &hasPhoto,
 		HasLogo:      &hasLogo,
 		MemberCount:  count,
-		MembershipId: openapi_types.UUID(m.Id),
+		MembershipId: m.Id,
 		MyRoles:      genRoles,
 		MyPerms:      perms,
 	}
 
 	if len(tr.ReasonVisibilityRoleIDs) > 0 {
 		uuids := make([]openapi_types.UUID, len(tr.ReasonVisibilityRoleIDs))
-		for i, u := range tr.ReasonVisibilityRoleIDs {
-			uuids[i] = openapi_types.UUID(u)
-		}
+		copy(uuids, tr.ReasonVisibilityRoleIDs)
 		tfu.ReasonVisibilityRoleIds = &uuids
 	}
 
@@ -207,7 +205,7 @@ func toGenTeam(tr *TeamRow) *gen.Team {
 	hasPhoto := len(tr.PhotoData) > 0
 	hasLogo := len(tr.LogoData) > 0
 	t := &gen.Team{
-		Id:          openapi_types.UUID(tr.Id),
+		Id:          tr.Id,
 		Name:        tr.Name,
 		Short:       tr.Short,
 		Icon:        tr.Icon,
@@ -219,9 +217,7 @@ func toGenTeam(tr *TeamRow) *gen.Team {
 	}
 	if len(tr.ReasonVisibilityRoleIDs) > 0 {
 		uuids := make([]openapi_types.UUID, len(tr.ReasonVisibilityRoleIDs))
-		for i, u := range tr.ReasonVisibilityRoleIDs {
-			uuids[i] = openapi_types.UUID(u)
-		}
+		copy(uuids, tr.ReasonVisibilityRoleIDs)
 		t.ReasonVisibilityRoleIds = &uuids
 	}
 	return t
@@ -229,8 +225,8 @@ func toGenTeam(tr *TeamRow) *gen.Team {
 
 func toGenRole(r RoleRow) gen.Role {
 	return gen.Role{
-		Id:     openapi_types.UUID(r.Id),
-		TeamId: openapi_types.UUID(r.TeamID),
+		Id:     r.Id,
+		TeamId: r.TeamID,
 		Name:   r.Name,
 		System: r.System,
 		Color:  r.Color,
@@ -244,8 +240,6 @@ func toGenRole(r RoleRow) gen.Role {
 		},
 	}
 }
-
-const maxPhotoDim = 800
 
 func resizeImage(data []byte, mime string) ([]byte, error) {
 	reader := bytes.NewReader(data)

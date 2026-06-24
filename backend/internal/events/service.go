@@ -95,7 +95,7 @@ func (s *Service) GetEvent(ctx context.Context, teamID, userID, eventID string) 
 
 // CreateEvent creates a single event or a recurring series.
 // For recurring events, it returns the first event in the series.
-func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error) {
+func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error) { //nolint:gocognit,cyclop // complexity inherent in event creation business logic
 	if body == nil {
 		return nil, ErrCreateEventNilBody
 	}
@@ -391,7 +391,7 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 	}
 
 	if row.SeriesId != nil {
-		sid := openapi_types.UUID(*row.SeriesId)
+		sid := *row.SeriesId
 		ev.SeriesId = &sid
 	}
 
@@ -402,9 +402,7 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 
 	if len(row.NominatedRoleIds) > 0 {
 		ids := make([]openapi_types.UUID, len(row.NominatedRoleIds))
-		for i, rid := range row.NominatedRoleIds {
-			ids[i] = rid
-		}
+		copy(ids, row.NominatedRoleIds)
 		ev.NominatedRoleIds = &ids
 	}
 

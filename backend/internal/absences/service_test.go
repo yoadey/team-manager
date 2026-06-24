@@ -20,7 +20,7 @@ type mockRepo struct {
 	listByTeam func(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error)
 	listByUser func(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error)
 	create     func(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*absences.AbsenceRow, error)
-	update     func(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*absences.AbsenceRow, error)
+	update     func(ctx context.Context, id uuid.UUID, fromDate, toDate, reason *string) (*absences.AbsenceRow, error)
 	delete     func(ctx context.Context, id uuid.UUID) error
 }
 
@@ -36,7 +36,7 @@ func (m *mockRepo) Create(ctx context.Context, teamID, userID uuid.UUID, fromDat
 	return m.create(ctx, teamID, userID, fromDate, toDate, reason)
 }
 
-func (m *mockRepo) Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*absences.AbsenceRow, error) {
+func (m *mockRepo) Update(ctx context.Context, id uuid.UUID, fromDate, toDate, reason *string) (*absences.AbsenceRow, error) {
 	return m.update(ctx, id, fromDate, toDate, reason)
 }
 
@@ -81,7 +81,7 @@ func TestService_ListByTeam(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, openapi_types.UUID(row.Id), result[0].Id)
+	assert.Equal(t, row.Id, result[0].Id)
 	assert.Equal(t, *row.MemberName, *result[0].MemberName)
 }
 
@@ -105,7 +105,7 @@ func TestService_ListByUser(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	assert.Equal(t, openapi_types.UUID(row.UserId), result[0].UserId)
+	assert.Equal(t, row.UserId, result[0].UserId)
 }
 
 func TestService_Create(t *testing.T) {
@@ -125,14 +125,14 @@ func TestService_Create(t *testing.T) {
 
 	svc := absences.NewService(repo)
 	body := &gen.CreateAbsenceRequest{
-		UserId: openapi_types.UUID(userID),
+		UserId: userID,
 		From:   openapi_types.Date{Time: time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)},
 		To:     openapi_types.Date{Time: time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)},
 	}
 	result, err := svc.Create(context.Background(), teamID, body)
 
 	require.NoError(t, err)
-	assert.Equal(t, openapi_types.UUID(row.Id), result.Id)
+	assert.Equal(t, row.Id, result.Id)
 }
 
 func TestService_Delete(t *testing.T) {
@@ -176,5 +176,5 @@ func TestService_Update(t *testing.T) {
 	result, err := svc.Update(context.Background(), id, body)
 
 	require.NoError(t, err)
-	assert.Equal(t, openapi_types.UUID(row.Id), result.Id)
+	assert.Equal(t, row.Id, result.Id)
 }

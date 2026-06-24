@@ -38,13 +38,13 @@ func (m *mockStatsService) GetMemberStats(ctx context.Context, teamID, userID uu
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 var (
-	statsTeamID = openapi_types.UUID(uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
-	statsUserID = openapi_types.UUID(uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))
+	statsTeamID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	statsUserID = uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 )
 
 func statsAuthedCtx() context.Context {
 	user := &auth.UserRow{
-		Id:          uuid.UUID(statsTeamID),
+		Id:          statsTeamID,
 		Name:        "Test User",
 		Email:       "test@example.com",
 		AvatarColor: "#6366f1",

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -57,8 +56,8 @@ func fixedGenMember() gen.Member {
 		News: "write", Polls: "write", Settings: "write",
 	}
 	return gen.Member{
-		MembershipId: openapi_types.UUID(uuid.New()),
-		UserId:       openapi_types.UUID(uuid.New()),
+		MembershipId: uuid.New(),
+		UserId:       uuid.New(),
 		Name:         "Bob",
 		Email:        "bob@example.com",
 		AvatarColor:  "#bbccdd",
@@ -85,11 +84,11 @@ func TestMemberHandler_ListMembers(t *testing.T) {
 
 	h := members.NewHandler(svc, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/teams/"+teamID.String()+"/members", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/teams/"+teamID.String()+"/members", http.NoBody)
 	w := httptest.NewRecorder()
 
 	resp, err := h.ListMembers(req.Context(), gen.ListMembersRequestObject{
-		TeamId: openapi_types.UUID(teamID),
+		TeamId: teamID,
 	})
 	require.NoError(t, err)
 	_ = resp.VisitListMembersResponse(w)

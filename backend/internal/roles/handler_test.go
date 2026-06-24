@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -48,8 +47,8 @@ func (m *mockRoleService) DeleteRole(ctx context.Context, roleID uuid.UUID) erro
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 var (
-	rolesTeamID = openapi_types.UUID(uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
-	testRoleID  = openapi_types.UUID(uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc"))
+	rolesTeamID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	testRoleID  = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
 )
 
 func rolesAuthedCtx() context.Context {

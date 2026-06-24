@@ -156,7 +156,7 @@ func TestHandler_ListProviders(t *testing.T) {
 
 	h := auth.NewHandler(&mockAuthService{}, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/auth/providers", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/providers", http.NoBody)
 	w := httptest.NewRecorder()
 	callListProviders(h, w, req)
 
@@ -183,7 +183,7 @@ func TestHandler_Login_Success(t *testing.T) {
 	h := auth.NewHandler(svc, slog.Default())
 
 	body := `{"email":"test@example.com","password":"Secret123!"}`
-	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	callLogin(h, w, req)
@@ -207,7 +207,7 @@ func TestHandler_Login_BadCredentials(t *testing.T) {
 	h := auth.NewHandler(svc, slog.Default())
 
 	body := `{"email":"bad@example.com","password":"wrong"}`
-	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBufferString(body))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	callLogin(h, w, req)
@@ -221,7 +221,7 @@ func TestHandler_GetCurrentUser_NoAuth(t *testing.T) {
 
 	h := auth.NewHandler(&mockAuthService{}, slog.Default())
 
-	req := httptest.NewRequest(http.MethodGet, "/auth/me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
 	// No user in context — simulates unauthenticated request.
 	w := httptest.NewRecorder()
 	callGetCurrentUser(h, w, req)
@@ -252,7 +252,7 @@ func TestHandler_GetCurrentUser_WithAuth(t *testing.T) {
 		})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/auth/me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
 	req.Header.Set("Authorization", "Bearer valid-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -294,7 +294,7 @@ func TestHandler_Logout(t *testing.T) {
 		})
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/auth/logout", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/logout", http.NoBody)
 	req.Header.Set("Authorization", "Bearer valid-logout-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -322,7 +322,7 @@ func TestHandler_GetCurrentUser_InvalidToken(t *testing.T) {
 		})
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/auth/me", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
 	req.Header.Set("Authorization", "Bearer bad-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -369,7 +369,7 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 		t.Fatalf("close multipart: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodPut, "/auth/me/photo", &buf)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/auth/me/photo", &buf)
 	req.Header.Set("Authorization", "Bearer token")
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	w := httptest.NewRecorder()

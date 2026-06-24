@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,7 +50,7 @@ func (m *mockTeamService) CreateInvite(ctx context.Context, teamID string) (*gen
 	return m.createInvite(ctx, teamID)
 }
 
-func (m *mockTeamService) GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error) {
+func (m *mockTeamService) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
 	return m.getTeamPhotoData(ctx, teamID)
 }
 
@@ -109,10 +108,10 @@ func TestTeamHandler_ListTeams(t *testing.T) {
 		listForUser: func(_ context.Context, _ string) ([]gen.TeamForUser, error) {
 			return []gen.TeamForUser{
 				{
-					Id:           openapi_types.UUID(teamID),
+					Id:           teamID,
 					Name:         "Test Team",
 					MemberCount:  5,
-					MembershipId: openapi_types.UUID(membershipID),
+					MembershipId: membershipID,
 					MyRoles:      []gen.Role{},
 					MyPerms: gen.Permissions{
 						Events: "write", Members: "write", Finances: "write",
@@ -138,7 +137,7 @@ func TestTeamHandler_ListTeams(t *testing.T) {
 
 	handler := withAuthUser(inner, testAuthUser())
 
-	req := httptest.NewRequest(http.MethodGet, "/teams", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/teams", http.NoBody)
 	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)

@@ -42,7 +42,7 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 		&ab.RoleName, &ab.RoleColor,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	return ab, nil
 }
@@ -108,7 +108,7 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 }
 
 // Update modifies an absence and returns the enriched row.
-func (r *Repository) Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error) {
+func (r *Repository) Update(ctx context.Context, id uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err := r.pool.Exec(

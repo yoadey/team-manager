@@ -54,14 +54,15 @@ func main() {
 		slog.Error("database connection failed", "err", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
 
 	if err := db.RunMigrations(ctx, pool, cfg.MigrationsDir); err != nil {
+		pool.Close()
 		slog.Error("migrations failed", "err", err)
 		os.Exit(1)
 	}
 
 	if err := jobs.MigrateRiver(ctx, pool); err != nil {
+		pool.Close()
 		slog.Error("river migrations failed", "err", err)
 		os.Exit(1)
 	}
@@ -89,7 +90,7 @@ func main() {
 	authSvc, err := auth.NewService(authRepo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
 	if err != nil {
 		slog.Error("auth service init failed", "err", err)
-		os.Exit(1)
+		os.Exit(1) //nolint:gocritic
 	}
 	authHandler := auth.NewHandler(authSvc, logger)
 
@@ -180,7 +181,6 @@ func main() {
 	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.Recoverer(logger))
 	r.Use(middleware.RequestID)
-	r.Use(chimiddleware.RealIP)
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Metrics)
 	r.Use(chimiddleware.Timeout(30 * time.Second))

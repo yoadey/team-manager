@@ -99,7 +99,7 @@ func TestLoad_AllowedOriginsMultiple(t *testing.T) {
 }
 
 func TestLoad_EnvOr(t *testing.T) {
-	os.Unsetenv("MIGRATIONS_DIR") //nolint:errcheck
+	os.Unsetenv("MIGRATIONS_DIR") //nolint:errcheck // Unsetenv never fails in tests
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 
 	cfg, err := config.Load()

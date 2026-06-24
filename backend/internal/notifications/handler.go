@@ -34,7 +34,7 @@ func (h *Handler) ListNotifications(ctx context.Context, req gen.ListNotificatio
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	result, err := h.svc.List(ctx, uuid.UUID(req.TeamId), user.Id)
+	result, err := h.svc.List(ctx, req.TeamId, user.Id)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListNotifications failed", "err", err)
 		return nil, apierror.Internal("failed to list notifications")
@@ -48,7 +48,7 @@ func (h *Handler) MarkNotificationsSeen(ctx context.Context, req gen.MarkNotific
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.MarkSeen(ctx, uuid.UUID(req.TeamId), user.Id); err != nil {
+	if err := h.svc.MarkSeen(ctx, req.TeamId, user.Id); err != nil {
 		h.logger.ErrorContext(ctx, "MarkNotificationsSeen failed", "err", err)
 		return nil, apierror.Internal("failed to mark notifications seen")
 	}

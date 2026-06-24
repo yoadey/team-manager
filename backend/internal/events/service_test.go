@@ -222,7 +222,7 @@ func TestEventService_SetAttendance(t *testing.T) {
 
 	svc := events.NewService(repo, nil)
 	req := gen.SetAttendanceRequest{
-		UserId: openapi_types.UUID(userID),
+		UserId: userID,
 		Status: gen.Yes,
 	}
 

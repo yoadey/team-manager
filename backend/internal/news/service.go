@@ -2,9 +2,9 @@ package news
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
@@ -38,7 +38,7 @@ func NewService(repo newsRepo, enq jobEnqueuer) *Service {
 func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.NewsItem, error) {
 	rows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("news.Service.ListByTeam: %w", err)
 	}
 	result := make([]gen.NewsItem, 0, len(rows))
 	for _, row := range rows {
@@ -55,7 +55,7 @@ func (s *Service) Create(ctx context.Context, teamID, authorID uuid.UUID, body *
 	}
 	row, err := s.repo.Create(ctx, teamID, authorID, body.Title, body.Body, pinned)
 	if err != nil {
-		return gen.NewsItem{}, err
+		return gen.NewsItem{}, fmt.Errorf("news.Service.Create: %w", err)
 	}
 	// Fire notification via River (best-effort; ignore error so it doesn't fail the request).
 	if s.jobs != nil {
@@ -74,23 +74,26 @@ func (s *Service) Create(ctx context.Context, teamID, authorID uuid.UUID, body *
 func (s *Service) Update(ctx context.Context, id uuid.UUID, body *gen.UpdateNewsRequest) (gen.NewsItem, error) {
 	row, err := s.repo.Update(ctx, id, body.Title, body.Body, body.Pinned)
 	if err != nil {
-		return gen.NewsItem{}, err
+		return gen.NewsItem{}, fmt.Errorf("news.Service.Update: %w", err)
 	}
 	return toGenNewsItem(row), nil
 }
 
 // Delete removes a news item by ID.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("news.Service.Delete: %w", err)
+	}
+	return nil
 }
 
 // toGenNewsItem maps a NewsRow to the generated gen.NewsItem type.
 func toGenNewsItem(row *NewsRow) gen.NewsItem {
 	hasPhoto := len(row.PhotoData) > 0
 	ni := gen.NewsItem{
-		Id:             openapi_types.UUID(row.Id),
-		TeamId:         openapi_types.UUID(row.TeamId),
-		AuthorId:       openapi_types.UUID(row.AuthorId),
+		Id:             row.Id,
+		TeamId:         row.TeamId,
+		AuthorId:       row.AuthorId,
 		Title:          row.Title,
 		Body:           row.Body,
 		Pinned:         row.Pinned,

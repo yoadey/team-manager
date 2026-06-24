@@ -66,7 +66,7 @@ type Client struct {
 // NewClient creates a River client backed by the given pool.
 // Call Start() on the returned river.Client separately if running workers
 // in the same process.
-func NewClient(pool *pgxpool.Pool) (*Client, *river.Client[pgx.Tx], error) {
+func NewClient(pool *pgxpool.Pool) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &NotificationWorker{pool: pool})
 

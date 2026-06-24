@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -71,7 +70,7 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 	}
 	if request.Body.RoleIds != nil {
 		for _, u := range *request.Body.RoleIds {
-			params.RoleIDs = append(params.RoleIDs, openapi_types.UUID(u).String())
+			params.RoleIDs = append(params.RoleIDs, u.String())
 		}
 	}
 
@@ -130,7 +129,7 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 
 	roleIDs := make([]string, len(request.Body.RoleIds))
 	for i, u := range request.Body.RoleIds {
-		roleIDs[i] = openapi_types.UUID(u).String()
+		roleIDs[i] = u.String()
 	}
 
 	m, err := h.svc.SetRoles(ctx, request.MembershipId.String(), roleIDs)

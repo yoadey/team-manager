@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -39,7 +38,7 @@ func (h *Handler) ListRoles(ctx context.Context, req gen.ListRolesRequestObject)
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	roles, err := h.svc.ListRoles(ctx, uuid.UUID(req.TeamId))
+	roles, err := h.svc.ListRoles(ctx, req.TeamId)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListRoles failed", "err", err)
 		return nil, apierror.Internal("failed to list roles")
@@ -58,7 +57,7 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 	if err := validate.Name(req.Body.Name); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
-	role, err := h.svc.CreateRole(ctx, uuid.UUID(req.TeamId), req.Body)
+	role, err := h.svc.CreateRole(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateRole failed", "err", err)
 		return nil, apierror.Internal("failed to create role")
@@ -79,7 +78,7 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
-	role, err := h.svc.UpdateRole(ctx, openapi_types.UUID(req.RoleId), req.Body)
+	role, err := h.svc.UpdateRole(ctx, req.RoleId, req.Body)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("role not found")
@@ -95,7 +94,7 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeleteRole(ctx, openapi_types.UUID(req.RoleId)); err != nil {
+	if err := h.svc.DeleteRole(ctx, req.RoleId); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("role not found")
 		}

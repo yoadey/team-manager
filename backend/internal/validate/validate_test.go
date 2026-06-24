@@ -24,7 +24,9 @@ func TestEmail(t *testing.T) {
 		{"missing@", false},
 	}
 	for _, tc := range cases {
+		tc := tc
 		t.Run(tc.input, func(t *testing.T) {
+			t.Parallel()
 			err := validate.Email(tc.input)
 			if tc.ok {
 				require.NoError(t, err)

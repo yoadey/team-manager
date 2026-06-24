@@ -38,7 +38,7 @@ func (h *Handler) ListAbsences(ctx context.Context, req gen.ListAbsencesRequestO
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
-	absences, err := h.svc.ListByTeam(ctx, uuid.UUID(req.TeamId), limit, offset)
+	absences, err := h.svc.ListByTeam(ctx, req.TeamId, limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")
@@ -54,7 +54,7 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	absence, err := h.svc.Create(ctx, uuid.UUID(req.TeamId), req.Body)
+	absence, err := h.svc.Create(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to create absence")
@@ -69,7 +69,7 @@ func (h *Handler) ListMyAbsences(ctx context.Context, req gen.ListMyAbsencesRequ
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
-	absences, err := h.svc.ListByUser(ctx, uuid.UUID(req.TeamId), user.Id, limit, offset)
+	absences, err := h.svc.ListByUser(ctx, req.TeamId, user.Id, limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListMyAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")
@@ -82,7 +82,7 @@ func (h *Handler) DeleteAbsence(ctx context.Context, req gen.DeleteAbsenceReques
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.Delete(ctx, uuid.UUID(req.AbsenceId)); err != nil {
+	if err := h.svc.Delete(ctx, req.AbsenceId); err != nil {
 		h.logger.ErrorContext(ctx, "DeleteAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to delete absence")
 	}
@@ -97,7 +97,7 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	absence, err := h.svc.Update(ctx, uuid.UUID(req.AbsenceId), req.Body)
+	absence, err := h.svc.Update(ctx, req.AbsenceId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "UpdateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to update absence")

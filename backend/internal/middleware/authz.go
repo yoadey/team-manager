@@ -98,7 +98,7 @@ var selfServiceWritePaths = map[string]bool{
 //
 // Path parsing: given a URL like /api/v1/teams/{teamId}/events/123/attendance,
 // the segment right after the teamId UUID is used to look up the module.
-func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handler {
+func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handler { //nolint:gocognit // complexity inherent in RBAC permission checking
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Only enforce on mutations.
@@ -161,7 +161,7 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 }
 
 // subPathAfterTeam extracts the path segments that follow the team UUID.
-// e.g. "/api/v1/teams/abc-123/events/456/attendance" → "events/456/attendance"
+// e.g. "/api/v1/teams/abc-123/events/456/attendance" → "events/456/attendance".
 func subPathAfterTeam(urlPath, teamIDStr string) string {
 	idx := strings.Index(urlPath, teamIDStr)
 	if idx < 0 {

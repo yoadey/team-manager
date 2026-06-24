@@ -45,7 +45,7 @@ var (
 
 // makeChiRequest builds an *http.Request with chi URL params set.
 func makeChiRequest(method, urlPath, teamIDStr string) *http.Request {
-	req := httptest.NewRequest(method, urlPath, nil)
+	req := httptest.NewRequestWithContext(context.Background(), method, urlPath, http.NoBody)
 	rctx := chi.NewRouteContext()
 	if teamIDStr != "" {
 		rctx.URLParams.Add("teamId", teamIDStr)
@@ -62,7 +62,7 @@ func ok200(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK
 
 func TestRequireMembership_NoTeamID_Passthrough(t *testing.T) {
 	mw := middleware.RequireMembership(&mockMembershipChecker{isMember: false})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/login", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/auth/login", http.NoBody)
 	rec := httptest.NewRecorder()
 	mw(http.HandlerFunc(ok200)).ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -207,7 +207,7 @@ func TestRequirePermission_Mutations(t *testing.T) {
 // No teamId in URL → middleware is a no-op.
 func TestRequirePermission_NoTeamID_Passthrough(t *testing.T) {
 	checker := &mockPermissionChecker{perms: allReadPerms()}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/v1/auth/logout", http.NoBody)
 	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.UserRow{Id: testUserID}))
 	rec := applyPermMW(checker, req)
 	assert.Equal(t, http.StatusOK, rec.Code)

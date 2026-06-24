@@ -185,16 +185,17 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 func Recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
 			defer func() {
 				if rec := recover(); rec != nil {
 					stack := debug.Stack()
 					logger.ErrorContext(
-						r.Context(), "panic recovered",
+						ctx, "panic recovered",
 						slog.Any("panic", rec),
 						slog.String("stack", string(stack)),
 						slog.String("method", r.Method),
 						slog.String("path", r.URL.Path),
-						slog.String("request_id", GetRequestID(r.Context())),
+						slog.String("request_id", GetRequestID(ctx)),
 					)
 
 					w.Header().Set("Content-Type", "application/problem+json")

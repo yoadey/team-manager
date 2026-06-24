@@ -39,7 +39,7 @@ func RequireDocker(t *testing.T) {
 	if err != nil {
 		t.Skipf("Docker not available (%v) — skipping integration test", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if _, err := client.Ping(context.Background(), dockerclient.PingOptions{}); err != nil {
 		t.Skipf("Docker daemon not reachable (%v) — skipping integration test", err)
 	}
@@ -105,7 +105,7 @@ func runMigrations(ctx context.Context, dsn string) error {
 	}
 
 	sqlDB := stdlib.OpenDB(*cfg.ConnConfig)
-	defer sqlDB.Close() //nolint:errcheck
+	defer sqlDB.Close() //nolint:errcheck // sql.DB.Close during test teardown is safe to ignore
 
 	migrDir := migrationsDir()
 	if _, err := os.Stat(migrDir); err != nil {

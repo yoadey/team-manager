@@ -34,7 +34,7 @@ func (h *Handler) GetStatsOverview(ctx context.Context, req gen.GetStatsOverview
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	overview, err := h.svc.GetOverview(ctx, uuid.UUID(req.TeamId), req.Params.From, req.Params.To)
+	overview, err := h.svc.GetOverview(ctx, req.TeamId, req.Params.From, req.Params.To)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "GetStatsOverview failed", "err", err)
 		return nil, apierror.Internal("failed to get stats overview")
@@ -47,7 +47,7 @@ func (h *Handler) GetMemberStats(ctx context.Context, req gen.GetMemberStatsRequ
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	stats, err := h.svc.GetMemberStats(ctx, uuid.UUID(req.TeamId), uuid.UUID(req.UserId), nil, nil)
+	stats, err := h.svc.GetMemberStats(ctx, req.TeamId, req.UserId, nil, nil)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "GetMemberStats failed", "err", err)
 		return nil, apierror.Internal("failed to get member stats")

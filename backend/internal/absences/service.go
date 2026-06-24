@@ -2,6 +2,7 @@ package absences
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -32,7 +33,7 @@ func NewService(repo absenceRepo) *Service {
 func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.Absence, error) {
 	rows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("absences.Service.ListByTeam: %w", err)
 	}
 	result := make([]gen.Absence, 0, len(rows))
 	for _, row := range rows {
@@ -45,7 +46,7 @@ func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offse
 func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]gen.Absence, error) {
 	rows, err := s.repo.ListByUser(ctx, teamID, userID, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("absences.Service.ListByUser: %w", err)
 	}
 	result := make([]gen.Absence, 0, len(rows))
 	for _, row := range rows {
@@ -56,9 +57,9 @@ func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limi
 
 // Create adds a new absence.
 func (s *Service) Create(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error) {
-	row, err := s.repo.Create(ctx, teamID, uuid.UUID(body.UserId), body.From.Time.Format("2006-01-02"), body.To.Time.Format("2006-01-02"), body.Reason)
+	row, err := s.repo.Create(ctx, teamID, body.UserId, body.From.Format("2006-01-02"), body.To.Format("2006-01-02"), body.Reason)
 	if err != nil {
-		return gen.Absence{}, err
+		return gen.Absence{}, fmt.Errorf("absences.Service.Create: %w", err)
 	}
 	return toGenAbsence(row), nil
 }
@@ -67,31 +68,34 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, body *gen.Create
 func (s *Service) Update(ctx context.Context, id uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error) {
 	var from, to *string
 	if body.From != nil {
-		s := body.From.Time.Format("2006-01-02")
+		s := body.From.Format("2006-01-02")
 		from = &s
 	}
 	if body.To != nil {
-		s := body.To.Time.Format("2006-01-02")
+		s := body.To.Format("2006-01-02")
 		to = &s
 	}
 	row, err := s.repo.Update(ctx, id, from, to, body.Reason)
 	if err != nil {
-		return gen.Absence{}, err
+		return gen.Absence{}, fmt.Errorf("absences.Service.Update: %w", err)
 	}
 	return toGenAbsence(row), nil
 }
 
 // Delete removes an absence by ID.
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+	if err := s.repo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("absences.Service.Delete: %w", err)
+	}
+	return nil
 }
 
 // toGenAbsence maps an AbsenceRow to the generated gen.Absence type.
 func toGenAbsence(row *AbsenceRow) gen.Absence {
 	hasPhoto := len(row.PhotoData) > 0
 	a := gen.Absence{
-		Id:        openapi_types.UUID(row.Id),
-		UserId:    openapi_types.UUID(row.UserId),
+		Id:        row.Id,
+		UserId:    row.UserId,
 		From:      openapi_types.Date{Time: row.FromDate},
 		To:        openapi_types.Date{Time: row.ToDate},
 		Reason:    row.Reason,

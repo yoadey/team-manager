@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,7 +37,7 @@ func (m *mockNotifService) MarkSeen(ctx context.Context, teamID, userID uuid.UUI
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 var (
-	notifTeamID = openapi_types.UUID(uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+	notifTeamID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	notifUserID = uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 )
 
@@ -70,7 +69,7 @@ func TestHandler_ListNotifications_Success(t *testing.T) {
 	}
 	svc := &mockNotifService{
 		list: func(_ context.Context, teamID, userID uuid.UUID) (gen.NotificationsResult, error) {
-			assert.Equal(t, uuid.UUID(notifTeamID), teamID)
+			assert.Equal(t, notifTeamID, teamID)
 			assert.Equal(t, notifUserID, userID)
 			return result, nil
 		},
@@ -92,7 +91,7 @@ func TestHandler_ListNotifications_Success(t *testing.T) {
 func TestHandler_ListNotifications_WithUnread(t *testing.T) {
 	t.Parallel()
 	unread := true
-	notifID := openapi_types.UUID(uuid.New())
+	notifID := uuid.New()
 	result := gen.NotificationsResult{
 		Items: []gen.AppNotification{
 			{

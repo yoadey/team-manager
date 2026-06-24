@@ -32,7 +32,7 @@ func scanNews(row interface{ Scan(dest ...any) error }) (*NewsRow, error) {
 		&nr.AuthorName, &nr.AuthorColor, &nr.PhotoData,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	return nr, nil
 }
