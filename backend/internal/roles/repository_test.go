@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/google/uuid"
-	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
@@ -36,7 +35,7 @@ func TestRolesRepository_CreateAndList(t *testing.T) {
 	require.NotNil(t, role)
 	assert.Equal(t, "Coach", role.Name)
 	assert.Equal(t, &color, role.Color)
-	assert.Equal(t, gen.PermLevel("write"), role.Permissions.Events)
+	assert.Equal(t, "write", role.Permissions.Events)
 	assert.False(t, role.System)
 
 	list, err := repo.ListRoles(ctx, tid)
@@ -69,7 +68,7 @@ func TestRolesRepository_Update(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Captain", updated.Name)
 	assert.Equal(t, &newColor, updated.Color)
-	assert.Equal(t, gen.PermLevel("write"), updated.Permissions.Events)
+	assert.Equal(t, "write", updated.Permissions.Events)
 }
 
 func TestRolesRepository_Delete(t *testing.T) {
