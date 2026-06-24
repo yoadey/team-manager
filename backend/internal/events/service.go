@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,13 +13,20 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/jobs"
 )
 
+// Sentinel errors for the events package.
+var (
+	ErrCreateEventNilBody = errors.New("events.Service.CreateEvent: nil body")
+	ErrCreateEventNoRow   = errors.New("events.Service.CreateEvent: no row returned")
+	ErrUpdateEventNilBody = errors.New("events.Service.UpdateEvent: nil body")
+)
+
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
 	ListEvents(ctx context.Context, teamID string, scope string, limit, offset int) ([]EventRow, error)
 	GetEvent(ctx context.Context, eventID string) (*EventRow, error)
-	CreateEvent(ctx context.Context, teamID string, params CreateEventParams) (*EventRow, error)
-	CreateSeries(ctx context.Context, teamID string, params CreateEventParams) ([]EventRow, error)
-	UpdateEvent(ctx context.Context, eventID string, params UpdateEventParams, scope string) (*EventRow, error)
+	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
+	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
+	UpdateEvent(ctx context.Context, eventID string, params *UpdateEventParams, scope string) (*EventRow, error)
 	SetStatus(ctx context.Context, eventID string, status string, scope string) (*EventRow, error)
 	DeleteEvent(ctx context.Context, eventID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error)
@@ -57,8 +65,8 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope string, 
 	}
 
 	out := make([]gen.TeamEvent, 0, len(rows))
-	for _, row := range rows {
-		ev, err := s.enrichEvent(ctx, row, userID)
+	for i := range rows {
+		ev, err := s.enrichEvent(ctx, &rows[i], userID)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +84,7 @@ func (s *Service) GetEvent(ctx context.Context, teamID, userID, eventID string) 
 		return nil, fmt.Errorf("events.Service.GetEvent: %w", err)
 	}
 
-	ev, err := s.enrichEvent(ctx, *row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +97,7 @@ func (s *Service) GetEvent(ctx context.Context, teamID, userID, eventID string) 
 // For recurring events, it returns the first event in the series.
 func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error) {
 	if body == nil {
-		return nil, fmt.Errorf("events.Service.CreateEvent: nil body")
+		return nil, ErrCreateEventNilBody
 	}
 
 	recurring := body.Recurring != nil && *body.Recurring
@@ -116,14 +124,12 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		params.ResponseMode = &rm
 	}
 	if body.NominatedRoleIds != nil {
-		for _, rid := range *body.NominatedRoleIds {
-			params.NominatedRoleIds = append(params.NominatedRoleIds, rid)
-		}
+		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
 	}
 
 	var row *EventRow
 	if recurring {
-		rows, err := s.repo.CreateSeries(ctx, teamID, params)
+		rows, err := s.repo.CreateSeries(ctx, teamID, &params)
 		if err != nil {
 			return nil, fmt.Errorf("events.Service.CreateEvent(series): %w", err)
 		}
@@ -132,14 +138,14 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		}
 	} else {
 		var err error
-		row, err = s.repo.CreateEvent(ctx, teamID, params)
+		row, err = s.repo.CreateEvent(ctx, teamID, &params)
 		if err != nil {
 			return nil, fmt.Errorf("events.Service.CreateEvent: %w", err)
 		}
 	}
 
 	if row == nil {
-		return nil, fmt.Errorf("events.Service.CreateEvent: no row returned")
+		return nil, ErrCreateEventNoRow
 	}
 
 	// Enqueue notification (best-effort; ignore error so it doesn't fail the request).
@@ -161,7 +167,7 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, *row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -171,9 +177,9 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
 
 // UpdateEvent updates an event (or series) and returns the updated event.
-func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error) {
+func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error) {
 	if body == nil {
-		return nil, fmt.Errorf("events.Service.UpdateEvent: nil body")
+		return nil, ErrUpdateEventNilBody
 	}
 
 	params := UpdateEventParams{
@@ -198,17 +204,15 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID strin
 		params.ResponseMode = &rm
 	}
 	if body.NominatedRoleIds != nil {
-		for _, rid := range *body.NominatedRoleIds {
-			params.NominatedRoleIds = append(params.NominatedRoleIds, rid)
-		}
+		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
 	}
 
-	row, err := s.repo.UpdateEvent(ctx, eventID, params, scope)
+	row, err := s.repo.UpdateEvent(ctx, eventID, &params, scope)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.UpdateEvent: %w", err)
 	}
 
-	ev, err := s.enrichEvent(ctx, *row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +255,7 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, status, scope 
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, *row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +273,7 @@ func (s *Service) ListComments(ctx context.Context, eventID string, limit, offse
 
 	out := make([]gen.EventComment, 0, len(rows))
 	for _, c := range rows {
-		out = append(out, toGenComment(c))
+		out = append(out, toGenComment(&c))
 	}
 	return out, nil
 }
@@ -280,7 +284,7 @@ func (s *Service) AddComment(ctx context.Context, eventID, userID, text string) 
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.AddComment: %w", err)
 	}
-	gc := toGenComment(*c)
+	gc := toGenComment(c)
 	return &gc, nil
 }
 
@@ -303,7 +307,7 @@ func (s *Service) ListAttendance(ctx context.Context, eventID string) ([]gen.Att
 
 	out := make([]gen.AttendanceRow, 0, len(attendanceRows))
 	for _, a := range attendanceRows {
-		out = append(out, toGenAttendanceRow(a))
+		out = append(out, toGenAttendanceRow(&a))
 	}
 	return out, nil
 }
@@ -321,7 +325,7 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, userID string, req
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.SetAttendance: %w", err)
 	}
-	rec := toGenAttendanceRecord(*a)
+	rec := toGenAttendanceRecord(a)
 	return &rec, nil
 }
 
@@ -336,7 +340,7 @@ func (s *Service) SetNomination(ctx context.Context, eventID, userID string, req
 // ─── internal helpers ────────────────────────────────────────────────────────
 
 // enrichEvent converts an EventRow to a gen.TeamEvent, fetching summary and user attendance.
-func (s *Service) enrichEvent(ctx context.Context, row EventRow, userID string) (gen.TeamEvent, error) {
+func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID string) (gen.TeamEvent, error) {
 	summary, err := s.repo.GetAttendanceSummary(ctx, row.Id.String())
 	if err != nil {
 		return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetAttendanceSummary: %w", err)
@@ -359,10 +363,10 @@ func (s *Service) enrichEvent(ctx context.Context, row EventRow, userID string) 
 }
 
 // toGenEvent maps an EventRow + summary to gen.TeamEvent.
-func toGenEvent(row EventRow, summary EventSummaryData) gen.TeamEvent {
+func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 	ev := gen.TeamEvent{
-		Id:        openapi_types.UUID(row.Id),
-		TeamId:    openapi_types.UUID(row.TeamId),
+		Id:        row.Id,
+		TeamId:    row.TeamId,
 		Type:      gen.EventType(row.Type),
 		Title:     row.Title,
 		Date:      openapi_types.Date{Time: row.Date},
@@ -399,7 +403,7 @@ func toGenEvent(row EventRow, summary EventSummaryData) gen.TeamEvent {
 	if len(row.NominatedRoleIds) > 0 {
 		ids := make([]openapi_types.UUID, len(row.NominatedRoleIds))
 		for i, rid := range row.NominatedRoleIds {
-			ids[i] = openapi_types.UUID(rid)
+			ids[i] = rid
 		}
 		ev.NominatedRoleIds = &ids
 	}
@@ -408,11 +412,11 @@ func toGenEvent(row EventRow, summary EventSummaryData) gen.TeamEvent {
 }
 
 // toGenComment maps a CommentRow to gen.EventComment.
-func toGenComment(c CommentRow) gen.EventComment {
+func toGenComment(c *CommentRow) gen.EventComment {
 	return gen.EventComment{
-		Id:             openapi_types.UUID(c.Id),
-		EventId:        openapi_types.UUID(c.EventId),
-		UserId:         openapi_types.UUID(c.UserId),
+		Id:             c.Id,
+		EventId:        c.EventId,
+		UserId:         c.UserId,
 		Text:           c.Text,
 		CreatedAt:      c.CreatedAt,
 		AuthorName:     c.ActorName,
@@ -422,9 +426,9 @@ func toGenComment(c CommentRow) gen.EventComment {
 }
 
 // toGenAttendanceRow maps an AttendanceEnriched to gen.AttendanceRow.
-func toGenAttendanceRow(a AttendanceEnriched) gen.AttendanceRow {
+func toGenAttendanceRow(a *AttendanceEnriched) gen.AttendanceRow {
 	row := gen.AttendanceRow{
-		UserId:      openapi_types.UUID(a.UserId),
+		UserId:      a.UserId,
 		Status:      gen.AttendanceStatus(a.Status),
 		Name:        a.Name,
 		AvatarColor: a.AvatarColor,
@@ -440,11 +444,11 @@ func toGenAttendanceRow(a AttendanceEnriched) gen.AttendanceRow {
 }
 
 // toGenAttendanceRecord maps an AttendanceDBRow to gen.AttendanceRecord.
-func toGenAttendanceRecord(a AttendanceDBRow) gen.AttendanceRecord {
+func toGenAttendanceRecord(a *AttendanceDBRow) gen.AttendanceRecord {
 	rec := gen.AttendanceRecord{
-		Id:      openapi_types.UUID(a.Id),
-		EventId: openapi_types.UUID(a.EventId),
-		UserId:  openapi_types.UUID(a.UserId),
+		Id:      a.Id,
+		EventId: a.EventId,
+		UserId:  a.UserId,
 		Status:  gen.AttendanceStatus(a.Status),
 		Reason:  a.Reason,
 		At:      a.At,

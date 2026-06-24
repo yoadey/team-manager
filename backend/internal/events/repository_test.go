@@ -59,14 +59,14 @@ func TestEventRepository_CreateAndListEvents(t *testing.T) {
 	params1 := makeCreateParams("Training A", today)
 	params2 := makeCreateParams("Training B", today.AddDate(0, 0, 7))
 
-	e1, err := repo.CreateEvent(ctx, testTeamID, params1)
+	e1, err := repo.CreateEvent(ctx, testTeamID, &params1)
 	require.NoError(t, err)
 	require.NotNil(t, e1)
 	assert.Equal(t, "Training A", e1.Title)
 	assert.Equal(t, "training", e1.Type)
 	assert.Equal(t, "active", e1.Status)
 
-	e2, err := repo.CreateEvent(ctx, testTeamID, params2)
+	e2, err := repo.CreateEvent(ctx, testTeamID, &params2)
 	require.NoError(t, err)
 	require.NotNil(t, e2)
 	assert.Equal(t, "Training B", e2.Title)
@@ -115,7 +115,7 @@ func TestEventRepository_CreateRecurringEvent(t *testing.T) {
 		RepeatWeeks: 4,
 	}
 
-	eventRows, err := repo.CreateSeries(ctx, teamID, params)
+	eventRows, err := repo.CreateSeries(ctx, teamID, &params)
 	require.NoError(t, err)
 	require.Len(t, eventRows, 4, "should have created 4 event instances")
 
@@ -154,7 +154,7 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 	userID := "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 
 	params := makeCreateParams("Match Day", time.Now().UTC())
-	ev, err := repo.CreateEvent(ctx, teamID, params)
+	ev, err := repo.CreateEvent(ctx, teamID, &params)
 	require.NoError(t, err)
 
 	eventID := ev.Id.String()

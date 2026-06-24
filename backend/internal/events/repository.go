@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -46,15 +47,6 @@ func uuidSlice(ids []uuid.UUID) []uuid.UUID {
 	return ids
 }
 
-// uuidSliceToStrings converts []uuid.UUID to []string for pgx array params.
-func uuidSliceToStrings(ids []uuid.UUID) []string {
-	out := make([]string, len(ids))
-	for i, id := range ids {
-		out[i] = id.String()
-	}
-	return out
-}
-
 const selectEventFields = `
 	id, team_id, series_id, type, title, date,
 	location, note, result,
@@ -79,7 +71,7 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 		&e.Status, &e.CreatedAt,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("events.scanEventRow: %w", err)
 	}
 	if meetTime != "" {
 		e.MeetTime = &meetTime
@@ -96,7 +88,7 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 // ─── ListEvents ─────────────────────────────────────────────────────────────
 
 // ListEvents returns events for a team filtered by scope.
-func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string, limit, offset int) ([]EventRow, error) {
+func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit, offset int) ([]EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	today := time.Now().UTC()
@@ -132,7 +124,10 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string
 		}
 		out = append(out, *e)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.ListEvents: %w", err)
+	}
+	return out, nil
 }
 
 // ─── GetEvent ───────────────────────────────────────────────────────────────
@@ -145,7 +140,7 @@ func (r *Repository) GetEvent(ctx context.Context, eventID string) (*EventRow, e
 	row := r.pool.QueryRow(ctx, q, eventID)
 	e, err := scanEventRow(row)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
 		return nil, fmt.Errorf("events.Repository.GetEvent: %w", err)
@@ -156,7 +151,7 @@ func (r *Repository) GetEvent(ctx context.Context, eventID string) (*EventRow, e
 // ─── CreateEvent ────────────────────────────────────────────────────────────
 
 // CreateEvent inserts a single event row and returns it.
-func (r *Repository) CreateEvent(ctx context.Context, teamID string, params CreateEventParams) (*EventRow, error) {
+func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error) { //nolint:gocritic
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := fmt.Sprintf(`
@@ -189,7 +184,7 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params Crea
 }
 
 // CreateSeries creates an event_series row and then one event per week for RepeatWeeks.
-func (r *Repository) CreateSeries(ctx context.Context, teamID string, params CreateEventParams) ([]EventRow, error) {
+func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	repeatWeeks := params.RepeatWeeks
@@ -272,7 +267,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
 
 // UpdateEvent updates a single event or all events in its series.
-func (r *Repository) UpdateEvent(ctx context.Context, eventID string, params UpdateEventParams, scope string) (*EventRow, error) {
+func (r *Repository) UpdateEvent(ctx context.Context, eventID string, params *UpdateEventParams, scope string) (*EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if scope == "series" {
@@ -295,7 +290,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID string, params Upd
 	row := r.pool.QueryRow(ctx, q, args...)
 	e, err := scanEventRow(row)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
@@ -303,7 +298,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID string, params Upd
 	return e, nil
 }
 
-func (r *Repository) updateSeriesEvents(ctx context.Context, seriesID string, params UpdateEventParams) error {
+func (r *Repository) updateSeriesEvents(ctx context.Context, seriesID string, params *UpdateEventParams) error {
 	sets, args := buildUpdateSets(params, "")
 	// Remove last arg (the eventID placeholder we added) — we use series_id instead.
 	args = args[:len(args)-1]
@@ -318,7 +313,7 @@ func (r *Repository) updateSeriesEvents(ctx context.Context, seriesID string, pa
 
 // buildUpdateSets constructs a SET clause and args slice for an UPDATE query.
 // The event ID is appended as the last arg (placeholder = len(args)).
-func buildUpdateSets(params UpdateEventParams, eventID string) (string, []interface{}) {
+func buildUpdateSets(params *UpdateEventParams, eventID string) (string, []interface{}) {
 	var sets []string
 	var args []interface{}
 	idx := 1
@@ -384,7 +379,7 @@ func buildUpdateSets(params UpdateEventParams, eventID string) (string, []interf
 // ─── SetStatus ──────────────────────────────────────────────────────────────
 
 // SetStatus updates event status for a single event or all events in its series.
-func (r *Repository) SetStatus(ctx context.Context, eventID string, status string, scope string) (*EventRow, error) {
+func (r *Repository) SetStatus(ctx context.Context, eventID, status, scope string) (*EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if scope == "series" {
@@ -405,7 +400,7 @@ func (r *Repository) SetStatus(ctx context.Context, eventID string, status strin
 	row := r.pool.QueryRow(ctx, q, status, eventID)
 	e, err := scanEventRow(row)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
 		return nil, fmt.Errorf("events.Repository.SetStatus: %w", err)
@@ -416,13 +411,13 @@ func (r *Repository) SetStatus(ctx context.Context, eventID string, status strin
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
 
 // DeleteEvent deletes a single event or the entire series (cascade).
-func (r *Repository) DeleteEvent(ctx context.Context, eventID string, scope string) error {
+func (r *Repository) DeleteEvent(ctx context.Context, eventID, scope string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if scope == "series" {
 		var seriesID *uuid.UUID
 		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID)
-		if err != nil && err != pgx.ErrNoRows {
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("events.Repository.DeleteEvent: get series_id: %w", err)
 		}
 		if seriesID != nil {
@@ -484,7 +479,7 @@ func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID string
 	a := &AttendanceDBRow{}
 	err := row.Scan(&a.Id, &a.EventId, &a.UserId, &a.Status, &a.Reason, &a.ReasonId, &a.ReasonVisibility, &a.At)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("events.Repository.GetMyAttendance: %w", err)
@@ -532,7 +527,10 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]Atte
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.ListAttendance: %w", err)
+	}
+	return out, nil
 }
 
 // ─── SetAttendance ──────────────────────────────────────────────────────────
@@ -566,7 +564,7 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, userID string, 
 
 // SetNomination sets or removes nomination for a user on an event.
 // nominated=false → upsert status=not_nominated
-// nominated=true  → delete any not_nominated record for this user/event
+// nominated=true  → delete any not_nominated record for this user/event.
 func (r *Repository) SetNomination(ctx context.Context, eventID, userID string, nominated bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -634,7 +632,10 @@ func (r *Repository) ListComments(ctx context.Context, eventID string, limit, of
 		c.HasActorPhoto = &hasPhoto
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.ListComments: %w", err)
+	}
+	return out, nil
 }
 
 // AddComment inserts a new event comment and returns it enriched.

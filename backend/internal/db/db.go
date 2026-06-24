@@ -15,6 +15,13 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
+// Sentinel errors for the db package.
+var (
+	ErrDSNEmpty           = errors.New("db: dsn must not be empty")
+	ErrPoolNil            = errors.New("db: pool must not be nil")
+	ErrMigrationsDirEmpty = errors.New("db: migrationsDir must not be empty")
+)
+
 // Connect parses dsn, configures a pgxpool.Pool with sensible connection-pool
 // settings, pings the database to confirm connectivity, and returns the pool.
 //
@@ -27,7 +34,7 @@ import (
 // The caller is responsible for closing the pool (defer pool.Close()).
 func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	if dsn == "" {
-		return nil, errors.New("db: dsn must not be empty")
+		return nil, ErrDSNEmpty
 	}
 
 	cfg, err := pgxpool.ParseConfig(dsn)
@@ -60,10 +67,10 @@ func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 // while the rest of the application continues to use *pgxpool.Pool.
 func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string) error {
 	if pool == nil {
-		return errors.New("db: pool must not be nil")
+		return ErrPoolNil
 	}
 	if migrationsDir == "" {
-		return errors.New("db: migrationsDir must not be empty")
+		return ErrMigrationsDirEmpty
 	}
 
 	sqlDB := stdlib.OpenDBFromPool(pool)

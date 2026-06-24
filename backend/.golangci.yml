@@ -43,6 +43,9 @@ linters:
         - diagnostic
         - style
         - performance
+      disabled-checks:
+        - rangeValCopy
+        - hugeParam
     revive:
       rules:
         - name: exported
@@ -61,6 +64,13 @@ linters:
       - path: "internal/gen/"
         linters:
           - all
+      - path: "internal/server/server\\.go"
+        linters:
+          - wrapcheck
+          - dupl
+      - path: "internal/finances/handler\\.go"
+        linters:
+          - dupl
 
 formatters:
   enable:

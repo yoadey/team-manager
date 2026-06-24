@@ -1,11 +1,15 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 )
+
+// ErrDatabaseURLRequired is returned when DATABASE_URL is not set.
+var ErrDatabaseURLRequired = errors.New("DATABASE_URL is required")
 
 type Config struct {
 	Port           string
@@ -20,7 +24,7 @@ type Config struct {
 func Load() (*Config, error) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
+		return nil, ErrDatabaseURLRequired
 	}
 
 	ttlHours := 720 // 30 days default
