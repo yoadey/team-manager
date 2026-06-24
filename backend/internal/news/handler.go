@@ -10,6 +10,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // newsService is the interface the Handler relies on.
@@ -54,6 +55,12 @@ func (h *Handler) CreateNews(ctx context.Context, req gen.CreateNewsRequestObjec
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if err := validate.Text(req.Body.Title, "title"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if err := validate.Text(req.Body.Body, "body"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	item, err := h.svc.Create(ctx, uuid.UUID(req.TeamId), user.Id, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateNews failed", "err", err)
@@ -69,6 +76,16 @@ func (h *Handler) UpdateNews(ctx context.Context, req gen.UpdateNewsRequestObjec
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if req.Body.Title != nil {
+		if err := validate.Text(*req.Body.Title, "title"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Body != nil {
+		if err := validate.Text(*req.Body.Body, "body"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 	item, err := h.svc.Update(ctx, uuid.UUID(req.NewsId), req.Body)
 	if err != nil {

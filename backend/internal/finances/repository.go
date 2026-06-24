@@ -26,6 +26,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // ListTransactions returns all transactions for the team, ordered by date desc.
 func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, team_id, type, title, amount, date, category, created_at
 		FROM transactions
@@ -50,6 +52,8 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 
 // CreateTransaction inserts a new transaction.
 func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount float64, date time.Time, category *string) (*TransactionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	t := &TransactionRow{}
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO transactions (team_id, type, title, amount, date, category)
@@ -66,6 +70,8 @@ func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, tx
 
 // UpdateTransaction applies a partial update to a transaction.
 func (r *Repository) UpdateTransaction(ctx context.Context, id uuid.UUID, patch TransactionPatch) (*TransactionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	setClauses, args, n := []string{}, []any{}, 1
 
 	if patch.Type != nil {
@@ -109,6 +115,8 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id uuid.UUID, patch 
 
 // DeleteTransaction deletes a transaction by ID.
 func (r *Repository) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	tag, err := r.pool.Exec(ctx, `DELETE FROM transactions WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeleteTransaction: %w", err)
@@ -135,6 +143,8 @@ func (r *Repository) getTransactionByID(ctx context.Context, id uuid.UUID) (*Tra
 
 // ListPenalties returns all penalty definitions for the team.
 func (r *Repository) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]PenaltyRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, team_id, label, amount FROM penalties WHERE team_id = $1 ORDER BY label
 	`, teamID)
@@ -156,6 +166,8 @@ func (r *Repository) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]Pen
 
 // CreatePenalty inserts a new penalty definition.
 func (r *Repository) CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount float64) (*PenaltyRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	p := &PenaltyRow{}
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO penalties (team_id, label, amount)
@@ -170,6 +182,8 @@ func (r *Repository) CreatePenalty(ctx context.Context, teamID uuid.UUID, label 
 
 // UpdatePenalty applies a partial update to a penalty definition.
 func (r *Repository) UpdatePenalty(ctx context.Context, id uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	setClauses, args, n := []string{}, []any{}, 1
 
 	if patch.Label != nil {
@@ -207,6 +221,8 @@ func (r *Repository) UpdatePenalty(ctx context.Context, id uuid.UUID, patch Pena
 
 // DeletePenalty deletes a penalty definition (cascades to assignments).
 func (r *Repository) DeletePenalty(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	tag, err := r.pool.Exec(ctx, `DELETE FROM penalties WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeletePenalty: %w", err)
@@ -221,6 +237,8 @@ func (r *Repository) DeletePenalty(ctx context.Context, id uuid.UUID) error {
 
 // ListAssignments returns all penalty assignments for the team with member/penalty info joined.
 func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
 		       p.label, p.amount,
@@ -254,6 +272,8 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 
 // CreateAssignment inserts a penalty assignment for a user.
 func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
@@ -268,6 +288,8 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 
 // DeleteAssignment deletes a penalty assignment by ID.
 func (r *Repository) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	tag, err := r.pool.Exec(ctx, `DELETE FROM penalty_assignments WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeleteAssignment: %w", err)
@@ -280,6 +302,8 @@ func (r *Repository) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 
 // ToggleAssignmentPaid flips the paid flag on a penalty assignment and returns the updated row.
 func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id uuid.UUID) (*PenaltyAssignmentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	err := r.pool.QueryRow(ctx, `
 		UPDATE penalty_assignments SET paid = NOT paid WHERE id = $1
@@ -298,6 +322,8 @@ func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id uuid.UUID) (*P
 
 // ListContributions returns all contributions for the team with member info joined.
 func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
 		       u.name, u.avatar_color,
@@ -328,6 +354,8 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 
 // UpdateContribution applies a partial update to a contribution.
 func (r *Repository) UpdateContribution(ctx context.Context, id uuid.UUID, patch ContributionPatch) (*ContributionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	setClauses, args, n := []string{}, []any{}, 1
 
 	if patch.Label != nil {
@@ -360,6 +388,8 @@ func (r *Repository) UpdateContribution(ctx context.Context, id uuid.UUID, patch
 
 // ToggleContributionStatus flips between 'open' and 'paid'.
 func (r *Repository) ToggleContributionStatus(ctx context.Context, id uuid.UUID) (*ContributionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var currentStatus string
 	err := r.pool.QueryRow(ctx, `SELECT status FROM contributions WHERE id = $1`, id).Scan(&currentStatus)
 	if err != nil {
@@ -413,6 +443,8 @@ type OpenPenaltyAggregate struct {
 
 // ListOpenPenaltiesByUser returns unpaid penalty amounts aggregated per user for the team.
 func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT pa.user_id, u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo,

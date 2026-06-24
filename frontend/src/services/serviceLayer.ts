@@ -8,6 +8,7 @@
 // =============================================================================
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { realApi } from './serviceLayerReal';
 import { mapAttendanceDtoToRow, mapEventDtoToTeamEvent, mapMemberDtoToMember } from './mappers';
 import type {
   AttendanceStatus,
@@ -905,13 +906,13 @@ export const CLIENT_AGGREGATIONS = [
 
 export const API_ENDPOINT_METHODS = Object.values(SERVICE_ENDPOINTS).flat();
 
-export const api = {
+const _mockApi = {
   auth: {
     async providers(): Promise<Provider[]> {
       await delay(80, 200);
       return clone(PROVIDERS);
     },
-    async login(providerId: string) {
+    async login(providerId: string, _password?: string) {
       await delay(380, 720);
       session.userId = 'u1';
       return {
@@ -1969,4 +1970,6 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   settings: 'Einstellungen',
 };
 export const STATUS_ORDER_EXPORT = STATUS_ORDER;
-export type Api = typeof api;
+
+export const api = (import.meta.env.VITE_API_BASE_URL ? realApi : _mockApi) as typeof _mockApi;
+export type Api = typeof _mockApi;

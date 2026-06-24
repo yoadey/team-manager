@@ -1,6 +1,7 @@
 package roles
 
 import (
+	"time"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // ListRoles returns all roles for the given team.
 func (r *Repository) ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT id, team_id, name, system, color, permissions
 		FROM roles
@@ -48,6 +51,8 @@ func (r *Repository) ListRoles(ctx context.Context, teamID string) ([]teams.Role
 
 // CreateRole inserts a new role for the team.
 func (r *Repository) CreateRole(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	permJSON, err := json.Marshal(permissions)
 	if err != nil {
 		return nil, fmt.Errorf("roles.Repository.CreateRole: marshal permissions: %w", err)
@@ -73,6 +78,8 @@ func (r *Repository) CreateRole(ctx context.Context, teamID, name string, color 
 
 // UpdateRole applies a partial update to a role.
 func (r *Repository) UpdateRole(ctx context.Context, roleID string, patch RolePatch) (*teams.RoleRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	setClauses := []string{}
 	args := []any{}
 	n := 1
@@ -132,6 +139,8 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID string, patch RolePa
 
 // DeleteRole deletes a non-system role. Returns an error if the role is system=true.
 func (r *Repository) DeleteRole(ctx context.Context, roleID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	// Check system flag first.
 	var isSystem bool
 	err := r.pool.QueryRow(ctx, `SELECT system FROM roles WHERE id = $1`, roleID).Scan(&isSystem)

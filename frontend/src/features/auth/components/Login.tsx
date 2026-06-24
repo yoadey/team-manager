@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
@@ -7,8 +8,37 @@ import { t } from '@/i18n';
 import { config } from '@/config';
 
 export function Login() {
-  const { state, doLogin } = useApp();
+  const { state, doLogin, doPasswordLogin } = useApp();
   const { providers, busy } = state;
+
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  function handleProviderClick(p: (typeof providers)[number]) {
+    if (p.id === 'password') {
+      setShowPasswordForm(true);
+    } else {
+      doLogin(p.id);
+    }
+  }
+
+  function handlePasswordSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    doPasswordLogin(email, password);
+  }
+
+  const inputSx = {
+    width: '100%',
+    p: '10px 14px',
+    borderRadius: '12px',
+    border: `1.5px solid ${NEUTRAL.divider}`,
+    background: NEUTRAL.surface,
+    color: NEUTRAL.onSurface,
+    fontSize: '14px',
+    outline: 'none',
+    fontFamily: 'inherit',
+  };
 
   return (
     <Box
@@ -71,64 +101,112 @@ export function Login() {
           </Box>
         </Box>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {providers.map((p) => {
-            const isBusy = busy === 'login:' + p.id;
-            const border = p.border ? '1.5px solid #DADCE3' : '1.5px solid transparent';
-            const isApple = p.name === 'Apple';
-            const glyph = isApple ? 'phone_iphone' : p.glyph;
-            return (
-              <ButtonBase
-                key={p.id}
-                onClick={() => doLogin(p.id)}
-                disabled={isBusy}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '14px',
-                  width: '100%',
-                  p: '12px 16px',
-                  borderRadius: '16px',
-                  background: p.bg,
-                  color: p.fg,
-                  border,
-                  boxShadow: '0 1px 2px rgba(0,0,0,.06)',
-                  opacity: isBusy ? 0.85 : 1,
-                  justifyContent: 'flex-start',
-                }}
-              >
-                <Box
-                  component="span"
+        {showPasswordForm ? (
+          <Box component="form" onSubmit={handlePasswordSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <Box
+              component="input"
+              type="email"
+              placeholder="E-Mail"
+              value={email}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+              required
+              autoFocus
+              sx={inputSx}
+            />
+            <Box
+              component="input"
+              type="password"
+              placeholder="Passwort"
+              value={password}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+              required
+              sx={inputSx}
+            />
+            <ButtonBase
+              component="button"
+              type="submit"
+              disabled={busy === 'login:password'}
+              sx={{
+                width: '100%',
+                p: '12px 16px',
+                borderRadius: '16px',
+                background: '#1565C0',
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: '15px',
+                justifyContent: 'center',
+                opacity: busy === 'login:password' ? 0.7 : 1,
+              }}
+            >
+              {busy === 'login:password' ? <Spinner size={18} /> : 'Anmelden'}
+            </ButtonBase>
+            <ButtonBase
+              onClick={() => setShowPasswordForm(false)}
+              sx={{ fontSize: '13px', color: NEUTRAL.secondary, py: '4px', justifyContent: 'center' }}
+            >
+              ← Zurück
+            </ButtonBase>
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {providers.map((p) => {
+              const isBusy = busy === 'login:' + p.id;
+              const border = p.border ? '1.5px solid #DADCE3' : '1.5px solid transparent';
+              const isApple = p.name === 'Apple';
+              const glyph = isApple ? 'phone_iphone' : p.glyph;
+              return (
+                <ButtonBase
+                  key={p.id}
+                  onClick={() => handleProviderClick(p)}
+                  disabled={isBusy}
                   sx={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: '9px',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    fontWeight: 800,
-                    fontSize: p.name === 'Vereins-SSO' ? '13px' : '18px',
-                    background: isApple ? 'transparent' : 'rgba(0,0,0,.05)',
+                    gap: '14px',
+                    width: '100%',
+                    p: '12px 16px',
+                    borderRadius: '16px',
+                    background: p.bg,
                     color: p.fg,
-                    flex: '0 0 auto',
-                    fontFamily: isApple ? "'Material Symbols Outlined'" : 'inherit',
+                    border,
+                    boxShadow: '0 1px 2px rgba(0,0,0,.06)',
+                    opacity: isBusy ? 0.85 : 1,
+                    justifyContent: 'flex-start',
                   }}
                 >
-                  {glyph}
-                </Box>
-                <Box component="span" sx={{ flex: 1, textAlign: 'left' }}>
-                  <Box component="span" sx={{ display: 'block', fontSize: '15px', fontWeight: 600, lineHeight: 1.2 }}>
-                    {p.name}
+                  <Box
+                    component="span"
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '9px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 800,
+                      fontSize: p.name === 'Vereins-SSO' ? '13px' : '18px',
+                      background: isApple ? 'transparent' : 'rgba(0,0,0,.05)',
+                      color: p.fg,
+                      flex: '0 0 auto',
+                      fontFamily: isApple ? "'Material Symbols Outlined'" : 'inherit',
+                    }}
+                  >
+                    {glyph}
                   </Box>
-                  <Box component="span" sx={{ display: 'block', fontSize: '12px', opacity: 0.7, fontWeight: 400 }}>
-                    {p.sub}
+                  <Box component="span" sx={{ flex: 1, textAlign: 'left' }}>
+                    <Box component="span" sx={{ display: 'block', fontSize: '15px', fontWeight: 600, lineHeight: 1.2 }}>
+                      {p.name}
+                    </Box>
+                    <Box component="span" sx={{ display: 'block', fontSize: '12px', opacity: 0.7, fontWeight: 400 }}>
+                      {p.sub}
+                    </Box>
                   </Box>
-                </Box>
-                {isBusy ? <Spinner size={18} /> : <Sym name="chevron_right" size={20} sx={{ opacity: 0.5 }} />}
-              </ButtonBase>
-            );
-          })}
-        </Box>
+                  {isBusy ? <Spinner size={18} /> : <Sym name="chevron_right" size={20} sx={{ opacity: 0.5 }} />}
+                </ButtonBase>
+              );
+            })}
+          </Box>
+        )}
 
         <Box
           sx={{

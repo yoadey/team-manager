@@ -62,6 +62,8 @@ func scanTeam(row interface{ Scan(dest ...any) error }) (*TeamRow, error) {
 
 // ListTeamsForUser returns all teams the given user is a member of.
 func (r *Repository) ListTeamsForUser(ctx context.Context, userID string) ([]TeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`
 		SELECT %s
 		FROM teams t
@@ -89,6 +91,8 @@ func (r *Repository) ListTeamsForUser(ctx context.Context, userID string) ([]Tea
 
 // GetTeam returns the team with the given ID or (nil, pgx.ErrNoRows) if not found.
 func (r *Repository) GetTeam(ctx context.Context, teamID string) (*TeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`SELECT %s FROM teams t WHERE t.id = $1`, selectTeamFields)
 	row := r.pool.QueryRow(ctx, q, teamID)
 	tr, err := scanTeam(row)
@@ -104,6 +108,8 @@ func (r *Repository) GetTeam(ctx context.Context, teamID string) (*TeamRow, erro
 // CreateTeam inserts a new team, a membership for the creator, and two default roles
 // (Admin with all-write, Member with events/news/polls read).
 func (r *Repository) CreateTeam(ctx context.Context, name string, creatorUserID string) (*TeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Repository.CreateTeam: begin tx: %w", err)
@@ -186,6 +192,8 @@ func (r *Repository) CreateTeam(ctx context.Context, name string, creatorUserID 
 
 // UpdateTeam applies a partial update to the teams row and returns the updated row.
 func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	// Build a dynamic SET clause.
 	setClauses := []string{}
 	args := []any{}
@@ -275,6 +283,8 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 
 // GetMemberCount returns the number of members in the given team.
 func (r *Repository) GetMemberCount(ctx context.Context, teamID string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var count int
 	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM memberships WHERE team_id = $1`, teamID).Scan(&count)
 	if err != nil {
@@ -285,6 +295,8 @@ func (r *Repository) GetMemberCount(ctx context.Context, teamID string) (int, er
 
 // GetMembership returns the membership for the given team+user pair.
 func (r *Repository) GetMembership(ctx context.Context, teamID, userID string) (*MembershipRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	m := &MembershipRow{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, team_id, user_id, "group", joined_at
@@ -302,6 +314,8 @@ func (r *Repository) GetMembership(ctx context.Context, teamID, userID string) (
 
 // GetRolesForMembership returns all roles assigned to the given membership.
 func (r *Repository) GetRolesForMembership(ctx context.Context, membershipID string) ([]RoleRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT r.id, r.team_id, r.name, r.system, r.color, r.permissions
 		FROM roles r
@@ -361,6 +375,8 @@ func MergePermissions(roles []RoleRow) gen.Permissions {
 
 // CreateInvite inserts an invite row with a random code and the given TTL.
 func (r *Repository) CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	code, err := generateCode()
 	if err != nil {
 		return nil, fmt.Errorf("teams.Repository.CreateInvite: generate code: %w", err)
@@ -383,6 +399,8 @@ func (r *Repository) CreateInvite(ctx context.Context, teamID string, ttl time.D
 
 // UpdateTeamPhoto stores raw photo bytes and MIME type for the given team.
 func (r *Repository) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx,
 		`UPDATE teams SET photo_data = $2, photo_mime = $3 WHERE id = $1`,
 		teamID, data, mime,

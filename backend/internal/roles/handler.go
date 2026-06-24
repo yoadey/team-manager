@@ -12,6 +12,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // roleService is the interface the Handler relies on.
@@ -54,6 +55,9 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if err := validate.Name(req.Body.Name); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	role, err := h.svc.CreateRole(ctx, uuid.UUID(req.TeamId), req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateRole failed", "err", err)
@@ -69,6 +73,11 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if req.Body.Name != nil {
+		if err := validate.Name(*req.Body.Name); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 	role, err := h.svc.UpdateRole(ctx, openapi_types.UUID(req.RoleId), req.Body)
 	if err != nil {

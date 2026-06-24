@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"time"
 	"context"
 	"fmt"
 
@@ -20,6 +21,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // MemberStats returns attendance aggregations for all team members in the date range.
 func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]MemberStatRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT
 			u.id,
@@ -56,6 +59,8 @@ func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to
 
 // EventStats returns per-event attendance counts for the team in the date range.
 func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT
 			e.id,
@@ -89,6 +94,8 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 
 // SingleMemberStats returns attendance aggregations for one member in the date range.
 func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*MemberStatRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	s := &MemberStatRow{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT

@@ -73,6 +73,8 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 
 // ListEvents returns events for a team filtered by scope.
 func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string, limit, offset int) ([]EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	today := time.Now().UTC()
 
 	var (
@@ -113,6 +115,8 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope string
 
 // GetEvent retrieves a single event by ID.
 func (r *Repository) GetEvent(ctx context.Context, eventID string) (*EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`SELECT %s FROM events WHERE id = $1`, selectEventFields)
 	row := r.pool.QueryRow(ctx, q, eventID)
 	e, err := scanEventRow(row)
@@ -129,6 +133,8 @@ func (r *Repository) GetEvent(ctx context.Context, eventID string) (*EventRow, e
 
 // CreateEvent inserts a single event row and returns it.
 func (r *Repository) CreateEvent(ctx context.Context, teamID string, params CreateEventParams) (*EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`
 		INSERT INTO events (
 			team_id, type, title, date, location, note,
@@ -159,6 +165,8 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params Crea
 
 // CreateSeries creates an event_series row and then one event per week for RepeatWeeks.
 func (r *Repository) CreateSeries(ctx context.Context, teamID string, params CreateEventParams) ([]EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	repeatWeeks := params.RepeatWeeks
 	if repeatWeeks < 1 {
 		repeatWeeks = 1
@@ -238,6 +246,8 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 
 // UpdateEvent updates a single event or all events in its series.
 func (r *Repository) UpdateEvent(ctx context.Context, eventID string, params UpdateEventParams, scope string) (*EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	if scope == "series" {
 		// Get series_id for this event.
 		var seriesID *uuid.UUID
@@ -348,6 +358,8 @@ func buildUpdateSets(params UpdateEventParams, eventID string) (string, []interf
 
 // SetStatus updates event status for a single event or all events in its series.
 func (r *Repository) SetStatus(ctx context.Context, eventID string, status string, scope string) (*EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	if scope == "series" {
 		var seriesID *uuid.UUID
 		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID)
@@ -378,6 +390,8 @@ func (r *Repository) SetStatus(ctx context.Context, eventID string, status strin
 
 // DeleteEvent deletes a single event or the entire series (cascade).
 func (r *Repository) DeleteEvent(ctx context.Context, eventID string, scope string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	if scope == "series" {
 		var seriesID *uuid.UUID
 		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID)
@@ -404,6 +418,8 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID string, scope stri
 
 // GetAttendanceSummary returns aggregated attendance counts for an event.
 func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		SELECT
 			COUNT(*) FILTER (WHERE status = 'yes')           AS yes,
@@ -430,6 +446,8 @@ func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID string) (
 
 // GetMyAttendance returns the current user's attendance record for an event, or nil.
 func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID string) (*AttendanceDBRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		SELECT id, event_id, user_id, status, reason, reason_id, reason_visibility, at
 		FROM attendance
@@ -451,6 +469,8 @@ func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID string
 
 // ListAttendance returns all attendance rows for an event, enriched with user data.
 func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		SELECT
 			a.user_id,
@@ -492,6 +512,8 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]Atte
 
 // SetAttendance upserts an attendance record.
 func (r *Repository) SetAttendance(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		INSERT INTO attendance (event_id, user_id, status, reason, reason_id, reason_visibility, at)
 		VALUES ($1, $2, $3, $4, $5, $6, now())
@@ -519,6 +541,8 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, userID string, 
 // nominated=false → upsert status=not_nominated
 // nominated=true  → delete any not_nominated record for this user/event
 func (r *Repository) SetNomination(ctx context.Context, eventID, userID string, nominated bool) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	if !nominated {
 		q := `
 			INSERT INTO attendance (event_id, user_id, status, at)
@@ -548,6 +572,8 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, userID string, 
 
 // ListComments returns all comments for an event, enriched with user data.
 func (r *Repository) ListComments(ctx context.Context, eventID string, limit, offset int) ([]CommentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		SELECT
 			c.id, c.event_id, c.user_id, c.text, c.created_at,
@@ -585,6 +611,8 @@ func (r *Repository) ListComments(ctx context.Context, eventID string, limit, of
 
 // AddComment inserts a new event comment and returns it enriched.
 func (r *Repository) AddComment(ctx context.Context, eventID, userID, text string) (*CommentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		WITH inserted AS (
 			INSERT INTO event_comments (event_id, user_id, text)
@@ -613,6 +641,8 @@ func (r *Repository) AddComment(ctx context.Context, eventID, userID, text strin
 
 // DeleteComment deletes a comment if the requesting user owns it.
 func (r *Repository) DeleteComment(ctx context.Context, commentID, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	tag, err := r.pool.Exec(ctx,
 		`DELETE FROM event_comments WHERE id = $1 AND user_id = $2`,
 		commentID, userID,

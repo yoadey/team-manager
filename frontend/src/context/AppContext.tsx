@@ -212,6 +212,7 @@ export interface AppContextValue {
   setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
   // auth
   doLogin: (pid: string) => Promise<void>;
+  doPasswordLogin: (email: string, password: string) => Promise<void>;
   logout: () => void;
   // nav
   go: (route: Route) => void;
@@ -710,6 +711,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [api, setState, afterLoginLoad],
   );
 
+  const doPasswordLogin = useCallback(
+    async (email: string, password: string) => {
+      setState({ busy: 'login:password', error: null });
+      try {
+        await api.auth.login(email, password);
+        const user = await api.auth.currentUser();
+        const teams = await api.teams.listForCurrentUser();
+        if (!teams.length) {
+          setState({ busy: null, error: t('error.login') });
+          return;
+        }
+        const activeTeamId = teams[0].id;
+        history.replaceState({ route: 'home' }, '', '/home');
+        setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+        setSentryUser(user);
+        await afterLoginLoad(activeTeamId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('error.login');
+        setState({ busy: null, error: msg });
+      }
+    },
+    [api, setState, afterLoginLoad],
+  );
+
   // ---------- nav ----------
   const closeSheet = useCallback(() => {
     const s = S().sheet;
@@ -958,6 +983,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       onFile,
       setState,
       doLogin,
+      doPasswordLogin,
       logout,
       go,
       goEventsPending,
@@ -1059,6 +1085,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState,
       doLogin,
       logout,
+      doPasswordLogin,
       go,
       goEventsPending,
       closeSheet,

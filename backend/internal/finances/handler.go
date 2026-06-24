@@ -10,6 +10,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // financeService is the interface the Handler relies on.
@@ -60,6 +61,12 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if err := validate.RequireNonEmpty(req.Body.Title, "title"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	t, err := h.svc.CreateTransaction(ctx, uuid.UUID(req.TeamId), req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
@@ -103,6 +110,12 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if err := validate.RequireNonEmpty(req.Body.Label, "label"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if err := validate.MaxLen(req.Body.Label, 255, "label"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
 	}
 	p, err := h.svc.CreatePenalty(ctx, uuid.UUID(req.TeamId), req.Body)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // pollService is the interface the Handler relies on.
@@ -55,6 +56,21 @@ func (h *Handler) CreatePoll(ctx context.Context, req gen.CreatePollRequestObjec
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if err := validate.RequireNonEmpty(req.Body.Question, "question"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if err := validate.MaxLen(req.Body.Question, 1000, "question"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if len(req.Body.Options) < 2 {
+		return nil, apierror.BadRequest("polls must have at least 2 options")
+	}
+	for i, opt := range req.Body.Options {
+		if err := validate.RequireNonEmpty(opt, "option"); err != nil {
+			_ = i
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 	poll, err := h.svc.Create(ctx, uuid.UUID(req.TeamId), user.Id, req.Body)
 	if err != nil {

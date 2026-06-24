@@ -10,8 +10,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // memberService is the interface the Handler relies on.
@@ -47,8 +50,17 @@ func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersReques
 
 // AddMember adds a new member to the team.
 func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObject) (gen.AddMemberResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
 	if request.Body == nil {
-		return nil, fmt.Errorf("members.Handler.AddMember: missing body")
+		return nil, apierror.BadRequest("missing request body")
+	}
+	if err := validate.Name(request.Body.Name); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if err := validate.Email(string(request.Body.Email)); err != nil {
+		return nil, apierror.BadRequest(err.Error())
 	}
 
 	params := AddMemberParams{

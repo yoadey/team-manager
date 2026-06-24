@@ -1,6 +1,7 @@
 package notifications
 
 import (
+	"time"
 	"context"
 	"fmt"
 
@@ -21,6 +22,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // ListByTeamAndUser returns notifications for the last 62 days, marking unread
 // based on the user's last seen timestamp.
 func (r *Repository) ListByTeamAndUser(ctx context.Context, teamID, userID uuid.UUID) ([]*NotificationRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		SELECT
 			n.id, n.team_id, n.type, n.actor_id, n.status, n.title,
@@ -60,6 +63,8 @@ func (r *Repository) ListByTeamAndUser(ctx context.Context, teamID, userID uuid.
 
 // MarkSeen upserts the seen timestamp for a user in a team.
 func (r *Repository) MarkSeen(ctx context.Context, teamID, userID uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO notif_seen (team_id, user_id, seen_at) VALUES ($1, $2, now())
 		 ON CONFLICT (team_id, user_id) DO UPDATE SET seen_at = now()`,

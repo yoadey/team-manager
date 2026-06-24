@@ -1,6 +1,7 @@
 package absences
 
 import (
+	"time"
 	"context"
 	"fmt"
 
@@ -48,6 +49,8 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 
 // ListByTeam returns all absences for a team, enriched with user and role info.
 func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*AbsenceRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 ORDER BY a.id, a.from_date DESC LIMIT $2 OFFSET $3`, selectAbsenceFields, absenceJoins)
 	rows, err := r.pool.Query(ctx, q, teamID, limit, offset)
 	if err != nil {
@@ -68,6 +71,8 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, of
 
 // ListByUser returns absences for a specific user in a team.
 func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*AbsenceRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 AND a.user_id = $2 ORDER BY a.id, a.from_date DESC LIMIT $3 OFFSET $4`, selectAbsenceFields, absenceJoins)
 	rows, err := r.pool.Query(ctx, q, teamID, userID, limit, offset)
 	if err != nil {
@@ -88,6 +93,8 @@ func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, l
 
 // Create inserts a new absence and returns the enriched row.
 func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var id uuid.UUID
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO absences (user_id, team_id, from_date, to_date, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -101,6 +108,8 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 
 // Update modifies an absence and returns the enriched row.
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx,
 		`UPDATE absences SET
 			from_date = COALESCE($2::date, from_date),
@@ -117,6 +126,8 @@ func (r *Repository) Update(ctx context.Context, id uuid.UUID, fromDate, toDate 
 
 // Delete removes an absence by ID.
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx, `DELETE FROM absences WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("absences.Repository.Delete: %w", err)

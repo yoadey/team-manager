@@ -47,6 +47,8 @@ func scanUser(row interface {
 
 // FindUserByEmail looks up a user by email address.
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`SELECT %s FROM users WHERE email = $1`, selectUserFields)
 	row := r.pool.QueryRow(ctx, q, email)
 	u, err := scanUser(row)
@@ -58,6 +60,8 @@ func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRo
 
 // FindUserByID looks up a user by primary key.
 func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`SELECT %s FROM users WHERE id = $1`, selectUserFields)
 	row := r.pool.QueryRow(ctx, q, id)
 	u, err := scanUser(row)
@@ -69,6 +73,8 @@ func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, err
 
 // CreateSession inserts a new session row and returns it.
 func (r *Repository) CreateSession(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) (*SessionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		INSERT INTO sessions (user_id, token_hash, provider, expires_at)
 		VALUES ($1, $2, 'password', $3)
@@ -86,6 +92,8 @@ func (r *Repository) CreateSession(ctx context.Context, userID string, tokenHash
 
 // FindSession returns the session matching tokenHash that has not yet expired.
 func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*SessionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := `
 		SELECT id, user_id, token_hash, provider, expires_at, created_at
 		FROM sessions
@@ -103,6 +111,8 @@ func (r *Repository) FindSession(ctx context.Context, tokenHash string) (*Sessio
 
 // DeleteSession removes the session identified by tokenHash.
 func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
 	if err != nil {
 		return fmt.Errorf("auth.Repository.DeleteSession: %w", err)
@@ -112,6 +122,8 @@ func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error 
 
 // UpdateUserPhoto stores raw photo bytes and MIME type for the given user.
 func (r *Repository) UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx,
 		`UPDATE users SET photo_data = $2, photo_mime = $3 WHERE id = $1`,
 		userID, data, mime,

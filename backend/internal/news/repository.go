@@ -1,6 +1,7 @@
 package news
 
 import (
+	"time"
 	"context"
 	"fmt"
 
@@ -38,6 +39,8 @@ func scanNews(row interface{ Scan(dest ...any) error }) (*NewsRow, error) {
 
 // ListByTeam returns all news items for a team, pinned first then newest first.
 func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*NewsRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	q := fmt.Sprintf(`
 		SELECT %s
 		FROM news n
@@ -65,6 +68,8 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, of
 
 // Create inserts a new news item and returns the enriched row.
 func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var id uuid.UUID
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO news (team_id, author_id, title, body, pinned) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
@@ -78,6 +83,8 @@ func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, tit
 
 // Update modifies a news item and returns the enriched row.
 func (r *Repository) Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx,
 		`UPDATE news SET
 			title  = COALESCE($2, title),
@@ -94,6 +101,8 @@ func (r *Repository) Update(ctx context.Context, id uuid.UUID, title, body *stri
 
 // Delete removes a news item by ID.
 func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx, `DELETE FROM news WHERE id = $1`, id)
 	if err != nil {
 		return fmt.Errorf("news.Repository.Delete: %w", err)
@@ -103,6 +112,8 @@ func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // InsertNotification creates a notification for the news item creation.
 func (r *Repository) InsertNotification(ctx context.Context, teamID, actorID uuid.UUID, title string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO notifications (team_id, type, actor_id, status, title) VALUES ($1, 'news', $2, 'info', $3)`,
 		teamID, actorID, title,

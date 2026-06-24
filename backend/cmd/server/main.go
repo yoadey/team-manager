@@ -208,8 +208,8 @@ func main() {
 	// API routes under /api/v1.
 	r.Route("/api/v1", func(r chi.Router) {
 		// Public auth endpoints — no JWT required.
-		// Per-IP brute-force protection: max 10 login attempts per minute.
-		r.With(middleware.PerIPRateLimit(10, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
+		// Per-IP brute-force protection: max 5 login attempts per minute.
+		r.With(middleware.PerIPRateLimit(5, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.Login(w, req)
 		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
@@ -221,6 +221,7 @@ func main() {
 			r.Use(authHandler.AuthMiddleware)
 			// Team-scoped endpoints additionally require the caller to be a member.
 			r.Use(middleware.RequireMembership(membersRepo))
+			r.Use(middleware.RequirePermission(membersRepo))
 			gen.HandlerFromMuxWithBaseURL(strictSrv, r, "")
 		})
 	})

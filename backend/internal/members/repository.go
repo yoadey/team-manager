@@ -1,6 +1,7 @@
 package members
 
 import (
+	"time"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,8 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // ListMembers returns all members of a team with their roles.
 func (r *Repository) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]MemberRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	// First, get all memberships + user data for the team.
 	rows, err := r.pool.Query(ctx, `
 		SELECT m.id, u.id, u.name, u.email, u.phone,
@@ -68,6 +71,8 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit, offs
 
 // AddMember inserts a user (if not exists by email), creates membership and assigns roles.
 func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.AddMember: begin tx: %w", err)
@@ -124,6 +129,8 @@ func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMem
 
 // UpdateMember applies a partial update to the user fields and optionally the group.
 func (r *Repository) UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*MemberRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	// Get user_id from membership first.
 	var userID string
 	err := r.pool.QueryRow(ctx, `SELECT user_id FROM memberships WHERE id = $1`, membershipID).Scan(&userID)
@@ -201,6 +208,8 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID string, patc
 
 // SetRoles replaces the role assignments for the given membership.
 func (r *Repository) SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*MemberRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.SetRoles: begin tx: %w", err)
@@ -230,6 +239,8 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID string, roleIDs 
 
 // RemoveMember deletes a membership (cascades membership_roles).
 func (r *Repository) RemoveMember(ctx context.Context, membershipID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	_, err := r.pool.Exec(ctx, `DELETE FROM memberships WHERE id = $1`, membershipID)
 	if err != nil {
 		return fmt.Errorf("members.Repository.RemoveMember: %w", err)
@@ -239,6 +250,8 @@ func (r *Repository) RemoveMember(ctx context.Context, membershipID string) erro
 
 // IsMember returns true when the user is an active member of the team.
 func (r *Repository) IsMember(ctx context.Context, teamID, userID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	var exists bool
 	err := r.pool.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)`,
@@ -248,6 +261,67 @@ func (r *Repository) IsMember(ctx context.Context, teamID, userID uuid.UUID) (bo
 		return false, fmt.Errorf("members.Repository.IsMember: %w", err)
 	}
 	return exists, nil
+}
+
+// permLevelRank maps permission levels to a comparable rank (none < read < write).
+func permLevelRank(level string) int {
+	switch level {
+	case "write":
+		return 2
+	case "read":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// foldMax returns the higher-ranked of two permission levels.
+func foldMax(cur, next string) string {
+	if permLevelRank(next) > permLevelRank(cur) {
+		return next
+	}
+	return cur
+}
+
+// GetPermissions returns the effective permissions for a user in a team,
+// computed as the per-module maximum across all of the user's roles
+// (none < read < write). A user with no roles gets all-"none".
+func (r *Repository) GetPermissions(ctx context.Context, teamID, userID uuid.UUID) (teams.PermissionsJSON, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT r.permissions
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE m.team_id = $1 AND m.user_id = $2
+	`, teamID, userID)
+	if err != nil {
+		return teams.PermissionsJSON{}, fmt.Errorf("members.Repository.GetPermissions: %w", err)
+	}
+	defer rows.Close()
+
+	eff := teams.PermissionsJSON{
+		Events: "none", Members: "none", Finances: "none",
+		News: "none", Polls: "none", Settings: "none",
+	}
+	for rows.Next() {
+		var permJSON []byte
+		if err := rows.Scan(&permJSON); err != nil {
+			return teams.PermissionsJSON{}, fmt.Errorf("members.Repository.GetPermissions scan: %w", err)
+		}
+		var p teams.PermissionsJSON
+		if err := json.Unmarshal(permJSON, &p); err != nil {
+			return teams.PermissionsJSON{}, fmt.Errorf("members.Repository.GetPermissions unmarshal: %w", err)
+		}
+		eff.Events = foldMax(eff.Events, p.Events)
+		eff.Members = foldMax(eff.Members, p.Members)
+		eff.Finances = foldMax(eff.Finances, p.Finances)
+		eff.News = foldMax(eff.News, p.News)
+		eff.Polls = foldMax(eff.Polls, p.Polls)
+		eff.Settings = foldMax(eff.Settings, p.Settings)
+	}
+	return eff, rows.Err()
 }
 
 // ─── internal helpers ─────────────────────────────────────────────────────────
