@@ -22,6 +22,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
+// boolVal dereferences a *bool with a false default — prevents NULL on NOT NULL columns.
+func boolVal(b *bool) bool {
+	if b == nil {
+		return false
+	}
+	return *b
+}
+
 // uuidSliceToStrings converts []uuid.UUID to []string for pgx array params.
 func uuidSliceToStrings(ids []uuid.UUID) []string {
 	out := make([]string, len(ids))
@@ -152,7 +160,7 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params Crea
 		teamID, params.Type, params.Title, params.Date,
 		params.Location, params.Note,
 		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
-		params.MeetTimeMandatory,
+		boolVal(params.MeetTimeMandatory),
 		params.ResponseMode,
 		params.NominatedRoleIds,
 	)
@@ -195,7 +203,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 	err = tx.QueryRow(ctx, seriesQ,
 		teamID, params.Type, params.Title, params.Location, params.Note,
 		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
-		params.MeetTimeMandatory,
+		boolVal(params.MeetTimeMandatory),
 		params.ResponseMode,
 		params.NominatedRoleIds,
 		repeatWeeks,
@@ -225,7 +233,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params Cre
 			teamID, seriesID, params.Type, params.Title, eventDate,
 			params.Location, params.Note,
 			nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
-			params.MeetTimeMandatory,
+			boolVal(params.MeetTimeMandatory),
 			params.ResponseMode,
 			params.NominatedRoleIds,
 		)

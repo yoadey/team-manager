@@ -34,6 +34,9 @@ export default defineConfig({
         'src/monitoring.ts',
         'src/i18n/de.ts',
         'src/i18n/en.ts',
+        // Real API client — requires live backend; integration-tested via docker compose
+        'src/services/serviceLayerReal.ts',
+        'src/api/client.ts',
       ],
       // Enterprise-ready coverage floors.
       thresholds: { statements: 80, branches: 65, functions: 75, lines: 80 },

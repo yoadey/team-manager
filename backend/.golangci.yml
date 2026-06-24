@@ -16,7 +16,7 @@ linters:
     - gocognit
     - gocritic
     - godot
-    - goerr113
+    - err113
     - gofumpt
     - gosec
     - misspell
@@ -39,7 +39,7 @@ linters:
       min-complexity: 20
     gosec:
       excludes:
-        - G115  # integer overflow (false positive in test helpers)
+        - G115
     gocritic:
       enabled-tags:
         - diagnostic
@@ -49,24 +49,21 @@ linters:
       rules:
         - name: exported
           disabled: true
-    goerr113:
-      check-wrapped: true
-    wrapcheck:
-      ignorePackageGlobs:
-        - github.com/yoadey/team-manager/backend/internal/*
+
+  exclusions:
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - err113
+          - wrapcheck
+          - gosec
+          - dupl
+          - gocognit
+          - cyclop
+      - path: "internal/gen/"
+        linters:
+          - all
 
 issues:
-  exclude:
-    - path: "_test\\.go"
-      linters:
-        - goerr113
-        - wrapcheck
-        - gosec
-        - dupl
-        - gocognit
-        - cyclop
-    - path: "internal/gen/"
-      linters:
-        - all
   max-issues-per-linter: 50
   max-same-issues: 10

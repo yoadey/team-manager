@@ -32,7 +32,7 @@ export function Login() {
     width: '100%',
     p: '10px 14px',
     borderRadius: '12px',
-    border: `1.5px solid ${NEUTRAL.divider}`,
+    border: `1.5px solid ${NEUTRAL.inputBorder}`,
     background: NEUTRAL.surface,
     color: NEUTRAL.onSurface,
     fontSize: '14px',
@@ -110,7 +110,6 @@ export function Login() {
               value={email}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
               required
-              autoFocus
               sx={inputSx}
             />
             <Box
