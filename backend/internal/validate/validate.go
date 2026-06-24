@@ -5,6 +5,7 @@ package validate
 
 import (
 	"errors"
+	"fmt"
 	"net/mail"
 	"strings"
 	"unicode/utf8"
@@ -17,13 +18,23 @@ const (
 	maxPasswordLen = 128
 )
 
+// Sentinel errors for static analysis compliance.
+var (
+	ErrEmailRequired    = errors.New("email is required")
+	ErrEmailInvalid     = errors.New("email is not a valid address")
+	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
+	ErrPasswordTooLong  = errors.New("password must not exceed 128 characters")
+	ErrFieldRequired    = errors.New("is required")
+	ErrFieldTooLong     = errors.New("is too long")
+)
+
 // Email checks that s is a valid RFC 5322 e-mail address.
 func Email(s string) error {
 	if strings.TrimSpace(s) == "" {
-		return errors.New("email is required")
+		return ErrEmailRequired
 	}
 	if _, err := mail.ParseAddress(s); err != nil {
-		return errors.New("email is not a valid address")
+		return ErrEmailInvalid
 	}
 	return nil
 }
@@ -31,7 +42,7 @@ func Email(s string) error {
 // RequireNonEmpty returns an error when s is blank.
 func RequireNonEmpty(s, field string) error {
 	if strings.TrimSpace(s) == "" {
-		return errors.New(field + " is required")
+		return fmt.Errorf("%s %w", field, ErrFieldRequired)
 	}
 	return nil
 }
@@ -39,7 +50,7 @@ func RequireNonEmpty(s, field string) error {
 // MaxLen returns an error when s exceeds n UTF-8 characters.
 func MaxLen(s string, n int, field string) error {
 	if utf8.RuneCountInString(s) > n {
-		return errors.New(field + " is too long")
+		return fmt.Errorf("%s %w", field, ErrFieldTooLong)
 	}
 	return nil
 }
@@ -66,10 +77,10 @@ func Text(s, field string) error {
 func PasswordStrength(s string) error {
 	n := utf8.RuneCountInString(s)
 	if n < minPasswordLen {
-		return errors.New("password must be at least 8 characters")
+		return ErrPasswordTooShort
 	}
 	if n > maxPasswordLen {
-		return errors.New("password must not exceed 128 characters")
+		return ErrPasswordTooLong
 	}
 	return nil
 }

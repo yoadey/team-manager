@@ -50,6 +50,10 @@ linters:
       rules:
         - name: exported
           disabled: true
+    wrapcheck:
+      ignorePackageGlobs:
+        - github.com/jackc/pgx/v5*
+        - crypto/rand*
 
   exclusions:
     rules:
@@ -77,5 +81,5 @@ formatters:
     - gofumpt
 
 issues:
-  max-issues-per-linter: 50
-  max-same-issues: 10
+  max-issues-per-linter: 200
+  max-same-issues: 50

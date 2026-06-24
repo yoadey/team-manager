@@ -43,7 +43,7 @@ func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersReques
 	members, err := h.svc.ListMembers(ctx, request.TeamId.String(), limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListMembers failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("members.Handler.ListMembers: %w", err)
 	}
 	return gen.ListMembers200JSONResponse(members), nil
 }
@@ -78,7 +78,7 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 	m, err := h.svc.AddMember(ctx, request.TeamId.String(), params)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "AddMember failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("members.Handler.AddMember: %w", err)
 	}
 	return gen.AddMember201JSONResponse(*m), nil
 }
@@ -86,7 +86,7 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 // UpdateMember updates member profile fields.
 func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequestObject) (gen.UpdateMemberResponseObject, error) {
 	if request.Body == nil {
-		return nil, fmt.Errorf("members.Handler.UpdateMember: missing body")
+		return nil, apierror.BadRequest("missing request body")
 	}
 
 	patch := MemberPatch{}
@@ -114,10 +114,10 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 	m, err := h.svc.UpdateMember(ctx, request.MembershipId.String(), patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("member not found")
+			return nil, apierror.NotFound("member not found")
 		}
 		h.logger.ErrorContext(ctx, "UpdateMember failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("members.Handler.UpdateMember: %w", err)
 	}
 	return gen.UpdateMember200JSONResponse(*m), nil
 }
@@ -125,7 +125,7 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 // SetMemberRoles replaces the member's role assignments.
 func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRolesRequestObject) (gen.SetMemberRolesResponseObject, error) {
 	if request.Body == nil {
-		return nil, fmt.Errorf("members.Handler.SetMemberRoles: missing body")
+		return nil, apierror.BadRequest("missing request body")
 	}
 
 	roleIDs := make([]string, len(request.Body.RoleIds))
@@ -136,7 +136,7 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 	m, err := h.svc.SetRoles(ctx, request.MembershipId.String(), roleIDs)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "SetMemberRoles failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("members.Handler.SetMemberRoles: %w", err)
 	}
 	return gen.SetMemberRoles200JSONResponse(*m), nil
 }
@@ -145,7 +145,7 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequestObject) (gen.RemoveMemberResponseObject, error) {
 	if err := h.svc.RemoveMember(ctx, request.MembershipId.String()); err != nil {
 		h.logger.ErrorContext(ctx, "RemoveMember failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("members.Handler.RemoveMember: %w", err)
 	}
 	return gen.RemoveMember204Response{}, nil
 }

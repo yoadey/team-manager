@@ -11,10 +11,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
+
+// ErrNotImplemented is returned by unimplemented handler methods.
+var ErrNotImplemented = errors.New("not implemented")
 
 // teamService is the interface the Handler relies on.
 type teamService interface {
@@ -42,13 +46,13 @@ func NewHandler(svc teamService, logger *slog.Logger) *Handler {
 func (h *Handler) ListTeams(ctx context.Context, _ gen.ListTeamsRequestObject) (gen.ListTeamsResponseObject, error) {
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
-		return nil, fmt.Errorf("teams.Handler.ListTeams: not authenticated")
+		return nil, apierror.Unauthorized("not authenticated")
 	}
 
 	teams, err := h.svc.ListForUser(ctx, user.Id.String())
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListTeams failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("teams.Handler.ListTeams: %w", err)
 	}
 
 	return gen.ListTeams200JSONResponse(teams), nil
@@ -58,10 +62,10 @@ func (h *Handler) ListTeams(ctx context.Context, _ gen.ListTeamsRequestObject) (
 func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestObject) (gen.CreateTeamResponseObject, error) {
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
-		return nil, fmt.Errorf("teams.Handler.CreateTeam: not authenticated")
+		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if request.Body == nil {
-		return nil, fmt.Errorf("teams.Handler.CreateTeam: missing body")
+		return nil, apierror.BadRequest("missing request body")
 	}
 	if err := validate.Name(request.Body.Name); err != nil {
 		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
@@ -70,7 +74,7 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTeam failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
 	}
 
 	return gen.CreateTeam201JSONResponse(*tfu), nil
@@ -84,7 +88,7 @@ func (h *Handler) GetTeam(ctx context.Context, request gen.GetTeamRequestObject)
 			return notFoundTeamResponse("team not found"), nil
 		}
 		h.logger.ErrorContext(ctx, "GetTeam failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("teams.Handler.GetTeam: %w", err)
 	}
 	return gen.GetTeam200JSONResponse(*t), nil
 }
@@ -92,7 +96,7 @@ func (h *Handler) GetTeam(ctx context.Context, request gen.GetTeamRequestObject)
 // UpdateTeam applies a patch to the team.
 func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestObject) (gen.UpdateTeamResponseObject, error) {
 	if request.Body == nil {
-		return nil, fmt.Errorf("teams.Handler.UpdateTeam: missing body")
+		return nil, apierror.BadRequest("missing request body")
 	}
 
 	patch := TeamPatch{}
@@ -125,10 +129,10 @@ func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestO
 	t, err := h.svc.UpdateTeam(ctx, request.TeamId.String(), patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("team not found")
+			return nil, apierror.NotFound("team not found")
 		}
 		h.logger.ErrorContext(ctx, "UpdateTeam failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("teams.Handler.UpdateTeam: %w", err)
 	}
 	return gen.UpdateTeam200JSONResponse(*t), nil
 }
@@ -138,7 +142,7 @@ func (h *Handler) CreateInvite(ctx context.Context, request gen.CreateInviteRequ
 	inv, err := h.svc.CreateInvite(ctx, request.TeamId.String())
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateInvite failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("teams.Handler.CreateInvite: %w", err)
 	}
 	return gen.CreateInvite201JSONResponse(*inv), nil
 }
@@ -151,7 +155,7 @@ func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequ
 			return notFoundPhotoResponse("no team photo"), nil
 		}
 		h.logger.ErrorContext(ctx, "GetTeamPhoto failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("teams.Handler.GetTeamPhoto: %w", err)
 	}
 	return gen.GetTeamPhoto200ImagejpegResponse{
 		Body:          bytes.NewReader(data),
@@ -162,14 +166,18 @@ func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequ
 // UploadTeamPhoto handles a multipart upload, stores the photo, and returns the updated team.
 func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPhotoRequestObject) (gen.UploadTeamPhotoResponseObject, error) {
 	if request.Body == nil {
-		return nil, fmt.Errorf("teams.Handler.UploadTeamPhoto: missing multipart body")
+		return nil, apierror.BadRequest("missing multipart body")
 	}
 
 	part, err := request.Body.NextPart()
 	if err != nil {
 		return nil, fmt.Errorf("teams.Handler.UploadTeamPhoto: read multipart: %w", err)
 	}
-	defer part.Close()
+	defer func() {
+		if cerr := part.Close(); cerr != nil {
+			h.logger.WarnContext(ctx, "part.Close failed", "err", cerr)
+		}
+	}()
 
 	data, err := io.ReadAll(io.LimitReader(part, 10<<20)) // 10 MB max
 	if err != nil {
@@ -184,7 +192,7 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 	t, err := h.svc.UpdatePhoto(ctx, request.TeamId.String(), data, ct)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "UploadTeamPhoto failed", "err", err)
-		return nil, err
+		return nil, fmt.Errorf("teams.Handler.UploadTeamPhoto: %w", err)
 	}
 	return gen.UploadTeamPhoto200JSONResponse(*t), nil
 }
@@ -205,7 +213,7 @@ func (h *Handler) GetTeamLogo(ctx context.Context, request gen.GetTeamLogoReques
 
 // UploadTeamLogo handles a multipart upload and stores the logo for the team.
 func (h *Handler) UploadTeamLogo(ctx context.Context, request gen.UploadTeamLogoRequestObject) (gen.UploadTeamLogoResponseObject, error) {
-	return nil, fmt.Errorf("teams.Handler.UploadTeamLogo: not implemented")
+	return nil, fmt.Errorf("teams.Handler.UploadTeamLogo: %w", ErrNotImplemented)
 }
 
 // ─── error helpers ───────────────────────────────────────────────────────────

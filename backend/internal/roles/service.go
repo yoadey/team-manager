@@ -71,7 +71,10 @@ func (s *Service) UpdateRole(ctx context.Context, roleID uuid.UUID, body *gen.Up
 
 // DeleteRole deletes a non-system role.
 func (s *Service) DeleteRole(ctx context.Context, roleID uuid.UUID) error {
-	return s.repo.DeleteRole(ctx, roleID.String())
+	if err := s.repo.DeleteRole(ctx, roleID.String()); err != nil {
+		return fmt.Errorf("roles.Service.DeleteRole: %w", err)
+	}
+	return nil
 }
 
 // ─── mappers ──────────────────────────────────────────────────────────────────

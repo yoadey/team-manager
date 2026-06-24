@@ -13,6 +13,9 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
+// ErrSystemRole is returned when attempting to delete a system role.
+var ErrSystemRole = errors.New("cannot delete system role")
+
 // Repository handles role-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -46,7 +49,10 @@ func (r *Repository) ListRoles(ctx context.Context, teamID string) ([]teams.Role
 		}
 		out = append(out, *rr)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("roles.Repository.ListRoles rows: %w", err)
+	}
+	return out, nil
 }
 
 // CreateRole inserts a new role for the team.
@@ -151,7 +157,7 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID string) error {
 		return fmt.Errorf("roles.Repository.DeleteRole: check system: %w", err)
 	}
 	if isSystem {
-		return fmt.Errorf("cannot delete system role")
+		return ErrSystemRole
 	}
 
 	_, err = r.pool.Exec(ctx, `DELETE FROM roles WHERE id = $1`, roleID)
@@ -184,7 +190,7 @@ func scanRole(row interface{ Scan(dest ...any) error }) (*teams.RoleRow, error) 
 	var permBytes []byte
 	err := row.Scan(&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: %w", err)
 	}
 	if err := json.Unmarshal(permBytes, &rr.Permissions); err != nil {
 		return nil, fmt.Errorf("unmarshal permissions: %w", err)
