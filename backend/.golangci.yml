@@ -32,31 +32,31 @@ linters:
     - unparam
     - wrapcheck
 
-linters-settings:
-  cyclop:
-    max-complexity: 15
-  gocognit:
-    min-complexity: 20
-  gosec:
-    excludes:
-      - G115  # integer overflow (false positive in test helpers)
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-  revive:
-    rules:
-      - name: exported
-        disabled: true
-  goerr113:
-    check-wrapped: true
-  wrapcheck:
-    ignorePackageGlobs:
-      - github.com/yoadey/team-manager/backend/internal/*
+  settings:
+    cyclop:
+      max-complexity: 15
+    gocognit:
+      min-complexity: 20
+    gosec:
+      excludes:
+        - G115  # integer overflow (false positive in test helpers)
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    goerr113:
+      check-wrapped: true
+    wrapcheck:
+      ignorePackageGlobs:
+        - github.com/yoadey/team-manager/backend/internal/*
 
 issues:
-  exclude-rules:
+  exclude:
     - path: "_test\\.go"
       linters:
         - goerr113

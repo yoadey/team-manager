@@ -15,7 +15,6 @@ frontend/.lighthouseci/
 # Backend
 backend/bin/
 backend/tmp/
-backend/internal/gen/
 
 # Editor / OS
 .DS_Store
