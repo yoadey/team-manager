@@ -10,6 +10,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // absenceService is the interface the Handler relies on.
@@ -54,6 +55,14 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if !req.Body.To.IsZero() && req.Body.From.After(req.Body.To.Time) {
+		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	}
+	if req.Body.Reason != nil {
+		if err := validate.MaxLen(*req.Body.Reason, 500, "reason"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	absence, err := h.svc.Create(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
@@ -96,6 +105,14 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if req.Body.From != nil && req.Body.To != nil && req.Body.From.After(req.Body.To.Time) {
+		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	}
+	if req.Body.Reason != nil {
+		if err := validate.MaxLen(*req.Body.Reason, 500, "reason"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 	absence, err := h.svc.Update(ctx, req.AbsenceId, req.Body)
 	if err != nil {
