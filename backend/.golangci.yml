@@ -17,7 +17,6 @@ linters:
     - gocritic
     - godot
     - err113
-    - gofumpt
     - gosec
     - misspell
     - noctx
@@ -63,6 +62,10 @@ linters:
       - path: "internal/gen/"
         linters:
           - all
+
+formatters:
+  enable:
+    - gofumpt
 
 issues:
   max-issues-per-linter: 50
