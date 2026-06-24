@@ -1,0 +1,86 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - contextcheck
+    - cyclop
+    - dupl
+    - exhaustive
+    - gocognit
+    - gocritic
+    - godot
+    - err113
+    - gosec
+    - misspell
+    - noctx
+    - nolintlint
+    - prealloc
+    - predeclared
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - tparallel
+    - unconvert
+    - unparam
+    - wrapcheck
+
+  settings:
+    cyclop:
+      max-complexity: 15
+    gocognit:
+      min-complexity: 20
+    gosec:
+      excludes:
+        - G115
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - rangeValCopy
+        - hugeParam
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/jackc/pgx/v5
+        - github.com/jackc/pgx/v5/*
+        - crypto/rand
+
+  exclusions:
+    rules:
+      - path: "_test\\.go"
+        linters:
+          - err113
+          - wrapcheck
+          - gosec
+          - dupl
+          - gocognit
+          - cyclop
+      - path: "internal/gen/"
+        linters:
+          - all
+      - path: "internal/server/server\\.go"
+        linters:
+          - wrapcheck
+          - dupl
+      - path: "internal/finances/handler\\.go"
+        linters:
+          - dupl
+
+formatters:
+  enable:
+    - gofumpt
+
+issues:
+  max-issues-per-linter: 200
+  max-same-issues: 50

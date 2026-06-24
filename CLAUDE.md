@@ -1,116 +1,159 @@
-# Teamverwaltung — Developer Guide
+# Teamverwaltung — Developer Guide (Monorepo)
+
+This is a monorepo containing the React frontend and Go backend for the Teamverwaltung sports-club management application.
 
 ## Quick Start
 
 ```bash
-npm install
+# Frontend (in /frontend)
+cd frontend && npm install
 npm run dev          # http://localhost:5173
 npm test             # run all tests once
 npm run typecheck    # TypeScript check
 npm run lint         # ESLint
-npm run format       # Prettier (auto-fix)
+
+# Backend (in /backend)
+cd backend && make tools   # install go tools (once)
+make generate              # regenerate from openapi.yaml
+make build                 # compile ./cmd/server
+make test                  # go test ./...
+make lint                  # golangci-lint
+
+# Full stack (Docker Compose)
+docker compose up          # Postgres + Backend + Frontend
+```
+
+## Repository Structure
+
+```
+team-manager/
+├── frontend/              React 18 + TypeScript SPA
+│   ├── src/               Application source
+│   │   ├── services/serviceLayer.ts   Mock backend (replace with real API)
+│   │   └── ...
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/               Go REST API
+│   ├── cmd/server/main.go Entry point
+│   ├── internal/
+│   │   ├── auth/          Auth module (password login, JWT, OIDC-ready)
+│   │   ├── teams/         Teams, invites
+│   │   ├── members/       Team members
+│   │   ├── roles/         RBAC roles and permissions
+│   │   ├── events/        Events, series, attendance, comments
+│   │   ├── absences/      Planned absences
+│   │   ├── news/          Team news
+│   │   ├── polls/         Polls and voting
+│   │   ├── notifications/ Activity feed
+│   │   ├── finances/      Transactions, penalties, contributions
+│   │   ├── stats/         Attendance statistics
+│   │   ├── server/        Aggregator (implements StrictServerInterface)
+│   │   ├── gen/           oapi-codegen generated types (DO NOT EDIT)
+│   │   ├── db/            DB pool + migration runner
+│   │   ├── middleware/    HTTP middleware (auth, logging, CORS, rate-limit)
+│   │   ├── apierror/      RFC 9457 Problem Details
+│   │   ├── config/        Environment config
+│   │   └── testutil/      Test helpers (testcontainers)
+│   ├── openapi/openapi.yaml  Source of truth for API contract
+│   ├── go.mod
+│   └── Makefile
+├── docker-compose.yml     Local dev: Postgres + Backend + Frontend
+├── .github/workflows/ci.yml  CI: Frontend + Backend jobs
+└── CLAUDE.md
 ```
 
 ## Architecture
 
-### Technology Stack
+### Frontend
 
 - **React 18** + **TypeScript 5** (strict mode)
 - **Material UI v6** for components, **Emotion** for styling
 - **Vite 6** for bundling, **Vitest 2** for tests
-- **State-based routing** (shallow, not URL-based — no router dependency; navigation is driven by `state.route`)
-- **i18n** via a lightweight in-house layer (`src/i18n`): locale-aware `Intl` formatting + `t()` catalogs (German default, English skeleton)
-- **Error handling**: every async action funnels failures through `reportActionError` (`src/utils/errors.ts`); global `unhandledrejection`/`error` handlers report to Sentry (`src/monitoring.ts`)
+- **State-based routing** (no router dependency; navigation driven by `state.route`)
+- **i18n** via lightweight in-house layer (`src/i18n`)
+- All state in `src/context/AppContext.tsx`; access via `useApp()`
+- Mock backend at `src/services/serviceLayer.ts` — replace bodies with `fetch()` to connect real API
 
-### State Management
+### Backend
 
-All application state lives in `src/context/AppContext.tsx` via a single `AppState` object. Feature-specific actions are delegated to hooks in `src/context/useFeatureActions.ts`. Access state via `useApp()`:
+- **Go 1.24+** with **Chi v5** router
+- **PostgreSQL 17** via **pgx/v5**; migrations via **goose**
+- **Spec-first**: `openapi/openapi.yaml` → `oapi-codegen` → `internal/gen/api.gen.go`; never edit gen manually
+- **JWT (RS256)** session management; keys configurable via env; auto-generates dev keys when empty
+- **Layered architecture** per feature: `handler.go` → `service.go` → `repository.go`
+- TDD: tests live alongside source (`*_test.go`)
 
-```tsx
-const { state, can, go, openEventForm } = useApp();
+### RBAC
+
+Each team member has roles; each role has per-module permission levels (`none | read | write`). Modules: `events`, `members`, `finances`, `news`, `polls`, `settings`. Permissions are stored as JSONB in Postgres.
+
+## OpenAPI Contract
+
+`backend/openapi/openapi.yaml` is the source of truth. After editing it:
+
+```bash
+cd backend && make generate  # regenerates internal/gen/api.gen.go
 ```
 
-### Service Layer
-
-`src/services/serviceLayer.ts` is a **mock backend** with artificial delay (120–320 ms) and localStorage persistence. It mirrors the future Go/PostgreSQL API contract — replace method bodies with `fetch()` calls when connecting a real backend. The `api` object exported from this file is the only entry point for data access.
-
-### Routing
-
-Navigation is state-based (`state.route`). Use `app.go('finances')` to navigate. `src/pages/index.tsx` renders the active route; heavy routes are code-split via `React.lazy()`. Route guards are enforced there (e.g. `finances` requires `can('finances', 'read')`).
-
-### Permissions (RBAC)
-
-Each team member has roles; each role has per-module permission levels (`none | read | write`). Check permissions via:
-
-```tsx
-app.can('finances', 'read'); // true if the user can at least read finances
-app.can('events', 'write'); // true only if the user has write access
-app.isStaff(); // shorthand: can write events OR members
-```
-
-### Sheets / Modals
-
-Overlay dialogs are called "sheets". Open via `app.setState({ sheet: { type: 'eventForm', ... } })` or through dedicated action methods (`app.openEventForm(null)`). `src/sheets/DialogSheets.tsx` maps sheet types to components.
-
-## Directory Structure
-
-```
-src/
-├── components/       Shared UI atoms (ErrorBoundary, Toast, ui.tsx, cards.tsx)
-├── context/          Global state (AppContext, useFeatureActions)
-├── features/         Feature modules (events, members, finances, news, polls, team, auth, notifications)
-│   └── <feature>/
-│       ├── *Page.tsx         Route-level component
-│       ├── components/       Feature-specific UI
-│       ├── hooks/            Feature-specific actions
-│       ├── index.ts          Public API exports
-│       └── types.ts          Feature types
-├── layouts/          AppShell (navigation chrome)
-├── monitoring.ts     Sentry initialisation (guarded by VITE_SENTRY_DSN)
-├── pages/            RouteScreen (lazy-loads feature pages)
-├── services/         Mock service layer + mappers
-├── sheets/           Sheet dispatcher
-├── styles/           MUI theme builder + design tokens
-├── types/            Shared domain types
-└── utils/            date.ts, validation.ts
-```
+The TypeScript client is also generated from this spec (future: `openapi-typescript` + `openapi-fetch`).
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` (gitignored). All variables are optional — the app works with an empty `.env`.
+### Frontend (`frontend/.env`)
 
-| Variable                  | Default          | Purpose                                               |
-| ------------------------- | ---------------- | ----------------------------------------------------- |
-| `VITE_APP_NAME`           | `Teamverwaltung` | Browser title                                         |
-| `VITE_STORAGE_KEY_PREFIX` | `tv_db_`         | localStorage key prefix for the mock DB               |
-| `VITE_MOCK_DELAY_MIN/MAX` | `120` / `320`    | Simulated API latency (ms)                            |
-| `VITE_SENTRY_DSN`         | _(empty)_        | Sentry DSN; monitoring disabled when empty            |
-| `VITE_API_BASE_URL`       | _(empty)_        | Real backend base URL (unused until mock is replaced) |
+| Variable                  | Default          | Purpose                          |
+|---------------------------|------------------|----------------------------------|
+| `VITE_APP_NAME`           | `Teamverwaltung` | Browser title                    |
+| `VITE_STORAGE_KEY_PREFIX` | `tv_db_`         | localStorage prefix (mock DB)    |
+| `VITE_MOCK_DELAY_MIN/MAX` | `120` / `320`    | Simulated latency (ms)           |
+| `VITE_SENTRY_DSN`         | _(empty)_        | Sentry; disabled when empty      |
+| `VITE_API_BASE_URL`       | _(empty)_        | Real backend URL                 |
+
+### Backend
+
+| Variable          | Default                     | Purpose                        |
+|-------------------|-----------------------------|--------------------------------|
+| `DATABASE_URL`    | _(required)_                | PostgreSQL DSN                 |
+| `PORT`            | `8080`                      | HTTP port                      |
+| `ALLOWED_ORIGINS` | `http://localhost:5173`     | CORS whitelist                 |
+| `JWT_PRIVATE_KEY` | _(auto-generated in dev)_   | RSA-2048 private key PEM       |
+| `JWT_PUBLIC_KEY`  | _(auto-generated in dev)_   | RSA-2048 public key PEM        |
+| `SESSION_TTL_HOURS`| `720`                      | Session lifetime (30 days)     |
+| `MIGRATIONS_DIR`  | `internal/db/migrations`    | Goose migrations directory     |
 
 ## Testing
 
-Tests live alongside source files as `*.test.ts(x)`. Currently covering services and utilities:
+### Frontend
 
 ```bash
+cd frontend
 npm test                  # single run
 npm run test:watch        # watch mode
-npm run test:coverage     # whole-app coverage report (floors: 18% statements/lines, 50% functions, 70% branches — raise as tests grow)
+npm run test:coverage     # coverage report
 ```
 
-Add component tests with `@testing-library/react`. The jsdom environment and jest-dom matchers are pre-configured in `src/test/setup.ts`.
+### Backend
+
+```bash
+cd backend
+make test                 # all tests (integration tests skip if no Docker)
+make test-unit            # unit tests only (-short flag)
+make test-integration     # requires Docker for testcontainers
+```
+
+Integration tests use `testutil.NewTestDB(t)` which spins up a `postgres:17` testcontainer and runs migrations. Tests are automatically skipped when Docker is not available.
 
 ## Code Quality
 
-- **Commits** run `lint-staged` via Husky (ESLint + Prettier on staged files)
-- **CI** (`.github/workflows/ci.yml`) runs lint → typecheck → test → build on every PR
-- ESLint config: `eslint.config.js` (flat config, TypeScript + react-hooks rules)
-- Prettier config: `.prettierrc.json` (120-char width, single quotes, trailing commas)
+- **Frontend**: lint-staged via Husky (ESLint + Prettier); CI runs lint → typecheck → test → build
+- **Backend**: `golangci-lint`; CI runs lint → test → build + `govulncheck`
+- **Commits** enforce quality via pre-commit hooks
 
-## Replacing the Mock Backend
+## Connecting the Real Backend
 
-When connecting a real API:
+When replacing the mock frontend with real API calls:
 
-1. Replace method bodies in `src/services/serviceLayer.ts` with `fetch()` / Axios calls
-2. Keep the exported `api` object shape unchanged (the app consumes this contract)
-3. Remove the `loadDb` / `seed` / `persist` localStorage functions
-4. Set `VITE_API_BASE_URL` in production `.env`
+1. Replace method bodies in `frontend/src/services/serviceLayer.ts` with `fetch()` calls
+2. The exported `api` object shape must stay unchanged — no other frontend code changes
+3. Set `VITE_API_BASE_URL` in `frontend/.env`
+4. A generated TypeScript client from the OpenAPI spec is the recommended approach (see plan)

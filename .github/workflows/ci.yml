@@ -6,71 +6,91 @@ on:
   pull_request:
 
 jobs:
-  lint:
-    name: Lint
+  # ── Frontend ──────────────────────────────────────────────────────────────
+
+  frontend-lint:
+    name: Frontend · Lint
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
 
-  typecheck:
-    name: Typecheck
+  frontend-typecheck:
+    name: Frontend · Typecheck
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run typecheck
 
-  test:
-    name: Test
+  frontend-test:
+    name: Frontend · Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run test:coverage
       - uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
-          path: coverage/
+          name: frontend-coverage
+          path: frontend/coverage/
           retention-days: 7
 
-  security:
-    name: Security audit
+  frontend-security:
+    name: Frontend · Security audit
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      # Fail the build on high/critical vulnerabilities in production
-      # dependencies. Dev-only advisories are reported but non-blocking.
       - run: npm run audit:ci
 
-  build:
-    name: Build
+  frontend-build:
+    name: Frontend · Build
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test]
+    needs: [frontend-lint, frontend-typecheck, frontend-test]
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
       - name: Enforce bundle size budget
@@ -99,27 +119,29 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: bundle-stats
-          path: |
-            dist/stats.html
-            coverage/
+          name: frontend-bundle-stats
+          path: frontend/dist/stats.html
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
-          name: sbom
-          path: sbom.json
+          name: frontend-sbom
+          path: frontend/sbom.json
           retention-days: 30
 
-  e2e:
-    name: E2E Tests (Playwright)
+  frontend-e2e:
+    name: Frontend · E2E (Playwright)
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [frontend-build]
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
@@ -132,22 +154,103 @@ jobs:
         if: always()
         with:
           name: playwright-report
-          path: playwright-report/
+          path: frontend/playwright-report/
           retention-days: 7
 
-  lighthouse:
-    name: Lighthouse CI
+  frontend-lighthouse:
+    name: Frontend · Lighthouse CI
     runs-on: ubuntu-latest
-    needs: [build]
+    needs: [frontend-build]
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
       - name: Run Lighthouse CI
         run: npx lhci autorun
         env:
           LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+  # ── Backend ───────────────────────────────────────────────────────────────
+
+  backend-lint:
+    name: Backend · Lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+          working-directory: backend
+
+  backend-test:
+    name: Backend · Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: docker/setup-buildx-action@v3
+      - run: go test ./... -race -count=1 -coverprofile=coverage.out -timeout=300s
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "true"
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.out
+          retention-days: 7
+
+  backend-build:
+    name: Backend · Build
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-test]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - run: go build -v -ldflags="-s -w" -o bin/server ./cmd/server
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-binary
+          path: backend/bin/server
+          retention-days: 7
+
+  backend-security:
+    name: Backend · Security (govulncheck)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
