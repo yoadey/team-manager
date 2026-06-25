@@ -207,22 +207,25 @@ func main() {
 
 	// API routes under /api/v1.
 	r.Route("/api/v1", func(r chi.Router) {
-		// Public auth endpoints — no JWT required.
-		// Per-IP brute-force protection: max 5 login attempts per minute.
-		r.With(middleware.PerIPRateLimit(5, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
-			strictSrv.Login(w, req)
-		})
-		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
-			strictSrv.ListProviders(w, req)
-		})
-
-		// All other endpoints require a valid JWT.
+		// Authenticated endpoints. The generated mux registers every route,
+		// including /auth/login and /auth/providers; the public overrides below
+		// are registered afterwards so they win (chi: last registration wins).
 		r.Group(func(r chi.Router) {
 			r.Use(authHandler.AuthMiddleware)
 			// Team-scoped endpoints additionally require the caller to be a member.
 			r.Use(middleware.RequireMembership(membersRepo))
 			r.Use(middleware.RequirePermission(membersRepo))
 			gen.HandlerFromMuxWithBaseURL(strictSrv, r, "")
+		})
+
+		// Public auth endpoints — no JWT required. Must be registered AFTER the
+		// generated mux above to override its authenticated duplicates.
+		// Per-IP brute-force protection: max 5 login attempts per minute.
+		r.With(middleware.PerIPRateLimit(5, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.Login(w, req)
+		})
+		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.ListProviders(w, req)
 		})
 	})
 

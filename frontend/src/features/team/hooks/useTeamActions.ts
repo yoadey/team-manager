@@ -150,7 +150,7 @@ export function useTeamActions({
         photo: f.photo,
       });
       await refreshTeams();
-      setState({ busy: null, sheet: null, activeTeamId: team.id, route: 'home', eventScope: 'upcoming' });
+      setState({ busy: null, sheet: null, activeTeamId: team.id, route: 'home', eventScope: 'upcoming', phase: 'app' });
       await afterLoginLoad(team.id);
       toastMsg(t('team.toastTeamCreated'));
     } catch (err) {

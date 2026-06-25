@@ -37,6 +37,11 @@ export default defineConfig({
       'Referrer-Policy': 'strict-origin-when-cross-origin',
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
     },
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+      },
+    },
   },
   build: {
     // Emit source maps so Sentry can symbolicate production stack traces.

@@ -163,6 +163,12 @@ export const de = {
     pwaIosLabel: 'iOS-Hinweis:',
     pwaIosHint: 'Push-Nachrichten funktionieren erst, wenn die App zum Home-Bildschirm hinzugefügt wurde.',
   },
+  noTeam: {
+    title: 'Noch kein Team',
+    hint: 'Du bist noch in keinem Team. Lege eines an, um loszulegen — du wirst automatisch dessen Administrator.',
+    createBtn: 'Team anlegen',
+    logout: 'Abmelden',
+  },
   validation: {
     required: 'Pflichtfeld fehlt.',
     moneyMissing: 'Betrag fehlt.',

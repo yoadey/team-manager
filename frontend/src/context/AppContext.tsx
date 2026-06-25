@@ -34,7 +34,7 @@ import { setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
 
-export type Phase = 'loading' | 'login' | 'app';
+export type Phase = 'loading' | 'login' | 'noTeam' | 'app';
 export { ALL_ROUTES, routeFromPath } from './urlState';
 export type { Route } from './urlState';
 import { parseLocation, buildPath, currentPath, type Route, type UrlState } from './urlState';
@@ -694,14 +694,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await api.auth.login(pid);
         const user = await api.auth.currentUser();
         const teams = await api.teams.listForCurrentUser();
+        setSentryUser(user);
         if (!teams.length) {
-          setState({ busy: null, error: t('error.login') });
+          setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
           return;
         }
         const activeTeamId = teams[0].id;
         history.replaceState({ route: 'home' }, '', '/home');
         setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-        setSentryUser(user);
         await afterLoginLoad(activeTeamId);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
@@ -718,14 +718,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await api.auth.login(email, password);
         const user = await api.auth.currentUser();
         const teams = await api.teams.listForCurrentUser();
+        setSentryUser(user);
         if (!teams.length) {
-          setState({ busy: null, error: t('error.login') });
+          setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
           return;
         }
         const activeTeamId = teams[0].id;
         history.replaceState({ route: 'home' }, '', '/home');
         setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-        setSentryUser(user);
         await afterLoginLoad(activeTeamId);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');

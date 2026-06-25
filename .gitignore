@@ -17,6 +17,8 @@ backend/bin/
 backend/tmp/
 backend/server
 backend/*.test
+# Delve / debug binaries
+__debug_bin*
 
 # Editor / OS
 .DS_Store
