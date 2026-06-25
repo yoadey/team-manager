@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import { useApp } from '@/context/AppContext';
 import { NEUTRAL } from '@/styles/tokens';
-import { Login } from '@/features/auth';
+import { Login, NoTeam } from '@/features/auth';
 import { Shell } from '@/layouts/AppShell';
 import { SheetHost } from './SheetHost';
 import { Toast } from './Toast';
@@ -45,7 +45,7 @@ export function Root() {
 
   return (
     <>
-      {state.phase === 'login' ? <Login /> : <Shell />}
+      {state.phase === 'login' ? <Login /> : state.phase === 'noTeam' ? <NoTeam /> : <Shell />}
       <SheetHost />
       <Toast />
     </>

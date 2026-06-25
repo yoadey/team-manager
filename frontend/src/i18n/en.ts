@@ -163,6 +163,12 @@ export const en: Messages = {
     pwaIosLabel: 'iOS note:',
     pwaIosHint: 'Push notifications only work after adding the app to the home screen.',
   },
+  noTeam: {
+    title: 'No team yet',
+    hint: "You're not a member of any team yet. Create one to get started — you'll automatically become its administrator.",
+    createBtn: 'Create team',
+    logout: 'Sign out',
+  },
   validation: {
     required: 'This field is required.',
     moneyMissing: 'Amount is required.',
