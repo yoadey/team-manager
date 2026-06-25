@@ -92,7 +92,12 @@ func main() {
 		slog.Error("auth service init failed", "err", err)
 		os.Exit(1) //nolint:gocritic
 	}
-	authHandler := auth.NewHandler(authSvc, logger)
+	cookieCodec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKey, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
+	if err != nil {
+		slog.Error("cookie codec init failed", "err", err)
+		os.Exit(1)
+	}
+	authHandler := auth.NewHandler(authSvc, logger, cookieCodec)
 
 	// ─── Teams ───────────────────────────────────────────────────────────────
 
@@ -170,8 +175,9 @@ func main() {
 		statsHandler,
 	)
 
-	// Wrap the strict server in the generated strict handler adapter.
-	strictSrv := gen.NewStrictHandler(srv, nil)
+	// Wrap the strict server in the generated strict handler adapter. The cookie
+	// middleware sets the encrypted session cookie on Login and clears it on Logout.
+	strictSrv := gen.NewStrictHandler(srv, []gen.StrictMiddlewareFunc{cookieCodec.StrictMiddleware()})
 
 	// ─── Router ──────────────────────────────────────────────────────────────
 

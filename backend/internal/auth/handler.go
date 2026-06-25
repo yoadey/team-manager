@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -29,11 +28,13 @@ type authService interface {
 type Handler struct {
 	svc    authService
 	logger *slog.Logger
+	codec  *SessionCookieCodec
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(svc authService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+// NewHandler creates a new Handler. The codec is used by AuthMiddleware to read
+// the encrypted session cookie.
+func NewHandler(svc authService, logger *slog.Logger, codec *SessionCookieCodec) *Handler {
+	return &Handler{svc: svc, logger: logger, codec: codec}
 }
 
 // ListProviders returns the list of supported login providers (hardcoded to password).
@@ -177,16 +178,23 @@ func (h *Handler) Logout(ctx context.Context, _ gen.LogoutRequestObject) (gen.Lo
 // rawBearerContextKey is used internally to pass the raw Bearer token through context.
 const rawBearerContextKey contextKey = "auth_raw_token" //nolint:gosec // not a credential
 
-// AuthMiddleware extracts and validates the Bearer token from the Authorization
-// header. Unauthenticated requests receive a 401 Problem Details response.
+// AuthMiddleware reads and validates the encrypted session cookie. The
+// decrypted JWT is validated against the auth service; the raw JWT is stored in
+// context so Logout can revoke the session. Unauthenticated requests receive a
+// 401 Problem Details response.
 func (h *Handler) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			writeUnauthorized(w, "missing or invalid Authorization header")
+		cookie, err := r.Cookie(h.codec.Name())
+		if err != nil || cookie.Value == "" {
+			writeUnauthorized(w, "missing session cookie")
 			return
 		}
-		rawToken := strings.TrimPrefix(authHeader, "Bearer ")
+		rawToken, err := h.codec.Decrypt(cookie.Value)
+		if err != nil {
+			h.logger.WarnContext(r.Context(), "session cookie decrypt failed", "err", err)
+			writeUnauthorized(w, "invalid session cookie")
+			return
+		}
 
 		user, err := h.svc.ValidateToken(r.Context(), rawToken)
 		if err != nil {

@@ -1,7 +1,7 @@
 // Real backend service layer — replaces localStorage mock with HTTP API calls.
 // Only activated when VITE_API_BASE_URL is set.
 
-import { apiClient, setToken, clearToken } from '@/api/client';
+import { apiClient } from '@/api/client';
 import {
   mapUser,
   mapProvider,
@@ -59,22 +59,20 @@ export const realApi = {
         body: { email: email as string & { format: 'email' }, password: password ?? '' },
       });
       const data = await check(res);
-      setToken(data.token);
+      // The session cookie is set by the server; the body token is unused.
       return { token: data.token, provider: 'password', user: mapUser(data.user) };
     },
 
     async currentUser(): Promise<User | null> {
-      const token = localStorage.getItem('tv_jwt');
-      if (!token) return null;
+      // The session cookie travels automatically; a 401 means no active session.
       const res = await apiClient.GET('/auth/me');
       if (res.response.status === 401) return null;
       const data = await check(res);
       return mapUser(data);
     },
 
-    logout() {
-      clearToken();
-      apiClient.POST('/auth/logout', {});
+    async logout() {
+      await apiClient.POST('/auth/logout', {});
     },
 
     async setPhoto(dataUrl: string): Promise<User> {
@@ -88,10 +86,9 @@ export const realApi = {
       const formData = new FormData();
       formData.append('photo', blob, 'photo.jpg');
 
-      const token = localStorage.getItem('tv_jwt');
       const resp = await fetch(
         (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/v1/auth/me/photo',
-        { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData },
+        { method: 'POST', credentials: 'include', body: formData },
       );
       if (!resp.ok) throw new Error('Photo upload failed');
       const meRes = await apiClient.GET('/auth/me');

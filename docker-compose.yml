@@ -31,6 +31,10 @@ services:
       # Set JWT keys via .env or override here for dev
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      # Session cookie: insecure over local http; auto-generates an ephemeral
+      # encryption key when COOKIE_ENCRYPTION_KEY is unset.
+      COOKIE_SECURE: "false"
+      COOKIE_ENCRYPTION_KEY: ${COOKIE_ENCRYPTION_KEY:-}
     ports:
       - "8080:8080"
 

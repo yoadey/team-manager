@@ -120,6 +120,8 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `JWT_PUBLIC_KEY`  | _(auto-generated in dev)_   | RSA-2048 public key PEM        |
 | `SESSION_TTL_HOURS`| `720`                      | Session lifetime (30 days)     |
 | `MIGRATIONS_DIR`  | `internal/db/migrations`    | Goose migrations directory     |
+| `COOKIE_ENCRYPTION_KEY`| _(auto-generated in dev)_ | AES-256 key (32 bytes, hex or base64) encrypting the session cookie |
+| `COOKIE_SECURE`   | `true`                      | Cookie `Secure` flag; set `false` for local http |
 
 ## Testing
 

@@ -478,6 +478,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       members: [],
       roles: [],
     });
+    // Providers may not have been loaded if the session was restored from a
+    // cookie at startup; refresh them so the login screen has its buttons.
+    api.auth
+      .providers()
+      .then((providers) => setState({ providers }))
+      .catch(() => {});
   }, [api, setState]);
 
   // ---------- form ----------
@@ -687,28 +693,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   // ---------- auth ----------
+  // establishSession takes an authenticated user, loads their teams, selects the
+  // active team and transitions into the app. Shared by the login flows and the
+  // startup session-restore effect.
+  const establishSession = useCallback(
+    async (user: User | null) => {
+      const teams = await api.teams.listForCurrentUser();
+      setSentryUser(user);
+      if (!teams.length) {
+        setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
+        return;
+      }
+      const activeTeamId = teams[0].id;
+      history.replaceState({ route: 'home' }, '', '/home');
+      setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+      await afterLoginLoad(activeTeamId);
+    },
+    [api, setState, afterLoginLoad],
+  );
+
   const doLogin = useCallback(
     async (pid: string) => {
       setState({ busy: 'login:' + pid, error: null });
       try {
         await api.auth.login(pid);
         const user = await api.auth.currentUser();
-        const teams = await api.teams.listForCurrentUser();
-        setSentryUser(user);
-        if (!teams.length) {
-          setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
-          return;
-        }
-        const activeTeamId = teams[0].id;
-        history.replaceState({ route: 'home' }, '', '/home');
-        setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-        await afterLoginLoad(activeTeamId);
+        await establishSession(user);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
         setState({ busy: null, error: msg });
       }
     },
-    [api, setState, afterLoginLoad],
+    [api, setState, establishSession],
   );
 
   const doPasswordLogin = useCallback(
@@ -717,22 +733,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         await api.auth.login(email, password);
         const user = await api.auth.currentUser();
-        const teams = await api.teams.listForCurrentUser();
-        setSentryUser(user);
-        if (!teams.length) {
-          setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
-          return;
-        }
-        const activeTeamId = teams[0].id;
-        history.replaceState({ route: 'home' }, '', '/home');
-        setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-        await afterLoginLoad(activeTeamId);
+        await establishSession(user);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
         setState({ busy: null, error: msg });
       }
     },
-    [api, setState, afterLoginLoad],
+    [api, setState, establishSession],
   );
 
   // ---------- nav ----------
@@ -955,13 +962,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        // Restore an existing session from the HttpOnly cookie. If one is active,
+        // the user stays logged in across reloads without seeing the login screen.
+        const user = await api.auth.currentUser();
+        if (user) {
+          await establishSession(user);
+          return;
+        }
         const providers = await api.auth.providers();
         setState({ providers, phase: 'login' });
       } catch {
         setState({ phase: 'login', providers: [], error: t('error.network') });
       }
     })();
-  }, [api, setState]);
+  }, [api, setState, establishSession]);
 
   // All actions/helpers are stable (useCallback), so the actions object is built
   // once and never changes identity — this is what lets useAppActions consumers
