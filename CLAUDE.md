@@ -116,6 +116,7 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `DATABASE_URL`    | _(required)_                | PostgreSQL DSN                 |
 | `PORT`            | `8080`                      | HTTP port                      |
 | `ALLOWED_ORIGINS` | `http://localhost:5173`     | CORS whitelist                 |
+| `PUBLIC_BASE_URL` | _(first `ALLOWED_ORIGINS` entry)_ | Public frontend origin for shareable invite links (e.g. `https://app.example.com`); trailing slash trimmed |
 | `JWT_PRIVATE_KEY` | _(auto-generated in dev)_   | RSA-2048 private key PEM       |
 | `JWT_PUBLIC_KEY`  | _(auto-generated in dev)_   | RSA-2048 public key PEM        |
 | `SESSION_TTL_HOURS`| `720`                      | Session lifetime (30 days)     |

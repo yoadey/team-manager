@@ -102,7 +102,7 @@ func main() {
 	// ─── Teams ───────────────────────────────────────────────────────────────
 
 	teamsRepo := teams.NewRepository(pool)
-	teamsSvc := teams.NewService(teamsRepo)
+	teamsSvc := teams.NewService(teamsRepo, cfg.PublicBaseURL)
 	teamsHandler := teams.NewHandler(teamsSvc, logger)
 
 	// ─── Members ─────────────────────────────────────────────────────────────

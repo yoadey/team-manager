@@ -120,7 +120,7 @@ func TestTeamService_ListForUser(t *testing.T) {
 		},
 	}
 
-	svc := teams.NewService(repo)
+	svc := teams.NewService(repo, "https://app.example.com")
 	result, err := svc.ListForUser(context.Background(), userID.String())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -128,4 +128,31 @@ func TestTeamService_ListForUser(t *testing.T) {
 	assert.Equal(t, 3, result[0].MemberCount)
 	assert.Len(t, result[0].MyRoles, 1)
 	assert.Equal(t, "write", string(result[0].MyPerms.Events))
+}
+
+func TestCreateInvite_BuildsLinkFromPublicBaseURL(t *testing.T) {
+	teamID := uuid.New()
+	inviteID := uuid.New()
+	now := time.Now()
+
+	repo := &mockTeamRepo{
+		createInvite: func(_ context.Context, tid string, ttl time.Duration) (*teams.InviteRow, error) {
+			assert.Equal(t, teamID.String(), tid)
+			assert.Equal(t, 7*24*time.Hour, ttl)
+			return &teams.InviteRow{
+				Id:        inviteID,
+				TeamID:    teamID,
+				Code:      "ABC123",
+				ExpiresAt: now.Add(ttl),
+				CreatedAt: now,
+			}, nil
+		},
+	}
+
+	// A trailing slash on the base URL must not produce a double slash.
+	svc := teams.NewService(repo, "https://app.example.com/")
+	inv, err := svc.CreateInvite(context.Background(), teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, "https://app.example.com/join/"+teamID.String()+"/ABC123", inv.Link)
+	assert.Equal(t, "ABC123", inv.Code)
 }

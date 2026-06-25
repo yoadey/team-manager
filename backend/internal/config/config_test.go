@@ -31,6 +31,30 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, "8080", cfg.Port)
 	assert.Equal(t, 720*time.Hour, cfg.SessionTTL)
 	assert.Equal(t, []string{"http://localhost:5173"}, cfg.AllowedOrigins)
+	// PublicBaseURL defaults to the first allowed origin.
+	assert.Equal(t, "http://localhost:5173", cfg.PublicBaseURL)
+}
+
+func TestLoad_PublicBaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false") // dev mode: allow ephemeral cookie key
+	t.Setenv("PUBLIC_BASE_URL", "https://app.example.com/")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	// Trailing slash is trimmed so links don't get a double slash.
+	assert.Equal(t, "https://app.example.com", cfg.PublicBaseURL)
+}
+
+func TestLoad_PublicBaseURLDefaultsToAllowedOrigin(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false") // dev mode: allow ephemeral cookie key
+	t.Setenv("ALLOWED_ORIGINS", "https://example.com")
+	t.Setenv("PUBLIC_BASE_URL", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.com", cfg.PublicBaseURL)
 }
 
 func TestLoad_CustomPort(t *testing.T) {

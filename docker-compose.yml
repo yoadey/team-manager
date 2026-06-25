@@ -28,6 +28,9 @@ services:
       DATABASE_URL: postgres://teammanager:teammanager@postgres:5432/teammanager?sslmode=disable
       PORT: 8080
       ALLOWED_ORIGINS: http://localhost:5173
+      # Public frontend origin used to build shareable invite links.
+      # Defaults to the first ALLOWED_ORIGINS entry when unset.
+      PUBLIC_BASE_URL: http://localhost:5173
       # Set JWT keys via .env or override here for dev
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:-}
       JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}

@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -34,11 +35,15 @@ type teamRepo interface {
 // Service implements team business logic.
 type Service struct {
 	repo teamRepo
+	// publicBaseURL is the user-facing frontend origin used to build shareable
+	// invite links (no trailing slash).
+	publicBaseURL string
 }
 
-// NewService creates a new Service.
-func NewService(repo teamRepo) *Service {
-	return &Service{repo: repo}
+// NewService creates a new Service. publicBaseURL is the user-facing frontend
+// origin (e.g. https://app.example.com) used to build shareable invite links.
+func NewService(repo teamRepo, publicBaseURL string) *Service {
+	return &Service{repo: repo, publicBaseURL: strings.TrimRight(publicBaseURL, "/")}
 }
 
 // ListForUser returns all teams for the given user enriched with member count,
@@ -103,7 +108,7 @@ func (s *Service) CreateInvite(ctx context.Context, teamID string) (*gen.Invite,
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.CreateInvite: %w", err)
 	}
-	link := fmt.Sprintf("https://teammanager.example/join/%s/%s", teamID, inv.Code)
+	link := fmt.Sprintf("%s/join/%s/%s", s.publicBaseURL, teamID, inv.Code)
 	return &gen.Invite{
 		Id:        inv.Id,
 		TeamId:    inv.TeamID,

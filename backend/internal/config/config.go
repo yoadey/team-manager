@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -37,6 +38,7 @@ type Config struct {
 	CookieEncryptionKey []byte
 	CookieSecure        bool
 	CookieName          string
+	PublicBaseURL       string
 }
 
 func Load() (*Config, error) {
@@ -64,6 +66,11 @@ func Load() (*Config, error) {
 		origins = []string{v}
 	}
 
+	// Public base URL of the user-facing frontend, used to build shareable links
+	// (e.g. team invite links). Defaults to the first allowed origin so a
+	// correctly configured deployment produces working links out of the box.
+	publicBaseURL := strings.TrimRight(envOr("PUBLIC_BASE_URL", origins[0]), "/")
+
 	cookieSecure := true
 	if v := os.Getenv("COOKIE_SECURE"); v != "" {
 		b, err := strconv.ParseBool(v)
@@ -89,6 +96,7 @@ func Load() (*Config, error) {
 		CookieEncryptionKey: cookieKey,
 		CookieSecure:        cookieSecure,
 		CookieName:          os.Getenv("COOKIE_NAME"),
+		PublicBaseURL:       publicBaseURL,
 	}, nil
 }
 
