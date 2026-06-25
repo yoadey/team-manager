@@ -88,7 +88,7 @@ func TestStrictMiddleware_SetsCookieOnLogin(t *testing.T) {
 	)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/auth/login", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", http.NoBody)
 	_, err := handler(context.Background(), w, req, gen.LoginRequestObject{})
 	require.NoError(t, err)
 
@@ -115,7 +115,7 @@ func TestStrictMiddleware_ClearsCookieOnLogout(t *testing.T) {
 	)
 
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/auth/logout", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/logout", http.NoBody)
 	_, err := handler(context.Background(), w, req, gen.LogoutRequestObject{})
 	require.NoError(t, err)
 
