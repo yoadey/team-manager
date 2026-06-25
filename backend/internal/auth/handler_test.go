@@ -349,6 +349,49 @@ func TestHandler_GetCurrentUser_InvalidToken(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
+func TestHandler_AuthMiddleware_MissingCookie(t *testing.T) {
+	t.Parallel()
+
+	codec := testCodec(t)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Get("/auth/me", func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("inner handler must not run without a session cookie")
+		})
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestHandler_AuthMiddleware_TamperedCookie(t *testing.T) {
+	t.Parallel()
+
+	codec := testCodec(t)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Get("/auth/me", func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("inner handler must not run with a tampered session cookie")
+		})
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
+	req.AddCookie(&http.Cookie{Name: codec.Name(), Value: "not-a-valid-encrypted-value"})
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 func TestHandler_UploadMyPhoto(t *testing.T) {
 	t.Parallel()
 

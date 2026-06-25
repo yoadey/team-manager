@@ -31,14 +31,22 @@ import type { NewsItem } from '@/features/news';
 import type { Poll } from '@/features/polls';
 import type { NotificationsResult } from '@/features/notifications';
 import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribution } from '@/features/finances';
+import { AuthError, NetworkError, ValidationError } from '@/utils/errors';
 
-// Throws a descriptive error when the API returns an error response.
+// Throws a typed error when the API returns an error response, so callers can
+// react to the failure class — notably AuthError (401/403), which the app's
+// reportActionError/onAuthError wiring turns into a logout + redirect to the
+// login screen when a session expires mid-use.
 async function check<T>(
   result: { data?: T; error?: unknown; response: Response },
 ): Promise<T> {
   if (result.error || !result.data) {
+    const status = result.response.status;
     const err = result.error as { detail?: string; title?: string } | undefined;
-    const msg = err?.detail ?? err?.title ?? `HTTP ${result.response.status}`;
+    const msg = err?.detail ?? err?.title ?? `HTTP ${status}`;
+    if (status === 401 || status === 403) throw new AuthError(msg);
+    if (status === 400 || status === 422) throw new ValidationError(msg);
+    if (status >= 500) throw new NetworkError(msg);
     throw new Error(msg);
   }
   return result.data;

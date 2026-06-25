@@ -168,6 +168,77 @@ func TestCORS_Preflight_UnknownOrigin(t *testing.T) {
 	assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"))
 }
 
+// ─── CSRF Origin check ─────────────────────────────────────────────────────────
+
+func TestCSRFOriginCheck_AllowsSafeMethods(t *testing.T) {
+	var called bool
+	handler := middleware.CSRFOriginCheck([]string{"https://app.example.com"})(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/data", http.NoBody)
+	req.Header.Set("Origin", "https://evil.example.com") // disallowed but GET is safe
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestCSRFOriginCheck_BlocksDisallowedOriginOnMutation(t *testing.T) {
+	handler := middleware.CSRFOriginCheck([]string{"https://app.example.com"})(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("inner handler must not run for a blocked cross-origin request")
+		}),
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/data", http.NoBody)
+	req.Header.Set("Origin", "https://evil.example.com")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestCSRFOriginCheck_AllowsWhitelistedOriginOnMutation(t *testing.T) {
+	var called bool
+	handler := middleware.CSRFOriginCheck([]string{"https://app.example.com"})(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/data", http.NoBody)
+	req.Header.Set("Origin", "https://app.example.com")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+func TestCSRFOriginCheck_AllowsMissingOriginOnMutation(t *testing.T) {
+	var called bool
+	handler := middleware.CSRFOriginCheck([]string{"https://app.example.com"})(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+
+	// No Origin header — non-browser/API client must keep working.
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/data", http.NoBody)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 // ─── Recoverer ───────────────────────────────────────────────────────────────
 
 func TestRecoverer_CatchesPanic(t *testing.T) {

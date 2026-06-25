@@ -38,9 +38,6 @@ linters:
     gosec:
       excludes:
         - G115
-        # G124: session cookie's Secure attribute is intentionally configurable
-        # via COOKIE_SECURE (false for local http development).
-        - G124
     gocritic:
       enabled-tags:
         - diagnostic
@@ -72,6 +69,12 @@ linters:
       - path: "internal/gen/"
         linters:
           - all
+      # G124: the session cookie's Secure attribute is intentionally configurable
+      # via COOKIE_SECURE (false for local http dev). Scoped to the only file that
+      # sets cookies so G124 stays active everywhere else.
+      - path: "internal/auth/cookie\\.go"
+        linters:
+          - gosec
       - path: "internal/server/server\\.go"
         linters:
           - wrapcheck

@@ -191,6 +191,7 @@ func main() {
 	r.Use(middleware.Metrics)
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
+	r.Use(middleware.CSRFOriginCheck(cfg.AllowedOrigins))
 	r.Use(middleware.RateLimit(100))
 	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
 
