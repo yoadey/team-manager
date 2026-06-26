@@ -84,6 +84,7 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string
 	}
 
 	results, err := provider.Up(ctx)
+	var migrationErrs []error
 	for _, r := range results {
 		if r.Error != nil {
 			slog.ErrorContext(
@@ -91,6 +92,7 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string
 				slog.String("file", r.Source.Path),
 				slog.Any("error", r.Error),
 			)
+			migrationErrs = append(migrationErrs, fmt.Errorf("migration %s: %w", r.Source.Path, r.Error))
 			continue
 		}
 		slog.InfoContext(
@@ -101,6 +103,9 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string
 	}
 	if err != nil {
 		return fmt.Errorf("db: run migrations: %w", err)
+	}
+	if len(migrationErrs) > 0 {
+		return fmt.Errorf("db: %d migration(s) failed: %w", len(migrationErrs), errors.Join(migrationErrs...))
 	}
 
 	return nil

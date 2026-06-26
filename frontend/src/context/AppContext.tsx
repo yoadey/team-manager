@@ -30,7 +30,7 @@ import type { Poll } from '@/features/polls';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
-import { setSentryUser } from '@/monitoring';
+import { captureException, setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
 
@@ -450,7 +450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [setState],
   );
 
-  // Apply persisted color scheme on mount
+  // Apply persisted color scheme whenever it changes
   useEffect(() => {
     const scheme = state.colorScheme;
     if (scheme === 'system') {
@@ -458,8 +458,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } else {
       document.documentElement.dataset.colorScheme = scheme;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [state.colorScheme]);
 
   // ---------- auth ----------
   // logout is defined early so data-loader callbacks can reference it in their
@@ -483,7 +482,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     api.auth
       .providers()
       .then((providers) => setState({ providers }))
-      .catch(() => {});
+      .catch((err: unknown) => {
+        captureException(err, { context: 'providers-on-logout' });
+      });
   }, [api, setState]);
 
   // ---------- form ----------

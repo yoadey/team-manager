@@ -63,7 +63,13 @@ func Load() (*Config, error) {
 
 	origins := []string{"http://localhost:5173"}
 	if v := os.Getenv("ALLOWED_ORIGINS"); v != "" {
-		origins = []string{v}
+		parts := strings.Split(v, ",")
+		origins = make([]string, 0, len(parts))
+		for _, p := range parts {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				origins = append(origins, trimmed)
+			}
+		}
 	}
 
 	// Public base URL of the user-facing frontend, used to build shareable links

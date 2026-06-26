@@ -4,9 +4,18 @@ package apierror
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 )
 
-const baseURI = "https://teammanager.example/errors/"
+// baseURI is the prefix for all RFC 9457 error type URIs.
+// Override via ERROR_TYPE_BASE_URI environment variable in production.
+var baseURI = func() string {
+	if v := os.Getenv("ERROR_TYPE_BASE_URI"); v != "" {
+		return strings.TrimRight(v, "/") + "/"
+	}
+	return "https://teammanager.example/errors/"
+}()
 
 // APIError represents an RFC 9457 Problem Details object.
 type APIError struct {

@@ -3,9 +3,9 @@ services:
     image: postgres:17
     restart: unless-stopped
     environment:
-      POSTGRES_USER: teammanager
-      POSTGRES_PASSWORD: teammanager
-      POSTGRES_DB: teammanager
+      POSTGRES_USER: ${POSTGRES_USER:-teammanager}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-teammanager}
+      POSTGRES_DB: ${POSTGRES_DB:-teammanager}
     ports:
       - "5432:5432"
     volumes:
@@ -24,8 +24,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     environment:
-      DATABASE_URL: postgres://teammanager:teammanager@postgres:5432/teammanager?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-teammanager}:${POSTGRES_PASSWORD:-teammanager}@postgres:5432/${POSTGRES_DB:-teammanager}?sslmode=disable
       PORT: 8080
       ALLOWED_ORIGINS: http://localhost:5173
       # Public frontend origin used to build shareable invite links.
