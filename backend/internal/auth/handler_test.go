@@ -59,6 +59,22 @@ func testUser() *auth.UserRow {
 	}
 }
 
+// testCodec builds a session cookie codec with a fixed all-zero key for tests.
+func testCodec(t *testing.T) *auth.SessionCookieCodec {
+	t.Helper()
+	codec, err := auth.NewSessionCookieCodec(make([]byte, 32), false, time.Hour, "")
+	require.NoError(t, err)
+	return codec
+}
+
+// addSessionCookie encrypts jwt with the codec and attaches it as the session cookie.
+func addSessionCookie(t *testing.T, codec *auth.SessionCookieCodec, req *http.Request, jwt string) {
+	t.Helper()
+	value, err := codec.Encrypt(jwt)
+	require.NoError(t, err)
+	req.AddCookie(&http.Cookie{Name: codec.Name(), Value: value})
+}
+
 // callListProviders invokes the handler method and writes the response.
 func callListProviders(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
 	resp, err := h.ListProviders(r.Context(), gen.ListProvidersRequestObject{})
@@ -154,7 +170,7 @@ func trimSpace(s string) string {
 func TestHandler_ListProviders(t *testing.T) {
 	t.Parallel()
 
-	h := auth.NewHandler(&mockAuthService{}, slog.Default())
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/providers", http.NoBody)
 	w := httptest.NewRecorder()
@@ -180,7 +196,7 @@ func TestHandler_Login_Success(t *testing.T) {
 			return "jwt.token.here", user, nil
 		},
 	}
-	h := auth.NewHandler(svc, slog.Default())
+	h := auth.NewHandler(svc, slog.Default(), nil)
 
 	body := `{"email":"test@example.com","password":"Secret123!"}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", bytes.NewBufferString(body))
@@ -204,7 +220,7 @@ func TestHandler_Login_BadCredentials(t *testing.T) {
 			return "", nil, errors.New("invalid credentials")
 		},
 	}
-	h := auth.NewHandler(svc, slog.Default())
+	h := auth.NewHandler(svc, slog.Default(), nil)
 
 	body := `{"email":"bad@example.com","password":"wrong"}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", bytes.NewBufferString(body))
@@ -219,7 +235,7 @@ func TestHandler_Login_BadCredentials(t *testing.T) {
 func TestHandler_GetCurrentUser_NoAuth(t *testing.T) {
 	t.Parallel()
 
-	h := auth.NewHandler(&mockAuthService{}, slog.Default())
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
 	// No user in context — simulates unauthenticated request.
@@ -242,7 +258,8 @@ func TestHandler_GetCurrentUser_WithAuth(t *testing.T) {
 		},
 	}
 
-	h := auth.NewHandler(svc, slog.Default())
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -253,7 +270,7 @@ func TestHandler_GetCurrentUser_WithAuth(t *testing.T) {
 	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
-	req.Header.Set("Authorization", "Bearer valid-token")
+	addSessionCookie(t, codec, req, "valid-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -284,7 +301,8 @@ func TestHandler_Logout(t *testing.T) {
 		},
 	}
 
-	h := auth.NewHandler(svc, slog.Default())
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -295,7 +313,7 @@ func TestHandler_Logout(t *testing.T) {
 	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/logout", http.NoBody)
-	req.Header.Set("Authorization", "Bearer valid-logout-token")
+	addSessionCookie(t, codec, req, "valid-logout-token")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -312,7 +330,8 @@ func TestHandler_GetCurrentUser_InvalidToken(t *testing.T) {
 		},
 	}
 
-	h := auth.NewHandler(svc, slog.Default())
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -323,7 +342,50 @@ func TestHandler_GetCurrentUser_InvalidToken(t *testing.T) {
 	})
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
-	req.Header.Set("Authorization", "Bearer bad-token")
+	addSessionCookie(t, codec, req, "bad-token")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestHandler_AuthMiddleware_MissingCookie(t *testing.T) {
+	t.Parallel()
+
+	codec := testCodec(t)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Get("/auth/me", func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("inner handler must not run without a session cookie")
+		})
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestHandler_AuthMiddleware_TamperedCookie(t *testing.T) {
+	t.Parallel()
+
+	codec := testCodec(t)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Get("/auth/me", func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("inner handler must not run with a tampered session cookie")
+		})
+	})
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
+	req.AddCookie(&http.Cookie{Name: codec.Name(), Value: "not-a-valid-encrypted-value"})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -348,7 +410,8 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 		},
 	}
 
-	h := auth.NewHandler(svc, slog.Default())
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -370,7 +433,7 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/auth/me/photo", &buf)
-	req.Header.Set("Authorization", "Bearer token")
+	addSessionCookie(t, codec, req, "token")
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

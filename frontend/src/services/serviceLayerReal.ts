@@ -1,7 +1,7 @@
 // Real backend service layer — replaces localStorage mock with HTTP API calls.
 // Only activated when VITE_API_BASE_URL is set.
 
-import { apiClient, setToken, clearToken } from '@/api/client';
+import { apiClient } from '@/api/client';
 import {
   mapUser,
   mapProvider,
@@ -31,14 +31,22 @@ import type { NewsItem } from '@/features/news';
 import type { Poll } from '@/features/polls';
 import type { NotificationsResult } from '@/features/notifications';
 import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribution } from '@/features/finances';
+import { AuthError, NetworkError, ValidationError } from '@/utils/errors';
 
-// Throws a descriptive error when the API returns an error response.
+// Throws a typed error when the API returns an error response, so callers can
+// react to the failure class — notably AuthError (401/403), which the app's
+// reportActionError/onAuthError wiring turns into a logout + redirect to the
+// login screen when a session expires mid-use.
 async function check<T>(
   result: { data?: T; error?: unknown; response: Response },
 ): Promise<T> {
   if (result.error || !result.data) {
+    const status = result.response.status;
     const err = result.error as { detail?: string; title?: string } | undefined;
-    const msg = err?.detail ?? err?.title ?? `HTTP ${result.response.status}`;
+    const msg = err?.detail ?? err?.title ?? `HTTP ${status}`;
+    if (status === 401 || status === 403) throw new AuthError(msg);
+    if (status === 400 || status === 422) throw new ValidationError(msg);
+    if (status >= 500) throw new NetworkError(msg);
     throw new Error(msg);
   }
   return result.data;
@@ -59,22 +67,20 @@ export const realApi = {
         body: { email: email as string & { format: 'email' }, password: password ?? '' },
       });
       const data = await check(res);
-      setToken(data.token);
+      // The session cookie is set by the server; the body token is unused.
       return { token: data.token, provider: 'password', user: mapUser(data.user) };
     },
 
     async currentUser(): Promise<User | null> {
-      const token = localStorage.getItem('tv_jwt');
-      if (!token) return null;
+      // The session cookie travels automatically; a 401 means no active session.
       const res = await apiClient.GET('/auth/me');
       if (res.response.status === 401) return null;
       const data = await check(res);
       return mapUser(data);
     },
 
-    logout() {
-      clearToken();
-      apiClient.POST('/auth/logout', {});
+    async logout() {
+      await apiClient.POST('/auth/logout', {});
     },
 
     async setPhoto(dataUrl: string): Promise<User> {
@@ -88,10 +94,9 @@ export const realApi = {
       const formData = new FormData();
       formData.append('photo', blob, 'photo.jpg');
 
-      const token = localStorage.getItem('tv_jwt');
       const resp = await fetch(
         (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/v1/auth/me/photo',
-        { method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: formData },
+        { method: 'POST', credentials: 'include', body: formData },
       );
       if (!resp.ok) throw new Error('Photo upload failed');
       const meRes = await apiClient.GET('/auth/me');

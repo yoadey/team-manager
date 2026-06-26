@@ -92,12 +92,17 @@ func main() {
 		slog.Error("auth service init failed", "err", err)
 		os.Exit(1) //nolint:gocritic
 	}
-	authHandler := auth.NewHandler(authSvc, logger)
+	cookieCodec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKey, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
+	if err != nil {
+		slog.Error("cookie codec init failed", "err", err)
+		os.Exit(1)
+	}
+	authHandler := auth.NewHandler(authSvc, logger, cookieCodec)
 
 	// ─── Teams ───────────────────────────────────────────────────────────────
 
 	teamsRepo := teams.NewRepository(pool)
-	teamsSvc := teams.NewService(teamsRepo)
+	teamsSvc := teams.NewService(teamsRepo, cfg.PublicBaseURL)
 	teamsHandler := teams.NewHandler(teamsSvc, logger)
 
 	// ─── Members ─────────────────────────────────────────────────────────────
@@ -170,8 +175,9 @@ func main() {
 		statsHandler,
 	)
 
-	// Wrap the strict server in the generated strict handler adapter.
-	strictSrv := gen.NewStrictHandler(srv, nil)
+	// Wrap the strict server in the generated strict handler adapter. The cookie
+	// middleware sets the encrypted session cookie on Login and clears it on Logout.
+	strictSrv := gen.NewStrictHandler(srv, []gen.StrictMiddlewareFunc{cookieCodec.StrictMiddleware()})
 
 	// ─── Router ──────────────────────────────────────────────────────────────
 
@@ -185,6 +191,7 @@ func main() {
 	r.Use(middleware.Metrics)
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
+	r.Use(middleware.CSRFOriginCheck(cfg.AllowedOrigins))
 	r.Use(middleware.RateLimit(100))
 	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
 

@@ -87,10 +87,28 @@ func testAuthUser() *auth.UserRow {
 	}
 }
 
+// testCodec is a shared session cookie codec (fixed all-zero key) for tests.
+var testCodec = func() *auth.SessionCookieCodec {
+	c, err := auth.NewSessionCookieCodec(make([]byte, 32), false, time.Hour, "")
+	if err != nil {
+		panic(err)
+	}
+	return c
+}()
+
+// sessionCookie builds an encrypted session cookie carrying jwt.
+func sessionCookie(jwt string) *http.Cookie {
+	value, err := testCodec.Encrypt(jwt)
+	if err != nil {
+		panic(err)
+	}
+	return &http.Cookie{Name: testCodec.Name(), Value: value}
+}
+
 // withAuthUser wraps a handler with auth middleware using a fake user.
 func withAuthUser(h http.Handler, user *auth.UserRow) http.Handler {
 	logger := slog.Default()
-	authH := auth.NewHandler(&fakeAuthSvc{user: user}, logger)
+	authH := auth.NewHandler(&fakeAuthSvc{user: user}, logger, testCodec)
 	return authH.AuthMiddleware(h)
 }
 
@@ -138,7 +156,7 @@ func TestTeamHandler_ListTeams(t *testing.T) {
 	handler := withAuthUser(inner, testAuthUser())
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/teams", http.NoBody)
-	req.Header.Set("Authorization", "Bearer test-token")
+	req.AddCookie(sessionCookie("test-token"))
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
