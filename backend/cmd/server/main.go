@@ -210,7 +210,14 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	r.Handle("/metrics", promhttp.Handler())
+	// Metrics expose internal telemetry; when METRICS_TOKEN is set they require
+	// a bearer token (configure the scraper to send it). Left open when unset so
+	// local dev and in-cluster scraping over a private network keep working.
+	var metricsHandler http.Handler = promhttp.Handler()
+	if cfg.MetricsToken != "" {
+		metricsHandler = middleware.RequireBearerToken(cfg.MetricsToken)(metricsHandler)
+	}
+	r.Handle("/metrics", metricsHandler)
 
 	// API routes under /api/v1.
 	r.Route("/api/v1", func(r chi.Router) {

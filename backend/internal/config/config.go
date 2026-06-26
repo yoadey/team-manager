@@ -39,6 +39,7 @@ type Config struct {
 	CookieSecure        bool
 	CookieName          string
 	PublicBaseURL       string
+	MetricsToken        string
 }
 
 func Load() (*Config, error) {
@@ -103,6 +104,7 @@ func Load() (*Config, error) {
 		CookieSecure:        cookieSecure,
 		CookieName:          os.Getenv("COOKIE_NAME"),
 		PublicBaseURL:       publicBaseURL,
+		MetricsToken:        os.Getenv("METRICS_TOKEN"),
 	}, nil
 }
 

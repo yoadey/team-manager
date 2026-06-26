@@ -195,7 +195,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # Pinned for reproducible lint results (was "latest", which drifts and
+          # can change findings between runs). Latest v2 line; bump deliberately.
+          version: v2.12.2
           working-directory: backend
 
   backend-test:
@@ -321,7 +323,12 @@ jobs:
       - name: Build backend image
         run: docker build -t team-manager-backend:ci backend/
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@master
+        # Pinned to an immutable release tag rather than @master. trivy-action
+        # was hit by a tag-hijacking supply-chain attack; a mutable branch ref
+        # like @master is exactly the exposure that enables. v0.36.0 is covered
+        # by GitHub's immutable-releases protection (commit ed142fd). Further
+        # hardening: pin to the full commit SHA.
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: team-manager-backend:ci
           format: table

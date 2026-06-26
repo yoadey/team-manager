@@ -566,7 +566,8 @@ export const realApi = {
       return mapPenaltyAssignment(a);
     },
 
-    async unassignPenalty(id: string, teamId: string): Promise<void> {
+    // Named to match the mock + the app's call site (api.finances.deleteAssignment).
+    async deleteAssignment(id: string, teamId: string): Promise<void> {
       const res = await apiClient.DELETE('/teams/{teamId}/finances/penalty-assignments/{assignmentId}', {
         params: { path: { teamId, assignmentId: id } },
       });

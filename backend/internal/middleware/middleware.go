@@ -105,10 +105,20 @@ var rateLimitHandler = httprate.WithLimitHandler(func(w http.ResponseWriter, r *
 	_ = json.NewEncoder(w).Encode(body)
 })
 
-// RateLimit returns middleware that limits requests to requestsPerSecond per
-// second (global, across all clients) using a sliding-window counter.
+// RateLimit returns middleware that limits each client IP to requestsPerSecond
+// per second using a sliding-window counter.
+//
+// Keying by IP (rather than a single global counter) means one noisy client
+// cannot exhaust the request budget for everyone, and per-instance throughput
+// is not artificially capped by aggregate traffic. Behind a proxy/load balancer
+// this relies on X-Forwarded-For / X-Real-IP being set correctly.
 func RateLimit(requestsPerSecond int) func(http.Handler) http.Handler {
-	return httprate.NewRateLimiter(requestsPerSecond, time.Second, rateLimitHandler).Handler
+	return httprate.NewRateLimiter(
+		requestsPerSecond,
+		time.Second,
+		rateLimitHandler,
+		httprate.WithKeyFuncs(httprate.KeyByRealIP),
+	).Handler
 }
 
 // PerIPRateLimit returns middleware that limits each unique remote IP to

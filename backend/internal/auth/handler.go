@@ -11,6 +11,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
@@ -28,12 +29,13 @@ type Handler struct {
 	svc    authService
 	logger *slog.Logger
 	codec  *SessionCookieCodec
+	audit  *audit.Logger
 }
 
 // NewHandler creates a new Handler. The codec is used by AuthMiddleware to read
 // the encrypted session cookie.
 func NewHandler(svc authService, logger *slog.Logger, codec *SessionCookieCodec) *Handler {
-	return &Handler{svc: svc, logger: logger, codec: codec}
+	return &Handler{svc: svc, logger: logger, codec: codec, audit: audit.New(logger)}
 }
 
 // ListProviders returns the list of supported login providers (hardcoded to password).
@@ -74,11 +76,13 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 	token, user, err := h.svc.Login(ctx, string(request.Body.Email), request.Body.Password)
 	if err != nil {
 		h.logger.WarnContext(ctx, "login failed", "email", request.Body.Email, "err", err)
+		h.audit.Record(ctx, audit.EventLogin, audit.Failure, "", slog.String("email", string(request.Body.Email)))
 		return gen.Login401ApplicationProblemPlusJSONResponse{
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
 		}, nil
 	}
 
+	h.audit.Record(ctx, audit.EventLogin, audit.Success, user.Id.String(), slog.String("email", string(request.Body.Email)))
 	return gen.Login200JSONResponse{
 		Token: token,
 		User:  toGenUser(user),
@@ -168,9 +172,16 @@ func (h *Handler) Logout(ctx context.Context, _ gen.LogoutRequestObject) (gen.Lo
 	// The raw token is stored in context by AuthMiddleware.
 	rawToken, _ := ctx.Value(rawBearerContextKey).(string)
 	tokenHash := sha256Hex(rawToken)
+	var actor string
+	if u, ok := UserFromContext(ctx); ok {
+		actor = u.Id.String()
+	}
 	if err := h.svc.Logout(ctx, tokenHash); err != nil {
 		h.logger.WarnContext(ctx, "logout failed", "err", err)
+		h.audit.Record(ctx, audit.EventLogout, audit.Failure, actor)
+		return gen.Logout204Response{}, nil
 	}
+	h.audit.Record(ctx, audit.EventLogout, audit.Success, actor)
 	return gen.Logout204Response{}, nil
 }
 

@@ -30,7 +30,14 @@ var (
 	ErrPublicKeyNotRSA         = errors.New("auth.NewService: public key is not RSA")
 	ErrMissingJTIClaim         = errors.New("auth.Service.ValidateToken: missing jti claim")
 	ErrUnexpectedSigningMethod = errors.New("auth.Service.ValidateToken: unexpected signing method")
+	ErrImageTooLarge           = errors.New("auth.resizeImage: image dimensions exceed the allowed maximum")
 )
+
+// dummyPasswordHash is a valid bcrypt hash that Login compares against when no
+// user matches the supplied email. Running a bcrypt comparison on both the
+// "user found" and "user not found" paths keeps Login's timing roughly constant
+// regardless of whether the email exists, mitigating user enumeration.
+var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("user-enumeration-timing-equalizer"), 12)
 
 // authRepo is the interface the Service relies on. A *Repository satisfies it.
 type authRepo interface {
@@ -109,6 +116,9 @@ func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL ti
 func (s *Service) Login(ctx context.Context, email, password string) (token string, user *UserRow, err error) {
 	user, err = s.repo.FindUserByEmail(ctx, email)
 	if err != nil {
+		// Compare against a dummy hash so a missing user takes about as long as a
+		// wrong password — otherwise response timing reveals which emails exist.
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 		return "", nil, ErrInvalidCredentials
 	}
 
@@ -240,9 +250,33 @@ func sha256Hex(s string) string {
 
 const maxPhotoDim = 800
 
+// maxDecodePixels caps the total pixel count of an uploaded image before it is
+// fully decoded, bounding peak memory against decompression-bomb inputs. 50 MP
+// comfortably covers legitimate phone-camera photos.
+const maxDecodePixels = 50_000_000
+
 // resizeImage decodes a JPEG or PNG, scales it proportionally so neither
 // dimension exceeds maxPhotoDim, and re-encodes as JPEG.
 func resizeImage(data []byte, mime string) ([]byte, error) {
+	// Read the header first (cheap) and reject oversized images before a full
+	// decode. A small compressed file can declare enormous dimensions and blow
+	// up memory when fully decoded (a "decompression bomb"); the 4 MB request
+	// body limit does not bound the decoded pixel count.
+	var cfg image.Config
+	var cfgErr error
+	switch mime {
+	case "image/png":
+		cfg, cfgErr = png.DecodeConfig(bytes.NewReader(data))
+	default:
+		cfg, cfgErr = jpeg.DecodeConfig(bytes.NewReader(data))
+	}
+	if cfgErr != nil {
+		return nil, fmt.Errorf("decode image config: %w", cfgErr)
+	}
+	if cfg.Width*cfg.Height > maxDecodePixels {
+		return nil, fmt.Errorf("%w (%dx%d)", ErrImageTooLarge, cfg.Width, cfg.Height)
+	}
+
 	var src image.Image
 	var decodeErr error
 
