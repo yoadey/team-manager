@@ -96,6 +96,28 @@ paths:
                 $ref: "#/components/schemas/User"
         "401":
           $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [auth]
+      operationId: deleteCurrentUser
+      summary: Erase the authenticated account (GDPR Art. 17, by anonymization)
+      description: >
+        Anonymizes the user's personal data (name, email, phone, birthday,
+        address, photo) and strips free-text PII from their comments and
+        absence reasons, then deletes all of their sessions. Membership,
+        attendance and finance records are retained in anonymized form so that
+        shared and legally required data (e.g. accounting) stays intact. The
+        account password must be supplied to re-authenticate the request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountRequest"
+      responses:
+        "204":
+          description: Account anonymized; session cleared
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /auth/me/photo:
     get:
@@ -1443,6 +1465,15 @@ components:
           type: string
         user:
           $ref: "#/components/schemas/User"
+
+    DeleteAccountRequest:
+      type: object
+      required: [password]
+      properties:
+        password:
+          type: string
+          minLength: 1
+          description: Current account password, required to confirm erasure.
 
     User:
       type: object

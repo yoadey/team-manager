@@ -80,6 +80,25 @@ describe('auth', () => {
     const updated = await settle(api.auth.setPhoto('data:image/png;base64,AAAA'));
     expect(updated.photo).toBe('data:image/png;base64,AAAA');
   });
+
+  it('anonymizes the account and ends the session on deleteAccount', async () => {
+    await login();
+    const before = await settle(api.auth.currentUser());
+    const id = before!.id;
+
+    await settle(api.auth.deleteAccount('any-password'));
+
+    // Session ended.
+    expect(await settle(api.auth.currentUser())).toBeNull();
+
+    // Re-login resolves the same record, now anonymized (PII overwritten).
+    await login();
+    const after = await settle(api.auth.currentUser());
+    expect(after?.id).toBe(id);
+    expect(after?.name).toBe('Gelöschtes Mitglied');
+    expect(after?.email).toBe(`deleted+${id}@invalid`);
+    expect(after?.photo).toBeNull();
+  });
 });
 
 describe('teams', () => {

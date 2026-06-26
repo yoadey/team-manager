@@ -28,6 +28,7 @@ type mockAuthService struct {
 	validateToken func(ctx context.Context, token string) (*auth.UserRow, error)
 	logout        func(ctx context.Context, tokenHash string) error
 	updatePhoto   func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
+	eraseAccount  func(ctx context.Context, userID, password string) error
 }
 
 func (m *mockAuthService) Login(ctx context.Context, email, password string) (string, *auth.UserRow, error) {
@@ -44,6 +45,10 @@ func (m *mockAuthService) Logout(ctx context.Context, tokenHash string) error {
 
 func (m *mockAuthService) UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error) {
 	return m.updatePhoto(ctx, userID, data, mime)
+}
+
+func (m *mockAuthService) EraseAccount(ctx context.Context, userID, password string) error {
+	return m.eraseAccount(ctx, userID, password)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

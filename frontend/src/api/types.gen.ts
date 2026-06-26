@@ -66,7 +66,11 @@ export interface paths {
         get: operations["getCurrentUser"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Erase the authenticated account (GDPR Art. 17, by anonymization)
+         * @description Anonymizes the user's personal data (name, email, phone, birthday, address, photo) and strips free-text PII from their comments and absence reasons, then deletes all of their sessions. Membership, attendance and finance records are retained in anonymized form so that shared and legally required data (e.g. accounting) stays intact. The account password must be supplied to re-authenticate the request.
+         */
+        delete: operations["deleteCurrentUser"];
         options?: never;
         head?: never;
         patch?: never;
@@ -924,6 +928,10 @@ export interface components {
             token: string;
             user: components["schemas"]["User"];
         };
+        DeleteAccountRequest: {
+            /** @description Current account password, required to confirm erasure. */
+            password: string;
+        };
         User: {
             /** Format: uuid */
             id: string;
@@ -1588,6 +1596,29 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["User"];
                 };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    deleteCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Account anonymized; session cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             401: components["responses"]["Unauthorized"];
         };

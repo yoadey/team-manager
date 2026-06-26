@@ -47,6 +47,7 @@ type authRepo interface {
 	FindSession(ctx context.Context, tokenHash string) (*SessionRow, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error
+	EraseUser(ctx context.Context, userID string) error
 }
 
 // Service implements authentication logic.
@@ -196,6 +197,24 @@ func (s *Service) ValidateToken(ctx context.Context, tokenString string) (*UserR
 func (s *Service) Logout(ctx context.Context, tokenHash string) error {
 	if err := s.repo.DeleteSession(ctx, tokenHash); err != nil {
 		return fmt.Errorf("auth.Service.Logout: %w", err)
+	}
+	return nil
+}
+
+// EraseAccount confirms the supplied password for userID and, on success,
+// anonymizes the account (GDPR Art. 17). It returns ErrInvalidCredentials when
+// the user no longer exists or the password does not match, so a stolen session
+// alone cannot trigger an irreversible erasure.
+func (s *Service) EraseAccount(ctx context.Context, userID, password string) error {
+	user, err := s.repo.FindUserByID(ctx, userID)
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return ErrInvalidCredentials
+	}
+	if err := s.repo.EraseUser(ctx, userID); err != nil {
+		return fmt.Errorf("auth.Service.EraseAccount: %w", err)
 	}
 	return nil
 }

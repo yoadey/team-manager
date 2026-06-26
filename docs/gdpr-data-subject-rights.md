@@ -1,12 +1,14 @@
 # GDPR Data-Subject Rights — Design & Implementation Plan
 
-Status: **proposed** · Owner: _unassigned_ · Last updated: 2026-06-26
+Status: **erasure implemented (by anonymization); export still planned** ·
+Last updated: 2026-06-26
 
-This document is the implementation plan for GDPR Articles 15 (right of access /
-export) and 17 (right to erasure) for the Teamverwaltung backend. It is written
-as a ready-to-execute spec; it is **not yet implemented** because erasure
-semantics require a product/legal decision (see "Open decision" below) and the
-work spans the OpenAPI contract, a DB migration, and a new service path.
+This document covers GDPR Articles 15 (right of access / export) and 17 (right
+to erasure) for the Teamverwaltung backend.
+
+**Decision made:** erasure is implemented by **anonymization, not hard delete**
+(see "Open decision" below — now resolved). The erasure path is live end to
+end; **data export (Art. 15) remains planned.**
 
 ## Why this is needed
 
@@ -107,10 +109,20 @@ NULL` (add the predicate to `FindUserByEmail` / `FindUserByID`).
 
 ## Implementation checklist
 
-- [ ] Product/legal sign-off on **anonymize vs hard-delete**.
-- [ ] Add the two paths + schemas to `openapi/openapi.yaml`; run `make generate`.
-- [ ] Migration `00003_user_erasure.sql`.
-- [ ] `auth.Service.ExportUserData` + `EraseUser` (+ repo queries) with unit tests.
-- [ ] Exclude `deleted_at` accounts from login lookups.
-- [ ] Frontend export/delete UI + service-layer methods (both mock and real).
+Erasure (Art. 17) — **done**:
+- [x] Product decision: **anonymize**, not hard-delete.
+- [x] `DELETE /auth/me` + `DeleteAccountRequest` in `openapi/openapi.yaml`; regenerated.
+- [x] Migration `00003_user_erasure.sql` (`deleted_at`).
+- [x] `auth.Repository.EraseUser` (transactional anonymization) + `auth.Service.EraseAccount`
+      (password re-auth) with unit tests.
+- [x] Exclude `deleted_at` accounts from login/validation lookups.
+- [x] Session cookie cleared on erasure; `auth.account_erase` audit event.
+- [x] Frontend `auth.deleteAccount` on both mock and real service layers (+ tests).
+
+Remaining:
+- [ ] Frontend UI entry point: a "Konto löschen" action in account settings with
+      a confirm + password dialog, wired via `AppContext` (the service-layer
+      method is ready to call). Deliberately left to design given it is
+      irreversible.
+- [ ] Data export (Art. 15): `GET /auth/me/data-export` per the design above.
 - [ ] Update `SECURITY.md` / privacy docs with the retention statement.

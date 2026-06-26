@@ -83,6 +83,13 @@ export const realApi = {
       await apiClient.POST('/auth/logout', {});
     },
 
+    // GDPR Art. 17 erasure by anonymization. Requires the account password to
+    // re-authenticate; the server clears the session cookie on success.
+    async deleteAccount(password: string): Promise<void> {
+      const res = await apiClient.DELETE('/auth/me', { body: { password } });
+      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+    },
+
     async setPhoto(dataUrl: string): Promise<User> {
       // Convert data URL to Blob for multipart upload.
       const arr = dataUrl.split(',');

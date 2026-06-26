@@ -374,6 +374,10 @@ func (s *Server) GetCurrentUser(ctx context.Context, req gen.GetCurrentUserReque
 	return s.Auth.GetCurrentUser(ctx, req)
 }
 
+func (s *Server) DeleteCurrentUser(ctx context.Context, req gen.DeleteCurrentUserRequestObject) (gen.DeleteCurrentUserResponseObject, error) {
+	return s.Auth.DeleteCurrentUser(ctx, req)
+}
+
 func (s *Server) GetMyPhoto(ctx context.Context, req gen.GetMyPhotoRequestObject) (gen.GetMyPhotoResponseObject, error) {
 	return s.Auth.GetMyPhoto(ctx, req)
 }

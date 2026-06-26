@@ -22,6 +22,7 @@ type authService interface {
 	ValidateToken(ctx context.Context, tokenString string) (*UserRow, error)
 	Logout(ctx context.Context, tokenHash string) error
 	UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error)
+	EraseAccount(ctx context.Context, userID, password string) error
 }
 
 // Handler implements the auth-related methods of gen.StrictServerInterface.
@@ -87,6 +88,34 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 		Token: token,
 		User:  toGenUser(user),
 	}, nil
+}
+
+// DeleteCurrentUser erases the authenticated account by anonymization
+// (GDPR Art. 17). The account password must be supplied to re-authenticate the
+// request; on success the session cookie is cleared by the cookie middleware.
+func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurrentUserRequestObject) (gen.DeleteCurrentUserResponseObject, error) {
+	user, ok := UserFromContext(ctx)
+	if !ok {
+		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("not authenticated"),
+		}, nil
+	}
+	if request.Body == nil || request.Body.Password == "" {
+		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("password required"),
+		}, nil
+	}
+
+	if err := h.svc.EraseAccount(ctx, user.Id.String(), request.Body.Password); err != nil {
+		h.logger.WarnContext(ctx, "account erasure failed", "err", err)
+		h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String())
+		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
+		}, nil
+	}
+
+	h.audit.Record(ctx, audit.EventAccountErase, audit.Success, user.Id.String())
+	return gen.DeleteCurrentUser204Response{}, nil
 }
 
 // GetCurrentUser returns the authenticated user's profile.

@@ -513,6 +513,12 @@ type CreateTransactionRequest struct {
 	Type     TransactionType `json:"type"`
 }
 
+// DeleteAccountRequest defines model for DeleteAccountRequest.
+type DeleteAccountRequest struct {
+	// Password Current account password, required to confirm erasure.
+	Password string `json:"password"`
+}
+
 // EventComment defines model for EventComment.
 type EventComment struct {
 	AuthorColor    *string            `json:"authorColor,omitempty"`
@@ -1090,6 +1096,9 @@ type GetStatsOverviewParams struct {
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
+// DeleteCurrentUserJSONRequestBody defines body for DeleteCurrentUser for application/json ContentType.
+type DeleteCurrentUserJSONRequestBody = DeleteAccountRequest
+
 // UploadMyPhotoMultipartRequestBody defines body for UploadMyPhoto for multipart/form-data ContentType.
 type UploadMyPhotoMultipartRequestBody UploadMyPhotoMultipartBody
 
@@ -1182,6 +1191,9 @@ type ServerInterface interface {
 	// Invalidate current session
 	// (POST /auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
+	// Erase the authenticated account (GDPR Art. 17, by anonymization)
+	// (DELETE /auth/me)
+	DeleteCurrentUser(w http.ResponseWriter, r *http.Request)
 	// Get authenticated user profile
 	// (GET /auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
@@ -1386,6 +1398,12 @@ func (_ Unimplemented) Login(w http.ResponseWriter, r *http.Request) {
 // Invalidate current session
 // (POST /auth/logout)
 func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Erase the authenticated account (GDPR Art. 17, by anonymization)
+// (DELETE /auth/me)
+func (_ Unimplemented) DeleteCurrentUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1801,6 +1819,26 @@ func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCurrentUser operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCurrentUser(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCurrentUser(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4440,6 +4478,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/auth/logout", wrapper.Logout)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/auth/me", wrapper.DeleteCurrentUser)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 	})
 	r.Group(func(r chi.Router) {
@@ -4687,6 +4728,38 @@ type Logout204Response struct {
 func (response Logout204Response) VisitLogoutResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
+}
+
+type DeleteCurrentUserRequestObject struct {
+	Body *DeleteCurrentUserJSONRequestBody
+}
+
+type DeleteCurrentUserResponseObject interface {
+	VisitDeleteCurrentUserResponse(w http.ResponseWriter) error
+}
+
+type DeleteCurrentUser204Response struct {
+}
+
+func (response DeleteCurrentUser204Response) VisitDeleteCurrentUserResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCurrentUser401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCurrentUser401ApplicationProblemPlusJSONResponse) VisitDeleteCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
 type GetCurrentUserRequestObject struct {
@@ -6189,6 +6262,9 @@ type StrictServerInterface interface {
 	// Invalidate current session
 	// (POST /auth/logout)
 	Logout(ctx context.Context, request LogoutRequestObject) (LogoutResponseObject, error)
+	// Erase the authenticated account (GDPR Art. 17, by anonymization)
+	// (DELETE /auth/me)
+	DeleteCurrentUser(ctx context.Context, request DeleteCurrentUserRequestObject) (DeleteCurrentUserResponseObject, error)
 	// Get authenticated user profile
 	// (GET /auth/me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
@@ -6457,6 +6533,37 @@ func (sh *strictHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(LogoutResponseObject); ok {
 		if err := validResponse.VisitLogoutResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCurrentUser operation middleware
+func (sh *strictHandler) DeleteCurrentUser(w http.ResponseWriter, r *http.Request) {
+	var request DeleteCurrentUserRequestObject
+
+	var body DeleteCurrentUserJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCurrentUser(ctx, request.(DeleteCurrentUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCurrentUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCurrentUserResponseObject); ok {
+		if err := validResponse.VisitDeleteCurrentUserResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

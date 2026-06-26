@@ -27,8 +27,9 @@ const (
 // Event names for audited actions. Add new constants here as more modules emit
 // audit records (e.g. roles, finances).
 const (
-	EventLogin  = "auth.login"
-	EventLogout = "auth.logout"
+	EventLogin        = "auth.login"
+	EventLogout       = "auth.logout"
+	EventAccountErase = "auth.account_erase"
 )
 
 // Logger emits audit records over an slog.Logger.
