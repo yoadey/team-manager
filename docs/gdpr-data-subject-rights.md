@@ -24,7 +24,7 @@ endpoint or process for either.
 | Right | Endpoint (proposed) | Auth |
 |-------|---------------------|------|
 | Access / export (Art. 15) | `GET /api/v1/auth/me/data-export` | session owner |
-| Erasure (Art. 17) | `DELETE /api/v1/auth/me` | session owner (with re-auth) |
+| Erasure (Art. 17) | `DELETE /api/v1/auth/me` | session owner (confirm by retyping email) |
 
 Both are **self-service** (operate on the authenticated user only). Admin-driven
 erasure of another member is out of scope for this iteration.
@@ -93,36 +93,40 @@ ALTER TABLE users DROP COLUMN IF EXISTS deleted_at;
 `auth.Login` and `ValidateToken` must reject accounts where `deleted_at IS NOT
 NULL` (add the predicate to `FindUserByEmail` / `FindUserByID`).
 
-### Hardening
+### Hardening / confirmation
 
-- Require recent re-authentication (password re-entry) before erasure to prevent
-  a hijacked session from deleting the account.
-- Emit an audit-log event (`user.erased`, actor + timestamp) — ties into the
-  separate "audit log" finding.
+- **No password re-entry.** Accounts authenticate primarily via OIDC and may
+  have no password at all, so erasure is authorized by the active session and
+  confirmed by the user **retyping their account email**, which the server
+  verifies (`DeleteAccountRequest.confirmEmail`). This proves intent and guards
+  against an accidental or forged blind DELETE without excluding OIDC users.
+- Emits an `auth.account_erase` audit event (actor + outcome) — ties into the
+  audit-log finding.
 
 ## Frontend
 
-- `serviceLayerReal.ts`: add `auth.exportData()` (triggers a file download) and
-  `auth.deleteAccount()`; mirror in the mock `serviceLayer.ts`.
-- Add a "Daten & Datenschutz" section in account settings with export + delete
-  actions (delete behind a confirm dialog).
+- `serviceLayerReal.ts` / `serviceLayer.ts`: `auth.deleteAccount(confirmEmail)`
+  on both real and mock layers; `AppContext.deleteAccount` anonymizes then drops
+  to the login screen.
+- "Daten & Datenschutz" section in the `ProfileSheet` with a destructive
+  "Konto löschen" action that reveals an inline confirm (retype email →
+  enabled). Export action will join this section later.
 
 ## Implementation checklist
 
 Erasure (Art. 17) — **done**:
-- [x] Product decision: **anonymize**, not hard-delete.
+- [x] Product decision: **anonymize**, not hard-delete; **email confirmation, no
+      password** (OIDC-compatible).
 - [x] `DELETE /auth/me` + `DeleteAccountRequest` in `openapi/openapi.yaml`; regenerated.
 - [x] Migration `00003_user_erasure.sql` (`deleted_at`).
 - [x] `auth.Repository.EraseUser` (transactional anonymization) + `auth.Service.EraseAccount`
-      (password re-auth) with unit tests.
+      (email-confirmation re-auth) with unit tests.
 - [x] Exclude `deleted_at` accounts from login/validation lookups.
 - [x] Session cookie cleared on erasure; `auth.account_erase` audit event.
 - [x] Frontend `auth.deleteAccount` on both mock and real service layers (+ tests).
+- [x] Frontend UI: "Daten & Datenschutz" section in `ProfileSheet` with the
+      retype-email confirm, wired via `AppContext` (+ tests).
 
 Remaining:
-- [ ] Frontend UI entry point: a "Konto löschen" action in account settings with
-      a confirm + password dialog, wired via `AppContext` (the service-layer
-      method is ready to call). Deliberately left to design given it is
-      irreversible.
 - [ ] Data export (Art. 15): `GET /auth/me/data-export` per the design above.
 - [ ] Update `SECURITY.md` / privacy docs with the retention statement.

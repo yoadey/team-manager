@@ -214,6 +214,7 @@ export interface AppContextValue {
   doLogin: (pid: string) => Promise<void>;
   doPasswordLogin: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  deleteAccount: (confirmEmail: string) => Promise<void>;
   // nav
   go: (route: Route) => void;
   goEventsPending: () => void;
@@ -486,6 +487,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         captureException(err, { context: 'providers-on-logout' });
       });
   }, [api, setState]);
+
+  // GDPR Art. 17: anonymize the account then drop to the login screen. The
+  // caller passes the account email as an explicit confirmation; errors (e.g. a
+  // mismatched email) propagate so the UI can surface them.
+  const deleteAccount = useCallback(
+    async (confirmEmail: string) => {
+      await api.auth.deleteAccount(confirmEmail);
+      logout();
+    },
+    [api, logout],
+  );
 
   // ---------- form ----------
   const onFormInput = useCallback(
@@ -1000,6 +1012,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doLogin,
       doPasswordLogin,
       logout,
+      deleteAccount,
       go,
       goEventsPending,
       closeSheet,
@@ -1100,6 +1113,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState,
       doLogin,
       logout,
+      deleteAccount,
       doPasswordLogin,
       go,
       goEventsPending,

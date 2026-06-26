@@ -100,13 +100,13 @@ func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurre
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("not authenticated"),
 		}, nil
 	}
-	if request.Body == nil || request.Body.Password == "" {
+	if request.Body == nil || request.Body.ConfirmEmail == "" {
 		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
-			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("password required"),
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("email confirmation required"),
 		}, nil
 	}
 
-	if err := h.svc.EraseAccount(ctx, user.Id.String(), request.Body.Password); err != nil {
+	if err := h.svc.EraseAccount(ctx, user.Id.String(), string(request.Body.ConfirmEmail)); err != nil {
 		h.logger.WarnContext(ctx, "account erasure failed", "err", err)
 		h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String())
 		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{

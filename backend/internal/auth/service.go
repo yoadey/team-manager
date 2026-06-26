@@ -14,6 +14,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -31,6 +32,7 @@ var (
 	ErrMissingJTIClaim         = errors.New("auth.Service.ValidateToken: missing jti claim")
 	ErrUnexpectedSigningMethod = errors.New("auth.Service.ValidateToken: unexpected signing method")
 	ErrImageTooLarge           = errors.New("auth.resizeImage: image dimensions exceed the allowed maximum")
+	ErrErasureConfirmation     = errors.New("auth.Service.EraseAccount: confirmation email does not match account")
 )
 
 // dummyPasswordHash is a valid bcrypt hash that Login compares against when no
@@ -201,17 +203,18 @@ func (s *Service) Logout(ctx context.Context, tokenHash string) error {
 	return nil
 }
 
-// EraseAccount confirms the supplied password for userID and, on success,
-// anonymizes the account (GDPR Art. 17). It returns ErrInvalidCredentials when
-// the user no longer exists or the password does not match, so a stolen session
-// alone cannot trigger an irreversible erasure.
-func (s *Service) EraseAccount(ctx context.Context, userID, password string) error {
+// EraseAccount anonymizes the account (GDPR Art. 17) for an already
+// authenticated user. To confirm intent the caller must echo the account's own
+// email address — this works for every login method (including OIDC accounts
+// that have no password) and guards against an accidental or forged blind
+// DELETE. Returns ErrErasureConfirmation when the email does not match.
+func (s *Service) EraseAccount(ctx context.Context, userID, confirmEmail string) error {
 	user, err := s.repo.FindUserByID(ctx, userID)
 	if err != nil {
 		return ErrInvalidCredentials
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
-		return ErrInvalidCredentials
+	if !strings.EqualFold(strings.TrimSpace(confirmEmail), strings.TrimSpace(user.Email)) {
+		return ErrErasureConfirmation
 	}
 	if err := s.repo.EraseUser(ctx, userID); err != nil {
 		return fmt.Errorf("auth.Service.EraseAccount: %w", err)

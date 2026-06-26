@@ -68,7 +68,7 @@ export interface paths {
         post?: never;
         /**
          * Erase the authenticated account (GDPR Art. 17, by anonymization)
-         * @description Anonymizes the user's personal data (name, email, phone, birthday, address, photo) and strips free-text PII from their comments and absence reasons, then deletes all of their sessions. Membership, attendance and finance records are retained in anonymized form so that shared and legally required data (e.g. accounting) stays intact. The account password must be supplied to re-authenticate the request.
+         * @description Anonymizes the user's personal data (name, email, phone, birthday, address, photo) and strips free-text PII from their comments and absence reasons, then deletes all of their sessions. Membership, attendance and finance records are retained in anonymized form so that shared and legally required data (e.g. accounting) stays intact. The request is authorized by the active session; to confirm intent the caller must echo the account's own email address (works regardless of login method, including OIDC accounts that have no password).
          */
         delete: operations["deleteCurrentUser"];
         options?: never;
@@ -929,8 +929,11 @@ export interface components {
             user: components["schemas"]["User"];
         };
         DeleteAccountRequest: {
-            /** @description Current account password, required to confirm erasure. */
-            password: string;
+            /**
+             * Format: email
+             * @description The account's own email address, retyped to confirm the irreversible erasure. Must match the authenticated user's email.
+             */
+            confirmEmail: string;
         };
         User: {
             /** Format: uuid */

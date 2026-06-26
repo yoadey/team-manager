@@ -937,7 +937,7 @@ const _mockApi = {
     },
     // GDPR Art. 17 erasure by anonymization: overwrite the current user's PII
     // and end the session (mirrors the backend's DELETE /auth/me behavior).
-    async deleteAccount(_password?: string): Promise<void> {
+    async deleteAccount(_confirmEmail?: string): Promise<void> {
       await delay(150, 300);
       const u = DB.users.find((x) => x.id === session.userId);
       if (u) {

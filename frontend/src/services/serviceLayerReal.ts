@@ -83,10 +83,13 @@ export const realApi = {
       await apiClient.POST('/auth/logout', {});
     },
 
-    // GDPR Art. 17 erasure by anonymization. Requires the account password to
-    // re-authenticate; the server clears the session cookie on success.
-    async deleteAccount(password: string): Promise<void> {
-      const res = await apiClient.DELETE('/auth/me', { body: { password } });
+    // GDPR Art. 17 erasure by anonymization. Authorized by the active session;
+    // the caller echoes the account email to confirm intent (works for OIDC
+    // accounts that have no password). The server clears the cookie on success.
+    async deleteAccount(confirmEmail: string): Promise<void> {
+      const res = await apiClient.DELETE('/auth/me', {
+        body: { confirmEmail: confirmEmail as string & { format: 'email' } },
+      });
       if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
     },
 

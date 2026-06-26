@@ -1,3 +1,4 @@
+import { useState, type ChangeEvent } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
@@ -112,6 +113,15 @@ export function ProfileSheet({ app }: SheetProps) {
   const S = state;
   const roles = S.roles;
   const myIds = app.myRoles().map((r) => r.id);
+
+  // Account erasure (GDPR Art. 17): a destructive, irreversible action gated by
+  // retyping the account email — no password, since accounts may be OIDC-only.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState(false);
+  const accountEmail = S.user?.email ?? '';
+  const canConfirmDelete = confirmEmail.trim().toLowerCase() === accountEmail.toLowerCase() && accountEmail !== '';
   return (
     <Box>
       <Box key="hd" sx={{ display: 'flex', alignItems: 'center', gap: '14px', p: '4px 2px 18px' }}>
@@ -307,6 +317,124 @@ export function ProfileSheet({ app }: SheetProps) {
         <Sym name="logout" size={20} color={NEUTRAL.error} />
         {t('team.logout')}
       </ButtonBase>
+
+      <Box key="privacy" sx={{ mt: '24px', pt: '18px', borderTop: `1px solid ${NEUTRAL.line}` }}>
+        <Box sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, mb: '8px' }}>
+          {t('team.dataPrivacy')}
+        </Box>
+        {!deleteOpen ? (
+          <ButtonBase
+            onClick={() => {
+              setDeleteOpen(true);
+              setConfirmEmail('');
+              setDeleteErr(false);
+            }}
+            sx={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              p: '13px',
+              borderRadius: '14px',
+              border: '1px solid #F0C4C0',
+              background: NEUTRAL.errorBg,
+              color: NEUTRAL.error,
+              fontWeight: 600,
+              fontSize: '14px',
+              cursor: 'pointer',
+            }}
+          >
+            <Sym name="delete_forever" size={20} color={NEUTRAL.error} />
+            {t('team.deleteAccount')}
+          </ButtonBase>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, lineHeight: 1.5 }}>
+              {t('team.deleteAccountWarning')}
+            </Box>
+            <Box component="label" sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary }}>
+              {t('team.deleteAccountConfirmLabel')}
+            </Box>
+            <Box
+              component="input"
+              type="email"
+              autoComplete="off"
+              value={confirmEmail}
+              placeholder={accountEmail}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setConfirmEmail(e.target.value);
+                setDeleteErr(false);
+              }}
+              sx={{
+                p: '11px 12px',
+                borderRadius: '12px',
+                border: `1px solid ${deleteErr ? NEUTRAL.error : NEUTRAL.line}`,
+                background: NEUTRAL.card,
+                fontSize: '14px',
+                width: '100%',
+                boxSizing: 'border-box',
+              }}
+            />
+            {deleteErr ? (
+              <Box sx={{ fontSize: '12px', color: NEUTRAL.error }}>{t('team.deleteAccountError')}</Box>
+            ) : null}
+            <Box sx={{ display: 'flex', gap: '8px' }}>
+              <ButtonBase
+                onClick={() => {
+                  setDeleteOpen(false);
+                  setConfirmEmail('');
+                  setDeleteErr(false);
+                }}
+                disabled={deleting}
+                sx={{
+                  flex: 1,
+                  p: '12px',
+                  borderRadius: '14px',
+                  border: `1px solid ${NEUTRAL.line}`,
+                  background: NEUTRAL.card,
+                  color: NEUTRAL.secondary,
+                  fontWeight: 600,
+                  fontSize: '14px',
+                }}
+              >
+                {t('common.cancel')}
+              </ButtonBase>
+              <ButtonBase
+                disabled={!canConfirmDelete || deleting}
+                onClick={async () => {
+                  setDeleting(true);
+                  try {
+                    await app.deleteAccount(confirmEmail.trim());
+                    // On success the app resets to the login screen and this sheet unmounts.
+                  } catch {
+                    setDeleteErr(true);
+                    setDeleting(false);
+                  }
+                }}
+                sx={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  p: '12px',
+                  borderRadius: '14px',
+                  border: 'none',
+                  background: NEUTRAL.error,
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: '14px',
+                  opacity: !canConfirmDelete || deleting ? 0.5 : 1,
+                }}
+              >
+                <Sym name="delete_forever" size={18} color="#fff" />
+                {t('team.deleteAccountConfirmButton')}
+              </ButtonBase>
+            </Box>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

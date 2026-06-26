@@ -515,8 +515,8 @@ type CreateTransactionRequest struct {
 
 // DeleteAccountRequest defines model for DeleteAccountRequest.
 type DeleteAccountRequest struct {
-	// Password Current account password, required to confirm erasure.
-	Password string `json:"password"`
+	// ConfirmEmail The account's own email address, retyped to confirm the irreversible erasure. Must match the authenticated user's email.
+	ConfirmEmail openapi_types.Email `json:"confirmEmail"`
 }
 
 // EventComment defines model for EventComment.

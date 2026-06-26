@@ -131,15 +131,15 @@ describe('auth', () => {
     expect(client.POST).toHaveBeenCalledWith('/auth/logout', {});
   });
 
-  it('deleteAccount sends the password and resolves on success', async () => {
+  it('deleteAccount sends the confirmation email and resolves on success', async () => {
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
-    await expect(realApi.auth.deleteAccount('pw')).resolves.toBeUndefined();
-    expect(client.DELETE).toHaveBeenCalledWith('/auth/me', { body: { password: 'pw' } });
+    await expect(realApi.auth.deleteAccount('me@example.com')).resolves.toBeUndefined();
+    expect(client.DELETE).toHaveBeenCalledWith('/auth/me', { body: { confirmEmail: 'me@example.com' } });
   });
 
   it('deleteAccount throws on failure', async () => {
     client.DELETE.mockResolvedValueOnce(fail(401));
-    await expect(realApi.auth.deleteAccount('wrong')).rejects.toThrow('HTTP 401');
+    await expect(realApi.auth.deleteAccount('wrong@example.com')).rejects.toThrow('HTTP 401');
   });
 
   it('setPhoto uploads multipart then refetches the user', async () => {

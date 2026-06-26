@@ -559,6 +559,13 @@ export const en: Messages = {
     colorSchemeDark: 'Dark',
     language: 'Language',
     logout: 'Sign out',
+    dataPrivacy: 'Data & privacy',
+    deleteAccount: 'Delete account',
+    deleteAccountWarning:
+      'Your account will be irreversibly anonymized: name, email, phone, birthday, address and photo are removed and you are signed out. Shared records (attendance, finances) are kept in anonymized form.',
+    deleteAccountConfirmLabel: 'Type your email address to confirm',
+    deleteAccountConfirmButton: 'Delete permanently',
+    deleteAccountError: 'Could not delete the account. Does the email address match?',
     toastPhotoSaved: 'Team photo updated',
     toastLogoSaved: 'Logo updated',
     nameRequired: 'Please enter a team name.',

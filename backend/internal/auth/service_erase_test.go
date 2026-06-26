@@ -7,21 +7,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/yoadey/team-manager/backend/internal/auth"
 )
 
 func TestEraseAccount(t *testing.T) {
-	hash, err := bcrypt.GenerateFromPassword([]byte("correct-horse"), bcrypt.MinCost)
-	require.NoError(t, err)
+	const accountEmail = "member@example.com"
+	userByID := func(_ context.Context, _ string) (*auth.UserRow, error) {
+		return &auth.UserRow{Email: accountEmail}, nil
+	}
 
-	t.Run("erases on correct password", func(t *testing.T) {
+	t.Run("erases when the confirmation email matches (case-insensitive)", func(t *testing.T) {
 		erasedID := ""
 		repo := &mockRepo{
-			userByID: func(_ context.Context, _ string) (*auth.UserRow, error) {
-				return &auth.UserRow{PasswordHash: string(hash)}, nil
-			},
+			userByID: userByID,
 			eraseUser: func(_ context.Context, userID string) error {
 				erasedID = userID
 				return nil
@@ -29,24 +28,22 @@ func TestEraseAccount(t *testing.T) {
 		}
 		svc := newTestService(t, repo)
 
-		require.NoError(t, svc.EraseAccount(context.Background(), "user-1", "correct-horse"))
+		require.NoError(t, svc.EraseAccount(context.Background(), "user-1", "  Member@Example.com "))
 		assert.Equal(t, "user-1", erasedID, "EraseUser should be called with the user id")
 	})
 
-	t.Run("rejects a wrong password without erasing", func(t *testing.T) {
+	t.Run("rejects a mismatched confirmation email without erasing", func(t *testing.T) {
 		repo := &mockRepo{
-			userByID: func(_ context.Context, _ string) (*auth.UserRow, error) {
-				return &auth.UserRow{PasswordHash: string(hash)}, nil
-			},
+			userByID: userByID,
 			eraseUser: func(_ context.Context, _ string) error {
-				t.Fatal("EraseUser must not be called when the password is wrong")
+				t.Fatal("EraseUser must not be called when the email does not match")
 				return nil
 			},
 		}
 		svc := newTestService(t, repo)
 
-		err := svc.EraseAccount(context.Background(), "user-1", "wrong")
-		assert.ErrorIs(t, err, auth.ErrInvalidCredentials)
+		err := svc.EraseAccount(context.Background(), "user-1", "someone-else@example.com")
+		assert.ErrorIs(t, err, auth.ErrErasureConfirmation)
 	})
 
 	t.Run("rejects an unknown user without erasing", func(t *testing.T) {
@@ -61,7 +58,7 @@ func TestEraseAccount(t *testing.T) {
 		}
 		svc := newTestService(t, repo)
 
-		err := svc.EraseAccount(context.Background(), "user-1", "whatever")
+		err := svc.EraseAccount(context.Background(), "user-1", "member@example.com")
 		assert.ErrorIs(t, err, auth.ErrInvalidCredentials)
 	})
 }
