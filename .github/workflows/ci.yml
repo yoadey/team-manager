@@ -55,7 +55,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run test:coverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-coverage
           path: frontend/coverage/
@@ -116,13 +116,13 @@ jobs:
           { du -h dist/assets/*.js 2>/dev/null || true; } >> "$GITHUB_STEP_SUMMARY"
       - name: Generate SBOM
         run: npm run sbom
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: frontend-bundle-stats
           path: frontend/dist/stats.html
           retention-days: 7
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: frontend-sbom
           path: frontend/sbom.json
@@ -150,7 +150,7 @@ jobs:
         run: npx playwright test --reporter=html
         env:
           CI: 'true'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
@@ -215,7 +215,7 @@ jobs:
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-coverage
           path: backend/coverage.out
@@ -235,7 +235,7 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - run: go build -v -ldflags="-s -w" -o bin/server ./cmd/server
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: backend-binary
           path: backend/bin/server
