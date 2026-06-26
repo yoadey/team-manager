@@ -5,7 +5,7 @@
 ALTER TABLE events
     ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
-ALTER TABLE members
+ALTER TABLE memberships
     ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 ALTER TABLE roles
@@ -17,17 +17,25 @@ ALTER TABLE news
 ALTER TABLE polls
     ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
-ALTER TABLE finances
+ALTER TABLE transactions
+    ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE penalties
+    ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE contributions
     ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 ALTER TABLE absences
     ADD COLUMN updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 -- +goose Down
-ALTER TABLE absences    DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE finances    DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE polls       DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE news        DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE roles       DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE members     DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE events      DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE absences      DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE contributions DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE penalties     DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE transactions   DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE polls         DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE news          DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE roles         DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE memberships   DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE events        DROP COLUMN IF EXISTS updated_at;

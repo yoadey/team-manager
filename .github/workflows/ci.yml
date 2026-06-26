@@ -277,7 +277,7 @@ jobs:
         run: |
           total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%",""); print $3}')
           echo "Total coverage: ${total}%"
-          awk "BEGIN { if ($total+0 < 70) { print \"Coverage ${total}% below 70% threshold\"; exit 1 } }"
+          awk -v total="$total" 'BEGIN { if (total+0 < 70) { print "Coverage " total "% below 70% threshold"; exit 1 } }'
 
   security-sast:
     name: Security · SAST (CodeQL)
