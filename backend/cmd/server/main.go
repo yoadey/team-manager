@@ -213,7 +213,7 @@ func main() {
 	// Metrics expose internal telemetry; when METRICS_TOKEN is set they require
 	// a bearer token (configure the scraper to send it). Left open when unset so
 	// local dev and in-cluster scraping over a private network keep working.
-	var metricsHandler http.Handler = promhttp.Handler()
+	metricsHandler := promhttp.Handler()
 	if cfg.MetricsToken != "" {
 		metricsHandler = middleware.RequireBearerToken(cfg.MetricsToken)(metricsHandler)
 	}
