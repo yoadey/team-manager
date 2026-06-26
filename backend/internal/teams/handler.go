@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 
 	"github.com/jackc/pgx/v5"
 
@@ -170,7 +171,8 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 
 	part, err := request.Body.NextPart()
 	if err != nil {
-		return nil, fmt.Errorf("teams.Handler.UploadTeamPhoto: read multipart: %w", err)
+		h.logger.WarnContext(ctx, "UploadTeamPhoto: read multipart failed", "err", err)
+		return nil, apierror.BadRequest("cannot read multipart body")
 	}
 	defer func() {
 		if cerr := part.Close(); cerr != nil {
@@ -178,20 +180,22 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 		}
 	}()
 
-	data, err := io.ReadAll(io.LimitReader(part, 10<<20)) // 10 MB max
+	data, err := io.ReadAll(io.LimitReader(part, 2<<20)) // 2 MB max
 	if err != nil {
-		return nil, fmt.Errorf("teams.Handler.UploadTeamPhoto: read file data: %w", err)
+		h.logger.WarnContext(ctx, "UploadTeamPhoto: read file data failed", "err", err)
+		return nil, apierror.BadRequest("cannot read file data")
 	}
 
-	ct := part.Header.Get("Content-Type")
-	if ct == "" {
-		ct = "image/jpeg"
+	// Detect MIME from actual content; reject anything other than JPEG/PNG.
+	ct := http.DetectContentType(data)
+	if ct != "image/jpeg" && ct != "image/png" {
+		return nil, apierror.BadRequest("only JPEG and PNG images are accepted")
 	}
 
 	t, err := h.svc.UpdatePhoto(ctx, request.TeamId.String(), data, ct)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "UploadTeamPhoto failed", "err", err)
-		return nil, fmt.Errorf("teams.Handler.UploadTeamPhoto: %w", err)
+		return nil, apierror.Internal("photo update failed")
 	}
 	return gen.UploadTeamPhoto200JSONResponse(*t), nil
 }

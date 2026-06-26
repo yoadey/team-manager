@@ -254,3 +254,69 @@ jobs:
           go-version-file: backend/go.mod
       - run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - run: govulncheck ./...
+
+  backend-coverage:
+    name: Backend · Coverage gate
+    runs-on: ubuntu-latest
+    needs: [backend-test]
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: docker/setup-buildx-action@v3
+      - name: Run tests with coverage
+        run: go test ./... -race -count=1 -coverprofile=coverage.out -timeout=300s
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "true"
+      - name: Enforce minimum coverage threshold
+        # Threshold is set conservatively: generated code (internal/gen), infra packages
+        # (cmd/server, internal/db, internal/server, internal/jobs) and testutil have
+        # 0% unit-test coverage, dragging total below 20%. Raise this incrementally as
+        # test coverage improves — current baseline is ~19%.
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%",""); print $3}')
+          echo "Total coverage: ${total}%"
+          awk -v total="$total" 'BEGIN { if (total+0 < 15) { print "Coverage " total "% below 15% threshold"; exit 1 } }'
+
+  security-sast:
+    name: Security · SAST (CodeQL)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    strategy:
+      matrix:
+        language: [go, typescript]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  security-container:
+    name: Security · Container scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: [backend-build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t team-manager-backend:ci backend/
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: team-manager-backend:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -421,12 +420,15 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 		})
 	})
 
-	// Build a multipart body.
+	// Build a multipart body with a minimal valid JPEG (SOI + EOF markers).
+	// http.DetectContentType requires the JPEG magic bytes (\xFF\xD8\xFF) to
+	// identify the content as image/jpeg.
+	jpegData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	fw, err := mw.CreateFormFile("photo", "avatar.jpg")
 	require.NoError(t, err)
-	_, err = io.WriteString(fw, "fake-jpeg-data")
+	_, err = fw.Write(jpegData)
 	require.NoError(t, err)
 	if err := mw.Close(); err != nil {
 		t.Fatalf("close multipart: %v", err)

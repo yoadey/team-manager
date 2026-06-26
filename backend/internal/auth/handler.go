@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -134,7 +133,8 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 
 	part, err := request.Body.NextPart()
 	if err != nil {
-		return nil, errBadRequest("cannot read multipart: " + err.Error())
+		h.logger.WarnContext(ctx, "UploadMyPhoto: read multipart failed", "err", err)
+		return nil, errBadRequest("cannot read multipart body")
 	}
 	defer func() {
 		if err := part.Close(); err != nil {
@@ -142,21 +142,22 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 		}
 	}()
 
-	data, err := io.ReadAll(io.LimitReader(part, 10<<20)) // 10 MB max
+	data, err := io.ReadAll(io.LimitReader(part, 2<<20)) // 2 MB max
 	if err != nil {
-		return nil, errBadRequest("cannot read file data: " + err.Error())
+		h.logger.WarnContext(ctx, "UploadMyPhoto: read file data failed", "err", err)
+		return nil, errBadRequest("cannot read file data")
 	}
 
-	// Determine MIME from Content-Type header of the part.
-	ct := part.Header.Get("Content-Type")
-	if ct == "" {
-		ct = "image/jpeg"
+	// Detect MIME from actual content; reject anything other than JPEG/PNG.
+	ct := http.DetectContentType(data)
+	if ct != "image/jpeg" && ct != "image/png" {
+		return nil, errBadRequest("only JPEG and PNG images are accepted")
 	}
 
 	updated, err := h.svc.UpdatePhoto(ctx, user.Id.String(), data, ct)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "update photo failed", "err", err)
-		return nil, fmt.Errorf("auth.Handler.UploadMyPhoto: %w", err)
+		return nil, errInternal("photo update failed")
 	}
 
 	return gen.UploadMyPhoto200JSONResponse(toGenUser(updated)), nil
@@ -287,6 +288,7 @@ func (e *handlerError) Error() string { return e.message }
 
 func errUnauthorized(msg string) error { return &handlerError{status: 401, message: msg} }
 func errBadRequest(msg string) error   { return &handlerError{status: 400, message: msg} }
+func errInternal(msg string) error     { return &handlerError{status: 500, message: msg} }
 
 // ensure time is used (time.Time in UserRow.Birthday).
 var _ = time.Time{}
