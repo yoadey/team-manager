@@ -126,8 +126,8 @@ func TestLoad_AllowedOriginsMultiple(t *testing.T) {
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	// Single env value (no splitting by comma yet — the config treats it as one origin)
-	assert.Len(t, cfg.AllowedOrigins, 1)
+	assert.Len(t, cfg.AllowedOrigins, 2)
+	assert.Equal(t, []string{"https://a.com", "https://b.com"}, cfg.AllowedOrigins)
 }
 
 func TestLoad_EnvOr(t *testing.T) {
