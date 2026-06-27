@@ -1944,7 +1944,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -1960,7 +1961,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Member"][];
+                    "application/json": {
+                        items: components["schemas"]["Member"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
@@ -2701,7 +2706,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2717,7 +2723,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Poll"][];
+                    "application/json": {
+                        items: components["schemas"]["Poll"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };

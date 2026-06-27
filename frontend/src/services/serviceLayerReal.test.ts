@@ -217,7 +217,7 @@ describe('teams', () => {
 
 describe('members', () => {
   it('list maps members', async () => {
-    client.GET.mockResolvedValueOnce(ok([{ id: 'm1' }]));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'm1' }], nextCursor: null }));
     const res = await realApi.members.list('t1');
     expect(res[0]).toMatchObject({ __mapped: 'member' });
   });
@@ -405,7 +405,7 @@ describe('news', () => {
 
 describe('polls', () => {
   it('list, vote, create, remove', async () => {
-    client.GET.mockResolvedValueOnce(ok([{ id: 'p1' }]));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'p1' }], nextCursor: null }));
     expect((await realApi.polls.list('t1'))[0]).toMatchObject({ __mapped: 'poll' });
 
     client.POST.mockResolvedValueOnce(ok(undefined, 204));

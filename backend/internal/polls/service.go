@@ -9,11 +9,12 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // pollRepo is the interface the Service relies on.
 type pollRepo interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*PollRow, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*PollRow, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*PollRow, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -38,21 +39,43 @@ func NewService(repo pollRepo, enq jobEnqueuer) *Service {
 	return &Service{repo: repo, jobs: enq}
 }
 
-// ListByTeam returns paginated polls for the given team with full vote data.
-func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit, offset int) ([]gen.Poll, error) {
-	pollRows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+// ListByTeam returns a keyset page of polls (with full vote data) plus the
+// cursor for the next page (nil on the last page). cursor is the opaque token
+// from a prior page ("" = first page).
+func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit int, cursor string) ([]gen.Poll, *string, error) {
+	var cur *ListCursor
+	var decoded ListCursor
+	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+	} else if ok {
+		cur = &decoded
 	}
+
+	pollRows, err := s.repo.ListByTeam(ctx, teamID, limit+1, cur)
+	if err != nil {
+		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+	}
+
+	var next *string
+	if len(pollRows) > limit {
+		pollRows = pollRows[:limit]
+		last := pollRows[len(pollRows)-1]
+		token, err := pagination.EncodeCursor(ListCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+		if err != nil {
+			return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+		}
+		next = &token
+	}
+
 	result := make([]gen.Poll, 0, len(pollRows))
 	for _, pr := range pollRows {
 		p, err := s.buildPoll(ctx, pr, currentUserID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		result = append(result, p)
 	}
-	return result, nil
+	return result, next, nil
 }
 
 // Create adds a new poll and returns it fully assembled.

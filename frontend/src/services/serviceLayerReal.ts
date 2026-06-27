@@ -170,9 +170,11 @@ export const realApi = {
 
   members: {
     async list(teamId: string): Promise<Member[]> {
+      // Keyset-paginated { items, nextCursor } envelope; first page returned as
+      // an array (no paging UI yet).
       const res = await apiClient.GET('/teams/{teamId}/members', { params: { path: { teamId } } });
-      const members = await check(res);
-      return (members as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
+      const page = await check(res);
+      return (page.items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
     },
 
     async add(teamId: string, params: {
@@ -481,9 +483,11 @@ export const realApi = {
 
   polls: {
     async list(teamId: string): Promise<Poll[]> {
+      // Keyset-paginated { items, nextCursor } envelope; first page returned as
+      // an array (no paging UI yet).
       const res = await apiClient.GET('/teams/{teamId}/polls', { params: { path: { teamId } } });
-      const polls = await check(res);
-      return polls.map(mapPoll);
+      const page = await check(res);
+      return page.items.map(mapPoll);
     },
 
     async vote(pollId: string, optionIds: string[], teamId: string): Promise<void> {

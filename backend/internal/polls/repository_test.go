@@ -52,7 +52,7 @@ func TestPollRepository_CreateAndList(t *testing.T) {
 	assert.Equal(t, "Bob", opts[1].Text)
 	assert.Equal(t, "Charlie", opts[2].Text)
 
-	list, err := repo.ListByTeam(ctx, teamID, 50, 0)
+	list, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, pollID, list[0].Id)
@@ -136,7 +136,7 @@ func TestPollRepository_Delete(t *testing.T) {
 
 	require.NoError(t, repo.Delete(ctx, pollID))
 
-	list, err := repo.ListByTeam(ctx, teamID, 50, 0)
+	list, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }

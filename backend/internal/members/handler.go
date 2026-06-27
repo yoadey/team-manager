@@ -19,7 +19,7 @@ import (
 
 // memberService is the interface the Handler relies on.
 type memberService interface {
-	ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error)
+	ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*gen.Member, error)
 	UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error)
@@ -48,13 +48,17 @@ func actor(ctx context.Context) string {
 
 // ListMembers returns paginated members of a team.
 func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
-	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
-	members, err := h.svc.ListMembers(ctx, request.TeamId.String(), limit, offset)
+	limit := pagination.ParseLimit(request.Params.Limit)
+	cursor := ""
+	if request.Params.Cursor != nil {
+		cursor = *request.Params.Cursor
+	}
+	members, next, err := h.svc.ListMembers(ctx, request.TeamId.String(), limit, cursor)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListMembers failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.ListMembers: %w", err)
 	}
-	return gen.ListMembers200JSONResponse(members), nil
+	return gen.ListMembers200JSONResponse{Items: members, NextCursor: next}, nil
 }
 
 // AddMember adds a new member to the team.

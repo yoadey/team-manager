@@ -1069,8 +1069,10 @@ type UploadTeamLogoMultipartBody struct {
 
 // ListMembersParams defines parameters for ListMembers.
 type ListMembersParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // ListNewsParams defines parameters for ListNews.
@@ -1088,8 +1090,10 @@ type UploadTeamPhotoMultipartBody struct {
 
 // ListPollsParams defines parameters for ListPolls.
 type ListPollsParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // GetStatsOverviewParams defines parameters for GetStatsOverview.
@@ -3487,15 +3491,15 @@ func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -4006,15 +4010,15 @@ func (siw *ServerInterfaceWrapper) ListPolls(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -5825,7 +5829,12 @@ type ListMembersResponseObject interface {
 	VisitListMembersResponse(w http.ResponseWriter) error
 }
 
-type ListMembers200JSONResponse []Member
+type ListMembers200JSONResponse struct {
+	Items []Member `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListMembers200JSONResponse) VisitListMembersResponse(w http.ResponseWriter) error {
 
@@ -6133,7 +6142,12 @@ type ListPollsResponseObject interface {
 	VisitListPollsResponse(w http.ResponseWriter) error
 }
 
-type ListPolls200JSONResponse []Poll
+type ListPolls200JSONResponse struct {
+	Items []Poll `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListPolls200JSONResponse) VisitListPollsResponse(w http.ResponseWriter) error {
 
