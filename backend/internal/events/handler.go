@@ -198,6 +198,7 @@ func (h *Handler) SetEventStatus(ctx context.Context, request gen.SetEventStatus
 		h.logger.ErrorContext(ctx, "SetEventStatus failed", "err", err)
 		return nil, apierror.Internal("failed to set event status")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "update").Inc()
 	return gen.SetEventStatus200JSONResponse(*ev), nil
 }
 
@@ -237,6 +238,7 @@ func (h *Handler) AddEventComment(ctx context.Context, request gen.AddEventComme
 		h.logger.ErrorContext(ctx, "AddEventComment failed", "err", err)
 		return nil, apierror.Internal("failed to add comment")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "create").Inc()
 	return gen.AddEventComment201JSONResponse(*comment), nil
 }
 
@@ -256,6 +258,7 @@ func (h *Handler) DeleteEventComment(ctx context.Context, request gen.DeleteEven
 		h.logger.ErrorContext(ctx, "DeleteEventComment failed", "err", err)
 		return nil, apierror.Internal("failed to delete comment")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "delete").Inc()
 	return gen.DeleteEventComment204Response{}, nil
 }
 
@@ -300,6 +303,7 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "update").Inc()
 	return gen.SetAttendance200JSONResponse(*rec), nil
 }
 
@@ -320,6 +324,7 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 		h.logger.ErrorContext(ctx, "SetNomination failed", "err", err)
 		return nil, apierror.Internal("failed to set nomination")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "update").Inc()
 	return gen.SetNomination204Response{}, nil
 }
 

@@ -104,6 +104,7 @@ func (h *Handler) VotePoll(ctx context.Context, req gen.VotePollRequestObject) (
 		h.logger.ErrorContext(ctx, "VotePoll failed", "err", err)
 		return nil, apierror.Internal("failed to vote on poll")
 	}
+	metrics.TeamEvents.WithLabelValues("poll", "update").Inc()
 	return gen.VotePoll200JSONResponse(poll), nil
 }
 

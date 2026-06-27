@@ -164,6 +164,7 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 	h.audit.Record(ctx, audit.EventMemberRolesChange, audit.Success, actor(ctx),
 		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
 		slog.Int("roleCount", len(roleIDs)))
+	metrics.TeamEvents.WithLabelValues("member", "update").Inc()
 	return gen.SetMemberRoles200JSONResponse(*m), nil
 }
 

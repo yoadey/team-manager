@@ -144,6 +144,7 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	}
 	h.recordFinance(ctx, "penalty.create",
 		slog.String("teamId", req.TeamId.String()), slog.String("penaltyId", p.Id.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "create").Inc()
 	return gen.CreatePenalty201JSONResponse(*p), nil
 }
 
@@ -161,6 +162,7 @@ func (h *Handler) UpdatePenalty(ctx context.Context, req gen.UpdatePenaltyReques
 		return nil, apierror.Internal("failed to update penalty")
 	}
 	h.recordFinance(ctx, "penalty.update", slog.String("penaltyId", req.PenaltyId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
 	return gen.UpdatePenalty200JSONResponse(*p), nil
 }
 
@@ -174,6 +176,7 @@ func (h *Handler) DeletePenalty(ctx context.Context, req gen.DeletePenaltyReques
 		return nil, apierror.Internal("failed to delete penalty")
 	}
 	h.recordFinance(ctx, "penalty.delete", slog.String("penaltyId", req.PenaltyId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "delete").Inc()
 	return gen.DeletePenalty204Response{}, nil
 }
 
@@ -192,6 +195,7 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 	}
 	h.recordFinance(ctx, "assignment.create",
 		slog.String("teamId", req.TeamId.String()), slog.String("assignmentId", a.Id.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "create").Inc()
 	return gen.CreatePenaltyAssignment201JSONResponse(*a), nil
 }
 
@@ -205,6 +209,7 @@ func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePen
 		return nil, apierror.Internal("failed to delete penalty assignment")
 	}
 	h.recordFinance(ctx, "assignment.delete", slog.String("assignmentId", req.AssignmentId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "delete").Inc()
 	return gen.DeletePenaltyAssignment204Response{}, nil
 }
 
@@ -220,6 +225,7 @@ func (h *Handler) TogglePenaltyPaid(ctx context.Context, req gen.TogglePenaltyPa
 	}
 	h.recordFinance(ctx, "assignment.toggle_paid",
 		slog.String("teamId", req.TeamId.String()), slog.String("assignmentId", req.AssignmentId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
 	return gen.TogglePenaltyPaid200JSONResponse(*a), nil
 }
 
@@ -237,6 +243,7 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 		return nil, apierror.Internal("failed to update contribution")
 	}
 	h.recordFinance(ctx, "contribution.update", slog.String("contributionId", req.ContributionId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
 	return gen.UpdateContribution200JSONResponse(*c), nil
 }
 
@@ -251,5 +258,6 @@ func (h *Handler) ToggleContribution(ctx context.Context, req gen.ToggleContribu
 		return nil, apierror.Internal("failed to toggle contribution status")
 	}
 	h.recordFinance(ctx, "contribution.toggle", slog.String("contributionId", req.ContributionId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
 	return gen.ToggleContribution200JSONResponse(*c), nil
 }

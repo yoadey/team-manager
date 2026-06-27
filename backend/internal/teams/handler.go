@@ -14,6 +14,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
@@ -77,6 +78,7 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
 	}
 
+	metrics.TeamEvents.WithLabelValues("team", "create").Inc()
 	return gen.CreateTeam201JSONResponse(*tfu), nil
 }
 
@@ -134,6 +136,7 @@ func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestO
 		h.logger.ErrorContext(ctx, "UpdateTeam failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.UpdateTeam: %w", err)
 	}
+	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
 	return gen.UpdateTeam200JSONResponse(*t), nil
 }
 
@@ -144,6 +147,7 @@ func (h *Handler) CreateInvite(ctx context.Context, request gen.CreateInviteRequ
 		h.logger.ErrorContext(ctx, "CreateInvite failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.CreateInvite: %w", err)
 	}
+	metrics.TeamEvents.WithLabelValues("team", "invite").Inc()
 	return gen.CreateInvite201JSONResponse(*inv), nil
 }
 
@@ -197,6 +201,7 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 		h.logger.ErrorContext(ctx, "UploadTeamPhoto failed", "err", err)
 		return nil, apierror.Internal("photo update failed")
 	}
+	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
 	return gen.UploadTeamPhoto200JSONResponse(*t), nil
 }
 
