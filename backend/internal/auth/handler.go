@@ -119,6 +119,7 @@ func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurre
 	}
 
 	h.audit.Record(ctx, audit.EventAccountErase, audit.Success, user.Id.String())
+	metrics.TeamEvents.WithLabelValues("user", "delete").Inc()
 	return gen.DeleteCurrentUser204Response{}, nil
 }
 
@@ -231,6 +232,7 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 		return nil, errInternal("photo update failed")
 	}
 
+	metrics.TeamEvents.WithLabelValues("user", "update").Inc()
 	return gen.UploadMyPhoto200JSONResponse(toGenUser(updated)), nil
 }
 
