@@ -13,6 +13,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
@@ -79,11 +80,13 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 	if err != nil {
 		h.logger.WarnContext(ctx, "login failed", "email", request.Body.Email, "err", err)
 		h.audit.Record(ctx, audit.EventLogin, audit.Failure, "", slog.String("email", string(request.Body.Email)))
+		metrics.LoginAttempts.WithLabelValues("failure").Inc()
 		return gen.Login401ApplicationProblemPlusJSONResponse{
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
 		}, nil
 	}
 
+	metrics.LoginAttempts.WithLabelValues("success").Inc()
 	h.audit.Record(ctx, audit.EventLogin, audit.Success, user.Id.String(), slog.String("email", string(request.Body.Email)))
 	return gen.Login200JSONResponse{
 		Token: token,

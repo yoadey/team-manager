@@ -30,6 +30,7 @@ var (
 //   - MinConns: 2
 //   - MaxConnLifetime: 1 h
 //   - MaxConnIdleTime: 30 min
+//   - SlowQueryTracer: logs queries exceeding 1 s at WARN level
 //
 // The caller is responsible for closing the pool (defer pool.Close()).
 func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
@@ -46,6 +47,7 @@ func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg.MinConns = 2
 	cfg.MaxConnLifetime = time.Hour
 	cfg.MaxConnIdleTime = 30 * time.Minute
+	cfg.ConnConfig.Tracer = NewSlowQueryTracer(slog.Default())
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

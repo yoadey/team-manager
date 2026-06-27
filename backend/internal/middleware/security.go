@@ -39,6 +39,10 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		h.Set("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+		// API responses are never navigable documents; default-src 'none' ensures
+		// any accidental text/html response cannot load external resources, and
+		// frame-ancestors 'none' prevents clickjacking via iframe embedding.
+		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
 }

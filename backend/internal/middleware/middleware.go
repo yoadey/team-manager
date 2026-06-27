@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -16,6 +17,8 @@ import (
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 )
 
 // ─── Request ID ──────────────────────────────────────────────────────────────
@@ -109,17 +112,25 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
-var rateLimitHandler = httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(http.StatusTooManyRequests)
-	body := map[string]any{
-		"type":   "https://teammanager.example/errors/too-many-requests",
-		"title":  "Too Many Requests",
-		"status": http.StatusTooManyRequests,
-		"detail": "rate limit exceeded; please slow down",
-	}
-	_ = json.NewEncoder(w).Encode(body)
-})
+// makeLimitHandler returns a httprate option that responds with a Problem Details
+// 429, a Retry-After header, and increments the rate-limit-hit counter.
+// context is a label for the metrics counter ("global" or "login").
+func makeLimitHandler(window time.Duration, context string) httprate.Option {
+	retryAfter := strconv.Itoa(max(1, int(window.Seconds())))
+	return httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+		metrics.RateLimitHits.WithLabelValues(context).Inc()
+		w.Header().Set("Content-Type", "application/problem+json")
+		w.Header().Set("Retry-After", retryAfter)
+		w.WriteHeader(http.StatusTooManyRequests)
+		body := map[string]any{
+			"type":   "https://teammanager.example/errors/too-many-requests",
+			"title":  "Too Many Requests",
+			"status": http.StatusTooManyRequests,
+			"detail": "rate limit exceeded; please slow down",
+		}
+		_ = json.NewEncoder(w).Encode(body)
+	})
+}
 
 // RateLimit returns middleware that limits each client IP to requestsPerSecond
 // per second using a sliding-window counter.
@@ -132,7 +143,7 @@ func RateLimit(requestsPerSecond int) func(http.Handler) http.Handler {
 	return httprate.NewRateLimiter(
 		requestsPerSecond,
 		time.Second,
-		rateLimitHandler,
+		makeLimitHandler(time.Second, "global"),
 		httprate.WithKeyFuncs(httprate.KeyByRealIP),
 	).Handler
 }
@@ -144,7 +155,7 @@ func PerIPRateLimit(requestsPerPeriod int, period time.Duration) func(http.Handl
 	return httprate.NewRateLimiter(
 		requestsPerPeriod,
 		period,
-		rateLimitHandler,
+		makeLimitHandler(period, "login"),
 		httprate.WithKeyFuncs(httprate.KeyByRealIP),
 	).Handler
 }

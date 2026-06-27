@@ -9,6 +9,8 @@ import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
 import { t as tl } from '@/i18n';
 import { pageMeta } from './pageMeta';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { captureError } from '@/monitoring';
 export { COMPACT_BP, useCompact, shortName } from './useCompact';
 
 interface NavDef {
@@ -83,7 +85,13 @@ export function Shell() {
   const notifBadge = state.notifUnread > 9 ? '9+' : String(state.notifUnread);
   const hasUnread = state.notifUnread > 0;
 
-  const content = pageSheet ? <Box sx={{ maxWidth: '860px' }}>{renderSheet(app, pageSheet)}</Box> : <RouteScreen />;
+  const content = pageSheet ? (
+    <Box sx={{ maxWidth: '860px' }}>
+      <ErrorBoundary key={pageSheet.type} onError={captureError}>
+        {renderSheet(app, pageSheet)}
+      </ErrorBoundary>
+    </Box>
+  ) : <RouteScreen />;
 
   const railDefs: NavDef[] = [
     { key: 'home', label: tl('nav.home'), icon: 'home' },
