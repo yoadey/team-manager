@@ -11,6 +11,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
@@ -21,6 +22,8 @@ type authService interface {
 	ValidateToken(ctx context.Context, tokenString string) (*UserRow, error)
 	Logout(ctx context.Context, tokenHash string) error
 	UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error)
+	EraseAccount(ctx context.Context, userID, password string) error
+	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
 
 // Handler implements the auth-related methods of gen.StrictServerInterface.
@@ -28,12 +31,13 @@ type Handler struct {
 	svc    authService
 	logger *slog.Logger
 	codec  *SessionCookieCodec
+	audit  *audit.Logger
 }
 
 // NewHandler creates a new Handler. The codec is used by AuthMiddleware to read
 // the encrypted session cookie.
 func NewHandler(svc authService, logger *slog.Logger, codec *SessionCookieCodec) *Handler {
-	return &Handler{svc: svc, logger: logger, codec: codec}
+	return &Handler{svc: svc, logger: logger, codec: codec, audit: audit.New(logger)}
 }
 
 // ListProviders returns the list of supported login providers (hardcoded to password).
@@ -74,14 +78,78 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 	token, user, err := h.svc.Login(ctx, string(request.Body.Email), request.Body.Password)
 	if err != nil {
 		h.logger.WarnContext(ctx, "login failed", "email", request.Body.Email, "err", err)
+		h.audit.Record(ctx, audit.EventLogin, audit.Failure, "", slog.String("email", string(request.Body.Email)))
 		return gen.Login401ApplicationProblemPlusJSONResponse{
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
 		}, nil
 	}
 
+	h.audit.Record(ctx, audit.EventLogin, audit.Success, user.Id.String(), slog.String("email", string(request.Body.Email)))
 	return gen.Login200JSONResponse{
 		Token: token,
 		User:  toGenUser(user),
+	}, nil
+}
+
+// DeleteCurrentUser erases the authenticated account by anonymization
+// (GDPR Art. 17). The account password must be supplied to re-authenticate the
+// request; on success the session cookie is cleared by the cookie middleware.
+func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurrentUserRequestObject) (gen.DeleteCurrentUserResponseObject, error) {
+	user, ok := UserFromContext(ctx)
+	if !ok {
+		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("not authenticated"),
+		}, nil
+	}
+	if request.Body == nil || request.Body.ConfirmEmail == "" {
+		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("email confirmation required"),
+		}, nil
+	}
+
+	if err := h.svc.EraseAccount(ctx, user.Id.String(), string(request.Body.ConfirmEmail)); err != nil {
+		h.logger.WarnContext(ctx, "account erasure failed", "err", err)
+		h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String())
+		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
+		}, nil
+	}
+
+	h.audit.Record(ctx, audit.EventAccountErase, audit.Success, user.Id.String())
+	return gen.DeleteCurrentUser204Response{}, nil
+}
+
+// GetMyDataExport returns the authenticated user's personal data (GDPR Art. 15)
+// as a downloadable JSON document.
+func (h *Handler) GetMyDataExport(ctx context.Context, _ gen.GetMyDataExportRequestObject) (gen.GetMyDataExportResponseObject, error) {
+	user, ok := UserFromContext(ctx)
+	if !ok {
+		return gen.GetMyDataExport401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("not authenticated"),
+		}, nil
+	}
+
+	data, err := h.svc.ExportUserData(ctx, user.Id.String())
+	if err != nil {
+		h.logger.ErrorContext(ctx, "data export failed", "err", err)
+		return nil, errInternal("data export failed")
+	}
+
+	// The strict 200 body is a free-form object; round-trip the typed export
+	// through JSON to populate it.
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, errInternal("data export encoding failed")
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, errInternal("data export encoding failed")
+	}
+
+	disposition := `attachment; filename="teamverwaltung-datenexport-` + time.Now().Format("2006-01-02") + `.json"`
+	return gen.GetMyDataExport200JSONResponse{
+		Body:    body,
+		Headers: gen.GetMyDataExport200ResponseHeaders{ContentDisposition: &disposition},
 	}, nil
 }
 
@@ -168,9 +236,16 @@ func (h *Handler) Logout(ctx context.Context, _ gen.LogoutRequestObject) (gen.Lo
 	// The raw token is stored in context by AuthMiddleware.
 	rawToken, _ := ctx.Value(rawBearerContextKey).(string)
 	tokenHash := sha256Hex(rawToken)
+	var actor string
+	if u, ok := UserFromContext(ctx); ok {
+		actor = u.Id.String()
+	}
 	if err := h.svc.Logout(ctx, tokenHash); err != nil {
 		h.logger.WarnContext(ctx, "logout failed", "err", err)
+		h.audit.Record(ctx, audit.EventLogout, audit.Failure, actor)
+		return gen.Logout204Response{}, nil
 	}
+	h.audit.Record(ctx, audit.EventLogout, audit.Success, actor)
 	return gen.Logout204Response{}, nil
 }
 

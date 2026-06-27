@@ -195,7 +195,9 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          # Pinned for reproducible lint results (was "latest", which drifts and
+          # can change findings between runs). Latest v2 line; bump deliberately.
+          version: v2.12.2
           working-directory: backend
 
   backend-test:
@@ -274,14 +276,21 @@ jobs:
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
       - name: Enforce minimum coverage threshold
-        # Threshold is set conservatively: generated code (internal/gen), infra packages
-        # (cmd/server, internal/db, internal/server, internal/jobs) and testutil have
-        # 0% unit-test coverage, dragging total below 20%. Raise this incrementally as
-        # test coverage improves — current baseline is ~19%.
+        # The gate measures business-logic packages only. Generated code
+        # (internal/gen) and infra/wiring packages (cmd/server, internal/db,
+        # internal/server, internal/jobs, internal/testutil) carry little to no
+        # test coverage by design and previously diluted the total, forcing a
+        # vacuous 15% floor. Filtering them yields a number that reflects real
+        # test depth on the code that holds the logic. Ratchet this floor upward
+        # as coverage grows: CI (with testcontainers integration tests) reports
+        # ~40%, so this 35% floor leaves headroom for normal fluctuation while
+        # still catching real regressions.
         run: |
-          total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%",""); print $3}')
-          echo "Total coverage: ${total}%"
-          awk -v total="$total" 'BEGIN { if (total+0 < 15) { print "Coverage " total "% below 15% threshold"; exit 1 } }'
+          grep -vE '/internal/gen/|/cmd/server/|/internal/db/|/internal/server/|/internal/jobs/|/internal/testutil/' \
+            coverage.out > coverage.business.out
+          total=$(go tool cover -func=coverage.business.out | awk '/^total:/ {gsub("%",""); print $3}')
+          echo "Business-logic coverage: ${total}%"
+          awk -v total="$total" 'BEGIN { if (total+0 < 35) { print "Coverage " total "% below 35% threshold"; exit 1 } }'
 
   security-sast:
     name: Security · SAST (CodeQL)
@@ -313,7 +322,12 @@ jobs:
       - name: Build backend image
         run: docker build -t team-manager-backend:ci backend/
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@master
+        # Pinned to an immutable release tag rather than @master. trivy-action
+        # was hit by a tag-hijacking supply-chain attack; a mutable branch ref
+        # like @master is exactly the exposure that enables. v0.36.0 is covered
+        # by GitHub's immutable-releases protection (commit ed142fd). Further
+        # hardening: pin to the full commit SHA.
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: team-manager-backend:ci
           format: table

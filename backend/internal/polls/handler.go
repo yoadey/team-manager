@@ -2,6 +2,7 @@ package polls
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -15,7 +16,7 @@ import (
 
 // pollService is the interface the Handler relies on.
 type pollService interface {
-	ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit, offset int) ([]gen.Poll, error)
+	ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit int, cursor string) ([]gen.Poll, *string, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error)
 	Vote(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -38,13 +39,20 @@ func (h *Handler) ListPolls(ctx context.Context, req gen.ListPollsRequestObject)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
-	polls, err := h.svc.ListByTeam(ctx, req.TeamId, user.Id, limit, offset)
+	limit := pagination.ParseLimit(req.Params.Limit)
+	cursor := ""
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
+	}
+	polls, next, err := h.svc.ListByTeam(ctx, req.TeamId, user.Id, limit, cursor)
 	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
 		h.logger.ErrorContext(ctx, "ListPolls failed", "err", err)
 		return nil, apierror.Internal("failed to list polls")
 	}
-	return gen.ListPolls200JSONResponse(polls), nil
+	return gen.ListPolls200JSONResponse{Items: polls, NextCursor: next}, nil
 }
 
 // CreatePoll creates a new poll.

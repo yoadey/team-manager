@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/validate"
@@ -26,11 +27,12 @@ type roleService interface {
 type Handler struct {
 	svc    roleService
 	logger *slog.Logger
+	audit  *audit.Logger
 }
 
 // NewHandler creates a new Handler.
 func NewHandler(svc roleService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
 }
 
 // ListRoles returns all roles defined for the given team.
@@ -48,7 +50,8 @@ func (h *Handler) ListRoles(ctx context.Context, req gen.ListRolesRequestObject)
 
 // CreateRole creates a new custom role for a team.
 func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObject) (gen.CreateRoleResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if req.Body == nil {
@@ -62,12 +65,15 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 		h.logger.ErrorContext(ctx, "CreateRole failed", "err", err)
 		return nil, apierror.Internal("failed to create role")
 	}
+	h.audit.Record(ctx, audit.EventRoleCreate, audit.Success, user.Id.String(),
+		slog.String("teamId", req.TeamId.String()), slog.String("roleId", role.Id.String()))
 	return gen.CreateRole201JSONResponse(*role), nil
 }
 
 // UpdateRole updates a role's name, color, or permissions.
 func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObject) (gen.UpdateRoleResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if req.Body == nil {
@@ -86,12 +92,15 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 		h.logger.ErrorContext(ctx, "UpdateRole failed", "err", err)
 		return nil, apierror.Internal("failed to update role")
 	}
+	h.audit.Record(ctx, audit.EventRoleUpdate, audit.Success, user.Id.String(),
+		slog.String("roleId", req.RoleId.String()))
 	return gen.UpdateRole200JSONResponse(*role), nil
 }
 
 // DeleteRole deletes a role and all its assignments.
 func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObject) (gen.DeleteRoleResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if err := h.svc.DeleteRole(ctx, req.RoleId); err != nil {
@@ -101,5 +110,7 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 		h.logger.ErrorContext(ctx, "DeleteRole failed", "err", err)
 		return nil, apierror.Internal("failed to delete role")
 	}
+	h.audit.Record(ctx, audit.EventRoleDelete, audit.Success, user.Id.String(),
+		slog.String("roleId", req.RoleId.String()))
 	return gen.DeleteRole204Response{}, nil
 }

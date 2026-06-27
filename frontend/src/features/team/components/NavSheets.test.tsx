@@ -83,6 +83,9 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     toggleMyRole: vi.fn(),
     setColorScheme: vi.fn(),
     logout: vi.fn(),
+    deleteAccount: vi.fn().mockResolvedValue(undefined),
+    exportMyData: vi.fn().mockResolvedValue(undefined),
+    toastMsg: vi.fn(),
     go: vi.fn(),
     onFormInput: vi.fn(),
     onFile: vi.fn(),
@@ -216,6 +219,45 @@ describe('ProfileSheet', () => {
     const app = makeApp();
     render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText(/Mehrfachauswahl möglich/)).toBeTruthy();
+  });
+
+  it('clicking "export my data" calls exportMyData', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    fireEvent.click(screen.getByText('Meine Daten exportieren'));
+    expect(app.exportMyData).toHaveBeenCalledTimes(1);
+  });
+
+  it('account deletion requires the matching email before it can be confirmed', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    // Reveal the confirm flow.
+    fireEvent.click(screen.getByText('Konto löschen'));
+    const confirmBtn = screen.getByText('Endgültig löschen').closest('button')!;
+    expect(confirmBtn.disabled).toBe(true);
+
+    // A wrong email keeps it disabled.
+    const input = screen.getByPlaceholderText('max@example.com');
+    fireEvent.change(input, { target: { value: 'wrong@example.com' } });
+    expect(confirmBtn.disabled).toBe(true);
+
+    // The matching email (case-insensitive) enables it.
+    fireEvent.change(input, { target: { value: 'MAX@example.com' } });
+    expect(confirmBtn.disabled).toBe(false);
+  });
+
+  it('confirming account deletion calls deleteAccount with the typed email', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    fireEvent.click(screen.getByText('Konto löschen'));
+    fireEvent.change(screen.getByPlaceholderText('max@example.com'), {
+      target: { value: 'max@example.com' },
+    });
+    fireEvent.click(screen.getByText('Endgültig löschen'));
+
+    expect(app.deleteAccount).toHaveBeenCalledWith('max@example.com');
   });
 
   it('renders the team name in the roles section title', () => {

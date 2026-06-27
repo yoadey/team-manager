@@ -66,7 +66,7 @@ export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, ref
         return;
       }
       try {
-        await api.members.setRoles(team.membershipId, next);
+        await api.members.setRoles(team.membershipId, next, team.id);
         await refreshTeams();
         toastMsg(t('team.toastRolesSaved'));
       } catch (err) {

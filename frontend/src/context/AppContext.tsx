@@ -214,6 +214,8 @@ export interface AppContextValue {
   doLogin: (pid: string) => Promise<void>;
   doPasswordLogin: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  deleteAccount: (confirmEmail: string) => Promise<void>;
+  exportMyData: () => Promise<void>;
   // nav
   go: (route: Route) => void;
   goEventsPending: () => void;
@@ -487,6 +489,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
   }, [api, setState]);
 
+  // GDPR Art. 17: anonymize the account then drop to the login screen. The
+  // caller passes the account email as an explicit confirmation; errors (e.g. a
+  // mismatched email) propagate so the UI can surface them.
+  const deleteAccount = useCallback(
+    async (confirmEmail: string) => {
+      await api.auth.deleteAccount(confirmEmail);
+      logout();
+    },
+    [api, logout],
+  );
+
+  // GDPR Art. 15: fetch the personal-data export and download it as JSON.
+  const exportMyData = useCallback(async () => {
+    const data = await api.auth.exportData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `teamverwaltung-datenexport-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1500);
+  }, [api]);
+
   // ---------- form ----------
   const onFormInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -676,7 +705,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const [absences, myAbsences] = await Promise.all([
         api.absences.listForTeam(S().activeTeamId!),
-        api.absences.listMine(),
+        api.absences.listMine(S().activeTeamId!),
       ]);
       setState({ absences, myAbsences });
     } catch (err) {
@@ -1000,6 +1029,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doLogin,
       doPasswordLogin,
       logout,
+      deleteAccount,
+      exportMyData,
       go,
       goEventsPending,
       closeSheet,
@@ -1100,6 +1131,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState,
       doLogin,
       logout,
+      deleteAccount,
+      exportMyData,
       doPasswordLogin,
       go,
       goEventsPending,

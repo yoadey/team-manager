@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/validate"
@@ -32,11 +33,23 @@ type financeService interface {
 type Handler struct {
 	svc    financeService
 	logger *slog.Logger
+	audit  *audit.Logger
 }
 
 // NewHandler creates a new Handler.
 func NewHandler(svc financeService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
+}
+
+// recordFinance emits a finance.mutation audit event for the acting user,
+// tagging the specific write with an "operation" attribute.
+func (h *Handler) recordFinance(ctx context.Context, operation string, attrs ...slog.Attr) {
+	actor := ""
+	if u, ok := auth.UserFromContext(ctx); ok {
+		actor = u.Id.String()
+	}
+	h.audit.Record(ctx, audit.EventFinanceMutation, audit.Success, actor,
+		append([]slog.Attr{slog.String("operation", operation)}, attrs...)...)
 }
 
 // GetFinanceOverview returns the full finance overview for a team.
@@ -71,6 +84,8 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to create transaction")
 	}
+	h.recordFinance(ctx, "transaction.create",
+		slog.String("teamId", req.TeamId.String()), slog.String("transactionId", t.Id.String()))
 	return gen.CreateTransaction201JSONResponse(*t), nil
 }
 
@@ -87,6 +102,7 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 		h.logger.ErrorContext(ctx, "UpdateTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to update transaction")
 	}
+	h.recordFinance(ctx, "transaction.update", slog.String("transactionId", req.TransactionId.String()))
 	return gen.UpdateTransaction200JSONResponse(*t), nil
 }
 
@@ -99,6 +115,7 @@ func (h *Handler) DeleteTransaction(ctx context.Context, req gen.DeleteTransacti
 		h.logger.ErrorContext(ctx, "DeleteTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to delete transaction")
 	}
+	h.recordFinance(ctx, "transaction.delete", slog.String("transactionId", req.TransactionId.String()))
 	return gen.DeleteTransaction204Response{}, nil
 }
 
@@ -121,6 +138,8 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to create penalty")
 	}
+	h.recordFinance(ctx, "penalty.create",
+		slog.String("teamId", req.TeamId.String()), slog.String("penaltyId", p.Id.String()))
 	return gen.CreatePenalty201JSONResponse(*p), nil
 }
 
@@ -137,6 +156,7 @@ func (h *Handler) UpdatePenalty(ctx context.Context, req gen.UpdatePenaltyReques
 		h.logger.ErrorContext(ctx, "UpdatePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to update penalty")
 	}
+	h.recordFinance(ctx, "penalty.update", slog.String("penaltyId", req.PenaltyId.String()))
 	return gen.UpdatePenalty200JSONResponse(*p), nil
 }
 
@@ -149,6 +169,7 @@ func (h *Handler) DeletePenalty(ctx context.Context, req gen.DeletePenaltyReques
 		h.logger.ErrorContext(ctx, "DeletePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to delete penalty")
 	}
+	h.recordFinance(ctx, "penalty.delete", slog.String("penaltyId", req.PenaltyId.String()))
 	return gen.DeletePenalty204Response{}, nil
 }
 
@@ -165,6 +186,8 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 		h.logger.ErrorContext(ctx, "CreatePenaltyAssignment failed", "err", err)
 		return nil, apierror.Internal("failed to create penalty assignment")
 	}
+	h.recordFinance(ctx, "assignment.create",
+		slog.String("teamId", req.TeamId.String()), slog.String("assignmentId", a.Id.String()))
 	return gen.CreatePenaltyAssignment201JSONResponse(*a), nil
 }
 
@@ -177,6 +200,7 @@ func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePen
 		h.logger.ErrorContext(ctx, "DeletePenaltyAssignment failed", "err", err)
 		return nil, apierror.Internal("failed to delete penalty assignment")
 	}
+	h.recordFinance(ctx, "assignment.delete", slog.String("assignmentId", req.AssignmentId.String()))
 	return gen.DeletePenaltyAssignment204Response{}, nil
 }
 
@@ -190,6 +214,8 @@ func (h *Handler) TogglePenaltyPaid(ctx context.Context, req gen.TogglePenaltyPa
 		h.logger.ErrorContext(ctx, "TogglePenaltyPaid failed", "err", err)
 		return nil, apierror.Internal("failed to toggle penalty paid status")
 	}
+	h.recordFinance(ctx, "assignment.toggle_paid",
+		slog.String("teamId", req.TeamId.String()), slog.String("assignmentId", req.AssignmentId.String()))
 	return gen.TogglePenaltyPaid200JSONResponse(*a), nil
 }
 
@@ -206,6 +232,7 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 		h.logger.ErrorContext(ctx, "UpdateContribution failed", "err", err)
 		return nil, apierror.Internal("failed to update contribution")
 	}
+	h.recordFinance(ctx, "contribution.update", slog.String("contributionId", req.ContributionId.String()))
 	return gen.UpdateContribution200JSONResponse(*c), nil
 }
 
@@ -219,5 +246,6 @@ func (h *Handler) ToggleContribution(ctx context.Context, req gen.ToggleContribu
 		h.logger.ErrorContext(ctx, "ToggleContribution failed", "err", err)
 		return nil, apierror.Internal("failed to toggle contribution status")
 	}
+	h.recordFinance(ctx, "contribution.toggle", slog.String("contributionId", req.ContributionId.String()))
 	return gen.ToggleContribution200JSONResponse(*c), nil
 }

@@ -47,7 +47,7 @@ func TestNewsRepository_CreateAndList(t *testing.T) {
 	require.NotNil(t, pinned)
 	assert.True(t, pinned.Pinned)
 
-	list, err := repo.ListByTeam(ctx, teamID, 50, 0)
+	list, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, list, 2)
 	// Pinned items come first.
@@ -111,7 +111,7 @@ func TestNewsRepository_Delete(t *testing.T) {
 
 	require.NoError(t, repo.Delete(ctx, item.Id))
 
-	list, err := repo.ListByTeam(ctx, teamID, 50, 0)
+	list, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }

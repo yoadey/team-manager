@@ -16,14 +16,14 @@ import (
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	listByTeam func(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*news.NewsRow, error)
+	listByTeam func(ctx context.Context, teamID uuid.UUID, limit int, cur *news.ListCursor) ([]*news.NewsRow, error)
 	create     func(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error)
 	update     func(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error)
 	delete     func(ctx context.Context, id uuid.UUID) error
 }
 
-func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*news.NewsRow, error) {
-	return m.listByTeam(ctx, teamID, limit, offset)
+func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *news.ListCursor) ([]*news.NewsRow, error) {
+	return m.listByTeam(ctx, teamID, limit, cur)
 }
 
 func (m *mockRepo) Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error) {
@@ -65,17 +65,18 @@ func TestService_ListByTeam(t *testing.T) {
 	row := makeNewsRow()
 
 	repo := &mockRepo{
-		listByTeam: func(_ context.Context, tid uuid.UUID, _, _ int) ([]*news.NewsRow, error) {
+		listByTeam: func(_ context.Context, tid uuid.UUID, _ int, _ *news.ListCursor) ([]*news.NewsRow, error) {
 			assert.Equal(t, teamID, tid)
 			return []*news.NewsRow{row}, nil
 		},
 	}
 
 	svc := news.NewService(repo, nil)
-	result, err := svc.ListByTeam(context.Background(), teamID, 50, 0)
+	result, next, err := svc.ListByTeam(context.Background(), teamID, 50, "")
 
 	require.NoError(t, err)
 	require.Len(t, result, 1)
+	assert.Nil(t, next, "single page should have no next cursor")
 	assert.Equal(t, row.Id, result[0].Id)
 	assert.Equal(t, row.Title, result[0].Title)
 }

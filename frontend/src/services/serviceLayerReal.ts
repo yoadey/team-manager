@@ -52,6 +52,29 @@ async function check<T>(
   return result.data;
 }
 
+// Per-page size when walking a keyset list to completion (the backend caps at 500).
+const PAGE_LIMIT = 500;
+
+// fetchAllPages walks the keyset { items, nextCursor } envelope to the end and
+// returns every row. The app has no paging UI yet and consumers expect full
+// arrays, so without this the real backend would silently truncate lists to the
+// first page (the mock returns everything). Pages are fetched sequentially
+// because each request needs the previous page's cursor.
+async function fetchAllPages<T>(
+  fetchPage: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor?: string | null }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | undefined;
+  let more = true;
+  while (more) {
+    const page = await fetchPage(cursor);
+    all.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
+    more = cursor !== undefined;
+  }
+  return all;
+}
+
 export const realApi = {
   auth: {
     async providers(): Promise<Provider[]> {
@@ -81,6 +104,23 @@ export const realApi = {
 
     async logout() {
       await apiClient.POST('/auth/logout', {});
+    },
+
+    // GDPR Art. 15: returns the personal-data export document for the current
+    // user. The caller turns it into a downloadable file.
+    async exportData(): Promise<unknown> {
+      const res = await apiClient.GET('/auth/me/data-export');
+      return check(res);
+    },
+
+    // GDPR Art. 17 erasure by anonymization. Authorized by the active session;
+    // the caller echoes the account email to confirm intent (works for OIDC
+    // accounts that have no password). The server clears the cookie on success.
+    async deleteAccount(confirmEmail: string): Promise<void> {
+      const res = await apiClient.DELETE('/auth/me', {
+        body: { confirmEmail: confirmEmail as string & { format: 'email' } },
+      });
+      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
     },
 
     async setPhoto(dataUrl: string): Promise<User> {
@@ -153,9 +193,15 @@ export const realApi = {
 
   members: {
     async list(teamId: string): Promise<Member[]> {
-      const res = await apiClient.GET('/teams/{teamId}/members', { params: { path: { teamId } } });
-      const members = await check(res);
-      return (members as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
+      // Keyset { items, nextCursor } envelope; walked to completion so the full
+      // roster is returned (no paging UI yet).
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/members', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
     },
 
     async add(teamId: string, params: {
@@ -247,11 +293,14 @@ export const realApi = {
 
   events: {
     async list(teamId: string, scope: 'all' | 'upcoming' | 'past' = 'all'): Promise<TeamEvent[]> {
-      const res = await apiClient.GET('/teams/{teamId}/events', {
-        params: { path: { teamId }, query: { scope } },
+      // Keyset { items, nextCursor } envelope; walked to completion.
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/events', {
+          params: { path: { teamId }, query: { scope, limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
       });
-      const events = await check(res);
-      return events.map(mapTeamEvent);
+      return items.map(mapTeamEvent);
     },
 
     async get(eventId: string, teamId: string): Promise<TeamEvent | null> {
@@ -384,15 +433,23 @@ export const realApi = {
 
   absences: {
     async listForTeam(teamId: string): Promise<Absence[]> {
-      const res = await apiClient.GET('/teams/{teamId}/absences', { params: { path: { teamId } } });
-      const absences = await check(res);
-      return absences.map(mapAbsence);
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/absences', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapAbsence);
     },
 
     async listMine(teamId: string): Promise<Absence[]> {
-      const res = await apiClient.GET('/teams/{teamId}/absences/mine', { params: { path: { teamId } } });
-      const absences = await check(res);
-      return absences.map(mapAbsence);
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/absences/mine', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapAbsence);
     },
 
     async create(payload: { teamId: string; userId: string; from: string; to: string; reason?: string }): Promise<Absence> {
@@ -428,9 +485,14 @@ export const realApi = {
 
   news: {
     async list(teamId: string): Promise<NewsItem[]> {
-      const res = await apiClient.GET('/teams/{teamId}/news', { params: { path: { teamId } } });
-      const news = await check(res);
-      return news.map(mapNewsItem);
+      // Keyset { items, nextCursor } envelope; walked to completion.
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/news', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapNewsItem);
     },
 
     async create(teamId: string, payload: { title: string; body: string; pinned?: boolean }): Promise<NewsItem> {
@@ -461,9 +523,14 @@ export const realApi = {
 
   polls: {
     async list(teamId: string): Promise<Poll[]> {
-      const res = await apiClient.GET('/teams/{teamId}/polls', { params: { path: { teamId } } });
-      const polls = await check(res);
-      return polls.map(mapPoll);
+      // Keyset { items, nextCursor } envelope; walked to completion.
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/polls', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapPoll);
     },
 
     async vote(pollId: string, optionIds: string[], teamId: string): Promise<void> {
@@ -557,7 +624,7 @@ export const realApi = {
       if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
     },
 
-    async assignPenalty(teamId: string, userId: string, penaltyId: string): Promise<PenaltyAssignment> {
+    async assignPenalty(teamId: string, { userId, penaltyId }: { userId: string; penaltyId: string }): Promise<PenaltyAssignment> {
       const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments', {
         params: { path: { teamId } },
         body: { userId, penaltyId },
@@ -566,7 +633,8 @@ export const realApi = {
       return mapPenaltyAssignment(a);
     },
 
-    async unassignPenalty(id: string, teamId: string): Promise<void> {
+    // Named to match the mock + the app's call site (api.finances.deleteAssignment).
+    async deleteAssignment(id: string, teamId: string): Promise<void> {
       const res = await apiClient.DELETE('/teams/{teamId}/finances/penalty-assignments/{assignmentId}', {
         params: { path: { teamId, assignmentId: id } },
       });

@@ -50,7 +50,7 @@ func scanUser(row interface {
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf(`SELECT %s FROM users WHERE email = $1`, selectUserFields)
+	q := fmt.Sprintf(`SELECT %s FROM users WHERE email = $1 AND deleted_at IS NULL`, selectUserFields)
 	row := r.pool.QueryRow(ctx, q, email)
 	u, err := scanUser(row)
 	if err != nil {
@@ -63,7 +63,7 @@ func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRo
 func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf(`SELECT %s FROM users WHERE id = $1`, selectUserFields)
+	q := fmt.Sprintf(`SELECT %s FROM users WHERE id = $1 AND deleted_at IS NULL`, selectUserFields)
 	row := r.pool.QueryRow(ctx, q, id)
 	u, err := scanUser(row)
 	if err != nil {
@@ -117,6 +117,50 @@ func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error 
 	_, err := r.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
 	if err != nil {
 		return fmt.Errorf("auth.Repository.DeleteSession: %w", err)
+	}
+	return nil
+}
+
+// EraseUser performs GDPR Art. 17 erasure by anonymization in a single
+// transaction: it overwrites the user's personal data in place, strips
+// free-text PII from their comments, attendance reasons and absence reasons,
+// and deletes their sessions. Shared records (memberships, attendance, finance)
+// keep their foreign key but no longer resolve to an identifiable person, so
+// team statistics and legally retained accounting data stay intact.
+func (r *Repository) EraseUser(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.EraseUser: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const anonName = "Gelöschtes Mitglied"
+	steps := []struct {
+		sql  string
+		args []any
+	}{
+		{`UPDATE users SET
+			name = $2, email = 'deleted+' || id::text || '@invalid',
+			phone = NULL, birthday = NULL, address = NULL,
+			photo_data = NULL, photo_mime = NULL, password_hash = NULL,
+			deleted_at = now()
+		  WHERE id = $1 AND deleted_at IS NULL`, []any{userID, anonName}},
+		{`UPDATE event_comments SET text = '' WHERE user_id = $1`, []any{userID}},
+		{`UPDATE attendance SET reason = NULL WHERE user_id = $1`, []any{userID}},
+		{`UPDATE absences SET reason = NULL WHERE user_id = $1`, []any{userID}},
+		{`DELETE FROM sessions WHERE user_id = $1`, []any{userID}},
+	}
+	for _, s := range steps {
+		if _, err := tx.Exec(ctx, s.sql, s.args...); err != nil {
+			return fmt.Errorf("auth.Repository.EraseUser: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("auth.Repository.EraseUser: commit: %w", err)
 	}
 	return nil
 }

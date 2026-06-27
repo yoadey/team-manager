@@ -140,7 +140,7 @@ describe('useAbsenceActions', () => {
     await act(async () => {
       await result.current.saveAbsence();
     });
-    expect(api.absences.update).toHaveBeenCalledWith('ab1', expect.objectContaining({ reason: 'Krank' }));
+    expect(api.absences.update).toHaveBeenCalledWith('ab1', expect.objectContaining({ reason: 'Krank' }), 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Abwesenheit aktualisiert');
   });
 
@@ -166,7 +166,7 @@ describe('useAbsenceActions', () => {
     await act(async () => {
       await cfg.onConfirm();
     });
-    expect(api.absences.remove).toHaveBeenCalledWith('ab1');
+    expect(api.absences.remove).toHaveBeenCalledWith('ab1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Abwesenheit entfernt');
   });
 });

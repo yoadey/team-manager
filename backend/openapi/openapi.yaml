@@ -96,6 +96,56 @@ paths:
                 $ref: "#/components/schemas/User"
         "401":
           $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [auth]
+      operationId: deleteCurrentUser
+      summary: Erase the authenticated account (GDPR Art. 17, by anonymization)
+      description: >
+        Anonymizes the user's personal data (name, email, phone, birthday,
+        address, photo) and strips free-text PII from their comments and
+        absence reasons, then deletes all of their sessions. Membership,
+        attendance and finance records are retained in anonymized form so that
+        shared and legally required data (e.g. accounting) stays intact. The
+        request is authorized by the active session; to confirm intent the
+        caller must echo the account's own email address (works regardless of
+        login method, including OIDC accounts that have no password).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteAccountRequest"
+      responses:
+        "204":
+          description: Account anonymized; session cleared
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/me/data-export:
+    get:
+      tags: [auth]
+      operationId: getMyDataExport
+      summary: Export the authenticated user's personal data (GDPR Art. 15)
+      description: >
+        Returns a single JSON document with all personal data held about the
+        authenticated user: profile, memberships and roles, attendance,
+        comments, absences, authored news, created polls, votes, penalty
+        assignments and contributions.
+      responses:
+        "200":
+          description: Personal-data export document.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: Suggests a download filename.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /auth/me/photo:
     get:
@@ -309,16 +359,24 @@ paths:
       summary: List team members
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Member"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Member"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [members]
       operationId: addMember
@@ -470,16 +528,24 @@ paths:
             enum: [upcoming, past, all]
             default: upcoming
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/TeamEvent"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/TeamEvent"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [events]
       operationId: createEvent
@@ -705,16 +771,24 @@ paths:
       summary: List absences for the team
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Absence"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Absence"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [absences]
       operationId: createAbsence
@@ -742,16 +816,24 @@ paths:
       summary: List authenticated user's own absences
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Absence"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Absence"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
 
   /teams/{teamId}/absences/{absenceId}:
     parameters:
@@ -798,16 +880,24 @@ paths:
       summary: List team news
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/NewsItem"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/NewsItem"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [news]
       operationId: createNews
@@ -871,16 +961,24 @@ paths:
       summary: List polls with vote counts
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Poll"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Poll"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [polls]
       operationId: createPoll
@@ -1306,6 +1404,12 @@ components:
         type: integer
         minimum: 0
         default: 0
+    cursor:
+      name: cursor
+      in: query
+      description: Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+      schema:
+        type: string
 
   responses:
     Unauthorized:
@@ -1443,6 +1547,17 @@ components:
           type: string
         user:
           $ref: "#/components/schemas/User"
+
+    DeleteAccountRequest:
+      type: object
+      required: [confirmEmail]
+      properties:
+        confirmEmail:
+          type: string
+          format: email
+          description: >
+            The account's own email address, retyped to confirm the
+            irreversible erasure. Must match the authenticated user's email.
 
     User:
       type: object

@@ -10,12 +10,13 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // memberRepo is the interface the Service relies on.
 type memberRepo interface {
-	ListMembers(ctx context.Context, teamID string, limit, offset int) ([]MemberRow, error)
+	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
 	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error)
 	UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*MemberRow, error)
 	SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*MemberRow, error)
@@ -32,17 +33,39 @@ func NewService(repo memberRepo) *Service {
 	return &Service{repo: repo}
 }
 
-// ListMembers returns paginated members of a team as gen.Member objects.
-func (s *Service) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error) {
-	rows, err := s.repo.ListMembers(ctx, teamID, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("members.Service.ListMembers: %w", err)
+// ListMembers returns a keyset page of members plus the cursor for the next
+// page (nil on the last page). cursor is the opaque token from a prior page
+// ("" = first page).
+func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
+	var cur *ListCursor
+	var decoded ListCursor
+	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+		return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", err)
+	} else if ok {
+		cur = &decoded
 	}
+
+	rows, err := s.repo.ListMembers(ctx, teamID, limit+1, cur)
+	if err != nil {
+		return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", err)
+	}
+
+	var next *string
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		token, err := pagination.EncodeCursor(ListCursor{Name: last.Name, ID: last.MembershipID})
+		if err != nil {
+			return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", err)
+		}
+		next = &token
+	}
+
 	out := make([]gen.Member, len(rows))
 	for i, r := range rows {
 		out[i] = toGenMember(r)
 	}
-	return out, nil
+	return out, next, nil
 }
 
 // AddMember adds a member and returns the gen.Member.

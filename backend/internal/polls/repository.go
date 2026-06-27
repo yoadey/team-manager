@@ -20,14 +20,27 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 // ListByTeam returns all polls for a team.
-func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*PollRow, error) {
+// ListCursor is the keyset position for poll pagination
+// (ORDER BY created_at DESC, id DESC).
+type ListCursor struct {
+	CreatedAt time.Time `json:"c"`
+	ID        uuid.UUID `json:"i"`
+}
+
+func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*PollRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	args := []any{teamID, limit}
+	predicate := ""
+	if cur != nil {
+		predicate = "AND (created_at, id) < ($3, $4)"
+		args = append(args, cur.CreatedAt, cur.ID)
+	}
 	rows, err := r.pool.Query(
 		ctx,
-		`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at
-		 FROM polls WHERE team_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-		teamID, limit, offset,
+		fmt.Sprintf(`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at
+		 FROM polls WHERE team_id = $1 %s ORDER BY created_at DESC, id DESC LIMIT $2`, predicate),
+		args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("polls.Repository.ListByTeam: %w", err)

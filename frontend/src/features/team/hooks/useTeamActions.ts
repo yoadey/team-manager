@@ -38,10 +38,10 @@ export function useTeamActions({
   const openProfile = useCallback(() => {
     setState({ sheet: { type: 'profile' } });
     api.absences
-      .listMine()
+      .listMine(S().activeTeamId!)
       .then((myAbsences) => setState({ myAbsences }))
       .catch((err) => reportActionError({ setState, toastMsg }, err, 'error.load'));
-  }, [api, setState, toastMsg]);
+  }, [api, S, setState, toastMsg]);
 
   const openMore = useCallback(() => setState({ sheet: { type: 'more' } }), [setState]);
 

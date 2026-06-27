@@ -18,7 +18,7 @@ import (
 
 // mockSvcRepo satisfies the unexported eventRepo interface via structural typing.
 type mockSvcRepo struct {
-	listEventsFn           func(ctx context.Context, teamID, scope string, limit, offset int) ([]events.EventRow, error)
+	listEventsFn           func(ctx context.Context, teamID, scope string, limit int, cur *events.ListCursor) ([]events.EventRow, error)
 	getEventFn             func(ctx context.Context, eventID string) (*events.EventRow, error)
 	createEventFn          func(ctx context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error)
 	createSeriesFn         func(ctx context.Context, teamID string, params *events.CreateEventParams) ([]events.EventRow, error)
@@ -35,8 +35,8 @@ type mockSvcRepo struct {
 	deleteCommentFn        func(ctx context.Context, commentID, userID string) error
 }
 
-func (m *mockSvcRepo) ListEvents(ctx context.Context, teamID, scope string, limit, offset int) ([]events.EventRow, error) {
-	return m.listEventsFn(ctx, teamID, scope, limit, offset)
+func (m *mockSvcRepo) ListEvents(ctx context.Context, teamID, scope string, limit int, cur *events.ListCursor) ([]events.EventRow, error) {
+	return m.listEventsFn(ctx, teamID, scope, limit, cur)
 }
 
 func (m *mockSvcRepo) GetEvent(ctx context.Context, eventID string) (*events.EventRow, error) {
@@ -129,7 +129,7 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 
 	capturedScope := ""
 	repo := &mockSvcRepo{
-		listEventsFn: func(_ context.Context, _, scope string, _, _ int) ([]events.EventRow, error) {
+		listEventsFn: func(_ context.Context, _, scope string, _ int, _ *events.ListCursor) ([]events.EventRow, error) {
 			capturedScope = scope
 			return rows, nil
 		},
@@ -138,8 +138,9 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 	}
 
 	svc := events.NewService(repo, nil)
-	result, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming", 50, 0)
+	result, next, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming", "", 50)
 	require.NoError(t, err)
+	assert.Nil(t, next)
 	assert.Len(t, result, 3)
 	assert.Equal(t, "upcoming", capturedScope, "scope should be passed through to repository")
 }

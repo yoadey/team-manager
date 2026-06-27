@@ -513,6 +513,12 @@ type CreateTransactionRequest struct {
 	Type     TransactionType `json:"type"`
 }
 
+// DeleteAccountRequest defines model for DeleteAccountRequest.
+type DeleteAccountRequest struct {
+	// ConfirmEmail The account's own email address, retyped to confirm the irreversible erasure. Must match the authenticated user's email.
+	ConfirmEmail openapi_types.Email `json:"confirmEmail"`
+}
+
 // EventComment defines model for EventComment.
 type EventComment struct {
 	AuthorColor    *string            `json:"authorColor,omitempty"`
@@ -969,6 +975,9 @@ type VotePollRequest struct {
 	OptionIds []openapi_types.UUID `json:"optionIds"`
 }
 
+// Cursor defines model for cursor.
+type Cursor = string
+
 // EventId defines model for eventId.
 type EventId = openapi_types.UUID
 
@@ -1003,21 +1012,27 @@ type UploadMyPhotoMultipartBody struct {
 
 // ListAbsencesParams defines parameters for ListAbsences.
 type ListAbsencesParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // ListMyAbsencesParams defines parameters for ListMyAbsences.
 type ListMyAbsencesParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
-	Scope  *ListEventsParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
-	Limit  *Limit                 `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset                `form:"offset,omitempty" json:"offset,omitempty"`
+	Scope *ListEventsParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+	Limit *Limit                 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // ListEventsParamsScope defines parameters for ListEvents.
@@ -1060,14 +1075,18 @@ type UploadTeamLogoMultipartBody struct {
 
 // ListMembersParams defines parameters for ListMembers.
 type ListMembersParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // ListNewsParams defines parameters for ListNews.
 type ListNewsParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // UploadTeamPhotoMultipartBody defines parameters for UploadTeamPhoto.
@@ -1077,8 +1096,10 @@ type UploadTeamPhotoMultipartBody struct {
 
 // ListPollsParams defines parameters for ListPolls.
 type ListPollsParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // GetStatsOverviewParams defines parameters for GetStatsOverview.
@@ -1089,6 +1110,9 @@ type GetStatsOverviewParams struct {
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
+
+// DeleteCurrentUserJSONRequestBody defines body for DeleteCurrentUser for application/json ContentType.
+type DeleteCurrentUserJSONRequestBody = DeleteAccountRequest
 
 // UploadMyPhotoMultipartRequestBody defines body for UploadMyPhoto for multipart/form-data ContentType.
 type UploadMyPhotoMultipartRequestBody UploadMyPhotoMultipartBody
@@ -1182,9 +1206,15 @@ type ServerInterface interface {
 	// Invalidate current session
 	// (POST /auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
+	// Erase the authenticated account (GDPR Art. 17, by anonymization)
+	// (DELETE /auth/me)
+	DeleteCurrentUser(w http.ResponseWriter, r *http.Request)
 	// Get authenticated user profile
 	// (GET /auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+	// Export the authenticated user's personal data (GDPR Art. 15)
+	// (GET /auth/me/data-export)
+	GetMyDataExport(w http.ResponseWriter, r *http.Request)
 	// Get user profile photo
 	// (GET /auth/me/photo)
 	GetMyPhoto(w http.ResponseWriter, r *http.Request)
@@ -1389,9 +1419,21 @@ func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Erase the authenticated account (GDPR Art. 17, by anonymization)
+// (DELETE /auth/me)
+func (_ Unimplemented) DeleteCurrentUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get authenticated user profile
 // (GET /auth/me)
 func (_ Unimplemented) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Export the authenticated user's personal data (GDPR Art. 15)
+// (GET /auth/me/data-export)
+func (_ Unimplemented) GetMyDataExport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1810,6 +1852,26 @@ func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteCurrentUser operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCurrentUser(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetCurrentUser operation middleware
 func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 
@@ -1821,6 +1883,26 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyDataExport operation middleware
+func (siw *ServerInterfaceWrapper) GetMyDataExport(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyDataExport(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2025,15 +2107,15 @@ func (siw *ServerInterfaceWrapper) ListAbsences(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -2118,15 +2200,15 @@ func (siw *ServerInterfaceWrapper) ListMyAbsences(w http.ResponseWriter, r *http
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -2274,15 +2356,15 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -3415,15 +3497,15 @@ func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -3631,15 +3713,15 @@ func (siw *ServerInterfaceWrapper) ListNews(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -3934,15 +4016,15 @@ func (siw *ServerInterfaceWrapper) ListPolls(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -4440,7 +4522,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/auth/logout", wrapper.Logout)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/auth/me", wrapper.DeleteCurrentUser)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/me/data-export", wrapper.GetMyDataExport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/me/photo", wrapper.GetMyPhoto)
@@ -4689,6 +4777,38 @@ func (response Logout204Response) VisitLogoutResponse(w http.ResponseWriter) err
 	return nil
 }
 
+type DeleteCurrentUserRequestObject struct {
+	Body *DeleteCurrentUserJSONRequestBody
+}
+
+type DeleteCurrentUserResponseObject interface {
+	VisitDeleteCurrentUserResponse(w http.ResponseWriter) error
+}
+
+type DeleteCurrentUser204Response struct {
+}
+
+func (response DeleteCurrentUser204Response) VisitDeleteCurrentUserResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteCurrentUser401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteCurrentUser401ApplicationProblemPlusJSONResponse) VisitDeleteCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetCurrentUserRequestObject struct {
 }
 
@@ -4715,6 +4835,53 @@ type GetCurrentUser401ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetCurrentUser401ApplicationProblemPlusJSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyDataExportRequestObject struct {
+}
+
+type GetMyDataExportResponseObject interface {
+	VisitGetMyDataExportResponse(w http.ResponseWriter) error
+}
+
+type GetMyDataExport200ResponseHeaders struct {
+	ContentDisposition *string
+}
+
+type GetMyDataExport200JSONResponse struct {
+	Body    map[string]interface{}
+	Headers GetMyDataExport200ResponseHeaders
+}
+
+func (response GetMyDataExport200JSONResponse) VisitGetMyDataExportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ContentDisposition != nil {
+		w.Header().Set("Content-Disposition", fmt.Sprint(*response.Headers.ContentDisposition))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyDataExport401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetMyDataExport401ApplicationProblemPlusJSONResponse) VisitGetMyDataExportResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -4925,7 +5092,12 @@ type ListAbsencesResponseObject interface {
 	VisitListAbsencesResponse(w http.ResponseWriter) error
 }
 
-type ListAbsences200JSONResponse []Absence
+type ListAbsences200JSONResponse struct {
+	Items []Absence `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListAbsences200JSONResponse) VisitListAbsencesResponse(w http.ResponseWriter) error {
 
@@ -4971,7 +5143,12 @@ type ListMyAbsencesResponseObject interface {
 	VisitListMyAbsencesResponse(w http.ResponseWriter) error
 }
 
-type ListMyAbsences200JSONResponse []Absence
+type ListMyAbsences200JSONResponse struct {
+	Items []Absence `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListMyAbsences200JSONResponse) VisitListMyAbsencesResponse(w http.ResponseWriter) error {
 
@@ -5035,7 +5212,12 @@ type ListEventsResponseObject interface {
 	VisitListEventsResponse(w http.ResponseWriter) error
 }
 
-type ListEvents200JSONResponse []TeamEvent
+type ListEvents200JSONResponse struct {
+	Items []TeamEvent `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListEvents200JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
 
@@ -5668,7 +5850,12 @@ type ListMembersResponseObject interface {
 	VisitListMembersResponse(w http.ResponseWriter) error
 }
 
-type ListMembers200JSONResponse []Member
+type ListMembers200JSONResponse struct {
+	Items []Member `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListMembers200JSONResponse) VisitListMembersResponse(w http.ResponseWriter) error {
 
@@ -5779,7 +5966,12 @@ type ListNewsResponseObject interface {
 	VisitListNewsResponse(w http.ResponseWriter) error
 }
 
-type ListNews200JSONResponse []NewsItem
+type ListNews200JSONResponse struct {
+	Items []NewsItem `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListNews200JSONResponse) VisitListNewsResponse(w http.ResponseWriter) error {
 
@@ -5971,7 +6163,12 @@ type ListPollsResponseObject interface {
 	VisitListPollsResponse(w http.ResponseWriter) error
 }
 
-type ListPolls200JSONResponse []Poll
+type ListPolls200JSONResponse struct {
+	Items []Poll `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListPolls200JSONResponse) VisitListPollsResponse(w http.ResponseWriter) error {
 
@@ -6189,9 +6386,15 @@ type StrictServerInterface interface {
 	// Invalidate current session
 	// (POST /auth/logout)
 	Logout(ctx context.Context, request LogoutRequestObject) (LogoutResponseObject, error)
+	// Erase the authenticated account (GDPR Art. 17, by anonymization)
+	// (DELETE /auth/me)
+	DeleteCurrentUser(ctx context.Context, request DeleteCurrentUserRequestObject) (DeleteCurrentUserResponseObject, error)
 	// Get authenticated user profile
 	// (GET /auth/me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+	// Export the authenticated user's personal data (GDPR Art. 15)
+	// (GET /auth/me/data-export)
+	GetMyDataExport(ctx context.Context, request GetMyDataExportRequestObject) (GetMyDataExportResponseObject, error)
 	// Get user profile photo
 	// (GET /auth/me/photo)
 	GetMyPhoto(ctx context.Context, request GetMyPhotoRequestObject) (GetMyPhotoResponseObject, error)
@@ -6464,6 +6667,37 @@ func (sh *strictHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// DeleteCurrentUser operation middleware
+func (sh *strictHandler) DeleteCurrentUser(w http.ResponseWriter, r *http.Request) {
+	var request DeleteCurrentUserRequestObject
+
+	var body DeleteCurrentUserJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCurrentUser(ctx, request.(DeleteCurrentUserRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCurrentUser")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCurrentUserResponseObject); ok {
+		if err := validResponse.VisitDeleteCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetCurrentUser operation middleware
 func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	var request GetCurrentUserRequestObject
@@ -6481,6 +6715,30 @@ func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
 		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMyDataExport operation middleware
+func (sh *strictHandler) GetMyDataExport(w http.ResponseWriter, r *http.Request) {
+	var request GetMyDataExportRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMyDataExport(ctx, request.(GetMyDataExportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMyDataExport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMyDataExportResponseObject); ok {
+		if err := validResponse.VisitGetMyDataExportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

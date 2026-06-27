@@ -158,7 +158,11 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.saveTx();
     });
-    expect(api.finances.updateTransaction).toHaveBeenCalledWith('tx1', expect.objectContaining({ title: 'Updated' }));
+    expect(api.finances.updateTransaction).toHaveBeenCalledWith(
+      'tx1',
+      expect.objectContaining({ title: 'Updated' }),
+      'team1',
+    );
   });
 
   it('deleteTx calls deleteTransaction and shows toast', async () => {
@@ -166,7 +170,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.deleteTx('tx1');
     });
-    expect(api.finances.deleteTransaction).toHaveBeenCalledWith('tx1');
+    expect(api.finances.deleteTransaction).toHaveBeenCalledWith('tx1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Buchung gelöscht');
   });
 
@@ -253,7 +257,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.deleteAssignment('a1');
     });
-    expect(api.finances.deleteAssignment).toHaveBeenCalledWith('a1');
+    expect(api.finances.deleteAssignment).toHaveBeenCalledWith('a1', 'team1');
   });
 
   it('saveContrib validates label', async () => {
@@ -275,6 +279,7 @@ describe('useFinanceActions', () => {
     expect(api.finances.updateContribution).toHaveBeenCalledWith(
       'c1',
       expect.objectContaining({ label: 'Monatsbeitrag' }),
+      'team1',
     );
     expect(toastMsg).toHaveBeenCalledWith('Beitrag gespeichert');
   });
@@ -284,7 +289,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.togglePenalty('a1');
     });
-    expect(api.finances.togglePenaltyPaid).toHaveBeenCalledWith('a1');
+    expect(api.finances.togglePenaltyPaid).toHaveBeenCalledWith('a1', 'team1');
   });
 
   it('toggleContribution calls toggleContribution API', async () => {
@@ -292,7 +297,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.toggleContribution('c1');
     });
-    expect(api.finances.toggleContribution).toHaveBeenCalledWith('c1');
+    expect(api.finances.toggleContribution).toHaveBeenCalledWith('c1', 'team1');
   });
 
   it('setStatsRange updates state and calls loadStats', () => {

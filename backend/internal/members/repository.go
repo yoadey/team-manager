@@ -24,22 +24,37 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// ListMembers returns all members of a team with their roles.
-func (r *Repository) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]MemberRow, error) {
+// ListCursor is the keyset position for member pagination
+// (ORDER BY name ASC, membership id ASC).
+type ListCursor struct {
+	Name string    `json:"n"`
+	ID   uuid.UUID `json:"i"`
+}
+
+// ListMembers returns up to limit members of a team (with their roles), ordered
+// by name then membership id, starting after cur (nil = first page). Keyset
+// pagination — no OFFSET.
+func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	// First, get all memberships + user data for the team.
-	rows, err := r.pool.Query(ctx, `
+	args := []any{teamID, limit}
+	predicate := ""
+	if cur != nil {
+		predicate = "AND (u.name, m.id) > ($3, $4)"
+		args = append(args, cur.Name, cur.ID)
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
 		       COALESCE(u.photo_data, ''::bytea),
 		       m."group", m.joined_at
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
-		WHERE m.team_id = $1
-		ORDER BY u.name
-		LIMIT $2 OFFSET $3
-	`, teamID, limit, offset)
+		WHERE m.team_id = $1 %s
+		ORDER BY u.name, m.id
+		LIMIT $2
+	`, predicate), args...)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.ListMembers: %w", err)
 	}

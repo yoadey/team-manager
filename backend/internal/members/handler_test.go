@@ -1,6 +1,7 @@
 package members_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/members"
 )
@@ -20,15 +22,15 @@ import (
 // ─── mock service ─────────────────────────────────────────────────────────────
 
 type mockMemberService struct {
-	listMembers  func(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error)
+	listMembers  func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	addMember    func(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error)
 	updateMember func(ctx context.Context, membershipID string, patch members.MemberPatch) (*gen.Member, error)
 	setRoles     func(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error)
 	removeMember func(ctx context.Context, membershipID string) error
 }
 
-func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error) {
-	return m.listMembers(ctx, teamID, limit, offset)
+func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
+	return m.listMembers(ctx, teamID, limit, cursor)
 }
 
 func (m *mockMemberService) AddMember(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error) {
@@ -70,6 +72,34 @@ func fixedGenMember() gen.Member {
 
 // ─── tests ───────────────────────────────────────────────────────────────────
 
+func TestMemberHandler_AddMember_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	member := fixedGenMember()
+	svc := &mockMemberService{
+		addMember: func(_ context.Context, _ string, _ members.AddMemberParams) (*gen.Member, error) {
+			return &member, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)))
+
+	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
+	body := &gen.AddMemberJSONRequestBody{Name: "Bob", Email: "bob@example.com"}
+	_, err := h.AddMember(ctx, gen.AddMemberRequestObject{TeamId: teamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "member.add", rec["event"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+	assert.Equal(t, member.MembershipId.String(), rec["membershipId"])
+}
+
 func TestMemberHandler_ListMembers(t *testing.T) {
 	t.Parallel()
 
@@ -77,8 +107,8 @@ func TestMemberHandler_ListMembers(t *testing.T) {
 	member := fixedGenMember()
 
 	svc := &mockMemberService{
-		listMembers: func(_ context.Context, _ string, _, _ int) ([]gen.Member, error) {
-			return []gen.Member{member}, nil
+		listMembers: func(_ context.Context, _ string, _ int, _ string) ([]gen.Member, *string, error) {
+			return []gen.Member{member}, nil, nil
 		},
 	}
 
@@ -94,8 +124,11 @@ func TestMemberHandler_ListMembers(t *testing.T) {
 	_ = resp.VisitListMembersResponse(w)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	var result []gen.Member
+	var result struct {
+		Items      []gen.Member `json:"items"`
+		NextCursor *string      `json:"nextCursor"`
+	}
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
-	require.Len(t, result, 1)
-	assert.Equal(t, "Bob", result[0].Name)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "Bob", result.Items[0].Name)
 }

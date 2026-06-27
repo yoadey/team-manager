@@ -1,10 +1,59 @@
-// Package pagination provides helpers for handling limit/offset query params.
+// Package pagination provides helpers for limit/offset and keyset (cursor)
+// pagination.
 package pagination
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+)
 
 const (
 	DefaultLimit = 50
 	MaxLimit     = 500
 )
+
+// ErrInvalidCursor is returned by DecodeCursor when the token is not a valid
+// cursor (bad base64 or JSON). Handlers should map it to a 400, not a 500.
+var ErrInvalidCursor = errors.New("invalid cursor")
+
+// ParseLimit applies the default (50) and cap (500) to an optional limit param.
+func ParseLimit(limit *int) int {
+	l := DefaultLimit
+	if limit != nil && *limit > 0 {
+		l = *limit
+		if l > MaxLimit {
+			l = MaxLimit
+		}
+	}
+	return l
+}
+
+// EncodeCursor serializes a keyset cursor value into an opaque base64url token.
+func EncodeCursor(v any) (string, error) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("pagination.EncodeCursor: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// DecodeCursor parses an opaque token produced by EncodeCursor into dst. An
+// empty token returns (false, nil), meaning "start from the beginning".
+func DecodeCursor(token string, dst any) (bool, error) {
+	if token == "" {
+		return false, nil
+	}
+	b, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return false, fmt.Errorf("pagination.DecodeCursor: %w: %v", ErrInvalidCursor, err) //nolint:errorlint // err is context only; ErrInvalidCursor is the matchable sentinel
+	}
+	if err := json.Unmarshal(b, dst); err != nil {
+		return false, fmt.Errorf("pagination.DecodeCursor: %w: %v", ErrInvalidCursor, err) //nolint:errorlint // err is context only; ErrInvalidCursor is the matchable sentinel
+	}
+	return true, nil
+}
 
 // Parse extracts limit and offset from optional pointer params, applying
 // defaults (limit=50, offset=0) and capping limit at MaxLimit.

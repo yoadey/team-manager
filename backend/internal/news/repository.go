@@ -37,19 +37,36 @@ func scanNews(row interface{ Scan(dest ...any) error }) (*NewsRow, error) {
 	return nr, nil
 }
 
-// ListByTeam returns all news items for a team, pinned first then newest first.
-func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*NewsRow, error) {
+// ListCursor is the keyset position for news pagination (matches the
+// ORDER BY pinned DESC, created_at DESC, id DESC ordering).
+type ListCursor struct {
+	Pinned    bool      `json:"p"`
+	CreatedAt time.Time `json:"c"`
+	ID        uuid.UUID `json:"i"`
+}
+
+// ListByTeam returns up to limit news items for a team — pinned first, then
+// newest first — starting after cur (nil = first page). It is a keyset query:
+// no OFFSET, so deep pages stay fast.
+func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*NewsRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	args := []any{teamID, limit}
+	predicate := ""
+	if cur != nil {
+		predicate = "AND (n.pinned, n.created_at, n.id) < ($3, $4, $5)"
+		args = append(args, cur.Pinned, cur.CreatedAt, cur.ID)
+	}
 	q := fmt.Sprintf(`
 		SELECT %s
 		FROM news n
 		JOIN users u ON u.id = n.author_id
-		WHERE n.team_id = $1
-		ORDER BY n.pinned DESC, n.created_at DESC
-		LIMIT $2 OFFSET $3
-	`, selectNewsFields)
-	rows, err := r.pool.Query(ctx, q, teamID, limit, offset)
+		WHERE n.team_id = $1 %s
+		ORDER BY n.pinned DESC, n.created_at DESC, n.id DESC
+		LIMIT $2
+	`, selectNewsFields, predicate)
+	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("news.Repository.ListByTeam: %w", err)
 	}

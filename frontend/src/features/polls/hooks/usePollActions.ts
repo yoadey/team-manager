@@ -40,13 +40,13 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
   const votePoll = useCallback(
     async (pollId: string, optionIds: string[]) => {
       try {
-        await api.polls.vote(pollId, optionIds);
+        await api.polls.vote(pollId, optionIds, S().activeTeamId!);
         await loadPolls();
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
       }
     },
-    [api, loadPolls, setState, toastMsg],
+    [api, S, loadPolls, setState, toastMsg],
   );
 
   const savePoll = useCallback(async () => {
@@ -92,7 +92,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
         danger: true,
         onConfirm: async () => {
           try {
-            await api.polls.remove(id);
+            await api.polls.remove(id, S().activeTeamId!);
             await loadPolls();
             toastMsg(t('polls.toastDeleted'));
           } catch (err) {
@@ -100,7 +100,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
           }
         },
       }),
-    [api, askConfirm, loadPolls, setState, toastMsg],
+    [api, S, askConfirm, loadPolls, setState, toastMsg],
   );
 
   return { openPollForm, savePoll, togglePollOption, removePoll };

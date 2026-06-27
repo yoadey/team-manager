@@ -66,6 +66,30 @@ export interface paths {
         get: operations["getCurrentUser"];
         put?: never;
         post?: never;
+        /**
+         * Erase the authenticated account (GDPR Art. 17, by anonymization)
+         * @description Anonymizes the user's personal data (name, email, phone, birthday, address, photo) and strips free-text PII from their comments and absence reasons, then deletes all of their sessions. Membership, attendance and finance records are retained in anonymized form so that shared and legally required data (e.g. accounting) stays intact. The request is authorized by the active session; to confirm intent the caller must echo the account's own email address (works regardless of login method, including OIDC accounts that have no password).
+         */
+        delete: operations["deleteCurrentUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me/data-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the authenticated user's personal data (GDPR Art. 15)
+         * @description Returns a single JSON document with all personal data held about the authenticated user: profile, memberships and roles, attendance, comments, absences, authored news, created polls, votes, penalty assignments and contributions.
+         */
+        get: operations["getMyDataExport"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -924,6 +948,13 @@ export interface components {
             token: string;
             user: components["schemas"]["User"];
         };
+        DeleteAccountRequest: {
+            /**
+             * Format: email
+             * @description The account's own email address, retyped to confirm the irreversible erasure. Must match the authenticated user's email.
+             */
+            confirmEmail: string;
+        };
         User: {
             /** Format: uuid */
             id: string;
@@ -1501,6 +1532,8 @@ export interface components {
         roleId: string;
         limit: number;
         offset: number;
+        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+        cursor: string;
     };
     requestBodies: never;
     headers: never;
@@ -1587,6 +1620,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    deleteCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Account anonymized; session cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getMyDataExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Personal-data export document. */
+            200: {
+                headers: {
+                    /** @description Suggests a download filename. */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -1863,7 +1944,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -1879,7 +1961,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Member"][];
+                    "application/json": {
+                        items: components["schemas"]["Member"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
@@ -2086,7 +2172,8 @@ export interface operations {
             query?: {
                 scope?: "upcoming" | "past" | "all";
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2102,7 +2189,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeamEvent"][];
+                    "application/json": {
+                        items: components["schemas"]["TeamEvent"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
@@ -2392,7 +2483,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2408,7 +2500,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Absence"][];
+                    "application/json": {
+                        items: components["schemas"]["Absence"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
@@ -2443,7 +2539,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2459,7 +2556,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Absence"][];
+                    "application/json": {
+                        items: components["schemas"]["Absence"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
@@ -2516,7 +2617,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2532,7 +2634,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NewsItem"][];
+                    "application/json": {
+                        items: components["schemas"]["NewsItem"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
@@ -2615,7 +2721,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2631,7 +2738,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Poll"][];
+                    "application/json": {
+                        items: components["schemas"]["Poll"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };

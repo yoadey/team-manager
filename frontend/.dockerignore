@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+coverage
+playwright-report
+.lighthouseci
+sbom.json
+*.local
+*.tsbuildinfo
+.env
+.env.*
+.git
+Dockerfile
+.dockerignore
