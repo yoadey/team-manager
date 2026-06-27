@@ -281,7 +281,7 @@ describe('roles', () => {
 
 describe('events', () => {
   it('list passes the scope query', async () => {
-    client.GET.mockResolvedValueOnce(ok([{ id: 'e1' }]));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'e1' }], nextCursor: null }));
     await realApi.events.list('t1', 'upcoming');
     expect(client.GET).toHaveBeenCalledWith(
       '/teams/{teamId}/events',

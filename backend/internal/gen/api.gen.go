@@ -1024,9 +1024,11 @@ type ListMyAbsencesParams struct {
 
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
-	Scope  *ListEventsParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
-	Limit  *Limit                 `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset                `form:"offset,omitempty" json:"offset,omitempty"`
+	Scope *ListEventsParamsScope `form:"scope,omitempty" json:"scope,omitempty"`
+	Limit *Limit                 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // ListEventsParamsScope defines parameters for ListEvents.
@@ -2350,15 +2352,15 @@ func (siw *ServerInterfaceWrapper) ListEvents(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -5196,7 +5198,12 @@ type ListEventsResponseObject interface {
 	VisitListEventsResponse(w http.ResponseWriter) error
 }
 
-type ListEvents200JSONResponse []TeamEvent
+type ListEvents200JSONResponse struct {
+	Items []TeamEvent `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListEvents200JSONResponse) VisitListEventsResponse(w http.ResponseWriter) error {
 

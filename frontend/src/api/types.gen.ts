@@ -2172,7 +2172,8 @@ export interface operations {
             query?: {
                 scope?: "upcoming" | "past" | "all";
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2188,7 +2189,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeamEvent"][];
+                    "application/json": {
+                        items: components["schemas"]["TeamEvent"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };

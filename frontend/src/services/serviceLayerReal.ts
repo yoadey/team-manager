@@ -269,8 +269,9 @@ export const realApi = {
       const res = await apiClient.GET('/teams/{teamId}/events', {
         params: { path: { teamId }, query: { scope } },
       });
-      const events = await check(res);
-      return events.map(mapTeamEvent);
+      // Keyset { items, nextCursor } envelope; first page returned as an array.
+      const page = await check(res);
+      return page.items.map(mapTeamEvent);
     },
 
     async get(eventId: string, teamId: string): Promise<TeamEvent | null> {
