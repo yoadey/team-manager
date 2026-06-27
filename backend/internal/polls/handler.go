@@ -10,6 +10,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
@@ -84,6 +85,7 @@ func (h *Handler) CreatePoll(ctx context.Context, req gen.CreatePollRequestObjec
 		h.logger.ErrorContext(ctx, "CreatePoll failed", "err", err)
 		return nil, apierror.Internal("failed to create poll")
 	}
+	metrics.TeamEvents.WithLabelValues("poll", "create").Inc()
 	return gen.CreatePoll201JSONResponse(poll), nil
 }
 
@@ -114,5 +116,6 @@ func (h *Handler) DeletePoll(ctx context.Context, req gen.DeletePollRequestObjec
 		h.logger.ErrorContext(ctx, "DeletePoll failed", "err", err)
 		return nil, apierror.Internal("failed to delete poll")
 	}
+	metrics.TeamEvents.WithLabelValues("poll", "delete").Inc()
 	return gen.DeletePoll204Response{}, nil
 }
