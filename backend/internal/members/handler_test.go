@@ -1,6 +1,7 @@
 package members_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/members"
 )
@@ -69,6 +71,34 @@ func fixedGenMember() gen.Member {
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
+
+func TestMemberHandler_AddMember_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	member := fixedGenMember()
+	svc := &mockMemberService{
+		addMember: func(_ context.Context, _ string, _ members.AddMemberParams) (*gen.Member, error) {
+			return &member, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)))
+
+	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
+	body := &gen.AddMemberJSONRequestBody{Name: "Bob", Email: "bob@example.com"}
+	_, err := h.AddMember(ctx, gen.AddMemberRequestObject{TeamId: teamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "member.add", rec["event"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+	assert.Equal(t, member.MembershipId.String(), rec["membershipId"])
+}
 
 func TestMemberHandler_ListMembers(t *testing.T) {
 	t.Parallel()

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
@@ -29,11 +30,20 @@ type memberService interface {
 type Handler struct {
 	svc    memberService
 	logger *slog.Logger
+	audit  *audit.Logger
 }
 
 // NewHandler creates a new Handler.
 func NewHandler(svc memberService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
+}
+
+// actor returns the acting user's id for audit records, or "" when absent.
+func actor(ctx context.Context) string {
+	if u, ok := auth.UserFromContext(ctx); ok {
+		return u.Id.String()
+	}
+	return ""
 }
 
 // ListMembers returns paginated members of a team.
@@ -79,6 +89,8 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 		h.logger.ErrorContext(ctx, "AddMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.AddMember: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberAdd, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", m.MembershipId.String()))
 	return gen.AddMember201JSONResponse(*m), nil
 }
 
@@ -118,6 +130,8 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 		h.logger.ErrorContext(ctx, "UpdateMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.UpdateMember: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberUpdate, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
 	return gen.UpdateMember200JSONResponse(*m), nil
 }
 
@@ -137,6 +151,9 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 		h.logger.ErrorContext(ctx, "SetMemberRoles failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.SetMemberRoles: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberRolesChange, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+		slog.Int("roleCount", len(roleIDs)))
 	return gen.SetMemberRoles200JSONResponse(*m), nil
 }
 
@@ -146,6 +163,8 @@ func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequ
 		h.logger.ErrorContext(ctx, "RemoveMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.RemoveMember: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberRemove, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
 	return gen.RemoveMember204Response{}, nil
 }
 

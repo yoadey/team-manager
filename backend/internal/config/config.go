@@ -40,6 +40,7 @@ type Config struct {
 	CookieName          string
 	PublicBaseURL       string
 	MetricsToken        string
+	SentryDSN           string
 }
 
 func Load() (*Config, error) {
@@ -105,6 +106,7 @@ func Load() (*Config, error) {
 		CookieName:          os.Getenv("COOKIE_NAME"),
 		PublicBaseURL:       publicBaseURL,
 		MetricsToken:        os.Getenv("METRICS_TOKEN"),
+		SentryDSN:           os.Getenv("SENTRY_DSN"),
 	}, nil
 }
 

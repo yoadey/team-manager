@@ -1,6 +1,7 @@
 package finances_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -194,6 +195,33 @@ func TestHandler_CreateTransaction_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitCreateTransactionResponse(w))
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+	tx := &gen.Transaction{
+		Id: testTxID, TeamId: testTeamID, Type: gen.Income, Title: "Fee", Amount: 50.0,
+		Date: openapi_types.Date{Time: time.Now()},
+	}
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			return tx, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)))
+
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Fee", Amount: 50.0}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "finance.mutation", rec["event"])
+	assert.Equal(t, "transaction.create", rec["operation"])
+	assert.Equal(t, testUserID.String(), rec["actor"])
+	assert.Equal(t, testTxID.String(), rec["transactionId"])
 }
 
 func TestHandler_DeleteTransaction_Success(t *testing.T) {

@@ -30,6 +30,19 @@ const (
 	EventLogin        = "auth.login"
 	EventLogout       = "auth.logout"
 	EventAccountErase = "auth.account_erase"
+
+	EventRoleCreate = "role.create"
+	EventRoleUpdate = "role.update"
+	EventRoleDelete = "role.delete"
+
+	EventMemberAdd         = "member.add"
+	EventMemberUpdate      = "member.update"
+	EventMemberRemove      = "member.remove"
+	EventMemberRolesChange = "member.roles_change"
+
+	// EventFinanceMutation covers all financial write operations; the specific
+	// action is carried in an "operation" attribute (e.g. transaction.create).
+	EventFinanceMutation = "finance.mutation"
 )
 
 // Logger emits audit records over an slog.Logger.

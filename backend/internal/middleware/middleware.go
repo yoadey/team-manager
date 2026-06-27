@@ -4,13 +4,18 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/httprate"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ─── Request ID ──────────────────────────────────────────────────────────────
@@ -18,6 +23,10 @@ import (
 type contextKey string
 
 const requestIDKey contextKey = "request_id"
+
+// errPanicRecovered is the static base error recorded on the active trace span
+// when a panic is caught (wrapped with the recovered value).
+var errPanicRecovered = errors.New("panic recovered")
 
 // RequestID generates a UUID v4 for each request, injects it into the context,
 // and echoes it via the X-Request-ID response header.
@@ -79,14 +88,21 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(rw, r)
 
-			logger.InfoContext(
-				r.Context(), "request",
+			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", rw.status),
 				slog.Duration("duration", time.Since(start)),
 				slog.String("request_id", GetRequestID(r.Context())),
-			)
+			}
+			// Correlate logs with traces when a span is active.
+			if sc := trace.SpanContextFromContext(r.Context()); sc.IsValid() {
+				attrs = append(attrs,
+					slog.String("trace_id", sc.TraceID().String()),
+					slog.String("span_id", sc.SpanID().String()),
+				)
+			}
+			logger.InfoContext(r.Context(), "request", attrs...)
 		})
 	}
 }
@@ -245,6 +261,13 @@ func Recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 						slog.String("path", r.URL.Path),
 						slog.String("request_id", GetRequestID(ctx)),
 					)
+
+					// Report to Sentry (no-op when not initialized) and mark the
+					// active trace span as errored (no-op when tracing is off).
+					sentry.CurrentHub().Recover(rec)
+					span := trace.SpanFromContext(ctx)
+					span.RecordError(fmt.Errorf("%w: %v", errPanicRecovered, rec))
+					span.SetStatus(codes.Error, "panic recovered")
 
 					w.Header().Set("Content-Type", "application/problem+json")
 					w.WriteHeader(http.StatusInternalServerError)
