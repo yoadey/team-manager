@@ -387,7 +387,7 @@ describe('absences', () => {
 
 describe('news', () => {
   it('list, create, update, remove', async () => {
-    client.GET.mockResolvedValueOnce(ok([{ id: 'n1' }]));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'n1' }], nextCursor: null }));
     expect((await realApi.news.list('t1'))[0]).toMatchObject({ __mapped: 'newsItem' });
 
     client.POST.mockResolvedValueOnce(ok({ id: 'n1' }));

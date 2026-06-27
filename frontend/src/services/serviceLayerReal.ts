@@ -445,9 +445,12 @@ export const realApi = {
 
   news: {
     async list(teamId: string): Promise<NewsItem[]> {
+      // Keyset-paginated endpoint: the response is a { items, nextCursor }
+      // envelope. The app has no paging UI yet, so we return the first page's
+      // items; nextCursor is available for future infinite-scroll.
       const res = await apiClient.GET('/teams/{teamId}/news', { params: { path: { teamId } } });
-      const news = await check(res);
-      return news.map(mapNewsItem);
+      const page = await check(res);
+      return page.items.map(mapNewsItem);
     },
 
     async create(teamId: string, payload: { title: string; body: string; pinned?: boolean }): Promise<NewsItem> {

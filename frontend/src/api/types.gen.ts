@@ -1532,6 +1532,8 @@ export interface components {
         roleId: string;
         limit: number;
         offset: number;
+        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+        cursor: string;
     };
     requestBodies: never;
     headers: never;
@@ -2595,7 +2597,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2611,7 +2614,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["NewsItem"][];
+                    "application/json": {
+                        items: components["schemas"]["NewsItem"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
