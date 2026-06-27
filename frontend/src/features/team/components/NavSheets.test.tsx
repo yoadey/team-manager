@@ -84,6 +84,8 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     setColorScheme: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn().mockResolvedValue(undefined),
+    exportMyData: vi.fn().mockResolvedValue(undefined),
+    toastMsg: vi.fn(),
     go: vi.fn(),
     onFormInput: vi.fn(),
     onFile: vi.fn(),
@@ -217,6 +219,13 @@ describe('ProfileSheet', () => {
     const app = makeApp();
     render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     expect(screen.getByText(/Mehrfachauswahl möglich/)).toBeTruthy();
+  });
+
+  it('clicking "export my data" calls exportMyData', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    fireEvent.click(screen.getByText('Meine Daten exportieren'));
+    expect(app.exportMyData).toHaveBeenCalledTimes(1);
   });
 
   it('account deletion requires the matching email before it can be confirmed', () => {

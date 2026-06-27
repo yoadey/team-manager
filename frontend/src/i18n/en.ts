@@ -560,6 +560,8 @@ export const en: Messages = {
     language: 'Language',
     logout: 'Sign out',
     dataPrivacy: 'Data & privacy',
+    exportData: 'Export my data',
+    exportDataError: 'Data export failed.',
     deleteAccount: 'Delete account',
     deleteAccountWarning:
       'Your account will be irreversibly anonymized: name, email, phone, birthday, address and photo are removed and you are signed out. Shared records (attendance, finances) are kept in anonymized form.',

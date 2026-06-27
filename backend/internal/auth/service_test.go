@@ -17,13 +17,14 @@ import (
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	userByEmail func(ctx context.Context, email string) (*auth.UserRow, error)
-	userByID    func(ctx context.Context, id string) (*auth.UserRow, error)
-	createSess  func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error)
-	findSess    func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
-	deleteSess  func(ctx context.Context, tokenHash string) error
-	updatePhoto func(ctx context.Context, userID string, data []byte, mime string) error
-	eraseUser   func(ctx context.Context, userID string) error
+	userByEmail    func(ctx context.Context, email string) (*auth.UserRow, error)
+	userByID       func(ctx context.Context, id string) (*auth.UserRow, error)
+	createSess     func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error)
+	findSess       func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
+	deleteSess     func(ctx context.Context, tokenHash string) error
+	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) error
+	eraseUser      func(ctx context.Context, userID string) error
+	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
 }
 
 func (m *mockRepo) FindUserByEmail(ctx context.Context, email string) (*auth.UserRow, error) {
@@ -52,6 +53,13 @@ func (m *mockRepo) UpdateUserPhoto(ctx context.Context, userID string, data []by
 
 func (m *mockRepo) EraseUser(ctx context.Context, userID string) error {
 	return m.eraseUser(ctx, userID)
+}
+
+func (m *mockRepo) ExportUserData(ctx context.Context, userID string) (*auth.ExportData, error) {
+	if m.exportUserData != nil {
+		return m.exportUserData(ctx, userID)
+	}
+	return &auth.ExportData{}, nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

@@ -1,14 +1,14 @@
 # GDPR Data-Subject Rights — Design & Implementation Plan
 
-Status: **erasure implemented (by anonymization); export still planned** ·
-Last updated: 2026-06-26
+Status: **implemented** (erasure by anonymization + data export) ·
+Last updated: 2026-06-27
 
 This document covers GDPR Articles 15 (right of access / export) and 17 (right
-to erasure) for the Teamverwaltung backend.
+to erasure) for the Teamverwaltung backend. Both are now live end to end.
 
 **Decision made:** erasure is implemented by **anonymization, not hard delete**
-(see "Open decision" below — now resolved). The erasure path is live end to
-end; **data export (Art. 15) remains planned.**
+(see "Open decision" below — now resolved), confirmed by retyping the account
+email (no password, OIDC-compatible).
 
 ## Why this is needed
 
@@ -127,6 +127,12 @@ Erasure (Art. 17) — **done**:
 - [x] Frontend UI: "Daten & Datenschutz" section in `ProfileSheet` with the
       retype-email confirm, wired via `AppContext` (+ tests).
 
-Remaining:
-- [ ] Data export (Art. 15): `GET /auth/me/data-export` per the design above.
-- [ ] Update `SECURITY.md` / privacy docs with the retention statement.
+Export (Art. 15) — **done**:
+- [x] `GET /auth/me/data-export` (free-form JSON document + `Content-Disposition`).
+- [x] `auth.Repository.ExportUserData` gathers profile, memberships+roles,
+      attendance, comments, absences, authored news, created polls, votes,
+      penalty assignments and contributions (read-only).
+- [x] Handler `GetMyDataExport` + service method (+ handler tests).
+- [x] Frontend `auth.exportData` (mock + real) and `AppContext.exportMyData`
+      (downloads JSON); "Meine Daten exportieren" button in `ProfileSheet`.
+- [x] `SECURITY.md` updated with the data-protection / retention statement.

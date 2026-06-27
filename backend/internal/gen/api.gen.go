@@ -1197,6 +1197,9 @@ type ServerInterface interface {
 	// Get authenticated user profile
 	// (GET /auth/me)
 	GetCurrentUser(w http.ResponseWriter, r *http.Request)
+	// Export the authenticated user's personal data (GDPR Art. 15)
+	// (GET /auth/me/data-export)
+	GetMyDataExport(w http.ResponseWriter, r *http.Request)
 	// Get user profile photo
 	// (GET /auth/me/photo)
 	GetMyPhoto(w http.ResponseWriter, r *http.Request)
@@ -1410,6 +1413,12 @@ func (_ Unimplemented) DeleteCurrentUser(w http.ResponseWriter, r *http.Request)
 // Get authenticated user profile
 // (GET /auth/me)
 func (_ Unimplemented) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Export the authenticated user's personal data (GDPR Art. 15)
+// (GET /auth/me/data-export)
+func (_ Unimplemented) GetMyDataExport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1859,6 +1868,26 @@ func (siw *ServerInterfaceWrapper) GetCurrentUser(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMyDataExport operation middleware
+func (siw *ServerInterfaceWrapper) GetMyDataExport(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMyDataExport(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4484,6 +4513,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/auth/me", wrapper.GetCurrentUser)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/me/data-export", wrapper.GetMyDataExport)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/auth/me/photo", wrapper.GetMyPhoto)
 	})
 	r.Group(func(r chi.Router) {
@@ -4788,6 +4820,53 @@ type GetCurrentUser401ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetCurrentUser401ApplicationProblemPlusJSONResponse) VisitGetCurrentUserResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyDataExportRequestObject struct {
+}
+
+type GetMyDataExportResponseObject interface {
+	VisitGetMyDataExportResponse(w http.ResponseWriter) error
+}
+
+type GetMyDataExport200ResponseHeaders struct {
+	ContentDisposition *string
+}
+
+type GetMyDataExport200JSONResponse struct {
+	Body    map[string]interface{}
+	Headers GetMyDataExport200ResponseHeaders
+}
+
+func (response GetMyDataExport200JSONResponse) VisitGetMyDataExportResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ContentDisposition != nil {
+		w.Header().Set("Content-Disposition", fmt.Sprint(*response.Headers.ContentDisposition))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMyDataExport401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetMyDataExport401ApplicationProblemPlusJSONResponse) VisitGetMyDataExportResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6268,6 +6347,9 @@ type StrictServerInterface interface {
 	// Get authenticated user profile
 	// (GET /auth/me)
 	GetCurrentUser(ctx context.Context, request GetCurrentUserRequestObject) (GetCurrentUserResponseObject, error)
+	// Export the authenticated user's personal data (GDPR Art. 15)
+	// (GET /auth/me/data-export)
+	GetMyDataExport(ctx context.Context, request GetMyDataExportRequestObject) (GetMyDataExportResponseObject, error)
 	// Get user profile photo
 	// (GET /auth/me/photo)
 	GetMyPhoto(ctx context.Context, request GetMyPhotoRequestObject) (GetMyPhotoResponseObject, error)
@@ -6588,6 +6670,30 @@ func (sh *strictHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetCurrentUserResponseObject); ok {
 		if err := validResponse.VisitGetCurrentUserResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMyDataExport operation middleware
+func (sh *strictHandler) GetMyDataExport(w http.ResponseWriter, r *http.Request) {
+	var request GetMyDataExportRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMyDataExport(ctx, request.(GetMyDataExportRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMyDataExport")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMyDataExportResponseObject); ok {
+		if err := validResponse.VisitGetMyDataExportResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -81,6 +81,16 @@ describe('auth', () => {
     expect(updated.photo).toBe('data:image/png;base64,AAAA');
   });
 
+  it('exportData returns the current user profile and memberships', async () => {
+    await login();
+    const data = (await settle(api.auth.exportData())) as {
+      profile: { id: string } | null;
+      memberships: unknown[];
+    };
+    expect(data.profile?.id).toBe('u1');
+    expect(Array.isArray(data.memberships)).toBe(true);
+  });
+
   it('anonymizes the account and ends the session on deleteAccount', async () => {
     await login();
     const before = await settle(api.auth.currentUser());

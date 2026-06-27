@@ -83,6 +83,13 @@ export const realApi = {
       await apiClient.POST('/auth/logout', {});
     },
 
+    // GDPR Art. 15: returns the personal-data export document for the current
+    // user. The caller turns it into a downloadable file.
+    async exportData(): Promise<unknown> {
+      const res = await apiClient.GET('/auth/me/data-export');
+      return check(res);
+    },
+
     // GDPR Art. 17 erasure by anonymization. Authorized by the active session;
     // the caller echoes the account email to confirm intent (works for OIDC
     // accounts that have no password). The server clears the cookie on success.

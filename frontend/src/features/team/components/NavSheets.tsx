@@ -322,6 +322,34 @@ export function ProfileSheet({ app }: SheetProps) {
         <Box sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, mb: '8px' }}>
           {t('team.dataPrivacy')}
         </Box>
+        <ButtonBase
+          onClick={async () => {
+            try {
+              await app.exportMyData();
+            } catch {
+              app.toastMsg(t('team.exportDataError'));
+            }
+          }}
+          sx={{
+            width: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            p: '13px',
+            mb: '10px',
+            borderRadius: '14px',
+            border: `1px solid ${NEUTRAL.line}`,
+            background: NEUTRAL.card,
+            color: NEUTRAL.onSurfaceVariant,
+            fontWeight: 600,
+            fontSize: '14px',
+            cursor: 'pointer',
+          }}
+        >
+          <Sym name="download" size={20} color={NEUTRAL.secondary} />
+          {t('team.exportData')}
+        </ButtonBase>
         {!deleteOpen ? (
           <ButtonBase
             onClick={() => {

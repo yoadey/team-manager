@@ -76,6 +76,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/me/data-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the authenticated user's personal data (GDPR Art. 15)
+         * @description Returns a single JSON document with all personal data held about the authenticated user: profile, memberships and roles, attendance, comments, absences, authored news, created polls, votes, penalty assignments and contributions.
+         */
+        get: operations["getMyDataExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/me/photo": {
         parameters: {
             query?: never;
@@ -1622,6 +1642,31 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getMyDataExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Personal-data export document. */
+            200: {
+                headers: {
+                    /** @description Suggests a download filename. */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
             };
             401: components["responses"]["Unauthorized"];
         };

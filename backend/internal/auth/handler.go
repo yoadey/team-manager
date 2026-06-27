@@ -23,6 +23,7 @@ type authService interface {
 	Logout(ctx context.Context, tokenHash string) error
 	UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error)
 	EraseAccount(ctx context.Context, userID, password string) error
+	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
 
 // Handler implements the auth-related methods of gen.StrictServerInterface.
@@ -116,6 +117,40 @@ func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurre
 
 	h.audit.Record(ctx, audit.EventAccountErase, audit.Success, user.Id.String())
 	return gen.DeleteCurrentUser204Response{}, nil
+}
+
+// GetMyDataExport returns the authenticated user's personal data (GDPR Art. 15)
+// as a downloadable JSON document.
+func (h *Handler) GetMyDataExport(ctx context.Context, _ gen.GetMyDataExportRequestObject) (gen.GetMyDataExportResponseObject, error) {
+	user, ok := UserFromContext(ctx)
+	if !ok {
+		return gen.GetMyDataExport401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("not authenticated"),
+		}, nil
+	}
+
+	data, err := h.svc.ExportUserData(ctx, user.Id.String())
+	if err != nil {
+		h.logger.ErrorContext(ctx, "data export failed", "err", err)
+		return nil, errInternal("data export failed")
+	}
+
+	// The strict 200 body is a free-form object; round-trip the typed export
+	// through JSON to populate it.
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, errInternal("data export encoding failed")
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, errInternal("data export encoding failed")
+	}
+
+	disposition := `attachment; filename="teamverwaltung-datenexport-` + time.Now().Format("2006-01-02") + `.json"`
+	return gen.GetMyDataExport200JSONResponse{
+		Body:    body,
+		Headers: gen.GetMyDataExport200ResponseHeaders{ContentDisposition: &disposition},
+	}, nil
 }
 
 // GetCurrentUser returns the authenticated user's profile.

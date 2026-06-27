@@ -50,6 +50,7 @@ type authRepo interface {
 	DeleteSession(ctx context.Context, tokenHash string) error
 	UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error
 	EraseUser(ctx context.Context, userID string) error
+	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
 
 // Service implements authentication logic.
@@ -220,6 +221,16 @@ func (s *Service) EraseAccount(ctx context.Context, userID, confirmEmail string)
 		return fmt.Errorf("auth.Service.EraseAccount: %w", err)
 	}
 	return nil
+}
+
+// ExportUserData returns the authenticated user's full personal-data export
+// (GDPR Art. 15).
+func (s *Service) ExportUserData(ctx context.Context, userID string) (*ExportData, error) {
+	data, err := s.repo.ExportUserData(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("auth.Service.ExportUserData: %w", err)
+	}
+	return data, nil
 }
 
 // HashPassword hashes a plain-text password using bcrypt cost 12.

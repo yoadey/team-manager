@@ -121,6 +121,32 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /auth/me/data-export:
+    get:
+      tags: [auth]
+      operationId: getMyDataExport
+      summary: Export the authenticated user's personal data (GDPR Art. 15)
+      description: >
+        Returns a single JSON document with all personal data held about the
+        authenticated user: profile, memberships and roles, attendance,
+        comments, absences, authored news, created polls, votes, penalty
+        assignments and contributions.
+      responses:
+        "200":
+          description: Personal-data export document.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: Suggests a download filename.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /auth/me/photo:
     get:
       tags: [auth]

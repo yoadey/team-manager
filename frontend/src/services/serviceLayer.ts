@@ -928,6 +928,16 @@ const _mockApi = {
     logout() {
       session.userId = null;
     },
+    // GDPR Art. 15: a minimal personal-data export for the current mock user.
+    async exportData(): Promise<unknown> {
+      await delay(80, 200);
+      const u = DB.users.find((x) => x.id === session.userId);
+      return {
+        exportedAt: new Date().toISOString(),
+        profile: u ? clone(u) : null,
+        memberships: DB.memberships.filter((m) => m.userId === session.userId).map(clone),
+      };
+    },
     async setPhoto(dataUrl: string): Promise<User> {
       await delay(150, 300);
       const u = DB.users.find((x) => x.id === session.userId)!;

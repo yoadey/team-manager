@@ -568,6 +568,8 @@ export const de = {
     language: 'Sprache',
     logout: 'Abmelden',
     dataPrivacy: 'Daten & Datenschutz',
+    exportData: 'Meine Daten exportieren',
+    exportDataError: 'Datenexport fehlgeschlagen.',
     deleteAccount: 'Konto löschen',
     deleteAccountWarning:
       'Dein Konto wird unwiderruflich anonymisiert: Name, E-Mail, Telefon, Geburtstag, Adresse und Foto werden entfernt und du wirst abgemeldet. Geteilte Einträge (Anwesenheiten, Finanzen) bleiben anonymisiert erhalten.',

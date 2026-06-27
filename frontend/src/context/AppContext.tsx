@@ -215,6 +215,7 @@ export interface AppContextValue {
   doPasswordLogin: (email: string, password: string) => Promise<void>;
   logout: () => void;
   deleteAccount: (confirmEmail: string) => Promise<void>;
+  exportMyData: () => Promise<void>;
   // nav
   go: (route: Route) => void;
   goEventsPending: () => void;
@@ -498,6 +499,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [api, logout],
   );
+
+  // GDPR Art. 15: fetch the personal-data export and download it as JSON.
+  const exportMyData = useCallback(async () => {
+    const data = await api.auth.exportData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `teamverwaltung-datenexport-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1500);
+  }, [api]);
 
   // ---------- form ----------
   const onFormInput = useCallback(
@@ -1013,6 +1030,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doPasswordLogin,
       logout,
       deleteAccount,
+      exportMyData,
       go,
       goEventsPending,
       closeSheet,
@@ -1114,6 +1132,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doLogin,
       logout,
       deleteAccount,
+      exportMyData,
       doPasswordLogin,
       go,
       goEventsPending,

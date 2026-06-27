@@ -131,6 +131,13 @@ describe('auth', () => {
     expect(client.POST).toHaveBeenCalledWith('/auth/logout', {});
   });
 
+  it('exportData fetches and returns the export document', async () => {
+    const doc = { exportedAt: '2026-06-27', profile: { email: 'me@example.com' } };
+    client.GET.mockResolvedValueOnce(ok(doc));
+    await expect(realApi.auth.exportData()).resolves.toEqual(doc);
+    expect(client.GET).toHaveBeenCalledWith('/auth/me/data-export');
+  });
+
   it('deleteAccount sends the confirmation email and resolves on success', async () => {
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.auth.deleteAccount('me@example.com')).resolves.toBeUndefined();
