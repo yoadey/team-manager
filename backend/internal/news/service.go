@@ -8,11 +8,12 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // newsRepo is the interface the Service relies on.
 type newsRepo interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*NewsRow, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*NewsRow, error)
 	Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error)
 	Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -34,17 +35,40 @@ func NewService(repo newsRepo, enq jobEnqueuer) *Service {
 	return &Service{repo: repo, jobs: enq}
 }
 
-// ListByTeam returns paginated news items for the given team.
-func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.NewsItem, error) {
-	rows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
-	if err != nil {
-		return nil, fmt.Errorf("news.Service.ListByTeam: %w", err)
+// ListByTeam returns a keyset page of news items plus the cursor for the next
+// page (nil when the last page is reached). cursor is the opaque token from a
+// prior page ("" = first page).
+func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.NewsItem, *string, error) {
+	var cur *ListCursor
+	var decoded ListCursor
+	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+		return nil, nil, fmt.Errorf("news.Service.ListByTeam: %w", err)
+	} else if ok {
+		cur = &decoded
 	}
+
+	// Fetch one extra row to detect whether a further page exists.
+	rows, err := s.repo.ListByTeam(ctx, teamID, limit+1, cur)
+	if err != nil {
+		return nil, nil, fmt.Errorf("news.Service.ListByTeam: %w", err)
+	}
+
+	var next *string
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		token, err := pagination.EncodeCursor(ListCursor{Pinned: last.Pinned, CreatedAt: last.CreatedAt, ID: last.Id})
+		if err != nil {
+			return nil, nil, fmt.Errorf("news.Service.ListByTeam: %w", err)
+		}
+		next = &token
+	}
+
 	result := make([]gen.NewsItem, 0, len(rows))
 	for _, row := range rows {
 		result = append(result, toGenNewsItem(row))
 	}
-	return result, nil
+	return result, next, nil
 }
 
 // Create adds a new news item and enqueues a notification job.

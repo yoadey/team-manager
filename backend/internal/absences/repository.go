@@ -47,48 +47,83 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 	return ab, nil
 }
 
-// ListByTeam returns all absences for a team, enriched with user and role info.
-func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*AbsenceRow, error) {
+// ListCursor is the keyset position for absence pagination
+// (ORDER BY from_date DESC, id DESC).
+type ListCursor struct {
+	FromDate time.Time `json:"f"`
+	ID       uuid.UUID `json:"i"`
+}
+
+// scanAbsenceRows drains rows into AbsenceRow slices.
+func scanAbsenceRows(rows interface {
+	Next() bool
+	Scan(...any) error
+	Err() error
+}, where string,
+) ([]*AbsenceRow, error) {
+	var result []*AbsenceRow
+	for rows.Next() {
+		ab, err := scanAbsence(rows)
+		if err != nil {
+			return nil, fmt.Errorf("absences.Repository.%s scan: %w", where, err)
+		}
+		result = append(result, ab)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("absences.Repository.%s rows: %w", where, err)
+	}
+	return result, nil
+}
+
+// ListByTeam returns up to limit absences for a team (enriched with user and
+// role info), newest first, starting after cur (nil = first page). The inner
+// DISTINCT ON dedups the role join; the outer query applies the keyset order.
+func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 ORDER BY a.id, a.from_date DESC LIMIT $2 OFFSET $3`, selectAbsenceFields, absenceJoins)
-	rows, err := r.pool.Query(ctx, q, teamID, limit, offset)
+	args := []any{teamID, limit}
+	predicate := ""
+	if cur != nil {
+		predicate = "AND (a.from_date, a.id) < ($3, $4)"
+		args = append(args, cur.FromDate, cur.ID)
+	}
+	q := fmt.Sprintf(`
+		SELECT * FROM (
+			SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 %s ORDER BY a.id
+		) sub
+		ORDER BY from_date DESC, id DESC
+		LIMIT $2`, selectAbsenceFields, absenceJoins, predicate)
+	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.ListByTeam: %w", err)
 	}
 	defer rows.Close()
-
-	var result []*AbsenceRow
-	for rows.Next() {
-		ab, err := scanAbsence(rows)
-		if err != nil {
-			return nil, fmt.Errorf("absences.Repository.ListByTeam scan: %w", err)
-		}
-		result = append(result, ab)
-	}
-	return result, rows.Err()
+	return scanAbsenceRows(rows, "ListByTeam")
 }
 
-// ListByUser returns absences for a specific user in a team.
-func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*AbsenceRow, error) {
+// ListByUser returns up to limit absences for a specific user in a team,
+// newest first, starting after cur (nil = first page).
+func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cur *ListCursor) ([]*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 AND a.user_id = $2 ORDER BY a.id, a.from_date DESC LIMIT $3 OFFSET $4`, selectAbsenceFields, absenceJoins)
-	rows, err := r.pool.Query(ctx, q, teamID, userID, limit, offset)
+	args := []any{teamID, userID, limit}
+	predicate := ""
+	if cur != nil {
+		predicate = "AND (a.from_date, a.id) < ($4, $5)"
+		args = append(args, cur.FromDate, cur.ID)
+	}
+	q := fmt.Sprintf(`
+		SELECT * FROM (
+			SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 AND a.user_id = $2 %s ORDER BY a.id
+		) sub
+		ORDER BY from_date DESC, id DESC
+		LIMIT $3`, selectAbsenceFields, absenceJoins, predicate)
+	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.ListByUser: %w", err)
 	}
 	defer rows.Close()
-
-	var result []*AbsenceRow
-	for rows.Next() {
-		ab, err := scanAbsence(rows)
-		if err != nil {
-			return nil, fmt.Errorf("absences.Repository.ListByUser scan: %w", err)
-		}
-		result = append(result, ab)
-	}
-	return result, rows.Err()
+	return scanAbsenceRows(rows, "ListByUser")
 }
 
 // Create inserts a new absence and returns the enriched row.

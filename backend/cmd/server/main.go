@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/yoadey/team-manager/backend/internal/absences"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -26,12 +28,50 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/middleware"
 	"github.com/yoadey/team-manager/backend/internal/news"
 	"github.com/yoadey/team-manager/backend/internal/notifications"
+	"github.com/yoadey/team-manager/backend/internal/observability"
 	"github.com/yoadey/team-manager/backend/internal/polls"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/server"
 	"github.com/yoadey/team-manager/backend/internal/stats"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
+
+// Build metadata; version is overridable via -ldflags "-X main.version=...".
+var (
+	version     = "dev"
+	serviceName = "team-manager-backend"
+)
+
+// initObservability wires optional OTel tracing and Sentry error tracking and
+// returns a single cleanup that shuts both down. Both are no-ops when their
+// env (OTEL_EXPORTER_OTLP_ENDPOINT / SENTRY_DSN) is unset.
+func initObservability(ctx context.Context, cfg *config.Config) (func(context.Context), error) {
+	shutdownTracer, err := observability.InitTracer(ctx, serviceName, version)
+	if err != nil {
+		return nil, fmt.Errorf("initObservability: %w", err)
+	}
+	flushSentry, err := observability.InitSentry(cfg.SentryDSN, os.Getenv("ENVIRONMENT"), version)
+	if err != nil {
+		return nil, fmt.Errorf("initObservability: %w", err)
+	}
+	return func(c context.Context) {
+		if shutErr := shutdownTracer(c); shutErr != nil {
+			slog.Error("tracer shutdown error", "err", shutErr)
+		}
+		flushSentry(2 * time.Second)
+	}, nil
+}
+
+// metricsHandler exposes Prometheus metrics, requiring a bearer token when one
+// is configured. Left open when token is empty so local dev and in-cluster
+// scraping over a private network keep working.
+func metricsHandler(token string) http.Handler {
+	h := promhttp.Handler()
+	if token != "" {
+		return middleware.RequireBearerToken(token)(h)
+	}
+	return h
+}
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -42,6 +82,15 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config error", "err", err)
+		os.Exit(1)
+	}
+
+	// ─── Observability ───────────────────────────────────────────────────────
+	// Tracing and error tracking are opt-in (OTEL_EXPORTER_OTLP_ENDPOINT /
+	// SENTRY_DSN); both are no-ops when their env is unset.
+	shutdownObs, err := initObservability(context.Background(), cfg)
+	if err != nil {
+		slog.Error("observability init failed", "err", err)
 		os.Exit(1)
 	}
 
@@ -210,7 +259,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
-	r.Handle("/metrics", promhttp.Handler())
+	r.Handle("/metrics", metricsHandler(cfg.MetricsToken))
 
 	// API routes under /api/v1.
 	r.Route("/api/v1", func(r chi.Router) {
@@ -238,9 +287,11 @@ func main() {
 
 	// ─── HTTP server ─────────────────────────────────────────────────────────
 
+	// Wrap the router so every request gets an OpenTelemetry server span and
+	// incoming trace context is propagated (no-op when tracing is disabled).
 	httpSrv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      r,
+		Handler:      otelhttp.NewHandler(r, "http.server"),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -266,4 +317,5 @@ func main() {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
+	shutdownObs(shutdownCtx)
 }

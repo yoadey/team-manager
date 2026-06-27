@@ -93,7 +93,7 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
         nominatedRoleIds: f.nominatedRoleIds,
       };
       try {
-        if (mode === 'edit') await api.events.update(f.id!, payload, scope);
+        if (mode === 'edit') await api.events.update(f.id!, payload, scope, S().activeTeamId!);
         else
           await api.events.create(S().activeTeamId!, {
             ...payload,

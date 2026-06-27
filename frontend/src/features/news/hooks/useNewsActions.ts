@@ -46,7 +46,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
     setState({ busy: 'save' });
     try {
       if (f.id) {
-        await api.news.update(f.id, { title: f.title, body: f.body, pinned: f.pinned });
+        await api.news.update(f.id, { title: f.title, body: f.body, pinned: f.pinned }, S().activeTeamId!);
         await loadNews();
         setState({ busy: null, sheet: null });
         toastMsg(t('news.toastUpdated'));
@@ -70,7 +70,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
         danger: true,
         onConfirm: async () => {
           try {
-            await api.news.remove(id);
+            await api.news.remove(id, S().activeTeamId!);
             await loadNews();
             toastMsg(t('news.toastDeleted'));
           } catch (err) {
@@ -78,7 +78,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
           }
         },
       }),
-    [api, askConfirm, loadNews, setState, toastMsg],
+    [api, S, askConfirm, loadNews, setState, toastMsg],
   );
 
   return { openNewsForm, saveNews, removeNews };

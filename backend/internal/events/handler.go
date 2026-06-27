@@ -17,7 +17,7 @@ import (
 
 // eventService is the interface the Handler relies on.
 type eventService interface {
-	ListEvents(ctx context.Context, teamID, userID, scope string, limit, offset int) ([]gen.TeamEvent, error)
+	ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error)
 	CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error)
 	GetEvent(ctx context.Context, teamID, userID, eventID string) (*gen.TeamEvent, error)
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
@@ -55,14 +55,18 @@ func (h *Handler) ListEvents(ctx context.Context, request gen.ListEventsRequestO
 	if request.Params.Scope != nil {
 		scope = string(*request.Params.Scope)
 	}
-	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
+	limit := pagination.ParseLimit(request.Params.Limit)
+	cursor := ""
+	if request.Params.Cursor != nil {
+		cursor = *request.Params.Cursor
+	}
 
-	evts, err := h.svc.ListEvents(ctx, request.TeamId.String(), user.Id.String(), scope, limit, offset)
+	evts, next, err := h.svc.ListEvents(ctx, request.TeamId.String(), user.Id.String(), scope, cursor, limit)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListEvents failed", "err", err)
 		return nil, apierror.Internal("failed to list events")
 	}
-	return gen.ListEvents200JSONResponse(evts), nil
+	return gen.ListEvents200JSONResponse{Items: evts, NextCursor: next}, nil
 }
 
 // ─── CreateEvent ────────────────────────────────────────────────────────────

@@ -128,7 +128,7 @@ describe('useNewsActions', () => {
     await act(async () => {
       await result.current.saveNews();
     });
-    expect(api.news.update).toHaveBeenCalledWith('n1', expect.objectContaining({ title: 'Updated' }));
+    expect(api.news.update).toHaveBeenCalledWith('n1', expect.objectContaining({ title: 'Updated' }), 'team1');
     expect(toastMsg).toHaveBeenCalledWith('News aktualisiert');
   });
 
@@ -154,7 +154,7 @@ describe('useNewsActions', () => {
     await act(async () => {
       await cfg.onConfirm();
     });
-    expect(api.news.remove).toHaveBeenCalledWith('n1');
+    expect(api.news.remove).toHaveBeenCalledWith('n1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('News gelöscht');
   });
 

@@ -87,8 +87,16 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
 
-// ListEvents returns events for a team filtered by scope.
-func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit, offset int) ([]EventRow, error) {
+// ListCursor is the keyset position for event pagination. The comparison
+// direction depends on scope (past is DESC, upcoming/all are ASC).
+type ListCursor struct {
+	Date time.Time `json:"d"`
+	ID   uuid.UUID `json:"i"`
+}
+
+// ListEvents returns up to limit events for a team filtered by scope, starting
+// after cur (nil = first page). Keyset pagination — no OFFSET.
+func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit int, cur *ListCursor) ([]EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	today := time.Now().UTC()
@@ -100,14 +108,29 @@ func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit
 
 	switch scope {
 	case "past":
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date < $2 ORDER BY date DESC LIMIT $3 OFFSET $4`, selectEventFields)
-		args = []any{teamID, today, limit, offset}
+		args = []any{teamID, today, limit}
+		pred := ""
+		if cur != nil {
+			pred = "AND (date, id) < ($4, $5)"
+			args = append(args, cur.Date, cur.ID)
+		}
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date < $2 %s ORDER BY date DESC, id DESC LIMIT $3`, selectEventFields, pred)
 	case "upcoming":
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date >= $2 ORDER BY date ASC LIMIT $3 OFFSET $4`, selectEventFields)
-		args = []any{teamID, today, limit, offset}
+		args = []any{teamID, today, limit}
+		pred := ""
+		if cur != nil {
+			pred = "AND (date, id) > ($4, $5)"
+			args = append(args, cur.Date, cur.ID)
+		}
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date >= $2 %s ORDER BY date ASC, id ASC LIMIT $3`, selectEventFields, pred)
 	default:
-		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 ORDER BY date ASC LIMIT $2 OFFSET $3`, selectEventFields)
-		args = []any{teamID, limit, offset}
+		args = []any{teamID, limit}
+		pred := ""
+		if cur != nil {
+			pred = "AND (date, id) > ($3, $4)"
+			args = append(args, cur.Date, cur.ID)
+		}
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 %s ORDER BY date ASC, id ASC LIMIT $2`, selectEventFields, pred)
 	}
 
 	rows, err := r.pool.Query(ctx, q, args...)

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
@@ -18,7 +19,7 @@ import (
 
 // memberService is the interface the Handler relies on.
 type memberService interface {
-	ListMembers(ctx context.Context, teamID string, limit, offset int) ([]gen.Member, error)
+	ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*gen.Member, error)
 	UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error)
@@ -29,22 +30,35 @@ type memberService interface {
 type Handler struct {
 	svc    memberService
 	logger *slog.Logger
+	audit  *audit.Logger
 }
 
 // NewHandler creates a new Handler.
 func NewHandler(svc memberService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
+}
+
+// actor returns the acting user's id for audit records, or "" when absent.
+func actor(ctx context.Context) string {
+	if u, ok := auth.UserFromContext(ctx); ok {
+		return u.Id.String()
+	}
+	return ""
 }
 
 // ListMembers returns paginated members of a team.
 func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
-	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
-	members, err := h.svc.ListMembers(ctx, request.TeamId.String(), limit, offset)
+	limit := pagination.ParseLimit(request.Params.Limit)
+	cursor := ""
+	if request.Params.Cursor != nil {
+		cursor = *request.Params.Cursor
+	}
+	members, next, err := h.svc.ListMembers(ctx, request.TeamId.String(), limit, cursor)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListMembers failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.ListMembers: %w", err)
 	}
-	return gen.ListMembers200JSONResponse(members), nil
+	return gen.ListMembers200JSONResponse{Items: members, NextCursor: next}, nil
 }
 
 // AddMember adds a new member to the team.
@@ -79,6 +93,8 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 		h.logger.ErrorContext(ctx, "AddMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.AddMember: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberAdd, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", m.MembershipId.String()))
 	return gen.AddMember201JSONResponse(*m), nil
 }
 
@@ -118,6 +134,8 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 		h.logger.ErrorContext(ctx, "UpdateMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.UpdateMember: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberUpdate, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
 	return gen.UpdateMember200JSONResponse(*m), nil
 }
 
@@ -137,6 +155,9 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 		h.logger.ErrorContext(ctx, "SetMemberRoles failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.SetMemberRoles: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberRolesChange, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+		slog.Int("roleCount", len(roleIDs)))
 	return gen.SetMemberRoles200JSONResponse(*m), nil
 }
 
@@ -146,6 +167,8 @@ func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequ
 		h.logger.ErrorContext(ctx, "RemoveMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.RemoveMember: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventMemberRemove, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
 	return gen.RemoveMember204Response{}, nil
 }
 

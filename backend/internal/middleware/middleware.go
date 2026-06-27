@@ -4,13 +4,18 @@ package middleware
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/go-chi/httprate"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ─── Request ID ──────────────────────────────────────────────────────────────
@@ -18,6 +23,10 @@ import (
 type contextKey string
 
 const requestIDKey contextKey = "request_id"
+
+// errPanicRecovered is the static base error recorded on the active trace span
+// when a panic is caught (wrapped with the recovered value).
+var errPanicRecovered = errors.New("panic recovered")
 
 // RequestID generates a UUID v4 for each request, injects it into the context,
 // and echoes it via the X-Request-ID response header.
@@ -79,14 +88,21 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(rw, r)
 
-			logger.InfoContext(
-				r.Context(), "request",
+			attrs := []any{
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", rw.status),
 				slog.Duration("duration", time.Since(start)),
 				slog.String("request_id", GetRequestID(r.Context())),
-			)
+			}
+			// Correlate logs with traces when a span is active.
+			if sc := trace.SpanContextFromContext(r.Context()); sc.IsValid() {
+				attrs = append(attrs,
+					slog.String("trace_id", sc.TraceID().String()),
+					slog.String("span_id", sc.SpanID().String()),
+				)
+			}
+			logger.InfoContext(r.Context(), "request", attrs...)
 		})
 	}
 }
@@ -105,10 +121,20 @@ var rateLimitHandler = httprate.WithLimitHandler(func(w http.ResponseWriter, r *
 	_ = json.NewEncoder(w).Encode(body)
 })
 
-// RateLimit returns middleware that limits requests to requestsPerSecond per
-// second (global, across all clients) using a sliding-window counter.
+// RateLimit returns middleware that limits each client IP to requestsPerSecond
+// per second using a sliding-window counter.
+//
+// Keying by IP (rather than a single global counter) means one noisy client
+// cannot exhaust the request budget for everyone, and per-instance throughput
+// is not artificially capped by aggregate traffic. Behind a proxy/load balancer
+// this relies on X-Forwarded-For / X-Real-IP being set correctly.
 func RateLimit(requestsPerSecond int) func(http.Handler) http.Handler {
-	return httprate.NewRateLimiter(requestsPerSecond, time.Second, rateLimitHandler).Handler
+	return httprate.NewRateLimiter(
+		requestsPerSecond,
+		time.Second,
+		rateLimitHandler,
+		httprate.WithKeyFuncs(httprate.KeyByRealIP),
+	).Handler
 }
 
 // PerIPRateLimit returns middleware that limits each unique remote IP to
@@ -235,6 +261,13 @@ func Recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 						slog.String("path", r.URL.Path),
 						slog.String("request_id", GetRequestID(ctx)),
 					)
+
+					// Report to Sentry (no-op when not initialized) and mark the
+					// active trace span as errored (no-op when tracing is off).
+					sentry.CurrentHub().Recover(rec)
+					span := trace.SpanFromContext(ctx)
+					span.RecordError(fmt.Errorf("%w: %v", errPanicRecovered, rec))
+					span.SetStatus(codes.Error, "panic recovered")
 
 					w.Header().Set("Content-Type", "application/problem+json")
 					w.WriteHeader(http.StatusInternalServerError)

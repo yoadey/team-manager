@@ -14,6 +14,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -30,7 +31,15 @@ var (
 	ErrPublicKeyNotRSA         = errors.New("auth.NewService: public key is not RSA")
 	ErrMissingJTIClaim         = errors.New("auth.Service.ValidateToken: missing jti claim")
 	ErrUnexpectedSigningMethod = errors.New("auth.Service.ValidateToken: unexpected signing method")
+	ErrImageTooLarge           = errors.New("auth.resizeImage: image dimensions exceed the allowed maximum")
+	ErrErasureConfirmation     = errors.New("auth.Service.EraseAccount: confirmation email does not match account")
 )
+
+// dummyPasswordHash is a valid bcrypt hash that Login compares against when no
+// user matches the supplied email. Running a bcrypt comparison on both the
+// "user found" and "user not found" paths keeps Login's timing roughly constant
+// regardless of whether the email exists, mitigating user enumeration.
+var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("user-enumeration-timing-equalizer"), 12)
 
 // authRepo is the interface the Service relies on. A *Repository satisfies it.
 type authRepo interface {
@@ -40,6 +49,8 @@ type authRepo interface {
 	FindSession(ctx context.Context, tokenHash string) (*SessionRow, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
 	UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error
+	EraseUser(ctx context.Context, userID string) error
+	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
 
 // Service implements authentication logic.
@@ -109,6 +120,9 @@ func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL ti
 func (s *Service) Login(ctx context.Context, email, password string) (token string, user *UserRow, err error) {
 	user, err = s.repo.FindUserByEmail(ctx, email)
 	if err != nil {
+		// Compare against a dummy hash so a missing user takes about as long as a
+		// wrong password — otherwise response timing reveals which emails exist.
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
 		return "", nil, ErrInvalidCredentials
 	}
 
@@ -190,6 +204,35 @@ func (s *Service) Logout(ctx context.Context, tokenHash string) error {
 	return nil
 }
 
+// EraseAccount anonymizes the account (GDPR Art. 17) for an already
+// authenticated user. To confirm intent the caller must echo the account's own
+// email address — this works for every login method (including OIDC accounts
+// that have no password) and guards against an accidental or forged blind
+// DELETE. Returns ErrErasureConfirmation when the email does not match.
+func (s *Service) EraseAccount(ctx context.Context, userID, confirmEmail string) error {
+	user, err := s.repo.FindUserByID(ctx, userID)
+	if err != nil {
+		return ErrInvalidCredentials
+	}
+	if !strings.EqualFold(strings.TrimSpace(confirmEmail), strings.TrimSpace(user.Email)) {
+		return ErrErasureConfirmation
+	}
+	if err := s.repo.EraseUser(ctx, userID); err != nil {
+		return fmt.Errorf("auth.Service.EraseAccount: %w", err)
+	}
+	return nil
+}
+
+// ExportUserData returns the authenticated user's full personal-data export
+// (GDPR Art. 15).
+func (s *Service) ExportUserData(ctx context.Context, userID string) (*ExportData, error) {
+	data, err := s.repo.ExportUserData(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("auth.Service.ExportUserData: %w", err)
+	}
+	return data, nil
+}
+
 // HashPassword hashes a plain-text password using bcrypt cost 12.
 func (s *Service) HashPassword(password string) (string, error) {
 	b, err := bcrypt.GenerateFromPassword([]byte(password), 12)
@@ -240,9 +283,33 @@ func sha256Hex(s string) string {
 
 const maxPhotoDim = 800
 
+// maxDecodePixels caps the total pixel count of an uploaded image before it is
+// fully decoded, bounding peak memory against decompression-bomb inputs. 50 MP
+// comfortably covers legitimate phone-camera photos.
+const maxDecodePixels = 50_000_000
+
 // resizeImage decodes a JPEG or PNG, scales it proportionally so neither
 // dimension exceeds maxPhotoDim, and re-encodes as JPEG.
 func resizeImage(data []byte, mime string) ([]byte, error) {
+	// Read the header first (cheap) and reject oversized images before a full
+	// decode. A small compressed file can declare enormous dimensions and blow
+	// up memory when fully decoded (a "decompression bomb"); the 4 MB request
+	// body limit does not bound the decoded pixel count.
+	var cfg image.Config
+	var cfgErr error
+	switch mime {
+	case "image/png":
+		cfg, cfgErr = png.DecodeConfig(bytes.NewReader(data))
+	default:
+		cfg, cfgErr = jpeg.DecodeConfig(bytes.NewReader(data))
+	}
+	if cfgErr != nil {
+		return nil, fmt.Errorf("decode image config: %w", cfgErr)
+	}
+	if cfg.Width*cfg.Height > maxDecodePixels {
+		return nil, fmt.Errorf("%w (%dx%d)", ErrImageTooLarge, cfg.Width, cfg.Height)
+	}
+
 	var src image.Image
 	var decodeErr error
 

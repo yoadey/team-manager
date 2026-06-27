@@ -90,16 +90,20 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
     const self = sh.self;
     setState({ busy: 'save' });
     try {
-      await api.members.update(f.membershipId, {
-        name: f.name,
-        email: f.email,
-        phone: f.phone,
-        birthday: f.birthday,
-        address: f.address,
-        roleIds: f.roleIds,
-        group: f.group,
-        photo: f.photo,
-      });
+      await api.members.update(
+        f.membershipId,
+        {
+          name: f.name,
+          email: f.email,
+          phone: f.phone,
+          birthday: f.birthday,
+          address: f.address,
+          roleIds: f.roleIds,
+          group: f.group,
+          photo: f.photo,
+        },
+        S().activeTeamId!,
+      );
       await refreshMembers();
       if (self) {
         const u = await api.auth.currentUser();
@@ -124,7 +128,7 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
         danger: true,
         onConfirm: async () => {
           try {
-            await api.members.remove(membershipId);
+            await api.members.remove(membershipId, S().activeTeamId!);
             await refreshMembers();
             setState({ sheet: null });
             toastMsg(t('members.toastMemberRemoved'));

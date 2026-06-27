@@ -15,7 +15,7 @@ import (
 
 // newsService is the interface the Handler relies on.
 type newsService interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.NewsItem, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.NewsItem, *string, error)
 	Create(ctx context.Context, teamID, authorID uuid.UUID, body *gen.CreateNewsRequest) (gen.NewsItem, error)
 	Update(ctx context.Context, id uuid.UUID, body *gen.UpdateNewsRequest) (gen.NewsItem, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -37,13 +37,17 @@ func (h *Handler) ListNews(ctx context.Context, req gen.ListNewsRequestObject) (
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
-	items, err := h.svc.ListByTeam(ctx, req.TeamId, limit, offset)
+	limit := pagination.ParseLimit(req.Params.Limit)
+	cursor := ""
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
+	}
+	items, next, err := h.svc.ListByTeam(ctx, req.TeamId, limit, cursor)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListNews failed", "err", err)
 		return nil, apierror.Internal("failed to list news")
 	}
-	return gen.ListNews200JSONResponse(items), nil
+	return gen.ListNews200JSONResponse{Items: items, NextCursor: next}, nil
 }
 
 // CreateNews creates a new news item.

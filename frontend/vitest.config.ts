@@ -34,8 +34,9 @@ export default defineConfig({
         'src/monitoring.ts',
         'src/i18n/de.ts',
         'src/i18n/en.ts',
-        // Real API client — requires live backend; integration-tested via docker compose
-        'src/services/serviceLayerReal.ts',
+        // Thin openapi-fetch client factory — config only, no logic to unit-test.
+        // (serviceLayerReal.ts is now unit-tested in serviceLayerReal.test.ts and
+        // intentionally counted toward the coverage floors.)
         'src/api/client.ts',
         // Top-level app shell — layout-only, requires E2E tests for meaningful coverage
         'src/layouts/AppShell.tsx',

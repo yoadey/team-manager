@@ -122,19 +122,30 @@ func (c *SessionCookieCodec) StrictMiddleware() gen.StrictMiddlewareFunc {
 			if err != nil {
 				return resp, err
 			}
-			switch operationID {
-			case "Login":
-				if login, ok := resp.(gen.Login200JSONResponse); ok {
-					if setErr := c.Set(w, login.Token); setErr != nil {
-						return resp, setErr
-					}
-				}
-			case "Logout":
-				if _, ok := resp.(gen.Logout204Response); ok {
-					c.Clear(w)
-				}
+			if cookieErr := c.applyCookie(w, operationID, resp); cookieErr != nil {
+				return resp, cookieErr
 			}
 			return resp, nil
 		}
 	}
+}
+
+// applyCookie sets the session cookie after a successful Login and clears it
+// after a successful Logout or account erasure, based on the operation result.
+func (c *SessionCookieCodec) applyCookie(w http.ResponseWriter, operationID string, resp any) error {
+	switch operationID {
+	case "Login":
+		if login, ok := resp.(gen.Login200JSONResponse); ok {
+			return c.Set(w, login.Token)
+		}
+	case "Logout":
+		if _, ok := resp.(gen.Logout204Response); ok {
+			c.Clear(w)
+		}
+	case "DeleteCurrentUser":
+		if _, ok := resp.(gen.DeleteCurrentUser204Response); ok {
+			c.Clear(w)
+		}
+	}
+	return nil
 }

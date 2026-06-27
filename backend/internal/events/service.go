@@ -11,6 +11,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // Sentinel errors for the events package.
@@ -22,7 +23,7 @@ var (
 
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
-	ListEvents(ctx context.Context, teamID string, scope string, limit, offset int) ([]EventRow, error)
+	ListEvents(ctx context.Context, teamID string, scope string, limit int, cur *ListCursor) ([]EventRow, error)
 	GetEvent(ctx context.Context, eventID string) (*EventRow, error)
 	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
@@ -57,22 +58,43 @@ func NewService(repo eventRepo, enq jobEnqueuer) *Service {
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
 
-// ListEvents returns paginated events for a team enriched with attendance summary and user's status.
-func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope string, limit, offset int) ([]gen.TeamEvent, error) {
-	rows, err := s.repo.ListEvents(ctx, teamID, scope, limit, offset)
+// ListEvents returns a keyset page of events (enriched with attendance summary
+// and the user's status) plus the cursor for the next page (nil on the last
+// page). cursor is the opaque token from a prior page ("" = first page).
+func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error) {
+	var cur *ListCursor
+	var decoded ListCursor
+	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
+	} else if ok {
+		cur = &decoded
+	}
+
+	rows, err := s.repo.ListEvents(ctx, teamID, scope, limit+1, cur)
 	if err != nil {
-		return nil, fmt.Errorf("events.Service.ListEvents: %w", err)
+		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
+	}
+
+	var next *string
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		token, err := pagination.EncodeCursor(ListCursor{Date: last.Date, ID: last.Id})
+		if err != nil {
+			return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
+		}
+		next = &token
 	}
 
 	out := make([]gen.TeamEvent, 0, len(rows))
 	for i := range rows {
 		ev, err := s.enrichEvent(ctx, &rows[i], userID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		out = append(out, ev)
 	}
-	return out, nil
+	return out, next, nil
 }
 
 // ─── GetEvent ───────────────────────────────────────────────────────────────

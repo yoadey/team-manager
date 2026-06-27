@@ -1,6 +1,7 @@
 package roles_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -160,6 +161,31 @@ func TestHandler_CreateRole_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitCreateRoleResponse(w))
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestHandler_CreateRole_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+	role := testRole()
+	svc := &mockRoleService{
+		createRole: func(_ context.Context, _ uuid.UUID, _ *gen.CreateRoleJSONRequestBody) (*gen.Role, error) {
+			return &role, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := roles.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)))
+
+	body := &gen.CreateRoleJSONRequestBody{Name: "Coach", Permissions: gen.Permissions{
+		Events: "write", Members: "read", Finances: "none", News: "write", Polls: "read", Settings: "none",
+	}}
+	_, err := h.CreateRole(rolesAuthedCtx(), gen.CreateRoleRequestObject{TeamId: rolesTeamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "role.create", rec["event"])
+	assert.Equal(t, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", rec["actor"])
+	assert.Equal(t, testRoleID.String(), rec["roleId"])
 }
 
 func TestHandler_DeleteRole_Success(t *testing.T) {

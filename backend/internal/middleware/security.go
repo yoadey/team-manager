@@ -1,6 +1,32 @@
 package middleware
 
-import "net/http"
+import (
+	"crypto/subtle"
+	"net/http"
+	"strings"
+)
+
+// RequireBearerToken returns middleware that rejects any request whose
+// Authorization header does not carry the exact bearer token. The comparison is
+// constant-time to avoid leaking the token via timing. Intended to guard
+// operational endpoints such as /metrics, which would otherwise expose internal
+// telemetry to anyone who can reach the service.
+func RequireBearerToken(token string) func(http.Handler) http.Handler {
+	const prefix = "Bearer "
+	want := []byte(token)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			h := r.Header.Get("Authorization")
+			got := []byte(strings.TrimPrefix(h, prefix))
+			if !strings.HasPrefix(h, prefix) || subtle.ConstantTimeCompare(got, want) != 1 {
+				w.Header().Set("WWW-Authenticate", "Bearer")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 // SecurityHeaders adds defensive HTTP response headers to every response.
 // These headers protect against common browser-based attacks (clickjacking,

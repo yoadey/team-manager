@@ -24,10 +24,12 @@ import (
 // ─── mock service ────────────────────────────────────────────────────────────
 
 type mockAuthService struct {
-	login         func(ctx context.Context, email, password string) (string, *auth.UserRow, error)
-	validateToken func(ctx context.Context, token string) (*auth.UserRow, error)
-	logout        func(ctx context.Context, tokenHash string) error
-	updatePhoto   func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
+	login          func(ctx context.Context, email, password string) (string, *auth.UserRow, error)
+	validateToken  func(ctx context.Context, token string) (*auth.UserRow, error)
+	logout         func(ctx context.Context, tokenHash string) error
+	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
+	eraseAccount   func(ctx context.Context, userID, password string) error
+	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
 }
 
 func (m *mockAuthService) Login(ctx context.Context, email, password string) (string, *auth.UserRow, error) {
@@ -44,6 +46,17 @@ func (m *mockAuthService) Logout(ctx context.Context, tokenHash string) error {
 
 func (m *mockAuthService) UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error) {
 	return m.updatePhoto(ctx, userID, data, mime)
+}
+
+func (m *mockAuthService) EraseAccount(ctx context.Context, userID, password string) error {
+	return m.eraseAccount(ctx, userID, password)
+}
+
+func (m *mockAuthService) ExportUserData(ctx context.Context, userID string) (*auth.ExportData, error) {
+	if m.exportUserData != nil {
+		return m.exportUserData(ctx, userID)
+	}
+	return &auth.ExportData{}, nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -441,4 +454,46 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestHandler_GetMyDataExport(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		exportUserData: func(_ context.Context, userID string) (*auth.ExportData, error) {
+			return &auth.ExportData{
+				Profile: auth.ExportProfile{ID: userID, Name: "Test User", Email: "test@example.com"},
+			}, nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+	resp, err := h.GetMyDataExport(ctx, gen.GetMyDataExportRequestObject{})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetMyDataExportResponse(w))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Header().Get("Content-Disposition"), "attachment")
+	assert.Contains(t, w.Header().Get("Content-Disposition"), ".json")
+
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	profile, ok := body["profile"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "test@example.com", profile["email"])
+}
+
+func TestHandler_GetMyDataExport_Unauthenticated(t *testing.T) {
+	t.Parallel()
+
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil)
+	resp, err := h.GetMyDataExport(context.Background(), gen.GetMyDataExportRequestObject{})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetMyDataExportResponse(w))
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

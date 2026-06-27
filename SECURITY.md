@@ -26,11 +26,34 @@ before any public discussion.
 
 ## Scope
 
-This repository is the **frontend** application. The backend is currently a
-mock (`src/services/serviceLayer.ts`); reports about mock data behaviour are out
-of scope. Relevant frontend concerns include, for example: XSS, CSP gaps,
-client-side authorization bypass, leakage of secrets/PII, and dependency
-vulnerabilities.
+This repository is a monorepo with a React/TypeScript **frontend** (`frontend/`)
+and a Go **backend** (`backend/`). The frontend can also run against a
+localStorage mock (`frontend/src/services/serviceLayer.ts`); reports about mock
+data behaviour are out of scope. In-scope concerns include, for example: XSS,
+CSP gaps, authentication/authorization bypass, RBAC flaws, leakage of
+secrets/PII, SQL injection, and dependency vulnerabilities — on either tier.
+
+## Data Protection (GDPR)
+
+The application stores personal data of club members (name, email, phone,
+birthday, address, photo). The following data-subject rights are implemented:
+
+- **Right of access (Art. 15):** a member can export all personal data held
+  about them as a JSON document via `GET /api/v1/auth/me/data-export`
+  ("Meine Daten exportieren" in the profile sheet).
+- **Right to erasure (Art. 17) — by anonymization:** `DELETE /api/v1/auth/me`
+  overwrites the member's identifying fields (name, email, phone, birthday,
+  address, photo, password hash), strips free-text PII from their comments and
+  absence/attendance reasons, and deletes their sessions. Records that are
+  **shared** (attendance, event history) or must be **retained** for accounting
+  (transactions, penalty assignments, contributions) are kept in anonymized
+  form so they no longer resolve to an identifiable person. Erasure is
+  irreversible.
+- **Confirmation without a password:** because accounts may authenticate via
+  OIDC and have no password, erasure is authorized by the active session and
+  confirmed by retyping the account email (verified server-side).
+- Security-sensitive actions (login, logout, account erasure) emit structured
+  **audit-log** events.
 
 ## Hardening Already in Place
 

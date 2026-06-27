@@ -17,19 +17,19 @@ import (
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	listByTeam func(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error)
-	listByUser func(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error)
+	listByTeam func(ctx context.Context, teamID uuid.UUID, limit int, cur *absences.ListCursor) ([]*absences.AbsenceRow, error)
+	listByUser func(ctx context.Context, teamID, userID uuid.UUID, limit int, cur *absences.ListCursor) ([]*absences.AbsenceRow, error)
 	create     func(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*absences.AbsenceRow, error)
 	update     func(ctx context.Context, id uuid.UUID, fromDate, toDate, reason *string) (*absences.AbsenceRow, error)
 	delete     func(ctx context.Context, id uuid.UUID) error
 }
 
-func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error) {
-	return m.listByTeam(ctx, teamID, limit, offset)
+func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *absences.ListCursor) ([]*absences.AbsenceRow, error) {
+	return m.listByTeam(ctx, teamID, limit, cur)
 }
 
-func (m *mockRepo) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*absences.AbsenceRow, error) {
-	return m.listByUser(ctx, teamID, userID, limit, offset)
+func (m *mockRepo) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cur *absences.ListCursor) ([]*absences.AbsenceRow, error) {
+	return m.listByUser(ctx, teamID, userID, limit, cur)
 }
 
 func (m *mockRepo) Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*absences.AbsenceRow, error) {
@@ -70,16 +70,17 @@ func TestService_ListByTeam(t *testing.T) {
 	row := makeAbsenceRow()
 
 	repo := &mockRepo{
-		listByTeam: func(_ context.Context, tid uuid.UUID, _, _ int) ([]*absences.AbsenceRow, error) {
+		listByTeam: func(_ context.Context, tid uuid.UUID, _ int, _ *absences.ListCursor) ([]*absences.AbsenceRow, error) {
 			assert.Equal(t, teamID, tid)
 			return []*absences.AbsenceRow{row}, nil
 		},
 	}
 
 	svc := absences.NewService(repo)
-	result, err := svc.ListByTeam(context.Background(), teamID, 50, 0)
+	result, next, err := svc.ListByTeam(context.Background(), teamID, 50, "")
 
 	require.NoError(t, err)
+	assert.Nil(t, next)
 	require.Len(t, result, 1)
 	assert.Equal(t, row.Id, result[0].Id)
 	assert.Equal(t, *row.MemberName, *result[0].MemberName)
@@ -93,7 +94,7 @@ func TestService_ListByUser(t *testing.T) {
 	row := makeAbsenceRow()
 
 	repo := &mockRepo{
-		listByUser: func(_ context.Context, tid, uid uuid.UUID, _, _ int) ([]*absences.AbsenceRow, error) {
+		listByUser: func(_ context.Context, tid, uid uuid.UUID, _ int, _ *absences.ListCursor) ([]*absences.AbsenceRow, error) {
 			assert.Equal(t, teamID, tid)
 			assert.Equal(t, userID, uid)
 			return []*absences.AbsenceRow{row}, nil
@@ -101,9 +102,10 @@ func TestService_ListByUser(t *testing.T) {
 	}
 
 	svc := absences.NewService(repo)
-	result, err := svc.ListByUser(context.Background(), teamID, userID, 50, 0)
+	result, next, err := svc.ListByUser(context.Background(), teamID, userID, 50, "")
 
 	require.NoError(t, err)
+	assert.Nil(t, next)
 	require.Len(t, result, 1)
 	assert.Equal(t, row.UserId, result[0].UserId)
 }

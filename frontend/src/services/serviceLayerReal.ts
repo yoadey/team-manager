@@ -83,6 +83,23 @@ export const realApi = {
       await apiClient.POST('/auth/logout', {});
     },
 
+    // GDPR Art. 15: returns the personal-data export document for the current
+    // user. The caller turns it into a downloadable file.
+    async exportData(): Promise<unknown> {
+      const res = await apiClient.GET('/auth/me/data-export');
+      return check(res);
+    },
+
+    // GDPR Art. 17 erasure by anonymization. Authorized by the active session;
+    // the caller echoes the account email to confirm intent (works for OIDC
+    // accounts that have no password). The server clears the cookie on success.
+    async deleteAccount(confirmEmail: string): Promise<void> {
+      const res = await apiClient.DELETE('/auth/me', {
+        body: { confirmEmail: confirmEmail as string & { format: 'email' } },
+      });
+      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+    },
+
     async setPhoto(dataUrl: string): Promise<User> {
       // Convert data URL to Blob for multipart upload.
       const arr = dataUrl.split(',');
@@ -153,9 +170,11 @@ export const realApi = {
 
   members: {
     async list(teamId: string): Promise<Member[]> {
+      // Keyset-paginated { items, nextCursor } envelope; first page returned as
+      // an array (no paging UI yet).
       const res = await apiClient.GET('/teams/{teamId}/members', { params: { path: { teamId } } });
-      const members = await check(res);
-      return (members as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
+      const page = await check(res);
+      return (page.items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
     },
 
     async add(teamId: string, params: {
@@ -250,8 +269,9 @@ export const realApi = {
       const res = await apiClient.GET('/teams/{teamId}/events', {
         params: { path: { teamId }, query: { scope } },
       });
-      const events = await check(res);
-      return events.map(mapTeamEvent);
+      // Keyset { items, nextCursor } envelope; first page returned as an array.
+      const page = await check(res);
+      return page.items.map(mapTeamEvent);
     },
 
     async get(eventId: string, teamId: string): Promise<TeamEvent | null> {
@@ -385,14 +405,14 @@ export const realApi = {
   absences: {
     async listForTeam(teamId: string): Promise<Absence[]> {
       const res = await apiClient.GET('/teams/{teamId}/absences', { params: { path: { teamId } } });
-      const absences = await check(res);
-      return absences.map(mapAbsence);
+      const page = await check(res);
+      return page.items.map(mapAbsence);
     },
 
     async listMine(teamId: string): Promise<Absence[]> {
       const res = await apiClient.GET('/teams/{teamId}/absences/mine', { params: { path: { teamId } } });
-      const absences = await check(res);
-      return absences.map(mapAbsence);
+      const page = await check(res);
+      return page.items.map(mapAbsence);
     },
 
     async create(payload: { teamId: string; userId: string; from: string; to: string; reason?: string }): Promise<Absence> {
@@ -428,9 +448,12 @@ export const realApi = {
 
   news: {
     async list(teamId: string): Promise<NewsItem[]> {
+      // Keyset-paginated endpoint: the response is a { items, nextCursor }
+      // envelope. The app has no paging UI yet, so we return the first page's
+      // items; nextCursor is available for future infinite-scroll.
       const res = await apiClient.GET('/teams/{teamId}/news', { params: { path: { teamId } } });
-      const news = await check(res);
-      return news.map(mapNewsItem);
+      const page = await check(res);
+      return page.items.map(mapNewsItem);
     },
 
     async create(teamId: string, payload: { title: string; body: string; pinned?: boolean }): Promise<NewsItem> {
@@ -461,9 +484,11 @@ export const realApi = {
 
   polls: {
     async list(teamId: string): Promise<Poll[]> {
+      // Keyset-paginated { items, nextCursor } envelope; first page returned as
+      // an array (no paging UI yet).
       const res = await apiClient.GET('/teams/{teamId}/polls', { params: { path: { teamId } } });
-      const polls = await check(res);
-      return polls.map(mapPoll);
+      const page = await check(res);
+      return page.items.map(mapPoll);
     },
 
     async vote(pollId: string, optionIds: string[], teamId: string): Promise<void> {
@@ -557,7 +582,7 @@ export const realApi = {
       if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
     },
 
-    async assignPenalty(teamId: string, userId: string, penaltyId: string): Promise<PenaltyAssignment> {
+    async assignPenalty(teamId: string, { userId, penaltyId }: { userId: string; penaltyId: string }): Promise<PenaltyAssignment> {
       const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments', {
         params: { path: { teamId } },
         body: { userId, penaltyId },
@@ -566,7 +591,8 @@ export const realApi = {
       return mapPenaltyAssignment(a);
     },
 
-    async unassignPenalty(id: string, teamId: string): Promise<void> {
+    // Named to match the mock + the app's call site (api.finances.deleteAssignment).
+    async deleteAssignment(id: string, teamId: string): Promise<void> {
       const res = await apiClient.DELETE('/teams/{teamId}/finances/penalty-assignments/{assignmentId}', {
         params: { path: { teamId, assignmentId: id } },
       });

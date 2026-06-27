@@ -16,15 +16,15 @@ import (
 // ─── mock repository ─────────────────────────────────────────────────────────
 
 type mockMemberRepo struct {
-	listMembers  func(ctx context.Context, teamID string, limit, offset int) ([]members.MemberRow, error)
+	listMembers  func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
 	addMember    func(ctx context.Context, teamID string, params members.AddMemberParams) (*members.MemberRow, error)
 	updateMember func(ctx context.Context, membershipID string, patch members.MemberPatch) (*members.MemberRow, error)
 	setRoles     func(ctx context.Context, membershipID string, roleIDs []string) (*members.MemberRow, error)
 	removeMember func(ctx context.Context, membershipID string) error
 }
 
-func (m *mockMemberRepo) ListMembers(ctx context.Context, teamID string, limit, offset int) ([]members.MemberRow, error) {
-	return m.listMembers(ctx, teamID, limit, offset)
+func (m *mockMemberRepo) ListMembers(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error) {
+	return m.listMembers(ctx, teamID, limit, cur)
 }
 
 func (m *mockMemberRepo) AddMember(ctx context.Context, teamID string, params members.AddMemberParams) (*members.MemberRow, error) {
@@ -77,15 +77,16 @@ func TestMemberService_ListMembers(t *testing.T) {
 	row := fixedMemberRow()
 
 	repo := &mockMemberRepo{
-		listMembers: func(_ context.Context, tid string, _, _ int) ([]members.MemberRow, error) {
+		listMembers: func(_ context.Context, tid string, _ int, _ *members.ListCursor) ([]members.MemberRow, error) {
 			assert.Equal(t, teamID.String(), tid)
 			return []members.MemberRow{row}, nil
 		},
 	}
 
 	svc := members.NewService(repo)
-	result, err := svc.ListMembers(context.Background(), teamID.String(), 50, 0)
+	result, next, err := svc.ListMembers(context.Background(), teamID.String(), 50, "")
 	require.NoError(t, err)
+	assert.Nil(t, next)
 	require.Len(t, result, 1)
 	assert.Equal(t, "Alice", result[0].Name)
 	assert.Equal(t, "alice@example.com", string(result[0].Email))
