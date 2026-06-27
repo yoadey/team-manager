@@ -405,14 +405,14 @@ export const realApi = {
   absences: {
     async listForTeam(teamId: string): Promise<Absence[]> {
       const res = await apiClient.GET('/teams/{teamId}/absences', { params: { path: { teamId } } });
-      const absences = await check(res);
-      return absences.map(mapAbsence);
+      const page = await check(res);
+      return page.items.map(mapAbsence);
     },
 
     async listMine(teamId: string): Promise<Absence[]> {
       const res = await apiClient.GET('/teams/{teamId}/absences/mine', { params: { path: { teamId } } });
-      const absences = await check(res);
-      return absences.map(mapAbsence);
+      const page = await check(res);
+      return page.items.map(mapAbsence);
     },
 
     async create(payload: { teamId: string; userId: string; from: string; to: string; reason?: string }): Promise<Absence> {

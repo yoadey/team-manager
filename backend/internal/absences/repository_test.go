@@ -50,12 +50,12 @@ func TestAbsenceRepository_CreateAndList(t *testing.T) {
 	assert.Equal(t, &reason, ab.Reason)
 	assert.Equal(t, "Absent User", *ab.MemberName)
 
-	all, err := repo.ListByTeam(ctx, teamID, 50, 0)
+	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	assert.Equal(t, ab.Id, all[0].Id)
 
-	mine, err := repo.ListByUser(ctx, teamID, userID, 50, 0)
+	mine, err := repo.ListByUser(ctx, teamID, userID, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, mine, 1)
 	assert.Equal(t, ab.Id, mine[0].Id)
@@ -123,7 +123,7 @@ func TestAbsenceRepository_Delete(t *testing.T) {
 	err = repo.Delete(ctx, ab.Id)
 	require.NoError(t, err)
 
-	all, err := repo.ListByTeam(ctx, teamID, 50, 0)
+	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, all)
 }

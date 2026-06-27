@@ -771,16 +771,24 @@ paths:
       summary: List absences for the team
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Absence"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Absence"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [absences]
       operationId: createAbsence
@@ -808,16 +816,24 @@ paths:
       summary: List authenticated user's own absences
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Absence"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Absence"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
 
   /teams/{teamId}/absences/{absenceId}:
     parameters:

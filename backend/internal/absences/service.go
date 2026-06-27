@@ -8,12 +8,13 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // absenceRepo is the interface the Service relies on.
 type absenceRepo interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]*AbsenceRow, error)
-	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]*AbsenceRow, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*AbsenceRow, error)
+	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cur *ListCursor) ([]*AbsenceRow, error)
 	Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error)
 	Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -29,30 +30,64 @@ func NewService(repo absenceRepo) *Service {
 	return &Service{repo: repo}
 }
 
-// ListByTeam returns paginated absences for the given team.
-func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.Absence, error) {
-	rows, err := s.repo.ListByTeam(ctx, teamID, limit, offset)
+// ListByTeam returns a keyset page of team absences plus the next-page cursor
+// (nil on the last page). cursor is the opaque token from a prior page.
+func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error) {
+	cur, err := decodeAbsenceCursor(cursor)
 	if err != nil {
-		return nil, fmt.Errorf("absences.Service.ListByTeam: %w", err)
+		return nil, nil, fmt.Errorf("absences.Service.ListByTeam: %w", err)
 	}
-	result := make([]gen.Absence, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, toGenAbsence(row))
+	rows, err := s.repo.ListByTeam(ctx, teamID, limit+1, cur)
+	if err != nil {
+		return nil, nil, fmt.Errorf("absences.Service.ListByTeam: %w", err)
 	}
-	return result, nil
+	return absencePage(rows, limit)
 }
 
-// ListByUser returns paginated absences for the authenticated user in the given team.
-func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]gen.Absence, error) {
-	rows, err := s.repo.ListByUser(ctx, teamID, userID, limit, offset)
+// ListByUser returns a keyset page of the user's absences in the team plus the
+// next-page cursor (nil on the last page).
+func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error) {
+	cur, err := decodeAbsenceCursor(cursor)
 	if err != nil {
-		return nil, fmt.Errorf("absences.Service.ListByUser: %w", err)
+		return nil, nil, fmt.Errorf("absences.Service.ListByUser: %w", err)
+	}
+	rows, err := s.repo.ListByUser(ctx, teamID, userID, limit+1, cur)
+	if err != nil {
+		return nil, nil, fmt.Errorf("absences.Service.ListByUser: %w", err)
+	}
+	return absencePage(rows, limit)
+}
+
+// decodeAbsenceCursor parses the opaque cursor token ("" = first page).
+func decodeAbsenceCursor(cursor string) (*ListCursor, error) {
+	var decoded ListCursor
+	ok, err := pagination.DecodeCursor(cursor, &decoded)
+	if err != nil {
+		return nil, fmt.Errorf("decode cursor: %w", err)
+	}
+	if !ok {
+		return nil, nil
+	}
+	return &decoded, nil
+}
+
+// absencePage trims the limit+1 fetch to a page and computes the next cursor.
+func absencePage(rows []*AbsenceRow, limit int) ([]gen.Absence, *string, error) {
+	var next *string
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		token, err := pagination.EncodeCursor(ListCursor{FromDate: last.FromDate, ID: last.Id})
+		if err != nil {
+			return nil, nil, fmt.Errorf("encode cursor: %w", err)
+		}
+		next = &token
 	}
 	result := make([]gen.Absence, 0, len(rows))
 	for _, row := range rows {
 		result = append(result, toGenAbsence(row))
 	}
-	return result, nil
+	return result, next, nil
 }
 
 // Create adds a new absence.

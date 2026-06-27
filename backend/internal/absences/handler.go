@@ -15,8 +15,8 @@ import (
 
 // absenceService is the interface the Handler relies on.
 type absenceService interface {
-	ListByTeam(ctx context.Context, teamID uuid.UUID, limit, offset int) ([]gen.Absence, error)
-	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit, offset int) ([]gen.Absence, error)
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error)
+	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error)
 	Create(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
 	Update(ctx context.Context, id uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
 	Delete(ctx context.Context, id uuid.UUID) error
@@ -38,13 +38,17 @@ func (h *Handler) ListAbsences(ctx context.Context, req gen.ListAbsencesRequestO
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
-	absences, err := h.svc.ListByTeam(ctx, req.TeamId, limit, offset)
+	limit := pagination.ParseLimit(req.Params.Limit)
+	cursor := ""
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
+	}
+	absences, next, err := h.svc.ListByTeam(ctx, req.TeamId, limit, cursor)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")
 	}
-	return gen.ListAbsences200JSONResponse(absences), nil
+	return gen.ListAbsences200JSONResponse{Items: absences, NextCursor: next}, nil
 }
 
 // CreateAbsence creates a new absence entry.
@@ -77,13 +81,17 @@ func (h *Handler) ListMyAbsences(ctx context.Context, req gen.ListMyAbsencesRequ
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	limit, offset := pagination.Parse(req.Params.Limit, req.Params.Offset)
-	absences, err := h.svc.ListByUser(ctx, req.TeamId, user.Id, limit, offset)
+	limit := pagination.ParseLimit(req.Params.Limit)
+	cursor := ""
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
+	}
+	absences, next, err := h.svc.ListByUser(ctx, req.TeamId, user.Id, limit, cursor)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListMyAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")
 	}
-	return gen.ListMyAbsences200JSONResponse(absences), nil
+	return gen.ListMyAbsences200JSONResponse{Items: absences, NextCursor: next}, nil
 }
 
 // DeleteAbsence removes an absence.

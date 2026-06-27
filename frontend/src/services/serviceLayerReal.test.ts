@@ -366,10 +366,10 @@ describe('attendance', () => {
 
 describe('absences', () => {
   it('listForTeam, listMine, create, update, remove', async () => {
-    client.GET.mockResolvedValueOnce(ok([{ id: 'ab1' }]));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'ab1' }], nextCursor: null }));
     expect((await realApi.absences.listForTeam('t1'))[0]).toMatchObject({ __mapped: 'absence' });
 
-    client.GET.mockResolvedValueOnce(ok([{ id: 'ab1' }]));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'ab1' }], nextCursor: null }));
     expect((await realApi.absences.listMine('t1'))[0]).toMatchObject({ __mapped: 'absence' });
 
     client.POST.mockResolvedValueOnce(ok({ id: 'ab1' }));
