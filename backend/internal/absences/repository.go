@@ -28,6 +28,12 @@ const selectAbsenceFields = `
 
 const absenceJoins = `
 	FROM absences a
+` + absenceRoleJoins
+
+// absenceRoleJoins enriches a set of absence rows (aliased as a) with the
+// author and a single non-system role. Shared by the list queries (which alias
+// a keyset-bounded subquery as a) and findByID.
+const absenceRoleJoins = `
 	JOIN users u ON u.id = a.user_id
 	LEFT JOIN memberships m ON m.user_id = a.user_id AND m.team_id = a.team_id
 	LEFT JOIN membership_roles mr ON mr.membership_id = m.id
@@ -84,15 +90,24 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int
 	args := []any{teamID, limit}
 	predicate := ""
 	if cur != nil {
-		predicate = "AND (a.from_date, a.id) < ($3, $4)"
+		predicate = "AND (from_date, id) < ($3, $4)"
 		args = append(args, cur.FromDate, cur.ID)
 	}
+	// Bound the keyset scan to the page on the absences table (PK, no join
+	// fan-out) first, then enrich only those rows and re-apply the page order.
 	q := fmt.Sprintf(`
 		SELECT * FROM (
-			SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 %s ORDER BY a.id
+			SELECT DISTINCT ON (a.id) %s
+			FROM (
+				SELECT * FROM absences
+				WHERE team_id = $1 %s
+				ORDER BY from_date DESC, id DESC
+				LIMIT $2
+			) a
+			%s
+			ORDER BY a.id
 		) sub
-		ORDER BY from_date DESC, id DESC
-		LIMIT $2`, selectAbsenceFields, absenceJoins, predicate)
+		ORDER BY from_date DESC, id DESC`, selectAbsenceFields, predicate, absenceRoleJoins)
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.ListByTeam: %w", err)
@@ -109,15 +124,22 @@ func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, l
 	args := []any{teamID, userID, limit}
 	predicate := ""
 	if cur != nil {
-		predicate = "AND (a.from_date, a.id) < ($4, $5)"
+		predicate = "AND (from_date, id) < ($4, $5)"
 		args = append(args, cur.FromDate, cur.ID)
 	}
 	q := fmt.Sprintf(`
 		SELECT * FROM (
-			SELECT DISTINCT ON (a.id) %s %s WHERE a.team_id = $1 AND a.user_id = $2 %s ORDER BY a.id
+			SELECT DISTINCT ON (a.id) %s
+			FROM (
+				SELECT * FROM absences
+				WHERE team_id = $1 AND user_id = $2 %s
+				ORDER BY from_date DESC, id DESC
+				LIMIT $3
+			) a
+			%s
+			ORDER BY a.id
 		) sub
-		ORDER BY from_date DESC, id DESC
-		LIMIT $3`, selectAbsenceFields, absenceJoins, predicate)
+		ORDER BY from_date DESC, id DESC`, selectAbsenceFields, predicate, absenceRoleJoins)
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.ListByUser: %w", err)

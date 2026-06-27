@@ -2,6 +2,7 @@ package absences
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -45,6 +46,9 @@ func (h *Handler) ListAbsences(ctx context.Context, req gen.ListAbsencesRequestO
 	}
 	absences, next, err := h.svc.ListByTeam(ctx, req.TeamId, limit, cursor)
 	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
 		h.logger.ErrorContext(ctx, "ListAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")
 	}
@@ -88,6 +92,9 @@ func (h *Handler) ListMyAbsences(ctx context.Context, req gen.ListMyAbsencesRequ
 	}
 	absences, next, err := h.svc.ListByUser(ctx, req.TeamId, user.Id, limit, cursor)
 	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
 		h.logger.ErrorContext(ctx, "ListMyAbsences failed", "err", err)
 		return nil, apierror.Internal("failed to list absences")
 	}

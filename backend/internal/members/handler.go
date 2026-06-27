@@ -55,6 +55,9 @@ func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersReques
 	}
 	members, next, err := h.svc.ListMembers(ctx, request.TeamId.String(), limit, cursor)
 	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
 		h.logger.ErrorContext(ctx, "ListMembers failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.ListMembers: %w", err)
 	}

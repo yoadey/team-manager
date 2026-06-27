@@ -2,6 +2,7 @@ package polls
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -45,6 +46,9 @@ func (h *Handler) ListPolls(ctx context.Context, req gen.ListPollsRequestObject)
 	}
 	polls, next, err := h.svc.ListByTeam(ctx, req.TeamId, user.Id, limit, cursor)
 	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
 		h.logger.ErrorContext(ctx, "ListPolls failed", "err", err)
 		return nil, apierror.Internal("failed to list polls")
 	}

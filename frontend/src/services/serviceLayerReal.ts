@@ -52,6 +52,29 @@ async function check<T>(
   return result.data;
 }
 
+// Per-page size when walking a keyset list to completion (the backend caps at 500).
+const PAGE_LIMIT = 500;
+
+// fetchAllPages walks the keyset { items, nextCursor } envelope to the end and
+// returns every row. The app has no paging UI yet and consumers expect full
+// arrays, so without this the real backend would silently truncate lists to the
+// first page (the mock returns everything). Pages are fetched sequentially
+// because each request needs the previous page's cursor.
+async function fetchAllPages<T>(
+  fetchPage: (cursor: string | undefined) => Promise<{ items: T[]; nextCursor?: string | null }>,
+): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | undefined;
+  let more = true;
+  while (more) {
+    const page = await fetchPage(cursor);
+    all.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
+    more = cursor !== undefined;
+  }
+  return all;
+}
+
 export const realApi = {
   auth: {
     async providers(): Promise<Provider[]> {
@@ -170,11 +193,15 @@ export const realApi = {
 
   members: {
     async list(teamId: string): Promise<Member[]> {
-      // Keyset-paginated { items, nextCursor } envelope; first page returned as
-      // an array (no paging UI yet).
-      const res = await apiClient.GET('/teams/{teamId}/members', { params: { path: { teamId } } });
-      const page = await check(res);
-      return (page.items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
+      // Keyset { items, nextCursor } envelope; walked to completion so the full
+      // roster is returned (no paging UI yet).
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/members', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
     },
 
     async add(teamId: string, params: {
@@ -266,12 +293,14 @@ export const realApi = {
 
   events: {
     async list(teamId: string, scope: 'all' | 'upcoming' | 'past' = 'all'): Promise<TeamEvent[]> {
-      const res = await apiClient.GET('/teams/{teamId}/events', {
-        params: { path: { teamId }, query: { scope } },
+      // Keyset { items, nextCursor } envelope; walked to completion.
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/events', {
+          params: { path: { teamId }, query: { scope, limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
       });
-      // Keyset { items, nextCursor } envelope; first page returned as an array.
-      const page = await check(res);
-      return page.items.map(mapTeamEvent);
+      return items.map(mapTeamEvent);
     },
 
     async get(eventId: string, teamId: string): Promise<TeamEvent | null> {
@@ -404,15 +433,23 @@ export const realApi = {
 
   absences: {
     async listForTeam(teamId: string): Promise<Absence[]> {
-      const res = await apiClient.GET('/teams/{teamId}/absences', { params: { path: { teamId } } });
-      const page = await check(res);
-      return page.items.map(mapAbsence);
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/absences', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapAbsence);
     },
 
     async listMine(teamId: string): Promise<Absence[]> {
-      const res = await apiClient.GET('/teams/{teamId}/absences/mine', { params: { path: { teamId } } });
-      const page = await check(res);
-      return page.items.map(mapAbsence);
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/absences/mine', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapAbsence);
     },
 
     async create(payload: { teamId: string; userId: string; from: string; to: string; reason?: string }): Promise<Absence> {
@@ -448,12 +485,14 @@ export const realApi = {
 
   news: {
     async list(teamId: string): Promise<NewsItem[]> {
-      // Keyset-paginated endpoint: the response is a { items, nextCursor }
-      // envelope. The app has no paging UI yet, so we return the first page's
-      // items; nextCursor is available for future infinite-scroll.
-      const res = await apiClient.GET('/teams/{teamId}/news', { params: { path: { teamId } } });
-      const page = await check(res);
-      return page.items.map(mapNewsItem);
+      // Keyset { items, nextCursor } envelope; walked to completion.
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/news', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapNewsItem);
     },
 
     async create(teamId: string, payload: { title: string; body: string; pinned?: boolean }): Promise<NewsItem> {
@@ -484,11 +523,14 @@ export const realApi = {
 
   polls: {
     async list(teamId: string): Promise<Poll[]> {
-      // Keyset-paginated { items, nextCursor } envelope; first page returned as
-      // an array (no paging UI yet).
-      const res = await apiClient.GET('/teams/{teamId}/polls', { params: { path: { teamId } } });
-      const page = await check(res);
-      return page.items.map(mapPoll);
+      // Keyset { items, nextCursor } envelope; walked to completion.
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/polls', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapPoll);
     },
 
     async vote(pollId: string, optionIds: string[], teamId: string): Promise<void> {

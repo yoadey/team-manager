@@ -5,6 +5,7 @@ package pagination
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -12,6 +13,10 @@ const (
 	DefaultLimit = 50
 	MaxLimit     = 500
 )
+
+// ErrInvalidCursor is returned by DecodeCursor when the token is not a valid
+// cursor (bad base64 or JSON). Handlers should map it to a 400, not a 500.
+var ErrInvalidCursor = errors.New("invalid cursor")
 
 // ParseLimit applies the default (50) and cap (500) to an optional limit param.
 func ParseLimit(limit *int) int {
@@ -42,10 +47,10 @@ func DecodeCursor(token string, dst any) (bool, error) {
 	}
 	b, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return false, fmt.Errorf("pagination.DecodeCursor: %w", err)
+		return false, fmt.Errorf("pagination.DecodeCursor: %w: %v", ErrInvalidCursor, err) //nolint:errorlint // err is context only; ErrInvalidCursor is the matchable sentinel
 	}
 	if err := json.Unmarshal(b, dst); err != nil {
-		return false, fmt.Errorf("pagination.DecodeCursor: %w", err)
+		return false, fmt.Errorf("pagination.DecodeCursor: %w: %v", ErrInvalidCursor, err) //nolint:errorlint // err is context only; ErrInvalidCursor is the matchable sentinel
 	}
 	return true, nil
 }

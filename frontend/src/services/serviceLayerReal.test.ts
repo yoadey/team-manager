@@ -222,6 +222,20 @@ describe('members', () => {
     expect(res[0]).toMatchObject({ __mapped: 'member' });
   });
 
+  it('list walks every keyset page and forwards the cursor', async () => {
+    client.GET
+      .mockResolvedValueOnce(ok({ items: [{ id: 'm1' }], nextCursor: 'c1' }))
+      .mockResolvedValueOnce(ok({ items: [{ id: 'm2' }], nextCursor: null }));
+    const res = await realApi.members.list('t1');
+    expect(res).toHaveLength(2);
+    expect(client.GET).toHaveBeenCalledTimes(2);
+    // second request must carry the cursor returned by the first page
+    expect(client.GET).toHaveBeenLastCalledWith(
+      '/teams/{teamId}/members',
+      expect.objectContaining({ params: expect.objectContaining({ query: expect.objectContaining({ cursor: 'c1' }) }) }),
+    );
+  });
+
   it('add forwards roleIDs as roleIds', async () => {
     client.POST.mockResolvedValueOnce(ok({ id: 'm1' }));
     await realApi.members.add('t1', { name: 'N', email: 'e@x.c', roleIDs: ['r1'] });
@@ -285,7 +299,7 @@ describe('events', () => {
     await realApi.events.list('t1', 'upcoming');
     expect(client.GET).toHaveBeenCalledWith(
       '/teams/{teamId}/events',
-      expect.objectContaining({ params: { path: { teamId: 't1' }, query: { scope: 'upcoming' } } }),
+      expect.objectContaining({ params: expect.objectContaining({ query: expect.objectContaining({ scope: 'upcoming' }) }) }),
     );
   });
 

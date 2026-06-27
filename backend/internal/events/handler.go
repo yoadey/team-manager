@@ -63,6 +63,9 @@ func (h *Handler) ListEvents(ctx context.Context, request gen.ListEventsRequestO
 
 	evts, next, err := h.svc.ListEvents(ctx, request.TeamId.String(), user.Id.String(), scope, cursor, limit)
 	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
 		h.logger.ErrorContext(ctx, "ListEvents failed", "err", err)
 		return nil, apierror.Internal("failed to list events")
 	}
