@@ -11,6 +11,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
@@ -93,6 +94,7 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 		h.logger.ErrorContext(ctx, "CreateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to create event")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "create").Inc()
 	return gen.CreateEvent201JSONResponse(*ev), nil
 }
 
@@ -144,6 +146,7 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		h.logger.ErrorContext(ctx, "UpdateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to update event")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "update").Inc()
 	return gen.UpdateEvent200JSONResponse(*ev), nil
 }
 
@@ -165,6 +168,7 @@ func (h *Handler) DeleteEvent(ctx context.Context, request gen.DeleteEventReques
 		h.logger.ErrorContext(ctx, "DeleteEvent failed", "err", err)
 		return nil, apierror.Internal("failed to delete event")
 	}
+	metrics.TeamEvents.WithLabelValues("event", "delete").Inc()
 	return gen.DeleteEvent204Response{}, nil
 }
 

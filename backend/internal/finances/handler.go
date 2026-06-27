@@ -10,6 +10,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
@@ -86,6 +87,7 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	}
 	h.recordFinance(ctx, "transaction.create",
 		slog.String("teamId", req.TeamId.String()), slog.String("transactionId", t.Id.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "create").Inc()
 	return gen.CreateTransaction201JSONResponse(*t), nil
 }
 
@@ -103,6 +105,7 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 		return nil, apierror.Internal("failed to update transaction")
 	}
 	h.recordFinance(ctx, "transaction.update", slog.String("transactionId", req.TransactionId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
 	return gen.UpdateTransaction200JSONResponse(*t), nil
 }
 
@@ -116,6 +119,7 @@ func (h *Handler) DeleteTransaction(ctx context.Context, req gen.DeleteTransacti
 		return nil, apierror.Internal("failed to delete transaction")
 	}
 	h.recordFinance(ctx, "transaction.delete", slog.String("transactionId", req.TransactionId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "delete").Inc()
 	return gen.DeleteTransaction204Response{}, nil
 }
 

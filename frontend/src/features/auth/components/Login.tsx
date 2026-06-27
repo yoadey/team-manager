@@ -103,24 +103,36 @@ export function Login() {
 
         {showPasswordForm ? (
           <Box component="form" onSubmit={handlePasswordSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <Box
-              component="input"
-              type="email"
-              placeholder="E-Mail"
-              value={email}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
-              required
-              sx={inputSx}
-            />
-            <Box
-              component="input"
-              type="password"
-              placeholder="Passwort"
-              value={password}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
-              required
-              sx={inputSx}
-            />
+            <Box component="label" htmlFor="login-email" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <Box component="span" sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, px: '2px' }}>
+                {t('auth.emailLabel')}
+              </Box>
+              <Box
+                id="login-email"
+                component="input"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+                required
+                sx={inputSx}
+              />
+            </Box>
+            <Box component="label" htmlFor="login-password" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              <Box component="span" sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, px: '2px' }}>
+                {t('auth.passwordLabel')}
+              </Box>
+              <Box
+                id="login-password"
+                component="input"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
+                required
+                sx={inputSx}
+              />
+            </Box>
             <ButtonBase
               component="button"
               type="submit"

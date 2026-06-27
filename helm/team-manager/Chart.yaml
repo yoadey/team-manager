@@ -1,0 +1,13 @@
+apiVersion: v2
+name: team-manager
+description: Sports-club team management application (backend API + optional frontend)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - team-manager
+  - sports
+  - golang
+home: https://github.com/yoadey/team-manager
+maintainers:
+  - name: yoadey
