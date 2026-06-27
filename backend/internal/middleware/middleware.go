@@ -114,11 +114,11 @@ func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 
 // makeLimitHandler returns a httprate option that responds with a Problem Details
 // 429, a Retry-After header, and increments the rate-limit-hit counter.
-// context is a label for the metrics counter ("global" or "login").
-func makeLimitHandler(window time.Duration, context string) httprate.Option {
+// limitCtx is a label for the metrics counter ("global" or "login").
+func makeLimitHandler(window time.Duration, limitCtx string) httprate.Option {
 	retryAfter := strconv.Itoa(max(1, int(window.Seconds())))
 	return httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-		metrics.RateLimitHits.WithLabelValues(context).Inc()
+		metrics.RateLimitHits.WithLabelValues(limitCtx).Inc()
 		w.Header().Set("Content-Type", "application/problem+json")
 		w.Header().Set("Retry-After", retryAfter)
 		w.WriteHeader(http.StatusTooManyRequests)
