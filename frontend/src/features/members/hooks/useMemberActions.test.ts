@@ -186,7 +186,11 @@ describe('useMemberActions', () => {
     await act(async () => {
       await result.current.saveMember();
     });
-    expect(api.members.update).toHaveBeenCalledWith('ms1', expect.objectContaining({ name: 'Alice Updated' }));
+    expect(api.members.update).toHaveBeenCalledWith(
+      'ms1',
+      expect.objectContaining({ name: 'Alice Updated' }),
+      'team1',
+    );
     expect(toastMsg).toHaveBeenCalledWith('Profil gespeichert');
   });
 
@@ -227,7 +231,7 @@ describe('useMemberActions', () => {
     await act(async () => {
       await cfg.onConfirm();
     });
-    expect(api.members.remove).toHaveBeenCalledWith('ms1');
+    expect(api.members.remove).toHaveBeenCalledWith('ms1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Mitglied entfernt');
   });
 });

@@ -140,7 +140,7 @@ describe('usePollActions', () => {
     await act(async () => {
       result.current.togglePollOption(poll, 'opt2');
     });
-    expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt2']);
+    expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt2'], 'team1');
   });
 
   it('togglePollOption toggles multiple options for multiple poll', async () => {
@@ -149,7 +149,7 @@ describe('usePollActions', () => {
     await act(async () => {
       result.current.togglePollOption(poll, 'opt2');
     });
-    expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt1', 'opt2']);
+    expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt1', 'opt2'], 'team1');
   });
 
   it('togglePollOption removes option from multiple poll when already selected', async () => {
@@ -158,7 +158,7 @@ describe('usePollActions', () => {
     await act(async () => {
       result.current.togglePollOption(poll, 'opt1');
     });
-    expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt2']);
+    expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt2'], 'team1');
   });
 
   it('removePoll calls askConfirm', () => {
@@ -183,7 +183,7 @@ describe('usePollActions', () => {
     await act(async () => {
       await cfg.onConfirm();
     });
-    expect(api.polls.remove).toHaveBeenCalledWith('poll1');
+    expect(api.polls.remove).toHaveBeenCalledWith('poll1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Umfrage gelöscht');
   });
 });

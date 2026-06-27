@@ -451,7 +451,9 @@ describe('finances', () => {
 
   it('penalty assignments', async () => {
     client.POST.mockResolvedValueOnce(ok({ id: 'pa1' }));
-    expect(await realApi.finances.assignPenalty('t1', 'u1', 'pe1')).toMatchObject({ __mapped: 'penaltyAssignment' });
+    expect(await realApi.finances.assignPenalty('t1', { userId: 'u1', penaltyId: 'pe1' })).toMatchObject({
+      __mapped: 'penaltyAssignment',
+    });
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.finances.deleteAssignment('pa1', 't1')).resolves.toBeUndefined();

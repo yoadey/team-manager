@@ -282,16 +282,15 @@ jobs:
         # test coverage by design and previously diluted the total, forcing a
         # vacuous 15% floor. Filtering them yields a number that reflects real
         # test depth on the code that holds the logic. Ratchet this floor upward
-        # as coverage grows: the unit-only baseline is ~22% and CI additionally
-        # runs the testcontainers integration tests, so the reported number sits
-        # comfortably above this 25% floor. Tighten it once the live CI figure is
-        # observed.
+        # as coverage grows: CI (with testcontainers integration tests) reports
+        # ~40%, so this 35% floor leaves headroom for normal fluctuation while
+        # still catching real regressions.
         run: |
           grep -vE '/internal/gen/|/cmd/server/|/internal/db/|/internal/server/|/internal/jobs/|/internal/testutil/' \
             coverage.out > coverage.business.out
           total=$(go tool cover -func=coverage.business.out | awk '/^total:/ {gsub("%",""); print $3}')
           echo "Business-logic coverage: ${total}%"
-          awk -v total="$total" 'BEGIN { if (total+0 < 25) { print "Coverage " total "% below 25% threshold"; exit 1 } }'
+          awk -v total="$total" 'BEGIN { if (total+0 < 35) { print "Coverage " total "% below 35% threshold"; exit 1 } }'
 
   security-sast:
     name: Security · SAST (CodeQL)

@@ -1133,6 +1133,7 @@ const _mockApi = {
         group?: string;
         photo?: string | null;
       },
+      _teamId: string,
     ) {
       await delay(220, 420);
       const m = DB.memberships.find((x) => x.id === membershipId)!;
@@ -1148,14 +1149,14 @@ const _mockApi = {
       persist();
       return true;
     },
-    async setRoles(membershipId: string, roleIds: string[]) {
+    async setRoles(membershipId: string, roleIds: string[], _teamId: string) {
       await delay(140, 300);
       const m = DB.memberships.find((x) => x.id === membershipId)!;
       if (roleIds.length) m.roleIds = roleIds;
       persist();
       return true;
     },
-    async remove(membershipId: string) {
+    async remove(membershipId: string, _teamId: string) {
       await delay(200, 400);
       DB.memberships = DB.memberships.filter((x) => x.id !== membershipId);
       persist();
@@ -1185,14 +1186,14 @@ const _mockApi = {
       persist();
       return clone(r);
     },
-    async update(roleId: string, patch: Partial<Role>): Promise<Role> {
+    async update(roleId: string, patch: Partial<Role>, _teamId: string): Promise<Role> {
       await delay(180, 360);
       const r = DB.roles.find((x) => x.id === roleId)!;
       Object.assign(r, patch);
       persist();
       return clone(r);
     },
-    async remove(roleId: string) {
+    async remove(roleId: string, _teamId: string) {
       await delay(180, 360);
       DB.roles = DB.roles.filter((x) => x.id !== roleId);
       persist();
@@ -1210,7 +1211,7 @@ const _mockApi = {
       list = list.sort((a, b) => (scope === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
       return list.map((e) => this._withSummary(e, teamId));
     },
-    async get(eventId: string): Promise<TeamEvent | null> {
+    async get(eventId: string, _teamId: string): Promise<TeamEvent | null> {
       await delay(110, 220);
       const e = DB.events.find((x) => x.id === eventId);
       return e ? this._withSummary(e, e.teamId) : null;
@@ -1306,7 +1307,7 @@ const _mockApi = {
         status: 'active',
       } as EventDto;
     },
-    async update(eventId: string, patch: any, scope: 'single' | 'series' = 'single'): Promise<TeamEvent> {
+    async update(eventId: string, patch: any, scope: 'single' | 'series', _teamId: string): Promise<TeamEvent> {
       await delay(260, 480);
       const e = DB.events.find((x) => x.id === eventId)!;
       const targets = scope === 'series' && e.seriesId ? DB.events.filter((x) => x.seriesId === e.seriesId) : [e];
@@ -1335,7 +1336,7 @@ const _mockApi = {
       persist();
       return this._withSummary(e, e.teamId);
     },
-    async setStatus(eventId: string, status: 'active' | 'cancelled', scope: 'single' | 'series' = 'single') {
+    async setStatus(eventId: string, status: 'active' | 'cancelled', scope: 'single' | 'series', _teamId: string) {
       await delay(180, 360);
       const e = DB.events.find((x) => x.id === eventId);
       if (!e) return false;
@@ -1356,7 +1357,7 @@ const _mockApi = {
       persist();
       return true;
     },
-    async remove(eventId: string, scope: 'single' | 'series' = 'single') {
+    async remove(eventId: string, scope: 'single' | 'series', _teamId: string) {
       await delay(200, 400);
       const e = DB.events.find((x) => x.id === eventId);
       const ids =
@@ -1379,7 +1380,7 @@ const _mockApi = {
       persist();
       return true;
     },
-    async listComments(eventId: string): Promise<EventComment[]> {
+    async listComments(eventId: string, _teamId: string): Promise<EventComment[]> {
       await delay(110, 220);
       return DB.eventComments
         .filter((c) => c.eventId === eventId)
@@ -1393,14 +1394,14 @@ const _mockApi = {
           });
         });
     },
-    async addComment(eventId: string, text: string): Promise<EventComment> {
+    async addComment(eventId: string, text: string, _teamId: string): Promise<EventComment> {
       await delay(160, 300);
       const c: EventComment = { id: rid('cm'), eventId, userId: session.userId!, text, createdAt: iso(new Date()) };
       DB.eventComments.push(c);
       persist();
       return clone(c);
     },
-    async removeComment(id: string) {
+    async removeComment(id: string, _eventId: string, _teamId: string) {
       await delay(140, 260);
       DB.eventComments = DB.eventComments.filter((x) => x.id !== id);
       persist();
@@ -1409,7 +1410,7 @@ const _mockApi = {
   },
 
   attendance: {
-    async listForEvent(eventId: string): Promise<AttendanceRow[]> {
+    async listForEvent(eventId: string, _teamId: string): Promise<AttendanceRow[]> {
       await delay(130, 260);
       const e = DB.events.find((x) => x.id === eventId)!;
       const members = DB.memberships.filter((m) => m.teamId === e.teamId);
@@ -1449,6 +1450,7 @@ const _mockApi = {
         reasonId,
         reasonVisibility,
       }: { status: AttendanceStatus; reason?: string; reasonId?: string | null; reasonVisibility?: ReasonVisibility },
+      _teamId: string,
     ) {
       await delay(160, 320);
       let a = DB.attendance.find((x) => x.eventId === eventId && x.userId === userId);
@@ -1475,7 +1477,7 @@ const _mockApi = {
       persist();
       return clone(a);
     },
-    async setNomination(eventId: string, userId: string, nominated: boolean) {
+    async setNomination(eventId: string, userId: string, nominated: boolean, _teamId: string) {
       await delay(140, 280);
       if (nominated) {
         DB.attendance = DB.attendance.filter((x) => !(x.eventId === eventId && x.userId === userId));
@@ -1522,7 +1524,7 @@ const _mockApi = {
         })
         .sort((a, b) => a.from.localeCompare(b.from));
     },
-    async listMine(): Promise<Absence[]> {
+    async listMine(_teamId: string): Promise<Absence[]> {
       await delay(80, 180);
       return clone(DB.absences.filter((a) => a.userId === session.userId)).sort((a, b) => a.from.localeCompare(b.from));
     },
@@ -1532,6 +1534,7 @@ const _mockApi = {
       reason,
       userId,
     }: {
+      teamId: string;
       from: string;
       to: string;
       reason?: string;
@@ -1553,7 +1556,11 @@ const _mockApi = {
       persist();
       return clone(a);
     },
-    async update(id: string, { from, to, reason }: { from?: string; to?: string; reason?: string }): Promise<Absence> {
+    async update(
+      id: string,
+      { from, to, reason }: { from?: string; to?: string; reason?: string },
+      _teamId: string,
+    ): Promise<Absence> {
       await delay(180, 360);
       const a = DB.absences.find((x) => x.id === id)!;
       if (a) {
@@ -1564,7 +1571,7 @@ const _mockApi = {
       persist();
       return clone(a);
     },
-    async remove(id: string) {
+    async remove(id: string, _teamId: string) {
       await delay(160, 300);
       DB.absences = DB.absences.filter((x) => x.id !== id);
       persist();
@@ -1608,6 +1615,7 @@ const _mockApi = {
     async update(
       id: string,
       { title, body, pinned }: { title: string; body: string; pinned?: boolean },
+      _teamId: string,
     ): Promise<boolean> {
       await delay(200, 360);
       const n = DB.news.find((x) => x.id === id);
@@ -1618,7 +1626,7 @@ const _mockApi = {
       persist();
       return true;
     },
-    async remove(id: string) {
+    async remove(id: string, _teamId: string) {
       await delay(180, 340);
       DB.news = DB.news.filter((x) => x.id !== id);
       persist();
@@ -1710,6 +1718,7 @@ const _mockApi = {
         amount,
         category,
       }: { type?: 'income' | 'expense'; title?: string; amount?: number | string; category?: string },
+      _teamId: string,
     ): Promise<Transaction> {
       await delay(180, 360);
       const t = DB.transactions.find((x) => x.id === id)!;
@@ -1722,13 +1731,17 @@ const _mockApi = {
       persist();
       return clone(t);
     },
-    async deleteTransaction(id: string) {
+    async deleteTransaction(id: string, _teamId: string) {
       await delay(160, 300);
       DB.transactions = DB.transactions.filter((x) => x.id !== id);
       persist();
       return true;
     },
-    async updatePenalty(id: string, { label, amount }: { label?: string; amount?: number | string }): Promise<Penalty> {
+    async updatePenalty(
+      id: string,
+      { label, amount }: { label?: string; amount?: number | string },
+      _teamId: string,
+    ): Promise<Penalty> {
       await delay(160, 300);
       const p = DB.penalties.find((x) => x.id === id)!;
       if (p) {
@@ -1741,6 +1754,7 @@ const _mockApi = {
     async updateContribution(
       id: string,
       { amount, label }: { amount?: number | string; label?: string },
+      _teamId: string,
     ): Promise<Contribution> {
       await delay(160, 300);
       const c = DB.contributions.find((x) => x.id === id)!;
@@ -1761,7 +1775,7 @@ const _mockApi = {
       persist();
       return clone(p);
     },
-    async deletePenalty(id: string) {
+    async deletePenalty(id: string, _teamId: string) {
       await delay(160, 300);
       DB.penalties = DB.penalties.filter((x) => x.id !== id);
       DB.penaltyAssignments = DB.penaltyAssignments.filter((x) => x.penaltyId !== id);
@@ -1778,20 +1792,20 @@ const _mockApi = {
       persist();
       return clone(a);
     },
-    async deleteAssignment(id: string) {
+    async deleteAssignment(id: string, _teamId: string) {
       await delay(160, 300);
       DB.penaltyAssignments = DB.penaltyAssignments.filter((x) => x.id !== id);
       persist();
       return true;
     },
-    async togglePenaltyPaid(assignmentId: string) {
+    async togglePenaltyPaid(assignmentId: string, _teamId: string) {
       await delay(140, 280);
       const a = DB.penaltyAssignments.find((x) => x.id === assignmentId);
       if (a) a.paid = !a.paid;
       persist();
       return true;
     },
-    async toggleContribution(contribId: string) {
+    async toggleContribution(contribId: string, _teamId: string) {
       await delay(140, 280);
       const c = DB.contributions.find((x) => x.id === contribId);
       if (c) c.status = c.status === 'paid' ? 'open' : 'paid';
@@ -1913,7 +1927,7 @@ const _mockApi = {
         })
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     },
-    async vote(pollId: string, optionIds: string[]) {
+    async vote(pollId: string, optionIds: string[], _teamId: string) {
       await delay(160, 320);
       const p = DB.polls.find((x) => x.id === pollId)!;
       p.votes = p.votes.filter((v: any) => v.userId !== session.userId);
@@ -1947,7 +1961,7 @@ const _mockApi = {
       persist();
       return clone(poll);
     },
-    async remove(id: string) {
+    async remove(id: string, _teamId: string) {
       await delay(180, 340);
       DB.polls = DB.polls.filter((x) => x.id !== id);
       persist();

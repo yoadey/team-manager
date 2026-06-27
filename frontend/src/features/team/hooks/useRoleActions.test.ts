@@ -136,7 +136,7 @@ describe('useRoleActions', () => {
     await act(async () => {
       await result.current.toggleMyRole('r2');
     });
-    expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1', 'r2']);
+    expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1', 'r2'], 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Rollen aktualisiert');
   });
 
@@ -145,7 +145,7 @@ describe('useRoleActions', () => {
     await act(async () => {
       await result.current.toggleMyRole('r2');
     });
-    expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1']);
+    expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1'], 'team1');
   });
 
   it('toggleMyRole shows error when trying to remove last role', async () => {

@@ -42,4 +42,17 @@ describe('service-layer contract (mock vs real)', () => {
   it.each(Object.keys(real))('namespace "%s" exposes the same methods', (ns) => {
     expect(mock[ns]).toEqual(real[ns]);
   });
+
+  // Beyond method names, guard the parameter count so the two layers cannot
+  // drift in signature (e.g. the real client requiring a teamId the mock omits,
+  // which would 404 against the real backend). fn.length counts params up to
+  // the first default/rest param — sufficient for our required-arg signatures.
+  const mockNs = mockApi as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>>;
+  const realNs = realApi as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>>;
+  const arityCases = Object.keys(real).flatMap((ns) =>
+    real[ns].map((method) => ({ ns, method })),
+  );
+  it.each(arityCases)('$ns.$method takes the same number of arguments', ({ ns, method }) => {
+    expect(mockNs[ns][method].length).toBe(realNs[ns][method].length);
+  });
 });

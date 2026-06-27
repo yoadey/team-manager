@@ -705,7 +705,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try {
       const [absences, myAbsences] = await Promise.all([
         api.absences.listForTeam(S().activeTeamId!),
-        api.absences.listMine(),
+        api.absences.listMine(S().activeTeamId!),
       ]);
       setState({ absences, myAbsences });
     } catch (err) {

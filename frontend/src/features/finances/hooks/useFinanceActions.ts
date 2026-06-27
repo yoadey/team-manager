@@ -63,12 +63,16 @@ export function useFinanceActions({
     setState({ busy: 'save' });
     try {
       if (S().sheet!.mode === 'edit')
-        await api.finances.updateTransaction(f.id!, {
-          type: f.type,
-          title: title.value!,
-          amount: amount.value!,
-          category: f.category,
-        });
+        await api.finances.updateTransaction(
+          f.id!,
+          {
+            type: f.type,
+            title: title.value!,
+            amount: amount.value!,
+            category: f.category,
+          },
+          S().activeTeamId!,
+        );
       else
         await api.finances.addTransaction(S().activeTeamId!, {
           type: f.type,
@@ -88,7 +92,7 @@ export function useFinanceActions({
     async (id: string) => {
       setState({ busy: 'delete' });
       try {
-        await api.finances.deleteTransaction(id);
+        await api.finances.deleteTransaction(id, S().activeTeamId!);
         await loadFinances();
         setState({ busy: null, sheet: null });
         toastMsg(t('finances.toastTxDeleted'));
@@ -96,7 +100,7 @@ export function useFinanceActions({
         reportActionError({ setState, toastMsg }, err, 'error.delete');
       }
     },
-    [api, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg],
   );
 
   const openPenaltyCatalog = useCallback(() => setState({ sheet: { type: 'penaltyCatalog' } }), [setState]);
@@ -134,7 +138,7 @@ export function useFinanceActions({
     setState({ busy: 'save' });
     try {
       if (create) await api.finances.createPenalty(S().activeTeamId!, { label: label.value!, amount: amount.value! });
-      else await api.finances.updatePenalty(f.id!, { label: label.value!, amount: amount.value! });
+      else await api.finances.updatePenalty(f.id!, { label: label.value!, amount: amount.value! }, S().activeTeamId!);
       await loadFinances();
       setState({ busy: null, sheet: back });
       toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
@@ -152,7 +156,7 @@ export function useFinanceActions({
         danger: true,
         onConfirm: async () => {
           try {
-            await api.finances.deletePenalty(id);
+            await api.finances.deletePenalty(id, S().activeTeamId!);
             await loadFinances();
             setState({ sheet: { type: 'penaltyCatalog' } });
             toastMsg(t('finances.toastPenaltyRemoved'));
@@ -161,7 +165,7 @@ export function useFinanceActions({
           }
         },
       }),
-    [api, askConfirm, loadFinances, setState, toastMsg],
+    [api, S, askConfirm, loadFinances, setState, toastMsg],
   );
 
   const openPenaltyAssign = useCallback(() => {
@@ -196,14 +200,14 @@ export function useFinanceActions({
   const deleteAssignment = useCallback(
     async (id: string) => {
       try {
-        await api.finances.deleteAssignment(id);
+        await api.finances.deleteAssignment(id, S().activeTeamId!);
         await loadFinances();
         toastMsg(t('finances.toastPenaltyAssignDeleted'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.delete');
       }
     },
-    [api, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg],
   );
 
   const openContribForm = useCallback(
@@ -228,7 +232,7 @@ export function useFinanceActions({
     }
     setState({ busy: 'save' });
     try {
-      await api.finances.updateContribution(f.id, { label: label.value!, amount: amount.value! });
+      await api.finances.updateContribution(f.id, { label: label.value!, amount: amount.value! }, S().activeTeamId!);
       await loadFinances();
       setState({ busy: null, sheet: null });
       toastMsg(t('finances.toastContribSaved'));
@@ -240,25 +244,25 @@ export function useFinanceActions({
   const togglePenalty = useCallback(
     async (id: string) => {
       try {
-        await api.finances.togglePenaltyPaid(id);
+        await api.finances.togglePenaltyPaid(id, S().activeTeamId!);
         await loadFinances();
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
       }
     },
-    [api, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg],
   );
 
   const toggleContribution = useCallback(
     async (id: string) => {
       try {
-        await api.finances.toggleContribution(id);
+        await api.finances.toggleContribution(id, S().activeTeamId!);
         await loadFinances();
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
       }
     },
-    [api, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg],
   );
 
   const setStatsRange = useCallback(

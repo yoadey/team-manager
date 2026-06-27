@@ -92,9 +92,9 @@ describe('useEventDetailActions', () => {
     await act(async () => {
       await result.current.openEventDetail('ev1');
     });
-    expect(api.events.get).toHaveBeenCalledWith('ev1');
-    expect(api.attendance.listForEvent).toHaveBeenCalledWith('ev1');
-    expect(api.events.listComments).toHaveBeenCalledWith('ev1');
+    expect(api.events.get).toHaveBeenCalledWith('ev1', 'team1');
+    expect(api.attendance.listForEvent).toHaveBeenCalledWith('ev1', 'team1');
+    expect(api.events.listComments).toHaveBeenCalledWith('ev1', 'team1');
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({ sheet: expect.objectContaining({ type: 'eventDetail' }) }),
     );
@@ -145,7 +145,7 @@ describe('useEventDetailActions', () => {
     await act(async () => {
       await result.current.postEventComment('ev1');
     });
-    expect(api.events.addComment).toHaveBeenCalledWith('ev1', 'Great match!');
+    expect(api.events.addComment).toHaveBeenCalledWith('ev1', 'Great match!', 'team1');
     expect(setFormVal).toHaveBeenCalledWith({ newEventComment: '' });
   });
 
@@ -163,7 +163,7 @@ describe('useEventDetailActions', () => {
     await act(async () => {
       await result.current.removeEventComment('ev1', 'c1');
     });
-    expect(api.events.removeComment).toHaveBeenCalledWith('c1');
+    expect(api.events.removeComment).toHaveBeenCalledWith('c1', 'ev1', 'team1');
   });
 
   it('toggleNomination calls setNomination and shows toast', async () => {
@@ -171,7 +171,7 @@ describe('useEventDetailActions', () => {
     await act(async () => {
       await result.current.toggleNomination('ev1', 'u2', false);
     });
-    expect(api.attendance.setNomination).toHaveBeenCalledWith('ev1', 'u2', true);
+    expect(api.attendance.setNomination).toHaveBeenCalledWith('ev1', 'u2', true, 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Nominiert');
   });
 
@@ -249,12 +249,12 @@ describe('useEventActionFeatures', () => {
   });
 
   it('askEventAction runs directly for non-series events (cancel)', async () => {
-    const event = { id: 'ev1', title: 'Test', seriesId: null } as never;
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
     const { result } = renderActions();
     await act(async () => {
       await result.current.askEventAction('cancel', event);
     });
-    expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'cancelled', 'single');
+    expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'cancelled', 'single', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Termin abgesagt');
   });
 
@@ -268,12 +268,12 @@ describe('useEventActionFeatures', () => {
   });
 
   it('runEventAction with reactivate shows correct toast', async () => {
-    const event = { id: 'ev1', title: 'Test', seriesId: null } as never;
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
     const { result } = renderActions();
     await act(async () => {
       await result.current.runEventAction('reactivate', event, 'single');
     });
-    expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single');
+    expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Termin aktiviert');
   });
 });

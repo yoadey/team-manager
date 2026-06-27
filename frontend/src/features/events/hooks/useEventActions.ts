@@ -34,10 +34,11 @@ export function useEventDetailActions({
   const reloadDetail = useCallback(
     async (eventId: string) => {
       try {
+        const teamId = S().activeTeamId!;
         const [event, rows, comments] = await Promise.all([
-          api.events.get(eventId),
-          api.attendance.listForEvent(eventId),
-          api.events.listComments(eventId),
+          api.events.get(eventId, teamId),
+          api.attendance.listForEvent(eventId, teamId),
+          api.events.listComments(eventId, teamId),
         ]);
         setState((s) =>
           s.sheet && s.sheet.type === 'eventDetail' ? { sheet: { ...s.sheet, event, rows, comments } } : {},
@@ -46,7 +47,7 @@ export function useEventDetailActions({
         reportActionError({ setState, toastMsg }, err, 'error.load');
       }
     },
-    [api, setState, toastMsg],
+    [api, S, setState, toastMsg],
   );
 
   const openEventDetail = useCallback(
@@ -62,7 +63,7 @@ export function useEventDetailActions({
       const ev = S().sheet && S().sheet!.event;
       const keep = ev && ev.id === eventId ? ev.myReason || '' : '';
       try {
-        await api.attendance.set(eventId, S().user!.id, { status, reason: keep });
+        await api.attendance.set(eventId, S().user!.id, { status, reason: keep }, S().activeTeamId!);
         await refreshEvents();
         if (S().sheet && S().sheet!.type === 'eventDetail' && S().sheet!.eventId === eventId)
           await reloadDetail(eventId);
@@ -89,7 +90,7 @@ export function useEventDetailActions({
       inFlight.current.add(key);
       void (async () => {
         try {
-          await api.attendance.set(e.id, row.userId, { status, reason: row.reason || '' });
+          await api.attendance.set(e.id, row.userId, { status, reason: row.reason || '' }, S().activeTeamId!);
           await refreshEvents();
           await reloadDetail(e.id);
         } catch (err) {
@@ -99,7 +100,7 @@ export function useEventDetailActions({
         }
       })();
     },
-    [api, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
   );
 
   const canSeeComment = useCallback(
@@ -135,10 +136,15 @@ export function useEventDetailActions({
     const s = S().sheet!;
     setState({ busy: 'save' });
     try {
-      await api.attendance.set(s.eventId!, s.userId!, {
-        status: s.status!,
-        reason: formValues<AttendanceCommentFormValues>(S()).commentText || '',
-      });
+      await api.attendance.set(
+        s.eventId!,
+        s.userId!,
+        {
+          status: s.status!,
+          reason: formValues<AttendanceCommentFormValues>(S()).commentText || '',
+        },
+        S().activeTeamId!,
+      );
       await refreshEvents();
       const eid = s.eventId!;
       setState({ busy: null, sheet: null });
@@ -154,7 +160,7 @@ export function useEventDetailActions({
       const txt = (formValues<EventCommentFormValues>(S()).newEventComment || '').trim();
       if (!txt) return;
       try {
-        await api.events.addComment(eventId, txt);
+        await api.events.addComment(eventId, txt, S().activeTeamId!);
         setFormVal({ newEventComment: '' });
         await reloadDetail(eventId);
       } catch (err) {
@@ -167,19 +173,19 @@ export function useEventDetailActions({
   const removeEventComment = useCallback(
     async (eventId: string, cid: string) => {
       try {
-        await api.events.removeComment(cid);
+        await api.events.removeComment(cid, eventId, S().activeTeamId!);
         await reloadDetail(eventId);
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.delete');
       }
     },
-    [api, reloadDetail, setState, toastMsg],
+    [api, S, reloadDetail, setState, toastMsg],
   );
 
   const toggleNomination = useCallback(
     async (eventId: string, userId: string, currentlyNominated: boolean) => {
       try {
-        await api.attendance.setNomination(eventId, userId, !currentlyNominated);
+        await api.attendance.setNomination(eventId, userId, !currentlyNominated, S().activeTeamId!);
         await refreshEvents();
         await reloadDetail(eventId);
         toastMsg(currentlyNominated ? t('attendance.not_nominated') : t('attendance.nominated'));
@@ -187,7 +193,7 @@ export function useEventDetailActions({
         reportActionError({ setState, toastMsg }, err);
       }
     },
-    [api, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
   );
 
   return {
@@ -234,7 +240,7 @@ export function useEventActionFeatures({
           danger: true,
           onConfirm: async () => {
             try {
-              await api.events.remove(event.id, scope);
+              await api.events.remove(event.id, scope, event.teamId);
               await refreshEvents();
               setState({ sheet: null });
               toastMsg(scope === 'series' ? t('events.toastSeriesDeleted') : t('events.toastEventDeleted'));
@@ -247,7 +253,7 @@ export function useEventActionFeatures({
       }
       const status = action === 'cancel' ? 'cancelled' : 'active';
       try {
-        await api.events.setStatus(event.id, status, scope);
+        await api.events.setStatus(event.id, status, scope, event.teamId);
         await refreshEvents();
         setState({ sheet: null });
         openEventDetail(event.id);

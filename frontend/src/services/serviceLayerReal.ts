@@ -574,7 +574,7 @@ export const realApi = {
       if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
     },
 
-    async assignPenalty(teamId: string, userId: string, penaltyId: string): Promise<PenaltyAssignment> {
+    async assignPenalty(teamId: string, { userId, penaltyId }: { userId: string; penaltyId: string }): Promise<PenaltyAssignment> {
       const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments', {
         params: { path: { teamId } },
         body: { userId, penaltyId },

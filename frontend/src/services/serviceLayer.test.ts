@@ -173,7 +173,7 @@ describe('members', () => {
   it('updates a member profile', async () => {
     const members = await settle(api.members.list('t_a'));
     const target = members[0];
-    await settle(api.members.update(target.membershipId, { phone: '+49 111 222333' }));
+    await settle(api.members.update(target.membershipId, { phone: '+49 111 222333' }, 't_a'));
     const reloaded = await settle(api.members.list('t_a'));
     expect(reloaded.find((m) => m.membershipId === target.membershipId)?.phone).toBe('+49 111 222333');
   });
@@ -181,13 +181,13 @@ describe('members', () => {
   it('removes a member from the team', async () => {
     const members = await settle(api.members.list('t_a'));
     const target = members[0];
-    await settle(api.members.remove(target.membershipId));
+    await settle(api.members.remove(target.membershipId, 't_a'));
     const reloaded = await settle(api.members.list('t_a'));
     expect(reloaded.some((m) => m.membershipId === target.membershipId)).toBe(false);
   });
 
   it('rejects when updating an unknown membership (error handling)', async () => {
-    await expectRejection(api.members.update('unknown', { name: 'X' }));
+    await expectRejection(api.members.update('unknown', { name: 'X' }, 't_a'));
   });
 });
 
@@ -215,7 +215,7 @@ describe('events & attendance', () => {
   });
 
   it('returns null for an unknown event id (graceful, not thrown)', async () => {
-    expect(await settle(api.events.get('nope'))).toBeNull();
+    expect(await settle(api.events.get('nope', 't_a'))).toBeNull();
   });
 
   it('creates a single event', async () => {
@@ -241,9 +241,9 @@ describe('events & attendance', () => {
   it('round-trips an attendance response for a member', async () => {
     const events = await settle(api.events.list('t_a', 'all'));
     const event = events[0];
-    await settle(api.attendance.set(event.id, 'u4', { status: 'no', reason: 'Krank' }));
+    await settle(api.attendance.set(event.id, 'u4', { status: 'no', reason: 'Krank' }, 't_a'));
 
-    const rows = await settle(api.attendance.listForEvent(event.id));
+    const rows = await settle(api.attendance.listForEvent(event.id, 't_a'));
     const row = rows.find((r) => r.userId === 'u4');
     expect(row?.status).toBe('no');
     expect(row?.reason).toBe('Krank');
@@ -255,7 +255,7 @@ describe('events & attendance', () => {
     const created = await settle(
       api.events.create('t_a', { type: 'training', title: 'OptOut', date: '2099-03-03', responseMode: 'opt_out' }),
     );
-    const fresh = await settle(api.events.get(created.id));
+    const fresh = await settle(api.events.get(created.id, 't_a'));
     expect(fresh?.responseMode).toBe('opt_out');
     expect(fresh?.summary.yes).toBeGreaterThan(0);
   });
@@ -263,8 +263,8 @@ describe('events & attendance', () => {
   it('adds and lists event comments enriched with author data', async () => {
     const events = await settle(api.events.list('t_a', 'all'));
     const event = events[0];
-    await settle(api.events.addComment(event.id, 'Bitte pünktlich sein'));
-    const comments = await settle(api.events.listComments(event.id));
+    await settle(api.events.addComment(event.id, 'Bitte pünktlich sein', 't_a'));
+    const comments = await settle(api.events.listComments(event.id, 't_a'));
     const mine = comments.find((c) => c.text === 'Bitte pünktlich sein');
     expect(mine).toBeDefined();
     expect(mine?.name).toBeTruthy();
@@ -298,7 +298,7 @@ describe('finances', () => {
     const overview = await settle(api.finances.overview('t_a'));
     const assignment = overview.assignments[0];
     const wasPaid = assignment.paid;
-    await settle(api.finances.togglePenaltyPaid(assignment.id));
+    await settle(api.finances.togglePenaltyPaid(assignment.id, 't_a'));
     const reloaded = await settle(api.finances.overview('t_a'));
     expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(!wasPaid);
   });
@@ -306,7 +306,7 @@ describe('finances', () => {
   it('deletes a transaction', async () => {
     const overview = await settle(api.finances.overview('t_a'));
     const tx = overview.transactions[0];
-    await settle(api.finances.deleteTransaction(tx.id));
+    await settle(api.finances.deleteTransaction(tx.id, 't_a'));
     const reloaded = await settle(api.finances.overview('t_a'));
     expect(reloaded.transactions.some((t) => t.id === tx.id)).toBe(false);
   });
@@ -347,7 +347,7 @@ describe('polls', () => {
     const poll = polls.find((p) => p.myVote === null) ?? polls[0];
     const before = poll.totalVotes;
     const optionId = poll.options[0].id;
-    await settle(api.polls.vote(poll.id, [optionId]));
+    await settle(api.polls.vote(poll.id, [optionId], 't_a'));
 
     const reloaded = (await settle(api.polls.list('t_a'))).find((p) => p.id === poll.id);
     expect(reloaded?.myVote).toContain(optionId);
@@ -384,9 +384,11 @@ describe('absences', () => {
   beforeEach(login);
 
   it('creates an absence for the current user and lists it among personal absences', async () => {
-    const created = await settle(api.absences.create({ from: '2099-05-01', to: '2099-05-05', reason: 'Urlaub' }));
+    const created = await settle(
+      api.absences.create({ teamId: 't_a', from: '2099-05-01', to: '2099-05-05', reason: 'Urlaub' }),
+    );
     expect(created.reason).toBe('Urlaub');
-    const mine = await settle(api.absences.listMine());
+    const mine = await settle(api.absences.listMine('t_a'));
     expect(mine.some((a) => a.id === created.id)).toBe(true);
   });
 
