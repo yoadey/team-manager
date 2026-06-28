@@ -12,6 +12,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
@@ -67,6 +68,7 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 	}
 	h.audit.Record(ctx, audit.EventRoleCreate, audit.Success, user.Id.String(),
 		slog.String("teamId", req.TeamId.String()), slog.String("roleId", role.Id.String()))
+	metrics.TeamEvents.WithLabelValues("role", "create").Inc()
 	return gen.CreateRole201JSONResponse(*role), nil
 }
 
@@ -94,6 +96,7 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 	}
 	h.audit.Record(ctx, audit.EventRoleUpdate, audit.Success, user.Id.String(),
 		slog.String("roleId", req.RoleId.String()))
+	metrics.TeamEvents.WithLabelValues("role", "update").Inc()
 	return gen.UpdateRole200JSONResponse(*role), nil
 }
 
@@ -112,5 +115,6 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 	}
 	h.audit.Record(ctx, audit.EventRoleDelete, audit.Success, user.Id.String(),
 		slog.String("roleId", req.RoleId.String()))
+	metrics.TeamEvents.WithLabelValues("role", "delete").Inc()
 	return gen.DeleteRole204Response{}, nil
 }

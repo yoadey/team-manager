@@ -13,6 +13,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
@@ -98,6 +99,7 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 	}
 	h.audit.Record(ctx, audit.EventMemberAdd, audit.Success, actor(ctx),
 		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", m.MembershipId.String()))
+	metrics.TeamEvents.WithLabelValues("member", "create").Inc()
 	return gen.AddMember201JSONResponse(*m), nil
 }
 
@@ -139,6 +141,7 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 	}
 	h.audit.Record(ctx, audit.EventMemberUpdate, audit.Success, actor(ctx),
 		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
+	metrics.TeamEvents.WithLabelValues("member", "update").Inc()
 	return gen.UpdateMember200JSONResponse(*m), nil
 }
 
@@ -161,6 +164,7 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 	h.audit.Record(ctx, audit.EventMemberRolesChange, audit.Success, actor(ctx),
 		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
 		slog.Int("roleCount", len(roleIDs)))
+	metrics.TeamEvents.WithLabelValues("member", "update").Inc()
 	return gen.SetMemberRoles200JSONResponse(*m), nil
 }
 
@@ -172,6 +176,7 @@ func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequ
 	}
 	h.audit.Record(ctx, audit.EventMemberRemove, audit.Success, actor(ctx),
 		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
+	metrics.TeamEvents.WithLabelValues("member", "delete").Inc()
 	return gen.RemoveMember204Response{}, nil
 }
 

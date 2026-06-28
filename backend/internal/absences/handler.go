@@ -10,6 +10,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
@@ -76,6 +77,7 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to create absence")
 	}
+	metrics.TeamEvents.WithLabelValues("absence", "create").Inc()
 	return gen.CreateAbsence201JSONResponse(absence), nil
 }
 
@@ -110,6 +112,7 @@ func (h *Handler) DeleteAbsence(ctx context.Context, req gen.DeleteAbsenceReques
 		h.logger.ErrorContext(ctx, "DeleteAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to delete absence")
 	}
+	metrics.TeamEvents.WithLabelValues("absence", "delete").Inc()
 	return gen.DeleteAbsence204Response{}, nil
 }
 
@@ -134,5 +137,6 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 		h.logger.ErrorContext(ctx, "UpdateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to update absence")
 	}
+	metrics.TeamEvents.WithLabelValues("absence", "update").Inc()
 	return gen.UpdateAbsence200JSONResponse(absence), nil
 }

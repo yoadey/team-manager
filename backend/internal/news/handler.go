@@ -10,6 +10,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
@@ -74,6 +75,7 @@ func (h *Handler) CreateNews(ctx context.Context, req gen.CreateNewsRequestObjec
 		h.logger.ErrorContext(ctx, "CreateNews failed", "err", err)
 		return nil, apierror.Internal("failed to create news item")
 	}
+	metrics.TeamEvents.WithLabelValues("news", "create").Inc()
 	return gen.CreateNews201JSONResponse(item), nil
 }
 
@@ -100,6 +102,7 @@ func (h *Handler) UpdateNews(ctx context.Context, req gen.UpdateNewsRequestObjec
 		h.logger.ErrorContext(ctx, "UpdateNews failed", "err", err)
 		return nil, apierror.Internal("failed to update news item")
 	}
+	metrics.TeamEvents.WithLabelValues("news", "update").Inc()
 	return gen.UpdateNews200JSONResponse(item), nil
 }
 
@@ -112,5 +115,6 @@ func (h *Handler) DeleteNews(ctx context.Context, req gen.DeleteNewsRequestObjec
 		h.logger.ErrorContext(ctx, "DeleteNews failed", "err", err)
 		return nil, apierror.Internal("failed to delete news item")
 	}
+	metrics.TeamEvents.WithLabelValues("news", "delete").Inc()
 	return gen.DeleteNews204Response{}, nil
 }

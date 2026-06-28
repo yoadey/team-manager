@@ -1,5 +1,8 @@
 services:
   postgres:
+    # TODO: pin to immutable digest for reproducible local dev, e.g.:
+    #   image: postgres:17@sha256:<digest>
+    # Obtain current digest with: docker pull postgres:17 && docker inspect postgres:17 --format '{{index .RepoDigests 0}}'
     image: postgres:17
     restart: unless-stopped
     environment:

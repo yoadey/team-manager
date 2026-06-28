@@ -159,6 +159,8 @@ export const de = {
     welcome: 'Willkommen',
     loginHint: 'Anmeldung über deinen Identity-Provider.',
     loginHintNote: 'Es ist kein Passwort beim Verein gespeichert.',
+    emailLabel: 'E-Mail-Adresse',
+    passwordLabel: 'Passwort',
     pwaInstallable: 'Als App installierbar (PWA).',
     pwaIosLabel: 'iOS-Hinweis:',
     pwaIosHint: 'Push-Nachrichten funktionieren erst, wenn die App zum Home-Bildschirm hinzugefügt wurde.',

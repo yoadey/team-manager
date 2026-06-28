@@ -1,0 +1,122 @@
+# Default values for team-manager.
+# Override per-environment with values-staging.yaml / values-prod.yaml.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/yoadey/team-manager-backend
+  pullPolicy: IfNotPresent
+  tag: ""  # Defaults to Chart.appVersion when empty
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: team-manager.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8080
+  initialDelaySeconds: 10
+  periodSeconds: 15
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8080
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+nodeSelector: {}
+tolerations: []
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - team-manager
+          topologyKey: kubernetes.io/hostname
+
+# Application environment variables.
+# Secrets (DATABASE_URL, JWT keys, COOKIE_ENCRYPTION_KEY) must be supplied
+# via an external secret store (e.g. external-secrets + Vault/AWS SM) and
+# referenced below — never store plaintext secrets in values files.
+env:
+  PORT: "8080"
+  COOKIE_SECURE: "true"
+  SESSION_TTL_HOURS: "720"
+  OTEL_SERVICE_NAME: "team-manager-backend"
+
+# Reference to an existing Secret containing sensitive values.
+# The Secret must have keys: DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY,
+# COOKIE_ENCRYPTION_KEY, and optionally SENTRY_DSN, METRICS_TOKEN.
+existingSecret: ""
+
+# ALLOWED_ORIGINS as a comma-separated list.
+allowedOrigins: "https://team-manager.example.com"
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
