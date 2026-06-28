@@ -31,9 +31,13 @@ type Handler struct {
 	audit  *audit.Logger
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(svc roleService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
+// NewHandler creates a new Handler. al is the shared audit logger; when nil a
+// log-only logger is created from logger.
+func NewHandler(svc roleService, logger *slog.Logger, al *audit.Logger) *Handler {
+	if al == nil {
+		al = audit.New(logger)
+	}
+	return &Handler{svc: svc, logger: logger, audit: al}
 }
 
 // ListRoles returns all roles defined for the given team.

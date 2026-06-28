@@ -112,7 +112,7 @@ func sessionCookie(jwt string) *http.Cookie {
 // withAuthUser wraps a handler with auth middleware using a fake user.
 func withAuthUser(h http.Handler, user *auth.UserRow) http.Handler {
 	logger := slog.Default()
-	authH := auth.NewHandler(&fakeAuthSvc{user: user}, logger, testCodec)
+	authH := auth.NewHandler(&fakeAuthSvc{user: user}, logger, testCodec, nil)
 	return authH.AuthMiddleware(h)
 }
 

@@ -124,7 +124,9 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `COOKIE_ENCRYPTION_KEY`| _(auto-generated in dev)_ | AES-256 key (32 bytes, hex or base64) encrypting the session cookie. **Required when `COOKIE_SECURE=true`** — startup fails without it (an ephemeral key would drop all sessions on restart and break multi-instance deployments). |
 | `COOKIE_SECURE`   | `true`                      | Cookie `Secure` flag; set `false` for local http |
 | `COOKIE_NAME`     | `tv_session`                | Session cookie name (override only if needed) |
-| `METRICS_TOKEN`   | _(empty)_                   | Bearer token guarding `/metrics`; open when unset |
+| `METRICS_TOKEN`   | _(empty)_                   | Bearer token guarding `/metrics`; open when unset. **Recommended in production** — a warning is logged at startup when unset with `COOKIE_SECURE=true`. |
+| `RATE_LIMIT_RPS`  | `100`                       | Global per-IP request rate limit (requests per second). |
+| `LOGIN_RATE_LIMIT_PER_MIN` | `5`              | Per-IP login attempt limit per minute (brute-force protection). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_       | OTLP/HTTP collector URL; enables OpenTelemetry tracing when set (other `OTEL_*` vars honored by the SDK) |
 | `OTEL_SERVICE_NAME` | `team-manager-backend`    | Service name reported in traces |
 | `SENTRY_DSN`      | _(empty)_                   | Sentry DSN for backend error tracking; disabled when empty |

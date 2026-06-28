@@ -182,7 +182,7 @@ func trimSpace(s string) string {
 func TestHandler_ListProviders(t *testing.T) {
 	t.Parallel()
 
-	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/providers", http.NoBody)
 	w := httptest.NewRecorder()
@@ -208,7 +208,7 @@ func TestHandler_Login_Success(t *testing.T) {
 			return "jwt.token.here", user, nil
 		},
 	}
-	h := auth.NewHandler(svc, slog.Default(), nil)
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
 
 	body := `{"email":"test@example.com","password":"Secret123!"}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", bytes.NewBufferString(body))
@@ -232,7 +232,7 @@ func TestHandler_Login_BadCredentials(t *testing.T) {
 			return "", nil, errors.New("invalid credentials")
 		},
 	}
-	h := auth.NewHandler(svc, slog.Default(), nil)
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
 
 	body := `{"email":"bad@example.com","password":"wrong"}`
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", bytes.NewBufferString(body))
@@ -247,7 +247,7 @@ func TestHandler_Login_BadCredentials(t *testing.T) {
 func TestHandler_GetCurrentUser_NoAuth(t *testing.T) {
 	t.Parallel()
 
-	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me", http.NoBody)
 	// No user in context — simulates unauthenticated request.
@@ -271,7 +271,7 @@ func TestHandler_GetCurrentUser_WithAuth(t *testing.T) {
 	}
 
 	codec := testCodec(t)
-	h := auth.NewHandler(svc, slog.Default(), codec)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -314,7 +314,7 @@ func TestHandler_Logout(t *testing.T) {
 	}
 
 	codec := testCodec(t)
-	h := auth.NewHandler(svc, slog.Default(), codec)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -343,7 +343,7 @@ func TestHandler_GetCurrentUser_InvalidToken(t *testing.T) {
 	}
 
 	codec := testCodec(t)
-	h := auth.NewHandler(svc, slog.Default(), codec)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -365,7 +365,7 @@ func TestHandler_AuthMiddleware_MissingCookie(t *testing.T) {
 	t.Parallel()
 
 	codec := testCodec(t)
-	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec, nil)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -386,7 +386,7 @@ func TestHandler_AuthMiddleware_TamperedCookie(t *testing.T) {
 	t.Parallel()
 
 	codec := testCodec(t)
-	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), codec, nil)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -423,7 +423,7 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 	}
 
 	codec := testCodec(t)
-	h := auth.NewHandler(svc, slog.Default(), codec)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
 
 	r := chi.NewRouter()
 	r.Group(func(r chi.Router) {
@@ -466,7 +466,7 @@ func TestHandler_GetMyDataExport(t *testing.T) {
 			}, nil
 		},
 	}
-	h := auth.NewHandler(svc, slog.Default(), nil)
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
 
 	ctx := auth.ContextWithUser(context.Background(), testUser())
 	resp, err := h.GetMyDataExport(ctx, gen.GetMyDataExportRequestObject{})
@@ -489,7 +489,7 @@ func TestHandler_GetMyDataExport(t *testing.T) {
 func TestHandler_GetMyDataExport_Unauthenticated(t *testing.T) {
 	t.Parallel()
 
-	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil)
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
 	resp, err := h.GetMyDataExport(context.Background(), gen.GetMyDataExportRequestObject{})
 	require.NoError(t, err)
 

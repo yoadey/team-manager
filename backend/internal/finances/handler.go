@@ -37,9 +37,13 @@ type Handler struct {
 	audit  *audit.Logger
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(svc financeService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
+// NewHandler creates a new Handler. al is the shared audit logger; when nil a
+// log-only logger is created from logger.
+func NewHandler(svc financeService, logger *slog.Logger, al *audit.Logger) *Handler {
+	if al == nil {
+		al = audit.New(logger)
+	}
+	return &Handler{svc: svc, logger: logger, audit: al}
 }
 
 // recordFinance emits a finance.mutation audit event for the acting user,
@@ -99,6 +103,14 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if req.Body.Title != nil {
+		if err := validate.RequireNonEmpty(*req.Body.Title, "title"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+		if err := validate.MaxLen(*req.Body.Title, 255, "title"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	t, err := h.svc.UpdateTransaction(ctx, req.TransactionId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "UpdateTransaction failed", "err", err)
@@ -155,6 +167,14 @@ func (h *Handler) UpdatePenalty(ctx context.Context, req gen.UpdatePenaltyReques
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if req.Body.Label != nil {
+		if err := validate.RequireNonEmpty(*req.Body.Label, "label"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+		if err := validate.MaxLen(*req.Body.Label, 255, "label"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 	p, err := h.svc.UpdatePenalty(ctx, req.PenaltyId, req.Body)
 	if err != nil {

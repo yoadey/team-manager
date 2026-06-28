@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/yoadey/team-manager/backend/internal/absences"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/config"
 	"github.com/yoadey/team-manager/backend/internal/db"
@@ -85,6 +86,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Warn when metrics endpoint is unprotected in a production configuration.
+	// In production (COOKIE_SECURE=true) this endpoint should be protected via
+	// METRICS_TOKEN or restricted at the network level (private subnet, mTLS).
+	if cfg.MetricsToken == "" && cfg.CookieSecure {
+		slog.Warn("METRICS_TOKEN is not set; /metrics is unauthenticated — restrict access at the network layer or set METRICS_TOKEN")
+	}
+
 	// ─── Observability ───────────────────────────────────────────────────────
 	// Tracing and error tracking are opt-in (OTEL_EXPORTER_OTLP_ENDPOINT /
 	// SENTRY_DSN); both are no-ops when their env is unset.
@@ -133,6 +141,11 @@ func main() {
 		}
 	}()
 
+	// ─── Audit logger ────────────────────────────────────────────────────────
+	// Writes to both structured log (stdout) and the audit_log DB table so that
+	// records survive log rotation and can be queried for compliance review.
+	auditLogger := audit.New(logger).WithDB(pool)
+
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
 	authRepo := auth.NewRepository(pool)
@@ -146,7 +159,7 @@ func main() {
 		slog.Error("cookie codec init failed", "err", err)
 		os.Exit(1)
 	}
-	authHandler := auth.NewHandler(authSvc, logger, cookieCodec)
+	authHandler := auth.NewHandler(authSvc, logger, cookieCodec, auditLogger)
 
 	// ─── Teams ───────────────────────────────────────────────────────────────
 
@@ -158,13 +171,13 @@ func main() {
 
 	membersRepo := members.NewRepository(pool)
 	membersSvc := members.NewService(membersRepo)
-	membersHandler := members.NewHandler(membersSvc, logger)
+	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
 
 	// ─── Roles ───────────────────────────────────────────────────────────────
 
 	rolesRepo := roles.NewRepository(pool)
 	rolesSvc := roles.NewService(rolesRepo)
-	rolesHandler := roles.NewHandler(rolesSvc, logger)
+	rolesHandler := roles.NewHandler(rolesSvc, logger, auditLogger)
 
 	// ─── Events ──────────────────────────────────────────────────────────────
 
@@ -200,7 +213,7 @@ func main() {
 
 	financesRepo := finances.NewRepository(pool)
 	financesSvc := finances.NewService(financesRepo)
-	financesHandler := finances.NewHandler(financesSvc, logger)
+	financesHandler := finances.NewHandler(financesSvc, logger, auditLogger)
 
 	// ─── Stats ───────────────────────────────────────────────────────────────
 
@@ -241,7 +254,7 @@ func main() {
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.CSRFOriginCheck(cfg.AllowedOrigins))
-	r.Use(middleware.RateLimit(100))
+	r.Use(middleware.RateLimit(cfg.RateLimitRPS))
 	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
 
 	// Internal endpoints (no auth, no external prefix).
@@ -277,7 +290,7 @@ func main() {
 		// Public auth endpoints — no JWT required. Must be registered AFTER the
 		// generated mux above to override its authenticated duplicates.
 		// Per-IP brute-force protection: max 5 login attempts per minute.
-		r.With(middleware.PerIPRateLimit(5, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
+		r.With(middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.Login(w, req)
 		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {

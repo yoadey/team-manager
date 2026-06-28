@@ -41,6 +41,10 @@ type Config struct {
 	PublicBaseURL       string
 	MetricsToken        string
 	SentryDSN           string
+	// RateLimitRPS is the global per-IP request rate limit (requests per second).
+	RateLimitRPS int
+	// LoginRateLimitPerMin is the per-IP login attempt limit per minute.
+	LoginRateLimitPerMin int
 }
 
 func Load() (*Config, error) {
@@ -93,20 +97,31 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	rateLimitRPS, err := parseInt(os.Getenv("RATE_LIMIT_RPS"), 100)
+	if err != nil {
+		return nil, fmt.Errorf("RATE_LIMIT_RPS: %w", err)
+	}
+	loginRateLimitPerMin, err := parseInt(os.Getenv("LOGIN_RATE_LIMIT_PER_MIN"), 5)
+	if err != nil {
+		return nil, fmt.Errorf("LOGIN_RATE_LIMIT_PER_MIN: %w", err)
+	}
+
 	return &Config{
-		Port:                port,
-		DatabaseURL:         dbURL,
-		JWTPrivateKey:       os.Getenv("JWT_PRIVATE_KEY"),
-		JWTPublicKey:        os.Getenv("JWT_PUBLIC_KEY"),
-		SessionTTL:          time.Duration(ttlHours) * time.Hour,
-		MigrationsDir:       envOr("MIGRATIONS_DIR", "internal/db/migrations"),
-		AllowedOrigins:      origins,
-		CookieEncryptionKey: cookieKey,
-		CookieSecure:        cookieSecure,
-		CookieName:          os.Getenv("COOKIE_NAME"),
-		PublicBaseURL:       publicBaseURL,
-		MetricsToken:        os.Getenv("METRICS_TOKEN"),
-		SentryDSN:           os.Getenv("SENTRY_DSN"),
+		Port:                 port,
+		DatabaseURL:          dbURL,
+		JWTPrivateKey:        os.Getenv("JWT_PRIVATE_KEY"),
+		JWTPublicKey:         os.Getenv("JWT_PUBLIC_KEY"),
+		SessionTTL:           time.Duration(ttlHours) * time.Hour,
+		MigrationsDir:        envOr("MIGRATIONS_DIR", "internal/db/migrations"),
+		AllowedOrigins:       origins,
+		CookieEncryptionKey:  cookieKey,
+		CookieSecure:         cookieSecure,
+		CookieName:           os.Getenv("COOKIE_NAME"),
+		PublicBaseURL:        publicBaseURL,
+		MetricsToken:         os.Getenv("METRICS_TOKEN"),
+		SentryDSN:            os.Getenv("SENTRY_DSN"),
+		RateLimitRPS:         rateLimitRPS,
+		LoginRateLimitPerMin: loginRateLimitPerMin,
 	}, nil
 }
 
@@ -143,4 +158,19 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// parseInt parses a decimal integer from s, returning defaultVal when s is empty.
+func parseInt(s string, defaultVal int) (int, error) {
+	if s == "" {
+		return defaultVal, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, err
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("must be a positive integer, got %d", n)
+	}
+	return n, nil
 }

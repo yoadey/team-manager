@@ -110,7 +110,7 @@ func authedCtx() context.Context {
 
 func TestHandler_GetFinanceOverview_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	h := finances.NewHandler(&mockFinanceService{}, slog.Default())
+	h := finances.NewHandler(&mockFinanceService{}, slog.Default(), nil)
 	resp, err := h.GetFinanceOverview(context.Background(), gen.GetFinanceOverviewRequestObject{TeamId: testTeamID})
 	require.Error(t, err)
 	assert.Nil(t, resp)
@@ -133,7 +133,7 @@ func TestHandler_GetFinanceOverview_Success(t *testing.T) {
 			return overview, nil
 		},
 	}
-	h := finances.NewHandler(svc, slog.Default())
+	h := finances.NewHandler(svc, slog.Default(), nil)
 
 	resp, err := h.GetFinanceOverview(authedCtx(), gen.GetFinanceOverviewRequestObject{TeamId: testTeamID})
 	require.NoError(t, err)
@@ -154,14 +154,14 @@ func TestHandler_GetFinanceOverview_ServiceError(t *testing.T) {
 			return nil, errors.New("db error")
 		},
 	}
-	h := finances.NewHandler(svc, slog.Default())
+	h := finances.NewHandler(svc, slog.Default(), nil)
 	_, err := h.GetFinanceOverview(authedCtx(), gen.GetFinanceOverviewRequestObject{TeamId: testTeamID})
 	require.Error(t, err)
 }
 
 func TestHandler_CreateTransaction_MissingBody(t *testing.T) {
 	t.Parallel()
-	h := finances.NewHandler(&mockFinanceService{}, slog.Default())
+	h := finances.NewHandler(&mockFinanceService{}, slog.Default(), nil)
 	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: nil})
 	require.Error(t, err)
 }
@@ -182,7 +182,7 @@ func TestHandler_CreateTransaction_Success(t *testing.T) {
 			return tx, nil
 		},
 	}
-	h := finances.NewHandler(svc, slog.Default())
+	h := finances.NewHandler(svc, slog.Default(), nil)
 
 	body := &gen.CreateTransactionJSONRequestBody{
 		Type:   gen.Income,
@@ -209,7 +209,7 @@ func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)))
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
 
 	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Fee", Amount: 50.0}
 	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
@@ -229,7 +229,7 @@ func TestHandler_DeleteTransaction_Success(t *testing.T) {
 	svc := &mockFinanceService{
 		deleteTransaction: func(_ context.Context, _ uuid.UUID) error { return nil },
 	}
-	h := finances.NewHandler(svc, slog.Default())
+	h := finances.NewHandler(svc, slog.Default(), nil)
 	resp, err := h.DeleteTransaction(authedCtx(), gen.DeleteTransactionRequestObject{
 		TeamId:        testTeamID,
 		TransactionId: testTxID,
@@ -243,7 +243,7 @@ func TestHandler_DeleteTransaction_Success(t *testing.T) {
 
 func TestHandler_ToggleContribution_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	h := finances.NewHandler(&mockFinanceService{}, slog.Default())
+	h := finances.NewHandler(&mockFinanceService{}, slog.Default(), nil)
 	_, err := h.ToggleContribution(context.Background(), gen.ToggleContributionRequestObject{
 		TeamId:         testTeamID,
 		ContributionId: testTxID,

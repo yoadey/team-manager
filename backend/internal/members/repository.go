@@ -72,13 +72,19 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 		return nil, err
 	}
 
-	// For each membership, load roles.
-	for i := range members {
-		roles, err := r.getRolesForMembership(ctx, members[i].MembershipID.String())
+	// Batch-load all roles for the page in a single query instead of N per-member queries.
+	if len(members) > 0 {
+		ids := make([]string, len(members))
+		for i := range members {
+			ids[i] = members[i].MembershipID.String()
+		}
+		rolesByID, err := r.batchGetRoles(ctx, ids)
 		if err != nil {
 			return nil, err
 		}
-		members[i].Roles = roles
+		for i := range members {
+			members[i].Roles = rolesByID[members[i].MembershipID.String()]
+		}
 	}
 
 	return members, nil
@@ -368,6 +374,37 @@ func (r *Repository) getMemberByMembershipID(ctx context.Context, membershipID s
 	mr.Roles = roles
 
 	return mr, nil
+}
+
+// batchGetRoles loads all roles for a set of membership IDs in a single query,
+// returning a map keyed by membership ID. Callers with an empty id list should
+// skip the call entirely — the function returns an empty map without a round-trip.
+func (r *Repository) batchGetRoles(ctx context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT mr.membership_id, r.id, r.team_id, r.name, r.system, r.color, r.permissions
+		FROM membership_roles mr
+		JOIN roles r ON r.id = mr.role_id
+		WHERE mr.membership_id = ANY($1::uuid[])
+	`, membershipIDs)
+	if err != nil {
+		return nil, fmt.Errorf("members.Repository.batchGetRoles: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]teams.RoleRow)
+	for rows.Next() {
+		var membershipID string
+		rr := &teams.RoleRow{}
+		var permJSON []byte
+		if err := rows.Scan(&membershipID, &rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permJSON); err != nil {
+			return nil, fmt.Errorf("members.Repository.batchGetRoles scan: %w", err)
+		}
+		if err := json.Unmarshal(permJSON, &rr.Permissions); err != nil {
+			return nil, fmt.Errorf("members.Repository.batchGetRoles unmarshal: %w", err)
+		}
+		result[membershipID] = append(result[membershipID], *rr)
+	}
+	return result, rows.Err()
 }
 
 func (r *Repository) getRolesForMembership(ctx context.Context, membershipID string) ([]teams.RoleRow, error) {
