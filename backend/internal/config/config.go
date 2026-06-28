@@ -16,6 +16,9 @@ import (
 // ErrDatabaseURLRequired is returned when DATABASE_URL is not set.
 var ErrDatabaseURLRequired = errors.New("DATABASE_URL is required")
 
+// ErrInvalidPositiveInt is returned when an integer env var is not a positive integer.
+var ErrInvalidPositiveInt = errors.New("must be a positive integer")
+
 // ErrInvalidCookieKey is returned when COOKIE_ENCRYPTION_KEY is set but not a
 // valid 32-byte hex- or base64-encoded value.
 var ErrInvalidCookieKey = errors.New("COOKIE_ENCRYPTION_KEY must be 32 bytes encoded as hex or base64")
@@ -167,10 +170,10 @@ func parseInt(s string, defaultVal int) (int, error) {
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse integer: %w", err)
 	}
 	if n <= 0 {
-		return 0, fmt.Errorf("must be a positive integer, got %d", n)
+		return 0, fmt.Errorf("got %d: %w", n, ErrInvalidPositiveInt)
 	}
 	return n, nil
 }

@@ -63,6 +63,16 @@ func initObservability(ctx context.Context, cfg *config.Config) (func(context.Co
 	}, nil
 }
 
+// warnIfMetricsOpen logs a startup warning when the /metrics endpoint is
+// unauthenticated in a production configuration (COOKIE_SECURE=true).
+// In production the endpoint should be protected via METRICS_TOKEN or
+// restricted at the network layer (private subnet, mTLS).
+func warnIfMetricsOpen(cfg *config.Config) {
+	if cfg.MetricsToken == "" && cfg.CookieSecure {
+		slog.Warn("METRICS_TOKEN is not set; /metrics is unauthenticated — restrict access at the network layer or set METRICS_TOKEN")
+	}
+}
+
 // metricsHandler exposes Prometheus metrics, requiring a bearer token when one
 // is configured. Left open when token is empty so local dev and in-cluster
 // scraping over a private network keep working.
@@ -86,12 +96,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Warn when metrics endpoint is unprotected in a production configuration.
-	// In production (COOKIE_SECURE=true) this endpoint should be protected via
-	// METRICS_TOKEN or restricted at the network level (private subnet, mTLS).
-	if cfg.MetricsToken == "" && cfg.CookieSecure {
-		slog.Warn("METRICS_TOKEN is not set; /metrics is unauthenticated — restrict access at the network layer or set METRICS_TOKEN")
-	}
+	warnIfMetricsOpen(cfg)
 
 	// ─── Observability ───────────────────────────────────────────────────────
 	// Tracing and error tracking are opt-in (OTEL_EXPORTER_OTLP_ENDPOINT /
