@@ -390,3 +390,69 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+
+  dast:
+    name: DAST — OWASP ZAP Baseline
+    runs-on: ubuntu-latest
+    needs: [backend-build]
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - name: Build backend
+        working-directory: backend
+        run: go build -o server ./cmd/server
+
+      - name: Start backend
+        working-directory: backend
+        env:
+          DATABASE_URL: postgres://postgres:testpassword@localhost:5432/testdb?sslmode=disable
+          COOKIE_SECURE: "false"
+          PORT: "8080"
+        run: |
+          ./server &
+          echo $! > /tmp/server.pid
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/healthz && break
+            sleep 1
+          done
+
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: 'http://localhost:8080'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a'
+          fail_action: false
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-report
+          path: report_html.html
+
+      - name: Stop backend
+        if: always()
+        run: kill $(cat /tmp/server.pid) || true
