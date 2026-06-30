@@ -265,7 +265,8 @@ CREATE TABLE oidc_accounts (
 -- Indexes use CONCURRENTLY so they build without holding a full table lock,
 -- which matters on large datasets in production. CONCURRENTLY cannot run
 -- inside a transaction or a StatementBegin/End batch, so these statements
--- live outside the block above (requires -- +goose NO TRANSACTION at the top).
+-- live outside the StatementBegin/End block above. The NO TRANSACTION
+-- annotation at the top of this file is required for CONCURRENTLY to work.
 -- IF NOT EXISTS makes re-runs of this migration safe.
 
 -- ── Indexes ───────────────────────────────────────────────────────────────────
