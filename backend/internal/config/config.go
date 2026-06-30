@@ -72,6 +72,9 @@ type Config struct {
 	// RetentionSessionDays is how many days to keep session rows before the daily
 	// retention job deletes them. Default: 30.
 	RetentionSessionDays int
+	// RetentionAuditLogDays is how many days to keep audit_log rows before the
+	// daily retention job deletes them. Default: 365.
+	RetentionAuditLogDays int
 }
 
 func Load() (*Config, error) {
@@ -140,6 +143,10 @@ func Load() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("RETENTION_SESSIONS_DAYS: %w", err)
 	}
+	retentionAuditLogDays, err := parseInt(os.Getenv("RETENTION_AUDIT_LOG_DAYS"), 365)
+	if err != nil {
+		return nil, fmt.Errorf("RETENTION_AUDIT_LOG_DAYS: %w", err)
+	}
 
 	return &Config{
 		Port:                      port,
@@ -160,6 +167,7 @@ func Load() (*Config, error) {
 		PaginationHMACKey:         paginationHMACKey,
 		RetentionNotificationDays: retentionNotificationDays,
 		RetentionSessionDays:      retentionSessionDays,
+		RetentionAuditLogDays:     retentionAuditLogDays,
 	}, nil
 }
 

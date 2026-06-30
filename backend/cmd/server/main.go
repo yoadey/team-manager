@@ -178,7 +178,7 @@ func main() {
 
 	// ─── River job queue ──────────────────────────────────────────────────────
 
-	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays)
+	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays)
 	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
