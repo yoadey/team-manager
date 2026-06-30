@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -165,6 +166,26 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID string) error {
 		return fmt.Errorf("roles.Repository.DeleteRole: %w", err)
 	}
 	return nil
+}
+
+// RolesExistForTeam returns true when every ID in roleIDs is a role belonging
+// to teamID. An empty roleIDs slice always returns true.
+func (r *Repository) RolesExistForTeam(ctx context.Context, teamID string, roleIDs []uuid.UUID) (bool, error) {
+	if len(roleIDs) == 0 {
+		return true, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var count int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*)::int FROM roles WHERE team_id = $1 AND id = ANY($2)`,
+		teamID, roleIDs,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("roles.Repository.RolesExistForTeam: %w", err)
+	}
+	return count == len(roleIDs), nil
 }
 
 // ─── internal helpers ─────────────────────────────────────────────────────────

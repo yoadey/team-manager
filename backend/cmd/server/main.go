@@ -66,13 +66,18 @@ func initObservability(ctx context.Context, cfg *config.Config) (func(context.Co
 	}, nil
 }
 
-// warnIfMetricsOpen logs a startup warning when the /metrics endpoint is
-// unauthenticated in a production configuration (COOKIE_SECURE=true).
-// In production the endpoint should be protected via METRICS_TOKEN or
-// restricted at the network layer (private subnet, mTLS).
-func warnIfMetricsOpen(cfg *config.Config) {
+// failIfMetricsOpen exits with an error when COOKIE_SECURE=true but METRICS_TOKEN is
+// unset. Exposing raw Prometheus metrics on an unauthenticated endpoint in production
+// leaks internal operational data (user counts, login rates, DB pool state). Either set
+// METRICS_TOKEN or restrict /metrics at the network layer and set METRICS_ALLOW_OPEN=true.
+func failIfMetricsOpen(cfg *config.Config) {
 	if cfg.MetricsToken == "" && cfg.CookieSecure {
-		slog.Warn("METRICS_TOKEN is not set; /metrics is unauthenticated — restrict access at the network layer or set METRICS_TOKEN")
+		if os.Getenv("METRICS_ALLOW_OPEN") == "true" {
+			slog.Warn("METRICS_TOKEN is not set; /metrics is unauthenticated (METRICS_ALLOW_OPEN=true overrides)")
+			return
+		}
+		slog.Error("METRICS_TOKEN must be set when COOKIE_SECURE=true; set METRICS_TOKEN or METRICS_ALLOW_OPEN=true to allow open metrics")
+		os.Exit(1)
 	}
 }
 
@@ -132,7 +137,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	warnIfMetricsOpen(cfg)
+	failIfMetricsOpen(cfg)
 
 	// ─── Observability ───────────────────────────────────────────────────────
 	// Tracing and error tracking are opt-in (OTEL_EXPORTER_OTLP_ENDPOINT /
@@ -173,7 +178,7 @@ func main() {
 
 	// ─── River job queue ──────────────────────────────────────────────────────
 
-	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays)
+	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays)
 	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
@@ -230,7 +235,7 @@ func main() {
 	// ─── Events ──────────────────────────────────────────────────────────────
 
 	eventsRepo := events.NewRepository(pool)
-	eventsSvc := events.NewService(eventsRepo, jobsClient, pager)
+	eventsSvc := events.NewService(eventsRepo, jobsClient, pager, rolesRepo)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
 
 	// ─── Absences ────────────────────────────────────────────────────────────
