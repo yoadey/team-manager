@@ -212,3 +212,47 @@ func TestRequirePermission_NoTeamID_Passthrough(t *testing.T) {
 	rec := applyPermMW(checker, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+// Unknown path segments must be rejected with 404, not silently mapped to "settings".
+func TestRequirePermission_UnknownPathSegment_Returns404(t *testing.T) {
+	tid := testTeamID.String()
+	unknownPaths := []string{
+		"/api/v1/teams/" + tid + "/widgets",
+		"/api/v1/teams/" + tid + "/admin",
+		"/api/v1/teams/" + tid + "/superpower",
+		"/api/v1/teams/" + tid + "/debug/dump",
+	}
+	// Even with full write permissions, unknown segments must be rejected.
+	checker := &mockPermissionChecker{perms: allWritePerms()}
+	for _, p := range unknownPaths {
+		t.Run(p, func(t *testing.T) {
+			req := makeChiRequest(http.MethodPost, p, tid)
+			rec := applyPermMW(checker, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code, "POST %s with unknown segment should return 404", p)
+		})
+	}
+}
+
+// Known settings-level segments (photo, logo, invite) must still require settings write.
+func TestRequirePermission_SettingsSegments_RequireSettingsWrite(t *testing.T) {
+	tid := testTeamID.String()
+	settingsPaths := []string{
+		"/api/v1/teams/" + tid + "/photo",
+		"/api/v1/teams/" + tid + "/logo",
+		"/api/v1/teams/" + tid + "/invite",
+	}
+	for _, p := range settingsPaths {
+		t.Run("write ok "+p, func(t *testing.T) {
+			checker := &mockPermissionChecker{perms: allWritePerms()}
+			req := makeChiRequest(http.MethodPost, p, tid)
+			rec := applyPermMW(checker, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+		t.Run("read denied "+p, func(t *testing.T) {
+			checker := &mockPermissionChecker{perms: allReadPerms()}
+			req := makeChiRequest(http.MethodPost, p, tid)
+			rec := applyPermMW(checker, req)
+			assert.Equal(t, http.StatusForbidden, rec.Code)
+		})
+	}
+}
