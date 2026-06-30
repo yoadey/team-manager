@@ -85,16 +85,7 @@ func Load() (*Config, error) {
 		port = "8080"
 	}
 
-	origins := []string{"http://localhost:5173"}
-	if v := os.Getenv("ALLOWED_ORIGINS"); v != "" {
-		parts := strings.Split(v, ",")
-		origins = make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				origins = append(origins, trimmed)
-			}
-		}
-	}
+	origins := loadAllowedOrigins()
 
 	// Public base URL of the user-facing frontend, used to build shareable links
 	// (e.g. team invite links). Defaults to the first allowed origin so a
@@ -139,25 +130,42 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		Port:                 port,
-		DatabaseURL:          dbURL,
-		JWTPrivateKey:        os.Getenv("JWT_PRIVATE_KEY"),
-		JWTPublicKey:         os.Getenv("JWT_PUBLIC_KEY"),
-		SessionTTL:           time.Duration(ttlHours) * time.Hour,
-		MigrationsDir:        envOr("MIGRATIONS_DIR", "internal/db/migrations"),
-		AllowedOrigins:       origins,
-		CookieEncryptionKey:  cookieKey,
-		CookieSecure:         cookieSecure,
-		CookieName:           os.Getenv("COOKIE_NAME"),
-		PublicBaseURL:        publicBaseURL,
-		MetricsToken:         os.Getenv("METRICS_TOKEN"),
-		SentryDSN:            os.Getenv("SENTRY_DSN"),
+		Port:                      port,
+		DatabaseURL:               dbURL,
+		JWTPrivateKey:             os.Getenv("JWT_PRIVATE_KEY"),
+		JWTPublicKey:              os.Getenv("JWT_PUBLIC_KEY"),
+		SessionTTL:                time.Duration(ttlHours) * time.Hour,
+		MigrationsDir:             envOr("MIGRATIONS_DIR", "internal/db/migrations"),
+		AllowedOrigins:            origins,
+		CookieEncryptionKey:       cookieKey,
+		CookieSecure:              cookieSecure,
+		CookieName:                os.Getenv("COOKIE_NAME"),
+		PublicBaseURL:             publicBaseURL,
+		MetricsToken:              os.Getenv("METRICS_TOKEN"),
+		SentryDSN:                 os.Getenv("SENTRY_DSN"),
 		RateLimitRPS:              rateLimitRPS,
 		LoginRateLimitPerMin:      loginRateLimitPerMin,
 		PaginationHMACKey:         paginationHMACKey,
 		RetentionNotificationDays: retentionNotificationDays,
 		RetentionSessionDays:      retentionSessionDays,
 	}, nil
+}
+
+// loadAllowedOrigins parses ALLOWED_ORIGINS into a slice of trimmed, non-empty
+// origin strings, falling back to localhost:5173 in development.
+func loadAllowedOrigins() []string {
+	v := os.Getenv("ALLOWED_ORIGINS")
+	if v == "" {
+		return []string{"http://localhost:5173"}
+	}
+	parts := strings.Split(v, ",")
+	origins := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			origins = append(origins, trimmed)
+		}
+	}
+	return origins
 }
 
 // loadCookieEncryptionKey reads COOKIE_ENCRYPTION_KEY (hex or base64, 32 bytes).

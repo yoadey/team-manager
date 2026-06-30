@@ -25,8 +25,8 @@ type memberRepo interface {
 
 // Service implements member business logic.
 type Service struct {
-	repo   memberRepo
-	pager  *pagination.Paginator
+	repo  memberRepo
+	pager *pagination.Paginator
 }
 
 // NewService creates a new Service. pager may be nil, in which case a default
