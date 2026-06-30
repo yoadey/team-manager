@@ -110,21 +110,23 @@ test.describe('User Journeys', () => {
     // Navigate to polls
     await page.getByRole('button', { name: /umfragen|polls/i }).first().click();
 
-    // Wait for the polls page to load
-    await page.waitForTimeout(1_000);
-
-    // Click the FAB to open the poll creation form
-    await page.getByRole('button', { name: /umfrage/i }).last().click();
+    // Wait for the polls FAB to be visible (also confirms page is loaded and user
+    // has polls.write permission). Use exact: true so "Umfrage löschen" delete
+    // buttons on existing polls (rendered inside page content, after the FAB in
+    // desktop DOM order) are never matched.
+    const pollFab = page.getByRole('button', { name: 'Umfrage', exact: true }).first();
+    await expect(pollFab).toBeVisible({ timeout: 8_000 });
+    await pollFab.click();
 
     // Wait for the poll form sheet/dialog to open.
-    // PollFormSheet uses <TextInput name="question"> — match by name attribute
-    // directly to avoid matching the sheet backdrop (aria-labelledby "Neue Umfrage"
-    // contains "frage") or existing delete buttons ("Umfrage löschen").
     const questionInput = page.locator('input[name="question"]').first();
     await expect(questionInput).toBeVisible({ timeout: 8_000 });
 
-    // Fill in the poll question/title
+    // Fill in question and two answer options.
+    // canSubmit = !!question.trim() && opts.filter(Boolean).length >= 2
     await questionInput.fill('Test-Umfrage E2E: Sind Sie dabei?');
+    await page.locator('input[name="opt0"]').first().fill('Ja');
+    await page.locator('input[name="opt1"]').first().fill('Nein');
 
     // Click the save button (last to avoid cancel/header buttons)
     await page
