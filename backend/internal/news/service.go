@@ -26,13 +26,18 @@ type jobEnqueuer interface {
 
 // Service implements news business logic.
 type Service struct {
-	repo newsRepo
-	jobs jobEnqueuer
+	repo  newsRepo
+	jobs  jobEnqueuer
+	pager *pagination.Paginator
 }
 
-// NewService creates a new Service.
-func NewService(repo newsRepo, enq jobEnqueuer) *Service {
-	return &Service{repo: repo, jobs: enq}
+// NewService creates a new Service. pager may be nil, in which case a default
+// (unsigned) Paginator is used.
+func NewService(repo newsRepo, enq jobEnqueuer, pager *pagination.Paginator) *Service {
+	if pager == nil {
+		pager = pagination.New(nil)
+	}
+	return &Service{repo: repo, jobs: enq, pager: pager}
 }
 
 // ListByTeam returns a keyset page of news items plus the cursor for the next
@@ -41,7 +46,7 @@ func NewService(repo newsRepo, enq jobEnqueuer) *Service {
 func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.NewsItem, *string, error) {
 	var cur *ListCursor
 	var decoded ListCursor
-	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
 		return nil, nil, fmt.Errorf("news.Service.ListByTeam: %w", err)
 	} else if ok {
 		cur = &decoded
@@ -57,7 +62,7 @@ func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, c
 	if len(rows) > limit {
 		rows = rows[:limit]
 		last := rows[len(rows)-1]
-		token, err := pagination.EncodeCursor(ListCursor{Pinned: last.Pinned, CreatedAt: last.CreatedAt, ID: last.Id})
+		token, err := s.pager.Encode(ListCursor{Pinned: last.Pinned, CreatedAt: last.CreatedAt, ID: last.Id})
 		if err != nil {
 			return nil, nil, fmt.Errorf("news.Service.ListByTeam: %w", err)
 		}

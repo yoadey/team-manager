@@ -47,13 +47,18 @@ type jobEnqueuer interface {
 
 // Service implements event business logic.
 type Service struct {
-	repo eventRepo
-	jobs jobEnqueuer
+	repo  eventRepo
+	jobs  jobEnqueuer
+	pager *pagination.Paginator
 }
 
-// NewService creates a new Service.
-func NewService(repo eventRepo, enq jobEnqueuer) *Service {
-	return &Service{repo: repo, jobs: enq}
+// NewService creates a new Service. pager may be nil, in which case a default
+// (unsigned) Paginator is used.
+func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator) *Service {
+	if pager == nil {
+		pager = pagination.New(nil)
+	}
+	return &Service{repo: repo, jobs: enq, pager: pager}
 }
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
@@ -64,7 +69,7 @@ func NewService(repo eventRepo, enq jobEnqueuer) *Service {
 func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error) {
 	var cur *ListCursor
 	var decoded ListCursor
-	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
 		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 	} else if ok {
 		cur = &decoded
@@ -79,7 +84,7 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor 
 	if len(rows) > limit {
 		rows = rows[:limit]
 		last := rows[len(rows)-1]
-		token, err := pagination.EncodeCursor(ListCursor{Date: last.Date, ID: last.Id})
+		token, err := s.pager.Encode(ListCursor{Date: last.Date, ID: last.Id})
 		if err != nil {
 			return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 		}

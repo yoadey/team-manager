@@ -22,18 +22,23 @@ type absenceRepo interface {
 
 // Service implements absence business logic.
 type Service struct {
-	repo absenceRepo
+	repo  absenceRepo
+	pager *pagination.Paginator
 }
 
-// NewService creates a new Service.
-func NewService(repo absenceRepo) *Service {
-	return &Service{repo: repo}
+// NewService creates a new Service. pager may be nil, in which case a default
+// (unsigned) Paginator is used.
+func NewService(repo absenceRepo, pager *pagination.Paginator) *Service {
+	if pager == nil {
+		pager = pagination.New(nil)
+	}
+	return &Service{repo: repo, pager: pager}
 }
 
 // ListByTeam returns a keyset page of team absences plus the next-page cursor
 // (nil on the last page). cursor is the opaque token from a prior page.
 func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error) {
-	cur, err := decodeAbsenceCursor(cursor)
+	cur, err := s.decodeAbsenceCursor(cursor)
 	if err != nil {
 		return nil, nil, fmt.Errorf("absences.Service.ListByTeam: %w", err)
 	}
@@ -41,13 +46,13 @@ func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, c
 	if err != nil {
 		return nil, nil, fmt.Errorf("absences.Service.ListByTeam: %w", err)
 	}
-	return absencePage(rows, limit)
+	return s.absencePage(rows, limit)
 }
 
 // ListByUser returns a keyset page of the user's absences in the team plus the
 // next-page cursor (nil on the last page).
 func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error) {
-	cur, err := decodeAbsenceCursor(cursor)
+	cur, err := s.decodeAbsenceCursor(cursor)
 	if err != nil {
 		return nil, nil, fmt.Errorf("absences.Service.ListByUser: %w", err)
 	}
@@ -55,13 +60,13 @@ func (s *Service) ListByUser(ctx context.Context, teamID, userID uuid.UUID, limi
 	if err != nil {
 		return nil, nil, fmt.Errorf("absences.Service.ListByUser: %w", err)
 	}
-	return absencePage(rows, limit)
+	return s.absencePage(rows, limit)
 }
 
 // decodeAbsenceCursor parses the opaque cursor token ("" = first page).
-func decodeAbsenceCursor(cursor string) (*ListCursor, error) {
+func (s *Service) decodeAbsenceCursor(cursor string) (*ListCursor, error) {
 	var decoded ListCursor
-	ok, err := pagination.DecodeCursor(cursor, &decoded)
+	ok, err := s.pager.Decode(cursor, &decoded)
 	if err != nil {
 		return nil, fmt.Errorf("decode cursor: %w", err)
 	}
@@ -72,12 +77,12 @@ func decodeAbsenceCursor(cursor string) (*ListCursor, error) {
 }
 
 // absencePage trims the limit+1 fetch to a page and computes the next cursor.
-func absencePage(rows []*AbsenceRow, limit int) ([]gen.Absence, *string, error) {
+func (s *Service) absencePage(rows []*AbsenceRow, limit int) ([]gen.Absence, *string, error) {
 	var next *string
 	if len(rows) > limit {
 		rows = rows[:limit]
 		last := rows[len(rows)-1]
-		token, err := pagination.EncodeCursor(ListCursor{FromDate: last.FromDate, ID: last.Id})
+		token, err := s.pager.Encode(ListCursor{FromDate: last.FromDate, ID: last.Id})
 		if err != nil {
 			return nil, nil, fmt.Errorf("encode cursor: %w", err)
 		}

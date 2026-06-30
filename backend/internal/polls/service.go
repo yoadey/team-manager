@@ -30,13 +30,18 @@ type jobEnqueuer interface {
 
 // Service implements polls business logic.
 type Service struct {
-	repo pollRepo
-	jobs jobEnqueuer
+	repo  pollRepo
+	jobs  jobEnqueuer
+	pager *pagination.Paginator
 }
 
-// NewService creates a new Service.
-func NewService(repo pollRepo, enq jobEnqueuer) *Service {
-	return &Service{repo: repo, jobs: enq}
+// NewService creates a new Service. pager may be nil, in which case a default
+// (unsigned) Paginator is used.
+func NewService(repo pollRepo, enq jobEnqueuer, pager *pagination.Paginator) *Service {
+	if pager == nil {
+		pager = pagination.New(nil)
+	}
+	return &Service{repo: repo, jobs: enq, pager: pager}
 }
 
 // ListByTeam returns a keyset page of polls (with full vote data) plus the
@@ -45,7 +50,7 @@ func NewService(repo pollRepo, enq jobEnqueuer) *Service {
 func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit int, cursor string) ([]gen.Poll, *string, error) {
 	var cur *ListCursor
 	var decoded ListCursor
-	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
 		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
 	} else if ok {
 		cur = &decoded
@@ -60,7 +65,7 @@ func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUI
 	if len(pollRows) > limit {
 		pollRows = pollRows[:limit]
 		last := pollRows[len(pollRows)-1]
-		token, err := pagination.EncodeCursor(ListCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+		token, err := s.pager.Encode(ListCursor{CreatedAt: last.CreatedAt, ID: last.Id})
 		if err != nil {
 			return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
 		}

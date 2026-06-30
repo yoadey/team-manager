@@ -83,7 +83,7 @@ func TestMemberService_ListMembers(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo)
+	svc := members.NewService(repo, nil)
 	result, next, err := svc.ListMembers(context.Background(), teamID.String(), 50, "")
 	require.NoError(t, err)
 	assert.Nil(t, next)
