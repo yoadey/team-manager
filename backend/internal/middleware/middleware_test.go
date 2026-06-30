@@ -286,3 +286,61 @@ func TestRecoverer_NoPanic_PassesThrough(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 	assert.Empty(t, buf.String(), "no log output expected when there is no panic")
 }
+
+// ─── APIVersion ───────────────────────────────────────────────────────────────
+
+func TestAPIVersion_SetsVersionHeader(t *testing.T) {
+	handler := middleware.APIVersion("v1")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/teams", http.NoBody)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, "v1", rec.Header().Get("API-Version"), "API-Version header must be set on every response")
+}
+
+func TestAPIVersion_DifferentVersion(t *testing.T) {
+	handler := middleware.APIVersion("v2")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v2/teams", http.NoBody)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, "v2", rec.Header().Get("API-Version"))
+}
+
+func TestAPIVersion_DeprecationHeaders_WhenEnvSet(t *testing.T) {
+	t.Setenv("API_DEPRECATION_DATE", "2027-01-01")
+
+	handler := middleware.APIVersion("v1")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/teams", http.NoBody)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, "v1", rec.Header().Get("API-Version"))
+	assert.Equal(t, `date="2027-01-01"`, rec.Header().Get("Deprecation"), "Deprecation header must be set when API_DEPRECATION_DATE is configured")
+	assert.Equal(t, "2027-01-01", rec.Header().Get("Sunset"), "Sunset header must be set when API_DEPRECATION_DATE is configured")
+}
+
+func TestAPIVersion_NoDeprecationHeaders_WhenEnvUnset(t *testing.T) {
+	t.Setenv("API_DEPRECATION_DATE", "")
+
+	handler := middleware.APIVersion("v1")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/teams", http.NoBody)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, "v1", rec.Header().Get("API-Version"))
+	assert.Empty(t, rec.Header().Get("Deprecation"), "Deprecation header must not be set when API_DEPRECATION_DATE is not configured")
+	assert.Empty(t, rec.Header().Get("Sunset"), "Sunset header must not be set when API_DEPRECATION_DATE is not configured")
+}

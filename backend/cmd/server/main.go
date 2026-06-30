@@ -261,6 +261,7 @@ func main() {
 	r.Use(middleware.CSRFOriginCheck(cfg.AllowedOrigins))
 	r.Use(middleware.RateLimit(cfg.RateLimitRPS))
 	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
+	r.Use(middleware.APIVersion("v1"))
 
 	// Internal endpoints (no auth, no external prefix).
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
