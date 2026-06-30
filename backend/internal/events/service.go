@@ -16,9 +16,9 @@ import (
 
 // Sentinel errors for the events package.
 var (
-	ErrCreateEventNilBody     = errors.New("events.Service.CreateEvent: nil body")
-	ErrCreateEventNoRow       = errors.New("events.Service.CreateEvent: no row returned")
-	ErrUpdateEventNilBody     = errors.New("events.Service.UpdateEvent: nil body")
+	ErrCreateEventNilBody      = errors.New("events.Service.CreateEvent: nil body")
+	ErrCreateEventNoRow        = errors.New("events.Service.CreateEvent: no row returned")
+	ErrUpdateEventNilBody      = errors.New("events.Service.UpdateEvent: nil body")
 	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
 )
 
