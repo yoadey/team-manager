@@ -140,7 +140,7 @@ export interface AppState {
   /** Shared editing buffer for the active sheet; read typed via formValues<T>() (src/utils/forms.ts). */
   form: Record<string, unknown>;
   formErrors: Record<string, string>;
-  toast: string | null;
+  toast: { message: string; action?: { label: string; fn: () => void } } | null;
   error: string | null;
 }
 
@@ -200,7 +200,7 @@ export interface AppContextValue {
   myRoles: () => Role[];
   can: (module: ModuleKey, level?: PermLevel) => boolean;
   isStaff: () => boolean;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }) => void;
   resetDemo: () => void;
   setPrimaryColor: (c: string) => void;
   setColorScheme: (scheme: AppState['colorScheme']) => void;
@@ -426,9 +426,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const isStaff = useCallback(() => isStaffForTeam(activeTeam()), [activeTeam]);
   const toastMsg = useCallback(
-    (m: string) => {
+    (m: string, action?: { label: string; fn: () => void }) => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
-      setState({ toast: m });
+      setState({ toast: { message: m, action } });
       toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
     },
     [setState],
