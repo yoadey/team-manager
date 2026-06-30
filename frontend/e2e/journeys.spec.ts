@@ -77,20 +77,17 @@ test.describe('User Journeys', () => {
     // Click the FAB to open the transaction form
     await page.getByRole('button', { name: /buchung/i }).last().click();
 
-    // Wait for the transaction form sheet/dialog to open
-    const titleInput = page
-      .getByLabel(/titel|title|name|beschreibung|description/i)
-      .first();
+    // Wait for the transaction form sheet/dialog to open.
+    // TxFormSheet uses <TextInput name="title"> without an explicit <label>, so
+    // match the input by its name attribute directly.
+    const titleInput = page.locator('input[name="title"]').first();
     await expect(titleInput).toBeVisible({ timeout: 8_000 });
 
     // Fill in title/description
     await titleInput.fill('Test-Buchung E2E');
 
-    // Fill in amount
-    const amountInput = page
-      .getByLabel(/betrag|amount/i)
-      .first()
-      .or(page.locator('input[type="number"], input[name="amount"]').first());
+    // Fill in amount (TxFormSheet uses <TextInput name="amount" type="number">)
+    const amountInput = page.locator('input[name="amount"]').first();
     const amountVisible = await amountInput.isVisible().catch(() => false);
     if (amountVisible) {
       await amountInput.fill('42.00');
@@ -119,11 +116,11 @@ test.describe('User Journeys', () => {
     // Click the FAB to open the poll creation form
     await page.getByRole('button', { name: /umfrage/i }).last().click();
 
-    // Wait for the poll form sheet/dialog to open
-    const questionInput = page
-      .getByLabel(/frage|question|titel|title/i)
-      .first()
-      .or(page.locator('input[name="question"], input[name="title"], textarea[name="question"]').first());
+    // Wait for the poll form sheet/dialog to open.
+    // PollFormSheet uses <TextInput name="question"> — match by name attribute
+    // directly to avoid matching the sheet backdrop (aria-labelledby "Neue Umfrage"
+    // contains "frage") or existing delete buttons ("Umfrage löschen").
+    const questionInput = page.locator('input[name="question"]').first();
     await expect(questionInput).toBeVisible({ timeout: 8_000 });
 
     // Fill in the poll question/title
