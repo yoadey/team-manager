@@ -28,9 +28,9 @@ type eventRepo interface {
 	GetEvent(ctx context.Context, eventID string) (*EventRow, error)
 	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
-	UpdateEvent(ctx context.Context, eventID string, params *UpdateEventParams, scope string) (*EventRow, error)
+	UpdateEvent(ctx context.Context, eventID, teamID string, params *UpdateEventParams, scope string) (*EventRow, error)
 	SetStatus(ctx context.Context, eventID string, status string, scope string) (*EventRow, error)
-	DeleteEvent(ctx context.Context, eventID string, scope string) error
+	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error)
 	GetMyAttendance(ctx context.Context, eventID, userID string) (*AttendanceDBRow, error)
 	ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error)
@@ -266,7 +266,7 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		return nil, err
 	}
 
-	row, err := s.repo.UpdateEvent(ctx, eventID, &params, scope)
+	row, err := s.repo.UpdateEvent(ctx, eventID, teamID, &params, scope)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.UpdateEvent: %w", err)
 	}
@@ -280,9 +280,9 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
 
-// DeleteEvent deletes an event or series.
-func (s *Service) DeleteEvent(ctx context.Context, eventID, scope string) error {
-	if err := s.repo.DeleteEvent(ctx, eventID, scope); err != nil {
+// DeleteEvent deletes an event or series scoped to the given teamID.
+func (s *Service) DeleteEvent(ctx context.Context, eventID, teamID, scope string) error {
+	if err := s.repo.DeleteEvent(ctx, eventID, teamID, scope); err != nil {
 		return fmt.Errorf("events.Service.DeleteEvent: %w", err)
 	}
 	return nil

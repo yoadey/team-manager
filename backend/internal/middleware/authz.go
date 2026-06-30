@@ -56,7 +56,7 @@ func RequireMembership(checker MembershipChecker) func(http.Handler) http.Handle
 				return
 			}
 			if !isMember {
-				writeProblem(w, http.StatusForbidden, "you are not a member of this team")
+				writeProblem(w, http.StatusNotFound, "not found")
 				return
 			}
 

@@ -74,11 +74,6 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
 		}, nil
 	}
-	if err := validate.PasswordStrength(request.Body.Password); err != nil {
-		return gen.Login401ApplicationProblemPlusJSONResponse{
-			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
-		}, nil
-	}
 
 	token, user, err := h.svc.Login(ctx, string(request.Body.Email), request.Body.Password)
 	if err != nil {
