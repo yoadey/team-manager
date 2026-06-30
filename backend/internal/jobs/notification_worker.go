@@ -64,18 +64,32 @@ type Client struct {
 }
 
 // NewClient creates a River client backed by the given pool.
+// retentionWorker is optional: pass nil to skip registering the retention job.
 // Call Start() on the returned river.Client separately if running workers
 // in the same process.
-func NewClient(pool *pgxpool.Pool) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
+func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &NotificationWorker{pool: pool})
+
+	var periodicJobs []*river.PeriodicJob
+	if retentionWorker != nil {
+		river.AddWorker(workers, retentionWorker)
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return RetentionArgs{}, nil
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
+		))
+	}
 
 	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
 		},
-		Workers: workers,
-		Logger:  slog.Default(),
+		Workers:      workers,
+		PeriodicJobs: periodicJobs,
+		Logger:       slog.Default(),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("jobs.NewClient: %w", err)

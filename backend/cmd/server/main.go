@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -30,6 +31,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/news"
 	"github.com/yoadey/team-manager/backend/internal/notifications"
 	"github.com/yoadey/team-manager/backend/internal/observability"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/polls"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/server"
@@ -85,6 +87,9 @@ func metricsHandler(token string) http.Handler {
 }
 
 func main() {
+	migrateOnly := flag.Bool("migrate-only", false, "run database migrations and exit")
+	flag.Parse()
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
@@ -129,9 +134,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *migrateOnly {
+		slog.Info("migrations complete, exiting")
+		pool.Close()
+		os.Exit(0)
+	}
+
 	// ─── River job queue ──────────────────────────────────────────────────────
 
-	jobsClient, riverClient, err := jobs.NewClient(pool)
+	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays)
+	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
 		os.Exit(1)
@@ -166,6 +178,13 @@ func main() {
 	}
 	authHandler := auth.NewHandler(authSvc, logger, cookieCodec, auditLogger)
 
+	// ─── Pagination ──────────────────────────────────────────────────────────
+
+	// A single Paginator is shared across all services that produce/consume
+	// keyset cursors. When PAGINATION_HMAC_KEY is set, cursors are HMAC-signed
+	// so that clients cannot craft arbitrary cursor values.
+	pager := pagination.New(cfg.PaginationHMACKey)
+
 	// ─── Teams ───────────────────────────────────────────────────────────────
 
 	teamsRepo := teams.NewRepository(pool)
@@ -175,7 +194,7 @@ func main() {
 	// ─── Members ─────────────────────────────────────────────────────────────
 
 	membersRepo := members.NewRepository(pool)
-	membersSvc := members.NewService(membersRepo)
+	membersSvc := members.NewService(membersRepo, pager)
 	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
 
 	// ─── Roles ───────────────────────────────────────────────────────────────
@@ -187,25 +206,25 @@ func main() {
 	// ─── Events ──────────────────────────────────────────────────────────────
 
 	eventsRepo := events.NewRepository(pool)
-	eventsSvc := events.NewService(eventsRepo, jobsClient)
+	eventsSvc := events.NewService(eventsRepo, jobsClient, pager)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
 
 	// ─── Absences ────────────────────────────────────────────────────────────
 
 	absencesRepo := absences.NewRepository(pool)
-	absencesSvc := absences.NewService(absencesRepo)
+	absencesSvc := absences.NewService(absencesRepo, pager)
 	absencesHandler := absences.NewHandler(absencesSvc, logger)
 
 	// ─── News ────────────────────────────────────────────────────────────────
 
 	newsRepo := news.NewRepository(pool)
-	newsSvc := news.NewService(newsRepo, jobsClient)
+	newsSvc := news.NewService(newsRepo, jobsClient, pager)
 	newsHandler := news.NewHandler(newsSvc, logger)
 
 	// ─── Polls ───────────────────────────────────────────────────────────────
 
 	pollsRepo := polls.NewRepository(pool)
-	pollsSvc := polls.NewService(pollsRepo, jobsClient)
+	pollsSvc := polls.NewService(pollsRepo, jobsClient, pager)
 	pollsHandler := polls.NewHandler(pollsSvc, logger)
 
 	// ─── Notifications ────────────────────────────────────────────────────────

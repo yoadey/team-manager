@@ -23,6 +23,10 @@ var ErrInvalidPositiveInt = errors.New("must be a positive integer")
 // valid 32-byte hex- or base64-encoded value.
 var ErrInvalidCookieKey = errors.New("COOKIE_ENCRYPTION_KEY must be 32 bytes encoded as hex or base64")
 
+// ErrInvalidPaginationHMACKey is returned when PAGINATION_HMAC_KEY is set but
+// not a valid 32-byte hex- or base64-encoded value.
+var ErrInvalidPaginationHMACKey = errors.New("PAGINATION_HMAC_KEY must be 32 bytes encoded as hex or base64")
+
 // ErrCookieKeyRequired is returned when COOKIE_ENCRYPTION_KEY is unset while
 // COOKIE_SECURE is true (production), where an ephemeral key is unsafe.
 var ErrCookieKeyRequired = errors.New("COOKIE_ENCRYPTION_KEY is required when COOKIE_SECURE=true")
@@ -48,6 +52,17 @@ type Config struct {
 	RateLimitRPS int
 	// LoginRateLimitPerMin is the per-IP login attempt limit per minute.
 	LoginRateLimitPerMin int
+	// PaginationHMACKey is used to sign keyset pagination cursors (HMAC-SHA256)
+	// so that clients cannot craft arbitrary cursor values. Optional: when nil,
+	// cursors are plain base64 (dev mode). Set via PAGINATION_HMAC_KEY (32 bytes,
+	// hex or base64).
+	PaginationHMACKey []byte
+	// RetentionNotificationDays is how many days to keep notification rows before
+	// the daily retention job deletes them. Default: 90.
+	RetentionNotificationDays int
+	// RetentionSessionDays is how many days to keep session rows before the daily
+	// retention job deletes them. Default: 30.
+	RetentionSessionDays int
 }
 
 func Load() (*Config, error) {
@@ -109,6 +124,20 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("LOGIN_RATE_LIMIT_PER_MIN: %w", err)
 	}
 
+	paginationHMACKey, err := loadOptionalBytesKey("PAGINATION_HMAC_KEY", cookieKeySize, ErrInvalidPaginationHMACKey)
+	if err != nil {
+		return nil, err
+	}
+
+	retentionNotificationDays, err := parseInt(os.Getenv("RETENTION_NOTIFICATIONS_DAYS"), 90)
+	if err != nil {
+		return nil, fmt.Errorf("RETENTION_NOTIFICATIONS_DAYS: %w", err)
+	}
+	retentionSessionDays, err := parseInt(os.Getenv("RETENTION_SESSIONS_DAYS"), 30)
+	if err != nil {
+		return nil, fmt.Errorf("RETENTION_SESSIONS_DAYS: %w", err)
+	}
+
 	return &Config{
 		Port:                 port,
 		DatabaseURL:          dbURL,
@@ -123,8 +152,11 @@ func Load() (*Config, error) {
 		PublicBaseURL:        publicBaseURL,
 		MetricsToken:         os.Getenv("METRICS_TOKEN"),
 		SentryDSN:            os.Getenv("SENTRY_DSN"),
-		RateLimitRPS:         rateLimitRPS,
-		LoginRateLimitPerMin: loginRateLimitPerMin,
+		RateLimitRPS:              rateLimitRPS,
+		LoginRateLimitPerMin:      loginRateLimitPerMin,
+		PaginationHMACKey:         paginationHMACKey,
+		RetentionNotificationDays: retentionNotificationDays,
+		RetentionSessionDays:      retentionSessionDays,
 	}, nil
 }
 
@@ -154,6 +186,23 @@ func loadCookieEncryptionKey(secure bool) ([]byte, error) {
 		return key, nil
 	}
 	return nil, ErrInvalidCookieKey
+}
+
+// loadOptionalBytesKey reads an optional environment variable that must be a
+// hex- or base64-encoded byte slice of exactly wantLen bytes when set.
+// Returns nil (no error) when the variable is unset or empty.
+func loadOptionalBytesKey(envVar string, wantLen int, invalidErr error) ([]byte, error) {
+	raw := os.Getenv(envVar)
+	if raw == "" {
+		return nil, nil
+	}
+	if key, err := hex.DecodeString(raw); err == nil && len(key) == wantLen {
+		return key, nil
+	}
+	if key, err := base64.StdEncoding.DecodeString(raw); err == nil && len(key) == wantLen {
+		return key, nil
+	}
+	return nil, invalidErr
 }
 
 func envOr(key, fallback string) string {
