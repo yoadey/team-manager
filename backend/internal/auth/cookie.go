@@ -21,64 +21,87 @@ const DefaultSessionCookieName = "tv_session"
 // authenticated (tampered, truncated, or encrypted with a different key).
 var ErrInvalidCookie = errors.New("auth: invalid session cookie")
 
+// ErrNoKeys is returned when NewSessionCookieCodec is called with an empty
+// key slice.
+var ErrNoKeys = errors.New("auth.NewSessionCookieCodec: at least one key is required")
+
 // SessionCookieCodec encrypts/decrypts the session JWT into an opaque,
 // authenticated cookie value using AES-256-GCM and manages the Set-Cookie /
 // clear-cookie headers.
+//
+// Multiple keys are supported for zero-downtime rotation: gcms[0] is always
+// used for encryption; all keys are tried for decryption so that cookies
+// encrypted with an older key remain valid after a rotation.
 type SessionCookieCodec struct {
-	gcm    cipher.AEAD
+	gcms   []cipher.AEAD // gcms[0] is the active key; older keys follow for decryption only
 	secure bool
 	ttl    time.Duration
 	name   string
 }
 
-// NewSessionCookieCodec builds a codec from a 32-byte key. secure controls the
-// cookie's Secure attribute, ttl its Max-Age. An empty name falls back to
-// DefaultSessionCookieName.
-func NewSessionCookieCodec(key []byte, secure bool, ttl time.Duration, name string) (*SessionCookieCodec, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("auth.NewSessionCookieCodec: %w", err)
+// NewSessionCookieCodec builds a codec from one or more 32-byte keys. keys[0]
+// is the active encryption key; subsequent keys are only used for decryption,
+// enabling zero-downtime rotation. At least one key is required.
+//
+// secure controls the cookie's Secure attribute; ttl its Max-Age. An empty
+// name falls back to DefaultSessionCookieName.
+func NewSessionCookieCodec(keys [][]byte, secure bool, ttl time.Duration, name string) (*SessionCookieCodec, error) {
+	if len(keys) == 0 {
+		return nil, ErrNoKeys
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("auth.NewSessionCookieCodec: %w", err)
+	gcms := make([]cipher.AEAD, len(keys))
+	for i, key := range keys {
+		block, err := aes.NewCipher(key)
+		if err != nil {
+			return nil, fmt.Errorf("auth.NewSessionCookieCodec: key[%d]: %w", i, err)
+		}
+		gcm, err := cipher.NewGCM(block)
+		if err != nil {
+			return nil, fmt.Errorf("auth.NewSessionCookieCodec: key[%d]: %w", i, err)
+		}
+		gcms[i] = gcm
 	}
 	if name == "" {
 		name = DefaultSessionCookieName
 	}
-	return &SessionCookieCodec{gcm: gcm, secure: secure, ttl: ttl, name: name}, nil
+	return &SessionCookieCodec{gcms: gcms, secure: secure, ttl: ttl, name: name}, nil
 }
 
 // Name returns the cookie name.
 func (c *SessionCookieCodec) Name() string { return c.name }
 
-// Encrypt seals the JWT with AES-256-GCM and returns base64url(nonce||ciphertext).
+// Encrypt seals the JWT with AES-256-GCM using the active (first) key and
+// returns base64url(nonce||ciphertext).
 func (c *SessionCookieCodec) Encrypt(jwt string) (string, error) {
-	nonce := make([]byte, c.gcm.NonceSize())
+	gcm := c.gcms[0]
+	nonce := make([]byte, gcm.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("auth.SessionCookieCodec.Encrypt: %w", err)
 	}
-	sealed := c.gcm.Seal(nonce, nonce, []byte(jwt), nil)
+	sealed := gcm.Seal(nonce, nonce, []byte(jwt), nil)
 	return base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
-// Decrypt reverses Encrypt. Any decoding or authentication failure yields
-// ErrInvalidCookie.
+// Decrypt reverses Encrypt, trying each key in order. Any decoding or
+// authentication failure with all keys yields ErrInvalidCookie.
 func (c *SessionCookieCodec) Decrypt(value string) (string, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(value)
 	if err != nil {
 		return "", ErrInvalidCookie
 	}
-	ns := c.gcm.NonceSize()
-	if len(raw) < ns {
-		return "", ErrInvalidCookie
+	for _, gcm := range c.gcms {
+		ns := gcm.NonceSize()
+		if len(raw) < ns {
+			continue
+		}
+		nonce, ciphertext := raw[:ns], raw[ns:]
+		plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+		if err != nil {
+			continue
+		}
+		return string(plain), nil
 	}
-	nonce, ciphertext := raw[:ns], raw[ns:]
-	plain, err := c.gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		return "", ErrInvalidCookie
-	}
-	return string(plain), nil
+	return "", ErrInvalidCookie
 }
 
 // Set writes the encrypted session cookie onto the response.

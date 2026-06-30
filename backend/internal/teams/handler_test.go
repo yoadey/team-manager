@@ -93,7 +93,7 @@ func testAuthUser() *auth.UserRow {
 
 // testCodec is a shared session cookie codec (fixed all-zero key) for tests.
 var testCodec = func() *auth.SessionCookieCodec {
-	c, err := auth.NewSessionCookieCodec(make([]byte, 32), false, time.Hour, "")
+	c, err := auth.NewSessionCookieCodec([][]byte{make([]byte, 32)}, false, time.Hour, "")
 	if err != nil {
 		panic(err)
 	}
@@ -112,7 +112,7 @@ func sessionCookie(jwt string) *http.Cookie {
 // withAuthUser wraps a handler with auth middleware using a fake user.
 func withAuthUser(h http.Handler, user *auth.UserRow) http.Handler {
 	logger := slog.Default()
-	authH := auth.NewHandler(&fakeAuthSvc{user: user}, logger, testCodec)
+	authH := auth.NewHandler(&fakeAuthSvc{user: user}, logger, testCodec, nil)
 	return authH.AuthMiddleware(h)
 }
 

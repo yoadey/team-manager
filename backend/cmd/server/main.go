@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,10 +14,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/yoadey/team-manager/backend/internal/absences"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/config"
 	"github.com/yoadey/team-manager/backend/internal/db"
@@ -29,6 +32,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/news"
 	"github.com/yoadey/team-manager/backend/internal/notifications"
 	"github.com/yoadey/team-manager/backend/internal/observability"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/polls"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/server"
@@ -62,6 +66,16 @@ func initObservability(ctx context.Context, cfg *config.Config) (func(context.Co
 	}, nil
 }
 
+// warnIfMetricsOpen logs a startup warning when the /metrics endpoint is
+// unauthenticated in a production configuration (COOKIE_SECURE=true).
+// In production the endpoint should be protected via METRICS_TOKEN or
+// restricted at the network layer (private subnet, mTLS).
+func warnIfMetricsOpen(cfg *config.Config) {
+	if cfg.MetricsToken == "" && cfg.CookieSecure {
+		slog.Warn("METRICS_TOKEN is not set; /metrics is unauthenticated — restrict access at the network layer or set METRICS_TOKEN")
+	}
+}
+
 // metricsHandler exposes Prometheus metrics, requiring a bearer token when one
 // is configured. Left open when token is empty so local dev and in-cluster
 // scraping over a private network keep working.
@@ -73,7 +87,40 @@ func metricsHandler(token string) http.Handler {
 	return h
 }
 
+// runHTTPServer starts the HTTP server and blocks until it exits. Only
+// non-close errors are logged — ErrServerClosed is the expected shutdown path.
+func runHTTPServer(srv *http.Server) {
+	slog.Info("server starting", "port", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("server error", "err", err)
+		os.Exit(1)
+	}
+}
+
+// initAuthComponents constructs the auth handler and session codec from config.
+// Extracted to keep main()'s cyclomatic complexity within acceptable bounds.
+func initAuthComponents(
+	pool *pgxpool.Pool,
+	cfg *config.Config,
+	logger *slog.Logger,
+	auditLogger *audit.Logger,
+) (*auth.Handler, *auth.SessionCookieCodec, error) {
+	repo := auth.NewRepository(pool)
+	svc, err := auth.NewService(repo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("auth service: %w", err)
+	}
+	codec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKeys, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cookie codec: %w", err)
+	}
+	return auth.NewHandler(svc, logger, codec, auditLogger), codec, nil
+}
+
 func main() {
+	migrateOnly := flag.Bool("migrate-only", false, "run database migrations and exit")
+	flag.Parse()
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
 
@@ -84,6 +131,8 @@ func main() {
 		slog.Error("config error", "err", err)
 		os.Exit(1)
 	}
+
+	warnIfMetricsOpen(cfg)
 
 	// ─── Observability ───────────────────────────────────────────────────────
 	// Tracing and error tracking are opt-in (OTEL_EXPORTER_OTLP_ENDPOINT /
@@ -116,9 +165,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *migrateOnly {
+		slog.Info("migrations complete, exiting")
+		pool.Close()
+		os.Exit(0)
+	}
+
 	// ─── River job queue ──────────────────────────────────────────────────────
 
-	jobsClient, riverClient, err := jobs.NewClient(pool)
+	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays)
+	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
 		os.Exit(1)
@@ -133,20 +189,25 @@ func main() {
 		}
 	}()
 
+	// ─── Audit logger ────────────────────────────────────────────────────────
+	// Writes to both structured log (stdout) and the audit_log DB table so that
+	// records survive log rotation and can be queried for compliance review.
+	auditLogger := audit.New(logger).WithDB(pool)
+
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	authRepo := auth.NewRepository(pool)
-	authSvc, err := auth.NewService(authRepo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, logger, auditLogger)
 	if err != nil {
-		slog.Error("auth service init failed", "err", err)
-		os.Exit(1) //nolint:gocritic
+		slog.Error("auth init failed", "err", err)
+		os.Exit(1) //nolint:gocritic // exitAfterDefer: river client stop defer is non-critical cleanup
 	}
-	cookieCodec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKey, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
-	if err != nil {
-		slog.Error("cookie codec init failed", "err", err)
-		os.Exit(1)
-	}
-	authHandler := auth.NewHandler(authSvc, logger, cookieCodec)
+
+	// ─── Pagination ──────────────────────────────────────────────────────────
+
+	// A single Paginator is shared across all services that produce/consume
+	// keyset cursors. When PAGINATION_HMAC_KEY is set, cursors are HMAC-signed
+	// so that clients cannot craft arbitrary cursor values.
+	pager := pagination.New(cfg.PaginationHMACKey)
 
 	// ─── Teams ───────────────────────────────────────────────────────────────
 
@@ -157,37 +218,37 @@ func main() {
 	// ─── Members ─────────────────────────────────────────────────────────────
 
 	membersRepo := members.NewRepository(pool)
-	membersSvc := members.NewService(membersRepo)
-	membersHandler := members.NewHandler(membersSvc, logger)
+	membersSvc := members.NewService(membersRepo, pager)
+	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
 
 	// ─── Roles ───────────────────────────────────────────────────────────────
 
 	rolesRepo := roles.NewRepository(pool)
 	rolesSvc := roles.NewService(rolesRepo)
-	rolesHandler := roles.NewHandler(rolesSvc, logger)
+	rolesHandler := roles.NewHandler(rolesSvc, logger, auditLogger)
 
 	// ─── Events ──────────────────────────────────────────────────────────────
 
 	eventsRepo := events.NewRepository(pool)
-	eventsSvc := events.NewService(eventsRepo, jobsClient)
+	eventsSvc := events.NewService(eventsRepo, jobsClient, pager)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
 
 	// ─── Absences ────────────────────────────────────────────────────────────
 
 	absencesRepo := absences.NewRepository(pool)
-	absencesSvc := absences.NewService(absencesRepo)
+	absencesSvc := absences.NewService(absencesRepo, pager)
 	absencesHandler := absences.NewHandler(absencesSvc, logger)
 
 	// ─── News ────────────────────────────────────────────────────────────────
 
 	newsRepo := news.NewRepository(pool)
-	newsSvc := news.NewService(newsRepo, jobsClient)
+	newsSvc := news.NewService(newsRepo, jobsClient, pager)
 	newsHandler := news.NewHandler(newsSvc, logger)
 
 	// ─── Polls ───────────────────────────────────────────────────────────────
 
 	pollsRepo := polls.NewRepository(pool)
-	pollsSvc := polls.NewService(pollsRepo, jobsClient)
+	pollsSvc := polls.NewService(pollsRepo, jobsClient, pager)
 	pollsHandler := polls.NewHandler(pollsSvc, logger)
 
 	// ─── Notifications ────────────────────────────────────────────────────────
@@ -200,7 +261,7 @@ func main() {
 
 	financesRepo := finances.NewRepository(pool)
 	financesSvc := finances.NewService(financesRepo)
-	financesHandler := finances.NewHandler(financesSvc, logger)
+	financesHandler := finances.NewHandler(financesSvc, logger, auditLogger)
 
 	// ─── Stats ───────────────────────────────────────────────────────────────
 
@@ -241,8 +302,9 @@ func main() {
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.CSRFOriginCheck(cfg.AllowedOrigins))
-	r.Use(middleware.RateLimit(100))
+	r.Use(middleware.RateLimit(cfg.RateLimitRPS))
 	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
+	r.Use(middleware.APIVersion("v1"))
 
 	// Internal endpoints (no auth, no external prefix).
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -277,7 +339,7 @@ func main() {
 		// Public auth endpoints — no JWT required. Must be registered AFTER the
 		// generated mux above to override its authenticated duplicates.
 		// Per-IP brute-force protection: max 5 login attempts per minute.
-		r.With(middleware.PerIPRateLimit(5, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
+		r.With(middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.Login(w, req)
 		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
@@ -297,13 +359,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	go func() {
-		slog.Info("server starting", "port", cfg.Port)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("server error", "err", err)
-			os.Exit(1)
-		}
-	}()
+	go runHTTPServer(httpSrv)
 
 	// ─── Graceful shutdown ───────────────────────────────────────────────────
 

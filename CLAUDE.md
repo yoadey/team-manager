@@ -121,19 +121,23 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `JWT_PUBLIC_KEY`  | _(auto-generated in dev)_   | RSA-2048 public key PEM        |
 | `SESSION_TTL_HOURS`| `720`                      | Session lifetime (30 days)     |
 | `MIGRATIONS_DIR`  | `internal/db/migrations`    | Goose migrations directory     |
-| `COOKIE_ENCRYPTION_KEY`| _(auto-generated in dev)_ | AES-256 key (32 bytes, hex or base64) encrypting the session cookie. **Required when `COOKIE_SECURE=true`** — startup fails without it (an ephemeral key would drop all sessions on restart and break multi-instance deployments). |
+| `COOKIE_ENCRYPTION_KEYS`| _(empty)_ | Comma-separated list of AES-256 keys (newest first) for zero-downtime rotation. Takes precedence over `COOKIE_ENCRYPTION_KEY`. Each key: 32 bytes, hex or base64. |
+| `COOKIE_ENCRYPTION_KEY`| _(auto-generated in dev)_ | Single AES-256 key (32 bytes, hex or base64). Used when `COOKIE_ENCRYPTION_KEYS` is unset. **Required when `COOKIE_SECURE=true`** — startup fails without it. Generate with `openssl rand -base64 32`. |
 | `COOKIE_SECURE`   | `true`                      | Cookie `Secure` flag; set `false` for local http |
 | `COOKIE_NAME`     | `tv_session`                | Session cookie name (override only if needed) |
-| `METRICS_TOKEN`   | _(empty)_                   | Bearer token guarding `/metrics`; open when unset |
+| `METRICS_TOKEN`   | _(empty)_                   | Bearer token guarding `/metrics`; open when unset. **Recommended in production** — a warning is logged at startup when unset with `COOKIE_SECURE=true`. |
+| `RATE_LIMIT_RPS`  | `100`                       | Global per-IP request rate limit (requests per second). |
+| `LOGIN_RATE_LIMIT_PER_MIN` | `5`              | Per-IP login attempt limit per minute (brute-force protection). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_       | OTLP/HTTP collector URL; enables OpenTelemetry tracing when set (other `OTEL_*` vars honored by the SDK) |
 | `OTEL_SERVICE_NAME` | `team-manager-backend`    | Service name reported in traces |
 | `SENTRY_DSN`      | _(empty)_                   | Sentry DSN for backend error tracking; disabled when empty |
 | `ENVIRONMENT`     | _(empty)_                   | Environment label attached to Sentry events |
 
-> **Key rotation:** a single `COOKIE_ENCRYPTION_KEY` is used; rotating it invalidates all
-> active sessions (every user must log in again). Generate a key with
-> `openssl rand -base64 32`. Multi-key rotation (new key encrypts, old keys still decrypt)
-> is a possible future enhancement.
+> **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation. Set
+> the new key first, then append the old key(s): `COOKIE_ENCRYPTION_KEYS=<new>,<old>`.
+> Encryption always uses the first key; decryption tries all keys in order. Old keys can
+> be removed once all sessions using them have expired (after `SESSION_TTL_HOURS`).
+> Generate a new key with `openssl rand -base64 32`.
 
 ## Testing
 

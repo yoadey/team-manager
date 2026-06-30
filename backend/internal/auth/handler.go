@@ -36,9 +36,13 @@ type Handler struct {
 }
 
 // NewHandler creates a new Handler. The codec is used by AuthMiddleware to read
-// the encrypted session cookie.
-func NewHandler(svc authService, logger *slog.Logger, codec *SessionCookieCodec) *Handler {
-	return &Handler{svc: svc, logger: logger, codec: codec, audit: audit.New(logger)}
+// the encrypted session cookie. al is the shared audit logger; when nil a
+// log-only logger is created from logger.
+func NewHandler(svc authService, logger *slog.Logger, codec *SessionCookieCodec, al *audit.Logger) *Handler {
+	if al == nil {
+		al = audit.New(logger)
+	}
+	return &Handler{svc: svc, logger: logger, codec: codec, audit: al}
 }
 
 // ListProviders returns the list of supported login providers (hardcoded to password).

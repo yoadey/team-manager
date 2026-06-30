@@ -25,12 +25,17 @@ type memberRepo interface {
 
 // Service implements member business logic.
 type Service struct {
-	repo memberRepo
+	repo  memberRepo
+	pager *pagination.Paginator
 }
 
-// NewService creates a new Service.
-func NewService(repo memberRepo) *Service {
-	return &Service{repo: repo}
+// NewService creates a new Service. pager may be nil, in which case a default
+// (unsigned) Paginator is used.
+func NewService(repo memberRepo, pager *pagination.Paginator) *Service {
+	if pager == nil {
+		pager = pagination.New(nil)
+	}
+	return &Service{repo: repo, pager: pager}
 }
 
 // ListMembers returns a keyset page of members plus the cursor for the next
@@ -39,7 +44,7 @@ func NewService(repo memberRepo) *Service {
 func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
 	var cur *ListCursor
 	var decoded ListCursor
-	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
 		return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", err)
 	} else if ok {
 		cur = &decoded
@@ -54,7 +59,7 @@ func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cur
 	if len(rows) > limit {
 		rows = rows[:limit]
 		last := rows[len(rows)-1]
-		token, err := pagination.EncodeCursor(ListCursor{Name: last.Name, ID: last.MembershipID})
+		token, err := s.pager.Encode(ListCursor{Name: last.Name, ID: last.MembershipID})
 		if err != nil {
 			return nil, nil, fmt.Errorf("members.Service.ListMembers: %w", err)
 		}

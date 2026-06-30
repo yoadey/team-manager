@@ -76,7 +76,7 @@ func TestService_ListByTeam(t *testing.T) {
 		},
 	}
 
-	svc := absences.NewService(repo)
+	svc := absences.NewService(repo, nil)
 	result, next, err := svc.ListByTeam(context.Background(), teamID, 50, "")
 
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestService_ListByUser(t *testing.T) {
 		},
 	}
 
-	svc := absences.NewService(repo)
+	svc := absences.NewService(repo, nil)
 	result, next, err := svc.ListByUser(context.Background(), teamID, userID, 50, "")
 
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestService_Create(t *testing.T) {
 		},
 	}
 
-	svc := absences.NewService(repo)
+	svc := absences.NewService(repo, nil)
 	body := &gen.CreateAbsenceRequest{
 		UserId: userID,
 		From:   openapi_types.Date{Time: time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)},
@@ -151,7 +151,7 @@ func TestService_Delete(t *testing.T) {
 		},
 	}
 
-	svc := absences.NewService(repo)
+	svc := absences.NewService(repo, nil)
 	err := svc.Delete(context.Background(), id)
 
 	require.NoError(t, err)
@@ -173,7 +173,7 @@ func TestService_Update(t *testing.T) {
 		},
 	}
 
-	svc := absences.NewService(repo)
+	svc := absences.NewService(repo, nil)
 	body := &gen.UpdateAbsenceRequest{Reason: &reason}
 	result, err := svc.Update(context.Background(), id, body)
 

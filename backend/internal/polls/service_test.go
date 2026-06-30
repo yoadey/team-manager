@@ -108,7 +108,7 @@ func TestService_ListByTeam(t *testing.T) {
 		listVotes: emptyVoteRepo(),
 	}
 
-	svc := polls.NewService(repo, nil)
+	svc := polls.NewService(repo, nil, nil)
 	result, next, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
 
 	require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestService_Create(t *testing.T) {
 		listVotes: emptyVoteRepo(),
 	}
 
-	svc := polls.NewService(repo, nil)
+	svc := polls.NewService(repo, nil, nil)
 	body := &gen.CreatePollRequest{
 		Question: "Vote now?",
 		Options:  []string{"Yes", "No"},
@@ -189,7 +189,7 @@ func TestService_Vote(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil)
+	svc := polls.NewService(repo, nil, nil)
 	result, err := svc.Vote(context.Background(), pollID, userID, []uuid.UUID{optionID})
 
 	require.NoError(t, err)
@@ -211,7 +211,7 @@ func TestService_Delete(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil)
+	svc := polls.NewService(repo, nil, nil)
 	err := svc.Delete(context.Background(), pollID)
 
 	require.NoError(t, err)

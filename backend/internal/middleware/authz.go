@@ -68,7 +68,8 @@ func RequireMembership(checker MembershipChecker) func(http.Handler) http.Handle
 // ─── RequirePermission ────────────────────────────────────────────────────────
 
 // routeModule maps the first URL segment after the {teamId} prefix to the RBAC
-// module that governs write access. Segments not in this table are "settings".
+// module that governs write access. Segments not in this table are unknown and
+// will be rejected with 404 rather than silently falling back to "settings".
 var routeModule = map[string]string{
 	"events":        "events",
 	"members":       "members",
@@ -78,6 +79,16 @@ var routeModule = map[string]string{
 	"finances":      "finances",
 	"absences":      "", // self-service: no write check
 	"notifications": "", // self-service: no write check
+	// settings-level segments handled explicitly below (photo, logo, invite)
+}
+
+// knownSettingsSegments are path segments that map to the "settings" module but
+// are not listed in routeModule because they are handled by explicit checks in
+// moduleForPath.
+var knownSettingsSegments = map[string]bool{
+	"photo":  true,
+	"logo":   true,
+	"invite": true,
 }
 
 // selfServiceWritePaths lists sub-paths (after {teamId}) that any member may
@@ -137,9 +148,15 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 			}
 
 			// Determine the required module.
-			module := moduleForPath(subPath, r)
+			module, known := moduleForPath(subPath, r)
+			if !known {
+				// Unknown path segment — reject with 404 rather than silently
+				// falling back to the "settings" module.
+				writeProblem(w, http.StatusNotFound, "unknown resource path")
+				return
+			}
 			if module == "" {
-				// No restriction beyond membership.
+				// No restriction beyond membership (self-service segments).
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -187,22 +204,32 @@ func isSelfService(subPath string) bool {
 	return false
 }
 
-// moduleForPath returns the RBAC module name for a sub-path, or "" for unrestricted.
-func moduleForPath(subPath string, r *http.Request) string {
+// moduleForPath returns the RBAC module name for a sub-path and whether the
+// path segment is a known route. Returns ("", false) only when the first path
+// segment is not recognised — callers should respond with 404.
+//
+// Return values:
+//
+//	("settings", true)  — settings module write check required
+//	("events",   true)  — events module write check required
+//	("",         true)  — no additional restriction (self-service or open)
+//	("",         false) — unknown segment; caller must return 404
+func moduleForPath(subPath string, r *http.Request) (string, bool) {
 	// PATCH on the team itself (subPath == "") needs settings permission.
 	if subPath == "" && r.Method == http.MethodPatch {
-		return "settings"
+		return "settings", true
 	}
-	// photo / logo / invite are settings mutations.
+	// photo / logo / invite are explicit settings mutations.
 	first := strings.SplitN(subPath, "/", 2)[0]
-	if first == "photo" || first == "logo" || first == "invite" {
-		return "settings"
+	if knownSettingsSegments[first] {
+		return "settings", true
 	}
 	m, ok := routeModule[first]
 	if !ok {
-		return "settings"
+		// Unknown segment — do not fall back to "settings".
+		return "", false
 	}
-	return m
+	return m, true
 }
 
 // hasWritePermission returns true if the effective permissions include write for module.
@@ -233,6 +260,7 @@ func writeProblem(w http.ResponseWriter, status int, detail string) {
 		http.StatusBadRequest:          "Bad Request",
 		http.StatusUnauthorized:        "Unauthorized",
 		http.StatusForbidden:           "Forbidden",
+		http.StatusNotFound:            "Not Found",
 		http.StatusInternalServerError: "Internal Server Error",
 	}
 	title, ok := titles[status]
