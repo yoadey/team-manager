@@ -21,6 +21,10 @@ const DefaultSessionCookieName = "tv_session"
 // authenticated (tampered, truncated, or encrypted with a different key).
 var ErrInvalidCookie = errors.New("auth: invalid session cookie")
 
+// ErrNoKeys is returned when NewSessionCookieCodec is called with an empty
+// key slice.
+var ErrNoKeys = errors.New("auth.NewSessionCookieCodec: at least one key is required")
+
 // SessionCookieCodec encrypts/decrypts the session JWT into an opaque,
 // authenticated cookie value using AES-256-GCM and manages the Set-Cookie /
 // clear-cookie headers.
@@ -43,7 +47,7 @@ type SessionCookieCodec struct {
 // name falls back to DefaultSessionCookieName.
 func NewSessionCookieCodec(keys [][]byte, secure bool, ttl time.Duration, name string) (*SessionCookieCodec, error) {
 	if len(keys) == 0 {
-		return nil, errors.New("auth.NewSessionCookieCodec: at least one key is required")
+		return nil, ErrNoKeys
 	}
 	gcms := make([]cipher.AEAD, len(keys))
 	for i, key := range keys {

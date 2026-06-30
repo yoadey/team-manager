@@ -39,25 +39,24 @@ var ErrCookieKeyRequired = errors.New("COOKIE_ENCRYPTION_KEY (or COOKIE_ENCRYPTI
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
 
+// Config holds all runtime configuration for the server.
+// CookieEncryptionKeys is an ordered list of AES-256 keys (newest first) for
+// zero-downtime rotation: keys[0] encrypts; all keys are tried for decryption.
+// Set via COOKIE_ENCRYPTION_KEYS (comma-separated) or COOKIE_ENCRYPTION_KEY (single).
 type Config struct {
-	Port                string
-	DatabaseURL         string
-	JWTPrivateKey       string
-	JWTPublicKey        string
-	SessionTTL          time.Duration
-	MigrationsDir       string
-	AllowedOrigins      []string
-	// CookieEncryptionKeys is the ordered list of AES-256 keys for session
-	// cookie encryption. keys[0] is used for encryption; all are tried for
-	// decryption, enabling zero-downtime rotation. Set via
-	// COOKIE_ENCRYPTION_KEYS (comma-separated) or COOKIE_ENCRYPTION_KEY
-	// (single key, backward-compatible).
+	Port                 string
+	DatabaseURL          string
+	JWTPrivateKey        string
+	JWTPublicKey         string
+	SessionTTL           time.Duration
+	MigrationsDir        string
+	AllowedOrigins       []string
 	CookieEncryptionKeys [][]byte
 	CookieSecure         bool
-	CookieName          string
-	PublicBaseURL       string
-	MetricsToken        string
-	SentryDSN           string
+	CookieName           string
+	PublicBaseURL        string
+	MetricsToken         string
+	SentryDSN            string
 	// RateLimitRPS is the global per-IP request rate limit (requests per second).
 	RateLimitRPS int
 	// LoginRateLimitPerMin is the per-IP login attempt limit per minute.
