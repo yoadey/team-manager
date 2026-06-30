@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -26,6 +27,10 @@ var ErrInvalidCookieKey = errors.New("COOKIE_ENCRYPTION_KEY must be 32 bytes enc
 // ErrInvalidPaginationHMACKey is returned when PAGINATION_HMAC_KEY is set but
 // not a valid 32-byte hex- or base64-encoded value.
 var ErrInvalidPaginationHMACKey = errors.New("PAGINATION_HMAC_KEY must be 32 bytes encoded as hex or base64")
+
+// ErrInvalidDatabaseURL is returned when DATABASE_URL has an invalid format
+// (wrong scheme or missing host).
+var ErrInvalidDatabaseURL = errors.New("DATABASE_URL must use scheme 'postgres' or 'postgresql' and include a host")
 
 // ErrCookieKeyRequired is returned when COOKIE_ENCRYPTION_KEY is unset while
 // COOKIE_SECURE is true (production), where an ephemeral key is unsafe.
@@ -69,6 +74,9 @@ func Load() (*Config, error) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		return nil, ErrDatabaseURLRequired
+	}
+	if err := validateDatabaseURL(dbURL); err != nil {
+		return nil, err
 	}
 
 	ttlHours := 720 // 30 days default
@@ -149,6 +157,23 @@ func Load() (*Config, error) {
 		RetentionNotificationDays: retentionNotificationDays,
 		RetentionSessionDays:      retentionSessionDays,
 	}, nil
+}
+
+// validateDatabaseURL checks that dsn uses the postgres/postgresql scheme and
+// includes a non-empty host, so DSN typos are caught at startup rather than
+// producing a cryptic connection error later.
+func validateDatabaseURL(dsn string) error {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return fmt.Errorf("DATABASE_URL: %w: %w", ErrInvalidDatabaseURL, err)
+	}
+	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
+		return ErrInvalidDatabaseURL
+	}
+	if u.Host == "" {
+		return ErrInvalidDatabaseURL
+	}
+	return nil
 }
 
 // loadAllowedOrigins parses ALLOWED_ORIGINS into a slice of trimmed, non-empty

@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
@@ -84,6 +85,36 @@ func metricsHandler(token string) http.Handler {
 		return middleware.RequireBearerToken(token)(h)
 	}
 	return h
+}
+
+// runHTTPServer starts the HTTP server and blocks until it exits. Only
+// non-close errors are logged — ErrServerClosed is the expected shutdown path.
+func runHTTPServer(srv *http.Server) {
+	slog.Info("server starting", "port", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("server error", "err", err)
+		os.Exit(1)
+	}
+}
+
+// initAuthComponents constructs the auth handler and session codec from config.
+// Extracted to keep main()'s cyclomatic complexity within acceptable bounds.
+func initAuthComponents(
+	pool *pgxpool.Pool,
+	cfg *config.Config,
+	logger *slog.Logger,
+	auditLogger *audit.Logger,
+) (*auth.Handler, *auth.SessionCookieCodec, error) {
+	repo := auth.NewRepository(pool)
+	svc, err := auth.NewService(repo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("auth service: %w", err)
+	}
+	codec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKey, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cookie codec: %w", err)
+	}
+	return auth.NewHandler(svc, logger, codec, auditLogger), codec, nil
 }
 
 func main() {
@@ -165,18 +196,11 @@ func main() {
 
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	authRepo := auth.NewRepository(pool)
-	authSvc, err := auth.NewService(authRepo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, logger, auditLogger)
 	if err != nil {
-		slog.Error("auth service init failed", "err", err)
-		os.Exit(1) //nolint:gocritic
+		slog.Error("auth init failed", "err", err)
+		os.Exit(1) //nolint:gocritic // exitAfterDefer: river client stop defer is non-critical cleanup
 	}
-	cookieCodec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKey, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
-	if err != nil {
-		slog.Error("cookie codec init failed", "err", err)
-		os.Exit(1)
-	}
-	authHandler := auth.NewHandler(authSvc, logger, cookieCodec, auditLogger)
 
 	// ─── Pagination ──────────────────────────────────────────────────────────
 
@@ -335,13 +359,7 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	go func() {
-		slog.Info("server starting", "port", cfg.Port)
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("server error", "err", err)
-			os.Exit(1)
-		}
-	}()
+	go runHTTPServer(httpSrv)
 
 	// ─── Graceful shutdown ───────────────────────────────────────────────────
 
