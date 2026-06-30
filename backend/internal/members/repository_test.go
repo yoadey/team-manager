@@ -31,7 +31,7 @@ func seedMemberFixtures(t *testing.T, pool *pgxpool.Pool) (userID, teamID uuid.U
 }
 
 // seedRole inserts a role for the given team and returns its ID.
-func seedRole(t *testing.T, pool *pgxpool.Pool, teamID uuid.UUID, name string, perms string) uuid.UUID {
+func seedRole(t *testing.T, pool *pgxpool.Pool, teamID uuid.UUID, name, perms string) uuid.UUID {
 	t.Helper()
 	var roleID uuid.UUID
 	err := pool.QueryRow(context.Background(),
