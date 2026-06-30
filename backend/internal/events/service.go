@@ -16,9 +16,10 @@ import (
 
 // Sentinel errors for the events package.
 var (
-	ErrCreateEventNilBody = errors.New("events.Service.CreateEvent: nil body")
-	ErrCreateEventNoRow   = errors.New("events.Service.CreateEvent: no row returned")
-	ErrUpdateEventNilBody = errors.New("events.Service.UpdateEvent: nil body")
+	ErrCreateEventNilBody     = errors.New("events.Service.CreateEvent: nil body")
+	ErrCreateEventNoRow       = errors.New("events.Service.CreateEvent: no row returned")
+	ErrUpdateEventNilBody     = errors.New("events.Service.UpdateEvent: nil body")
+	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
 )
 
 // eventRepo is the interface the Service relies on.
@@ -45,20 +46,43 @@ type jobEnqueuer interface {
 	EnqueueNotification(ctx context.Context, args jobs.NotificationArgs) error
 }
 
-// Service implements event business logic.
-type Service struct {
-	repo  eventRepo
-	jobs  jobEnqueuer
-	pager *pagination.Paginator
+// teamRoleChecker verifies that a set of role IDs all belong to a given team.
+// Implemented by *roles.Repository.
+type teamRoleChecker interface {
+	RolesExistForTeam(ctx context.Context, teamID string, roleIDs []uuid.UUID) (bool, error)
 }
 
-// NewService creates a new Service. pager may be nil, in which case a default
-// (unsigned) Paginator is used.
-func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator) *Service {
+// Service implements event business logic.
+type Service struct {
+	repo        eventRepo
+	jobs        jobEnqueuer
+	pager       *pagination.Paginator
+	roleChecker teamRoleChecker
+}
+
+// NewService creates a new Service. pager may be nil (uses default Paginator).
+// roleChecker may be nil; when set, nominated_role_ids are validated to belong
+// to the event's team before any create or update is persisted.
+func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, jobs: enq, pager: pager}
+	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker}
+}
+
+// validateNominatedRoles checks that all provided role IDs belong to teamID.
+func (s *Service) validateNominatedRoles(ctx context.Context, teamID string, roleIDs []uuid.UUID) error {
+	if s.roleChecker == nil || len(roleIDs) == 0 {
+		return nil
+	}
+	ok, err := s.roleChecker.RolesExistForTeam(ctx, teamID, roleIDs)
+	if err != nil {
+		return fmt.Errorf("events: validate nominated roles: %w", err)
+	}
+	if !ok {
+		return ErrInvalidNominatedRoleIDs
+	}
+	return nil
 }
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
@@ -154,6 +178,10 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
 	}
 
+	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
+		return nil, err
+	}
+
 	var row *EventRow
 	if recurring {
 		rows, err := s.repo.CreateSeries(ctx, teamID, &params)
@@ -232,6 +260,10 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 	}
 	if body.NominatedRoleIds != nil {
 		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
+	}
+
+	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
+		return nil, err
 	}
 
 	row, err := s.repo.UpdateEvent(ctx, eventID, &params, scope)

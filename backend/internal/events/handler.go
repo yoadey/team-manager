@@ -91,6 +91,9 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)
 	if err != nil {
+		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
+			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+		}
 		h.logger.ErrorContext(ctx, "CreateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to create event")
 	}
@@ -142,6 +145,9 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")
+		}
+		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
+			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
 		}
 		h.logger.ErrorContext(ctx, "UpdateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to update event")

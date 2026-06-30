@@ -196,6 +196,9 @@ export const en: Messages = {
     pollQuestionMissing: 'Poll question is required.',
     pollOptionsMissing: 'Please provide at least two answer options.',
     pollOptionsDuplicate: 'Answer options must not be duplicated.',
+    emailInvalid: 'Email address is invalid.',
+    phoneInvalid: 'Phone number is invalid.',
+    birthdayInvalid: 'Birthday is invalid or in the future.',
   },
   events: {
     tabs: {
