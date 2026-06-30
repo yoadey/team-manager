@@ -1,3 +1,4 @@
+-- +goose NO TRANSACTION
 -- +goose Up
 -- +goose StatementBegin
 
@@ -261,16 +262,16 @@ CREATE TABLE oidc_accounts (
 
 -- ── Indexes ───────────────────────────────────────────────────────────────────
 
-CREATE INDEX ON events (team_id, date);
-CREATE INDEX ON attendance (event_id);
-CREATE INDEX ON attendance (user_id);
-CREATE INDEX ON notifications (team_id, created_at DESC);
-CREATE INDEX ON absences (team_id, from_date, to_date);
-CREATE INDEX ON penalty_assignments (team_id, user_id);
-CREATE INDEX ON contributions (team_id, month);
-CREATE INDEX ON membership_roles (membership_id);
-CREATE INDEX ON sessions (user_id);
-CREATE INDEX ON sessions (expires_at);
+CREATE INDEX CONCURRENTLY ON events (team_id, date);
+CREATE INDEX CONCURRENTLY ON attendance (event_id);
+CREATE INDEX CONCURRENTLY ON attendance (user_id);
+CREATE INDEX CONCURRENTLY ON notifications (team_id, created_at DESC);
+CREATE INDEX CONCURRENTLY ON absences (team_id, from_date, to_date);
+CREATE INDEX CONCURRENTLY ON penalty_assignments (team_id, user_id);
+CREATE INDEX CONCURRENTLY ON contributions (team_id, month);
+CREATE INDEX CONCURRENTLY ON membership_roles (membership_id);
+CREATE INDEX CONCURRENTLY ON sessions (user_id);
+CREATE INDEX CONCURRENTLY ON sessions (expires_at);
 
 -- +goose StatementEnd
 

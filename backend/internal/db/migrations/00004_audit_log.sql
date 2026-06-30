@@ -1,3 +1,4 @@
+-- +goose NO TRANSACTION
 -- +goose Up
 -- +goose StatementBegin
 
@@ -15,13 +16,13 @@ CREATE TABLE audit_log (
 );
 
 -- Index for time-range queries (compliance review, incident investigation).
-CREATE INDEX audit_log_occurred_at_idx ON audit_log (occurred_at DESC);
+CREATE INDEX CONCURRENTLY audit_log_occurred_at_idx ON audit_log (occurred_at DESC);
 
 -- Index for per-actor audit queries (e.g. "all actions by user X").
-CREATE INDEX audit_log_actor_id_idx ON audit_log (actor_id) WHERE actor_id IS NOT NULL;
+CREATE INDEX CONCURRENTLY audit_log_actor_id_idx ON audit_log (actor_id) WHERE actor_id IS NOT NULL;
 
 -- Index for event-type filtering (e.g. "all login failures in the last 7 days").
-CREATE INDEX audit_log_event_idx ON audit_log (event, occurred_at DESC);
+CREATE INDEX CONCURRENTLY audit_log_event_idx ON audit_log (event, occurred_at DESC);
 
 -- +goose StatementEnd
 

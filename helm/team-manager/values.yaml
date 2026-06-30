@@ -120,3 +120,10 @@ networkPolicy:
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
+monitoring:
+  enabled: false        # Set to true when Prometheus Operator is installed
+  namespace: ""         # Override to deploy ServiceMonitor to a different namespace
+  scrapeInterval: "30s"
+  metricsToken: ""      # If set, creates a Secret with the bearer token
+  additionalLabels: {}  # Labels to help Prometheus Operator find this ServiceMonitor
