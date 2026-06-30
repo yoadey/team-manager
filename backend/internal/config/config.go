@@ -20,9 +20,9 @@ var ErrDatabaseURLRequired = errors.New("DATABASE_URL is required")
 // ErrInvalidPositiveInt is returned when an integer env var is not a positive integer.
 var ErrInvalidPositiveInt = errors.New("must be a positive integer")
 
-// ErrInvalidCookieKey is returned when COOKIE_ENCRYPTION_KEY is set but not a
-// valid 32-byte hex- or base64-encoded value.
-var ErrInvalidCookieKey = errors.New("COOKIE_ENCRYPTION_KEY must be 32 bytes encoded as hex or base64")
+// ErrInvalidCookieKey is returned when a cookie encryption key value cannot be
+// decoded as a valid 32-byte hex- or base64-encoded value.
+var ErrInvalidCookieKey = errors.New("cookie encryption key must be 32 bytes encoded as hex or base64")
 
 // ErrInvalidPaginationHMACKey is returned when PAGINATION_HMAC_KEY is set but
 // not a valid 32-byte hex- or base64-encoded value.
@@ -32,9 +32,9 @@ var ErrInvalidPaginationHMACKey = errors.New("PAGINATION_HMAC_KEY must be 32 byt
 // (wrong scheme or missing host).
 var ErrInvalidDatabaseURL = errors.New("DATABASE_URL must use scheme 'postgres' or 'postgresql' and include a host")
 
-// ErrCookieKeyRequired is returned when COOKIE_ENCRYPTION_KEY is unset while
-// COOKIE_SECURE is true (production), where an ephemeral key is unsafe.
-var ErrCookieKeyRequired = errors.New("COOKIE_ENCRYPTION_KEY is required when COOKIE_SECURE=true")
+// ErrCookieKeyRequired is returned when no cookie encryption key is configured
+// while COOKIE_SECURE is true (production), where an ephemeral key is unsafe.
+var ErrCookieKeyRequired = errors.New("COOKIE_ENCRYPTION_KEY (or COOKIE_ENCRYPTION_KEYS) is required when COOKIE_SECURE=true")
 
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
@@ -47,8 +47,13 @@ type Config struct {
 	SessionTTL          time.Duration
 	MigrationsDir       string
 	AllowedOrigins      []string
-	CookieEncryptionKey []byte
-	CookieSecure        bool
+	// CookieEncryptionKeys is the ordered list of AES-256 keys for session
+	// cookie encryption. keys[0] is used for encryption; all are tried for
+	// decryption, enabling zero-downtime rotation. Set via
+	// COOKIE_ENCRYPTION_KEYS (comma-separated) or COOKIE_ENCRYPTION_KEY
+	// (single key, backward-compatible).
+	CookieEncryptionKeys [][]byte
+	CookieSecure         bool
 	CookieName          string
 	PublicBaseURL       string
 	MetricsToken        string
@@ -109,7 +114,7 @@ func Load() (*Config, error) {
 		cookieSecure = b
 	}
 
-	cookieKey, err := loadCookieEncryptionKey(cookieSecure)
+	cookieKeys, err := loadCookieEncryptionKeys(cookieSecure)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +150,7 @@ func Load() (*Config, error) {
 		SessionTTL:                time.Duration(ttlHours) * time.Hour,
 		MigrationsDir:             envOr("MIGRATIONS_DIR", "internal/db/migrations"),
 		AllowedOrigins:            origins,
-		CookieEncryptionKey:       cookieKey,
+		CookieEncryptionKeys:      cookieKeys,
 		CookieSecure:              cookieSecure,
 		CookieName:                os.Getenv("COOKIE_NAME"),
 		PublicBaseURL:             publicBaseURL,
@@ -193,25 +198,49 @@ func loadAllowedOrigins() []string {
 	return origins
 }
 
-// loadCookieEncryptionKey reads COOKIE_ENCRYPTION_KEY (hex or base64, 32 bytes).
-// When unset in a secure (production) configuration it is a hard error — an
-// ephemeral key would silently invalidate every session on restart and break
-// horizontal scaling (each instance would generate a different key). When unset
-// with COOKIE_SECURE=false (local dev) a random ephemeral key is generated with
-// a warning instead.
-func loadCookieEncryptionKey(secure bool) ([]byte, error) {
-	raw := os.Getenv("COOKIE_ENCRYPTION_KEY")
-	if raw == "" {
-		if secure {
-			return nil, ErrCookieKeyRequired
+// loadCookieEncryptionKeys reads cookie encryption keys from environment variables.
+// It checks COOKIE_ENCRYPTION_KEYS (plural, comma-separated, newest key first) and
+// falls back to COOKIE_ENCRYPTION_KEY (singular, backward-compatible). In production
+// (secure=true) at least one key is required; in dev an ephemeral key is generated.
+func loadCookieEncryptionKeys(secure bool) ([][]byte, error) {
+	if raw := os.Getenv("COOKIE_ENCRYPTION_KEYS"); raw != "" {
+		parts := strings.Split(raw, ",")
+		keys := make([][]byte, 0, len(parts))
+		for i, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			key, err := decodeKey32(part)
+			if err != nil {
+				return nil, fmt.Errorf("COOKIE_ENCRYPTION_KEYS[%d]: %w", i, ErrInvalidCookieKey)
+			}
+			keys = append(keys, key)
 		}
-		key := make([]byte, cookieKeySize)
-		if _, err := rand.Read(key); err != nil {
-			return nil, fmt.Errorf("generate dev cookie key: %w", err)
+		if len(keys) > 0 {
+			return keys, nil
 		}
-		slog.Warn("COOKIE_ENCRYPTION_KEY not set; generated an ephemeral dev key — sessions will not survive a restart")
-		return key, nil
 	}
+	if raw := os.Getenv("COOKIE_ENCRYPTION_KEY"); raw != "" {
+		key, err := decodeKey32(raw)
+		if err != nil {
+			return nil, ErrInvalidCookieKey
+		}
+		return [][]byte{key}, nil
+	}
+	if secure {
+		return nil, ErrCookieKeyRequired
+	}
+	key := make([]byte, cookieKeySize)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate dev cookie key: %w", err)
+	}
+	slog.Warn("COOKIE_ENCRYPTION_KEY not set; generated an ephemeral dev key — sessions will not survive a restart")
+	return [][]byte{key}, nil
+}
+
+// decodeKey32 parses a hex- or base64-encoded 32-byte AES key.
+func decodeKey32(raw string) ([]byte, error) {
 	if key, err := hex.DecodeString(raw); err == nil && len(key) == cookieKeySize {
 		return key, nil
 	}

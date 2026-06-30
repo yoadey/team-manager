@@ -93,7 +93,7 @@ func testAuthUser() *auth.UserRow {
 
 // testCodec is a shared session cookie codec (fixed all-zero key) for tests.
 var testCodec = func() *auth.SessionCookieCodec {
-	c, err := auth.NewSessionCookieCodec(make([]byte, 32), false, time.Hour, "")
+	c, err := auth.NewSessionCookieCodec([][]byte{make([]byte, 32)}, false, time.Hour, "")
 	if err != nil {
 		panic(err)
 	}

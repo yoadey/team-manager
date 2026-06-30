@@ -156,7 +156,7 @@ func TestLoad_CookieKeyEphemeralInDev(t *testing.T) {
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	assert.Len(t, cfg.CookieEncryptionKey, 32)
+	assert.Len(t, cfg.CookieEncryptionKeys[0], 32)
 	assert.False(t, cfg.CookieSecure)
 }
 
@@ -169,7 +169,7 @@ func TestLoad_CookieKeyFromHex(t *testing.T) {
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	assert.Len(t, cfg.CookieEncryptionKey, 32)
+	assert.Len(t, cfg.CookieEncryptionKeys[0], 32)
 	assert.True(t, cfg.CookieSecure)
 }
 
@@ -182,7 +182,7 @@ func TestLoad_CookieKeyFromBase64(t *testing.T) {
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
-	assert.Len(t, cfg.CookieEncryptionKey, 32)
+	assert.Len(t, cfg.CookieEncryptionKeys[0], 32)
 }
 
 func TestLoad_CookieKeyInvalidLength(t *testing.T) {
@@ -192,4 +192,42 @@ func TestLoad_CookieKeyInvalidLength(t *testing.T) {
 
 	_, err := config.Load()
 	require.ErrorIs(t, err, config.ErrInvalidCookieKey)
+}
+
+func TestLoad_CookieEncryptionKeysPlural(t *testing.T) {
+	// Two valid 32-byte keys as hex — newest key first.
+	const key0 = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+	const key1 = "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100"
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "")
+	t.Setenv("COOKIE_ENCRYPTION_KEYS", key0+","+key1)
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	require.Len(t, cfg.CookieEncryptionKeys, 2)
+	assert.Len(t, cfg.CookieEncryptionKeys[0], 32)
+	assert.Len(t, cfg.CookieEncryptionKeys[1], 32)
+}
+
+func TestLoad_CookieEncryptionKeysPluralInvalidEntry(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("COOKIE_ENCRYPTION_KEYS", "notakey")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrInvalidCookieKey)
+}
+
+func TestLoad_DatabaseURLInvalidScheme(t *testing.T) {
+	t.Setenv("DATABASE_URL", "mysql://user:pass@localhost/db")
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrInvalidDatabaseURL)
+}
+
+func TestLoad_DatabaseURLMissingHost(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres:///db")
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrInvalidDatabaseURL)
 }

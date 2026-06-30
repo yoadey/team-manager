@@ -110,7 +110,7 @@ func initAuthComponents(
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth service: %w", err)
 	}
-	codec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKey, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
+	codec, err := auth.NewSessionCookieCodec(cfg.CookieEncryptionKeys, cfg.CookieSecure, cfg.SessionTTL, cfg.CookieName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cookie codec: %w", err)
 	}

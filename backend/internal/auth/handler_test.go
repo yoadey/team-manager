@@ -74,7 +74,7 @@ func testUser() *auth.UserRow {
 // testCodec builds a session cookie codec with a fixed all-zero key for tests.
 func testCodec(t *testing.T) *auth.SessionCookieCodec {
 	t.Helper()
-	codec, err := auth.NewSessionCookieCodec(make([]byte, 32), false, time.Hour, "")
+	codec, err := auth.NewSessionCookieCodec([][]byte{make([]byte, 32)}, false, time.Hour, "")
 	require.NoError(t, err)
 	return codec
 }
