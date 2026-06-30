@@ -1,3 +1,4 @@
+-- +goose NO TRANSACTION
 -- +goose Up
 -- +goose StatementBegin
 
@@ -259,20 +260,25 @@ CREATE TABLE oidc_accounts (
 -- River requires its own schema; installed via river migrate-up in the Makefile.
 -- See: https://riverqueue.com/docs/schema
 
--- ── Indexes ───────────────────────────────────────────────────────────────────
-
-CREATE INDEX ON events (team_id, date);
-CREATE INDEX ON attendance (event_id);
-CREATE INDEX ON attendance (user_id);
-CREATE INDEX ON notifications (team_id, created_at DESC);
-CREATE INDEX ON absences (team_id, from_date, to_date);
-CREATE INDEX ON penalty_assignments (team_id, user_id);
-CREATE INDEX ON contributions (team_id, month);
-CREATE INDEX ON membership_roles (membership_id);
-CREATE INDEX ON sessions (user_id);
-CREATE INDEX ON sessions (expires_at);
-
 -- +goose StatementEnd
+
+-- Indexes use CONCURRENTLY so they build without holding a full table lock,
+-- which matters on large datasets in production. CONCURRENTLY cannot run
+-- inside a transaction or a StatementBegin/End batch, so these statements
+-- live outside the block above (requires -- +goose NO TRANSACTION at the top).
+-- IF NOT EXISTS makes re-runs of this migration safe.
+
+-- ── Indexes ───────────────────────────────────────────────────────────────────
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_events_team_id_date          ON events              (team_id, date);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_attendance_event_id          ON attendance          (event_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_attendance_user_id           ON attendance          (user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notifications_team_created   ON notifications       (team_id, created_at DESC);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_absences_team_dates          ON absences            (team_id, from_date, to_date);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_penalty_assignments_team_user ON penalty_assignments (team_id, user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contributions_team_month     ON contributions       (team_id, month);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_membership_roles_membership  ON membership_roles    (membership_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_id             ON sessions            (user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_expires_at          ON sessions            (expires_at);
 
 -- +goose Down
 -- +goose StatementBegin
