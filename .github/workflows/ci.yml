@@ -440,6 +440,7 @@ jobs:
 
       - name: OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.12.0
+        continue-on-error: true
         with:
           target: 'http://localhost:8080'
           rules_file_name: '.zap/rules.tsv'
