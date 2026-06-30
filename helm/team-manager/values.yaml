@@ -127,3 +127,17 @@ monitoring:
   scrapeInterval: "30s"
   metricsToken: ""      # If set, creates a Secret with the bearer token
   additionalLabels: {}  # Labels to help Prometheus Operator find this ServiceMonitor
+
+migrations:
+  runAsInitContainer: true   # Run DB migrations as an initContainer before the app starts
+
+backup:
+  enabled: false           # Enable daily PostgreSQL backup CronJob
+  schedule: "0 2 * * *"   # Daily at 02:00 UTC
+  postgresVersion: "17"
+  retentionDays: 30
+  s3:
+    enabled: false
+    bucket: ""
+    region: "eu-central-1"
+    endpoint: ""           # Override for S3-compatible storage (MinIO, etc.)
