@@ -42,8 +42,16 @@ type NotificationWorker struct {
 	pool *pgxpool.Pool
 }
 
+// NewNotificationWorker constructs a NotificationWorker backed by pool.
+func NewNotificationWorker(pool *pgxpool.Pool) *NotificationWorker {
+	return &NotificationWorker{pool: pool}
+}
+
 // Work is called by River for each job. It inserts a row into the notifications table.
 func (w *NotificationWorker) Work(ctx context.Context, job *river.Job[NotificationArgs]) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	a := job.Args
 	_, err := w.pool.Exec(ctx, `
 		INSERT INTO notifications
@@ -69,7 +77,7 @@ type Client struct {
 // in the same process.
 func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
 	workers := river.NewWorkers()
-	river.AddWorker(workers, &NotificationWorker{pool: pool})
+	river.AddWorker(workers, NewNotificationWorker(pool))
 
 	var periodicJobs []*river.PeriodicJob
 	if retentionWorker != nil {

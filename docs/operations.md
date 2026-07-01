@@ -21,6 +21,13 @@ Run it from a cron job / Kubernetes CronJob against the production DSN. Keep at
 least 7 daily + 4 weekly copies; encrypt at rest and verify restores regularly
 (a backup you have never restored is not a backup).
 
+This repo does not ship a CronJob/scheduler manifest, since the scheduling
+mechanism is deployment-topology-specific (Kubernetes CronJob, systemd timer,
+managed-Postgres provider backup, ...). Whichever mechanism is used, wire up
+a periodic *restore* test (e.g. restore the latest dump into a scratch
+database and run a trivial query) — a backup pipeline that only ever writes
+and never restores can silently produce unusable dumps for months.
+
 ### Restore
 
 ```bash
@@ -45,6 +52,36 @@ Logical dumps remain the simplest portable baseline.
 - `river_*` job-queue tables: in-flight background jobs (notifications). Losing
   these drops pending notifications but not core data.
 - Session rows: users simply re-authenticate.
+
+## JWT key rotation
+
+Sessions are signed with `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` (RS256). Unlike
+`COOKIE_ENCRYPTION_KEYS`, there is no built-in dual-key rotation for these —
+rotating them invalidates every existing session immediately (all holders
+must re-authenticate). To rotate:
+
+1. Generate a new RSA-2048 key pair.
+2. Deploy the new `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` during a maintenance
+   window (accept that all active sessions are invalidated).
+3. Communicate the forced re-login to users ahead of time if possible.
+
+Rotate on a suspected key compromise, or on a routine schedule aligned with
+your organization's key-management policy.
+
+## Trace sampling
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` enables tracing with the SDK's default sampler
+(parent-based, always-on), i.e. 100% of requests are traced when enabled. For
+production traffic beyond low volume, configure a probabilistic sampler via
+the standard OpenTelemetry SDK environment variables, e.g.:
+
+```
+OTEL_TRACES_SAMPLER=traceidratio
+OTEL_TRACES_SAMPLER_ARG=0.1   # sample 10% of requests
+```
+
+Keep sampling at 100% in staging/low-traffic environments where full
+visibility matters more than collector load.
 
 ## Metrics endpoint
 

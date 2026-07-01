@@ -81,6 +81,9 @@ func deleteBatched(ctx context.Context, pool *pgxpool.Pool, table, dateColumn st
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
 func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs]) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	now := time.Now()
 
 	// Delete old notifications.
