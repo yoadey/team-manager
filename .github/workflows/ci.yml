@@ -374,6 +374,7 @@ jobs:
   security-secrets:
     name: Security · Secret scanning (TruffleHog)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -389,6 +390,7 @@ jobs:
   backend-migration-rollback:
     name: Backend · Migration rollback test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:17
@@ -409,64 +411,6 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        with:
-          go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
-      - name: Install goose
-        run: go install github.com/pressly/goose/v3/cmd/goose@latest
-      - name: Apply all migrations
-        run: goose -dir internal/db/migrations postgres "$DATABASE_URL" up
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
-      - name: Roll back all migrations
-        run: goose -dir internal/db/migrations postgres "$DATABASE_URL" down-to 0
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
-      - name: Re-apply all migrations (verify idempotency)
-        run: goose -dir internal/db/migrations postgres "$DATABASE_URL" up
-        env:
-          DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
-
-  security-secrets:
-    name: Security · Secret scanning (TruffleHog)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: TruffleHog OSS
-        uses: trufflesecurity/trufflehog@v3.88.28
-        with:
-          path: ./
-          base: ${{ github.event.pull_request.base.sha || github.event.before }}
-          head: ${{ github.event.pull_request.head.sha || github.sha }}
-          extra_args: --only-verified
-
-  backend-migration-rollback:
-    name: Backend · Migration rollback test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
