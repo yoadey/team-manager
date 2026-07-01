@@ -23,7 +23,7 @@ type mockSvcRepo struct {
 	createEventFn            func(ctx context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error)
 	createSeriesFn           func(ctx context.Context, teamID string, params *events.CreateEventParams) ([]events.EventRow, error)
 	updateEventFn            func(ctx context.Context, eventID, teamID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error)
-	setStatusFn              func(ctx context.Context, eventID, status, scope string) (*events.EventRow, error)
+	setStatusFn              func(ctx context.Context, eventID, teamID, status, scope string) (*events.EventRow, error)
 	deleteEventFn            func(ctx context.Context, eventID, teamID, scope string) error
 	getAttendanceSummaryFn   func(ctx context.Context, eventID string) (events.EventSummaryData, error)
 	getMyAttendanceFn        func(ctx context.Context, eventID, userID string) (*events.AttendanceDBRow, error)
@@ -57,8 +57,8 @@ func (m *mockSvcRepo) UpdateEvent(ctx context.Context, eventID, teamID string, p
 	return m.updateEventFn(ctx, eventID, teamID, params, scope)
 }
 
-func (m *mockSvcRepo) SetStatus(ctx context.Context, eventID, status, scope string) (*events.EventRow, error) {
-	return m.setStatusFn(ctx, eventID, status, scope)
+func (m *mockSvcRepo) SetStatus(ctx context.Context, eventID, teamID, status, scope string) (*events.EventRow, error) {
+	return m.setStatusFn(ctx, eventID, teamID, status, scope)
 }
 
 func (m *mockSvcRepo) DeleteEvent(ctx context.Context, eventID, teamID, scope string) error {
@@ -248,4 +248,31 @@ func TestEventService_SetAttendance(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "yes", capturedStatus)
 	assert.Equal(t, gen.Yes, result.Status)
+}
+
+func TestEventService_SetStatus_PassesTeamIDThrough(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	otherTeamID := uuid.New()
+	row := svcMakeEventRow("Cancel Me")
+	row.Id = eventID
+
+	var capturedTeamID string
+	repo := &mockSvcRepo{
+		setStatusFn: func(_ context.Context, evID, tID, status, scope string) (*events.EventRow, error) {
+			assert.Equal(t, eventID.String(), evID)
+			capturedTeamID = tID
+			assert.Equal(t, "cancelled", status)
+			assert.Equal(t, "single", scope)
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+
+	svc := events.NewService(repo, nil, nil, nil)
+	_, err := svc.SetStatus(context.Background(), testUserID, eventID.String(), otherTeamID.String(), "cancelled", "single")
+	require.NoError(t, err)
+	assert.Equal(t, otherTeamID.String(), capturedTeamID, "teamID must be threaded through to the repository so cross-team status changes are rejected at the DB layer")
 }

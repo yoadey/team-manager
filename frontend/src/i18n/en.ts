@@ -339,6 +339,9 @@ export const en: Messages = {
     toastSeriesCancelled: 'Series cancelled',
     toastEventActivated: 'Event reactivated',
     toastSeriesActivated: 'Series reactivated',
+    toastEventCreated: 'Event created',
+    toastEventUpdated: 'Event updated',
+    toastSeriesUpdated: 'Entire series updated',
     calPrototypeNote:
       'In the prototype only the file download is active; the subscription link will work with the future backend.',
   },

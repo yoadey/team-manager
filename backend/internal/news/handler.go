@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -19,8 +20,8 @@ import (
 type newsService interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.NewsItem, *string, error)
 	Create(ctx context.Context, teamID, authorID uuid.UUID, body *gen.CreateNewsRequest) (gen.NewsItem, error)
-	Update(ctx context.Context, id uuid.UUID, body *gen.UpdateNewsRequest) (gen.NewsItem, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Update(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateNewsRequest) (gen.NewsItem, error)
+	Delete(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 // Handler implements the news-related methods of gen.StrictServerInterface.
@@ -97,8 +98,11 @@ func (h *Handler) UpdateNews(ctx context.Context, req gen.UpdateNewsRequestObjec
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
-	item, err := h.svc.Update(ctx, req.NewsId, req.Body)
+	item, err := h.svc.Update(ctx, req.NewsId, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("news item not found")
+		}
 		h.logger.ErrorContext(ctx, "UpdateNews failed", "err", err)
 		return nil, apierror.Internal("failed to update news item")
 	}
@@ -111,7 +115,10 @@ func (h *Handler) DeleteNews(ctx context.Context, req gen.DeleteNewsRequestObjec
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.Delete(ctx, req.NewsId); err != nil {
+	if err := h.svc.Delete(ctx, req.NewsId, req.TeamId); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("news item not found")
+		}
 		h.logger.ErrorContext(ctx, "DeleteNews failed", "err", err)
 		return nil, apierror.Internal("failed to delete news item")
 	}

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -113,6 +114,9 @@ func TestStatsRepository_SingleMemberStats(t *testing.T) {
 	_, err = pool.Exec(ctx,
 		`INSERT INTO teams (id, name) VALUES ($1, 'Single Stats Team')`, tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
 
 	today := time.Now().UTC().Format("2006-01-02")
 	var eid string
@@ -134,4 +138,38 @@ func TestStatsRepository_SingleMemberStats(t *testing.T) {
 	assert.Equal(t, "Single Stats User", s.Name)
 	assert.Equal(t, 0, s.Yes)
 	assert.Equal(t, 1, s.Counted)
+}
+
+func TestStatsRepository_SingleMemberStats_NonMemberBlocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Outsider User', 'outsider@example.com', '#aabbcc')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Home Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTid)
+	require.NoError(t, err)
+	// The user is a member of tid, but NOT of otherTid.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+
+	// Querying this user's stats scoped to a team they don't belong to must fail.
+	_, err = repo.SingleMemberStats(ctx, uuid.MustParse(otherTid), uuid.MustParse(uid), from, to)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }

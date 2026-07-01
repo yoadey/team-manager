@@ -25,8 +25,8 @@ import (
 type mockRoleService struct {
 	listRoles  func(ctx context.Context, teamID uuid.UUID) ([]gen.Role, error)
 	createRole func(ctx context.Context, teamID uuid.UUID, body *gen.CreateRoleJSONRequestBody) (*gen.Role, error)
-	updateRole func(ctx context.Context, roleID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
-	deleteRole func(ctx context.Context, roleID uuid.UUID) error
+	updateRole func(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
+	deleteRole func(ctx context.Context, roleID, teamID uuid.UUID) error
 }
 
 func (m *mockRoleService) ListRoles(ctx context.Context, teamID uuid.UUID) ([]gen.Role, error) {
@@ -37,12 +37,12 @@ func (m *mockRoleService) CreateRole(ctx context.Context, teamID uuid.UUID, body
 	return m.createRole(ctx, teamID, body)
 }
 
-func (m *mockRoleService) UpdateRole(ctx context.Context, roleID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
-	return m.updateRole(ctx, roleID, body)
+func (m *mockRoleService) UpdateRole(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+	return m.updateRole(ctx, roleID, teamID, body)
 }
 
-func (m *mockRoleService) DeleteRole(ctx context.Context, roleID uuid.UUID) error {
-	return m.deleteRole(ctx, roleID)
+func (m *mockRoleService) DeleteRole(ctx context.Context, roleID, teamID uuid.UUID) error {
+	return m.deleteRole(ctx, roleID, teamID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ func TestHandler_CreateRole_EmitsAuditEvent(t *testing.T) {
 func TestHandler_DeleteRole_Success(t *testing.T) {
 	t.Parallel()
 	svc := &mockRoleService{
-		deleteRole: func(_ context.Context, _ uuid.UUID) error { return nil },
+		deleteRole: func(_ context.Context, _, _ uuid.UUID) error { return nil },
 	}
 	h := roles.NewHandler(svc, slog.Default(), nil)
 

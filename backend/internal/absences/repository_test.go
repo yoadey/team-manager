@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -89,11 +90,46 @@ func TestAbsenceRepository_Update(t *testing.T) {
 
 	newTo := "2025-03-14"
 	newReason := "extended vacation"
-	updated, err := repo.Update(ctx, ab.Id, nil, &newTo, &newReason)
+	updated, err := repo.Update(ctx, ab.Id, teamID, nil, &newTo, &newReason)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, newTo, updated.ToDate.Format("2006-01-02"))
 	assert.Equal(t, &newReason, updated.Reason)
+}
+
+func TestAbsenceRepository_Update_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Cross Team User', 'crossteam@example.com', '#123456')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Owning Team')`,
+		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Attacker Team')`,
+		otherTid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	otherTeamID := uuid.MustParse(otherTid)
+	userID := uuid.MustParse(uid)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-03-01", "2025-03-07", nil)
+	require.NoError(t, err)
+
+	newReason := "attacker-supplied reason"
+	_, err = repo.Update(ctx, ab.Id, otherTeamID, nil, nil, &newReason)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 func TestAbsenceRepository_Delete(t *testing.T) {
@@ -120,10 +156,49 @@ func TestAbsenceRepository_Delete(t *testing.T) {
 	ab, err := repo.Create(ctx, teamID, userID, "2025-05-01", "2025-05-05", nil)
 	require.NoError(t, err)
 
-	err = repo.Delete(ctx, ab.Id)
+	err = repo.Delete(ctx, ab.Id, teamID)
 	require.NoError(t, err)
 
 	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, all)
+}
+
+func TestAbsenceRepository_Delete_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Del Cross User', 'delcross@example.com', '#654321')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Del Owning Team')`,
+		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Del Attacker Team')`,
+		otherTid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	otherTeamID := uuid.MustParse(otherTid)
+	userID := uuid.MustParse(uid)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-05-01", "2025-05-05", nil)
+	require.NoError(t, err)
+
+	err = repo.Delete(ctx, ab.Id, otherTeamID)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+
+	// Absence must still exist under the real team.
+	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
 }

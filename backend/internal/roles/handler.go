@@ -20,8 +20,8 @@ import (
 type roleService interface {
 	ListRoles(ctx context.Context, teamID uuid.UUID) ([]gen.Role, error)
 	CreateRole(ctx context.Context, teamID uuid.UUID, body *gen.CreateRoleJSONRequestBody) (*gen.Role, error)
-	UpdateRole(ctx context.Context, roleID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
-	DeleteRole(ctx context.Context, roleID uuid.UUID) error
+	UpdateRole(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
+	DeleteRole(ctx context.Context, roleID, teamID uuid.UUID) error
 }
 
 // Handler implements the role-related methods of gen.StrictServerInterface.
@@ -90,7 +90,7 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
-	role, err := h.svc.UpdateRole(ctx, req.RoleId, req.Body)
+	role, err := h.svc.UpdateRole(ctx, req.RoleId, req.TeamId, req.Body)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("role not found")
@@ -110,7 +110,7 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeleteRole(ctx, req.RoleId); err != nil {
+	if err := h.svc.DeleteRole(ctx, req.RoleId, req.TeamId); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("role not found")
 		}

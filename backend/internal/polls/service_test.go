@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -17,9 +18,9 @@ import (
 
 type mockRepo struct {
 	listByTeam   func(ctx context.Context, teamID uuid.UUID, limit int, cur *polls.ListCursor) ([]*polls.PollRow, error)
-	findByID     func(ctx context.Context, id uuid.UUID) (*polls.PollRow, error)
+	findByID     func(ctx context.Context, id, teamID uuid.UUID) (*polls.PollRow, error)
 	create       func(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
-	delete       func(ctx context.Context, id uuid.UUID) error
+	delete       func(ctx context.Context, id, teamID uuid.UUID) error
 	listOptions  func(ctx context.Context, pollID uuid.UUID) ([]*polls.PollOptionRow, error)
 	listVotes    func(ctx context.Context, pollID uuid.UUID) ([]*polls.PollVoteRow, error)
 	replaceVotes func(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error
@@ -29,16 +30,16 @@ func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, 
 	return m.listByTeam(ctx, teamID, limit, cur)
 }
 
-func (m *mockRepo) FindByID(ctx context.Context, id uuid.UUID) (*polls.PollRow, error) {
-	return m.findByID(ctx, id)
+func (m *mockRepo) FindByID(ctx context.Context, id, teamID uuid.UUID) (*polls.PollRow, error) {
+	return m.findByID(ctx, id, teamID)
 }
 
 func (m *mockRepo) Create(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error) {
 	return m.create(ctx, teamID, creatorID, question, multiple, anonymous, options)
 }
 
-func (m *mockRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	return m.delete(ctx, id)
+func (m *mockRepo) Delete(ctx context.Context, id, teamID uuid.UUID) error {
+	return m.delete(ctx, id, teamID)
 }
 
 func (m *mockRepo) ListOptions(ctx context.Context, pollID uuid.UUID) ([]*polls.PollOptionRow, error) {
@@ -136,7 +137,7 @@ func TestService_Create(t *testing.T) {
 			assert.Len(t, opts, 2)
 			return newID, nil
 		},
-		findByID: func(_ context.Context, _ uuid.UUID) (*polls.PollRow, error) {
+		findByID: func(_ context.Context, _, _ uuid.UUID) (*polls.PollRow, error) {
 			return pr, nil
 		},
 		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
@@ -168,7 +169,9 @@ func TestService_Vote(t *testing.T) {
 	called := false
 
 	repo := &mockRepo{
-		findByID: func(_ context.Context, _ uuid.UUID) (*polls.PollRow, error) {
+		findByID: func(_ context.Context, id, tid uuid.UUID) (*polls.PollRow, error) {
+			assert.Equal(t, pollID, id)
+			assert.Equal(t, teamID, tid)
 			return pr, nil
 		},
 		replaceVotes: func(_ context.Context, pid, uid uuid.UUID, oids []uuid.UUID, multi bool) error {
@@ -190,7 +193,7 @@ func TestService_Vote(t *testing.T) {
 	}
 
 	svc := polls.NewService(repo, nil, nil)
-	result, err := svc.Vote(context.Background(), pollID, userID, []uuid.UUID{optionID})
+	result, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID})
 
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -199,21 +202,64 @@ func TestService_Vote(t *testing.T) {
 	assert.Len(t, *result.MyVote, 1)
 }
 
+func TestService_Vote_CrossTeamBlocked(t *testing.T) {
+	t.Parallel()
+
+	otherTeamID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	repo := &mockRepo{
+		findByID: func(_ context.Context, id, tid uuid.UUID) (*polls.PollRow, error) {
+			assert.Equal(t, pollID, id)
+			assert.Equal(t, otherTeamID, tid)
+			return nil, pgx.ErrNoRows
+		},
+		replaceVotes: func(_ context.Context, _, _ uuid.UUID, _ []uuid.UUID, _ bool) error {
+			t.Fatal("ReplaceVotes should not be called when the poll does not belong to the team")
+			return nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil)
+	_, err := svc.Vote(context.Background(), pollID, otherTeamID, userID, []uuid.UUID{optionID})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
 func TestService_Delete(t *testing.T) {
 	t.Parallel()
 
 	called := false
 	repo := &mockRepo{
-		delete: func(_ context.Context, id uuid.UUID) error {
+		delete: func(_ context.Context, id, tid uuid.UUID) error {
 			assert.Equal(t, pollID, id)
+			assert.Equal(t, teamID, tid)
 			called = true
 			return nil
 		},
 	}
 
 	svc := polls.NewService(repo, nil, nil)
-	err := svc.Delete(context.Background(), pollID)
+	err := svc.Delete(context.Background(), pollID, teamID)
 
 	require.NoError(t, err)
 	assert.True(t, called)
+}
+
+func TestService_Delete_CrossTeamBlocked(t *testing.T) {
+	t.Parallel()
+
+	otherTeamID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	repo := &mockRepo{
+		delete: func(_ context.Context, id, tid uuid.UUID) error {
+			assert.Equal(t, pollID, id)
+			assert.Equal(t, otherTeamID, tid)
+			return pgx.ErrNoRows
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil)
+	err := svc.Delete(context.Background(), pollID, otherTeamID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }

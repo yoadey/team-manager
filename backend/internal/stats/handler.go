@@ -2,9 +2,11 @@ package stats
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
@@ -49,6 +51,9 @@ func (h *Handler) GetMemberStats(ctx context.Context, req gen.GetMemberStatsRequ
 	}
 	stats, err := h.svc.GetMemberStats(ctx, req.TeamId, req.UserId, nil, nil)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("member not found")
+		}
 		h.logger.ErrorContext(ctx, "GetMemberStats failed", "err", err)
 		return nil, apierror.Internal("failed to get member stats")
 	}

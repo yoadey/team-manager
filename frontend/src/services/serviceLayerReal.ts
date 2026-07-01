@@ -33,6 +33,18 @@ import type { NotificationsResult } from '@/features/notifications';
 import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribution } from '@/features/finances';
 import { AuthError, NetworkError, ValidationError } from '@/utils/errors';
 
+// Builds the typed error for a given HTTP status + optional RFC 9457
+// problem+json body, preferring `detail` then `title` over a generic
+// "HTTP {status}" message so callers (and the toasts they feed) can surface
+// the server's actual explanation (e.g. "Email already in use").
+function errorFor(status: number, body?: { detail?: string; title?: string } | null): Error {
+  const msg = body?.detail ?? body?.title ?? `HTTP ${status}`;
+  if (status === 401 || status === 403) return new AuthError(msg);
+  if (status === 400 || status === 422) return new ValidationError(msg);
+  if (status >= 500) return new NetworkError(msg);
+  return new Error(msg);
+}
+
 // Throws a typed error when the API returns an error response, so callers can
 // react to the failure class — notably AuthError (401/403), which the app's
 // reportActionError/onAuthError wiring turns into a logout + redirect to the
@@ -41,20 +53,28 @@ async function check<T>(
   result: { data?: T; error?: unknown; response: Response },
 ): Promise<T> {
   if (result.error || !result.data) {
-    const status = result.response.status;
     const err = result.error as { detail?: string; title?: string } | undefined;
-    const msg = err?.detail ?? err?.title ?? `HTTP ${status}`;
-    if (status === 401 || status === 403) throw new AuthError(msg);
-    if (status === 400 || status === 422) throw new ValidationError(msg);
-    if (status >= 500) throw new NetworkError(msg);
-    throw new Error(msg);
+    throw errorFor(result.response.status, err);
   }
   return result.data;
 }
 
+// Throws the same typed errors as check() when an openapi-fetch result failed,
+// without requiring a successful `data` payload (for endpoints whose success
+// response is empty/void, e.g. DELETE). Resolves (returns void) otherwise.
+async function checkOk(result: { error?: unknown; response: Response }): Promise<void> {
+  if (!result.response.ok) {
+    const err = result.error as { detail?: string; title?: string } | undefined;
+    throw errorFor(result.response.status, err);
+  }
+}
+
 // Uploads a data: URL as a multipart image field via PUT, throwing the same
 // typed errors as check() (notably AuthError on 401/403, so a session expiring
-// mid-upload still triggers the app's logout redirect).
+// mid-upload still triggers the app's logout redirect). On failure, the
+// response body is parsed as RFC 9457 problem+json (best-effort) so the
+// thrown error carries the server's actual detail (e.g. "File too large")
+// instead of a generic "HTTP {status}".
 async function uploadImage(path: string, fieldName: string, dataUrl: string): Promise<Response> {
   const arr = dataUrl.split(',');
   const mimeMatch = arr[0].match(/:(.*?);/);
@@ -72,8 +92,13 @@ async function uploadImage(path: string, fieldName: string, dataUrl: string): Pr
     credentials: 'include',
     body: formData,
   });
-  if (resp.status === 401 || resp.status === 403) throw new AuthError(`HTTP ${resp.status}`);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  if (!resp.ok) {
+    const body = await resp
+      .clone()
+      .json()
+      .catch(() => undefined) as { detail?: string; title?: string } | undefined;
+    throw errorFor(resp.status, body);
+  }
   return resp;
 }
 
@@ -147,7 +172,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/auth/me', {
         body: { confirmEmail: confirmEmail as string & { format: 'email' } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
 
     async setPhoto(dataUrl: string): Promise<User> {
@@ -290,7 +315,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/members/{membershipId}', {
         params: { path: { teamId, membershipId } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
   },
 
@@ -323,7 +348,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/roles/{roleId}', {
         params: { path: { teamId, roleId } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
   },
 
@@ -374,7 +399,10 @@ export const realApi = {
       });
       // Backend may return an array for series
       const data = res.data;
-      if (!data) throw new Error(`HTTP ${res.response.status}`);
+      if (!data) {
+        const err = res.error as { detail?: string; title?: string } | undefined;
+        throw errorFor(res.response.status, err);
+      }
       const first = Array.isArray(data) ? data[0] : data;
       return mapTeamEvent(first);
     },
@@ -401,7 +429,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/events/{eventId}', {
         params: { path: { teamId, eventId }, query: { scope } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
 
     async listComments(eventId: string, teamId: string): Promise<EventComment[]> {
@@ -425,7 +453,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/events/{eventId}/comments/{commentId}', {
         params: { path: { teamId, eventId, commentId } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
   },
 
@@ -462,7 +490,7 @@ export const realApi = {
         params: { path: { teamId, eventId } },
         body: { userId, nominated },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
       return true;
     },
   },
@@ -515,7 +543,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/absences/{absenceId}', {
         params: { path: { teamId, absenceId } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
   },
 
@@ -553,7 +581,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/news/{newsId}', {
         params: { path: { teamId, newsId: id } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
   },
 
@@ -574,7 +602,7 @@ export const realApi = {
         params: { path: { teamId, pollId } },
         body: { optionIds },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
 
     async create(teamId: string, payload: {
@@ -597,7 +625,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/polls/{pollId}', {
         params: { path: { teamId, pollId } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
   },
 
@@ -632,7 +660,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/finances/transactions/{transactionId}', {
         params: { path: { teamId, transactionId: id } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
 
     async createPenalty(teamId: string, payload: { label: string; amount: number }): Promise<Penalty> {
@@ -657,7 +685,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/finances/penalties/{penaltyId}', {
         params: { path: { teamId, penaltyId: id } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
 
     async assignPenalty(teamId: string, { userId, penaltyId }: { userId: string; penaltyId: string }): Promise<PenaltyAssignment> {
@@ -674,7 +702,7 @@ export const realApi = {
       const res = await apiClient.DELETE('/teams/{teamId}/finances/penalty-assignments/{assignmentId}', {
         params: { path: { teamId, assignmentId: id } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
     },
 
     async togglePenaltyPaid(id: string, teamId: string): Promise<PenaltyAssignment> {
@@ -732,7 +760,7 @@ export const realApi = {
       const res = await apiClient.POST('/teams/{teamId}/notifications/seen', {
         params: { path: { teamId } },
       });
-      if (!res.response.ok) throw new Error(`HTTP ${res.response.status}`);
+      await checkOk(res);
       return true;
     },
   },

@@ -22,8 +22,8 @@ import (
 type mockPollService struct {
 	listByTeam func(ctx context.Context, teamID, currentUserID uuid.UUID, limit int, cursor string) ([]gen.Poll, *string, error)
 	create     func(ctx context.Context, teamID, creatorID uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error)
-	vote       func(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error)
-	deletePoll func(ctx context.Context, id uuid.UUID) error
+	vote       func(ctx context.Context, pollID, teamID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error)
+	deletePoll func(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 func (m *mockPollService) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit int, cursor string) ([]gen.Poll, *string, error) {
@@ -34,12 +34,12 @@ func (m *mockPollService) Create(ctx context.Context, teamID, creatorID uuid.UUI
 	return m.create(ctx, teamID, creatorID, body)
 }
 
-func (m *mockPollService) Vote(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error) {
-	return m.vote(ctx, pollID, userID, optionIDs)
+func (m *mockPollService) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error) {
+	return m.vote(ctx, pollID, teamID, userID, optionIDs)
 }
 
-func (m *mockPollService) Delete(ctx context.Context, id uuid.UUID) error {
-	return m.deletePoll(ctx, id)
+func (m *mockPollService) Delete(ctx context.Context, id, teamID uuid.UUID) error {
+	return m.deletePoll(ctx, id, teamID)
 }
 
 func authedCtx() context.Context {

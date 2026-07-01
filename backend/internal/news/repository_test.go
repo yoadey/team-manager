@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -74,16 +75,51 @@ func TestNewsRepository_Update(t *testing.T) {
 		tid)
 	require.NoError(t, err)
 
-	item, err := repo.Create(ctx, uuid.MustParse(tid), uuid.MustParse(uid), "Old Title", "Old body", false)
+	teamID := uuid.MustParse(tid)
+	item, err := repo.Create(ctx, teamID, uuid.MustParse(uid), "Old Title", "Old body", false)
 	require.NoError(t, err)
 
 	newTitle := "New Title"
 	pinned := true
-	updated, err := repo.Update(ctx, item.Id, &newTitle, nil, &pinned)
+	updated, err := repo.Update(ctx, item.Id, teamID, &newTitle, nil, &pinned)
 	require.NoError(t, err)
 	assert.Equal(t, "New Title", updated.Title)
 	assert.Equal(t, "Old body", updated.Body)
 	assert.True(t, updated.Pinned)
+}
+
+func TestNewsRepository_Update_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := news.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Cross Author', 'cross-news@example.com', '#111111')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Cross Owning Team')`,
+		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Cross Attacker Team')`,
+		otherTid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	otherTeamID := uuid.MustParse(otherTid)
+	item, err := repo.Create(ctx, teamID, uuid.MustParse(uid), "Old Title", "Old body", false)
+	require.NoError(t, err)
+
+	newTitle := "Attacker Title"
+	_, err = repo.Update(ctx, item.Id, otherTeamID, &newTitle, nil, nil)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 func TestNewsRepository_Delete(t *testing.T) {
@@ -109,9 +145,46 @@ func TestNewsRepository_Delete(t *testing.T) {
 	item, err := repo.Create(ctx, teamID, uuid.MustParse(uid), "To Delete", "body", false)
 	require.NoError(t, err)
 
-	require.NoError(t, repo.Delete(ctx, item.Id))
+	require.NoError(t, repo.Delete(ctx, item.Id, teamID))
 
 	list, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, list)
+}
+
+func TestNewsRepository_Delete_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := news.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Del Cross Author', 'delcross-news@example.com', '#222222')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Del Cross Owning Team')`,
+		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Del Cross Attacker Team')`,
+		otherTid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	otherTeamID := uuid.MustParse(otherTid)
+	item, err := repo.Create(ctx, teamID, uuid.MustParse(uid), "To Delete", "body", false)
+	require.NoError(t, err)
+
+	err = repo.Delete(ctx, item.Id, otherTeamID)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+
+	list, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -164,32 +165,40 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 	return r.findByID(ctx, id)
 }
 
-// Update modifies an absence and returns the enriched row.
-func (r *Repository) Update(ctx context.Context, id uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
+// Update modifies an absence that belongs to teamID and returns the enriched
+// row. Returns pgx.ErrNoRows if no absence with id exists within teamID.
+func (r *Repository) Update(ctx context.Context, id, teamID uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(
+	tag, err := r.pool.Exec(
 		ctx,
 		`UPDATE absences SET
-			from_date = COALESCE($2::date, from_date),
-			to_date   = COALESCE($3::date, to_date),
-			reason    = COALESCE($4, reason)
-		 WHERE id = $1`,
-		id, fromDate, toDate, reason,
+			from_date = COALESCE($3::date, from_date),
+			to_date   = COALESCE($4::date, to_date),
+			reason    = COALESCE($5, reason)
+		 WHERE id = $1 AND team_id = $2`,
+		id, teamID, fromDate, toDate, reason,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.Update: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return nil, pgx.ErrNoRows
+	}
 	return r.findByID(ctx, id)
 }
 
-// Delete removes an absence by ID.
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+// Delete removes an absence by ID that belongs to teamID. Returns
+// pgx.ErrNoRows if no absence with id exists within teamID.
+func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `DELETE FROM absences WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM absences WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("absences.Repository.Delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }

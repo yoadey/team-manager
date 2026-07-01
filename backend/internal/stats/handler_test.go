@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/stats"
@@ -142,4 +144,23 @@ func TestHandler_GetMemberStats_Success(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
 	assert.Equal(t, 8, result.Yes)
 	assert.InEpsilon(t, float32(0.8), result.Quote, 0.001)
+}
+
+func TestHandler_GetMemberStats_NonMemberReturnsNotFound(t *testing.T) {
+	t.Parallel()
+	svc := &mockStatsService{
+		getMemberStats: func(_ context.Context, _, _ uuid.UUID, _, _ *openapi_types.Date) (*gen.MemberAttendanceStats, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+	h := stats.NewHandler(svc, slog.Default())
+
+	_, err := h.GetMemberStats(statsAuthedCtx(), gen.GetMemberStatsRequestObject{
+		TeamId: statsTeamID,
+		UserId: statsUserID,
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
 }

@@ -24,9 +24,9 @@ import (
 type mockMemberService struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	addMember    func(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error)
-	updateMember func(ctx context.Context, membershipID string, patch members.MemberPatch) (*gen.Member, error)
-	setRoles     func(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error)
-	removeMember func(ctx context.Context, membershipID string) error
+	updateMember func(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*gen.Member, error)
+	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error)
+	removeMember func(ctx context.Context, membershipID, teamID string) error
 }
 
 func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
@@ -37,16 +37,16 @@ func (m *mockMemberService) AddMember(ctx context.Context, teamID string, params
 	return m.addMember(ctx, teamID, params)
 }
 
-func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID string, patch members.MemberPatch) (*gen.Member, error) {
-	return m.updateMember(ctx, membershipID, patch)
+func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*gen.Member, error) {
+	return m.updateMember(ctx, membershipID, teamID, patch)
 }
 
-func (m *mockMemberService) SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error) {
-	return m.setRoles(ctx, membershipID, roleIDs)
+func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error) {
+	return m.setRoles(ctx, membershipID, teamID, roleIDs)
 }
 
-func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID string) error {
-	return m.removeMember(ctx, membershipID)
+func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID, teamID string) error {
+	return m.removeMember(ctx, membershipID, teamID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

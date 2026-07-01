@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,8 +19,8 @@ import (
 type mockRepo struct {
 	listByTeam func(ctx context.Context, teamID uuid.UUID, limit int, cur *news.ListCursor) ([]*news.NewsRow, error)
 	create     func(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*news.NewsRow, error)
-	update     func(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error)
-	delete     func(ctx context.Context, id uuid.UUID) error
+	update     func(ctx context.Context, id, teamID uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error)
+	delete     func(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *news.ListCursor) ([]*news.NewsRow, error) {
@@ -30,12 +31,12 @@ func (m *mockRepo) Create(ctx context.Context, teamID, authorID uuid.UUID, title
 	return m.create(ctx, teamID, authorID, title, body, pinned)
 }
 
-func (m *mockRepo) Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error) {
-	return m.update(ctx, id, title, body, pinned)
+func (m *mockRepo) Update(ctx context.Context, id, teamID uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error) {
+	return m.update(ctx, id, teamID, title, body, pinned)
 }
 
-func (m *mockRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	return m.delete(ctx, id)
+func (m *mockRepo) Delete(ctx context.Context, id, teamID uuid.UUID) error {
+	return m.delete(ctx, id, teamID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -113,41 +114,84 @@ func TestService_Update(t *testing.T) {
 	t.Parallel()
 
 	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	teamID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
 	row := makeNewsRow()
 	newTitle := "Updated Title"
 
 	repo := &mockRepo{
-		update: func(_ context.Context, nid uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error) {
+		update: func(_ context.Context, nid, tid uuid.UUID, title, body *string, pinned *bool) (*news.NewsRow, error) {
 			assert.Equal(t, id, nid)
+			assert.Equal(t, teamID, tid)
 			assert.Equal(t, "Updated Title", *title)
 			return row, nil
 		},
 	}
 
 	svc := news.NewService(repo, nil, nil)
-	result, err := svc.Update(context.Background(), id, &gen.UpdateNewsRequest{Title: &newTitle})
+	result, err := svc.Update(context.Background(), id, teamID, &gen.UpdateNewsRequest{Title: &newTitle})
 
 	require.NoError(t, err)
 	assert.Equal(t, row.Id, result.Id)
+}
+
+func TestService_Update_WrongTeam_PropagatesNoRows(t *testing.T) {
+	t.Parallel()
+
+	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	wrongTeamID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	newTitle := "Updated Title"
+
+	repo := &mockRepo{
+		update: func(_ context.Context, _, _ uuid.UUID, _, _ *string, _ *bool) (*news.NewsRow, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := news.NewService(repo, nil, nil)
+	_, err := svc.Update(context.Background(), id, wrongTeamID, &gen.UpdateNewsRequest{Title: &newTitle})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 func TestService_Delete(t *testing.T) {
 	t.Parallel()
 
 	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	teamID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
 	called := false
 
 	repo := &mockRepo{
-		delete: func(_ context.Context, nid uuid.UUID) error {
+		delete: func(_ context.Context, nid, tid uuid.UUID) error {
 			assert.Equal(t, id, nid)
+			assert.Equal(t, teamID, tid)
 			called = true
 			return nil
 		},
 	}
 
 	svc := news.NewService(repo, nil, nil)
-	err := svc.Delete(context.Background(), id)
+	err := svc.Delete(context.Background(), id, teamID)
 
 	require.NoError(t, err)
 	assert.True(t, called)
+}
+
+func TestService_Delete_WrongTeam_PropagatesNoRows(t *testing.T) {
+	t.Parallel()
+
+	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	wrongTeamID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+
+	repo := &mockRepo{
+		delete: func(_ context.Context, _, _ uuid.UUID) error {
+			return pgx.ErrNoRows
+		},
+	}
+
+	svc := news.NewService(repo, nil, nil)
+	err := svc.Delete(context.Background(), id, wrongTeamID)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }

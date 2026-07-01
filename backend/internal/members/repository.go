@@ -14,6 +14,10 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
+// ErrRoleNotInTeam is returned when one or more role IDs passed to SetRoles do
+// not belong to the membership's team.
+var ErrRoleNotInTeam = errors.New("role does not belong to team")
+
 // Repository handles member-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -148,13 +152,14 @@ func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMem
 	return r.getMemberByMembershipID(ctx, membershipID)
 }
 
-// UpdateMember applies a partial update to the user fields and optionally the group.
-func (r *Repository) UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*MemberRow, error) { //nolint:gocognit,cyclop // complexity inherent in dynamic SQL builder
+// UpdateMember applies a partial update to the user fields and optionally the
+// group, scoped to a membership that belongs to teamID.
+func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error) { //nolint:gocognit,cyclop // complexity inherent in dynamic SQL builder
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// Get user_id from membership first.
+	// Get user_id from membership first, scoped to the team.
 	var userID string
-	err := r.pool.QueryRow(ctx, `SELECT user_id FROM memberships WHERE id = $1`, membershipID).Scan(&userID)
+	err := r.pool.QueryRow(ctx, `SELECT user_id FROM memberships WHERE id = $1 AND team_id = $2`, membershipID, teamID).Scan(&userID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -214,7 +219,7 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID string, patc
 
 	// Update membership group.
 	if patch.Group != nil {
-		_, err = tx.Exec(ctx, `UPDATE memberships SET "group" = $1 WHERE id = $2`, *patch.Group, membershipID)
+		_, err = tx.Exec(ctx, `UPDATE memberships SET "group" = $1 WHERE id = $2 AND team_id = $3`, *patch.Group, membershipID, teamID)
 		if err != nil {
 			return nil, fmt.Errorf("members.Repository.UpdateMember: update membership: %w", err)
 		}
@@ -227,10 +232,41 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID string, patc
 	return r.getMemberByMembershipID(ctx, membershipID)
 }
 
-// SetRoles replaces the role assignments for the given membership.
-func (r *Repository) SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*MemberRow, error) {
+// SetRoles replaces the role assignments for the given membership. The
+// membership must belong to teamID, and every role in roleIDs must also
+// belong to teamID — otherwise pgx.ErrNoRows / ErrRoleNotInTeam is returned.
+func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*MemberRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	// Verify the membership belongs to the team.
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM memberships WHERE id = $1 AND team_id = $2)`,
+		membershipID, teamID,
+	).Scan(&exists)
+	if err != nil {
+		return nil, fmt.Errorf("members.Repository.SetRoles: check membership: %w", err)
+	}
+	if !exists {
+		return nil, pgx.ErrNoRows
+	}
+
+	// Verify every role belongs to the team.
+	if len(roleIDs) > 0 {
+		var count int
+		err = r.pool.QueryRow(ctx,
+			`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
+			roleIDs, teamID,
+		).Scan(&count)
+		if err != nil {
+			return nil, fmt.Errorf("members.Repository.SetRoles: check roles: %w", err)
+		}
+		if count != len(roleIDs) {
+			return nil, ErrRoleNotInTeam
+		}
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.SetRoles: begin tx: %w", err)
@@ -258,13 +294,18 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID string, roleIDs 
 	return r.getMemberByMembershipID(ctx, membershipID)
 }
 
-// RemoveMember deletes a membership (cascades membership_roles).
-func (r *Repository) RemoveMember(ctx context.Context, membershipID string) error {
+// RemoveMember deletes a membership (cascades membership_roles) that belongs
+// to teamID. Returns pgx.ErrNoRows if no membership with id exists within
+// teamID.
+func (r *Repository) RemoveMember(ctx context.Context, membershipID, teamID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `DELETE FROM memberships WHERE id = $1`, membershipID)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM memberships WHERE id = $1 AND team_id = $2`, membershipID, teamID)
 	if err != nil {
 		return fmt.Errorf("members.Repository.RemoveMember: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }

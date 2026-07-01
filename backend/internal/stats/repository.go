@@ -111,6 +111,7 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 			AND e.status = 'active'
 		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
 		WHERE u.id = $2
+		  AND EXISTS (SELECT 1 FROM memberships m WHERE m.team_id = $1 AND m.user_id = u.id)
 		GROUP BY u.id, u.name, u.avatar_color, (u.photo_data IS NOT NULL)
 	`, teamID, userID, from, to).Scan(&s.UserID, &s.Name, &s.AvatarColor, &s.HasPhoto, &s.Yes, &s.Counted)
 	if err != nil {

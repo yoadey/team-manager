@@ -391,4 +391,5 @@ func main() {
 		slog.Error("shutdown error", "err", err)
 	}
 	shutdownObs(shutdownCtx)
+	pool.Close()
 }

@@ -15,8 +15,8 @@ import (
 type newsRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*NewsRow, error)
 	Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error)
-	Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Update(ctx context.Context, id, teamID uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error)
+	Delete(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 // jobEnqueuer is satisfied by *jobs.Client.
@@ -99,18 +99,18 @@ func (s *Service) Create(ctx context.Context, teamID, authorID uuid.UUID, body *
 	return toGenNewsItem(row), nil
 }
 
-// Update modifies an existing news item.
-func (s *Service) Update(ctx context.Context, id uuid.UUID, body *gen.UpdateNewsRequest) (gen.NewsItem, error) {
-	row, err := s.repo.Update(ctx, id, body.Title, body.Body, body.Pinned)
+// Update modifies an existing news item that belongs to teamID.
+func (s *Service) Update(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateNewsRequest) (gen.NewsItem, error) {
+	row, err := s.repo.Update(ctx, id, teamID, body.Title, body.Body, body.Pinned)
 	if err != nil {
 		return gen.NewsItem{}, fmt.Errorf("news.Service.Update: %w", err)
 	}
 	return toGenNewsItem(row), nil
 }
 
-// Delete removes a news item by ID.
-func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.Delete(ctx, id); err != nil {
+// Delete removes a news item by ID that belongs to teamID.
+func (s *Service) Delete(ctx context.Context, id, teamID uuid.UUID) error {
+	if err := s.repo.Delete(ctx, id, teamID); err != nil {
 		return fmt.Errorf("news.Service.Delete: %w", err)
 	}
 	return nil

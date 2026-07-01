@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,7 +39,7 @@ func TestPollRepository_CreateAndList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, uuid.Nil, pollID)
 
-	pr, err := repo.FindByID(ctx, pollID)
+	pr, err := repo.FindByID(ctx, pollID, teamID)
 	require.NoError(t, err)
 	require.NotNil(t, pr)
 	assert.Equal(t, "Best player?", pr.Question)
@@ -134,9 +135,56 @@ func TestPollRepository_Delete(t *testing.T) {
 	pollID, err := repo.Create(ctx, teamID, creatorID, "To Delete?", false, false, []string{"Yes"})
 	require.NoError(t, err)
 
-	require.NoError(t, repo.Delete(ctx, pollID))
+	require.NoError(t, repo.Delete(ctx, pollID, teamID))
 
 	list, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, list)
+}
+
+func TestPollRepository_FindByID_CrossTeamBlocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := polls.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Cross Team User', 'cross-poll@example.com', '#123123')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Cross Team A')`,
+		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Cross Team B')`,
+		otherTid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	otherTeamID := uuid.MustParse(otherTid)
+	creatorID := uuid.MustParse(uid)
+
+	pollID, err := repo.Create(ctx, teamID, creatorID, "Team A only?", false, false, []string{"Yes", "No"})
+	require.NoError(t, err)
+
+	// A poll belonging to team A must not be found or deletable when scoped to team B.
+	_, err = repo.FindByID(ctx, pollID, otherTeamID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+
+	err = repo.Delete(ctx, pollID, otherTeamID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+
+	// It should still exist and be found/deletable when scoped correctly.
+	pr, err := repo.FindByID(ctx, pollID, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, pollID, pr.Id)
+	require.NoError(t, repo.Delete(ctx, pollID, teamID))
 }

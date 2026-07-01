@@ -18,9 +18,9 @@ import (
 type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
 	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error)
-	UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*MemberRow, error)
-	SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*MemberRow, error)
-	RemoveMember(ctx context.Context, membershipID string) error
+	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error)
+	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*MemberRow, error)
+	RemoveMember(ctx context.Context, membershipID, teamID string) error
 }
 
 // Service implements member business logic.
@@ -84,8 +84,8 @@ func (s *Service) AddMember(ctx context.Context, teamID string, params AddMember
 }
 
 // UpdateMember updates member profile and returns the updated gen.Member.
-func (s *Service) UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*gen.Member, error) {
-	mr, err := s.repo.UpdateMember(ctx, membershipID, patch)
+func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*gen.Member, error) {
+	mr, err := s.repo.UpdateMember(ctx, membershipID, teamID, patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -97,9 +97,15 @@ func (s *Service) UpdateMember(ctx context.Context, membershipID string, patch M
 }
 
 // SetRoles replaces the member's role assignments.
-func (s *Service) SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error) {
-	mr, err := s.repo.SetRoles(ctx, membershipID, roleIDs)
+func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error) {
+	mr, err := s.repo.SetRoles(ctx, membershipID, teamID, roleIDs)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		if errors.Is(err, ErrRoleNotInTeam) {
+			return nil, ErrRoleNotInTeam
+		}
 		return nil, fmt.Errorf("members.Service.SetRoles: %w", err)
 	}
 	m := toGenMember(*mr)
@@ -107,8 +113,11 @@ func (s *Service) SetRoles(ctx context.Context, membershipID string, roleIDs []s
 }
 
 // RemoveMember removes a member from the team.
-func (s *Service) RemoveMember(ctx context.Context, membershipID string) error {
-	if err := s.repo.RemoveMember(ctx, membershipID); err != nil {
+func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID string) error {
+	if err := s.repo.RemoveMember(ctx, membershipID, teamID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgx.ErrNoRows
+		}
 		return fmt.Errorf("members.Service.RemoveMember: %w", err)
 	}
 	return nil

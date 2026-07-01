@@ -23,7 +23,7 @@ type eventService interface {
 	GetEvent(ctx context.Context, teamID, userID, eventID string) (*gen.TeamEvent, error)
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
 	DeleteEvent(ctx context.Context, eventID, teamID, scope string) error
-	SetStatus(ctx context.Context, userID, eventID, status, scope string) (*gen.TeamEvent, error)
+	SetStatus(ctx context.Context, userID, eventID, teamID, status, scope string) (*gen.TeamEvent, error)
 	ListComments(ctx context.Context, eventID string, limit, offset int) ([]gen.EventComment, error)
 	AddComment(ctx context.Context, eventID, userID, text string) (*gen.EventComment, error)
 	DeleteComment(ctx context.Context, commentID, userID string) error
@@ -199,7 +199,7 @@ func (h *Handler) SetEventStatus(ctx context.Context, request gen.SetEventStatus
 		scope = string(*request.Params.Scope)
 	}
 
-	ev, err := h.svc.SetStatus(ctx, user.Id.String(), request.EventId.String(), string(request.Body.Status), scope)
+	ev, err := h.svc.SetStatus(ctx, user.Id.String(), request.EventId.String(), request.TeamId.String(), string(request.Body.Status), scope)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")

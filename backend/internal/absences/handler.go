@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -20,8 +21,8 @@ type absenceService interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error)
 	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error)
 	Create(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
-	Update(ctx context.Context, id uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Update(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
+	Delete(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 // Handler implements the absence-related methods of gen.StrictServerInterface.
@@ -108,7 +109,10 @@ func (h *Handler) DeleteAbsence(ctx context.Context, req gen.DeleteAbsenceReques
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.Delete(ctx, req.AbsenceId); err != nil {
+	if err := h.svc.Delete(ctx, req.AbsenceId, req.TeamId); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("absence not found")
+		}
 		h.logger.ErrorContext(ctx, "DeleteAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to delete absence")
 	}
@@ -132,8 +136,11 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
-	absence, err := h.svc.Update(ctx, req.AbsenceId, req.Body)
+	absence, err := h.svc.Update(ctx, req.AbsenceId, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("absence not found")
+		}
 		h.logger.ErrorContext(ctx, "UpdateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to update absence")
 	}
