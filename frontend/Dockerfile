@@ -23,7 +23,7 @@ RUN npm run build
 # Serve the static bundle with nginx. The image ships no Node runtime or source.
 # nginx-unprivileged runs as a non-root user (uid 101) and listens on :8080 out
 # of the box, avoiding the pid/temp-dir permission issues of the stock image.
-FROM nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0 AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:a8d5564c3354241473c1e152d5dd3281ab4224edb61b23c291e0bfd9854687a1 AS runtime
 
 # Replace the default site with our SPA + security-header config.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
