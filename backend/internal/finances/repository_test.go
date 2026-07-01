@@ -124,7 +124,8 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	fetched, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
 	require.NoError(t, err)
 	assert.Equal(t, assign.ID, fetched.ID)
-	assert.Equal(t, "Very late", fetched.PenaltyLabel)
+	require.NotNil(t, fetched.PenaltyLabel)
+	assert.Equal(t, "Very late", *fetched.PenaltyLabel)
 	assert.NotEmpty(t, fetched.MemberName)
 
 	_, err = repo.GetAssignmentByID(ctx, uuid.New(), teamID)
