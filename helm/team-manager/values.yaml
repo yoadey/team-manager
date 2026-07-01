@@ -116,6 +116,18 @@ allowedOrigins: "https://team-manager.example.com"
 
 networkPolicy:
   enabled: true
+  egress:
+    # Restrict egress destinations by uncommenting and filling in `to` below
+    # (podSelector/namespaceSelector for in-cluster Postgres, or ipBlock for
+    # an external/managed database). Left empty by default so egress is only
+    # port-restricted, matching prior behavior.
+    postgres:
+      to: []
+      # to:
+      #   - ipBlock:
+      #       cidr: 10.0.1.0/24
+    https:
+      to: []
 
 podDisruptionBudget:
   enabled: true
@@ -135,9 +147,12 @@ backup:
   enabled: false           # Enable daily PostgreSQL backup CronJob
   schedule: "0 2 * * *"   # Daily at 02:00 UTC
   postgresVersion: "17"
-  retentionDays: 30
+  retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
-    enabled: false
+    enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)
+    awsCliImage: "amazon/aws-cli:2.31.13"
     bucket: ""
+    prefix: "team-manager"
     region: "eu-central-1"
-    endpoint: ""           # Override for S3-compatible storage (MinIO, etc.)
+    endpoint: ""            # Override for S3-compatible storage (MinIO, etc.)
+    credentialsSecretName: "" # Secret with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; leave empty to use the pod's IAM role (e.g. IRSA via serviceAccount.annotations)

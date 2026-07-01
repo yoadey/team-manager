@@ -513,6 +513,89 @@ func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID string
 	return a, nil
 }
 
+// ─── Batched attendance lookups (used by ListEvents) ───────────────────────
+
+// GetAttendanceSummaries returns aggregated attendance counts for multiple
+// events in a single query, keyed by event ID. Events with no attendance
+// rows are absent from the map (callers should treat that as a zero-value
+// EventSummaryData). Used by ListEvents to avoid issuing one
+// GetAttendanceSummary query per event.
+func (r *Repository) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out := make(map[uuid.UUID]EventSummaryData, len(eventIDs))
+	if len(eventIDs) == 0 {
+		return out, nil
+	}
+	q := `
+		SELECT
+			event_id,
+			COUNT(*) FILTER (WHERE status = 'yes')            AS yes,
+			COUNT(*) FILTER (WHERE status = 'no')             AS no,
+			COUNT(*) FILTER (WHERE status = 'maybe')          AS maybe,
+			COUNT(*) FILTER (WHERE status = 'pending')        AS pending,
+			COUNT(*) FILTER (WHERE status = 'not_nominated')  AS not_nominated,
+			COUNT(*) FILTER (WHERE status != 'not_nominated') AS nominated,
+			COUNT(*)                                          AS total
+		FROM attendance
+		WHERE event_id = ANY($1)
+		GROUP BY event_id
+	`
+	rows, err := r.pool.Query(ctx, q, eventIDs)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.GetAttendanceSummaries: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		var s EventSummaryData
+		if err := rows.Scan(&id, &s.Yes, &s.No, &s.Maybe, &s.Pending, &s.NotNominated, &s.Nominated, &s.Total); err != nil {
+			return nil, fmt.Errorf("events.Repository.GetAttendanceSummaries scan: %w", err)
+		}
+		out[id] = s
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.GetAttendanceSummaries: %w", err)
+	}
+	return out, nil
+}
+
+// GetMyAttendances returns userID's attendance record for multiple events in
+// a single query, keyed by event ID. Events with no record for userID are
+// absent from the map. Used by ListEvents to avoid issuing one
+// GetMyAttendance query per event.
+func (r *Repository) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]AttendanceDBRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out := make(map[uuid.UUID]AttendanceDBRow, len(eventIDs))
+	if len(eventIDs) == 0 {
+		return out, nil
+	}
+	q := `
+		SELECT id, event_id, user_id, status, reason, reason_id, reason_visibility, at
+		FROM attendance
+		WHERE event_id = ANY($1) AND user_id = $2
+	`
+	rows, err := r.pool.Query(ctx, q, eventIDs, userID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.GetMyAttendances: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var a AttendanceDBRow
+		if err := rows.Scan(&a.Id, &a.EventId, &a.UserId, &a.Status, &a.Reason, &a.ReasonId, &a.ReasonVisibility, &a.At); err != nil {
+			return nil, fmt.Errorf("events.Repository.GetMyAttendances scan: %w", err)
+		}
+		out[a.EventId] = a
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.GetMyAttendances: %w", err)
+	}
+	return out, nil
+}
+
 // ─── ListAttendance ─────────────────────────────────────────────────────────
 
 // maxAttendanceRows caps the attendance list at a size no real team roster

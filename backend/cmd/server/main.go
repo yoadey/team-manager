@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/yoadey/team-manager/backend/internal/absences"
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/config"
@@ -292,7 +293,18 @@ func main() {
 
 	// Wrap the strict server in the generated strict handler adapter. The cookie
 	// middleware sets the encrypted session cookie on Login and clears it on Logout.
-	strictSrv := gen.NewStrictHandler(srv, []gen.StrictMiddlewareFunc{cookieCodec.StrictMiddleware()})
+	// Custom error handlers render *apierror.APIError as RFC 9457 Problem
+	// Details instead of the library default, which would write err.Error()
+	// as a plain-text 500 for every handler error (wrong status code, and a
+	// potential leak of wrapped internal error details).
+	strictSrv := gen.NewStrictHandlerWithOptions(
+		srv,
+		[]gen.StrictMiddlewareFunc{cookieCodec.StrictMiddleware()},
+		gen.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc:  apierror.RequestErrorHandler(logger),
+			ResponseErrorHandlerFunc: apierror.ResponseErrorHandler(logger),
+		},
+	)
 
 	// ─── Router ──────────────────────────────────────────────────────────────
 
