@@ -69,6 +69,7 @@ async function fetchAllPages<T>(
   while (more) {
     const page = await fetchPage(cursor);
     all.push(...page.items);
+    if (all.length > 10_000) throw new Error('fetchAllPages: too many pages');
     cursor = page.nextCursor ?? undefined;
     more = cursor !== undefined;
   }
@@ -103,7 +104,8 @@ export const realApi = {
     },
 
     async logout() {
-      await apiClient.POST('/auth/logout', {});
+      const res = await apiClient.POST('/auth/logout', {});
+      if (!res.response.ok) await check(res);
     },
 
     // GDPR Art. 15: returns the personal-data export document for the current

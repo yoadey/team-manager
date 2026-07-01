@@ -26,16 +26,16 @@ import (
 type mockFinanceService struct {
 	getOverview          func(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error)
 	createTransaction    func(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error)
-	updateTransaction    func(ctx context.Context, id uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
-	deleteTransaction    func(ctx context.Context, id uuid.UUID) error
+	updateTransaction    func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
+	deleteTransaction    func(ctx context.Context, id, teamID uuid.UUID) error
 	createPenalty        func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error)
-	updatePenalty        func(ctx context.Context, id uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error)
-	deletePenalty        func(ctx context.Context, id uuid.UUID) error
+	updatePenalty        func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error)
+	deletePenalty        func(ctx context.Context, id, teamID uuid.UUID) error
 	createAssignment     func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
-	deleteAssignment     func(ctx context.Context, id uuid.UUID) error
+	deleteAssignment     func(ctx context.Context, id, teamID uuid.UUID) error
 	toggleAssignmentPaid func(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error)
-	updateContribution   func(ctx context.Context, id uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
-	toggleContribution   func(ctx context.Context, id uuid.UUID) (*gen.Contribution, error)
+	updateContribution   func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
+	toggleContribution   func(ctx context.Context, id, teamID uuid.UUID) (*gen.Contribution, error)
 }
 
 func (m *mockFinanceService) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error) {
@@ -46,44 +46,44 @@ func (m *mockFinanceService) CreateTransaction(ctx context.Context, teamID uuid.
 	return m.createTransaction(ctx, teamID, body)
 }
 
-func (m *mockFinanceService) UpdateTransaction(ctx context.Context, id uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error) {
-	return m.updateTransaction(ctx, id, body)
+func (m *mockFinanceService) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error) {
+	return m.updateTransaction(ctx, id, teamID, body)
 }
 
-func (m *mockFinanceService) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
-	return m.deleteTransaction(ctx, id)
+func (m *mockFinanceService) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error {
+	return m.deleteTransaction(ctx, id, teamID)
 }
 
 func (m *mockFinanceService) CreatePenalty(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
 	return m.createPenalty(ctx, teamID, body)
 }
 
-func (m *mockFinanceService) UpdatePenalty(ctx context.Context, id uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error) {
-	return m.updatePenalty(ctx, id, body)
+func (m *mockFinanceService) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+	return m.updatePenalty(ctx, id, teamID, body)
 }
 
-func (m *mockFinanceService) DeletePenalty(ctx context.Context, id uuid.UUID) error {
-	return m.deletePenalty(ctx, id)
+func (m *mockFinanceService) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error {
+	return m.deletePenalty(ctx, id, teamID)
 }
 
 func (m *mockFinanceService) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error) {
 	return m.createAssignment(ctx, teamID, body)
 }
 
-func (m *mockFinanceService) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
-	return m.deleteAssignment(ctx, id)
+func (m *mockFinanceService) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error {
+	return m.deleteAssignment(ctx, id, teamID)
 }
 
 func (m *mockFinanceService) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error) {
 	return m.toggleAssignmentPaid(ctx, teamID, id)
 }
 
-func (m *mockFinanceService) UpdateContribution(ctx context.Context, id uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
-	return m.updateContribution(ctx, id, body)
+func (m *mockFinanceService) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
+	return m.updateContribution(ctx, id, teamID, body)
 }
 
-func (m *mockFinanceService) ToggleContribution(ctx context.Context, id uuid.UUID) (*gen.Contribution, error) {
-	return m.toggleContribution(ctx, id)
+func (m *mockFinanceService) ToggleContribution(ctx context.Context, id, teamID uuid.UUID) (*gen.Contribution, error) {
+	return m.toggleContribution(ctx, id, teamID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 func TestHandler_DeleteTransaction_Success(t *testing.T) {
 	t.Parallel()
 	svc := &mockFinanceService{
-		deleteTransaction: func(_ context.Context, _ uuid.UUID) error { return nil },
+		deleteTransaction: func(_ context.Context, _, _ uuid.UUID) error { return nil },
 	}
 	h := finances.NewHandler(svc, slog.Default(), nil)
 	resp, err := h.DeleteTransaction(authedCtx(), gen.DeleteTransactionRequestObject{

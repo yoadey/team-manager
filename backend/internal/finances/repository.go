@@ -68,8 +68,8 @@ func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, tx
 	return t, nil
 }
 
-// UpdateTransaction applies a partial update to a transaction.
-func (r *Repository) UpdateTransaction(ctx context.Context, id uuid.UUID, patch TransactionPatch) (*TransactionRow, error) {
+// UpdateTransaction applies a partial update to a transaction that belongs to teamID.
+func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	setClauses, args, n := []string{}, []any{}, 1
@@ -99,12 +99,12 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id uuid.UUID, patch 
 		return r.getTransactionByID(ctx, id)
 	}
 
-	args = append(args, id)
+	args = append(args, id, teamID)
 	t := &TransactionRow{}
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		UPDATE transactions SET %s WHERE id = $%d
+		UPDATE transactions SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, type, title, amount, date, category, created_at
-	`, strings.Join(setClauses, ", "), n), args...).Scan(
+	`, strings.Join(setClauses, ", "), n, n+1), args...).Scan(
 		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt,
 	)
 	if err != nil {
@@ -113,11 +113,11 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id uuid.UUID, patch 
 	return t, nil
 }
 
-// DeleteTransaction deletes a transaction by ID.
-func (r *Repository) DeleteTransaction(ctx context.Context, id uuid.UUID) error {
+// DeleteTransaction deletes a transaction that belongs to teamID.
+func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM transactions WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM transactions WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeleteTransaction: %w", err)
 	}
@@ -180,8 +180,8 @@ func (r *Repository) CreatePenalty(ctx context.Context, teamID uuid.UUID, label 
 	return p, nil
 }
 
-// UpdatePenalty applies a partial update to a penalty definition.
-func (r *Repository) UpdatePenalty(ctx context.Context, id uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error) {
+// UpdatePenalty applies a partial update to a penalty definition that belongs to teamID.
+func (r *Repository) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	setClauses, args, n := []string{}, []any{}, 1
@@ -199,17 +199,17 @@ func (r *Repository) UpdatePenalty(ctx context.Context, id uuid.UUID, patch Pena
 
 	if len(setClauses) == 0 {
 		p := &PenaltyRow{}
-		err := r.pool.QueryRow(ctx, `SELECT id, team_id, label, amount FROM penalties WHERE id = $1`, id).
+		err := r.pool.QueryRow(ctx, `SELECT id, team_id, label, amount FROM penalties WHERE id = $1 AND team_id = $2`, id, teamID).
 			Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
 		return p, err
 	}
 
-	args = append(args, id)
+	args = append(args, id, teamID)
 	p := &PenaltyRow{}
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		UPDATE penalties SET %s WHERE id = $%d
+		UPDATE penalties SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, label, amount
-	`, strings.Join(setClauses, ", "), n), args...).Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
+	`, strings.Join(setClauses, ", "), n, n+1), args...).Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -219,11 +219,11 @@ func (r *Repository) UpdatePenalty(ctx context.Context, id uuid.UUID, patch Pena
 	return p, nil
 }
 
-// DeletePenalty deletes a penalty definition (cascades to assignments).
-func (r *Repository) DeletePenalty(ctx context.Context, id uuid.UUID) error {
+// DeletePenalty deletes a penalty definition that belongs to teamID (cascades to assignments).
+func (r *Repository) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM penalties WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM penalties WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeletePenalty: %w", err)
 	}
@@ -286,11 +286,11 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 	return a, nil
 }
 
-// DeleteAssignment deletes a penalty assignment by ID.
-func (r *Repository) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
+// DeleteAssignment deletes a penalty assignment that belongs to teamID.
+func (r *Repository) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM penalty_assignments WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM penalty_assignments WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeleteAssignment: %w", err)
 	}
@@ -300,15 +300,15 @@ func (r *Repository) DeleteAssignment(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// ToggleAssignmentPaid flips the paid flag on a penalty assignment and returns the updated row.
-func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id uuid.UUID) (*PenaltyAssignmentRow, error) {
+// ToggleAssignmentPaid flips the paid flag on a penalty assignment that belongs to teamID.
+func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	err := r.pool.QueryRow(ctx, `
-		UPDATE penalty_assignments SET paid = NOT paid WHERE id = $1
+		UPDATE penalty_assignments SET paid = NOT paid WHERE id = $1 AND team_id = $2
 		RETURNING id, team_id, user_id, penalty_id, paid, date
-	`, id).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date)
+	`, id, teamID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -352,8 +352,8 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 	return out, rows.Err()
 }
 
-// UpdateContribution applies a partial update to a contribution.
-func (r *Repository) UpdateContribution(ctx context.Context, id uuid.UUID, patch ContributionPatch) (*ContributionRow, error) {
+// UpdateContribution applies a partial update to a contribution that belongs to teamID.
+func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, patch ContributionPatch) (*ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	setClauses, args, n := []string{}, []any{}, 1
@@ -373,25 +373,28 @@ func (r *Repository) UpdateContribution(ctx context.Context, id uuid.UUID, patch
 		return r.getContributionByID(ctx, id)
 	}
 
-	args = append(args, id)
-	_, err := r.pool.Exec(ctx, fmt.Sprintf(`
-		UPDATE contributions SET %s WHERE id = $%d
-	`, strings.Join(setClauses, ", "), n), args...)
+	args = append(args, id, teamID)
+	tag, err := r.pool.Exec(ctx, fmt.Sprintf(`
+		UPDATE contributions SET %s WHERE id = $%d AND team_id = $%d
+	`, strings.Join(setClauses, ", "), n, n+1), args...)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
 		return nil, fmt.Errorf("finances.Repository.UpdateContribution: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return nil, pgx.ErrNoRows
+	}
 	return r.getContributionByID(ctx, id)
 }
 
-// ToggleContributionStatus flips between 'open' and 'paid'.
-func (r *Repository) ToggleContributionStatus(ctx context.Context, id uuid.UUID) (*ContributionRow, error) {
+// ToggleContributionStatus flips between 'open' and 'paid' for a contribution that belongs to teamID.
+func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var currentStatus string
-	err := r.pool.QueryRow(ctx, `SELECT status FROM contributions WHERE id = $1`, id).Scan(&currentStatus)
+	err := r.pool.QueryRow(ctx, `SELECT status FROM contributions WHERE id = $1 AND team_id = $2`, id, teamID).Scan(&currentStatus)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -428,6 +431,36 @@ func (r *Repository) getContributionByID(ctx context.Context, id uuid.UUID) (*Co
 		return nil, err
 	}
 	return c, nil
+}
+
+// PenaltyBelongsToTeam returns true when the penalty exists and belongs to teamID.
+func (r *Repository) PenaltyBelongsToTeam(ctx context.Context, penaltyID, teamID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM penalties WHERE id = $1 AND team_id = $2)`,
+		penaltyID, teamID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("finances.Repository.PenaltyBelongsToTeam: %w", err)
+	}
+	return exists, nil
+}
+
+// UserIsMemberOfTeam returns true when userID is an active member of teamID.
+func (r *Repository) UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM team_members WHERE user_id = $1 AND team_id = $2)`,
+		userID, teamID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("finances.Repository.UserIsMemberOfTeam: %w", err)
+	}
+	return exists, nil
 }
 
 // ─── Aggregates ───────────────────────────────────────────────────────────────

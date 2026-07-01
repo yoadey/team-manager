@@ -81,7 +81,7 @@ func TestRequireMembership_NonMember_Forbidden(t *testing.T) {
 	req := makeChiRequest(http.MethodGet, "/api/v1/teams/"+testTeamID.String()+"/events", testTeamID.String())
 	rec := httptest.NewRecorder()
 	mw(http.HandlerFunc(ok200)).ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ─── RequirePermission tests ──────────────────────────────────────────────────

@@ -289,14 +289,14 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
 
-// UpdateEvent updates a single event or all events in its series.
-func (r *Repository) UpdateEvent(ctx context.Context, eventID string, params *UpdateEventParams, scope string) (*EventRow, error) {
+// UpdateEvent updates a single event or all events in its series, scoped to teamID.
+func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, params *UpdateEventParams, scope string) (*EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if scope == "series" {
-		// Get series_id for this event.
+		// Get series_id for this event, verified to belong to teamID.
 		var seriesID *uuid.UUID
-		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID)
+		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
 		if err != nil {
 			return nil, fmt.Errorf("events.Repository.UpdateEvent: get series_id: %w", err)
 		}
@@ -307,9 +307,10 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID string, params *Up
 		}
 	}
 
-	// Always update the specific event and return it.
+	// Always update the specific event and return it, scoped to teamID.
 	sets, args := buildUpdateSets(params, eventID)
-	q := fmt.Sprintf(`UPDATE events SET %s WHERE id = $%d RETURNING %s`, sets, len(args), selectEventFields)
+	args = append(args, teamID)
+	q := fmt.Sprintf(`UPDATE events SET %s WHERE id = $%d AND team_id = $%d RETURNING %s`, sets, len(args)-1, len(args), selectEventFields)
 	row := r.pool.QueryRow(ctx, q, args...)
 	e, err := scanEventRow(row)
 	if err != nil {
@@ -432,13 +433,13 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, status, scope strin
 
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
 
-// DeleteEvent deletes a single event or the entire series (cascade).
-func (r *Repository) DeleteEvent(ctx context.Context, eventID, scope string) error {
+// DeleteEvent deletes a single event or the entire series (cascade), scoped to teamID.
+func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if scope == "series" {
 		var seriesID *uuid.UUID
-		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID)
+		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("events.Repository.DeleteEvent: get series_id: %w", err)
 		}
@@ -451,9 +452,12 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, scope string) err
 		}
 	}
 
-	_, err := r.pool.Exec(ctx, `DELETE FROM events WHERE id = $1`, eventID)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID)
 	if err != nil {
 		return fmt.Errorf("events.Repository.DeleteEvent: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }

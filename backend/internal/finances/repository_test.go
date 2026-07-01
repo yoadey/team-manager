@@ -54,11 +54,11 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	assert.Equal(t, tx.ID, list[0].ID)
 
 	newTitle := "Updated Fee"
-	updated, err := repo.UpdateTransaction(ctx, tx.ID, finances.TransactionPatch{Title: &newTitle})
+	updated, err := repo.UpdateTransaction(ctx, tx.ID, teamID, finances.TransactionPatch{Title: &newTitle})
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Fee", updated.Title)
 
-	require.NoError(t, repo.DeleteTransaction(ctx, tx.ID))
+	require.NoError(t, repo.DeleteTransaction(ctx, tx.ID, teamID))
 
 	list, err = repo.ListTransactions(ctx, teamID)
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	require.Len(t, pens, 1)
 
 	newLabel := "Very late"
-	updated, err := repo.UpdatePenalty(ctx, pen.ID, finances.PenaltyPatch{Label: &newLabel})
+	updated, err := repo.UpdatePenalty(ctx, pen.ID, teamID, finances.PenaltyPatch{Label: &newLabel})
 	require.NoError(t, err)
 	assert.Equal(t, "Very late", updated.Label)
 
@@ -106,17 +106,17 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, assignments, 1)
 
-	toggled, err := repo.ToggleAssignmentPaid(ctx, assign.ID)
+	toggled, err := repo.ToggleAssignmentPaid(ctx, assign.ID, teamID)
 	require.NoError(t, err)
 	assert.True(t, toggled.Paid)
 
-	require.NoError(t, repo.DeleteAssignment(ctx, assign.ID))
+	require.NoError(t, repo.DeleteAssignment(ctx, assign.ID, teamID))
 
 	openPens, err := repo.ListOpenPenaltiesByUser(ctx, teamID)
 	require.NoError(t, err)
 	assert.Empty(t, openPens)
 
-	require.NoError(t, repo.DeletePenalty(ctx, pen.ID))
+	require.NoError(t, repo.DeletePenalty(ctx, pen.ID, teamID))
 
 	pens, err = repo.ListPenalties(ctx, teamID)
 	require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	// UpdateContribution: change label and amount.
 	newLabel := "Monthly Fee"
 	newAmount := 30.0
-	updated, err := repo.UpdateContribution(ctx, contribID, finances.ContributionPatch{
+	updated, err := repo.UpdateContribution(ctx, contribID, teamID, finances.ContributionPatch{
 		Label:  &newLabel,
 		Amount: &newAmount,
 	})
@@ -167,12 +167,12 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, 30.0, updated.Amount)
 
 	// ToggleContributionStatus: open → paid.
-	toggled, err := repo.ToggleContributionStatus(ctx, contribID)
+	toggled, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
 	require.NoError(t, err)
 	assert.Equal(t, "paid", toggled.Status)
 
 	// Toggle again: paid → open.
-	toggled, err = repo.ToggleContributionStatus(ctx, contribID)
+	toggled, err = repo.ToggleContributionStatus(ctx, contribID, teamID)
 	require.NoError(t, err)
 	assert.Equal(t, "open", toggled.Status)
 }
