@@ -60,7 +60,7 @@ func (h *Handler) recordFinance(ctx context.Context, operation string, attrs ...
 }
 
 // recordFinanceFailure emits a failure audit event for a finance mutation.
-func (h *Handler) recordFinanceFailure(ctx context.Context, operation string, reason string) {
+func (h *Handler) recordFinanceFailure(ctx context.Context, operation, reason string) {
 	actor := ""
 	if u, ok := auth.UserFromContext(ctx); ok {
 		actor = u.Id.String()
