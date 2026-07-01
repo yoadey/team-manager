@@ -31,3 +31,19 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+
+  # Base images are pinned by digest; these entries keep the digest current
+  # (Dependabot resolves the tag to its latest digest and opens a PR).
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

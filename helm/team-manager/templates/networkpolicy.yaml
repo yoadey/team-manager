@@ -24,14 +24,25 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Allow outbound to PostgreSQL (default 5432)
+    # Allow outbound to PostgreSQL (default 5432). Restrict the destination
+    # via networkPolicy.egress.postgres.to (see values.yaml) — left
+    # unrestricted by default.
     - ports:
         - port: 5432
           protocol: TCP
-    # Allow outbound HTTPS for Sentry and OTLP exporters
+      {{- with .Values.networkPolicy.egress.postgres.to }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    # Allow outbound HTTPS for Sentry and OTLP exporters. Restrict the
+    # destination via networkPolicy.egress.https.to (see values.yaml).
     - ports:
         - port: 443
           protocol: TCP
         - port: 4318
           protocol: TCP
+      {{- with .Values.networkPolicy.egress.https.to }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 {{- end }}

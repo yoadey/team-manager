@@ -46,3 +46,12 @@ autoscaling:
 podDisruptionBudget:
   enabled: true
   minAvailable: 2
+
+backup:
+  enabled: true
+  s3:
+    enabled: true
+    bucket: "team-manager-prod-backups"
+    # Uses the pod's IAM role by default (see serviceAccount.annotations for
+    # IRSA); set backup.s3.credentialsSecretName to use static credentials
+    # instead.

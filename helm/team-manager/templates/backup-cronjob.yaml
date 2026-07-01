@@ -30,7 +30,10 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 999
-          containers:
+          volumes:
+            - name: dump
+              emptyDir: {}
+          initContainers:
           - name: pg-dump
             image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}"
             imagePullPolicy: IfNotPresent
@@ -40,15 +43,8 @@ spec:
             - |
               set -e
               TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-              FILENAME="backup-${TIMESTAMP}.sql.gz"
-              pg_dump "$DATABASE_URL" | gzip > /tmp/${FILENAME}
-              {{- if .Values.backup.s3.enabled }}
-              # Upload to S3 (requires aws CLI or compatible tool in a custom image)
-              echo "Upload to s3://{{ .Values.backup.s3.bucket }}/${FILENAME}"
-              {{- else }}
-              echo "Backup written to /tmp/${FILENAME} (configure backup.s3 for remote storage)"
-              {{- end }}
-              echo "Backup complete: ${FILENAME}"
+              pg_dump "$DATABASE_URL" | gzip > /backup/backup-${TIMESTAMP}.sql.gz
+              echo "Dump complete: backup-${TIMESTAMP}.sql.gz"
             env:
             - name: DATABASE_URL
               valueFrom:
@@ -67,6 +63,77 @@ spec:
               readOnlyRootFilesystem: false
               capabilities:
                 drop: ["ALL"]
+            volumeMounts:
+              - name: dump
+                mountPath: /backup
+          containers:
+          {{- if .Values.backup.s3.enabled }}
+          - name: s3-upload
+            image: "{{ .Values.backup.s3.awsCliImage }}"
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              for f in /backup/*.sql.gz; do
+                echo "Uploading $f to s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/$(basename "$f")"
+                aws s3 cp "$f" "s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/$(basename "$f")" \
+                  {{- if .Values.backup.s3.endpoint }}
+                  --endpoint-url {{ .Values.backup.s3.endpoint }} \
+                  {{- end }}
+                  --region {{ .Values.backup.s3.region }}
+              done
+              echo "Upload complete"
+            {{- if .Values.backup.s3.credentialsSecretName }}
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backup.s3.credentialsSecretName }}
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backup.s3.credentialsSecretName }}
+                  key: AWS_SECRET_ACCESS_KEY
+            {{- end }}
+            # When backup.s3.credentialsSecretName is unset, the AWS CLI falls
+            # back to the pod's IAM role (e.g. IRSA via serviceAccount.annotations).
+            resources:
+              requests:
+                cpu: 100m
+                memory: 128Mi
+              limits:
+                cpu: 500m
+                memory: 256Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: false
+              capabilities:
+                drop: ["ALL"]
+            volumeMounts:
+              - name: dump
+                mountPath: /backup
+          {{- else }}
+          - name: no-op-warning
+            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}"
+            imagePullPolicy: IfNotPresent
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "WARNING: backup.s3.enabled is false — the dump in /backup is NOT persisted anywhere and is discarded when this Job's pod is removed. Set backup.s3.enabled=true with a bucket to actually retain backups." >&2
+              exit 1
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            volumeMounts:
+              - name: dump
+                mountPath: /backup
+          {{- end }}
           {{- with .Values.nodeSelector }}
           nodeSelector:
             {{- toYaml . | nindent 12 }}

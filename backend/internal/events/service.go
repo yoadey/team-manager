@@ -33,6 +33,8 @@ type eventRepo interface {
 	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error)
 	GetMyAttendance(ctx context.Context, eventID, userID string) (*AttendanceDBRow, error)
+	GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error)
+	GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]AttendanceDBRow, error)
 	ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error)
 	SetAttendance(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
 	SetNomination(ctx context.Context, eventID, userID string, nominated bool) error
@@ -115,11 +117,29 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor 
 		next = &token
 	}
 
+	eventIDs := make([]uuid.UUID, len(rows))
+	for i := range rows {
+		eventIDs[i] = rows[i].Id
+	}
+	summaries, err := s.repo.GetAttendanceSummaries(ctx, eventIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
+	}
+	var myAttendances map[uuid.UUID]AttendanceDBRow
+	if userID != "" {
+		myAttendances, err = s.repo.GetMyAttendances(ctx, eventIDs, userID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
+		}
+	}
+
 	out := make([]gen.TeamEvent, 0, len(rows))
 	for i := range rows {
-		ev, err := s.enrichEvent(ctx, &rows[i], userID)
-		if err != nil {
-			return nil, nil, err
+		ev := toGenEvent(&rows[i], summaries[rows[i].Id])
+		if myAtt, ok := myAttendances[rows[i].Id]; ok {
+			st := gen.AttendanceStatus(myAtt.Status)
+			ev.MyStatus = &st
+			ev.MyReason = myAtt.Reason
 		}
 		out = append(out, ev)
 	}

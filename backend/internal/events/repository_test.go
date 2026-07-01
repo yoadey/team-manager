@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -176,4 +177,77 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, myRec)
 	assert.Equal(t, "no", myRec.Status)
+}
+
+func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	otherUserID := uuid.New()
+	teamID := uuid.New()
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Batch User', 'batch-user@example.com', '#123456'),
+		($2, 'Other User', 'batch-other@example.com', '#654321')
+	`, userID, otherUserID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Batch Team')`, teamID)
+	require.NoError(t, err)
+
+	params1 := makeCreateParams("Batch Event 1", time.Now().UTC())
+	e1, err := repo.CreateEvent(ctx, teamID.String(), &params1)
+	require.NoError(t, err)
+	params2 := makeCreateParams("Batch Event 2", time.Now().UTC())
+	e2, err := repo.CreateEvent(ctx, teamID.String(), &params2)
+	require.NoError(t, err)
+	params3 := makeCreateParams("Batch Event 3 (no attendance)", time.Now().UTC())
+	e3, err := repo.CreateEvent(ctx, teamID.String(), &params3)
+	require.NoError(t, err)
+
+	yes := "yes"
+	no := "no"
+	_, err = repo.SetAttendance(ctx, e1.Id.String(), userID.String(), &yes, nil, nil, nil)
+	require.NoError(t, err)
+	_, err = repo.SetAttendance(ctx, e1.Id.String(), otherUserID.String(), &no, nil, nil, nil)
+	require.NoError(t, err)
+	_, err = repo.SetAttendance(ctx, e2.Id.String(), userID.String(), &no, nil, nil, nil)
+	require.NoError(t, err)
+
+	eventIDs := []uuid.UUID{e1.Id, e2.Id, e3.Id}
+
+	summaries, err := repo.GetAttendanceSummaries(ctx, eventIDs)
+	require.NoError(t, err)
+	assert.Equal(t, 1, summaries[e1.Id].Yes)
+	assert.Equal(t, 1, summaries[e1.Id].No)
+	assert.Equal(t, 2, summaries[e1.Id].Total)
+	assert.Equal(t, 1, summaries[e2.Id].No)
+	assert.Equal(t, 1, summaries[e2.Id].Total)
+	_, e3HasSummary := summaries[e3.Id]
+	assert.False(t, e3HasSummary, "event with no attendance rows should be absent from the map")
+
+	// Cross-check against the single-event methods to prove the batched
+	// queries return identical results, not just plausible-looking ones.
+	singleSummary, err := repo.GetAttendanceSummary(ctx, e1.Id.String())
+	require.NoError(t, err)
+	assert.Equal(t, singleSummary, summaries[e1.Id])
+
+	myAttendances, err := repo.GetMyAttendances(ctx, eventIDs, userID.String())
+	require.NoError(t, err)
+	require.Contains(t, myAttendances, e1.Id)
+	assert.Equal(t, "yes", myAttendances[e1.Id].Status)
+	require.Contains(t, myAttendances, e2.Id)
+	assert.Equal(t, "no", myAttendances[e2.Id].Status)
+	_, e3HasMyAttendance := myAttendances[e3.Id]
+	assert.False(t, e3HasMyAttendance, "event with no attendance from this user should be absent from the map")
+
+	// Empty ID list should short-circuit without a query and return an empty map.
+	emptySummaries, err := repo.GetAttendanceSummaries(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, emptySummaries)
 }
