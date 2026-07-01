@@ -21,14 +21,14 @@ describe('Toast', () => {
   });
 
   it('renders toast message when set', () => {
-    mockUseApp.mockReturnValue({ state: { toast: 'Gespeichert!' } });
+    mockUseApp.mockReturnValue({ state: { toast: { message: 'Gespeichert!' } } });
     render(<Toast />);
     expect(screen.getByText('Gespeichert!')).toBeTruthy();
     expect(screen.getByRole('status')).toBeTruthy();
   });
 
   it('has aria-live polite for accessibility', () => {
-    mockUseApp.mockReturnValue({ state: { toast: 'Hallo' } });
+    mockUseApp.mockReturnValue({ state: { toast: { message: 'Hallo' } } });
     render(<Toast />);
     const toast = screen.getByRole('status');
     expect(toast.getAttribute('aria-live')).toBe('polite');
