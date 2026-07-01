@@ -8,6 +8,7 @@ import { Sym, Av, SectionTitle } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
 import { t, type Locale } from '@/i18n';
 import { useLocale } from '@/i18n/LocaleProvider';
+import { captureException } from '@/monitoring';
 
 /** Each language is shown in its own name (endonym), independent of UI locale. */
 const LANGUAGE_LABELS: Record<Locale, string> = { de: 'Deutsch', en: 'English' };
@@ -326,7 +327,8 @@ export function ProfileSheet({ app }: SheetProps) {
           onClick={async () => {
             try {
               await app.exportMyData();
-            } catch {
+            } catch (err) {
+              captureException(err);
               app.toastMsg(t('team.exportDataError'));
             }
           }}
@@ -435,7 +437,8 @@ export function ProfileSheet({ app }: SheetProps) {
                   try {
                     await app.deleteAccount(confirmEmail.trim());
                     // On success the app resets to the login screen and this sheet unmounts.
-                  } catch {
+                  } catch (err) {
+                    captureException(err);
                     setDeleteErr(true);
                     setDeleting(false);
                   }
