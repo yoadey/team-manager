@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -250,4 +251,40 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 	emptySummaries, err := repo.GetAttendanceSummaries(ctx, nil)
 	require.NoError(t, err)
 	assert.Empty(t, emptySummaries)
+}
+
+func TestEventRepository_SetStatus_CrossTeamBlocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	otherTeamID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Status Team A')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Status Team B')`, otherTeamID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Status Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	assert.Equal(t, "active", ev.Status)
+
+	// A member of another team must not be able to change this event's status.
+	_, err = repo.SetStatus(ctx, ev.Id.String(), otherTeamID.String(), "cancelled", "single")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+
+	// The event must remain unaffected.
+	unchanged, err := repo.GetEvent(ctx, ev.Id.String())
+	require.NoError(t, err)
+	assert.Equal(t, "active", unchanged.Status)
+
+	// Scoped to the correct team, the update succeeds.
+	updated, err := repo.SetStatus(ctx, ev.Id.String(), teamID.String(), "cancelled", "single")
+	require.NoError(t, err)
+	assert.Equal(t, "cancelled", updated.Status)
 }

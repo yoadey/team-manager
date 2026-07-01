@@ -149,6 +149,18 @@ describe('auth', () => {
     await expect(realApi.auth.deleteAccount('wrong@example.com')).rejects.toThrow('HTTP 401');
   });
 
+  it('deleteAccount surfaces the server-provided detail message instead of a generic HTTP status', async () => {
+    client.DELETE.mockResolvedValueOnce(fail(400, { detail: 'Confirmation email does not match' }));
+    await expect(realApi.auth.deleteAccount('wrong@example.com')).rejects.toThrow('Confirmation email does not match');
+  });
+
+  it('deleteAccount throws AuthError with the extracted detail on 401', async () => {
+    client.DELETE.mockResolvedValueOnce(fail(401, { detail: 'Session expired' }));
+    const err = await realApi.auth.deleteAccount('me@example.com').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AuthError);
+    expect((err as Error).message).toBe('Session expired');
+  });
+
   it('setPhoto uploads multipart via PUT then refetches the user', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', fetchMock);
@@ -169,14 +181,42 @@ describe('auth', () => {
   });
 
   it('setPhoto throws AuthError when the session expired (401)', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401, clone: () => ({ json: () => Promise.resolve({}) }) }));
     const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
     await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow(AuthError);
     vi.unstubAllGlobals();
   });
 
   it('setPhoto throws when the upload fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, clone: () => ({ json: () => Promise.resolve({}) }) }));
+    const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
+    await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow('HTTP 500');
+    vi.unstubAllGlobals();
+  });
+
+  it('setPhoto (uploadImage) surfaces the server-provided detail message, e.g. a file-size limit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 413,
+        clone: () => ({ json: () => Promise.resolve({ detail: 'File too large (max 5 MB)' }) }),
+      }),
+    );
+    const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
+    await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow('File too large (max 5 MB)');
+    vi.unstubAllGlobals();
+  });
+
+  it('setPhoto (uploadImage) falls back to a generic HTTP message when the error body is not JSON', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        clone: () => ({ json: () => Promise.reject(new Error('not json')) }),
+      }),
+    );
     const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
     await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow('HTTP 500');
     vi.unstubAllGlobals();
@@ -306,6 +346,11 @@ describe('members', () => {
     await expect(realApi.members.remove('m1', 't1')).resolves.toBeUndefined();
     client.DELETE.mockResolvedValueOnce(fail(409));
     await expect(realApi.members.remove('m1', 't1')).rejects.toThrow('HTTP 409');
+  });
+
+  it('remove surfaces the server-provided detail message on failure instead of a generic HTTP status', async () => {
+    client.DELETE.mockResolvedValueOnce(fail(409, { detail: 'Cannot remove the last admin' }));
+    await expect(realApi.members.remove('m1', 't1')).rejects.toThrow('Cannot remove the last admin');
   });
 });
 
@@ -488,6 +533,11 @@ describe('finances', () => {
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.finances.deleteTransaction('tx1', 't1')).resolves.toBeUndefined();
+  });
+
+  it('deleteTransaction surfaces the server-provided detail message on failure', async () => {
+    client.DELETE.mockResolvedValueOnce(fail(422, { detail: 'Transaction already reconciled' }));
+    await expect(realApi.finances.deleteTransaction('tx1', 't1')).rejects.toThrow('Transaction already reconciled');
   });
 
   it('penalty lifecycle', async () => {

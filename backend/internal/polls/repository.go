@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -58,15 +59,15 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int
 	return result, rows.Err()
 }
 
-// FindByID returns a single poll.
-func (r *Repository) FindByID(ctx context.Context, id uuid.UUID) (*PollRow, error) {
+// FindByID returns a single poll scoped to teamID.
+func (r *Repository) FindByID(ctx context.Context, id, teamID uuid.UUID) (*PollRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	p := &PollRow{}
 	err := r.pool.QueryRow(
 		ctx,
-		`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at FROM polls WHERE id = $1`,
-		id,
+		`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at FROM polls WHERE id = $1 AND team_id = $2`,
+		id, teamID,
 	).Scan(&p.Id, &p.TeamId, &p.CreatorId, &p.Question, &p.Multiple, &p.Anonymous, &p.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("polls.Repository.FindByID: %w", err)
@@ -100,13 +101,16 @@ func (r *Repository) Create(ctx context.Context, teamID, creatorID uuid.UUID, qu
 	return pollID, nil
 }
 
-// Delete removes a poll and its options/votes by ID.
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+// Delete removes a poll and its options/votes by ID, scoped to teamID.
+func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `DELETE FROM polls WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM polls WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("polls.Repository.Delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }

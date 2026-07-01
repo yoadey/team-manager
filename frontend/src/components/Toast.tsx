@@ -13,6 +13,7 @@ export function Toast() {
       {action && (
         <Box
           component="button"
+          type="button"
           onClick={action.fn}
           sx={{ ml: '4px', color: '#9FD8A0', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', p: 0, textDecoration: 'underline' }}
         >

@@ -77,7 +77,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_API_BASE_URL: http://localhost:5173
+      VITE_API_BASE_URL: http://localhost:8080
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:5173/ || exit 1"]
       interval: 30s

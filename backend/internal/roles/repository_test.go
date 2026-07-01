@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -62,13 +63,37 @@ func TestRolesRepository_Update(t *testing.T) {
 	newName := "Captain"
 	newColor := "#0000ff"
 	newPerms := teams.PermissionsJSON{Events: "write", Members: "write"}
-	updated, err := repo.UpdateRole(ctx, role.Id.String(), roles.RolePatch{
+	updated, err := repo.UpdateRole(ctx, role.Id.String(), tid, roles.RolePatch{
 		Name: &newName, Color: &newColor, Permissions: &newPerms,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Captain", updated.Name)
 	assert.Equal(t, &newColor, updated.Color)
 	assert.Equal(t, "write", updated.Permissions.Events)
+}
+
+func TestRolesRepository_Update_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Owning Roles Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Attacker Roles Team')`, otherTid)
+	require.NoError(t, err)
+
+	role, err := roles.NewRepository(pool).CreateRole(ctx, tid, "Player", nil, teams.PermissionsJSON{})
+	require.NoError(t, err)
+
+	newName := "Attacker Renamed"
+	_, err = repo.UpdateRole(ctx, role.Id.String(), otherTid, roles.RolePatch{Name: &newName})
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 func TestRolesRepository_Delete(t *testing.T) {
@@ -86,11 +111,38 @@ func TestRolesRepository_Delete(t *testing.T) {
 	role, err := repo.CreateRole(ctx, tid, "Temp Role", nil, teams.PermissionsJSON{})
 	require.NoError(t, err)
 
-	require.NoError(t, repo.DeleteRole(ctx, role.Id.String()))
+	require.NoError(t, repo.DeleteRole(ctx, role.Id.String(), tid))
 
 	list, err := repo.ListRoles(ctx, tid)
 	require.NoError(t, err)
 	assert.Empty(t, list)
+}
+
+func TestRolesRepository_Delete_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	otherTid := uuid.New().String()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Del Owning Roles Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Del Attacker Roles Team')`, otherTid)
+	require.NoError(t, err)
+
+	role, err := repo.CreateRole(ctx, tid, "Temp Role", nil, teams.PermissionsJSON{})
+	require.NoError(t, err)
+
+	err = repo.DeleteRole(ctx, role.Id.String(), otherTid)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+
+	list, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
 }
 
 func TestRolesRepository_DeleteSystemRole_Fails(t *testing.T) {
@@ -112,7 +164,7 @@ func TestRolesRepository_DeleteSystemRole_Fails(t *testing.T) {
 	).Scan(&roleID)
 	require.NoError(t, err)
 
-	err = repo.DeleteRole(ctx, roleID)
+	err = repo.DeleteRole(ctx, roleID, tid)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "system")
 }

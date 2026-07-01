@@ -6,6 +6,7 @@ import { formValues } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
 import { validateEventForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -107,9 +108,9 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
         toastMsg(
           mode === 'edit'
             ? scope === 'series'
-              ? 'Ganze Serie aktualisiert'
-              : 'Termin aktualisiert'
-            : 'Termin angelegt',
+              ? t('events.toastSeriesUpdated')
+              : t('events.toastEventUpdated')
+            : t('events.toastEventCreated'),
         );
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.save');

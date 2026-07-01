@@ -77,7 +77,7 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 
 	token, user, err := h.svc.Login(ctx, string(request.Body.Email), request.Body.Password)
 	if err != nil {
-		h.logger.WarnContext(ctx, "login failed", "email", request.Body.Email, "err", err)
+		h.logger.WarnContext(ctx, "login failed", "err", err)
 		h.audit.Record(ctx, audit.EventLogin, audit.Failure, "", slog.String("email", string(request.Body.Email)))
 		metrics.LoginAttempts.WithLabelValues("failure").Inc()
 		return gen.Login401ApplicationProblemPlusJSONResponse{

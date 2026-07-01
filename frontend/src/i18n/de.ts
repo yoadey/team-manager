@@ -344,6 +344,9 @@ export const de = {
     toastSeriesCancelled: 'Serie abgesagt',
     toastEventActivated: 'Termin aktiviert',
     toastSeriesActivated: 'Serie aktiviert',
+    toastEventCreated: 'Termin angelegt',
+    toastEventUpdated: 'Termin aktualisiert',
+    toastSeriesUpdated: 'Ganze Serie aktualisiert',
   },
   members: {
     count: '{n} Mitglieder',

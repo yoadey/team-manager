@@ -68,6 +68,18 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Fee", updated.Title)
 
+	// Empty patch (no-op path) must still be scoped to teamID -- a member of
+	// another team must not be able to read this transaction via an empty PATCH body.
+	otherTeamID := uuid.New()
+	_, err = repo.UpdateTransaction(ctx, tx.ID, otherTeamID, finances.TransactionPatch{})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+
+	// The no-op path scoped to the correct team should still return the transaction.
+	noop, err := repo.UpdateTransaction(ctx, tx.ID, teamID, finances.TransactionPatch{})
+	require.NoError(t, err)
+	assert.Equal(t, "Updated Fee", noop.Title)
+
 	require.NoError(t, repo.DeleteTransaction(ctx, tx.ID, teamID))
 
 	list, err = repo.ListTransactions(ctx, teamID)
@@ -208,4 +220,26 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	toggled, err = repo.ToggleContributionStatus(ctx, contribID, teamID)
 	require.NoError(t, err)
 	assert.Equal(t, "open", toggled.Status)
+
+	// Cross-team access must be rejected, including via the empty-patch no-op path.
+	otherTeamID := uuid.New()
+
+	_, err = repo.UpdateContribution(ctx, contribID, otherTeamID, finances.ContributionPatch{})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+
+	newerLabel := "Hijacked"
+	_, err = repo.UpdateContribution(ctx, contribID, otherTeamID, finances.ContributionPatch{Label: &newerLabel})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+
+	_, err = repo.ToggleContributionStatus(ctx, contribID, otherTeamID)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+
+	// The contribution must be untouched by the rejected attempts.
+	list, err = repo.ListContributions(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "open", list[0].Status)
 }

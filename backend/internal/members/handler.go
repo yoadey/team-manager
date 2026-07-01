@@ -22,9 +22,9 @@ import (
 type memberService interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*gen.Member, error)
-	UpdateMember(ctx context.Context, membershipID string, patch MemberPatch) (*gen.Member, error)
-	SetRoles(ctx context.Context, membershipID string, roleIDs []string) (*gen.Member, error)
-	RemoveMember(ctx context.Context, membershipID string) error
+	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*gen.Member, error)
+	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error)
+	RemoveMember(ctx context.Context, membershipID, teamID string) error
 }
 
 // Handler implements the member-related methods of gen.StrictServerInterface.
@@ -141,7 +141,7 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 		patch.Group = request.Body.Group
 	}
 
-	m, err := h.svc.UpdateMember(ctx, request.MembershipId.String(), patch)
+	m, err := h.svc.UpdateMember(ctx, request.MembershipId.String(), request.TeamId.String(), patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("member not found")
@@ -166,8 +166,14 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 		roleIDs[i] = u.String()
 	}
 
-	m, err := h.svc.SetRoles(ctx, request.MembershipId.String(), roleIDs)
+	m, err := h.svc.SetRoles(ctx, request.MembershipId.String(), request.TeamId.String(), roleIDs)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("member not found")
+		}
+		if errors.Is(err, ErrRoleNotInTeam) {
+			return nil, apierror.UnprocessableEntity("one or more roles do not belong to this team")
+		}
 		h.logger.ErrorContext(ctx, "SetMemberRoles failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.SetMemberRoles: %w", err)
 	}
@@ -180,7 +186,10 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 
 // RemoveMember removes a member from the team.
 func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequestObject) (gen.RemoveMemberResponseObject, error) {
-	if err := h.svc.RemoveMember(ctx, request.MembershipId.String()); err != nil {
+	if err := h.svc.RemoveMember(ctx, request.MembershipId.String(), request.TeamId.String()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("member not found")
+		}
 		h.logger.ErrorContext(ctx, "RemoveMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.RemoveMember: %w", err)
 	}

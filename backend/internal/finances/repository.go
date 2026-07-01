@@ -125,7 +125,7 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	}
 
 	if len(setClauses) == 0 {
-		return r.getTransactionByID(ctx, id)
+		return r.getTransactionByID(ctx, id, teamID)
 	}
 
 	args = append(args, id, teamID)
@@ -156,12 +156,12 @@ func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID
 	return nil
 }
 
-func (r *Repository) getTransactionByID(ctx context.Context, id uuid.UUID) (*TransactionRow, error) {
+func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error) {
 	t := &TransactionRow{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, team_id, type, title, amount, date, category, created_at
-		FROM transactions WHERE id = $1
-	`, id).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt)
+		FROM transactions WHERE id = $1 AND team_id = $2
+	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -432,7 +432,7 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	}
 
 	if len(setClauses) == 0 {
-		return r.getContributionByID(ctx, id)
+		return r.getContributionByID(ctx, id, teamID)
 	}
 
 	args = append(args, id, teamID)
@@ -448,7 +448,7 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	if tag.RowsAffected() == 0 {
 		return nil, pgx.ErrNoRows
 	}
-	return r.getContributionByID(ctx, id)
+	return r.getContributionByID(ctx, id, teamID)
 }
 
 // ToggleContributionStatus flips between 'open' and 'paid' for a contribution that belongs to teamID.
@@ -469,11 +469,11 @@ func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uu
 		newStatus = "open"
 	}
 
-	_, err = r.pool.Exec(ctx, `UPDATE contributions SET status = $1 WHERE id = $2`, newStatus, id)
+	_, err = r.pool.Exec(ctx, `UPDATE contributions SET status = $1 WHERE id = $2 AND team_id = $3`, newStatus, id, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.ToggleContributionStatus update: %w", err)
 	}
-	return r.getContributionByID(ctx, id)
+	return r.getContributionByID(ctx, id, teamID)
 }
 
 // CountOpenContributions returns the number of contributions with status
@@ -493,7 +493,7 @@ func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUI
 	return count, nil
 }
 
-func (r *Repository) getContributionByID(ctx context.Context, id uuid.UUID) (*ContributionRow, error) {
+func (r *Repository) getContributionByID(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error) {
 	c := &ContributionRow{}
 	err := r.pool.QueryRow(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
@@ -501,8 +501,8 @@ func (r *Repository) getContributionByID(ctx context.Context, id uuid.UUID) (*Co
 		       (u.photo_data IS NOT NULL) AS has_photo
 		FROM contributions c
 		JOIN users u ON u.id = c.user_id
-		WHERE c.id = $1
-	`, id).Scan(
+		WHERE c.id = $1 AND c.team_id = $2
+	`, id, teamID).Scan(
 		&c.ID, &c.TeamID, &c.UserID, &c.Month, &c.Label, &c.Amount, &c.Status,
 		&c.MemberName, &c.MemberAvatarColor, &c.HasPhoto,
 	)

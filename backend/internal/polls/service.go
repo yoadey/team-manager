@@ -15,9 +15,9 @@ import (
 // pollRepo is the interface the Service relies on.
 type pollRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*PollRow, error)
-	FindByID(ctx context.Context, id uuid.UUID) (*PollRow, error)
+	FindByID(ctx context.Context, id, teamID uuid.UUID) (*PollRow, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, id, teamID uuid.UUID) error
 	ListOptions(ctx context.Context, pollID uuid.UUID) ([]*PollOptionRow, error)
 	ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVoteRow, error)
 	ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error
@@ -97,7 +97,7 @@ func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body 
 	if err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.Create: %w", err)
 	}
-	pr, err := s.repo.FindByID(ctx, pollID)
+	pr, err := s.repo.FindByID(ctx, pollID, teamID)
 	if err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.Create FindByID: %w", err)
 	}
@@ -115,8 +115,8 @@ func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body 
 }
 
 // Vote records a user's vote and returns the updated poll.
-func (s *Service) Vote(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error) {
-	pr, err := s.repo.FindByID(ctx, pollID)
+func (s *Service) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error) {
+	pr, err := s.repo.FindByID(ctx, pollID, teamID)
 	if err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote FindByID: %w", err)
 	}
@@ -126,9 +126,9 @@ func (s *Service) Vote(ctx context.Context, pollID, userID uuid.UUID, optionIDs 
 	return s.buildPoll(ctx, pr, userID)
 }
 
-// Delete removes a poll by ID.
-func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.Delete(ctx, id); err != nil {
+// Delete removes a poll by ID, scoped to teamID.
+func (s *Service) Delete(ctx context.Context, id, teamID uuid.UUID) error {
+	if err := s.repo.Delete(ctx, id, teamID); err != nil {
 		return fmt.Errorf("polls.Service.Delete: %w", err)
 	}
 	return nil

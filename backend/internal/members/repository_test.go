@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -205,7 +206,7 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	bday := time.Date(1990, 5, 15, 0, 0, 0, 0, time.UTC)
 	grp := "seniors"
 
-	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), members.MemberPatch{
+	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
 		Name:     &newName,
 		Email:    &newEmail,
 		Phone:    &newPhone,
@@ -224,6 +225,31 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	assert.Equal(t, &grp, updated.Group)
 }
 
+func TestMembersRepository_UpdateMember_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTeamID)
+	require.NoError(t, err)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Cross Team Target",
+		Email: "crossteam-member@example.com",
+	})
+	require.NoError(t, err)
+
+	newName := "Attacker Renamed"
+	_, err = repo.UpdateMember(ctx, m.MembershipID.String(), otherTeamID.String(), members.MemberPatch{
+		Name: &newName,
+	})
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
 func TestMembersRepository_UpdateMember_PartialPatch(t *testing.T) {
 	t.Parallel()
 
@@ -240,7 +266,7 @@ func TestMembersRepository_UpdateMember_PartialPatch(t *testing.T) {
 	require.NoError(t, err)
 
 	newName := "Eve Renamed"
-	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), members.MemberPatch{
+	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
 		Name: &newName,
 	})
 	require.NoError(t, err)
@@ -267,26 +293,72 @@ func TestMembersRepository_SetRoles(t *testing.T) {
 	require.NoError(t, err)
 
 	// Assign roleA.
-	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), []string{roleA.String()})
+	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String()})
 	require.NoError(t, err)
 	require.Len(t, updated.Roles, 1)
 	assert.Equal(t, roleA, updated.Roles[0].Id)
 
 	// Replace with roleB.
-	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), []string{roleB.String()})
+	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleB.String()})
 	require.NoError(t, err)
 	require.Len(t, updated.Roles, 1)
 	assert.Equal(t, roleB, updated.Roles[0].Id)
 
 	// Assign both roles.
-	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), []string{roleA.String(), roleB.String()})
+	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleB.String()})
 	require.NoError(t, err)
 	assert.Len(t, updated.Roles, 2)
 
 	// Clear all roles.
-	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), []string{})
+	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{})
 	require.NoError(t, err)
 	assert.Empty(t, updated.Roles)
+}
+
+func TestMembersRepository_SetRoles_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'SetRoles Other Team')`, otherTeamID)
+	require.NoError(t, err)
+	roleA := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Membership Owner",
+		Email: "membership-owner@example.com",
+	})
+	require.NoError(t, err)
+
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), otherTeamID.String(), []string{roleA.String()})
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestMembersRepository_SetRoles_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Foreign Role Team')`, otherTeamID)
+	require.NoError(t, err)
+	foreignRole := seedRole(t, pool, otherTeamID, "Foreign Role", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Legit Member",
+		Email: "legit-member@example.com",
+	})
+	require.NoError(t, err)
+
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{foreignRole.String()})
+	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
 }
 
 func TestMembersRepository_RemoveMember(t *testing.T) {
@@ -304,12 +376,38 @@ func TestMembersRepository_RemoveMember(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = repo.RemoveMember(ctx, m.MembershipID.String())
+	err = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
 	require.NoError(t, err)
 
 	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
 	require.NoError(t, err)
 	assert.Empty(t, list)
+}
+
+func TestMembersRepository_RemoveMember_WrongTeam_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Remove Other Team')`, otherTeamID)
+	require.NoError(t, err)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Should Survive",
+		Email: "should-survive@example.com",
+	})
+	require.NoError(t, err)
+
+	err = repo.RemoveMember(ctx, m.MembershipID.String(), otherTeamID.String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+
+	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
 }
 
 func TestMembersRepository_IsMember(t *testing.T) {

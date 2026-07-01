@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
@@ -19,8 +20,8 @@ import (
 type pollService interface {
 	ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit int, cursor string) ([]gen.Poll, *string, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error)
-	Vote(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error)
+	Delete(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 // Handler implements the polls-related methods of gen.StrictServerInterface.
@@ -102,8 +103,11 @@ func (h *Handler) VotePoll(ctx context.Context, req gen.VotePollRequestObject) (
 		return nil, apierror.BadRequest("missing request body")
 	}
 	optionIDs := append([]uuid.UUID(nil), req.Body.OptionIds...)
-	poll, err := h.svc.Vote(ctx, req.PollId, user.Id, optionIDs)
+	poll, err := h.svc.Vote(ctx, req.PollId, req.TeamId, user.Id, optionIDs)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("poll not found")
+		}
 		h.logger.ErrorContext(ctx, "VotePoll failed", "err", err)
 		return nil, apierror.Internal("failed to vote on poll")
 	}
@@ -116,7 +120,10 @@ func (h *Handler) DeletePoll(ctx context.Context, req gen.DeletePollRequestObjec
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.Delete(ctx, req.PollId); err != nil {
+	if err := h.svc.Delete(ctx, req.PollId, req.TeamId); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("poll not found")
+		}
 		h.logger.ErrorContext(ctx, "DeletePoll failed", "err", err)
 		return nil, apierror.Internal("failed to delete poll")
 	}

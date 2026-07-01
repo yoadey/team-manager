@@ -401,26 +401,26 @@ func buildUpdateSets(params *UpdateEventParams, eventID string) (setSQL string, 
 
 // ─── SetStatus ──────────────────────────────────────────────────────────────
 
-// SetStatus updates event status for a single event or all events in its series.
-func (r *Repository) SetStatus(ctx context.Context, eventID, status, scope string) (*EventRow, error) {
+// SetStatus updates event status for a single event or all events in its series, scoped to teamID.
+func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, scope string) (*EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if scope == "series" {
 		var seriesID *uuid.UUID
-		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1`, eventID).Scan(&seriesID)
-		if err != nil {
+		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("events.Repository.SetStatus: get series_id: %w", err)
 		}
 		if seriesID != nil {
-			_, err = r.pool.Exec(ctx, `UPDATE events SET status = $1 WHERE series_id = $2`, status, seriesID)
+			_, err = r.pool.Exec(ctx, `UPDATE events SET status = $1 WHERE series_id = $2 AND team_id = $3`, status, seriesID, teamID)
 			if err != nil {
 				return nil, fmt.Errorf("events.Repository.SetStatus: update series: %w", err)
 			}
 		}
 	}
 
-	q := fmt.Sprintf(`UPDATE events SET status = $1 WHERE id = $2 RETURNING %s`, selectEventFields)
-	row := r.pool.QueryRow(ctx, q, status, eventID)
+	q := fmt.Sprintf(`UPDATE events SET status = $1 WHERE id = $2 AND team_id = $3 RETURNING %s`, selectEventFields)
+	row := r.pool.QueryRow(ctx, q, status, eventID, teamID)
 	e, err := scanEventRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

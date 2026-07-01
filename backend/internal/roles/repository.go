@@ -83,8 +83,8 @@ func (r *Repository) CreateRole(ctx context.Context, teamID, name string, color 
 	return rr, nil
 }
 
-// UpdateRole applies a partial update to a role.
-func (r *Repository) UpdateRole(ctx context.Context, roleID string, patch RolePatch) (*teams.RoleRow, error) {
+// UpdateRole applies a partial update to a role that belongs to teamID.
+func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID string, patch RolePatch) (*teams.RoleRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	setClauses := []string{}
@@ -112,7 +112,7 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID string, patch RolePa
 	}
 
 	if len(setClauses) == 0 {
-		return r.getRoleByID(ctx, roleID)
+		return r.getRoleByID(ctx, roleID, teamID)
 	}
 
 	setSQL := ""
@@ -122,14 +122,14 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID string, patch RolePa
 		}
 		setSQL += c
 	}
-	args = append(args, roleID)
+	args = append(args, roleID, teamID)
 
 	rr := &teams.RoleRow{}
 	var permBytes []byte
 	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
-		UPDATE roles SET %s WHERE id = $%d
+		UPDATE roles SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, name, system, color, permissions
-	`, setSQL, n), args...).Scan(
+	`, setSQL, n, n+1), args...).Scan(
 		&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes,
 	)
 	if err != nil {
@@ -144,13 +144,15 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID string, patch RolePa
 	return rr, nil
 }
 
-// DeleteRole deletes a non-system role. Returns an error if the role is system=true.
-func (r *Repository) DeleteRole(ctx context.Context, roleID string) error {
+// DeleteRole deletes a non-system role that belongs to teamID. Returns an
+// error if the role is system=true, or pgx.ErrNoRows if no role with roleID
+// exists within teamID.
+func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// Check system flag first.
+	// Check system flag first, scoped to the team.
 	var isSystem bool
-	err := r.pool.QueryRow(ctx, `SELECT system FROM roles WHERE id = $1`, roleID).Scan(&isSystem)
+	err := r.pool.QueryRow(ctx, `SELECT system FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID).Scan(&isSystem)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
@@ -161,9 +163,12 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID string) error {
 		return ErrSystemRole
 	}
 
-	_, err = r.pool.Exec(ctx, `DELETE FROM roles WHERE id = $1`, roleID)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID)
 	if err != nil {
 		return fmt.Errorf("roles.Repository.DeleteRole: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }
@@ -190,13 +195,13 @@ func (r *Repository) RolesExistForTeam(ctx context.Context, teamID string, roleI
 
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
-func (r *Repository) getRoleByID(ctx context.Context, roleID string) (*teams.RoleRow, error) {
+func (r *Repository) getRoleByID(ctx context.Context, roleID, teamID string) (*teams.RoleRow, error) {
 	rr := &teams.RoleRow{}
 	var permBytes []byte
 	err := r.pool.QueryRow(ctx, `
 		SELECT id, team_id, name, system, color, permissions
-		FROM roles WHERE id = $1
-	`, roleID).Scan(&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes)
+		FROM roles WHERE id = $1 AND team_id = $2
+	`, roleID, teamID).Scan(&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes)
 	if err != nil {
 		return nil, err
 	}

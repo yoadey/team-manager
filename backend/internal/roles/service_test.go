@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -19,8 +20,8 @@ import (
 type mockRepo struct {
 	listRolesFn  func(ctx context.Context, teamID string) ([]teams.RoleRow, error)
 	createRoleFn func(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error)
-	updateRoleFn func(ctx context.Context, roleID string, patch roles.RolePatch) (*teams.RoleRow, error)
-	deleteRoleFn func(ctx context.Context, roleID string) error
+	updateRoleFn func(ctx context.Context, roleID, teamID string, patch roles.RolePatch) (*teams.RoleRow, error)
+	deleteRoleFn func(ctx context.Context, roleID, teamID string) error
 }
 
 func (m *mockRepo) ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error) {
@@ -31,12 +32,12 @@ func (m *mockRepo) CreateRole(ctx context.Context, teamID, name string, color *s
 	return m.createRoleFn(ctx, teamID, name, color, permissions)
 }
 
-func (m *mockRepo) UpdateRole(ctx context.Context, roleID string, patch roles.RolePatch) (*teams.RoleRow, error) {
-	return m.updateRoleFn(ctx, roleID, patch)
+func (m *mockRepo) UpdateRole(ctx context.Context, roleID, teamID string, patch roles.RolePatch) (*teams.RoleRow, error) {
+	return m.updateRoleFn(ctx, roleID, teamID, patch)
 }
 
-func (m *mockRepo) DeleteRole(ctx context.Context, roleID string) error {
-	return m.deleteRoleFn(ctx, roleID)
+func (m *mockRepo) DeleteRole(ctx context.Context, roleID, teamID string) error {
+	return m.deleteRoleFn(ctx, roleID, teamID)
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -105,11 +106,13 @@ func TestService_UpdateRole_LeavesPermissionsNilWhenNotProvided(t *testing.T) {
 	t.Parallel()
 
 	roleID := uuid.New()
+	teamID := uuid.New()
 	newName := "Renamed Role"
 	var capturedPatch roles.RolePatch
 	repo := &mockRepo{
-		updateRoleFn: func(_ context.Context, gotRoleID string, patch roles.RolePatch) (*teams.RoleRow, error) {
+		updateRoleFn: func(_ context.Context, gotRoleID, gotTeamID string, patch roles.RolePatch) (*teams.RoleRow, error) {
 			assert.Equal(t, roleID.String(), gotRoleID)
+			assert.Equal(t, teamID.String(), gotTeamID)
 			capturedPatch = patch
 			return &teams.RoleRow{Id: roleID, Name: newName}, nil
 		},
@@ -117,7 +120,7 @@ func TestService_UpdateRole_LeavesPermissionsNilWhenNotProvided(t *testing.T) {
 
 	svc := roles.NewService(repo)
 	body := &gen.UpdateRoleJSONRequestBody{Name: &newName}
-	_, err := svc.UpdateRole(context.Background(), roleID, body)
+	_, err := svc.UpdateRole(context.Background(), roleID, teamID, body)
 	require.NoError(t, err)
 
 	require.NotNil(t, capturedPatch.Name)
@@ -129,9 +132,10 @@ func TestService_UpdateRole_MapsPermissionsWhenProvided(t *testing.T) {
 	t.Parallel()
 
 	roleID := uuid.New()
+	teamID := uuid.New()
 	var capturedPatch roles.RolePatch
 	repo := &mockRepo{
-		updateRoleFn: func(_ context.Context, _ string, patch roles.RolePatch) (*teams.RoleRow, error) {
+		updateRoleFn: func(_ context.Context, _, _ string, patch roles.RolePatch) (*teams.RoleRow, error) {
 			capturedPatch = patch
 			return &teams.RoleRow{Id: roleID}, nil
 		},
@@ -140,7 +144,7 @@ func TestService_UpdateRole_MapsPermissionsWhenProvided(t *testing.T) {
 	svc := roles.NewService(repo)
 	perms := gen.Permissions{Events: gen.Write, Members: gen.None, Finances: gen.None, News: gen.None, Polls: gen.None, Settings: gen.Read}
 	body := &gen.UpdateRoleJSONRequestBody{Permissions: &perms}
-	_, err := svc.UpdateRole(context.Background(), roleID, body)
+	_, err := svc.UpdateRole(context.Background(), roleID, teamID, body)
 	require.NoError(t, err)
 
 	require.NotNil(t, capturedPatch.Permissions)
@@ -148,21 +152,42 @@ func TestService_UpdateRole_MapsPermissionsWhenProvided(t *testing.T) {
 	assert.Equal(t, "read", capturedPatch.Permissions.Settings)
 }
 
+func TestService_UpdateRole_WrongTeam_PropagatesNoRows(t *testing.T) {
+	t.Parallel()
+
+	roleID := uuid.New()
+	wrongTeamID := uuid.New()
+	newName := "Attacker Renamed"
+	repo := &mockRepo{
+		updateRoleFn: func(context.Context, string, string, roles.RolePatch) (*teams.RoleRow, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := roles.NewService(repo)
+	body := &gen.UpdateRoleJSONRequestBody{Name: &newName}
+	_, err := svc.UpdateRole(context.Background(), roleID, wrongTeamID, body)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
 func TestService_DeleteRole(t *testing.T) {
 	t.Parallel()
 
 	roleID := uuid.New()
+	teamID := uuid.New()
 	called := false
 	repo := &mockRepo{
-		deleteRoleFn: func(_ context.Context, gotRoleID string) error {
+		deleteRoleFn: func(_ context.Context, gotRoleID, gotTeamID string) error {
 			assert.Equal(t, roleID.String(), gotRoleID)
+			assert.Equal(t, teamID.String(), gotTeamID)
 			called = true
 			return nil
 		},
 	}
 
 	svc := roles.NewService(repo)
-	err := svc.DeleteRole(context.Background(), roleID)
+	err := svc.DeleteRole(context.Background(), roleID, teamID)
 	require.NoError(t, err)
 	assert.True(t, called)
 }
@@ -172,11 +197,24 @@ func TestService_DeleteRole_PropagatesRepositoryError(t *testing.T) {
 
 	wantErr := errors.New("cannot delete system role")
 	repo := &mockRepo{
-		deleteRoleFn: func(context.Context, string) error { return wantErr },
+		deleteRoleFn: func(context.Context, string, string) error { return wantErr },
 	}
 
 	svc := roles.NewService(repo)
-	err := svc.DeleteRole(context.Background(), uuid.New())
+	err := svc.DeleteRole(context.Background(), uuid.New(), uuid.New())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
+}
+
+func TestService_DeleteRole_WrongTeam_PropagatesNoRows(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		deleteRoleFn: func(context.Context, string, string) error { return pgx.ErrNoRows },
+	}
+
+	svc := roles.NewService(repo)
+	err := svc.DeleteRole(context.Background(), uuid.New(), uuid.New())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }

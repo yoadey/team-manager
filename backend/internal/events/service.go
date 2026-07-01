@@ -29,7 +29,7 @@ type eventRepo interface {
 	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
 	UpdateEvent(ctx context.Context, eventID, teamID string, params *UpdateEventParams, scope string) (*EventRow, error)
-	SetStatus(ctx context.Context, eventID string, status string, scope string) (*EventRow, error)
+	SetStatus(ctx context.Context, eventID, teamID, status, scope string) (*EventRow, error)
 	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error)
 	GetMyAttendance(ctx context.Context, eventID, userID string) (*AttendanceDBRow, error)
@@ -311,8 +311,8 @@ func (s *Service) DeleteEvent(ctx context.Context, eventID, teamID, scope string
 // ─── SetStatus ──────────────────────────────────────────────────────────────
 
 // SetStatus updates event status and returns the updated event.
-func (s *Service) SetStatus(ctx context.Context, userID, eventID, status, scope string) (*gen.TeamEvent, error) {
-	row, err := s.repo.SetStatus(ctx, eventID, status, scope)
+func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status, scope string) (*gen.TeamEvent, error) {
+	row, err := s.repo.SetStatus(ctx, eventID, teamID, status, scope)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.SetStatus: %w", err)
 	}

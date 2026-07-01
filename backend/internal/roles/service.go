@@ -15,8 +15,8 @@ import (
 type roleRepo interface {
 	ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error)
 	CreateRole(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error)
-	UpdateRole(ctx context.Context, roleID string, patch RolePatch) (*teams.RoleRow, error)
-	DeleteRole(ctx context.Context, roleID string) error
+	UpdateRole(ctx context.Context, roleID, teamID string, patch RolePatch) (*teams.RoleRow, error)
+	DeleteRole(ctx context.Context, roleID, teamID string) error
 }
 
 // Service implements role business logic.
@@ -53,14 +53,14 @@ func (s *Service) CreateRole(ctx context.Context, teamID uuid.UUID, body *gen.Cr
 	return &result, nil
 }
 
-// UpdateRole applies a patch to a role.
-func (s *Service) UpdateRole(ctx context.Context, roleID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+// UpdateRole applies a patch to a role that belongs to teamID.
+func (s *Service) UpdateRole(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
 	patch := RolePatch{Name: body.Name, Color: body.Color}
 	if body.Permissions != nil {
 		p := toInternalPermissions(*body.Permissions)
 		patch.Permissions = &p
 	}
-	row, err := s.repo.UpdateRole(ctx, roleID.String(), patch)
+	row, err := s.repo.UpdateRole(ctx, roleID.String(), teamID.String(), patch)
 	if err != nil {
 		return nil, fmt.Errorf("roles.Service.UpdateRole: %w", err)
 	}
@@ -68,9 +68,9 @@ func (s *Service) UpdateRole(ctx context.Context, roleID uuid.UUID, body *gen.Up
 	return &result, nil
 }
 
-// DeleteRole deletes a non-system role.
-func (s *Service) DeleteRole(ctx context.Context, roleID uuid.UUID) error {
-	if err := s.repo.DeleteRole(ctx, roleID.String()); err != nil {
+// DeleteRole deletes a non-system role that belongs to teamID.
+func (s *Service) DeleteRole(ctx context.Context, roleID, teamID uuid.UUID) error {
+	if err := s.repo.DeleteRole(ctx, roleID.String(), teamID.String()); err != nil {
 		return fmt.Errorf("roles.Service.DeleteRole: %w", err)
 	}
 	return nil

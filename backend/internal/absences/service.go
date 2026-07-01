@@ -16,8 +16,8 @@ type absenceRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*AbsenceRow, error)
 	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cur *ListCursor) ([]*AbsenceRow, error)
 	Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error)
-	Update(ctx context.Context, id uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Update(ctx context.Context, id, teamID uuid.UUID, fromDate, toDate *string, reason *string) (*AbsenceRow, error)
+	Delete(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 // Service implements absence business logic.
@@ -104,8 +104,8 @@ func (s *Service) Create(ctx context.Context, teamID uuid.UUID, body *gen.Create
 	return toGenAbsence(row), nil
 }
 
-// Update modifies an existing absence.
-func (s *Service) Update(ctx context.Context, id uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error) {
+// Update modifies an existing absence that belongs to teamID.
+func (s *Service) Update(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error) {
 	var from, to *string
 	if body.From != nil {
 		s := body.From.Format("2006-01-02")
@@ -115,16 +115,16 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, body *gen.UpdateAbse
 		s := body.To.Format("2006-01-02")
 		to = &s
 	}
-	row, err := s.repo.Update(ctx, id, from, to, body.Reason)
+	row, err := s.repo.Update(ctx, id, teamID, from, to, body.Reason)
 	if err != nil {
 		return gen.Absence{}, fmt.Errorf("absences.Service.Update: %w", err)
 	}
 	return toGenAbsence(row), nil
 }
 
-// Delete removes an absence by ID.
-func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.Delete(ctx, id); err != nil {
+// Delete removes an absence by ID that belongs to teamID.
+func (s *Service) Delete(ctx context.Context, id, teamID uuid.UUID) error {
+	if err := s.repo.Delete(ctx, id, teamID); err != nil {
 		return fmt.Errorf("absences.Service.Delete: %w", err)
 	}
 	return nil

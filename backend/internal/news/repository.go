@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -99,32 +100,40 @@ func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, tit
 	return r.findByID(ctx, id)
 }
 
-// Update modifies a news item and returns the enriched row.
-func (r *Repository) Update(ctx context.Context, id uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error) {
+// Update modifies a news item that belongs to teamID and returns the enriched
+// row. Returns pgx.ErrNoRows if no news item with id exists within teamID.
+func (r *Repository) Update(ctx context.Context, id, teamID uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(
+	tag, err := r.pool.Exec(
 		ctx,
 		`UPDATE news SET
-			title  = COALESCE($2, title),
-			body   = COALESCE($3, body),
-			pinned = COALESCE($4, pinned)
-		 WHERE id = $1`,
-		id, title, body, pinned,
+			title  = COALESCE($3, title),
+			body   = COALESCE($4, body),
+			pinned = COALESCE($5, pinned)
+		 WHERE id = $1 AND team_id = $2`,
+		id, teamID, title, body, pinned,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("news.Repository.Update: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return nil, pgx.ErrNoRows
+	}
 	return r.findByID(ctx, id)
 }
 
-// Delete removes a news item by ID.
-func (r *Repository) Delete(ctx context.Context, id uuid.UUID) error {
+// Delete removes a news item by ID that belongs to teamID. Returns
+// pgx.ErrNoRows if no news item with id exists within teamID.
+func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(ctx, `DELETE FROM news WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM news WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("news.Repository.Delete: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }
