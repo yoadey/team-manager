@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
@@ -297,4 +299,42 @@ func TestHandler_ToggleContribution_Unauthenticated(t *testing.T) {
 		ContributionId: testTxID,
 	})
 	require.Error(t, err)
+}
+
+func TestHandler_TogglePenaltyPaid_NotFoundReturns404(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		toggleAssignmentPaid: func(_ context.Context, _, _ uuid.UUID) (*gen.PenaltyAssignment, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	_, err := h.TogglePenaltyPaid(authedCtx(), gen.TogglePenaltyPaidRequestObject{
+		TeamId:       testTeamID,
+		AssignmentId: testTxID,
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+}
+
+func TestHandler_TogglePenaltyPaid_ServiceErrorReturns500(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		toggleAssignmentPaid: func(_ context.Context, _, _ uuid.UUID) (*gen.PenaltyAssignment, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	_, err := h.TogglePenaltyPaid(authedCtx(), gen.TogglePenaltyPaidRequestObject{
+		TeamId:       testTeamID,
+		AssignmentId: testTxID,
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
 }

@@ -1,4 +1,4 @@
-export type { PollOption, Poll } from './types';
+export type { PollOption, Poll, PollDto, PollOptionDto, PollVoteDto } from './types';
 export { PollsPage } from './PollsPage';
 export { PollFormSheet } from './components/PollFormSheet';
 export { usePollActions } from './hooks/usePollActions';

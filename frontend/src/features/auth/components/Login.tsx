@@ -149,13 +149,13 @@ export function Login() {
                 opacity: busy === 'login:password' ? 0.7 : 1,
               }}
             >
-              {busy === 'login:password' ? <Spinner size={18} /> : 'Anmelden'}
+              {busy === 'login:password' ? <Spinner size={18} /> : t('auth.signIn')}
             </ButtonBase>
             <ButtonBase
               onClick={() => setShowPasswordForm(false)}
               sx={{ fontSize: '13px', color: NEUTRAL.secondary, py: '4px', justifyContent: 'center' }}
             >
-              ← Zurück
+              ← {t('auth.back')}
             </ButtonBase>
           </Box>
         ) : (

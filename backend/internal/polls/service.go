@@ -2,6 +2,7 @@ package polls
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -12,6 +13,10 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
+// ErrSingleChoiceMultipleOptions is returned when a vote submits more than one
+// option for a poll that does not allow multiple selections.
+var ErrSingleChoiceMultipleOptions = errors.New("cannot select multiple options on a single-choice poll")
+
 // pollRepo is the interface the Service relies on.
 type pollRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*PollRow, error)
@@ -20,6 +25,8 @@ type pollRepo interface {
 	Delete(ctx context.Context, id, teamID uuid.UUID) error
 	ListOptions(ctx context.Context, pollID uuid.UUID) ([]*PollOptionRow, error)
 	ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVoteRow, error)
+	ListOptionsByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollOptionRow, error)
+	ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollVoteRow, error)
 	ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error
 }
 
@@ -72,13 +79,22 @@ func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUI
 		next = &token
 	}
 
+	pollIDs := make([]uuid.UUID, len(pollRows))
+	for i, pr := range pollRows {
+		pollIDs[i] = pr.Id
+	}
+	optionsByPoll, err := s.repo.ListOptionsByPollIDs(ctx, pollIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+	}
+	votesByPoll, err := s.repo.ListVotesByPollIDs(ctx, pollIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+	}
+
 	result := make([]gen.Poll, 0, len(pollRows))
 	for _, pr := range pollRows {
-		p, err := s.buildPoll(ctx, pr, currentUserID)
-		if err != nil {
-			return nil, nil, err
-		}
-		result = append(result, p)
+		result = append(result, assemblePoll(pr, optionsByPoll[pr.Id], votesByPoll[pr.Id], currentUserID))
 	}
 	return result, next, nil
 }
@@ -120,6 +136,9 @@ func (s *Service) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, op
 	if err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote FindByID: %w", err)
 	}
+	if !pr.Multiple && len(optionIDs) > 1 {
+		return gen.Poll{}, ErrSingleChoiceMultipleOptions
+	}
 	if err := s.repo.ReplaceVotes(ctx, pollID, userID, optionIDs, pr.Multiple); err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote ReplaceVotes: %w", err)
 	}
@@ -134,7 +153,10 @@ func (s *Service) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 	return nil
 }
 
-// buildPoll assembles a gen.Poll from a row, its options, and votes.
+// buildPoll fetches a single poll's options and votes and assembles a
+// gen.Poll. Used for single-poll operations (Create, Vote); ListByTeam
+// bulk-fetches options/votes for a whole page and calls assemblePoll
+// directly to avoid an N+1 query pattern.
 func (s *Service) buildPoll(ctx context.Context, pr *PollRow, currentUserID uuid.UUID) (gen.Poll, error) {
 	options, err := s.repo.ListOptions(ctx, pr.Id)
 	if err != nil {
@@ -144,7 +166,12 @@ func (s *Service) buildPoll(ctx context.Context, pr *PollRow, currentUserID uuid
 	if err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.buildPoll ListVotes: %w", err)
 	}
+	return assemblePoll(pr, options, votes, currentUserID), nil
+}
 
+// assemblePoll builds a gen.Poll from a poll row plus its already-fetched
+// options and votes (no I/O).
+func assemblePoll(pr *PollRow, options []*PollOptionRow, votes []*PollVoteRow, currentUserID uuid.UUID) gen.Poll {
 	// Count votes per option and track my votes.
 	voteCounts := make(map[uuid.UUID]int)
 	votersByOption := make(map[uuid.UUID][]*PollVoteRow)
@@ -208,5 +235,5 @@ func (s *Service) buildPoll(ctx context.Context, pr *PollRow, currentUserID uuid
 		TotalVotes: total,
 		MyVote:     &myVoteIDs,
 	}
-	return poll, nil
+	return poll
 }

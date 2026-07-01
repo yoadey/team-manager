@@ -595,8 +595,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
+  // Monotonically increasing call counter so that, if afterLoginLoad is invoked
+  // again (even for the same teamId) before an earlier call has finished, only
+  // the most recently invoked call's results are ever applied. The activeTeamId
+  // check alone doesn't catch this: re-entering the same team rapidly (A -> B ->
+  // A) means s.activeTeamId === teamId is true for both in-flight calls, so
+  // whichever happened to resolve last would win instead of whichever was
+  // invoked last.
+  const afterLoginLoadSeq = useRef(0);
   const afterLoginLoad = useCallback(
     async (teamId: string) => {
+      const seq = ++afterLoginLoadSeq.current;
       setState({
         events: [],
         members: [],
@@ -618,14 +627,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           api.news.list(teamId),
           api.notifications.list(teamId),
         ]);
-        // Discard results if the user switched to a different team while loading
+        // Discard results if the user switched to a different team while loading,
+        // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
+        // team) has since been invoked.
         setState((s) => {
-          if (s.activeTeamId !== teamId) return {};
+          if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
           return { events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount };
         });
       } catch (err) {
-        if (S().activeTeamId === teamId) reportLoad(err);
-        setState((s) => (s.activeTeamId === teamId ? { error: t('error.load') } : {}));
+        if (afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) reportLoad(err);
+        setState((s) =>
+          s.activeTeamId === teamId && afterLoginLoadSeq.current === seq ? { error: t('error.load') } : {},
+        );
       }
     },
     [api, S, setState, reportLoad],

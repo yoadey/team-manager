@@ -161,6 +161,7 @@ export const de = {
     loginHintNote: 'Es ist kein Passwort beim Verein gespeichert.',
     emailLabel: 'E-Mail-Adresse',
     passwordLabel: 'Passwort',
+    back: 'Zurück',
     pwaInstallable: 'Als App installierbar (PWA).',
     pwaIosLabel: 'iOS-Hinweis:',
     pwaIosHint: 'Push-Nachrichten funktionieren erst, wenn die App zum Home-Bildschirm hinzugefügt wurde.',

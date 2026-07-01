@@ -298,6 +298,11 @@ func (h *Handler) TogglePenaltyPaid(ctx context.Context, req gen.TogglePenaltyPa
 	}
 	a, err := h.svc.ToggleAssignmentPaid(ctx, req.TeamId, req.AssignmentId)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "assignment.toggle_paid", "not found")
+			return nil, apierror.NotFound("penalty assignment not found")
+		}
+		h.recordFinanceFailure(ctx, "assignment.toggle_paid", "internal error")
 		h.logger.ErrorContext(ctx, "TogglePenaltyPaid failed", "err", err)
 		return nil, apierror.Internal("failed to toggle penalty paid status")
 	}

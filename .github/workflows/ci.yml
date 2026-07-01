@@ -385,7 +385,14 @@ jobs:
           path: ./
           base: ${{ github.event.pull_request.base.sha || github.event.before }}
           head: ${{ github.event.pull_request.head.sha || github.sha }}
-          extra_args: --only-verified
+          # --results=verified restricts findings (and therefore the --fail
+          # exit, which the action's composite script already passes
+          # unconditionally) to verified secrets only, so unverified/
+          # false-positive matches never break the build. Do NOT add --fail
+          # here too: the underlying trufflehog CLI rejects a repeated
+          # --fail flag ("flag 'fail' cannot be repeated"), which fails the
+          # job outright regardless of scan results.
+          extra_args: --results=verified
 
   backend-migration-rollback:
     name: Backend · Migration rollback test

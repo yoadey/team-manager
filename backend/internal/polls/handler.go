@@ -108,6 +108,9 @@ func (h *Handler) VotePoll(ctx context.Context, req gen.VotePollRequestObject) (
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("poll not found")
 		}
+		if errors.Is(err, ErrSingleChoiceMultipleOptions) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "VotePoll failed", "err", err)
 		return nil, apierror.Internal("failed to vote on poll")
 	}
