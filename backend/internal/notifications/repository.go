@@ -37,8 +37,12 @@ func (r *Repository) ListByTeamAndUser(ctx context.Context, teamID, userID uuid.
 		WHERE n.team_id = $1
 		  AND n.created_at >= now() - interval '62 days'
 		ORDER BY n.created_at DESC
+		LIMIT $3
 	`
-	rows, err := r.pool.Query(ctx, q, teamID, userID)
+	// Bounded by a 62-day window already; this LIMIT is a defensive backstop
+	// against pathologically high notification volume within that window.
+	const maxNotificationRows = 2000
+	rows, err := r.pool.Query(ctx, q, teamID, userID, maxNotificationRows)
 	if err != nil {
 		return nil, fmt.Errorf("notifications.Repository.ListByTeamAndUser: %w", err)
 	}

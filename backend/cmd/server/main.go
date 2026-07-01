@@ -218,7 +218,7 @@ func main() {
 
 	teamsRepo := teams.NewRepository(pool)
 	teamsSvc := teams.NewService(teamsRepo, cfg.PublicBaseURL)
-	teamsHandler := teams.NewHandler(teamsSvc, logger)
+	teamsHandler := teams.NewHandler(teamsSvc, logger, auditLogger)
 
 	// ─── Members ─────────────────────────────────────────────────────────────
 

@@ -1,15 +1,19 @@
 package teams_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -27,7 +31,9 @@ type mockTeamService struct {
 	updateTeam       func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
 	createInvite     func(ctx context.Context, teamID string) (*gen.Invite, error)
 	getTeamPhotoData func(ctx context.Context, teamID string) ([]byte, string, error)
-	updatePhoto      func(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
+	updatePhoto      func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
+	getTeamLogoData  func(ctx context.Context, teamID string) ([]byte, string, error)
+	updateLogo       func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
 }
 
 func (m *mockTeamService) ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error) {
@@ -50,12 +56,20 @@ func (m *mockTeamService) CreateInvite(ctx context.Context, teamID string) (*gen
 	return m.createInvite(ctx, teamID)
 }
 
-func (m *mockTeamService) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
+func (m *mockTeamService) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mimeType string, err error) {
 	return m.getTeamPhotoData(ctx, teamID)
 }
 
-func (m *mockTeamService) UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error) {
-	return m.updatePhoto(ctx, teamID, data, mime)
+func (m *mockTeamService) UpdatePhoto(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error) {
+	return m.updatePhoto(ctx, teamID, data, mimeType)
+}
+
+func (m *mockTeamService) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mimeType string, err error) {
+	return m.getTeamLogoData(ctx, teamID)
+}
+
+func (m *mockTeamService) UpdateLogo(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error) {
+	return m.updateLogo(ctx, teamID, data, mimeType)
 }
 
 // fakeAuthSvc satisfies the internal authService interface for the auth.Handler.
@@ -146,7 +160,7 @@ func TestTeamHandler_ListTeams(t *testing.T) {
 		},
 	}
 
-	h := teams.NewHandler(svc, slog.Default())
+	h := teams.NewHandler(svc, slog.Default(), nil)
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp, err := h.ListTeams(r.Context(), gen.ListTeamsRequestObject{})
@@ -170,4 +184,140 @@ func TestTeamHandler_ListTeams(t *testing.T) {
 	require.Len(t, result, 1)
 	assert.Equal(t, "Test Team", result[0].Name)
 	assert.Equal(t, 5, result[0].MemberCount)
+}
+
+func TestTeamHandler_GetTeamLogo_NotFound(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		getTeamLogoData: func(_ context.Context, _ string) ([]byte, string, error) {
+			return nil, "", pgx.ErrNoRows
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+
+	resp, err := h.GetTeamLogo(context.Background(), gen.GetTeamLogoRequestObject{TeamId: uuid.New()})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetTeamLogoResponse(w))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestTeamHandler_GetTeamLogo_ReturnsStoredBytes(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		getTeamLogoData: func(_ context.Context, _ string) ([]byte, string, error) {
+			return []byte("fake-jpeg-bytes"), "image/jpeg", nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+
+	resp, err := h.GetTeamLogo(context.Background(), gen.GetTeamLogoRequestObject{TeamId: uuid.New()})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetTeamLogoResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "fake-jpeg-bytes", w.Body.String())
+}
+
+func TestTeamHandler_UploadTeamLogo_StoresAndReturnsTeam(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	hasLogo := true
+	svc := &mockTeamService{
+		updateLogo: func(_ context.Context, tid string, data []byte, mime string) (*gen.Team, error) {
+			assert.Equal(t, teamID.String(), tid)
+			assert.Equal(t, "image/jpeg", mime)
+			assert.NotEmpty(t, data)
+			return &gen.Team{Id: teamID, Name: "Test Team", HasLogo: &hasLogo}, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		require.NoError(t, err)
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		resp, err := h.UploadTeamLogo(r.Context(), gen.UploadTeamLogoRequestObject{TeamId: teamID, Body: mr})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		_ = resp.VisitUploadTeamLogoResponse(w)
+	})
+	handler := withAuthUser(inner, testAuthUser())
+
+	// Minimal valid JPEG (SOI + APP0 marker) so http.DetectContentType sees image/jpeg.
+	jpegData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("logo", "logo.jpg")
+	require.NoError(t, err)
+	_, err = fw.Write(jpegData)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/teams/"+teamID.String()+"/logo", &buf)
+	req.AddCookie(sessionCookie("test-token"))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestTeamHandler_UpdateTeam_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		updateTeam: func(_ context.Context, _ string, _ teams.TeamPatch) (*gen.Team, error) {
+			return &gen.Team{Id: teamID, Name: "Renamed Team"}, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
+	newName := "Renamed Team"
+	body := &gen.UpdateTeamJSONRequestBody{Name: &newName}
+	_, err := h.UpdateTeam(ctx, gen.UpdateTeamRequestObject{TeamId: teamID, Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.update", rec["event"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+func TestTeamHandler_CreateInvite_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	inviteID := uuid.New()
+	svc := &mockTeamService{
+		createInvite: func(_ context.Context, _ string) (*gen.Invite, error) {
+			return &gen.Invite{Id: inviteID, TeamId: teamID, Code: "ABC123"}, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
+	_, err := h.CreateInvite(ctx, gen.CreateInviteRequestObject{TeamId: teamID})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.invite_create", rec["event"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+	assert.Equal(t, inviteID.String(), rec["inviteId"])
 }

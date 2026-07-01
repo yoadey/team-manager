@@ -412,6 +412,21 @@ func (r *Repository) UpdateTeamPhoto(ctx context.Context, teamID string, data []
 	return nil
 }
 
+// UpdateTeamLogo stores raw logo bytes and MIME type for the given team.
+func (r *Repository) UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(
+		ctx,
+		`UPDATE teams SET logo_data = $2, logo_mime = $3 WHERE id = $1`,
+		teamID, data, mime,
+	)
+	if err != nil {
+		return fmt.Errorf("teams.Repository.UpdateTeamLogo: %w", err)
+	}
+	return nil
+}
+
 // ─── Role query helpers ───────────────────────────────────────────────────────
 
 func scanRole(row interface{ Scan(dest ...any) error }) (*RoleRow, error) {

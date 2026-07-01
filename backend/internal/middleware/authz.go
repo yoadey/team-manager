@@ -102,21 +102,27 @@ var selfServiceWritePaths = map[string]bool{
 	"notifications/seen": true,
 }
 
-// RequirePermission enforces module-level write access for mutating HTTP methods
-// (POST, PUT, PATCH, DELETE). GET requests are always passed through (membership
-// check by RequireMembership is sufficient). Self-service routes (attendance,
-// comments, vote, absences, notifications) are also passed through for any member.
+// RequirePermission enforces module-level access for team-scoped routes.
+//
+// Mutating methods (POST, PUT, PATCH, DELETE) require "write" on the relevant
+// module, as before. Self-service routes (attendance, comments, vote,
+// absences, notifications) are passed through for any member regardless of
+// method.
+//
+// GET/HEAD/OPTIONS additionally require at least "read" (i.e. not "none") on
+// the six core RBAC modules (events, members, finances, news, polls, settings
+// via /roles) — a module permission of "none" must also hide read access, not
+// just block writes. Routes with no natural module mapping (team info itself,
+// photo, logo, invite, stats) remain gated by membership only, exactly as
+// before; they carry no module-level sensitivity or don't correspond to one of
+// the six modules.
 //
 // Path parsing: given a URL like /api/v1/teams/{teamId}/events/123/attendance,
 // the segment right after the teamId UUID is used to look up the module.
 func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handler { //nolint:gocognit // complexity inherent in RBAC permission checking
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Only enforce on mutations.
-			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-				next.ServeHTTP(w, r)
-				return
-			}
+			isRead := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
 
 			teamIDStr := chi.URLParam(r, "teamId")
 			if teamIDStr == "" {
@@ -141,8 +147,29 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 			// Determine the sub-path after /teams/{teamId}/.
 			subPath := subPathAfterTeam(r.URL.Path, teamIDStr)
 
-			// Self-service routes — any member may write.
+			// Self-service routes — any member may read or write.
 			if isSelfService(subPath) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if isRead {
+				module, restrict := readModuleForPath(subPath)
+				if !restrict {
+					// No module mapping for reads (team info, photo, logo,
+					// invite, stats) — membership check is sufficient.
+					next.ServeHTTP(w, r)
+					return
+				}
+				perms, err := checker.GetPermissions(r.Context(), teamID, user.Id)
+				if err != nil {
+					writeProblem(w, http.StatusInternalServerError, "permission check failed")
+					return
+				}
+				if !hasAnyPermission(perms, module) {
+					writeProblem(w, http.StatusForbidden, "insufficient permissions for "+module)
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -175,6 +202,20 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// readModuleForPath returns the RBAC module that governs GET-visibility for a
+// sub-path, and whether that module should be enforced at all. Only the six
+// core RBAC modules (via routeModule, excluding the "" self-service entries)
+// are read-restricted; team info, photo/logo, invite, and stats have no
+// module-level sensitivity and remain visible to any team member.
+func readModuleForPath(subPath string) (module string, restrict bool) {
+	first := strings.SplitN(subPath, "/", 2)[0]
+	m, ok := routeModule[first]
+	if !ok || m == "" {
+		return "", false
+	}
+	return m, true
 }
 
 // subPathAfterTeam extracts the path segments that follow the team UUID.
@@ -252,6 +293,29 @@ func hasWritePermission(p teams.PermissionsJSON, module string) bool {
 		return false
 	}
 	return level == "write"
+}
+
+// hasAnyPermission returns true if the effective permissions include read or
+// write (i.e. anything but "none") for module.
+func hasAnyPermission(p teams.PermissionsJSON, module string) bool {
+	var level string
+	switch module {
+	case "events":
+		level = p.Events
+	case "members":
+		level = p.Members
+	case "finances":
+		level = p.Finances
+	case "news":
+		level = p.News
+	case "polls":
+		level = p.Polls
+	case "settings":
+		level = p.Settings
+	default:
+		return false
+	}
+	return level == "read" || level == "write"
 }
 
 // writeProblem writes an RFC 9457 Problem Details response.

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -48,10 +49,19 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	assert.Equal(t, "Membership Fee", tx.Title)
 	assert.Equal(t, 50.0, tx.Amount)
 
+	expenseCategory := "gear"
+	_, err = repo.CreateTransaction(ctx, teamID, "expense", "New Balls", 20.0, time.Now().UTC(), &expenseCategory)
+	require.NoError(t, err)
+
 	list, err := repo.ListTransactions(ctx, teamID)
 	require.NoError(t, err)
-	require.Len(t, list, 1)
-	assert.Equal(t, tx.ID, list[0].ID)
+	require.Len(t, list, 2)
+	assert.Equal(t, "New Balls", list[0].Title) // ordered by date desc, created_at desc
+
+	income, expense, err := repo.SumTransactions(ctx, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, 50.0, income)
+	assert.Equal(t, 20.0, expense)
 
 	newTitle := "Updated Fee"
 	updated, err := repo.UpdateTransaction(ctx, tx.ID, teamID, finances.TransactionPatch{Title: &newTitle})
@@ -62,7 +72,12 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 
 	list, err = repo.ListTransactions(ctx, teamID)
 	require.NoError(t, err)
-	assert.Empty(t, list)
+	require.Len(t, list, 1)
+
+	income, expense, err = repo.SumTransactions(ctx, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, income)
+	assert.Equal(t, 20.0, expense)
 }
 
 func TestFinancesRepository_Penalties(t *testing.T) {
@@ -105,6 +120,15 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	assignments, err := repo.ListAssignments(ctx, teamID)
 	require.NoError(t, err)
 	require.Len(t, assignments, 1)
+
+	fetched, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, assign.ID, fetched.ID)
+	assert.Equal(t, "Very late", fetched.PenaltyLabel)
+	assert.NotEmpty(t, fetched.MemberName)
+
+	_, err = repo.GetAssignmentByID(ctx, uuid.New(), teamID)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
 	toggled, err := repo.ToggleAssignmentPaid(ctx, assign.ID, teamID)
 	require.NoError(t, err)
@@ -154,6 +178,10 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, 25.0, list[0].Amount)
 	assert.Equal(t, "open", list[0].Status)
 
+	openCount, err := repo.CountOpenContributions(ctx, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, openCount)
+
 	// UpdateContribution: change label and amount.
 	newLabel := "Monthly Fee"
 	newAmount := 30.0
@@ -170,6 +198,10 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	toggled, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
 	require.NoError(t, err)
 	assert.Equal(t, "paid", toggled.Status)
+
+	openCount, err = repo.CountOpenContributions(ctx, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, openCount)
 
 	// Toggle again: paid → open.
 	toggled, err = repo.ToggleContributionStatus(ctx, contribID, teamID)

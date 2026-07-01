@@ -30,6 +30,7 @@ type teamRepo interface {
 	GetRolesForMembership(ctx context.Context, membershipID string) ([]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
+	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
 }
 
 // Service implements team business logic.
@@ -150,6 +151,41 @@ func (s *Service) UpdatePhoto(ctx context.Context, teamID string, data []byte, m
 	tr, err := s.repo.GetTeam(ctx, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.UpdatePhoto: refresh: %w", err)
+	}
+	return toGenTeam(tr), nil
+}
+
+// GetTeamLogoData returns the raw logo bytes and MIME type for the given team.
+func (s *Service) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
+	tr, err := s.repo.GetTeam(ctx, teamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", pgx.ErrNoRows
+		}
+		return nil, "", fmt.Errorf("teams.Service.GetTeamLogoData: %w", err)
+	}
+	if len(tr.LogoData) == 0 {
+		return nil, "", pgx.ErrNoRows
+	}
+	mime = "image/jpeg"
+	if tr.LogoMime != nil && *tr.LogoMime != "" {
+		mime = *tr.LogoMime
+	}
+	return tr.LogoData, mime, nil
+}
+
+// UpdateLogo resizes and stores the team logo, returning the updated gen.Team.
+func (s *Service) UpdateLogo(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error) {
+	resized, err := resizeImage(data, mime)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.UpdateLogo: resize: %w", err)
+	}
+	if err := s.repo.UpdateTeamLogo(ctx, teamID, resized, "image/jpeg"); err != nil {
+		return nil, fmt.Errorf("teams.Service.UpdateLogo: store: %w", err)
+	}
+	tr, err := s.repo.GetTeam(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.UpdateLogo: refresh: %w", err)
 	}
 	return toGenTeam(tr), nil
 }

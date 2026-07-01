@@ -197,6 +197,54 @@ func TestHandler_CreateTransaction_Success(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, w.Code)
 }
 
+func TestHandler_CreateTransaction_RejectsNonPositiveAmount(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when amount validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	for _, amount := range []float64{0, -10} {
+		body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Membership fee", Amount: amount}
+		_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+		require.Error(t, err)
+	}
+}
+
+func TestHandler_UpdateTransaction_RejectsNonPositiveAmount(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		updateTransaction: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when amount validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	badAmount := -1.0
+	body := &gen.UpdateTransactionJSONRequestBody{Amount: &badAmount}
+	_, err := h.UpdateTransaction(authedCtx(), gen.UpdateTransactionRequestObject{TransactionId: testTxID, TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+}
+
+func TestHandler_CreatePenalty_RejectsNonPositiveAmount(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createPenalty: func(_ context.Context, _ uuid.UUID, _ *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+			t.Fatal("service should not be called when amount validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	body := &gen.CreatePenaltyJSONRequestBody{Label: "Late arrival", Amount: 0}
+	_, err := h.CreatePenalty(authedCtx(), gen.CreatePenaltyRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+}
+
 func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 	tx := &gen.Transaction{

@@ -149,15 +149,16 @@ describe('auth', () => {
     await expect(realApi.auth.deleteAccount('wrong@example.com')).rejects.toThrow('HTTP 401');
   });
 
-  it('setPhoto uploads multipart then refetches the user', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+  it('setPhoto uploads multipart via PUT then refetches the user', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal('fetch', fetchMock);
     client.GET.mockResolvedValueOnce(ok({ id: 'u1' }));
     const dataUrl = 'data:image/jpeg;base64,' + btoa('hello');
     const res = await realApi.auth.setPhoto(dataUrl);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0];
-    expect(init.method).toBe('POST');
+    // The backend registers PUT (not POST) for /auth/me/photo.
+    expect(init.method).toBe('PUT');
     expect(init.credentials).toBe('include');
     expect(res).toMatchObject({ __mapped: 'user' });
     vi.unstubAllGlobals();
@@ -167,10 +168,17 @@ describe('auth', () => {
     await expect(realApi.auth.setPhoto('not-a-data-url')).rejects.toThrow();
   });
 
+  it('setPhoto throws AuthError when the session expired (401)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
+    await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow(AuthError);
+    vi.unstubAllGlobals();
+  });
+
   it('setPhoto throws when the upload fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
     const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
-    await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow('Photo upload failed');
+    await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow('HTTP 500');
     vi.unstubAllGlobals();
   });
 });
@@ -199,11 +207,41 @@ describe('teams', () => {
 
   it('updateSettings maps reasonVisibilityRoles onto reasonVisibilityRoleIds', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
     await realApi.teams.updateSettings('t1', { name: 'New', reasonVisibilityRoles: ['r1'] });
     expect(client.PATCH).toHaveBeenCalledWith(
       '/teams/{teamId}',
       expect.objectContaining({ body: expect.objectContaining({ name: 'New', reasonVisibilityRoleIds: ['r1'] }) }),
     );
+  });
+
+  it('updateSettings uploads photo/logo via multipart PUT and skips the JSON PATCH when no other field changed', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    const dataUrl = 'data:image/png;base64,' + btoa('img');
+    await realApi.teams.updateSettings('t1', { photo: dataUrl });
+    expect(client.PATCH).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/v1/teams/t1/photo');
+    expect(init.method).toBe('PUT');
+    vi.unstubAllGlobals();
+  });
+
+  it('updateSettings uploads both photo and logo alongside JSON fields', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
+    client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    const photoUrl = 'data:image/png;base64,' + btoa('photo');
+    const logoUrl = 'data:image/png;base64,' + btoa('logo');
+    await realApi.teams.updateSettings('t1', { name: 'New', photo: photoUrl, logo: logoUrl });
+    expect(client.PATCH).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toContain('/photo');
+    expect(fetchMock.mock.calls[1][0]).toContain('/logo');
+    vi.unstubAllGlobals();
   });
 
   it('createInvite maps the invite', async () => {

@@ -21,6 +21,7 @@ var (
 // financeRepo is the interface the Service relies on.
 type financeRepo interface {
 	ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error)
+	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense float64, err error)
 	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount float64, date time.Time, category *string) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
@@ -32,12 +33,14 @@ type financeRepo interface {
 	PenaltyBelongsToTeam(ctx context.Context, penaltyID, teamID uuid.UUID) (bool, error)
 
 	ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error)
+	GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
 	CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
 	ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
 	UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
 
 	ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error)
+	CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error)
 	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, patch ContributionPatch) (*ContributionRow, error)
 	ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error)
 
@@ -56,11 +59,20 @@ func NewService(repo financeRepo) *Service {
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
 
-// GetOverview assembles the full FinanceOverview for a team.
+// GetOverview assembles the FinanceOverview for a team. Display lists
+// (transactions, assignments, contributions) are capped at maxOverviewRows by
+// the repository; the income/expense/balance and open-contribution figures
+// are computed via dedicated aggregate queries so they stay accurate
+// regardless of that cap.
 func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error) {
 	txs, err := s.repo.ListTransactions(ctx, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.GetOverview transactions: %w", err)
+	}
+
+	income, expense, err := s.repo.SumTransactions(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.GetOverview transaction totals: %w", err)
 	}
 
 	penalties, err := s.repo.ListPenalties(ctx, teamID)
@@ -78,20 +90,19 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.Finan
 		return nil, fmt.Errorf("finances.Service.GetOverview contributions: %w", err)
 	}
 
+	contribOpen, err := s.repo.CountOpenContributions(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.GetOverview open contributions: %w", err)
+	}
+
 	openByUser, err := s.repo.ListOpenPenaltiesByUser(ctx, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.GetOverview open penalties: %w", err)
 	}
 
-	var income, expense float64
 	genTxs := make([]gen.Transaction, 0, len(txs))
 	for _, t := range txs {
 		genTxs = append(genTxs, toGenTransaction(t))
-		if t.Type == "income" {
-			income += t.Amount
-		} else {
-			expense += t.Amount
-		}
 	}
 
 	genPenalties := make([]gen.Penalty, 0, len(penalties))
@@ -105,12 +116,8 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.Finan
 	}
 
 	genContributions := make([]gen.Contribution, 0, len(contributions))
-	contribOpen := 0
 	for _, c := range contributions {
 		genContributions = append(genContributions, toGenContribution(c))
-		if c.Status == "open" {
-			contribOpen++
-		}
 	}
 
 	genOpen := make([]gen.OpenPenalty, 0, len(openByUser))
@@ -243,19 +250,13 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateAssignment: %w", err)
 	}
-	// Reload with joined data.
-	assignments, err := s.repo.ListAssignments(ctx, teamID)
+	// Reload the single row with joined member/penalty data.
+	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
 		result := toGenAssignment(*a)
 		return &result, nil
 	}
-	for _, full := range assignments {
-		if full.ID == a.ID {
-			result := toGenAssignment(full)
-			return &result, nil
-		}
-	}
-	result := toGenAssignment(*a)
+	result := toGenAssignment(*full)
 	return &result, nil
 }
 
@@ -273,19 +274,13 @@ func (s *Service) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.ToggleAssignmentPaid: %w", err)
 	}
-	// Reload with joined data.
-	assignments, err := s.repo.ListAssignments(ctx, teamID)
+	// Reload the single row with joined member/penalty data.
+	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
 		result := toGenAssignment(*a)
 		return &result, nil
 	}
-	for _, full := range assignments {
-		if full.ID == a.ID {
-			result := toGenAssignment(full)
-			return &result, nil
-		}
-	}
-	result := toGenAssignment(*a)
+	result := toGenAssignment(*full)
 	return &result, nil
 }
 
