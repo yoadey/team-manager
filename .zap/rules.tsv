@@ -1,2 +1,4 @@
 10015	IGNORE	(Incomplete or No Cache-Control Header Set)
 10027	IGNORE	(Information Disclosure - Suspicious Comments)
+10049	IGNORE	(Storable and Cacheable Content - only fires on the 404 body for /, /robots.txt, /sitemap.xml; this is a JSON API with no root page or static files, those are served by the separate frontend SPA)
+90005	IGNORE	(Sec-Fetch-Dest Header is Missing - same non-existent baseline-spider paths as above; CSRF is already enforced via Origin-check middleware and SameSite session cookies, not Fetch Metadata)
