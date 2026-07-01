@@ -24,6 +24,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <ButtonBase
         key={tp}
         onClick={() => app.setFormVal({ type: tp })}
+        aria-pressed={sel}
         sx={{
           flex: 1,
           display: 'flex',
@@ -60,6 +61,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <ButtonBase
         key={v}
         onClick={() => app.setFormVal({ responseMode: v })}
+        aria-pressed={sel}
         sx={{
           flex: 1,
           display: 'flex',

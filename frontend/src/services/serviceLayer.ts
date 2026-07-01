@@ -40,7 +40,7 @@ import type { Contribution, FinanceOverview, Penalty, PenaltyAssignment, Transac
 import type { Member, MemberDto } from '@/features/members';
 import type { NewsItem } from '@/features/news';
 import type { AppNotification, NotificationsResult } from '@/features/notifications';
-import type { Poll } from '@/features/polls';
+import type { Poll, PollDto, PollOptionDto, PollVoteDto } from '@/features/polls';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 
 const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
@@ -147,7 +147,7 @@ interface DB {
   penalties: Penalty[];
   penaltyAssignments: PenaltyAssignment[];
   contributions: Contribution[];
-  polls: any[];
+  polls: PollDto[];
   eventComments: EventComment[];
   notifications: AppNotification[];
   notifSeen: Record<string, string>;
@@ -1892,15 +1892,15 @@ const _mockApi = {
         .map((p) => {
           const total = p.votes.length;
           const counts: Record<string, number> = {};
-          p.options.forEach((o: any) => {
+          p.options.forEach((o: PollOptionDto) => {
             counts[o.id] = 0;
           });
-          p.votes.forEach((v: any) =>
+          p.votes.forEach((v: PollVoteDto) =>
             v.optionIds.forEach((oid: string) => {
               if (counts[oid] !== undefined) counts[oid]++;
             }),
           );
-          const mine = p.votes.find((v: any) => v.userId === session.userId);
+          const mine = p.votes.find((v: PollVoteDto) => v.userId === session.userId);
           return {
             id: p.id,
             question: p.question,
@@ -1909,7 +1909,7 @@ const _mockApi = {
             createdAt: p.createdAt,
             totalVotes: total,
             myVote: mine ? clone(mine.optionIds) : null,
-            options: p.options.map((o: any) => ({
+            options: p.options.map((o: PollOptionDto) => ({
               id: o.id,
               text: o.text,
               count: counts[o.id],
@@ -1917,8 +1917,8 @@ const _mockApi = {
               voters: p.anonymous
                 ? []
                 : p.votes
-                    .filter((v: any) => v.optionIds.includes(o.id))
-                    .map((v: any) => {
+                    .filter((v: PollVoteDto) => v.optionIds.includes(o.id))
+                    .map((v: PollVoteDto) => {
                       const u = DB.users.find((x) => x.id === v.userId)!;
                       return { name: u.name, color: u.avatarColor, photo: u.photo };
                     }),
@@ -1930,9 +1930,9 @@ const _mockApi = {
     async vote(pollId: string, optionIds: string[], _teamId: string) {
       await delay(160, 320);
       const p = DB.polls.find((x) => x.id === pollId)!;
-      p.votes = p.votes.filter((v: any) => v.userId !== session.userId);
+      p.votes = p.votes.filter((v: PollVoteDto) => v.userId !== session.userId);
       if (optionIds.length)
-        p.votes.push({ userId: session.userId, optionIds: p.multiple ? optionIds : [optionIds[0]] });
+        p.votes.push({ userId: session.userId!, optionIds: p.multiple ? optionIds : [optionIds[0]] });
       persist();
       return true;
     },

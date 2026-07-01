@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Invite, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
@@ -58,8 +58,13 @@ export function useTeamActions({
     setState({ sheet: { type: 'teamSettings' }, form });
   }, [activeTeam, setState]);
 
+  const photoLogoInFlight = useRef(new Set<string>());
+
   const saveTeamPhoto = useCallback(
     async (dataUrl: string) => {
+      const key = 'photo';
+      if (photoLogoInFlight.current.has(key)) return;
+      photoLogoInFlight.current.add(key);
       try {
         await api.teams.updateSettings(S().activeTeamId!, { photo: dataUrl });
         await refreshTeams();
@@ -67,6 +72,8 @@ export function useTeamActions({
         toastMsg(t('team.toastPhotoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.save');
+      } finally {
+        photoLogoInFlight.current.delete(key);
       }
     },
     [api, S, refreshTeams, setFormVal, setState, toastMsg],
@@ -74,6 +81,9 @@ export function useTeamActions({
 
   const saveTeamLogo = useCallback(
     async (dataUrl: string) => {
+      const key = 'logo';
+      if (photoLogoInFlight.current.has(key)) return;
+      photoLogoInFlight.current.add(key);
       try {
         await api.teams.updateSettings(S().activeTeamId!, { logo: dataUrl });
         await refreshTeams();
@@ -81,6 +91,8 @@ export function useTeamActions({
         toastMsg(t('team.toastLogoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.save');
+      } finally {
+        photoLogoInFlight.current.delete(key);
       }
     },
     [api, S, refreshTeams, setFormVal, setState, toastMsg],

@@ -163,6 +163,100 @@ describe('useTeamActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Logo aktualisiert');
   });
 
+  it('saveTeamPhoto ignores a second call while the first is still in flight', async () => {
+    let resolveUpdate: () => void;
+    api.teams.updateSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveUpdate = () => resolve(undefined);
+      }),
+    );
+    const { result } = renderActions();
+
+    let firstCall: Promise<void>;
+    act(() => {
+      firstCall = result.current.saveTeamPhoto('data:image/png;base64,first');
+      void result.current.saveTeamPhoto('data:image/png;base64,second');
+    });
+
+    expect(api.teams.updateSettings).toHaveBeenCalledTimes(1);
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { photo: 'data:image/png;base64,first' });
+
+    await act(async () => {
+      resolveUpdate();
+      await firstCall;
+    });
+  });
+
+  it('saveTeamPhoto allows a new call once the previous one has settled', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamPhoto('data:image/png;base64,first');
+    });
+    await act(async () => {
+      await result.current.saveTeamPhoto('data:image/png;base64,second');
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('saveTeamPhoto clears the in-flight guard even when the request fails', async () => {
+    api.teams.updateSettings.mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamPhoto('data:image/png;base64,first');
+    });
+    await act(async () => {
+      await result.current.saveTeamPhoto('data:image/png;base64,second');
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('saveTeamLogo ignores a second call while the first is still in flight', async () => {
+    let resolveUpdate: () => void;
+    api.teams.updateSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveUpdate = () => resolve(undefined);
+      }),
+    );
+    const { result } = renderActions();
+
+    let firstCall: Promise<void>;
+    act(() => {
+      firstCall = result.current.saveTeamLogo('data:image/png;base64,first');
+      void result.current.saveTeamLogo('data:image/png;base64,second');
+    });
+
+    expect(api.teams.updateSettings).toHaveBeenCalledTimes(1);
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { logo: 'data:image/png;base64,first' });
+
+    await act(async () => {
+      resolveUpdate();
+      await firstCall;
+    });
+  });
+
+  it('saveTeamPhoto and saveTeamLogo track in-flight state independently', async () => {
+    let resolveUpdate: () => void;
+    api.teams.updateSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveUpdate = () => resolve(undefined);
+      }),
+    );
+    const { result } = renderActions();
+
+    let firstCall: Promise<void>;
+    act(() => {
+      firstCall = result.current.saveTeamPhoto('data:image/png;base64,photo');
+      void result.current.saveTeamLogo('data:image/png;base64,logo');
+    });
+
+    expect(api.teams.updateSettings).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveUpdate();
+      await firstCall;
+    });
+  });
+
   it('setTeamIcon calls setFormVal and updateSettings', async () => {
     const { result } = renderActions();
     await act(async () => {

@@ -161,6 +161,7 @@ export const en: Messages = {
     loginHintNote: 'No password is stored with the club.',
     emailLabel: 'Email address',
     passwordLabel: 'Password',
+    back: 'Back',
     pwaInstallable: 'Installable as an app (PWA).',
     pwaIosLabel: 'iOS note:',
     pwaIosHint: 'Push notifications only work after adding the app to the home screen.',

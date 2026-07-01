@@ -2,7 +2,11 @@ services:
   postgres:
     # Pin to an immutable digest for reproducible local dev. Refresh periodically:
     #   docker pull postgres:17 && docker inspect postgres:17 --format '{{index .RepoDigests 0}}'
-    image: postgres:17
+    # Digest below resolved 2026-07-01 from registry-1.docker.io for postgres:17
+    # (docker-library/postgres 17.10). Dependabot's docker ecosystem entries
+    # (.github/dependabot.yml) only watch /backend and /frontend today, so this
+    # digest must still be refreshed by hand until a root/compose entry is added.
+    image: postgres:17@sha256:5c855ad7b85e68e48a62f34662853f38b57c1c1d80f3a927ab58034fd6d31c5e
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-teammanager}
@@ -17,6 +21,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
@@ -40,6 +49,11 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-teammanager}:${POSTGRES_PASSWORD:-teammanager}@postgres:5432/${POSTGRES_DB:-teammanager}?sslmode=disable
       PORT: 8080
@@ -84,6 +98,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     deploy:
       resources:
         limits:
