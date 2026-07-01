@@ -46,6 +46,9 @@ const (
 	// EventFinanceMutation covers all financial write operations; the specific
 	// action is carried in an "operation" attribute (e.g. transaction.create).
 	EventFinanceMutation = "finance.mutation"
+
+	EventTeamUpdate = "team.update"
+	EventTeamInvite = "team.invite_create"
 )
 
 // Logger emits audit records to the application log and, when a DB pool is

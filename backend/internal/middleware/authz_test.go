@@ -109,18 +109,46 @@ func applyPermMW(checker middleware.PermissionChecker, req *http.Request) *httpt
 	return rec
 }
 
-// GET always passes through.
-func TestRequirePermission_GET_AlwaysPasses(t *testing.T) {
-	perms := &mockPermissionChecker{perms: allReadPerms()}
+// GET on a core RBAC module requires at least "read"; "none" must be denied,
+// since a module permission of "none" is meant to also hide read access.
+func TestRequirePermission_GET_RequiresReadPermission(t *testing.T) {
 	paths := []string{
 		"/api/v1/teams/" + testTeamID.String() + "/events",
 		"/api/v1/teams/" + testTeamID.String() + "/finances/transactions",
 		"/api/v1/teams/" + testTeamID.String() + "/members",
 	}
+
+	readPerms := &mockPermissionChecker{perms: allReadPerms()}
 	for _, p := range paths {
 		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
-		rec := applyPermMW(perms, req)
-		assert.Equal(t, http.StatusOK, rec.Code, "GET %s should pass", p)
+		rec := applyPermMW(readPerms, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s with read perms should pass", p)
+	}
+
+	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(nonePerms, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "GET %s with none perms should be forbidden", p)
+	}
+}
+
+// Routes with no natural module mapping stay membership-gated only, even with
+// "none" permissions on every module.
+func TestRequirePermission_GET_UnrestrictedPaths_AlwaysPass(t *testing.T) {
+	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
+	paths := []string{
+		"/api/v1/teams/" + testTeamID.String(), // team info itself
+		"/api/v1/teams/" + testTeamID.String() + "/stats",
+		"/api/v1/teams/" + testTeamID.String() + "/photo",
+		"/api/v1/teams/" + testTeamID.String() + "/logo",
+		"/api/v1/teams/" + testTeamID.String() + "/absences/mine",
+		"/api/v1/teams/" + testTeamID.String() + "/notifications",
+	}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(nonePerms, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s should remain unrestricted", p)
 	}
 }
 

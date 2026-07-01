@@ -515,7 +515,16 @@ func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID string
 
 // ─── ListAttendance ─────────────────────────────────────────────────────────
 
-// ListAttendance returns all attendance rows for an event, enriched with user data.
+// maxAttendanceRows caps the attendance list at a size no real team roster
+// should ever reach. Unlike history-based lists (transactions, notifications),
+// attendance is a complete per-event snapshot that callers rely on seeing in
+// full, so this is a defensive backstop against pathological data (e.g. stale
+// rows for removed members that were never cleaned up) rather than a real
+// pagination cutoff.
+const maxAttendanceRows = 5000
+
+// ListAttendance returns up to maxAttendanceRows attendance rows for an event,
+// enriched with user data.
 func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -534,8 +543,9 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]Atte
 		JOIN users u ON u.id = a.user_id
 		WHERE a.event_id = $1
 		ORDER BY u.name ASC
+		LIMIT $2
 	`
-	rows, err := r.pool.Query(ctx, q, eventID)
+	rows, err := r.pool.Query(ctx, q, eventID, maxAttendanceRows)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.ListAttendance: %w", err)
 	}

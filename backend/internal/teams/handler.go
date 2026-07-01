@@ -7,19 +7,18 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
+	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
-
-// ErrNotImplemented is returned by unimplemented handler methods.
-var ErrNotImplemented = errors.New("not implemented")
 
 // teamService is the interface the Handler relies on.
 type teamService interface {
@@ -30,17 +29,32 @@ type teamService interface {
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
 	GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error)
 	UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
+	GetTeamLogoData(ctx context.Context, teamID string) ([]byte, string, error)
+	UpdateLogo(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
 }
 
 // Handler implements the team-related methods of gen.StrictServerInterface.
 type Handler struct {
 	svc    teamService
 	logger *slog.Logger
+	audit  *audit.Logger
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(svc teamService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger}
+// NewHandler creates a new Handler. al is the shared audit logger; when nil a
+// log-only logger is created from logger.
+func NewHandler(svc teamService, logger *slog.Logger, al *audit.Logger) *Handler {
+	if al == nil {
+		al = audit.New(logger)
+	}
+	return &Handler{svc: svc, logger: logger, audit: al}
+}
+
+// actor returns the acting user's id for audit records, or "" when absent.
+func actor(ctx context.Context) string {
+	if u, ok := auth.UserFromContext(ctx); ok {
+		return u.Id.String()
+	}
+	return ""
 }
 
 // ListTeams returns all teams the current user belongs to.
@@ -136,6 +150,8 @@ func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestO
 		h.logger.ErrorContext(ctx, "UpdateTeam failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.UpdateTeam: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventTeamUpdate, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()))
 	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
 	return gen.UpdateTeam200JSONResponse(*t), nil
 }
@@ -147,6 +163,8 @@ func (h *Handler) CreateInvite(ctx context.Context, request gen.CreateInviteRequ
 		h.logger.ErrorContext(ctx, "CreateInvite failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.CreateInvite: %w", err)
 	}
+	h.audit.Record(ctx, audit.EventTeamInvite, audit.Success, actor(ctx),
+		slog.String("teamId", request.TeamId.String()), slog.String("inviteId", inv.Id.String()))
 	metrics.TeamEvents.WithLabelValues("team", "invite").Inc()
 	return gen.CreateInvite201JSONResponse(*inv), nil
 }
@@ -167,16 +185,20 @@ func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequ
 	}, nil
 }
 
-// UploadTeamPhoto handles a multipart upload, stores the photo, and returns the updated team.
-func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPhotoRequestObject) (gen.UploadTeamPhotoResponseObject, error) {
-	if request.Body == nil {
-		return nil, apierror.BadRequest("missing multipart body")
+// readMultipartImage reads the first part of a multipart body, capped at 2 MB,
+// and validates it is a JPEG or PNG by sniffing the actual content (not the
+// client-supplied Content-Type). label is used only for log messages (e.g.
+// "UploadTeamPhoto"). Shared by UploadTeamPhoto and UploadTeamLogo, which
+// otherwise differ only in which service method they call afterward.
+func (h *Handler) readMultipartImage(ctx context.Context, body *multipart.Reader, label string) (data []byte, contentType string, err error) {
+	if body == nil {
+		return nil, "", apierror.BadRequest("missing multipart body")
 	}
 
-	part, err := request.Body.NextPart()
+	part, err := body.NextPart()
 	if err != nil {
-		h.logger.WarnContext(ctx, "UploadTeamPhoto: read multipart failed", "err", err)
-		return nil, apierror.BadRequest("cannot read multipart body")
+		h.logger.WarnContext(ctx, label+": read multipart failed", "err", err)
+		return nil, "", apierror.BadRequest("cannot read multipart body")
 	}
 	defer func() {
 		if cerr := part.Close(); cerr != nil {
@@ -184,16 +206,25 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 		}
 	}()
 
-	data, err := io.ReadAll(io.LimitReader(part, 2<<20)) // 2 MB max
+	data, err = io.ReadAll(io.LimitReader(part, 2<<20)) // 2 MB max
 	if err != nil {
-		h.logger.WarnContext(ctx, "UploadTeamPhoto: read file data failed", "err", err)
-		return nil, apierror.BadRequest("cannot read file data")
+		h.logger.WarnContext(ctx, label+": read file data failed", "err", err)
+		return nil, "", apierror.BadRequest("cannot read file data")
 	}
 
 	// Detect MIME from actual content; reject anything other than JPEG/PNG.
 	ct := http.DetectContentType(data)
 	if ct != "image/jpeg" && ct != "image/png" {
-		return nil, apierror.BadRequest("only JPEG and PNG images are accepted")
+		return nil, "", apierror.BadRequest("only JPEG and PNG images are accepted")
+	}
+	return data, ct, nil
+}
+
+// UploadTeamPhoto handles a multipart upload, stores the photo, and returns the updated team.
+func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPhotoRequestObject) (gen.UploadTeamPhotoResponseObject, error) {
+	data, ct, err := h.readMultipartImage(ctx, request.Body, "UploadTeamPhoto")
+	if err != nil {
+		return nil, err
 	}
 
 	t, err := h.svc.UpdatePhoto(ctx, request.TeamId.String(), data, ct)
@@ -207,21 +238,34 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 
 // GetTeamLogo returns the team logo as JPEG.
 func (h *Handler) GetTeamLogo(ctx context.Context, request gen.GetTeamLogoRequestObject) (gen.GetTeamLogoResponseObject, error) {
-	title := "Not Found"
-	detail := "no team logo"
-	status := 404
-	return gen.GetTeamLogo404ApplicationProblemPlusJSONResponse{
-		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-			Title:  &title,
-			Detail: &detail,
-			Status: &status,
-		},
+	data, _, err := h.svc.GetTeamLogoData(ctx, request.TeamId.String())
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return notFoundLogoResponse("no team logo"), nil
+		}
+		h.logger.ErrorContext(ctx, "GetTeamLogo failed", "err", err)
+		return nil, fmt.Errorf("teams.Handler.GetTeamLogo: %w", err)
+	}
+	return gen.GetTeamLogo200ImagejpegResponse{
+		Body:          bytes.NewReader(data),
+		ContentLength: int64(len(data)),
 	}, nil
 }
 
-// UploadTeamLogo handles a multipart upload and stores the logo for the team.
+// UploadTeamLogo handles a multipart upload, stores the logo, and returns the updated team.
 func (h *Handler) UploadTeamLogo(ctx context.Context, request gen.UploadTeamLogoRequestObject) (gen.UploadTeamLogoResponseObject, error) {
-	return nil, fmt.Errorf("teams.Handler.UploadTeamLogo: %w", ErrNotImplemented)
+	data, ct, err := h.readMultipartImage(ctx, request.Body, "UploadTeamLogo")
+	if err != nil {
+		return nil, err
+	}
+
+	t, err := h.svc.UpdateLogo(ctx, request.TeamId.String(), data, ct)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "UploadTeamLogo failed", "err", err)
+		return nil, apierror.Internal("logo update failed")
+	}
+	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	return gen.UploadTeamLogo200JSONResponse(*t), nil
 }
 
 // ─── error helpers ───────────────────────────────────────────────────────────
@@ -242,6 +286,18 @@ func notFoundPhotoResponse(detail string) gen.GetTeamPhotoResponseObject {
 	title := "Not Found"
 	status := 404
 	return gen.GetTeamPhoto404ApplicationProblemPlusJSONResponse{
+		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
+			Title:  &title,
+			Detail: &detail,
+			Status: &status,
+		},
+	}
+}
+
+func notFoundLogoResponse(detail string) gen.GetTeamLogoResponseObject {
+	title := "Not Found"
+	status := 404
+	return gen.GetTeamLogo404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
 			Title:  &title,
 			Detail: &detail,

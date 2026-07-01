@@ -96,6 +96,9 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
@@ -120,6 +123,11 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 			return nil, apierror.BadRequest(err.Error())
 		}
 		if err := validate.MaxLen(*req.Body.Title, 255, "title"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Amount != nil {
+		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
@@ -171,6 +179,9 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	if err := validate.MaxLen(req.Body.Label, 255, "label"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	p, err := h.svc.CreatePenalty(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
@@ -195,6 +206,11 @@ func (h *Handler) UpdatePenalty(ctx context.Context, req gen.UpdatePenaltyReques
 			return nil, apierror.BadRequest(err.Error())
 		}
 		if err := validate.MaxLen(*req.Body.Label, 255, "label"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Amount != nil {
+		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
@@ -298,6 +314,11 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if req.Body.Amount != nil {
+		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 	c, err := h.svc.UpdateContribution(ctx, req.ContributionId, req.TeamId, req.Body)
 	if err != nil {

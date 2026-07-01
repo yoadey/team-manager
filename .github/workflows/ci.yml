@@ -11,6 +11,7 @@ jobs:
   frontend-lint:
     name: Frontend · Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -27,6 +28,7 @@ jobs:
   frontend-typecheck:
     name: Frontend · Typecheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -43,6 +45,7 @@ jobs:
   frontend-test:
     name: Frontend · Test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -64,6 +67,7 @@ jobs:
   frontend-security:
     name: Frontend · Security audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -80,6 +84,7 @@ jobs:
   frontend-build:
     name: Frontend · Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [frontend-lint, frontend-typecheck, frontend-test]
     defaults:
       run:
@@ -131,6 +136,7 @@ jobs:
   frontend-e2e:
     name: Frontend · E2E (Playwright)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [frontend-build]
     defaults:
       run:
@@ -160,6 +166,7 @@ jobs:
   frontend-lighthouse:
     name: Frontend · Lighthouse CI
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [frontend-build]
     defaults:
       run:
@@ -183,6 +190,7 @@ jobs:
   backend-lint:
     name: Backend · Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -203,6 +211,7 @@ jobs:
   backend-test:
     name: Backend · Test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -226,6 +235,7 @@ jobs:
   backend-build:
     name: Backend · Build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [backend-lint, backend-test]
     defaults:
       run:
@@ -258,6 +268,7 @@ jobs:
   backend-licenses:
     name: Backend · License check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [backend-build]
     defaults:
       run:
@@ -290,6 +301,7 @@ jobs:
   backend-security:
     name: Backend · Security (govulncheck)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -304,6 +316,7 @@ jobs:
   backend-coverage:
     name: Backend · Coverage gate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [backend-test]
     defaults:
       run:
@@ -339,6 +352,7 @@ jobs:
   security-sast:
     name: Security · SAST (CodeQL)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       security-events: write
       actions: read
@@ -360,6 +374,7 @@ jobs:
   security-secrets:
     name: Security · Secret scanning (TruffleHog)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -375,6 +390,7 @@ jobs:
   backend-migration-rollback:
     name: Backend · Migration rollback test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:17
@@ -416,6 +432,7 @@ jobs:
   security-container:
     name: Security · Container scan (Trivy)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [backend-build]
     steps:
       - uses: actions/checkout@v4
@@ -438,6 +455,7 @@ jobs:
   dast:
     name: DAST — OWASP ZAP Baseline
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [backend-build]
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
 

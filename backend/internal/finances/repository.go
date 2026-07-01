@@ -24,7 +24,15 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
 
-// ListTransactions returns all transactions for the team, ordered by date desc.
+// maxOverviewRows caps the display lists returned by the finance overview
+// (transactions, assignments, contributions) so a team with many years of
+// history can't force an unbounded response. Aggregates (income/expense sums,
+// open-contribution count) are computed separately via dedicated queries that
+// scan the full table, so capping the display list never skews the totals.
+const maxOverviewRows = 1000
+
+// ListTransactions returns up to maxOverviewRows most recent transactions for
+// the team, ordered by date desc.
 func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -33,7 +41,8 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 		FROM transactions
 		WHERE team_id = $1
 		ORDER BY date DESC, created_at DESC
-	`, teamID)
+		LIMIT $2
+	`, teamID, maxOverviewRows)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.ListTransactions: %w", err)
 	}
@@ -48,6 +57,26 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// SumTransactions returns the total income and expense across ALL of the
+// team's transactions (not just the capped display list returned by
+// ListTransactions), so the finance overview's income/expense/balance figures
+// stay accurate regardless of how much history exists.
+func (r *Repository) SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense float64, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = r.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0),
+			COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0)
+		FROM transactions
+		WHERE team_id = $1
+	`, teamID).Scan(&income, &expense)
+	if err != nil {
+		return 0, 0, fmt.Errorf("finances.Repository.SumTransactions: %w", err)
+	}
+	return income, expense, nil
 }
 
 // CreateTransaction inserts a new transaction.
@@ -235,7 +264,8 @@ func (r *Repository) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) er
 
 // ─── Penalty Assignments ──────────────────────────────────────────────────────
 
-// ListAssignments returns all penalty assignments for the team with member/penalty info joined.
+// ListAssignments returns up to maxOverviewRows most recent penalty assignments
+// for the team with member/penalty info joined.
 func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -249,7 +279,8 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1
 		ORDER BY pa.date DESC
-	`, teamID)
+		LIMIT $2
+	`, teamID, maxOverviewRows)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.ListAssignments: %w", err)
 	}
@@ -268,6 +299,35 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// GetAssignmentByID returns a single penalty assignment with joined member/penalty
+// data, scoped to teamID.
+func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	a := &PenaltyAssignmentRow{}
+	err := r.pool.QueryRow(ctx, `
+		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
+		       p.label, p.amount,
+		       u.name, u.avatar_color,
+		       (u.photo_data IS NOT NULL) AS has_photo
+		FROM penalty_assignments pa
+		JOIN penalties p ON p.id = pa.penalty_id
+		JOIN users u ON u.id = pa.user_id
+		WHERE pa.id = $1 AND pa.team_id = $2
+	`, id, teamID).Scan(
+		&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date,
+		&a.PenaltyLabel, &a.PenaltyAmount,
+		&a.MemberName, &a.MemberAvatarColor, &a.HasPhoto,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("finances.Repository.GetAssignmentByID: %w", err)
+	}
+	return a, nil
 }
 
 // CreateAssignment inserts a penalty assignment for a user.
@@ -320,7 +380,8 @@ func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.U
 
 // ─── Contributions ────────────────────────────────────────────────────────────
 
-// ListContributions returns all contributions for the team with member info joined.
+// ListContributions returns up to maxOverviewRows most recent contributions
+// for the team with member info joined.
 func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -332,7 +393,8 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 		JOIN users u ON u.id = c.user_id
 		WHERE c.team_id = $1
 		ORDER BY c.month DESC, u.name
-	`, teamID)
+		LIMIT $2
+	`, teamID, maxOverviewRows)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.ListContributions: %w", err)
 	}
@@ -412,6 +474,23 @@ func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uu
 		return nil, fmt.Errorf("finances.Repository.ToggleContributionStatus update: %w", err)
 	}
 	return r.getContributionByID(ctx, id)
+}
+
+// CountOpenContributions returns the number of contributions with status
+// 'open' for the team, independent of the capped display list returned by
+// ListContributions.
+func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM contributions WHERE team_id = $1 AND status = 'open'`,
+		teamID,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("finances.Repository.CountOpenContributions: %w", err)
+	}
+	return count, nil
 }
 
 func (r *Repository) getContributionByID(ctx context.Context, id uuid.UUID) (*ContributionRow, error) {

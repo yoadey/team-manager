@@ -47,6 +47,37 @@ func NewRetentionWorker(pool *pgxpool.Pool, notifDays, sessionDays, auditLogDays
 	}
 }
 
+// retentionBatchSize caps each DELETE statement issued by deleteBatched. A
+// single unbounded DELETE on a large table can hold its lock and generate a
+// burst of WAL for the entire duration of the statement; deleting in bounded
+// batches keeps each transaction short so it doesn't block concurrent reads
+// or writes on the table for long.
+const retentionBatchSize = 1000
+
+// deleteBatched repeatedly deletes up to retentionBatchSize rows where
+// dateColumn is older than cutoff, looping until fewer than a full batch is
+// removed (i.e. the table is exhausted). It returns the total number of rows
+// deleted. table and dateColumn are always fixed, internal literals (never
+// derived from request input), so building the query string is safe.
+func deleteBatched(ctx context.Context, pool *pgxpool.Pool, table, dateColumn string, cutoff time.Time) (int64, error) {
+	query := fmt.Sprintf(
+		`DELETE FROM %s WHERE ctid IN (SELECT ctid FROM %s WHERE %s < $1 LIMIT %d)`,
+		table, table, dateColumn, retentionBatchSize,
+	)
+
+	var total int64
+	for {
+		tag, err := pool.Exec(ctx, query, cutoff)
+		if err != nil {
+			return total, err
+		}
+		total += tag.RowsAffected()
+		if tag.RowsAffected() < retentionBatchSize {
+			return total, nil
+		}
+	}
+}
+
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
 func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs]) error {
@@ -54,35 +85,32 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 
 	// Delete old notifications.
 	notifCutoff := now.Add(-w.notificationRetention)
-	tag, err := w.pool.Exec(ctx,
-		"DELETE FROM notifications WHERE created_at < $1", notifCutoff)
+	notifRows, err := deleteBatched(ctx, w.pool, "notifications", "created_at", notifCutoff)
 	if err != nil {
 		return fmt.Errorf("retention: delete notifications: %w", err)
 	}
-	slog.Info("retention: deleted old notifications", "rows", tag.RowsAffected(), "cutoff", notifCutoff)
+	slog.Info("retention: deleted old notifications", "rows", notifRows, "cutoff", notifCutoff)
 
 	// Delete expired sessions. The sessions table may not exist in all
 	// environments, so a failure here is logged as a warning only.
 	sessionCutoff := now.Add(-w.sessionRetention)
-	tag, err = w.pool.Exec(ctx,
-		"DELETE FROM sessions WHERE created_at < $1", sessionCutoff)
+	sessionRows, err := deleteBatched(ctx, w.pool, "sessions", "created_at", sessionCutoff)
 	if err != nil {
 		slog.Warn("retention: delete sessions skipped (table may not exist)", "err", err)
 	} else {
-		slog.Info("retention: deleted old sessions", "rows", tag.RowsAffected(), "cutoff", sessionCutoff)
+		slog.Info("retention: deleted old sessions", "rows", sessionRows, "cutoff", sessionCutoff)
 	}
 
 	// Delete old audit_log entries. Compliance regulations typically require a
 	// minimum retention period (e.g. 1 year); RETENTION_AUDIT_LOG_DAYS defaults
-	// to 365. Rows older than the cutoff are deleted in a single statement; the
-	// BRIN index on occurred_at makes time-range scans efficient.
+	// to 365. The BRIN index on occurred_at makes the time-range scan behind
+	// each batch efficient.
 	auditCutoff := now.Add(-w.auditLogRetention)
-	tag, err = w.pool.Exec(ctx,
-		"DELETE FROM audit_log WHERE occurred_at < $1", auditCutoff)
+	auditRows, err := deleteBatched(ctx, w.pool, "audit_log", "occurred_at", auditCutoff)
 	if err != nil {
 		return fmt.Errorf("retention: delete audit_log: %w", err)
 	}
-	slog.Info("retention: deleted old audit_log entries", "rows", tag.RowsAffected(), "cutoff", auditCutoff)
+	slog.Info("retention: deleted old audit_log entries", "rows", auditRows, "cutoff", auditCutoff)
 
 	return nil
 }
