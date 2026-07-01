@@ -101,7 +101,7 @@ func TestStrictHandler_EndToEnd_RendersAPIErrorNotGeneric500(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/teams", strings.NewReader(`{"name":"Test"}`))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/teams", strings.NewReader(`{"name":"Test"}`))
 
 	strictSrv.CreateTeam(rec, req)
 
