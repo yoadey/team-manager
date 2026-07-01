@@ -196,6 +196,9 @@ export const de = {
     pollQuestionMissing: 'Frage der Umfrage fehlt.',
     pollOptionsMissing: 'Mindestens zwei Antwortoptionen angeben.',
     pollOptionsDuplicate: 'Antwortoptionen dürfen nicht doppelt sein.',
+    emailInvalid: 'E-Mail-Adresse ist ungültig.',
+    phoneInvalid: 'Telefonnummer ist ungültig.',
+    birthdayInvalid: 'Geburtsdatum ist ungültig oder liegt in der Zukunft.',
   },
   events: {
     tabs: {

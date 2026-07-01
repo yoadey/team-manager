@@ -71,7 +71,7 @@ func TestService_ListByTeam(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil)
+	svc := news.NewService(repo, nil, nil)
 	result, next, err := svc.ListByTeam(context.Background(), teamID, 50, "")
 
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestService_Create(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil)
+	svc := news.NewService(repo, nil, nil)
 	body := &gen.CreateNewsRequest{
 		Title: "Team Update",
 		Body:  "We won the match!",
@@ -124,7 +124,7 @@ func TestService_Update(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil)
+	svc := news.NewService(repo, nil, nil)
 	result, err := svc.Update(context.Background(), id, &gen.UpdateNewsRequest{Title: &newTitle})
 
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestService_Delete(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil)
+	svc := news.NewService(repo, nil, nil)
 	err := svc.Delete(context.Background(), id)
 
 	require.NoError(t, err)

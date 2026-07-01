@@ -191,6 +191,41 @@ describe('useEventDetailActions', () => {
     });
     expect(toastMsg).toHaveBeenCalled();
   });
+
+  it('a slow reloadDetail for an old event cannot overwrite a newer, already-open event', async () => {
+    // ev1's fetch resolves only after ev2 has already opened and resolved,
+    // simulating a user quickly switching from one event's detail sheet to
+    // another before the first request settles.
+    let resolveEv1: (v: { id: string; title: string; date: string }) => void;
+    const ev1Promise = new Promise<{ id: string; title: string; date: string }>((resolve) => {
+      resolveEv1 = resolve;
+    });
+    api.events.get = vi.fn((eventId: string) => {
+      if (eventId === 'ev1') return ev1Promise;
+      return Promise.resolve({ id: 'ev2', title: 'Event Two', date: '2026-02-02' });
+    });
+
+    const { result } = renderActions();
+
+    // Start loading ev1 but don't await it yet.
+    const ev1Load = act(async () => {
+      await result.current.openEventDetail('ev1');
+    });
+
+    // ev2 opens and finishes first.
+    await act(async () => {
+      await result.current.openEventDetail('ev2');
+    });
+    expect(stateRef.sheet).toMatchObject({ type: 'eventDetail', eventId: 'ev2' });
+
+    // Now let ev1's stale response resolve.
+    resolveEv1!({ id: 'ev1', title: 'Event One', date: '2026-01-01' });
+    await ev1Load;
+
+    // The sheet must still show ev2 — the stale ev1 response must not overwrite it.
+    expect(stateRef.sheet).toMatchObject({ type: 'eventDetail', eventId: 'ev2' });
+    expect((stateRef.sheet as { event?: { id: string } } | null)?.event?.id).toBe('ev2');
+  });
 });
 
 describe('useEventActionFeatures', () => {

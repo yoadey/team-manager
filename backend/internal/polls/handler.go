@@ -79,6 +79,9 @@ func (h *Handler) CreatePoll(ctx context.Context, req gen.CreatePollRequestObjec
 			_ = i
 			return nil, apierror.BadRequest(err.Error())
 		}
+		if err := validate.MaxLen(opt, 500, "option"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 	poll, err := h.svc.Create(ctx, req.TeamId, user.Id, req.Body)
 	if err != nil {

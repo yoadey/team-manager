@@ -22,9 +22,9 @@ type mockSvcRepo struct {
 	getEventFn             func(ctx context.Context, eventID string) (*events.EventRow, error)
 	createEventFn          func(ctx context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error)
 	createSeriesFn         func(ctx context.Context, teamID string, params *events.CreateEventParams) ([]events.EventRow, error)
-	updateEventFn          func(ctx context.Context, eventID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error)
+	updateEventFn          func(ctx context.Context, eventID, teamID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error)
 	setStatusFn            func(ctx context.Context, eventID, status, scope string) (*events.EventRow, error)
-	deleteEventFn          func(ctx context.Context, eventID, scope string) error
+	deleteEventFn          func(ctx context.Context, eventID, teamID, scope string) error
 	getAttendanceSummaryFn func(ctx context.Context, eventID string) (events.EventSummaryData, error)
 	getMyAttendanceFn      func(ctx context.Context, eventID, userID string) (*events.AttendanceDBRow, error)
 	listAttendanceFn       func(ctx context.Context, eventID string) ([]events.AttendanceEnriched, error)
@@ -51,16 +51,16 @@ func (m *mockSvcRepo) CreateSeries(ctx context.Context, teamID string, params *e
 	return m.createSeriesFn(ctx, teamID, params)
 }
 
-func (m *mockSvcRepo) UpdateEvent(ctx context.Context, eventID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error) {
-	return m.updateEventFn(ctx, eventID, params, scope)
+func (m *mockSvcRepo) UpdateEvent(ctx context.Context, eventID, teamID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error) {
+	return m.updateEventFn(ctx, eventID, teamID, params, scope)
 }
 
 func (m *mockSvcRepo) SetStatus(ctx context.Context, eventID, status, scope string) (*events.EventRow, error) {
 	return m.setStatusFn(ctx, eventID, status, scope)
 }
 
-func (m *mockSvcRepo) DeleteEvent(ctx context.Context, eventID, scope string) error {
-	return m.deleteEventFn(ctx, eventID, scope)
+func (m *mockSvcRepo) DeleteEvent(ctx context.Context, eventID, teamID, scope string) error {
+	return m.deleteEventFn(ctx, eventID, teamID, scope)
 }
 
 func (m *mockSvcRepo) GetAttendanceSummary(ctx context.Context, eventID string) (events.EventSummaryData, error) {
@@ -137,7 +137,7 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil)
+	svc := events.NewService(repo, nil, nil, nil)
 	result, next, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming", "", 50)
 	require.NoError(t, err)
 	assert.Nil(t, next)
@@ -176,7 +176,7 @@ func TestEventService_CreateEvent_Recurring(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil)
+	svc := events.NewService(repo, nil, nil, nil)
 	repeatWeeks := 3
 	recurring := true
 	body := &gen.CreateEventRequest{
@@ -221,7 +221,7 @@ func TestEventService_SetAttendance(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil)
+	svc := events.NewService(repo, nil, nil, nil)
 	req := gen.SetAttendanceRequest{
 		UserId: userID,
 		Status: gen.Yes,

@@ -86,7 +86,7 @@ func testRole() gen.Role {
 
 func TestHandler_ListRoles_Unauthenticated(t *testing.T) {
 	t.Parallel()
-	h := roles.NewHandler(&mockRoleService{}, slog.Default())
+	h := roles.NewHandler(&mockRoleService{}, slog.Default(), nil)
 	_, err := h.ListRoles(context.Background(), gen.ListRolesRequestObject{TeamId: rolesTeamID})
 	require.Error(t, err)
 }
@@ -99,7 +99,7 @@ func TestHandler_ListRoles_Success(t *testing.T) {
 			return []gen.Role{role}, nil
 		},
 	}
-	h := roles.NewHandler(svc, slog.Default())
+	h := roles.NewHandler(svc, slog.Default(), nil)
 
 	resp, err := h.ListRoles(rolesAuthedCtx(), gen.ListRolesRequestObject{TeamId: rolesTeamID})
 	require.NoError(t, err)
@@ -121,14 +121,14 @@ func TestHandler_ListRoles_ServiceError(t *testing.T) {
 			return nil, errors.New("db error")
 		},
 	}
-	h := roles.NewHandler(svc, slog.Default())
+	h := roles.NewHandler(svc, slog.Default(), nil)
 	_, err := h.ListRoles(rolesAuthedCtx(), gen.ListRolesRequestObject{TeamId: rolesTeamID})
 	require.Error(t, err)
 }
 
 func TestHandler_CreateRole_MissingBody(t *testing.T) {
 	t.Parallel()
-	h := roles.NewHandler(&mockRoleService{}, slog.Default())
+	h := roles.NewHandler(&mockRoleService{}, slog.Default(), nil)
 	_, err := h.CreateRole(rolesAuthedCtx(), gen.CreateRoleRequestObject{TeamId: rolesTeamID, Body: nil})
 	require.Error(t, err)
 }
@@ -142,7 +142,7 @@ func TestHandler_CreateRole_Success(t *testing.T) {
 			return &role, nil
 		},
 	}
-	h := roles.NewHandler(svc, slog.Default())
+	h := roles.NewHandler(svc, slog.Default(), nil)
 
 	body := &gen.CreateRoleJSONRequestBody{
 		Name: "Coach",
@@ -172,7 +172,7 @@ func TestHandler_CreateRole_EmitsAuditEvent(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	h := roles.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)))
+	h := roles.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
 
 	body := &gen.CreateRoleJSONRequestBody{Name: "Coach", Permissions: gen.Permissions{
 		Events: "write", Members: "read", Finances: "none", News: "write", Polls: "read", Settings: "none",
@@ -193,7 +193,7 @@ func TestHandler_DeleteRole_Success(t *testing.T) {
 	svc := &mockRoleService{
 		deleteRole: func(_ context.Context, _ uuid.UUID) error { return nil },
 	}
-	h := roles.NewHandler(svc, slog.Default())
+	h := roles.NewHandler(svc, slog.Default(), nil)
 
 	resp, err := h.DeleteRole(rolesAuthedCtx(), gen.DeleteRoleRequestObject{
 		TeamId: rolesTeamID,

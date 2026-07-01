@@ -16,9 +16,10 @@ import (
 
 // Sentinel errors for the events package.
 var (
-	ErrCreateEventNilBody = errors.New("events.Service.CreateEvent: nil body")
-	ErrCreateEventNoRow   = errors.New("events.Service.CreateEvent: no row returned")
-	ErrUpdateEventNilBody = errors.New("events.Service.UpdateEvent: nil body")
+	ErrCreateEventNilBody      = errors.New("events.Service.CreateEvent: nil body")
+	ErrCreateEventNoRow        = errors.New("events.Service.CreateEvent: no row returned")
+	ErrUpdateEventNilBody      = errors.New("events.Service.UpdateEvent: nil body")
+	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
 )
 
 // eventRepo is the interface the Service relies on.
@@ -27,9 +28,9 @@ type eventRepo interface {
 	GetEvent(ctx context.Context, eventID string) (*EventRow, error)
 	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
-	UpdateEvent(ctx context.Context, eventID string, params *UpdateEventParams, scope string) (*EventRow, error)
+	UpdateEvent(ctx context.Context, eventID, teamID string, params *UpdateEventParams, scope string) (*EventRow, error)
 	SetStatus(ctx context.Context, eventID string, status string, scope string) (*EventRow, error)
-	DeleteEvent(ctx context.Context, eventID string, scope string) error
+	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error)
 	GetMyAttendance(ctx context.Context, eventID, userID string) (*AttendanceDBRow, error)
 	ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error)
@@ -45,15 +46,43 @@ type jobEnqueuer interface {
 	EnqueueNotification(ctx context.Context, args jobs.NotificationArgs) error
 }
 
-// Service implements event business logic.
-type Service struct {
-	repo eventRepo
-	jobs jobEnqueuer
+// teamRoleChecker verifies that a set of role IDs all belong to a given team.
+// Implemented by *roles.Repository.
+type teamRoleChecker interface {
+	RolesExistForTeam(ctx context.Context, teamID string, roleIDs []uuid.UUID) (bool, error)
 }
 
-// NewService creates a new Service.
-func NewService(repo eventRepo, enq jobEnqueuer) *Service {
-	return &Service{repo: repo, jobs: enq}
+// Service implements event business logic.
+type Service struct {
+	repo        eventRepo
+	jobs        jobEnqueuer
+	pager       *pagination.Paginator
+	roleChecker teamRoleChecker
+}
+
+// NewService creates a new Service. pager may be nil (uses default Paginator).
+// roleChecker may be nil; when set, nominated_role_ids are validated to belong
+// to the event's team before any create or update is persisted.
+func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker) *Service {
+	if pager == nil {
+		pager = pagination.New(nil)
+	}
+	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker}
+}
+
+// validateNominatedRoles checks that all provided role IDs belong to teamID.
+func (s *Service) validateNominatedRoles(ctx context.Context, teamID string, roleIDs []uuid.UUID) error {
+	if s.roleChecker == nil || len(roleIDs) == 0 {
+		return nil
+	}
+	ok, err := s.roleChecker.RolesExistForTeam(ctx, teamID, roleIDs)
+	if err != nil {
+		return fmt.Errorf("events: validate nominated roles: %w", err)
+	}
+	if !ok {
+		return ErrInvalidNominatedRoleIDs
+	}
+	return nil
 }
 
 // ─── ListEvents ─────────────────────────────────────────────────────────────
@@ -64,7 +93,7 @@ func NewService(repo eventRepo, enq jobEnqueuer) *Service {
 func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error) {
 	var cur *ListCursor
 	var decoded ListCursor
-	if ok, err := pagination.DecodeCursor(cursor, &decoded); err != nil {
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
 		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 	} else if ok {
 		cur = &decoded
@@ -79,7 +108,7 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor 
 	if len(rows) > limit {
 		rows = rows[:limit]
 		last := rows[len(rows)-1]
-		token, err := pagination.EncodeCursor(ListCursor{Date: last.Date, ID: last.Id})
+		token, err := s.pager.Encode(ListCursor{Date: last.Date, ID: last.Id})
 		if err != nil {
 			return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 		}
@@ -147,6 +176,10 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 	}
 	if body.NominatedRoleIds != nil {
 		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
+	}
+
+	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
+		return nil, err
 	}
 
 	var row *EventRow
@@ -229,7 +262,11 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
 	}
 
-	row, err := s.repo.UpdateEvent(ctx, eventID, &params, scope)
+	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
+		return nil, err
+	}
+
+	row, err := s.repo.UpdateEvent(ctx, eventID, teamID, &params, scope)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.UpdateEvent: %w", err)
 	}
@@ -243,9 +280,9 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
 
-// DeleteEvent deletes an event or series.
-func (s *Service) DeleteEvent(ctx context.Context, eventID, scope string) error {
-	if err := s.repo.DeleteEvent(ctx, eventID, scope); err != nil {
+// DeleteEvent deletes an event or series scoped to the given teamID.
+func (s *Service) DeleteEvent(ctx context.Context, eventID, teamID, scope string) error {
+	if err := s.repo.DeleteEvent(ctx, eventID, teamID, scope); err != nil {
 		return fmt.Errorf("events.Service.DeleteEvent: %w", err)
 	}
 	return nil

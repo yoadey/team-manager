@@ -56,7 +56,7 @@ func RequireMembership(checker MembershipChecker) func(http.Handler) http.Handle
 				return
 			}
 			if !isMember {
-				writeProblem(w, http.StatusForbidden, "you are not a member of this team")
+				writeProblem(w, http.StatusNotFound, "not found")
 				return
 			}
 
@@ -68,7 +68,8 @@ func RequireMembership(checker MembershipChecker) func(http.Handler) http.Handle
 // ─── RequirePermission ────────────────────────────────────────────────────────
 
 // routeModule maps the first URL segment after the {teamId} prefix to the RBAC
-// module that governs write access. Segments not in this table are "settings".
+// module that governs write access. Segments not in this table are unknown and
+// will be rejected with 404 rather than silently falling back to "settings".
 var routeModule = map[string]string{
 	"events":        "events",
 	"members":       "members",
@@ -78,6 +79,16 @@ var routeModule = map[string]string{
 	"finances":      "finances",
 	"absences":      "", // self-service: no write check
 	"notifications": "", // self-service: no write check
+	// settings-level segments handled explicitly below (photo, logo, invite)
+}
+
+// knownSettingsSegments are path segments that map to the "settings" module but
+// are not listed in routeModule because they are handled by explicit checks in
+// moduleForPath.
+var knownSettingsSegments = map[string]bool{
+	"photo":  true,
+	"logo":   true,
+	"invite": true,
 }
 
 // selfServiceWritePaths lists sub-paths (after {teamId}) that any member may
@@ -91,21 +102,27 @@ var selfServiceWritePaths = map[string]bool{
 	"notifications/seen": true,
 }
 
-// RequirePermission enforces module-level write access for mutating HTTP methods
-// (POST, PUT, PATCH, DELETE). GET requests are always passed through (membership
-// check by RequireMembership is sufficient). Self-service routes (attendance,
-// comments, vote, absences, notifications) are also passed through for any member.
+// RequirePermission enforces module-level access for team-scoped routes.
+//
+// Mutating methods (POST, PUT, PATCH, DELETE) require "write" on the relevant
+// module, as before. Self-service routes (attendance, comments, vote,
+// absences, notifications) are passed through for any member regardless of
+// method.
+//
+// GET/HEAD/OPTIONS additionally require at least "read" (i.e. not "none") on
+// the six core RBAC modules (events, members, finances, news, polls, settings
+// via /roles) — a module permission of "none" must also hide read access, not
+// just block writes. Routes with no natural module mapping (team info itself,
+// photo, logo, invite, stats) remain gated by membership only, exactly as
+// before; they carry no module-level sensitivity or don't correspond to one of
+// the six modules.
 //
 // Path parsing: given a URL like /api/v1/teams/{teamId}/events/123/attendance,
 // the segment right after the teamId UUID is used to look up the module.
 func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handler { //nolint:gocognit // complexity inherent in RBAC permission checking
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Only enforce on mutations.
-			if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
-				next.ServeHTTP(w, r)
-				return
-			}
+			isRead := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
 
 			teamIDStr := chi.URLParam(r, "teamId")
 			if teamIDStr == "" {
@@ -130,16 +147,43 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 			// Determine the sub-path after /teams/{teamId}/.
 			subPath := subPathAfterTeam(r.URL.Path, teamIDStr)
 
-			// Self-service routes — any member may write.
+			// Self-service routes — any member may read or write.
 			if isSelfService(subPath) {
 				next.ServeHTTP(w, r)
 				return
 			}
 
+			if isRead {
+				module, restrict := readModuleForPath(subPath)
+				if !restrict {
+					// No module mapping for reads (team info, photo, logo,
+					// invite, stats) — membership check is sufficient.
+					next.ServeHTTP(w, r)
+					return
+				}
+				perms, err := checker.GetPermissions(r.Context(), teamID, user.Id)
+				if err != nil {
+					writeProblem(w, http.StatusInternalServerError, "permission check failed")
+					return
+				}
+				if !hasAnyPermission(perms, module) {
+					writeProblem(w, http.StatusForbidden, "insufficient permissions for "+module)
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Determine the required module.
-			module := moduleForPath(subPath, r)
+			module, known := moduleForPath(subPath, r)
+			if !known {
+				// Unknown path segment — reject with 404 rather than silently
+				// falling back to the "settings" module.
+				writeProblem(w, http.StatusNotFound, "unknown resource path")
+				return
+			}
 			if module == "" {
-				// No restriction beyond membership.
+				// No restriction beyond membership (self-service segments).
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -158,6 +202,20 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// readModuleForPath returns the RBAC module that governs GET-visibility for a
+// sub-path, and whether that module should be enforced at all. Only the six
+// core RBAC modules (via routeModule, excluding the "" self-service entries)
+// are read-restricted; team info, photo/logo, invite, and stats have no
+// module-level sensitivity and remain visible to any team member.
+func readModuleForPath(subPath string) (module string, restrict bool) {
+	first := strings.SplitN(subPath, "/", 2)[0]
+	m, ok := routeModule[first]
+	if !ok || m == "" {
+		return "", false
+	}
+	return m, true
 }
 
 // subPathAfterTeam extracts the path segments that follow the team UUID.
@@ -187,22 +245,32 @@ func isSelfService(subPath string) bool {
 	return false
 }
 
-// moduleForPath returns the RBAC module name for a sub-path, or "" for unrestricted.
-func moduleForPath(subPath string, r *http.Request) string {
+// moduleForPath returns the RBAC module name for a sub-path and whether the
+// path segment is a known route. Returns ("", false) only when the first path
+// segment is not recognised — callers should respond with 404.
+//
+// Return values:
+//
+//	("settings", true)  — settings module write check required
+//	("events",   true)  — events module write check required
+//	("",         true)  — no additional restriction (self-service or open)
+//	("",         false) — unknown segment; caller must return 404
+func moduleForPath(subPath string, r *http.Request) (string, bool) {
 	// PATCH on the team itself (subPath == "") needs settings permission.
 	if subPath == "" && r.Method == http.MethodPatch {
-		return "settings"
+		return "settings", true
 	}
-	// photo / logo / invite are settings mutations.
+	// photo / logo / invite are explicit settings mutations.
 	first := strings.SplitN(subPath, "/", 2)[0]
-	if first == "photo" || first == "logo" || first == "invite" {
-		return "settings"
+	if knownSettingsSegments[first] {
+		return "settings", true
 	}
 	m, ok := routeModule[first]
 	if !ok {
-		return "settings"
+		// Unknown segment — do not fall back to "settings".
+		return "", false
 	}
-	return m
+	return m, true
 }
 
 // hasWritePermission returns true if the effective permissions include write for module.
@@ -227,12 +295,36 @@ func hasWritePermission(p teams.PermissionsJSON, module string) bool {
 	return level == "write"
 }
 
+// hasAnyPermission returns true if the effective permissions include read or
+// write (i.e. anything but "none") for module.
+func hasAnyPermission(p teams.PermissionsJSON, module string) bool {
+	var level string
+	switch module {
+	case "events":
+		level = p.Events
+	case "members":
+		level = p.Members
+	case "finances":
+		level = p.Finances
+	case "news":
+		level = p.News
+	case "polls":
+		level = p.Polls
+	case "settings":
+		level = p.Settings
+	default:
+		return false
+	}
+	return level == "read" || level == "write"
+}
+
 // writeProblem writes an RFC 9457 Problem Details response.
 func writeProblem(w http.ResponseWriter, status int, detail string) {
 	titles := map[int]string{
 		http.StatusBadRequest:          "Bad Request",
 		http.StatusUnauthorized:        "Unauthorized",
 		http.StatusForbidden:           "Forbidden",
+		http.StatusNotFound:            "Not Found",
 		http.StatusInternalServerError: "Internal Server Error",
 	}
 	title, ok := titles[status]

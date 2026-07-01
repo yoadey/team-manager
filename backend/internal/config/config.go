@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,37 +17,73 @@ import (
 // ErrDatabaseURLRequired is returned when DATABASE_URL is not set.
 var ErrDatabaseURLRequired = errors.New("DATABASE_URL is required")
 
-// ErrInvalidCookieKey is returned when COOKIE_ENCRYPTION_KEY is set but not a
-// valid 32-byte hex- or base64-encoded value.
-var ErrInvalidCookieKey = errors.New("COOKIE_ENCRYPTION_KEY must be 32 bytes encoded as hex or base64")
+// ErrInvalidPositiveInt is returned when an integer env var is not a positive integer.
+var ErrInvalidPositiveInt = errors.New("must be a positive integer")
 
-// ErrCookieKeyRequired is returned when COOKIE_ENCRYPTION_KEY is unset while
-// COOKIE_SECURE is true (production), where an ephemeral key is unsafe.
-var ErrCookieKeyRequired = errors.New("COOKIE_ENCRYPTION_KEY is required when COOKIE_SECURE=true")
+// ErrInvalidCookieKey is returned when a cookie encryption key value cannot be
+// decoded as a valid 32-byte hex- or base64-encoded value.
+var ErrInvalidCookieKey = errors.New("cookie encryption key must be 32 bytes encoded as hex or base64")
+
+// ErrInvalidPaginationHMACKey is returned when PAGINATION_HMAC_KEY is set but
+// not a valid 32-byte hex- or base64-encoded value.
+var ErrInvalidPaginationHMACKey = errors.New("PAGINATION_HMAC_KEY must be 32 bytes encoded as hex or base64")
+
+// ErrInvalidDatabaseURL is returned when DATABASE_URL has an invalid format
+// (wrong scheme or missing host).
+var ErrInvalidDatabaseURL = errors.New("DATABASE_URL must use scheme 'postgres' or 'postgresql' and include a host")
+
+// ErrCookieKeyRequired is returned when no cookie encryption key is configured
+// while COOKIE_SECURE is true (production), where an ephemeral key is unsafe.
+var ErrCookieKeyRequired = errors.New("COOKIE_ENCRYPTION_KEY (or COOKIE_ENCRYPTION_KEYS) is required when COOKIE_SECURE=true")
 
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
 
+// Config holds all runtime configuration for the server.
+// CookieEncryptionKeys is an ordered list of AES-256 keys (newest first) for
+// zero-downtime rotation: keys[0] encrypts; all keys are tried for decryption.
+// Set via COOKIE_ENCRYPTION_KEYS (comma-separated) or COOKIE_ENCRYPTION_KEY (single).
 type Config struct {
-	Port                string
-	DatabaseURL         string
-	JWTPrivateKey       string
-	JWTPublicKey        string
-	SessionTTL          time.Duration
-	MigrationsDir       string
-	AllowedOrigins      []string
-	CookieEncryptionKey []byte
-	CookieSecure        bool
-	CookieName          string
-	PublicBaseURL       string
-	MetricsToken        string
-	SentryDSN           string
+	Port                 string
+	DatabaseURL          string
+	JWTPrivateKey        string
+	JWTPublicKey         string
+	SessionTTL           time.Duration
+	MigrationsDir        string
+	AllowedOrigins       []string
+	CookieEncryptionKeys [][]byte
+	CookieSecure         bool
+	CookieName           string
+	PublicBaseURL        string
+	MetricsToken         string
+	SentryDSN            string
+	// RateLimitRPS is the global per-IP request rate limit (requests per second).
+	RateLimitRPS int
+	// LoginRateLimitPerMin is the per-IP login attempt limit per minute.
+	LoginRateLimitPerMin int
+	// PaginationHMACKey is used to sign keyset pagination cursors (HMAC-SHA256)
+	// so that clients cannot craft arbitrary cursor values. Optional: when nil,
+	// cursors are plain base64 (dev mode). Set via PAGINATION_HMAC_KEY (32 bytes,
+	// hex or base64).
+	PaginationHMACKey []byte
+	// RetentionNotificationDays is how many days to keep notification rows before
+	// the daily retention job deletes them. Default: 90.
+	RetentionNotificationDays int
+	// RetentionSessionDays is how many days to keep session rows before the daily
+	// retention job deletes them. Default: 30.
+	RetentionSessionDays int
+	// RetentionAuditLogDays is how many days to keep audit_log rows before the
+	// daily retention job deletes them. Default: 365.
+	RetentionAuditLogDays int
 }
 
 func Load() (*Config, error) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		return nil, ErrDatabaseURLRequired
+	}
+	if err := validateDatabaseURL(dbURL); err != nil {
+		return nil, err
 	}
 
 	ttlHours := 720 // 30 days default
@@ -63,16 +100,7 @@ func Load() (*Config, error) {
 		port = "8080"
 	}
 
-	origins := []string{"http://localhost:5173"}
-	if v := os.Getenv("ALLOWED_ORIGINS"); v != "" {
-		parts := strings.Split(v, ",")
-		origins = make([]string, 0, len(parts))
-		for _, p := range parts {
-			if trimmed := strings.TrimSpace(p); trimmed != "" {
-				origins = append(origins, trimmed)
-			}
-		}
-	}
+	origins := loadAllowedOrigins()
 
 	// Public base URL of the user-facing frontend, used to build shareable links
 	// (e.g. team invite links). Defaults to the first allowed origin so a
@@ -88,47 +116,138 @@ func Load() (*Config, error) {
 		cookieSecure = b
 	}
 
-	cookieKey, err := loadCookieEncryptionKey(cookieSecure)
+	cookieKeys, err := loadCookieEncryptionKeys(cookieSecure)
 	if err != nil {
 		return nil, err
 	}
 
+	rateLimitRPS, err := parseInt(os.Getenv("RATE_LIMIT_RPS"), 100)
+	if err != nil {
+		return nil, fmt.Errorf("RATE_LIMIT_RPS: %w", err)
+	}
+	loginRateLimitPerMin, err := parseInt(os.Getenv("LOGIN_RATE_LIMIT_PER_MIN"), 5)
+	if err != nil {
+		return nil, fmt.Errorf("LOGIN_RATE_LIMIT_PER_MIN: %w", err)
+	}
+
+	paginationHMACKey, err := loadOptionalBytesKey("PAGINATION_HMAC_KEY", cookieKeySize, ErrInvalidPaginationHMACKey)
+	if err != nil {
+		return nil, err
+	}
+
+	retentionNotificationDays, err := parseInt(os.Getenv("RETENTION_NOTIFICATIONS_DAYS"), 90)
+	if err != nil {
+		return nil, fmt.Errorf("RETENTION_NOTIFICATIONS_DAYS: %w", err)
+	}
+	retentionSessionDays, err := parseInt(os.Getenv("RETENTION_SESSIONS_DAYS"), 30)
+	if err != nil {
+		return nil, fmt.Errorf("RETENTION_SESSIONS_DAYS: %w", err)
+	}
+	retentionAuditLogDays, err := parseInt(os.Getenv("RETENTION_AUDIT_LOG_DAYS"), 365)
+	if err != nil {
+		return nil, fmt.Errorf("RETENTION_AUDIT_LOG_DAYS: %w", err)
+	}
+
 	return &Config{
-		Port:                port,
-		DatabaseURL:         dbURL,
-		JWTPrivateKey:       os.Getenv("JWT_PRIVATE_KEY"),
-		JWTPublicKey:        os.Getenv("JWT_PUBLIC_KEY"),
-		SessionTTL:          time.Duration(ttlHours) * time.Hour,
-		MigrationsDir:       envOr("MIGRATIONS_DIR", "internal/db/migrations"),
-		AllowedOrigins:      origins,
-		CookieEncryptionKey: cookieKey,
-		CookieSecure:        cookieSecure,
-		CookieName:          os.Getenv("COOKIE_NAME"),
-		PublicBaseURL:       publicBaseURL,
-		MetricsToken:        os.Getenv("METRICS_TOKEN"),
-		SentryDSN:           os.Getenv("SENTRY_DSN"),
+		Port:                      port,
+		DatabaseURL:               dbURL,
+		JWTPrivateKey:             os.Getenv("JWT_PRIVATE_KEY"),
+		JWTPublicKey:              os.Getenv("JWT_PUBLIC_KEY"),
+		SessionTTL:                time.Duration(ttlHours) * time.Hour,
+		MigrationsDir:             envOr("MIGRATIONS_DIR", "internal/db/migrations"),
+		AllowedOrigins:            origins,
+		CookieEncryptionKeys:      cookieKeys,
+		CookieSecure:              cookieSecure,
+		CookieName:                os.Getenv("COOKIE_NAME"),
+		PublicBaseURL:             publicBaseURL,
+		MetricsToken:              os.Getenv("METRICS_TOKEN"),
+		SentryDSN:                 os.Getenv("SENTRY_DSN"),
+		RateLimitRPS:              rateLimitRPS,
+		LoginRateLimitPerMin:      loginRateLimitPerMin,
+		PaginationHMACKey:         paginationHMACKey,
+		RetentionNotificationDays: retentionNotificationDays,
+		RetentionSessionDays:      retentionSessionDays,
+		RetentionAuditLogDays:     retentionAuditLogDays,
 	}, nil
 }
 
-// loadCookieEncryptionKey reads COOKIE_ENCRYPTION_KEY (hex or base64, 32 bytes).
-// When unset in a secure (production) configuration it is a hard error — an
-// ephemeral key would silently invalidate every session on restart and break
-// horizontal scaling (each instance would generate a different key). When unset
-// with COOKIE_SECURE=false (local dev) a random ephemeral key is generated with
-// a warning instead.
-func loadCookieEncryptionKey(secure bool) ([]byte, error) {
-	raw := os.Getenv("COOKIE_ENCRYPTION_KEY")
-	if raw == "" {
-		if secure {
-			return nil, ErrCookieKeyRequired
-		}
-		key := make([]byte, cookieKeySize)
-		if _, err := rand.Read(key); err != nil {
-			return nil, fmt.Errorf("generate dev cookie key: %w", err)
-		}
-		slog.Warn("COOKIE_ENCRYPTION_KEY not set; generated an ephemeral dev key — sessions will not survive a restart")
-		return key, nil
+// validateDatabaseURL checks that dsn uses the postgres/postgresql scheme and
+// includes a non-empty host, so DSN typos are caught at startup rather than
+// producing a cryptic connection error later.
+func validateDatabaseURL(dsn string) error {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return fmt.Errorf("DATABASE_URL: %w: %w", ErrInvalidDatabaseURL, err)
 	}
+	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
+		return ErrInvalidDatabaseURL
+	}
+	if u.Host == "" {
+		return ErrInvalidDatabaseURL
+	}
+	return nil
+}
+
+// loadAllowedOrigins parses ALLOWED_ORIGINS into a slice of trimmed, non-empty
+// origin strings, falling back to localhost:5173 in development.
+func loadAllowedOrigins() []string {
+	v := os.Getenv("ALLOWED_ORIGINS")
+	if v == "" {
+		return []string{"http://localhost:5173"}
+	}
+	parts := strings.Split(v, ",")
+	origins := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			origins = append(origins, trimmed)
+		}
+	}
+	return origins
+}
+
+// loadCookieEncryptionKeys reads cookie encryption keys from environment variables.
+// It checks COOKIE_ENCRYPTION_KEYS (plural, comma-separated, newest key first) and
+// falls back to COOKIE_ENCRYPTION_KEY (singular, backward-compatible). In production
+// (secure=true) at least one key is required; in dev an ephemeral key is generated.
+func loadCookieEncryptionKeys(secure bool) ([][]byte, error) {
+	if raw := os.Getenv("COOKIE_ENCRYPTION_KEYS"); raw != "" {
+		parts := strings.Split(raw, ",")
+		keys := make([][]byte, 0, len(parts))
+		for i, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			key, err := decodeKey32(part)
+			if err != nil {
+				return nil, fmt.Errorf("COOKIE_ENCRYPTION_KEYS[%d]: %w", i, ErrInvalidCookieKey)
+			}
+			keys = append(keys, key)
+		}
+		if len(keys) > 0 {
+			return keys, nil
+		}
+	}
+	if raw := os.Getenv("COOKIE_ENCRYPTION_KEY"); raw != "" {
+		key, err := decodeKey32(raw)
+		if err != nil {
+			return nil, ErrInvalidCookieKey
+		}
+		return [][]byte{key}, nil
+	}
+	if secure {
+		return nil, ErrCookieKeyRequired
+	}
+	key := make([]byte, cookieKeySize)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("generate dev cookie key: %w", err)
+	}
+	slog.Warn("COOKIE_ENCRYPTION_KEY not set; generated an ephemeral dev key — sessions will not survive a restart")
+	return [][]byte{key}, nil
+}
+
+// decodeKey32 parses a hex- or base64-encoded 32-byte AES key.
+func decodeKey32(raw string) ([]byte, error) {
 	if key, err := hex.DecodeString(raw); err == nil && len(key) == cookieKeySize {
 		return key, nil
 	}
@@ -138,9 +257,41 @@ func loadCookieEncryptionKey(secure bool) ([]byte, error) {
 	return nil, ErrInvalidCookieKey
 }
 
+// loadOptionalBytesKey reads an optional environment variable that must be a
+// hex- or base64-encoded byte slice of exactly wantLen bytes when set.
+// Returns nil (no error) when the variable is unset or empty.
+func loadOptionalBytesKey(envVar string, wantLen int, invalidErr error) ([]byte, error) {
+	raw := os.Getenv(envVar)
+	if raw == "" {
+		return nil, nil
+	}
+	if key, err := hex.DecodeString(raw); err == nil && len(key) == wantLen {
+		return key, nil
+	}
+	if key, err := base64.StdEncoding.DecodeString(raw); err == nil && len(key) == wantLen {
+		return key, nil
+	}
+	return nil, invalidErr
+}
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return fallback
+}
+
+// parseInt parses a decimal integer from s, returning defaultVal when s is empty.
+func parseInt(s string, defaultVal int) (int, error) {
+	if s == "" {
+		return defaultVal, nil
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("parse integer: %w", err)
+	}
+	if n <= 0 {
+		return 0, fmt.Errorf("got %d: %w", n, ErrInvalidPositiveInt)
+	}
+	return n, nil
 }

@@ -1,16 +1,31 @@
 package teams_test
 
 import (
+	"bytes"
 	"context"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
+
+// fixedJPEG returns a minimal valid 2x2 JPEG for image-processing tests.
+func fixedJPEG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, img, nil))
+	return buf.Bytes()
+}
 
 // ─── mock repository ─────────────────────────────────────────────────────────
 
@@ -24,6 +39,7 @@ type mockTeamRepo struct {
 	getRolesForMembership func(ctx context.Context, membershipID string) ([]teams.RoleRow, error)
 	createInvite          func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
 	updateTeamPhoto       func(ctx context.Context, teamID string, data []byte, mime string) error
+	updateTeamLogo        func(ctx context.Context, teamID string, data []byte, mime string) error
 }
 
 func (m *mockTeamRepo) ListTeamsForUser(ctx context.Context, userID string) ([]teams.TeamRow, error) {
@@ -62,12 +78,16 @@ func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID string, data 
 	return m.updateTeamPhoto(ctx, teamID, data, mime)
 }
 
+func (m *mockTeamRepo) UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error {
+	return m.updateTeamLogo(ctx, teamID, data, mime)
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-func fixedTeamRow(id uuid.UUID, name string) teams.TeamRow {
+func fixedTeamRow(id uuid.UUID) teams.TeamRow {
 	return teams.TeamRow{
 		Id:                      id,
-		Name:                    name,
+		Name:                    "Alpha Team",
 		CreatedAt:               time.Now(),
 		ReasonVisibilityRoleIDs: []uuid.UUID{},
 	}
@@ -104,7 +124,7 @@ func TestTeamService_ListForUser(t *testing.T) {
 	membershipID := uuid.New()
 	userID := uuid.New()
 
-	row := fixedTeamRow(teamID, "Alpha Team")
+	row := fixedTeamRow(teamID)
 	membership := fixedMembershipRow(membershipID, teamID, userID)
 	role := fixedAdminRole(teamID)
 
@@ -155,4 +175,59 @@ func TestCreateInvite_BuildsLinkFromPublicBaseURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://app.example.com/join/"+teamID.String()+"/ABC123", inv.Link)
 	assert.Equal(t, "ABC123", inv.Code)
+}
+
+func TestTeamService_UpdateLogo_StoresResizedJPEGAndReturnsTeam(t *testing.T) {
+	teamID := uuid.New()
+	row := fixedTeamRow(teamID)
+	row.LogoData = []byte{0xFF, 0xD8, 0xFF} // stand-in for "stored" bytes on refresh
+
+	var storedData []byte
+	var storedMime string
+	repo := &mockTeamRepo{
+		updateTeamLogo: func(_ context.Context, tid string, data []byte, mime string) error {
+			assert.Equal(t, teamID.String(), tid)
+			storedData, storedMime = data, mime
+			return nil
+		},
+		getTeam: func(_ context.Context, _ string) (*teams.TeamRow, error) { return &row, nil },
+	}
+
+	svc := teams.NewService(repo, "https://app.example.com")
+	result, err := svc.UpdateLogo(context.Background(), teamID.String(), fixedJPEG(t), "image/jpeg")
+	require.NoError(t, err)
+	assert.Equal(t, "image/jpeg", storedMime)
+	assert.NotEmpty(t, storedData)
+	assert.True(t, *result.HasLogo)
+}
+
+func TestTeamService_GetTeamLogoData_ReturnsStoredBytes(t *testing.T) {
+	teamID := uuid.New()
+	mime := "image/jpeg"
+	row := fixedTeamRow(teamID)
+	row.LogoData = []byte{1, 2, 3}
+	row.LogoMime = &mime
+
+	repo := &mockTeamRepo{
+		getTeam: func(_ context.Context, _ string) (*teams.TeamRow, error) { return &row, nil },
+	}
+
+	svc := teams.NewService(repo, "https://app.example.com")
+	data, gotMime, err := svc.GetTeamLogoData(context.Background(), teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1, 2, 3}, data)
+	assert.Equal(t, "image/jpeg", gotMime)
+}
+
+func TestTeamService_GetTeamLogoData_NoLogoReturnsErrNoRows(t *testing.T) {
+	teamID := uuid.New()
+	row := fixedTeamRow(teamID)
+
+	repo := &mockTeamRepo{
+		getTeam: func(_ context.Context, _ string) (*teams.TeamRow, error) { return &row, nil },
+	}
+
+	svc := teams.NewService(repo, "https://app.example.com")
+	_, _, err := svc.GetTeamLogoData(context.Background(), teamID.String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

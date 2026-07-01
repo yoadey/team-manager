@@ -22,7 +22,7 @@ type eventService interface {
 	CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error)
 	GetEvent(ctx context.Context, teamID, userID, eventID string) (*gen.TeamEvent, error)
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
-	DeleteEvent(ctx context.Context, eventID, scope string) error
+	DeleteEvent(ctx context.Context, eventID, teamID, scope string) error
 	SetStatus(ctx context.Context, userID, eventID, status, scope string) (*gen.TeamEvent, error)
 	ListComments(ctx context.Context, eventID string, limit, offset int) ([]gen.EventComment, error)
 	AddComment(ctx context.Context, eventID, userID, text string) (*gen.EventComment, error)
@@ -91,6 +91,9 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)
 	if err != nil {
+		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
+			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+		}
 		h.logger.ErrorContext(ctx, "CreateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to create event")
 	}
@@ -143,6 +146,9 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")
 		}
+		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
+			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+		}
 		h.logger.ErrorContext(ctx, "UpdateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to update event")
 	}
@@ -164,7 +170,10 @@ func (h *Handler) DeleteEvent(ctx context.Context, request gen.DeleteEventReques
 		scope = string(*request.Params.Scope)
 	}
 
-	if err := h.svc.DeleteEvent(ctx, request.EventId.String(), scope); err != nil {
+	if err := h.svc.DeleteEvent(ctx, request.EventId.String(), request.TeamId.String(), scope); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("event not found")
+		}
 		h.logger.ErrorContext(ctx, "DeleteEvent failed", "err", err)
 		return nil, apierror.Internal("failed to delete event")
 	}

@@ -4,6 +4,7 @@ import type { Member, MemberFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
+import { validateEmail, validatePhone, validateBirthday } from '@/utils/validation';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -83,6 +84,21 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
     const f = S().form as MemberFormValues;
     if (!f.name) {
       toastMsg(t('members.fieldNameError'));
+      return;
+    }
+    const emailResult = validateEmail(f.email, t('validation.emailInvalid'));
+    if (!emailResult.ok) {
+      toastMsg(emailResult.message!);
+      return;
+    }
+    const phoneResult = validatePhone(f.phone, t('validation.phoneInvalid'));
+    if (!phoneResult.ok) {
+      toastMsg(phoneResult.message!);
+      return;
+    }
+    const birthdayResult = validateBirthday(f.birthday, t('validation.birthdayInvalid'));
+    if (!birthdayResult.ok) {
+      toastMsg(birthdayResult.message!);
       return;
     }
     const sh = S().sheet!;

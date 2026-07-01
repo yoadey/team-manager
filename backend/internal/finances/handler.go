@@ -2,9 +2,11 @@ package finances
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/audit"
@@ -18,16 +20,16 @@ import (
 type financeService interface {
 	GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error)
 	CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error)
-	UpdateTransaction(ctx context.Context, id uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
-	DeleteTransaction(ctx context.Context, id uuid.UUID) error
+	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
+	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 	CreatePenalty(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error)
-	UpdatePenalty(ctx context.Context, id uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error)
-	DeletePenalty(ctx context.Context, id uuid.UUID) error
+	UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error)
+	DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error
 	CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
-	DeleteAssignment(ctx context.Context, id uuid.UUID) error
+	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
 	ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error)
-	UpdateContribution(ctx context.Context, id uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
-	ToggleContribution(ctx context.Context, id uuid.UUID) (*gen.Contribution, error)
+	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
+	ToggleContribution(ctx context.Context, id, teamID uuid.UUID) (*gen.Contribution, error)
 }
 
 // Handler implements the finance-related methods of gen.StrictServerInterface.
@@ -37,9 +39,13 @@ type Handler struct {
 	audit  *audit.Logger
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(svc financeService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
+// NewHandler creates a new Handler. al is the shared audit logger; when nil a
+// log-only logger is created from logger.
+func NewHandler(svc financeService, logger *slog.Logger, al *audit.Logger) *Handler {
+	if al == nil {
+		al = audit.New(logger)
+	}
+	return &Handler{svc: svc, logger: logger, audit: al}
 }
 
 // recordFinance emits a finance.mutation audit event for the acting user,
@@ -51,6 +57,16 @@ func (h *Handler) recordFinance(ctx context.Context, operation string, attrs ...
 	}
 	h.audit.Record(ctx, audit.EventFinanceMutation, audit.Success, actor,
 		append([]slog.Attr{slog.String("operation", operation)}, attrs...)...)
+}
+
+// recordFinanceFailure emits a failure audit event for a finance mutation.
+func (h *Handler) recordFinanceFailure(ctx context.Context, operation, reason string) {
+	actor := ""
+	if u, ok := auth.UserFromContext(ctx); ok {
+		actor = u.Id.String()
+	}
+	h.audit.Record(ctx, audit.EventFinanceMutation, audit.Failure, actor,
+		slog.String("operation", operation), slog.String("reason", reason))
 }
 
 // GetFinanceOverview returns the full finance overview for a team.
@@ -80,6 +96,9 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
@@ -99,8 +118,26 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	t, err := h.svc.UpdateTransaction(ctx, req.TransactionId, req.Body)
+	if req.Body.Title != nil {
+		if err := validate.RequireNonEmpty(*req.Body.Title, "title"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+		if err := validate.MaxLen(*req.Body.Title, 255, "title"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Amount != nil {
+		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	t, err := h.svc.UpdateTransaction(ctx, req.TransactionId, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "transaction.update", "not found")
+			return nil, apierror.NotFound("transaction not found")
+		}
+		h.recordFinanceFailure(ctx, "transaction.update", "internal error")
 		h.logger.ErrorContext(ctx, "UpdateTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to update transaction")
 	}
@@ -114,7 +151,12 @@ func (h *Handler) DeleteTransaction(ctx context.Context, req gen.DeleteTransacti
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeleteTransaction(ctx, req.TransactionId); err != nil {
+	if err := h.svc.DeleteTransaction(ctx, req.TransactionId, req.TeamId); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "transaction.delete", "not found")
+			return nil, apierror.NotFound("transaction not found")
+		}
+		h.recordFinanceFailure(ctx, "transaction.delete", "internal error")
 		h.logger.ErrorContext(ctx, "DeleteTransaction failed", "err", err)
 		return nil, apierror.Internal("failed to delete transaction")
 	}
@@ -137,6 +179,9 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	if err := validate.MaxLen(req.Body.Label, 255, "label"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	p, err := h.svc.CreatePenalty(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
@@ -156,8 +201,26 @@ func (h *Handler) UpdatePenalty(ctx context.Context, req gen.UpdatePenaltyReques
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	p, err := h.svc.UpdatePenalty(ctx, req.PenaltyId, req.Body)
+	if req.Body.Label != nil {
+		if err := validate.RequireNonEmpty(*req.Body.Label, "label"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+		if err := validate.MaxLen(*req.Body.Label, 255, "label"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Amount != nil {
+		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	p, err := h.svc.UpdatePenalty(ctx, req.PenaltyId, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "penalty.update", "not found")
+			return nil, apierror.NotFound("penalty not found")
+		}
+		h.recordFinanceFailure(ctx, "penalty.update", "internal error")
 		h.logger.ErrorContext(ctx, "UpdatePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to update penalty")
 	}
@@ -171,7 +234,12 @@ func (h *Handler) DeletePenalty(ctx context.Context, req gen.DeletePenaltyReques
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeletePenalty(ctx, req.PenaltyId); err != nil {
+	if err := h.svc.DeletePenalty(ctx, req.PenaltyId, req.TeamId); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "penalty.delete", "not found")
+			return nil, apierror.NotFound("penalty not found")
+		}
+		h.recordFinanceFailure(ctx, "penalty.delete", "internal error")
 		h.logger.ErrorContext(ctx, "DeletePenalty failed", "err", err)
 		return nil, apierror.Internal("failed to delete penalty")
 	}
@@ -190,6 +258,11 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 	}
 	a, err := h.svc.CreateAssignment(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrPenaltyNotInTeam) || errors.Is(err, ErrUserNotInTeam) {
+			h.recordFinanceFailure(ctx, "assignment.create", err.Error())
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
+		h.recordFinanceFailure(ctx, "assignment.create", "internal error")
 		h.logger.ErrorContext(ctx, "CreatePenaltyAssignment failed", "err", err)
 		return nil, apierror.Internal("failed to create penalty assignment")
 	}
@@ -204,7 +277,12 @@ func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePen
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.DeleteAssignment(ctx, req.AssignmentId); err != nil {
+	if err := h.svc.DeleteAssignment(ctx, req.AssignmentId, req.TeamId); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "assignment.delete", "not found")
+			return nil, apierror.NotFound("penalty assignment not found")
+		}
+		h.recordFinanceFailure(ctx, "assignment.delete", "internal error")
 		h.logger.ErrorContext(ctx, "DeletePenaltyAssignment failed", "err", err)
 		return nil, apierror.Internal("failed to delete penalty assignment")
 	}
@@ -237,8 +315,18 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	c, err := h.svc.UpdateContribution(ctx, req.ContributionId, req.Body)
+	if req.Body.Amount != nil {
+		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	c, err := h.svc.UpdateContribution(ctx, req.ContributionId, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "contribution.update", "not found")
+			return nil, apierror.NotFound("contribution not found")
+		}
+		h.recordFinanceFailure(ctx, "contribution.update", "internal error")
 		h.logger.ErrorContext(ctx, "UpdateContribution failed", "err", err)
 		return nil, apierror.Internal("failed to update contribution")
 	}
@@ -252,8 +340,13 @@ func (h *Handler) ToggleContribution(ctx context.Context, req gen.ToggleContribu
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	c, err := h.svc.ToggleContribution(ctx, req.ContributionId)
+	c, err := h.svc.ToggleContribution(ctx, req.ContributionId, req.TeamId)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			h.recordFinanceFailure(ctx, "contribution.toggle", "not found")
+			return nil, apierror.NotFound("contribution not found")
+		}
+		h.recordFinanceFailure(ctx, "contribution.toggle", "internal error")
 		h.logger.ErrorContext(ctx, "ToggleContribution failed", "err", err)
 		return nil, apierror.Internal("failed to toggle contribution status")
 	}

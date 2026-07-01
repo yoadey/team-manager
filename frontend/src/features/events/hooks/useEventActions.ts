@@ -41,7 +41,9 @@ export function useEventDetailActions({
           api.events.listComments(eventId, teamId),
         ]);
         setState((s) =>
-          s.sheet && s.sheet.type === 'eventDetail' ? { sheet: { ...s.sheet, event, rows, comments } } : {},
+          s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId
+            ? { sheet: { ...s.sheet, event, rows, comments } }
+            : {},
         );
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.load');

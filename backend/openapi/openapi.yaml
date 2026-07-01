@@ -1537,7 +1537,8 @@ components:
           format: email
         password:
           type: string
-          minLength: 1
+          minLength: 8
+          maxLength: 128
 
     LoginResponse:
       type: object
@@ -1638,6 +1639,8 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 255
         icon:
           type: string
         iconBg:
@@ -1650,8 +1653,11 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
+          maxLength: 255
         short:
           type: string
+          maxLength: 50
         icon:
           type: string
         iconBg:
@@ -1660,6 +1666,7 @@ components:
           type: string
         description:
           type: string
+          maxLength: 10000
         reasonVisibilityRoleIds:
           type: array
           items:
@@ -1907,13 +1914,17 @@ components:
           $ref: "#/components/schemas/EventType"
         title:
           type: string
+          minLength: 1
+          maxLength: 255
         date:
           type: string
           format: date
         location:
           type: string
+          maxLength: 255
         note:
           type: string
+          maxLength: 10000
         meetTime:
           type: string
         startTime:
@@ -1942,13 +1953,17 @@ components:
           $ref: "#/components/schemas/EventType"
         title:
           type: string
+          minLength: 1
+          maxLength: 255
         date:
           type: string
           format: date
         location:
           type: string
+          maxLength: 255
         note:
           type: string
+          maxLength: 10000
         meetTime:
           type: string
         startTime:
@@ -2190,8 +2205,12 @@ components:
       properties:
         title:
           type: string
+          minLength: 1
+          maxLength: 255
         body:
           type: string
+          minLength: 1
+          maxLength: 10000
         pinned:
           type: boolean
           default: false
@@ -2201,8 +2220,12 @@ components:
       properties:
         title:
           type: string
+          minLength: 1
+          maxLength: 255
         body:
           type: string
+          minLength: 1
+          maxLength: 10000
         pinned:
           type: boolean
 

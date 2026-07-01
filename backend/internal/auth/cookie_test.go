@@ -17,7 +17,7 @@ import (
 
 func newCodec(t *testing.T) *auth.SessionCookieCodec {
 	t.Helper()
-	codec, err := auth.NewSessionCookieCodec(make([]byte, 32), false, time.Hour, "")
+	codec, err := auth.NewSessionCookieCodec([][]byte{make([]byte, 32)}, false, time.Hour, "")
 	require.NoError(t, err)
 	return codec
 }
@@ -69,11 +69,39 @@ func TestSessionCookieCodec_DecryptRejectsOtherKey(t *testing.T) {
 	value, err := codec.Encrypt("the.jwt.token")
 	require.NoError(t, err)
 
-	other, err := auth.NewSessionCookieCodec(append(make([]byte, 31), 0x01), false, time.Hour, "")
+	other, err := auth.NewSessionCookieCodec([][]byte{append(make([]byte, 31), 0x01)}, false, time.Hour, "")
 	require.NoError(t, err)
 
 	_, err = other.Decrypt(value)
 	require.ErrorIs(t, err, auth.ErrInvalidCookie)
+}
+
+func TestSessionCookieCodec_DecryptWithRotatedKey(t *testing.T) {
+	t.Parallel()
+
+	oldKey := make([]byte, 32)
+	newKey := append(make([]byte, 31), 0x01)
+
+	// Cookie encrypted with the old key.
+	oldCodec, err := auth.NewSessionCookieCodec([][]byte{oldKey}, false, time.Hour, "")
+	require.NoError(t, err)
+	value, err := oldCodec.Encrypt("the.jwt.token")
+	require.NoError(t, err)
+
+	// After rotation: new key first, old key still present for decryption.
+	rotated, err := auth.NewSessionCookieCodec([][]byte{newKey, oldKey}, false, time.Hour, "")
+	require.NoError(t, err)
+
+	got, err := rotated.Decrypt(value)
+	require.NoError(t, err)
+	assert.Equal(t, "the.jwt.token", got, "old-key cookie must decrypt after rotation")
+
+	// New encryptions use the new key and cannot be decrypted by old-only codec.
+	newValue, err := rotated.Encrypt("new.jwt.token")
+	require.NoError(t, err)
+
+	_, err = oldCodec.Decrypt(newValue)
+	require.ErrorIs(t, err, auth.ErrInvalidCookie, "new-key cookie must not decrypt with old key only")
 }
 
 func TestStrictMiddleware_SetsCookieOnLogin(t *testing.T) {

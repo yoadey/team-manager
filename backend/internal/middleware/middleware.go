@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"time"
@@ -246,6 +247,32 @@ func CSRFOriginCheck(allowedOrigins []string) func(http.Handler) http.Handler {
 						return
 					}
 				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// ─── API Version ─────────────────────────────────────────────────────────────
+
+// APIVersion returns middleware that sets the API-Version response header to
+// the supplied version string on every response.
+//
+// When the environment variable API_DEPRECATION_DATE is non-empty, it is also
+// emitted as both a Deprecation and a Sunset header so that Enterprise clients
+// can programmatically detect and act on pending API lifecycle changes.
+//
+// Example:
+//
+//	r.Use(middleware.APIVersion("v1"))
+func APIVersion(version string) func(http.Handler) http.Handler {
+	deprecationDate := os.Getenv("API_DEPRECATION_DATE")
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("API-Version", version)
+			if deprecationDate != "" {
+				w.Header().Set("Deprecation", `date="`+deprecationDate+`"`)
+				w.Header().Set("Sunset", deprecationDate)
 			}
 			next.ServeHTTP(w, r)
 		})

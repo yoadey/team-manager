@@ -34,9 +34,13 @@ type Handler struct {
 	audit  *audit.Logger
 }
 
-// NewHandler creates a new Handler.
-func NewHandler(svc memberService, logger *slog.Logger) *Handler {
-	return &Handler{svc: svc, logger: logger, audit: audit.New(logger)}
+// NewHandler creates a new Handler. al is the shared audit logger; when nil a
+// log-only logger is created from logger.
+func NewHandler(svc memberService, logger *slog.Logger, al *audit.Logger) *Handler {
+	if al == nil {
+		al = audit.New(logger)
+	}
+	return &Handler{svc: svc, logger: logger, audit: al}
 }
 
 // actor returns the acting user's id for audit records, or "" when absent.
@@ -111,9 +115,15 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 
 	patch := MemberPatch{}
 	if request.Body.Name != nil {
+		if err := validate.Name(*request.Body.Name); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 		patch.Name = request.Body.Name
 	}
 	if request.Body.Email != nil {
+		if err := validate.Email(string(*request.Body.Email)); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 		s := string(*request.Body.Email)
 		patch.Email = &s
 	}

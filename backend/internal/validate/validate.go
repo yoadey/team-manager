@@ -6,6 +6,7 @@ package validate
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/mail"
 	"strings"
 	"unicode/utf8"
@@ -20,12 +21,13 @@ const (
 
 // Sentinel errors for static analysis compliance.
 var (
-	ErrEmailRequired    = errors.New("email is required")
-	ErrEmailInvalid     = errors.New("email is not a valid address")
-	ErrPasswordTooShort = errors.New("password must be at least 8 characters")
-	ErrPasswordTooLong  = errors.New("password must not exceed 128 characters")
-	ErrFieldRequired    = errors.New("is required")
-	ErrFieldTooLong     = errors.New("is too long")
+	ErrEmailRequired     = errors.New("email is required")
+	ErrEmailInvalid      = errors.New("email is not a valid address")
+	ErrPasswordTooShort  = errors.New("password must be at least 8 characters")
+	ErrPasswordTooLong   = errors.New("password must not exceed 128 characters")
+	ErrFieldRequired     = errors.New("is required")
+	ErrFieldTooLong      = errors.New("is too long")
+	ErrAmountNotPositive = errors.New("must be greater than zero")
 )
 
 // Email checks that s is a valid RFC 5322 e-mail address.
@@ -69,6 +71,15 @@ func Text(s, field string) error {
 		return err
 	}
 	return MaxLen(s, maxTextLen, field)
+}
+
+// PositiveAmount returns an error when amount is not a positive, finite
+// monetary value (zero, negative, NaN, or infinite).
+func PositiveAmount(amount float64, field string) error {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+		return fmt.Errorf("%s %w", field, ErrAmountNotPositive)
+	}
+	return nil
 }
 
 // PasswordStrength checks that s is within the accepted length window.

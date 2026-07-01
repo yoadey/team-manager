@@ -52,6 +52,31 @@ async function check<T>(
   return result.data;
 }
 
+// Uploads a data: URL as a multipart image field via PUT, throwing the same
+// typed errors as check() (notably AuthError on 401/403, so a session expiring
+// mid-upload still triggers the app's logout redirect).
+async function uploadImage(path: string, fieldName: string, dataUrl: string): Promise<Response> {
+  const arr = dataUrl.split(',');
+  const mimeMatch = arr[0].match(/:(.*?);/);
+  if (!mimeMatch || arr.length < 2) throw new Error('Invalid data URL format');
+  const mime = mimeMatch[1];
+  const bstr = atob(arr[1]);
+  const bytes = new Uint8Array(bstr.length);
+  for (let i = 0; i < bstr.length; i++) bytes[i] = bstr.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  const formData = new FormData();
+  formData.append(fieldName, blob, fieldName + '.jpg');
+
+  const resp = await fetch((import.meta.env.VITE_API_BASE_URL ?? '') + path, {
+    method: 'PUT',
+    credentials: 'include',
+    body: formData,
+  });
+  if (resp.status === 401 || resp.status === 403) throw new AuthError(`HTTP ${resp.status}`);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp;
+}
+
 // Per-page size when walking a keyset list to completion (the backend caps at 500).
 const PAGE_LIMIT = 500;
 
@@ -69,6 +94,7 @@ async function fetchAllPages<T>(
   while (more) {
     const page = await fetchPage(cursor);
     all.push(...page.items);
+    if (all.length > 10_000) throw new Error('fetchAllPages: too many pages');
     cursor = page.nextCursor ?? undefined;
     more = cursor !== undefined;
   }
@@ -103,7 +129,8 @@ export const realApi = {
     },
 
     async logout() {
-      await apiClient.POST('/auth/logout', {});
+      const res = await apiClient.POST('/auth/logout', {});
+      if (!res.response.ok) await check(res);
     },
 
     // GDPR Art. 15: returns the personal-data export document for the current
@@ -124,23 +151,8 @@ export const realApi = {
     },
 
     async setPhoto(dataUrl: string): Promise<User> {
-      // Convert data URL to Blob for multipart upload.
-      const arr = dataUrl.split(',');
-      const mimeMatch = arr[0].match(/:(.*?);/);
-      if (!mimeMatch || arr.length < 2) throw new Error('Invalid data URL format');
-      const mime = mimeMatch[1];
-      const bstr = atob(arr[1]);
-      const bytes = new Uint8Array(bstr.length);
-      for (let i = 0; i < bstr.length; i++) bytes[i] = bstr.charCodeAt(i);
-      const blob = new Blob([bytes], { type: mime });
-      const formData = new FormData();
-      formData.append('photo', blob, 'photo.jpg');
-
-      const resp = await fetch(
-        (import.meta.env.VITE_API_BASE_URL ?? '') + '/api/v1/auth/me/photo',
-        { method: 'POST', credentials: 'include', body: formData },
-      );
-      if (!resp.ok) throw new Error('Photo upload failed');
+      // The backend registers PUT for this endpoint (not POST).
+      await uploadImage('/api/v1/auth/me/photo', 'photo', dataUrl);
       const meRes = await apiClient.GET('/auth/me');
       const data = await check(meRes);
       return mapUser(data);
@@ -169,17 +181,41 @@ export const realApi = {
     },
 
     async updateSettings(teamId: string, patch: Partial<Team>): Promise<Team> {
-      const res = await apiClient.PATCH('/teams/{teamId}', {
-        params: { path: { teamId } },
-        body: {
-          name: patch.name,
-          icon: patch.icon,
-          iconBg: patch.iconBg,
-          iconFg: patch.iconFg,
-          description: patch.description,
-          reasonVisibilityRoleIds: patch.reasonVisibilityRoles,
-        },
-      });
+      // photo/logo are uploaded as multipart images via their own PUT
+      // endpoints; the JSON PATCH body only carries the other fields (the
+      // backend rejects unknown JSON properties for these, and base64 data
+      // URLs are not part of the Team JSON schema).
+      const hasJsonFields =
+        patch.name !== undefined ||
+        patch.icon !== undefined ||
+        patch.iconBg !== undefined ||
+        patch.iconFg !== undefined ||
+        patch.description !== undefined ||
+        patch.reasonVisibilityRoles !== undefined;
+
+      if (hasJsonFields) {
+        const res = await apiClient.PATCH('/teams/{teamId}', {
+          params: { path: { teamId } },
+          body: {
+            name: patch.name,
+            icon: patch.icon,
+            iconBg: patch.iconBg,
+            iconFg: patch.iconFg,
+            description: patch.description,
+            reasonVisibilityRoleIds: patch.reasonVisibilityRoles,
+          },
+        });
+        await check(res);
+      }
+
+      if (patch.photo) {
+        await uploadImage(`/api/v1/teams/${teamId}/photo`, 'photo', patch.photo);
+      }
+      if (patch.logo) {
+        await uploadImage(`/api/v1/teams/${teamId}/logo`, 'logo', patch.logo);
+      }
+
+      const res = await apiClient.GET('/teams/{teamId}', { params: { path: { teamId } } });
       const t = await check(res);
       return mapTeam(t);
     },

@@ -81,7 +81,7 @@ func TestRequireMembership_NonMember_Forbidden(t *testing.T) {
 	req := makeChiRequest(http.MethodGet, "/api/v1/teams/"+testTeamID.String()+"/events", testTeamID.String())
 	rec := httptest.NewRecorder()
 	mw(http.HandlerFunc(ok200)).ServeHTTP(rec, req)
-	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 // ─── RequirePermission tests ──────────────────────────────────────────────────
@@ -109,18 +109,46 @@ func applyPermMW(checker middleware.PermissionChecker, req *http.Request) *httpt
 	return rec
 }
 
-// GET always passes through.
-func TestRequirePermission_GET_AlwaysPasses(t *testing.T) {
-	perms := &mockPermissionChecker{perms: allReadPerms()}
+// GET on a core RBAC module requires at least "read"; "none" must be denied,
+// since a module permission of "none" is meant to also hide read access.
+func TestRequirePermission_GET_RequiresReadPermission(t *testing.T) {
 	paths := []string{
 		"/api/v1/teams/" + testTeamID.String() + "/events",
 		"/api/v1/teams/" + testTeamID.String() + "/finances/transactions",
 		"/api/v1/teams/" + testTeamID.String() + "/members",
 	}
+
+	readPerms := &mockPermissionChecker{perms: allReadPerms()}
 	for _, p := range paths {
 		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
-		rec := applyPermMW(perms, req)
-		assert.Equal(t, http.StatusOK, rec.Code, "GET %s should pass", p)
+		rec := applyPermMW(readPerms, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s with read perms should pass", p)
+	}
+
+	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(nonePerms, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "GET %s with none perms should be forbidden", p)
+	}
+}
+
+// Routes with no natural module mapping stay membership-gated only, even with
+// "none" permissions on every module.
+func TestRequirePermission_GET_UnrestrictedPaths_AlwaysPass(t *testing.T) {
+	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
+	paths := []string{
+		"/api/v1/teams/" + testTeamID.String(), // team info itself
+		"/api/v1/teams/" + testTeamID.String() + "/stats",
+		"/api/v1/teams/" + testTeamID.String() + "/photo",
+		"/api/v1/teams/" + testTeamID.String() + "/logo",
+		"/api/v1/teams/" + testTeamID.String() + "/absences/mine",
+		"/api/v1/teams/" + testTeamID.String() + "/notifications",
+	}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(nonePerms, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s should remain unrestricted", p)
 	}
 }
 
@@ -211,4 +239,48 @@ func TestRequirePermission_NoTeamID_Passthrough(t *testing.T) {
 	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.UserRow{Id: testUserID}))
 	rec := applyPermMW(checker, req)
 	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
+// Unknown path segments must be rejected with 404, not silently mapped to "settings".
+func TestRequirePermission_UnknownPathSegment_Returns404(t *testing.T) {
+	tid := testTeamID.String()
+	unknownPaths := []string{
+		"/api/v1/teams/" + tid + "/widgets",
+		"/api/v1/teams/" + tid + "/admin",
+		"/api/v1/teams/" + tid + "/superpower",
+		"/api/v1/teams/" + tid + "/debug/dump",
+	}
+	// Even with full write permissions, unknown segments must be rejected.
+	checker := &mockPermissionChecker{perms: allWritePerms()}
+	for _, p := range unknownPaths {
+		t.Run(p, func(t *testing.T) {
+			req := makeChiRequest(http.MethodPost, p, tid)
+			rec := applyPermMW(checker, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code, "POST %s with unknown segment should return 404", p)
+		})
+	}
+}
+
+// Known settings-level segments (photo, logo, invite) must still require settings write.
+func TestRequirePermission_SettingsSegments_RequireSettingsWrite(t *testing.T) {
+	tid := testTeamID.String()
+	settingsPaths := []string{
+		"/api/v1/teams/" + tid + "/photo",
+		"/api/v1/teams/" + tid + "/logo",
+		"/api/v1/teams/" + tid + "/invite",
+	}
+	for _, p := range settingsPaths {
+		t.Run("write ok "+p, func(t *testing.T) {
+			checker := &mockPermissionChecker{perms: allWritePerms()}
+			req := makeChiRequest(http.MethodPost, p, tid)
+			rec := applyPermMW(checker, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+		})
+		t.Run("read denied "+p, func(t *testing.T) {
+			checker := &mockPermissionChecker{perms: allReadPerms()}
+			req := makeChiRequest(http.MethodPost, p, tid)
+			rec := applyPermMW(checker, req)
+			assert.Equal(t, http.StatusForbidden, rec.Code)
+		})
+	}
 }

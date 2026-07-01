@@ -83,7 +83,7 @@ func TestMemberHandler_AddMember_EmitsAuditEvent(t *testing.T) {
 		},
 	}
 	var buf bytes.Buffer
-	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)))
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
 
 	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
@@ -112,7 +112,7 @@ func TestMemberHandler_ListMembers(t *testing.T) {
 		},
 	}
 
-	h := members.NewHandler(svc, slog.Default())
+	h := members.NewHandler(svc, slog.Default(), nil)
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/teams/"+teamID.String()+"/members", http.NoBody)
 	w := httptest.NewRecorder()
