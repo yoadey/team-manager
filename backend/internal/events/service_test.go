@@ -19,30 +19,30 @@ import (
 // mockSvcRepo satisfies the unexported eventRepo interface via structural typing.
 type mockSvcRepo struct {
 	listEventsFn             func(ctx context.Context, teamID, scope string, limit int, cur *events.ListCursor) ([]events.EventRow, error)
-	getEventFn               func(ctx context.Context, eventID string) (*events.EventRow, error)
+	getEventFn               func(ctx context.Context, eventID, teamID string) (*events.EventRow, error)
 	createEventFn            func(ctx context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error)
 	createSeriesFn           func(ctx context.Context, teamID string, params *events.CreateEventParams) ([]events.EventRow, error)
 	updateEventFn            func(ctx context.Context, eventID, teamID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error)
 	setStatusFn              func(ctx context.Context, eventID, teamID, status, scope string) (*events.EventRow, error)
 	deleteEventFn            func(ctx context.Context, eventID, teamID, scope string) error
-	getAttendanceSummaryFn   func(ctx context.Context, eventID string) (events.EventSummaryData, error)
-	getMyAttendanceFn        func(ctx context.Context, eventID, userID string) (*events.AttendanceDBRow, error)
+	getAttendanceSummaryFn   func(ctx context.Context, eventID, teamID string) (events.EventSummaryData, error)
+	getMyAttendanceFn        func(ctx context.Context, eventID, userID, teamID string) (*events.AttendanceDBRow, error)
 	getAttendanceSummariesFn func(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]events.EventSummaryData, error)
 	getMyAttendancesFn       func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.AttendanceDBRow, error)
-	listAttendanceFn         func(ctx context.Context, eventID string) ([]events.AttendanceEnriched, error)
-	setAttendanceFn          func(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
-	setNominationFn          func(ctx context.Context, eventID, userID string, nominated bool) error
-	listCommentsFn           func(ctx context.Context, eventID string, limit, offset int) ([]events.CommentRow, error)
-	addCommentFn             func(ctx context.Context, eventID, userID, text string) (*events.CommentRow, error)
-	deleteCommentFn          func(ctx context.Context, commentID, userID string) error
+	listAttendanceFn         func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
+	setAttendanceFn          func(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
+	setNominationFn          func(ctx context.Context, eventID, userID, teamID string, nominated bool) error
+	listCommentsFn           func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
+	addCommentFn             func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
+	deleteCommentFn          func(ctx context.Context, commentID, userID, teamID string) error
 }
 
 func (m *mockSvcRepo) ListEvents(ctx context.Context, teamID, scope string, limit int, cur *events.ListCursor) ([]events.EventRow, error) {
 	return m.listEventsFn(ctx, teamID, scope, limit, cur)
 }
 
-func (m *mockSvcRepo) GetEvent(ctx context.Context, eventID string) (*events.EventRow, error) {
-	return m.getEventFn(ctx, eventID)
+func (m *mockSvcRepo) GetEvent(ctx context.Context, eventID, teamID string) (*events.EventRow, error) {
+	return m.getEventFn(ctx, eventID, teamID)
 }
 
 func (m *mockSvcRepo) CreateEvent(ctx context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error) {
@@ -65,12 +65,12 @@ func (m *mockSvcRepo) DeleteEvent(ctx context.Context, eventID, teamID, scope st
 	return m.deleteEventFn(ctx, eventID, teamID, scope)
 }
 
-func (m *mockSvcRepo) GetAttendanceSummary(ctx context.Context, eventID string) (events.EventSummaryData, error) {
-	return m.getAttendanceSummaryFn(ctx, eventID)
+func (m *mockSvcRepo) GetAttendanceSummary(ctx context.Context, eventID, teamID string) (events.EventSummaryData, error) {
+	return m.getAttendanceSummaryFn(ctx, eventID, teamID)
 }
 
-func (m *mockSvcRepo) GetMyAttendance(ctx context.Context, eventID, userID string) (*events.AttendanceDBRow, error) {
-	return m.getMyAttendanceFn(ctx, eventID, userID)
+func (m *mockSvcRepo) GetMyAttendance(ctx context.Context, eventID, userID, teamID string) (*events.AttendanceDBRow, error) {
+	return m.getMyAttendanceFn(ctx, eventID, userID, teamID)
 }
 
 func (m *mockSvcRepo) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]events.EventSummaryData, error) {
@@ -87,28 +87,28 @@ func (m *mockSvcRepo) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID
 	return map[uuid.UUID]events.AttendanceDBRow{}, nil
 }
 
-func (m *mockSvcRepo) ListAttendance(ctx context.Context, eventID string) ([]events.AttendanceEnriched, error) {
-	return m.listAttendanceFn(ctx, eventID)
+func (m *mockSvcRepo) ListAttendance(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error) {
+	return m.listAttendanceFn(ctx, eventID, teamID)
 }
 
-func (m *mockSvcRepo) SetAttendance(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error) {
-	return m.setAttendanceFn(ctx, eventID, userID, status, reason, reasonID, reasonVisibility)
+func (m *mockSvcRepo) SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error) {
+	return m.setAttendanceFn(ctx, eventID, userID, teamID, status, reason, reasonID, reasonVisibility)
 }
 
-func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, userID string, nominated bool) error {
-	return m.setNominationFn(ctx, eventID, userID, nominated)
+func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error {
+	return m.setNominationFn(ctx, eventID, userID, teamID, nominated)
 }
 
-func (m *mockSvcRepo) ListComments(ctx context.Context, eventID string, limit, offset int) ([]events.CommentRow, error) {
-	return m.listCommentsFn(ctx, eventID, limit, offset)
+func (m *mockSvcRepo) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error) {
+	return m.listCommentsFn(ctx, eventID, teamID, limit, offset)
 }
 
-func (m *mockSvcRepo) AddComment(ctx context.Context, eventID, userID, text string) (*events.CommentRow, error) {
-	return m.addCommentFn(ctx, eventID, userID, text)
+func (m *mockSvcRepo) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error) {
+	return m.addCommentFn(ctx, eventID, userID, teamID, text)
 }
 
-func (m *mockSvcRepo) DeleteComment(ctx context.Context, commentID, userID string) error {
-	return m.deleteCommentFn(ctx, commentID, userID)
+func (m *mockSvcRepo) DeleteComment(ctx context.Context, commentID, userID, teamID string) error {
+	return m.deleteCommentFn(ctx, commentID, userID, teamID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -124,11 +124,11 @@ func svcMakeEventRow(title string) events.EventRow {
 	}
 }
 
-func zeroSummaryFn(_ context.Context, _ string) (events.EventSummaryData, error) {
+func zeroSummaryFn(_ context.Context, _, _ string) (events.EventSummaryData, error) {
 	return events.EventSummaryData{}, nil
 }
 
-func nilMyAttendanceFn(_ context.Context, _, _ string) (*events.AttendanceDBRow, error) {
+func nilMyAttendanceFn(_ context.Context, _, _, _ string) (*events.AttendanceDBRow, error) {
 	return nil, nil
 }
 
@@ -217,6 +217,7 @@ func TestEventService_SetAttendance(t *testing.T) {
 
 	eventID := uuid.New()
 	userID := uuid.New()
+	teamID := uuid.New()
 
 	capturedStatus := ""
 	rec := &events.AttendanceDBRow{
@@ -227,9 +228,10 @@ func TestEventService_SetAttendance(t *testing.T) {
 	}
 
 	repo := &mockSvcRepo{
-		setAttendanceFn: func(_ context.Context, evID, uID string, status, _, _, _ *string) (*events.AttendanceDBRow, error) {
+		setAttendanceFn: func(_ context.Context, evID, uID, tID string, status, _, _, _ *string) (*events.AttendanceDBRow, error) {
 			assert.Equal(t, eventID.String(), evID)
 			assert.Equal(t, userID.String(), uID)
+			assert.Equal(t, teamID.String(), tID)
 			if status != nil {
 				capturedStatus = *status
 			}
@@ -243,7 +245,7 @@ func TestEventService_SetAttendance(t *testing.T) {
 		Status: gen.Yes,
 	}
 
-	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), req)
+	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), teamID.String(), req)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "yes", capturedStatus)

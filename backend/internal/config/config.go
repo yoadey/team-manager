@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/url"
 	"os"
 	"strconv"
@@ -35,6 +36,21 @@ var ErrInvalidDatabaseURL = errors.New("DATABASE_URL must use scheme 'postgres' 
 // ErrCookieKeyRequired is returned when no cookie encryption key is configured
 // while COOKIE_SECURE is true (production), where an ephemeral key is unsafe.
 var ErrCookieKeyRequired = errors.New("COOKIE_ENCRYPTION_KEY (or COOKIE_ENCRYPTION_KEYS) is required when COOKIE_SECURE=true")
+
+// ErrNoAllowedOrigins is returned when ALLOWED_ORIGINS is set but contains no
+// usable (non-empty) origin after trimming, leaving nothing to build a public
+// base URL or CORS allowlist from.
+var ErrNoAllowedOrigins = errors.New("ALLOWED_ORIGINS must contain at least one non-empty origin")
+
+// ErrJWTKeysRequired is returned when JWT_PRIVATE_KEY/JWT_PUBLIC_KEY are
+// missing or only partially set while COOKIE_SECURE is true (production),
+// where an ephemeral per-process key pair breaks sessions across restarts
+// and multi-replica deployments.
+var ErrJWTKeysRequired = errors.New("JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are both required when COOKIE_SECURE=true")
+
+// ErrInvalidTrustedProxyCIDR is returned when TRUSTED_PROXY_CIDRS contains an
+// entry that is not a valid CIDR (e.g. "10.0.0.0/8").
+var ErrInvalidTrustedProxyCIDR = errors.New("TRUSTED_PROXY_CIDRS must be a comma-separated list of valid CIDRs")
 
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
@@ -75,6 +91,14 @@ type Config struct {
 	// RetentionAuditLogDays is how many days to keep audit_log rows before the
 	// daily retention job deletes them. Default: 365.
 	RetentionAuditLogDays int
+	// TrustedProxyCIDRs lists the CIDR ranges of reverse proxies/load balancers
+	// allowed to set client-IP headers (X-Forwarded-For, X-Real-IP,
+	// True-Client-IP) for rate limiting. Requests arriving directly from a peer
+	// outside these ranges have their headers ignored, so a client cannot
+	// bypass rate limiting by spoofing them. Empty by default (trust nothing —
+	// rate limiting keys on the raw TCP peer address until explicitly
+	// configured). Set via TRUSTED_PROXY_CIDRS (comma-separated CIDRs).
+	TrustedProxyCIDRs []string
 }
 
 func Load() (*Config, error) {
@@ -86,34 +110,19 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	ttlHours := 720 // 30 days default
-	if v := os.Getenv("SESSION_TTL_HOURS"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			return nil, fmt.Errorf("SESSION_TTL_HOURS: %w", err)
-		}
-		ttlHours = n
+	ttlHours, err := loadSessionTTLHours()
+	if err != nil {
+		return nil, err
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	origins, publicBaseURL, err := loadOriginsAndPublicBaseURL()
+	if err != nil {
+		return nil, err
 	}
 
-	origins := loadAllowedOrigins()
-
-	// Public base URL of the user-facing frontend, used to build shareable links
-	// (e.g. team invite links). Defaults to the first allowed origin so a
-	// correctly configured deployment produces working links out of the box.
-	publicBaseURL := strings.TrimRight(envOr("PUBLIC_BASE_URL", origins[0]), "/")
-
-	cookieSecure := true
-	if v := os.Getenv("COOKIE_SECURE"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return nil, fmt.Errorf("COOKIE_SECURE: %w", err)
-		}
-		cookieSecure = b
+	cookieSecure, err := loadCookieSecure()
+	if err != nil {
+		return nil, err
 	}
 
 	cookieKeys, err := loadCookieEncryptionKeys(cookieSecure)
@@ -121,13 +130,19 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	rateLimitRPS, err := parseInt(os.Getenv("RATE_LIMIT_RPS"), 100)
+	jwtPrivateKey, jwtPublicKey, err := loadJWTKeys(cookieSecure)
 	if err != nil {
-		return nil, fmt.Errorf("RATE_LIMIT_RPS: %w", err)
+		return nil, err
 	}
-	loginRateLimitPerMin, err := parseInt(os.Getenv("LOGIN_RATE_LIMIT_PER_MIN"), 5)
+
+	trustedProxyCIDRs, err := loadTrustedProxyCIDRs()
 	if err != nil {
-		return nil, fmt.Errorf("LOGIN_RATE_LIMIT_PER_MIN: %w", err)
+		return nil, err
+	}
+
+	rateLimitRPS, loginRateLimitPerMin, err := loadRateLimits()
+	if err != nil {
+		return nil, err
 	}
 
 	paginationHMACKey, err := loadOptionalBytesKey("PAGINATION_HMAC_KEY", cookieKeySize, ErrInvalidPaginationHMACKey)
@@ -135,24 +150,16 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	retentionNotificationDays, err := parseInt(os.Getenv("RETENTION_NOTIFICATIONS_DAYS"), 90)
+	retentionNotificationDays, retentionSessionDays, retentionAuditLogDays, err := loadRetentionDays()
 	if err != nil {
-		return nil, fmt.Errorf("RETENTION_NOTIFICATIONS_DAYS: %w", err)
-	}
-	retentionSessionDays, err := parseInt(os.Getenv("RETENTION_SESSIONS_DAYS"), 30)
-	if err != nil {
-		return nil, fmt.Errorf("RETENTION_SESSIONS_DAYS: %w", err)
-	}
-	retentionAuditLogDays, err := parseInt(os.Getenv("RETENTION_AUDIT_LOG_DAYS"), 365)
-	if err != nil {
-		return nil, fmt.Errorf("RETENTION_AUDIT_LOG_DAYS: %w", err)
+		return nil, err
 	}
 
 	return &Config{
-		Port:                      port,
+		Port:                      envOr("PORT", "8080"),
 		DatabaseURL:               dbURL,
-		JWTPrivateKey:             os.Getenv("JWT_PRIVATE_KEY"),
-		JWTPublicKey:              os.Getenv("JWT_PUBLIC_KEY"),
+		JWTPrivateKey:             jwtPrivateKey,
+		JWTPublicKey:              jwtPublicKey,
 		SessionTTL:                time.Duration(ttlHours) * time.Hour,
 		MigrationsDir:             envOr("MIGRATIONS_DIR", "internal/db/migrations"),
 		AllowedOrigins:            origins,
@@ -168,7 +175,116 @@ func Load() (*Config, error) {
 		RetentionNotificationDays: retentionNotificationDays,
 		RetentionSessionDays:      retentionSessionDays,
 		RetentionAuditLogDays:     retentionAuditLogDays,
+		TrustedProxyCIDRs:         trustedProxyCIDRs,
 	}, nil
+}
+
+// loadSessionTTLHours reads SESSION_TTL_HOURS, defaulting to 720 (30 days).
+func loadSessionTTLHours() (int, error) {
+	v := os.Getenv("SESSION_TTL_HOURS")
+	if v == "" {
+		return 720, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("SESSION_TTL_HOURS: %w", err)
+	}
+	return n, nil
+}
+
+// loadOriginsAndPublicBaseURL reads ALLOWED_ORIGINS and derives PublicBaseURL,
+// defaulting the latter to the first allowed origin (trailing slash trimmed)
+// so a correctly configured deployment produces working shareable links
+// (e.g. team invites) out of the box.
+func loadOriginsAndPublicBaseURL() (origins []string, publicBaseURL string, err error) {
+	origins = loadAllowedOrigins()
+	if len(origins) == 0 {
+		return nil, "", ErrNoAllowedOrigins
+	}
+	publicBaseURL = os.Getenv("PUBLIC_BASE_URL")
+	if publicBaseURL == "" {
+		publicBaseURL = origins[0]
+	}
+	return origins, strings.TrimRight(publicBaseURL, "/"), nil
+}
+
+// loadCookieSecure reads COOKIE_SECURE, defaulting to true (production-safe).
+func loadCookieSecure() (bool, error) {
+	v := os.Getenv("COOKIE_SECURE")
+	if v == "" {
+		return true, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("COOKIE_SECURE: %w", err)
+	}
+	return b, nil
+}
+
+// loadJWTKeys reads JWT_PRIVATE_KEY/JWT_PUBLIC_KEY, failing loudly if either
+// is missing while cookieSecure is true (production) — see ErrJWTKeysRequired.
+func loadJWTKeys(cookieSecure bool) (privateKey, publicKey string, err error) {
+	privateKey = os.Getenv("JWT_PRIVATE_KEY")
+	publicKey = os.Getenv("JWT_PUBLIC_KEY")
+	if cookieSecure && (privateKey == "" || publicKey == "") {
+		return "", "", ErrJWTKeysRequired
+	}
+	return privateKey, publicKey, nil
+}
+
+// loadRateLimits reads RATE_LIMIT_RPS and LOGIN_RATE_LIMIT_PER_MIN.
+func loadRateLimits() (rps, loginPerMin int, err error) {
+	rps, err = parseInt(os.Getenv("RATE_LIMIT_RPS"), 100)
+	if err != nil {
+		return 0, 0, fmt.Errorf("RATE_LIMIT_RPS: %w", err)
+	}
+	loginPerMin, err = parseInt(os.Getenv("LOGIN_RATE_LIMIT_PER_MIN"), 5)
+	if err != nil {
+		return 0, 0, fmt.Errorf("LOGIN_RATE_LIMIT_PER_MIN: %w", err)
+	}
+	return rps, loginPerMin, nil
+}
+
+// loadRetentionDays reads the RETENTION_*_DAYS trio governing how long
+// notifications, sessions, and audit log rows are kept before the daily
+// retention job deletes them.
+func loadRetentionDays() (notifications, sessions, auditLog int, err error) {
+	notifications, err = parseInt(os.Getenv("RETENTION_NOTIFICATIONS_DAYS"), 90)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("RETENTION_NOTIFICATIONS_DAYS: %w", err)
+	}
+	sessions, err = parseInt(os.Getenv("RETENTION_SESSIONS_DAYS"), 30)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("RETENTION_SESSIONS_DAYS: %w", err)
+	}
+	auditLog, err = parseInt(os.Getenv("RETENTION_AUDIT_LOG_DAYS"), 365)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("RETENTION_AUDIT_LOG_DAYS: %w", err)
+	}
+	return notifications, sessions, auditLog, nil
+}
+
+// loadTrustedProxyCIDRs parses TRUSTED_PROXY_CIDRS into a slice of trimmed,
+// non-empty CIDR strings, validating that each one parses. Empty/unset
+// (default) means no proxy is trusted.
+func loadTrustedProxyCIDRs() ([]string, error) {
+	v := os.Getenv("TRUSTED_PROXY_CIDRS")
+	if v == "" {
+		return nil, nil
+	}
+	parts := strings.Split(v, ",")
+	cidrs := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" {
+			continue
+		}
+		if _, _, err := net.ParseCIDR(trimmed); err != nil {
+			return nil, fmt.Errorf("%w: %q", ErrInvalidTrustedProxyCIDR, trimmed)
+		}
+		cidrs = append(cidrs, trimmed)
+	}
+	return cidrs, nil
 }
 
 // validateDatabaseURL checks that dsn uses the postgres/postgresql scheme and

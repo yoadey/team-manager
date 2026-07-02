@@ -155,12 +155,12 @@ func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit
 
 // ─── GetEvent ───────────────────────────────────────────────────────────────
 
-// GetEvent retrieves a single event by ID.
-func (r *Repository) GetEvent(ctx context.Context, eventID string) (*EventRow, error) {
+// GetEvent retrieves a single event by ID, scoped to teamID.
+func (r *Repository) GetEvent(ctx context.Context, eventID, teamID string) (*EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	q := fmt.Sprintf(`SELECT %s FROM events WHERE id = $1`, selectEventFields)
-	row := r.pool.QueryRow(ctx, q, eventID)
+	q := fmt.Sprintf(`SELECT %s FROM events WHERE id = $1 AND team_id = $2`, selectEventFields)
+	row := r.pool.QueryRow(ctx, q, eventID, teamID)
 	e, err := scanEventRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -479,24 +479,26 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 
 // ─── Attendance Summary ──────────────────────────────────────────────────────
 
-// GetAttendanceSummary returns aggregated attendance counts for an event.
-func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error) {
+// GetAttendanceSummary returns aggregated attendance counts for an event,
+// scoped to teamID.
+func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID, teamID string) (EventSummaryData, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
 		SELECT
-			COUNT(*) FILTER (WHERE status = 'yes')           AS yes,
-			COUNT(*) FILTER (WHERE status = 'no')            AS no,
-			COUNT(*) FILTER (WHERE status = 'maybe')         AS maybe,
-			COUNT(*) FILTER (WHERE status = 'pending')       AS pending,
-			COUNT(*) FILTER (WHERE status = 'not_nominated') AS not_nominated,
-			COUNT(*) FILTER (WHERE status != 'not_nominated') AS nominated,
-			COUNT(*)                                          AS total
-		FROM attendance
-		WHERE event_id = $1
+			COUNT(*) FILTER (WHERE a.status = 'yes')           AS yes,
+			COUNT(*) FILTER (WHERE a.status = 'no')            AS no,
+			COUNT(*) FILTER (WHERE a.status = 'maybe')         AS maybe,
+			COUNT(*) FILTER (WHERE a.status = 'pending')       AS pending,
+			COUNT(*) FILTER (WHERE a.status = 'not_nominated') AS not_nominated,
+			COUNT(*) FILTER (WHERE a.status != 'not_nominated') AS nominated,
+			COUNT(*)                                            AS total
+		FROM attendance a
+		JOIN events e ON e.id = a.event_id
+		WHERE a.event_id = $1 AND e.team_id = $2
 	`
 	var s EventSummaryData
-	err := r.pool.QueryRow(ctx, q, eventID).Scan(
+	err := r.pool.QueryRow(ctx, q, eventID, teamID).Scan(
 		&s.Yes, &s.No, &s.Maybe, &s.Pending, &s.NotNominated, &s.Nominated, &s.Total,
 	)
 	if err != nil {
@@ -507,16 +509,18 @@ func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID string) (
 
 // ─── MyAttendance ───────────────────────────────────────────────────────────
 
-// GetMyAttendance returns the current user's attendance record for an event, or nil.
-func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID string) (*AttendanceDBRow, error) {
+// GetMyAttendance returns the current user's attendance record for an event,
+// scoped to teamID, or nil.
+func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID, teamID string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
-		SELECT id, event_id, user_id, status, reason, reason_id, reason_visibility, at
-		FROM attendance
-		WHERE event_id = $1 AND user_id = $2
+		SELECT a.id, a.event_id, a.user_id, a.status, a.reason, a.reason_id, a.reason_visibility, a.at
+		FROM attendance a
+		JOIN events e ON e.id = a.event_id
+		WHERE a.event_id = $1 AND a.user_id = $2 AND e.team_id = $3
 	`
-	row := r.pool.QueryRow(ctx, q, eventID, userID)
+	row := r.pool.QueryRow(ctx, q, eventID, userID, teamID)
 	a := &AttendanceDBRow{}
 	err := row.Scan(&a.Id, &a.EventId, &a.UserId, &a.Status, &a.Reason, &a.ReasonId, &a.ReasonVisibility, &a.At)
 	if err != nil {
@@ -621,9 +625,9 @@ func (r *Repository) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID,
 // pagination cutoff.
 const maxAttendanceRows = 5000
 
-// ListAttendance returns up to maxAttendanceRows attendance rows for an event,
-// enriched with user data.
-func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error) {
+// ListAttendance returns up to maxAttendanceRows attendance rows for an event
+// scoped to teamID, enriched with user data.
+func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
@@ -639,11 +643,12 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]Atte
 			(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo
 		FROM attendance a
 		JOIN users u ON u.id = a.user_id
-		WHERE a.event_id = $1
+		JOIN events e ON e.id = a.event_id
+		WHERE a.event_id = $1 AND e.team_id = $2
 		ORDER BY u.name ASC
-		LIMIT $2
+		LIMIT $3
 	`
-	rows, err := r.pool.Query(ctx, q, eventID, maxAttendanceRows)
+	rows, err := r.pool.Query(ctx, q, eventID, teamID, maxAttendanceRows)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.ListAttendance: %w", err)
 	}
@@ -669,13 +674,15 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID string) ([]Atte
 
 // ─── SetAttendance ──────────────────────────────────────────────────────────
 
-// SetAttendance upserts an attendance record.
-func (r *Repository) SetAttendance(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
+// SetAttendance upserts an attendance record for an event scoped to teamID.
+// Returns pgx.ErrNoRows if eventID does not belong to teamID.
+func (r *Repository) SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
 		INSERT INTO attendance (event_id, user_id, status, reason, reason_id, reason_visibility, at)
-		VALUES ($1, $2, $3, $4, $5, $6, now())
+		SELECT $1, $2, $3, $4, $5, $6, now()
+		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7)
 		ON CONFLICT (event_id, user_id) DO UPDATE
 			SET status = EXCLUDED.status,
 			    reason = EXCLUDED.reason,
@@ -685,10 +692,13 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, userID string, 
 		RETURNING id, event_id, user_id, status, reason, reason_id, reason_visibility, at
 	`
 	a := &AttendanceDBRow{}
-	err := r.pool.QueryRow(ctx, q, eventID, userID, status, reason, reasonID, reasonVisibility).Scan(
+	err := r.pool.QueryRow(ctx, q, eventID, userID, status, reason, reasonID, reasonVisibility, teamID).Scan(
 		&a.Id, &a.EventId, &a.UserId, &a.Status, &a.Reason, &a.ReasonId, &a.ReasonVisibility, &a.At,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
 		return nil, fmt.Errorf("events.Repository.SetAttendance: %w", err)
 	}
 	return a, nil
@@ -696,42 +706,63 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, userID string, 
 
 // ─── SetNomination ──────────────────────────────────────────────────────────
 
-// SetNomination sets or removes nomination for a user on an event.
+// SetNomination sets or removes nomination for a user on an event scoped to
+// teamID. Returns pgx.ErrNoRows if eventID does not belong to teamID.
 // nominated=false → upsert status=not_nominated
 // nominated=true  → delete any not_nominated record for this user/event.
-func (r *Repository) SetNomination(ctx context.Context, eventID, userID string, nominated bool) error {
+func (r *Repository) SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if !nominated {
 		q := `
 			INSERT INTO attendance (event_id, user_id, status, at)
-			VALUES ($1, $2, 'not_nominated', now())
+			SELECT $1, $2, 'not_nominated', now()
+			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $3)
 			ON CONFLICT (event_id, user_id) DO UPDATE
 				SET status = 'not_nominated', at = now()
 		`
-		_, err := r.pool.Exec(ctx, q, eventID, userID)
+		tag, err := r.pool.Exec(ctx, q, eventID, userID, teamID)
 		if err != nil {
 			return fmt.Errorf("events.Repository.SetNomination(false): %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return pgx.ErrNoRows
 		}
 		return nil
 	}
 
-	// Remove not_nominated record so the user reverts to pending/default.
-	_, err := r.pool.Exec(
+	// Remove not_nominated record so the user reverts to pending/default,
+	// scoped to teamID via a join back to events.
+	tag, err := r.pool.Exec(
 		ctx,
-		`DELETE FROM attendance WHERE event_id = $1 AND user_id = $2 AND status = 'not_nominated'`,
-		eventID, userID,
+		`DELETE FROM attendance a USING events e
+		 WHERE a.event_id = e.id AND a.event_id = $1 AND a.user_id = $2
+		   AND a.status = 'not_nominated' AND e.team_id = $3`,
+		eventID, userID, teamID,
 	)
 	if err != nil {
 		return fmt.Errorf("events.Repository.SetNomination(true): %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		// Distinguish "event not in team" from "nothing to delete" by checking
+		// the event exists in the team; a no-op delete for an owned event is
+		// not an error, but a cross-team attempt must be.
+		var exists bool
+		if err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1 AND team_id = $2)`, eventID, teamID).Scan(&exists); err != nil {
+			return fmt.Errorf("events.Repository.SetNomination(true): verify team: %w", err)
+		}
+		if !exists {
+			return pgx.ErrNoRows
+		}
 	}
 	return nil
 }
 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
-// ListComments returns all comments for an event, enriched with user data.
-func (r *Repository) ListComments(ctx context.Context, eventID string, limit, offset int) ([]CommentRow, error) {
+// ListComments returns all comments for an event scoped to teamID, enriched
+// with user data.
+func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
@@ -742,11 +773,12 @@ func (r *Repository) ListComments(ctx context.Context, eventID string, limit, of
 			(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo
 		FROM event_comments c
 		JOIN users u ON u.id = c.user_id
-		WHERE c.event_id = $1
+		JOIN events e ON e.id = c.event_id
+		WHERE c.event_id = $1 AND e.team_id = $2
 		ORDER BY c.created_at ASC
-		LIMIT $2 OFFSET $3
+		LIMIT $3 OFFSET $4
 	`
-	rows, err := r.pool.Query(ctx, q, eventID, limit, offset)
+	rows, err := r.pool.Query(ctx, q, eventID, teamID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.ListComments: %w", err)
 	}
@@ -772,14 +804,16 @@ func (r *Repository) ListComments(ctx context.Context, eventID string, limit, of
 	return out, nil
 }
 
-// AddComment inserts a new event comment and returns it enriched.
-func (r *Repository) AddComment(ctx context.Context, eventID, userID, text string) (*CommentRow, error) {
+// AddComment inserts a new event comment scoped to teamID and returns it
+// enriched. Returns pgx.ErrNoRows if eventID does not belong to teamID.
+func (r *Repository) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
 		WITH inserted AS (
 			INSERT INTO event_comments (event_id, user_id, text)
-			VALUES ($1, $2, $3)
+			SELECT $1, $2, $3
+			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $4)
 			RETURNING id, event_id, user_id, text, created_at
 		)
 		SELECT
@@ -791,25 +825,30 @@ func (r *Repository) AddComment(ctx context.Context, eventID, userID, text strin
 	`
 	c := &CommentRow{}
 	var hasPhoto bool
-	err := r.pool.QueryRow(ctx, q, eventID, userID, text).Scan(
+	err := r.pool.QueryRow(ctx, q, eventID, userID, text, teamID).Scan(
 		&c.Id, &c.EventId, &c.UserId, &c.Text, &c.CreatedAt,
 		&c.ActorName, &c.ActorColor, &hasPhoto,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
 		return nil, fmt.Errorf("events.Repository.AddComment: %w", err)
 	}
 	c.HasActorPhoto = &hasPhoto
 	return c, nil
 }
 
-// DeleteComment deletes a comment if the requesting user owns it.
-func (r *Repository) DeleteComment(ctx context.Context, commentID, userID string) error {
+// DeleteComment deletes a comment if the requesting user owns it and it
+// belongs to teamID.
+func (r *Repository) DeleteComment(ctx context.Context, commentID, userID, teamID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tag, err := r.pool.Exec(
 		ctx,
-		`DELETE FROM event_comments WHERE id = $1 AND user_id = $2`,
-		commentID, userID,
+		`DELETE FROM event_comments c USING events e
+		 WHERE c.event_id = e.id AND c.id = $1 AND c.user_id = $2 AND e.team_id = $3`,
+		commentID, userID, teamID,
 	)
 	if err != nil {
 		return fmt.Errorf("events.Repository.DeleteComment: %w", err)

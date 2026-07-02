@@ -117,8 +117,8 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `PORT`            | `8080`                      | HTTP port                      |
 | `ALLOWED_ORIGINS` | `http://localhost:5173`     | CORS whitelist                 |
 | `PUBLIC_BASE_URL` | _(first `ALLOWED_ORIGINS` entry)_ | Public frontend origin for shareable invite links (e.g. `https://app.example.com`); trailing slash trimmed |
-| `JWT_PRIVATE_KEY` | _(auto-generated in dev)_   | RSA-2048 private key PEM       |
-| `JWT_PUBLIC_KEY`  | _(auto-generated in dev)_   | RSA-2048 public key PEM        |
+| `JWT_PRIVATE_KEY` | _(auto-generated in dev)_   | RSA-2048 private key PEM. **Required when `COOKIE_SECURE=true`** (with `JWT_PUBLIC_KEY`) — startup fails without it, since an ephemeral per-process key invalidates sessions on restart and fails verification across replicas. |
+| `JWT_PUBLIC_KEY`  | _(auto-generated in dev)_   | RSA-2048 public key PEM. Same requirement as `JWT_PRIVATE_KEY`. |
 | `SESSION_TTL_HOURS`| `720`                      | Session lifetime (30 days)     |
 | `MIGRATIONS_DIR`  | `internal/db/migrations`    | Goose migrations directory     |
 | `COOKIE_ENCRYPTION_KEYS`| _(empty)_ | Comma-separated list of AES-256 keys (newest first) for zero-downtime rotation. Takes precedence over `COOKIE_ENCRYPTION_KEY`. Each key: 32 bytes, hex or base64. |
@@ -128,6 +128,7 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `METRICS_TOKEN`   | _(empty)_                   | Bearer token guarding `/metrics`; open when unset. **Recommended in production** — a warning is logged at startup when unset with `COOKIE_SECURE=true`. |
 | `RATE_LIMIT_RPS`  | `100`                       | Global per-IP request rate limit (requests per second). |
 | `LOGIN_RATE_LIMIT_PER_MIN` | `5`              | Per-IP login attempt limit per minute (brute-force protection). |
+| `TRUSTED_PROXY_CIDRS` | _(empty)_                | Comma-separated CIDRs of reverse proxies/load balancers allowed to set `X-Forwarded-For`/`X-Real-IP`/`True-Client-IP` for rate limiting. Empty (default) trusts nothing — rate limiting keys on the raw TCP peer address, so header spoofing cannot bypass it. **Set this when deploying behind a reverse proxy/LB**, or the real clients behind it will all share one rate-limit bucket (the proxy's IP). |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_       | OTLP/HTTP collector URL; enables OpenTelemetry tracing when set (other `OTEL_*` vars honored by the SDK) |
 | `OTEL_SERVICE_NAME` | `team-manager-backend`    | Service name reported in traces |
 | `SENTRY_DSN`      | _(empty)_                   | Sentry DSN for backend error tracking; disabled when empty |

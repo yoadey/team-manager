@@ -344,3 +344,81 @@ func TestAPIVersion_NoDeprecationHeaders_WhenEnvUnset(t *testing.T) {
 	assert.Empty(t, rec.Header().Get("Deprecation"), "Deprecation header must not be set when API_DEPRECATION_DATE is not configured")
 	assert.Empty(t, rec.Header().Get("Sunset"), "Sunset header must not be set when API_DEPRECATION_DATE is not configured")
 }
+
+// ─── RateLimit trusted-proxy key func ──────────────────────────────────────
+//
+// Regression tests for the cross-tenant rate-limit bypass where
+// httprate.KeyByRealIP trusted X-Forwarded-For/X-Real-IP unconditionally,
+// letting any direct client spoof a fresh IP per request to dodge both the
+// global limiter and the login brute-force limiter.
+
+func newRateLimitedHandler(t *testing.T, trustedCIDRs []string) http.Handler {
+	t.Helper()
+	trusted, err := middleware.ParseTrustedProxies(trustedCIDRs)
+	require.NoError(t, err)
+	// requestsPerSecond=1 so a second request within the same window is
+	// blocked only if it hashes to the same rate-limit key as the first.
+	limiter := middleware.RateLimit(1, trusted)
+	return limiter(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+}
+
+func TestRateLimit_UntrustedPeer_IgnoresSpoofedForwardedFor(t *testing.T) {
+	// No trusted proxies configured (the safe default) — a direct client
+	// varying X-Forwarded-For per request must not be able to dodge the
+	// limiter; both requests must key on the same raw RemoteAddr.
+	handler := newRateLimitedHandler(t, nil)
+
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req1.RemoteAddr = "203.0.113.10:1111"
+	req1.Header.Set("X-Forwarded-For", "1.1.1.1")
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code, "first request should be allowed")
+
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req2.RemoteAddr = "203.0.113.10:2222" // same peer IP, different port
+	req2.Header.Set("X-Forwarded-For", "2.2.2.2")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	assert.Equal(t, http.StatusTooManyRequests, rec2.Code,
+		"second request from the same untrusted peer must be blocked despite a different spoofed X-Forwarded-For")
+}
+
+func TestRateLimit_TrustedPeer_HonorsForwardedFor(t *testing.T) {
+	// The peer is within the trusted CIDR (simulating a real reverse proxy),
+	// so X-Forwarded-For is honored and each distinct client IP behind it
+	// gets its own bucket.
+	handler := newRateLimitedHandler(t, []string{"203.0.113.0/24"})
+
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req1.RemoteAddr = "203.0.113.10:1111"
+	req1.Header.Set("X-Forwarded-For", "1.1.1.1")
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req2.RemoteAddr = "203.0.113.10:2222" // same trusted proxy
+	req2.Header.Set("X-Forwarded-For", "2.2.2.2")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	assert.Equal(t, http.StatusOK, rec2.Code,
+		"a different client IP behind a trusted proxy must get its own rate-limit bucket")
+}
+
+func TestRateLimit_TrustedPeer_SameForwardedFor_StillLimited(t *testing.T) {
+	handler := newRateLimitedHandler(t, []string{"203.0.113.0/24"})
+
+	for i, wantStatus := range []int{http.StatusOK, http.StatusTooManyRequests} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+		req.RemoteAddr = "203.0.113.10:1111"
+		req.Header.Set("X-Forwarded-For", "9.9.9.9")
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		assert.Equal(t, wantStatus, rec.Code, "request %d", i)
+	}
+}

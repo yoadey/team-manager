@@ -111,6 +111,9 @@ func initAuthComponents(
 	logger *slog.Logger,
 	auditLogger *audit.Logger,
 ) (*auth.Handler, *auth.SessionCookieCodec, error) {
+	if cfg.JWTPrivateKey == "" && cfg.JWTPublicKey == "" {
+		slog.Warn("JWT_PRIVATE_KEY/JWT_PUBLIC_KEY not set; generating an ephemeral RSA key pair for this process — sessions will not survive a restart and won't verify across replicas")
+	}
 	repo := auth.NewRepository(pool)
 	svc, err := auth.NewService(repo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
 	if err != nil {
@@ -308,6 +311,12 @@ func main() {
 
 	// ─── Router ──────────────────────────────────────────────────────────────
 
+	trustedProxies, err := middleware.ParseTrustedProxies(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		slog.Error("invalid TRUSTED_PROXY_CIDRS", "err", err)
+		os.Exit(1)
+	}
+
 	r := chi.NewRouter()
 
 	// Global middleware (applied to all routes, in order).
@@ -319,7 +328,7 @@ func main() {
 	r.Use(chimiddleware.Timeout(30 * time.Second))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.CSRFOriginCheck(cfg.AllowedOrigins))
-	r.Use(middleware.RateLimit(cfg.RateLimitRPS))
+	r.Use(middleware.RateLimit(cfg.RateLimitRPS, trustedProxies))
 	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
 	r.Use(middleware.APIVersion("v1"))
 
@@ -356,7 +365,7 @@ func main() {
 		// Public auth endpoints — no JWT required. Must be registered AFTER the
 		// generated mux above to override its authenticated duplicates.
 		// Per-IP brute-force protection: max 5 login attempts per minute.
-		r.With(middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
+		r.With(middleware.PerIPRateLimit(cfg.LoginRateLimitPerMin, time.Minute, trustedProxies)).Post("/auth/login", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.Login(w, req)
 		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
