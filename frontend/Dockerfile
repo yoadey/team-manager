@@ -4,8 +4,13 @@
 FROM node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2 AS builder
 WORKDIR /app
 
-# Install dependencies against the lockfile for reproducible builds.
+# Install dependencies against the lockfile for reproducible builds. The
+# postinstall hook (patch-react-transition-group.mjs) needs scripts/ present
+# before `npm ci` runs it, so that directory is copied alongside the
+# manifests rather than deferred to the later `COPY . .` — otherwise npm ci
+# fails with MODULE_NOT_FOUND.
 COPY package.json package-lock.json ./
+COPY scripts/ ./scripts/
 RUN npm ci
 
 COPY . .

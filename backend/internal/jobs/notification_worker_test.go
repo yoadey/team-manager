@@ -34,6 +34,7 @@ func TestNotificationWorker_InsertsNotificationRow(t *testing.T) {
 	title := "Neues Training"
 	worker := jobs.NewNotificationWorker(pool)
 	job := &river.Job[jobs.NotificationArgs]{
+		JobRow: &rivertype.JobRow{ID: 1},
 		Args: jobs.NotificationArgs{
 			TeamID:  teamID,
 			Type:    "news",
