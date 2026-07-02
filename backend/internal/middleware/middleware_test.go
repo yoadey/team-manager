@@ -370,14 +370,14 @@ func TestRateLimit_UntrustedPeer_IgnoresSpoofedForwardedFor(t *testing.T) {
 	// limiter; both requests must key on the same raw RemoteAddr.
 	handler := newRateLimitedHandler(t, nil)
 
-	req1 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req1.RemoteAddr = "203.0.113.10:1111"
 	req1.Header.Set("X-Forwarded-For", "1.1.1.1")
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 	require.Equal(t, http.StatusOK, rec1.Code, "first request should be allowed")
 
-	req2 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req2.RemoteAddr = "203.0.113.10:2222" // same peer IP, different port
 	req2.Header.Set("X-Forwarded-For", "2.2.2.2")
 	rec2 := httptest.NewRecorder()
@@ -393,14 +393,14 @@ func TestRateLimit_TrustedPeer_HonorsForwardedFor(t *testing.T) {
 	// gets its own bucket.
 	handler := newRateLimitedHandler(t, []string{"203.0.113.0/24"})
 
-	req1 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req1.RemoteAddr = "203.0.113.10:1111"
 	req1.Header.Set("X-Forwarded-For", "1.1.1.1")
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
-	req2 := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 	req2.RemoteAddr = "203.0.113.10:2222" // same trusted proxy
 	req2.Header.Set("X-Forwarded-For", "2.2.2.2")
 	rec2 := httptest.NewRecorder()
@@ -414,7 +414,7 @@ func TestRateLimit_TrustedPeer_SameForwardedFor_StillLimited(t *testing.T) {
 	handler := newRateLimitedHandler(t, []string{"203.0.113.0/24"})
 
 	for i, wantStatus := range []int{http.StatusOK, http.StatusTooManyRequests} {
-		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
 		req.RemoteAddr = "203.0.113.10:1111"
 		req.Header.Set("X-Forwarded-For", "9.9.9.9")
 		rec := httptest.NewRecorder()
