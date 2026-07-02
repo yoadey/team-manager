@@ -30,7 +30,7 @@ export function pageMeta(app: ReturnType<typeof useApp>): PM {
     ],
     members: [
       tl('nav.members'),
-      tl('page.membersSubtitle', { n: state.members.length }),
+      tl('page.membersSubtitle', { n: state.members?.length ?? 0 }),
       app.can('settings', 'write'),
       tl('page.membersAction'),
       'person_add',

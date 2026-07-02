@@ -122,7 +122,7 @@ describe('useMemberActions', () => {
   });
 
   it('openMemberForm sets memberForm sheet with member data', () => {
-    const member = stateRef.members[0];
+    const member = stateRef.members![0];
     const { result } = renderActions();
     act(() => {
       result.current.openMemberForm(member as never);

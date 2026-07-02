@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Av, Chip, Sym, inputSx } from '@/components/ui';
+import { Av, Chip, Sym, inputSx, SkeletonList } from '@/components/ui';
 import { t } from '@/i18n';
 
 export function MembersPage() {
@@ -11,6 +11,8 @@ export function MembersPage() {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const [search, setSearch] = useState('');
+
+  if (!state.members) return <SkeletonList rows={6} rowHeight={64} />;
 
   const query = search.trim().toLowerCase();
   const list = query

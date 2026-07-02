@@ -90,7 +90,7 @@ func TestAbsenceRepository_Update(t *testing.T) {
 
 	newTo := "2025-03-14"
 	newReason := "extended vacation"
-	updated, err := repo.Update(ctx, ab.Id, teamID, nil, &newTo, &newReason)
+	updated, err := repo.Update(ctx, ab.Id, teamID, userID, nil, &newTo, &newReason)
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, newTo, updated.ToDate.Format("2006-01-02"))
@@ -128,7 +128,43 @@ func TestAbsenceRepository_Update_WrongTeam_ReturnsNoRows(t *testing.T) {
 	require.NoError(t, err)
 
 	newReason := "attacker-supplied reason"
-	_, err = repo.Update(ctx, ab.Id, otherTeamID, nil, nil, &newReason)
+	_, err = repo.Update(ctx, ab.Id, otherTeamID, userID, nil, nil, &newReason)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestAbsenceRepository_Update_WrongUser_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	otherUid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Owner User', 'owner@example.com', '#111111')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Member', 'othermember@example.com', '#222222')`,
+		otherUid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Shared Team')`,
+		tid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	otherUserID := uuid.MustParse(otherUid)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-03-01", "2025-03-07", nil)
+	require.NoError(t, err)
+
+	// Another member of the same team must not be able to update this absence.
+	newReason := "teammate-supplied reason"
+	_, err = repo.Update(ctx, ab.Id, teamID, otherUserID, nil, nil, &newReason)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
@@ -156,7 +192,7 @@ func TestAbsenceRepository_Delete(t *testing.T) {
 	ab, err := repo.Create(ctx, teamID, userID, "2025-05-01", "2025-05-05", nil)
 	require.NoError(t, err)
 
-	err = repo.Delete(ctx, ab.Id, teamID)
+	err = repo.Delete(ctx, ab.Id, teamID, userID)
 	require.NoError(t, err)
 
 	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
@@ -194,10 +230,49 @@ func TestAbsenceRepository_Delete_WrongTeam_ReturnsNoRows(t *testing.T) {
 	ab, err := repo.Create(ctx, teamID, userID, "2025-05-01", "2025-05-05", nil)
 	require.NoError(t, err)
 
-	err = repo.Delete(ctx, ab.Id, otherTeamID)
+	err = repo.Delete(ctx, ab.Id, otherTeamID, userID)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 
 	// Absence must still exist under the real team.
+	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	assert.Len(t, all, 1)
+}
+
+func TestAbsenceRepository_Delete_WrongUser_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	otherUid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Del Owner User', 'delowner@example.com', '#333333')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Del Other Member', 'delothermember@example.com', '#444444')`,
+		otherUid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Del Shared Team')`,
+		tid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	otherUserID := uuid.MustParse(otherUid)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-05-01", "2025-05-05", nil)
+	require.NoError(t, err)
+
+	// Another member of the same team must not be able to delete this absence.
+	err = repo.Delete(ctx, ab.Id, teamID, otherUserID)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+
 	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Len(t, all, 1)

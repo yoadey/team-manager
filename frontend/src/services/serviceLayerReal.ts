@@ -23,6 +23,7 @@ import {
   mapPenaltyAssignment,
   mapContribution,
   mapStatsOverview,
+  eurosToCents,
 } from '@/api/map';
 import type { User, Team, TeamForUser, Role, Invite, Provider, DateRange, StatsOverview } from '@/types';
 import type { TeamEvent, AttendanceRow, EventComment, Absence } from '@/features/events';
@@ -641,7 +642,12 @@ export const realApi = {
     }): Promise<Transaction> {
       const res = await apiClient.POST('/teams/{teamId}/finances/transactions', {
         params: { path: { teamId } },
-        body: { type: payload.type, title: payload.title, amount: payload.amount, category: payload.category },
+        body: {
+          type: payload.type,
+          title: payload.title,
+          amount: eurosToCents(payload.amount),
+          category: payload.category,
+        },
       });
       const t = await check(res);
       return mapTransaction(t);
@@ -650,7 +656,12 @@ export const realApi = {
     async updateTransaction(id: string, patch: Partial<Transaction>, teamId: string): Promise<Transaction> {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/transactions/{transactionId}', {
         params: { path: { teamId, transactionId: id } },
-        body: { type: patch.type, title: patch.title, amount: patch.amount, category: patch.category },
+        body: {
+          type: patch.type,
+          title: patch.title,
+          amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
+          category: patch.category,
+        },
       });
       const t = await check(res);
       return mapTransaction(t);
@@ -666,7 +677,7 @@ export const realApi = {
     async createPenalty(teamId: string, payload: { label: string; amount: number }): Promise<Penalty> {
       const res = await apiClient.POST('/teams/{teamId}/finances/penalties', {
         params: { path: { teamId } },
-        body: { label: payload.label, amount: payload.amount },
+        body: { label: payload.label, amount: eurosToCents(payload.amount) },
       });
       const p = await check(res);
       return mapPenalty(p);
@@ -675,7 +686,10 @@ export const realApi = {
     async updatePenalty(id: string, patch: { label?: string; amount?: number }, teamId: string): Promise<Penalty> {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/penalties/{penaltyId}', {
         params: { path: { teamId, penaltyId: id } },
-        body: patch,
+        body: {
+          label: patch.label,
+          amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
+        },
       });
       const p = await check(res);
       return mapPenalty(p);
@@ -716,7 +730,10 @@ export const realApi = {
     async updateContribution(id: string, patch: { label?: string; amount?: number }, teamId: string): Promise<Contribution> {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/contributions/{contributionId}', {
         params: { path: { teamId, contributionId: id } },
-        body: patch,
+        body: {
+          label: patch.label,
+          amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
+        },
       });
       const c = await check(res);
       return mapContribution(c);

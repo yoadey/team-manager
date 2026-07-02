@@ -419,7 +419,8 @@ type AttendanceStatus string
 
 // Contribution defines model for Contribution.
 type Contribution struct {
-	Amount            float64            `json:"amount"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount            int64              `json:"amount"`
 	HasPhoto          *bool              `json:"hasPhoto,omitempty"`
 	Id                openapi_types.UUID `json:"id"`
 	Label             *string            `json:"label,omitempty"`
@@ -476,8 +477,9 @@ type CreatePenaltyAssignmentRequest struct {
 
 // CreatePenaltyRequest defines model for CreatePenaltyRequest.
 type CreatePenaltyRequest struct {
-	Amount float64 `json:"amount"`
-	Label  string  `json:"label"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount int64  `json:"amount"`
+	Label  string `json:"label"`
 }
 
 // CreatePollRequest defines model for CreatePollRequest.
@@ -507,7 +509,8 @@ type CreateTeamRequest struct {
 
 // CreateTransactionRequest defines model for CreateTransactionRequest.
 type CreateTransactionRequest struct {
-	Amount   float64         `json:"amount"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount   int64           `json:"amount"`
 	Category *string         `json:"category,omitempty"`
 	Title    string          `json:"title"`
 	Type     TransactionType `json:"type"`
@@ -562,16 +565,24 @@ type EventType string
 
 // FinanceOverview defines model for FinanceOverview.
 type FinanceOverview struct {
-	Assignments    []PenaltyAssignment `json:"assignments"`
-	Balance        float64             `json:"balance"`
-	ContribOpen    int                 `json:"contribOpen"`
-	Contributions  []Contribution      `json:"contributions"`
-	Expense        float64             `json:"expense"`
-	Income         float64             `json:"income"`
-	OpenPenalties  []OpenPenalty       `json:"openPenalties"`
-	OpenPenaltySum float64             `json:"openPenaltySum"`
-	Penalties      []Penalty           `json:"penalties"`
-	Transactions   []Transaction       `json:"transactions"`
+	Assignments []PenaltyAssignment `json:"assignments"`
+
+	// Balance Balance in cents (income minus expense)
+	Balance       int64          `json:"balance"`
+	ContribOpen   int            `json:"contribOpen"`
+	Contributions []Contribution `json:"contributions"`
+
+	// Expense Total expense in cents
+	Expense int64 `json:"expense"`
+
+	// Income Total income in cents
+	Income        int64         `json:"income"`
+	OpenPenalties []OpenPenalty `json:"openPenalties"`
+
+	// OpenPenaltySum Sum of all open (unpaid) penalties across all members, in cents
+	OpenPenaltySum int64         `json:"openPenaltySum"`
+	Penalties      []Penalty     `json:"penalties"`
+	Transactions   []Transaction `json:"transactions"`
 }
 
 // Invite defines model for Invite.
@@ -659,7 +670,8 @@ type NotificationsResult struct {
 
 // OpenPenalty defines model for OpenPenalty.
 type OpenPenalty struct {
-	Amount      float64            `json:"amount"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount      int64              `json:"amount"`
 	AvatarColor string             `json:"avatarColor"`
 	HasPhoto    *bool              `json:"hasPhoto,omitempty"`
 	Name        string             `json:"name"`
@@ -668,7 +680,8 @@ type OpenPenalty struct {
 
 // Penalty defines model for Penalty.
 type Penalty struct {
-	Amount float64            `json:"amount"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount int64              `json:"amount"`
 	Id     openapi_types.UUID `json:"id"`
 	Label  string             `json:"label"`
 	TeamId openapi_types.UUID `json:"teamId"`
@@ -676,7 +689,8 @@ type Penalty struct {
 
 // PenaltyAssignment defines model for PenaltyAssignment.
 type PenaltyAssignment struct {
-	Amount            *float64           `json:"amount,omitempty"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount            *int64             `json:"amount,omitempty"`
 	Date              openapi_types.Date `json:"date"`
 	HasPhoto          *bool              `json:"hasPhoto,omitempty"`
 	Id                openapi_types.UUID `json:"id"`
@@ -866,7 +880,8 @@ type TeamForUser struct {
 
 // Transaction defines model for Transaction.
 type Transaction struct {
-	Amount   float64            `json:"amount"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount   int64              `json:"amount"`
 	Category *string            `json:"category,omitempty"`
 	Date     openapi_types.Date `json:"date"`
 	Id       openapi_types.UUID `json:"id"`
@@ -887,8 +902,9 @@ type UpdateAbsenceRequest struct {
 
 // UpdateContributionRequest defines model for UpdateContributionRequest.
 type UpdateContributionRequest struct {
-	Amount *float64 `json:"amount,omitempty"`
-	Label  *string  `json:"label,omitempty"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount *int64  `json:"amount,omitempty"`
+	Label  *string `json:"label,omitempty"`
 }
 
 // UpdateEventRequest defines model for UpdateEventRequest.
@@ -926,8 +942,9 @@ type UpdateNewsRequest struct {
 
 // UpdatePenaltyRequest defines model for UpdatePenaltyRequest.
 type UpdatePenaltyRequest struct {
-	Amount *float64 `json:"amount,omitempty"`
-	Label  *string  `json:"label,omitempty"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount *int64  `json:"amount,omitempty"`
+	Label  *string `json:"label,omitempty"`
 }
 
 // UpdateRoleRequest defines model for UpdateRoleRequest.
@@ -952,7 +969,8 @@ type UpdateTeamRequest struct {
 
 // UpdateTransactionRequest defines model for UpdateTransactionRequest.
 type UpdateTransactionRequest struct {
-	Amount   *float64         `json:"amount,omitempty"`
+	// Amount Amount in cents (e.g. 1050 = 10.50)
+	Amount   *int64           `json:"amount,omitempty"`
 	Category *string          `json:"category,omitempty"`
 	Title    *string          `json:"title,omitempty"`
 	Type     *TransactionType `json:"type,omitempty"`

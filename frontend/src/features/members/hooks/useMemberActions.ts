@@ -28,7 +28,7 @@ type MemberDeps = {
 export function useMemberActions({ api, S, setState, refreshMembers, refreshTeams, askConfirm, toastMsg }: MemberDeps) {
   const openMemberDetail = useCallback(
     async (membershipId: string) => {
-      const m = S().members.find((x) => x.membershipId === membershipId);
+      const m = (S().members ?? []).find((x) => x.membershipId === membershipId);
       setState({ sheet: { type: 'memberDetail', membershipId, member: m, stats: null } });
       try {
         const stats = await api.stats.attendanceFor(S().activeTeamId!, m!.userId);
@@ -136,7 +136,7 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
 
   const removeMember = useCallback(
     (membershipId: string) => {
-      const m = S().members.find((x) => x.membershipId === membershipId);
+      const m = (S().members ?? []).find((x) => x.membershipId === membershipId);
       askConfirm({
         title: t('members.removeTitle'),
         message: t('members.removeMsg', { name: m ? m.name : '?' }),

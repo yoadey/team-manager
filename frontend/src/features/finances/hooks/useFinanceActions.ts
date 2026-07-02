@@ -169,7 +169,8 @@ export function useFinanceActions({
   );
 
   const openPenaltyAssign = useCallback(() => {
-    if (!S().members || !S().members.length) refreshMembers();
+    const members = S().members;
+    if (!members || !members.length) refreshMembers();
     const f = S().finances;
     const first = f && f.penalties[0] ? f.penalties[0].id : null;
     const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };

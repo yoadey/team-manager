@@ -121,8 +121,8 @@ export interface AppState {
   eventsOnlyPending: boolean;
   calShowAbsences: boolean;
   calMonth: Date | null;
-  events: TeamEvent[];
-  members: Member[];
+  events: TeamEvent[] | null;
+  members: Member[] | null;
   roles: Role[];
   news: NewsItem[] | null;
   finances: FinanceOverview | null;
@@ -167,8 +167,8 @@ const initialState: AppState = {
   eventsOnlyPending: initialLocation.eventsOnlyPending,
   calShowAbsences: false,
   calMonth: null,
-  events: [],
-  members: [],
+  events: null,
+  members: null,
   roles: [],
   news: null,
   finances: null,
@@ -475,8 +475,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       teams: [],
       activeTeamId: null,
       sheet: null,
-      events: [],
-      members: [],
+      events: null,
+      members: null,
       roles: [],
     });
     // Providers may not have been loaded if the session was restored from a
@@ -607,8 +607,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (teamId: string) => {
       const seq = ++afterLoginLoadSeq.current;
       setState({
-        events: [],
-        members: [],
+        events: null,
+        members: null,
         roles: [],
         news: null,
         finances: null,
