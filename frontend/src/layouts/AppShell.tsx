@@ -30,7 +30,7 @@ export function Shell() {
   if (!team || !state.user) return null;
 
   const today = todayLocalDate();
-  const pending = state.events.filter(
+  const pending = (state.events ?? []).filter(
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 

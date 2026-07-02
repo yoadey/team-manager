@@ -135,6 +135,11 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if request.Body.Title != nil {
+		if err := validate.Name(*request.Body.Title); err != nil {
+			return nil, apierror.BadRequest("title: " + err.Error())
+		}
+	}
 
 	scope := "single"
 	if request.Params.Scope != nil {

@@ -165,19 +165,20 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 	return r.findByID(ctx, id)
 }
 
-// Update modifies an absence that belongs to teamID and returns the enriched
-// row. Returns pgx.ErrNoRows if no absence with id exists within teamID.
-func (r *Repository) Update(ctx context.Context, id, teamID uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
+// Update modifies an absence that belongs to teamID and userID (self-service:
+// a member may only update their own absence entries) and returns the
+// enriched row. Returns pgx.ErrNoRows if no matching absence exists.
+func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tag, err := r.pool.Exec(
 		ctx,
 		`UPDATE absences SET
-			from_date = COALESCE($3::date, from_date),
-			to_date   = COALESCE($4::date, to_date),
-			reason    = COALESCE($5, reason)
-		 WHERE id = $1 AND team_id = $2`,
-		id, teamID, fromDate, toDate, reason,
+			from_date = COALESCE($4::date, from_date),
+			to_date   = COALESCE($5::date, to_date),
+			reason    = COALESCE($6, reason)
+		 WHERE id = $1 AND team_id = $2 AND user_id = $3`,
+		id, teamID, userID, fromDate, toDate, reason,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.Update: %w", err)
@@ -188,12 +189,13 @@ func (r *Repository) Update(ctx context.Context, id, teamID uuid.UUID, fromDate,
 	return r.findByID(ctx, id)
 }
 
-// Delete removes an absence by ID that belongs to teamID. Returns
-// pgx.ErrNoRows if no absence with id exists within teamID.
-func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
+// Delete removes an absence by ID that belongs to teamID and userID
+// (self-service: a member may only delete their own absence entries).
+// Returns pgx.ErrNoRows if no matching absence exists.
+func (r *Repository) Delete(ctx context.Context, id, teamID, userID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM absences WHERE id = $1 AND team_id = $2`, id, teamID)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM absences WHERE id = $1 AND team_id = $2 AND user_id = $3`, id, teamID, userID)
 	if err != nil {
 		return fmt.Errorf("absences.Repository.Delete: %w", err)
 	}

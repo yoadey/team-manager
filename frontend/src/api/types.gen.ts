@@ -1343,7 +1343,10 @@ export interface components {
             teamId: string;
             type: components["schemas"]["TransactionType"];
             title: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount: number;
             /** Format: date */
             date: string;
@@ -1352,14 +1355,20 @@ export interface components {
         CreateTransactionRequest: {
             type: components["schemas"]["TransactionType"];
             title: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount: number;
             category?: string;
         };
         UpdateTransactionRequest: {
             type?: components["schemas"]["TransactionType"];
             title?: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount?: number;
             category?: string;
         };
@@ -1369,17 +1378,26 @@ export interface components {
             /** Format: uuid */
             teamId: string;
             label: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount: number;
         };
         CreatePenaltyRequest: {
             label: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount: number;
         };
         UpdatePenaltyRequest: {
             label?: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount?: number;
         };
         PenaltyAssignment: {
@@ -1398,7 +1416,10 @@ export interface components {
             memberAvatarColor?: string;
             hasPhoto?: boolean;
             label?: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount?: number;
         };
         CreatePenaltyAssignmentRequest: {
@@ -1413,7 +1434,10 @@ export interface components {
             name: string;
             avatarColor: string;
             hasPhoto?: boolean;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount: number;
         };
         Contribution: {
@@ -1426,7 +1450,10 @@ export interface components {
             /** @description YYYY-MM */
             month: string;
             label?: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount: number;
             status: components["schemas"]["ContributionStatus"];
             memberName?: string;
@@ -1435,21 +1462,36 @@ export interface components {
         };
         UpdateContributionRequest: {
             label?: string;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
             amount?: number;
         };
         FinanceOverview: {
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Balance in cents (income minus expense)
+             */
             balance: number;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Total income in cents
+             */
             income: number;
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Total expense in cents
+             */
             expense: number;
             transactions: components["schemas"]["Transaction"][];
             penalties: components["schemas"]["Penalty"][];
             assignments: components["schemas"]["PenaltyAssignment"][];
             openPenalties: components["schemas"]["OpenPenalty"][];
-            /** Format: double */
+            /**
+             * Format: int64
+             * @description Sum of all open (unpaid) penalties across all members, in cents
+             */
             openPenaltySum: number;
             contributions: components["schemas"]["Contribution"][];
             contribOpen: number;

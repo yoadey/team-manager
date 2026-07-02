@@ -21,13 +21,13 @@ var (
 // financeRepo is the interface the Service relies on.
 type financeRepo interface {
 	ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error)
-	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense float64, err error)
-	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount float64, date time.Time, category *string) (*TransactionRow, error)
+	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
+	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 
 	ListPenalties(ctx context.Context, teamID uuid.UUID) ([]PenaltyRow, error)
-	CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount float64) (*PenaltyRow, error)
+	CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*PenaltyRow, error)
 	UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error)
 	DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error
 	PenaltyBelongsToTeam(ctx context.Context, penaltyID, teamID uuid.UUID) (bool, error)
@@ -45,6 +45,8 @@ type financeRepo interface {
 	ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error)
 
 	ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error)
+
+	WithReadTx(ctx context.Context, fn func(OverviewReader) error) error
 }
 
 // Service implements finance business logic.
@@ -65,39 +67,61 @@ func NewService(repo financeRepo) *Service {
 // are computed via dedicated aggregate queries so they stay accurate
 // regardless of that cap.
 func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error) {
-	txs, err := s.repo.ListTransactions(ctx, teamID)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.GetOverview transactions: %w", err)
-	}
+	var (
+		txs           []TransactionRow
+		income        int64
+		expense       int64
+		penalties     []PenaltyRow
+		assignments   []PenaltyAssignmentRow
+		contributions []ContributionRow
+		contribOpen   int
+		openByUser    []OpenPenaltyAggregate
+	)
 
-	income, expense, err := s.repo.SumTransactions(ctx, teamID)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.GetOverview transaction totals: %w", err)
-	}
+	// Run every read inside one read-only transaction so the display lists and
+	// the separately computed aggregates observe a single consistent snapshot,
+	// instead of possibly drifting under concurrent writes.
+	err := s.repo.WithReadTx(ctx, func(repo OverviewReader) error {
+		var err error
 
-	penalties, err := s.repo.ListPenalties(ctx, teamID)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.GetOverview penalties: %w", err)
-	}
+		txs, err = repo.ListTransactions(ctx, teamID)
+		if err != nil {
+			return fmt.Errorf("transactions: %w", err)
+		}
 
-	assignments, err := s.repo.ListAssignments(ctx, teamID)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.GetOverview assignments: %w", err)
-	}
+		income, expense, err = repo.SumTransactions(ctx, teamID)
+		if err != nil {
+			return fmt.Errorf("transaction totals: %w", err)
+		}
 
-	contributions, err := s.repo.ListContributions(ctx, teamID)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.GetOverview contributions: %w", err)
-	}
+		penalties, err = repo.ListPenalties(ctx, teamID)
+		if err != nil {
+			return fmt.Errorf("penalties: %w", err)
+		}
 
-	contribOpen, err := s.repo.CountOpenContributions(ctx, teamID)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.GetOverview open contributions: %w", err)
-	}
+		assignments, err = repo.ListAssignments(ctx, teamID)
+		if err != nil {
+			return fmt.Errorf("assignments: %w", err)
+		}
 
-	openByUser, err := s.repo.ListOpenPenaltiesByUser(ctx, teamID)
+		contributions, err = repo.ListContributions(ctx, teamID)
+		if err != nil {
+			return fmt.Errorf("contributions: %w", err)
+		}
+
+		contribOpen, err = repo.CountOpenContributions(ctx, teamID)
+		if err != nil {
+			return fmt.Errorf("open contributions: %w", err)
+		}
+
+		openByUser, err = repo.ListOpenPenaltiesByUser(ctx, teamID)
+		if err != nil {
+			return fmt.Errorf("open penalties: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("finances.Service.GetOverview open penalties: %w", err)
+		return nil, fmt.Errorf("finances.Service.GetOverview: %w", err)
 	}
 
 	genTxs := make([]gen.Transaction, 0, len(txs))
@@ -121,7 +145,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.Finan
 	}
 
 	genOpen := make([]gen.OpenPenalty, 0, len(openByUser))
-	var openPenaltySum float64
+	var openPenaltySum int64
 	for _, o := range openByUser {
 		hp := o.HasPhoto
 		genOpen = append(genOpen, gen.OpenPenalty{

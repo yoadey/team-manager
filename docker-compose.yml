@@ -1,11 +1,10 @@
 services:
   postgres:
-    # Pin to an immutable digest for reproducible local dev. Refresh periodically:
-    #   docker pull postgres:17 && docker inspect postgres:17 --format '{{index .RepoDigests 0}}'
+    # Pin to an immutable digest for reproducible local dev. Dependabot's
+    # docker ecosystem entry for directory / (.github/dependabot.yml) keeps
+    # this digest current automatically.
     # Digest below resolved 2026-07-01 from registry-1.docker.io for postgres:17
-    # (docker-library/postgres 17.10). Dependabot's docker ecosystem entries
-    # (.github/dependabot.yml) only watch /backend and /frontend today, so this
-    # digest must still be refreshed by hand until a root/compose entry is added.
+    # (docker-library/postgres 17.10).
     image: postgres:17@sha256:5c855ad7b85e68e48a62f34662853f38b57c1c1d80f3a927ab58034fd6d31c5e
     restart: unless-stopped
     environment:

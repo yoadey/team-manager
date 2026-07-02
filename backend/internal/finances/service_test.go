@@ -19,12 +19,12 @@ import (
 // mockRepo satisfies the unexported financeRepo interface via structural typing.
 type mockRepo struct {
 	listTransactionsFn       func(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error)
-	sumTransactionsFn        func(ctx context.Context, teamID uuid.UUID) (float64, float64, error)
-	createTransactionFn      func(ctx context.Context, teamID uuid.UUID, txType, title string, amount float64, date time.Time, category *string) (*finances.TransactionRow, error)
+	sumTransactionsFn        func(ctx context.Context, teamID uuid.UUID) (int64, int64, error)
+	createTransactionFn      func(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*finances.TransactionRow, error)
 	updateTransactionFn      func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
 	deleteTransactionFn      func(ctx context.Context, id, teamID uuid.UUID) error
 	listPenaltiesFn          func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error)
-	createPenaltyFn          func(ctx context.Context, teamID uuid.UUID, label string, amount float64) (*finances.PenaltyRow, error)
+	createPenaltyFn          func(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error)
 	updatePenaltyFn          func(ctx context.Context, id, teamID uuid.UUID, patch finances.PenaltyPatch) (*finances.PenaltyRow, error)
 	deletePenaltyFn          func(ctx context.Context, id, teamID uuid.UUID) error
 	penaltyBelongsToTeamFn   func(ctx context.Context, penaltyID, teamID uuid.UUID) (bool, error)
@@ -39,17 +39,18 @@ type mockRepo struct {
 	updateContributionFn     func(ctx context.Context, id, teamID uuid.UUID, patch finances.ContributionPatch) (*finances.ContributionRow, error)
 	toggleContributionFn     func(ctx context.Context, id, teamID uuid.UUID) (*finances.ContributionRow, error)
 	listOpenPenaltiesFn      func(ctx context.Context, teamID uuid.UUID) ([]finances.OpenPenaltyAggregate, error)
+	withReadTxFn             func(ctx context.Context, fn func(finances.OverviewReader) error) error
 }
 
 func (m *mockRepo) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error) {
 	return m.listTransactionsFn(ctx, teamID)
 }
 
-func (m *mockRepo) SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense float64, err error) {
+func (m *mockRepo) SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error) {
 	return m.sumTransactionsFn(ctx, teamID)
 }
 
-func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount float64, date time.Time, category *string) (*finances.TransactionRow, error) {
+func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*finances.TransactionRow, error) {
 	return m.createTransactionFn(ctx, teamID, txType, title, amount, date, category)
 }
 
@@ -65,7 +66,7 @@ func (m *mockRepo) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]finan
 	return m.listPenaltiesFn(ctx, teamID)
 }
 
-func (m *mockRepo) CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount float64) (*finances.PenaltyRow, error) {
+func (m *mockRepo) CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error) {
 	return m.createPenaltyFn(ctx, teamID, label, amount)
 }
 
@@ -125,6 +126,16 @@ func (m *mockRepo) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID
 	return m.listOpenPenaltiesFn(ctx, teamID)
 }
 
+// WithReadTx runs fn directly against the mock itself (which already
+// implements finances.OverviewReader), since unit tests have no live
+// transaction to hand out.
+func (m *mockRepo) WithReadTx(ctx context.Context, fn func(finances.OverviewReader) error) error {
+	if m.withReadTxFn != nil {
+		return m.withReadTxFn(ctx, fn)
+	}
+	return fn(m)
+}
+
 // ─── GetOverview ─────────────────────────────────────────────────────────────
 
 func TestService_GetOverview_ComputesBalanceAndOpenPenaltySum(t *testing.T) {
@@ -133,15 +144,15 @@ func TestService_GetOverview_ComputesBalanceAndOpenPenaltySum(t *testing.T) {
 	teamID := uuid.New()
 	repo := &mockRepo{
 		listTransactionsFn:       func(context.Context, uuid.UUID) ([]finances.TransactionRow, error) { return nil, nil },
-		sumTransactionsFn:        func(context.Context, uuid.UUID) (float64, float64, error) { return 500, 200, nil },
+		sumTransactionsFn:        func(context.Context, uuid.UUID) (int64, int64, error) { return 50000, 20000, nil },
 		listPenaltiesFn:          func(context.Context, uuid.UUID) ([]finances.PenaltyRow, error) { return nil, nil },
 		listAssignmentsFn:        func(context.Context, uuid.UUID) ([]finances.PenaltyAssignmentRow, error) { return nil, nil },
 		listContributionsFn:      func(context.Context, uuid.UUID) ([]finances.ContributionRow, error) { return nil, nil },
 		countOpenContributionsFn: func(context.Context, uuid.UUID) (int, error) { return 3, nil },
 		listOpenPenaltiesFn: func(context.Context, uuid.UUID) ([]finances.OpenPenaltyAggregate, error) {
 			return []finances.OpenPenaltyAggregate{
-				{UserID: uuid.New(), TotalAmount: 15},
-				{UserID: uuid.New(), TotalAmount: 5.5},
+				{UserID: uuid.New(), TotalAmount: 1500},
+				{UserID: uuid.New(), TotalAmount: 550},
 			}, nil
 		},
 	}
@@ -149,11 +160,11 @@ func TestService_GetOverview_ComputesBalanceAndOpenPenaltySum(t *testing.T) {
 	svc := finances.NewService(repo)
 	overview, err := svc.GetOverview(context.Background(), teamID)
 	require.NoError(t, err)
-	assert.Equal(t, 500.0, overview.Income)
-	assert.Equal(t, 200.0, overview.Expense)
-	assert.Equal(t, 300.0, overview.Balance, "balance must be income - expense")
+	assert.Equal(t, int64(50000), overview.Income)
+	assert.Equal(t, int64(20000), overview.Expense)
+	assert.Equal(t, int64(30000), overview.Balance, "balance must be income - expense")
 	assert.Equal(t, 3, overview.ContribOpen)
-	assert.Equal(t, 20.5, overview.OpenPenaltySum, "open penalty sum must total all users' open amounts")
+	assert.Equal(t, int64(2050), overview.OpenPenaltySum, "open penalty sum must total all users' open amounts")
 	assert.Len(t, overview.OpenPenalties, 2)
 }
 
@@ -180,9 +191,9 @@ func TestService_CreateTransaction(t *testing.T) {
 
 	teamID := uuid.New()
 	category := "equipment"
-	var capturedAmount float64
+	var capturedAmount int64
 	repo := &mockRepo{
-		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount float64, _ time.Time, gotCategory *string) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, gotCategory *string) (*finances.TransactionRow, error) {
 			assert.Equal(t, teamID, gotTeamID)
 			assert.Equal(t, "expense", txType)
 			assert.Equal(t, &category, gotCategory)
@@ -195,13 +206,13 @@ func TestService_CreateTransaction(t *testing.T) {
 	body := &gen.CreateTransactionJSONRequestBody{
 		Type:     gen.Expense,
 		Title:    "Balls",
-		Amount:   42.5,
+		Amount:   4250,
 		Category: &category,
 	}
 	result, err := svc.CreateTransaction(context.Background(), teamID, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, 42.5, capturedAmount)
+	assert.Equal(t, int64(4250), capturedAmount)
 	assert.Equal(t, "Balls", result.Title)
 }
 

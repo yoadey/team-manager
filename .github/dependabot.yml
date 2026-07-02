@@ -47,3 +47,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+
+  # Root docker-compose.yml also pins the Postgres image by digest.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

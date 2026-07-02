@@ -2386,8 +2386,9 @@ components:
         title:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
         date:
           type: string
           format: date
@@ -2403,8 +2404,9 @@ components:
         title:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
         category:
           type: string
 
@@ -2416,8 +2418,9 @@ components:
         title:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
         category:
           type: string
 
@@ -2434,8 +2437,9 @@ components:
         label:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
 
     CreatePenaltyRequest:
       type: object
@@ -2444,8 +2448,9 @@ components:
         label:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
 
     UpdatePenaltyRequest:
       type: object
@@ -2453,8 +2458,9 @@ components:
         label:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
 
     PenaltyAssignment:
       type: object
@@ -2486,8 +2492,9 @@ components:
         label:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
 
     CreatePenaltyAssignmentRequest:
       type: object
@@ -2514,8 +2521,9 @@ components:
         hasPhoto:
           type: boolean
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
 
     Contribution:
       type: object
@@ -2536,8 +2544,9 @@ components:
         label:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
         status:
           $ref: "#/components/schemas/ContributionStatus"
         memberName:
@@ -2553,22 +2562,26 @@ components:
         label:
           type: string
         amount:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
 
     FinanceOverview:
       type: object
       required: [balance, income, expense, transactions, penalties, assignments, openPenalties, openPenaltySum, contributions, contribOpen]
       properties:
         balance:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Balance in cents (income minus expense)
         income:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Total income in cents
         expense:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Total expense in cents
         transactions:
           type: array
           items:
@@ -2586,8 +2599,9 @@ components:
           items:
             $ref: "#/components/schemas/OpenPenalty"
         openPenaltySum:
-          type: number
-          format: double
+          type: integer
+          format: int64
+          description: Sum of all open (unpaid) penalties across all members, in cents
         contributions:
           type: array
           items:

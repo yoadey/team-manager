@@ -9,17 +9,65 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// pgxIface is satisfied by both *pgxpool.Pool and pgx.Tx, letting Repository
+// run its queries either directly against the pool or inside a transaction
+// (see WithReadTx).
+type pgxIface interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
 // Repository handles all finance-related DB operations.
 type Repository struct {
+	// pool is only set on the top-level Repository returned by NewRepository;
+	// it is nil on a tx-scoped Repository created by WithReadTx (which has no
+	// need to start a nested transaction).
 	pool *pgxpool.Pool
+	db   pgxIface
 }
 
 // NewRepository creates a new Repository.
 func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+	return &Repository{pool: pool, db: pool}
+}
+
+// OverviewReader is the subset of read operations GetOverview needs. WithReadTx
+// hands its callback this narrower view (rather than *Repository) so a caller
+// can substitute a mock in unit tests without a live transaction.
+type OverviewReader interface {
+	ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error)
+	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
+	ListPenalties(ctx context.Context, teamID uuid.UUID) ([]PenaltyRow, error)
+	ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error)
+	ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error)
+	CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error)
+	ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error)
+}
+
+// WithReadTx runs fn with a Repository view backed by a single read-only,
+// repeatable-read transaction, so all reads inside fn observe one consistent
+// snapshot instead of drifting under concurrent writes (see GetOverview,
+// which issues several independent aggregate and list queries).
+func (r *Repository) WithReadTx(ctx context.Context, fn func(OverviewReader) error) error {
+	if r.pool == nil {
+		// Already running inside a transaction (nested call) — reuse it.
+		return fn(r)
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return fmt.Errorf("finances.Repository.WithReadTx: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := fn(&Repository{db: tx}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
@@ -36,7 +84,7 @@ const maxOverviewRows = 1000
 func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT id, team_id, type, title, amount, date, category, created_at
 		FROM transactions
 		WHERE team_id = $1
@@ -63,13 +111,13 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 // team's transactions (not just the capped display list returned by
 // ListTransactions), so the finance overview's income/expense/balance figures
 // stay accurate regardless of how much history exists.
-func (r *Repository) SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense float64, err error) {
+func (r *Repository) SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	err = r.pool.QueryRow(ctx, `
+	err = r.db.QueryRow(ctx, `
 		SELECT
-			COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0),
-			COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0)
+			COALESCE(SUM(amount) FILTER (WHERE type = 'income'), 0)::BIGINT,
+			COALESCE(SUM(amount) FILTER (WHERE type = 'expense'), 0)::BIGINT
 		FROM transactions
 		WHERE team_id = $1
 	`, teamID).Scan(&income, &expense)
@@ -80,11 +128,11 @@ func (r *Repository) SumTransactions(ctx context.Context, teamID uuid.UUID) (inc
 }
 
 // CreateTransaction inserts a new transaction.
-func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount float64, date time.Time, category *string) (*TransactionRow, error) {
+func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	t := &TransactionRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		INSERT INTO transactions (team_id, type, title, amount, date, category)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id, team_id, type, title, amount, date, category, created_at
@@ -130,7 +178,7 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 
 	args = append(args, id, teamID)
 	t := &TransactionRow{}
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE transactions SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, type, title, amount, date, category, created_at
 	`, strings.Join(setClauses, ", "), n, n+1), args...).Scan(
@@ -146,7 +194,7 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM transactions WHERE id = $1 AND team_id = $2`, id, teamID)
+	tag, err := r.db.Exec(ctx, `DELETE FROM transactions WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeleteTransaction: %w", err)
 	}
@@ -158,7 +206,7 @@ func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID
 
 func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error) {
 	t := &TransactionRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT id, team_id, type, title, amount, date, category, created_at
 		FROM transactions WHERE id = $1 AND team_id = $2
 	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt)
@@ -174,7 +222,7 @@ func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUI
 func (r *Repository) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]PenaltyRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT id, team_id, label, amount FROM penalties WHERE team_id = $1 ORDER BY label
 	`, teamID)
 	if err != nil {
@@ -194,11 +242,11 @@ func (r *Repository) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]Pen
 }
 
 // CreatePenalty inserts a new penalty definition.
-func (r *Repository) CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount float64) (*PenaltyRow, error) {
+func (r *Repository) CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*PenaltyRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	p := &PenaltyRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		INSERT INTO penalties (team_id, label, amount)
 		VALUES ($1, $2, $3)
 		RETURNING id, team_id, label, amount
@@ -228,14 +276,14 @@ func (r *Repository) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, pa
 
 	if len(setClauses) == 0 {
 		p := &PenaltyRow{}
-		err := r.pool.QueryRow(ctx, `SELECT id, team_id, label, amount FROM penalties WHERE id = $1 AND team_id = $2`, id, teamID).
+		err := r.db.QueryRow(ctx, `SELECT id, team_id, label, amount FROM penalties WHERE id = $1 AND team_id = $2`, id, teamID).
 			Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
 		return p, err
 	}
 
 	args = append(args, id, teamID)
 	p := &PenaltyRow{}
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE penalties SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, label, amount
 	`, strings.Join(setClauses, ", "), n, n+1), args...).Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
@@ -252,7 +300,7 @@ func (r *Repository) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, pa
 func (r *Repository) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM penalties WHERE id = $1 AND team_id = $2`, id, teamID)
+	tag, err := r.db.Exec(ctx, `DELETE FROM penalties WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeletePenalty: %w", err)
 	}
@@ -269,7 +317,7 @@ func (r *Repository) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) er
 func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
 		       p.label, p.amount,
 		       u.name, u.avatar_color,
@@ -307,7 +355,7 @@ func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
 		       p.label, p.amount,
 		       u.name, u.avatar_color,
@@ -335,7 +383,7 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
 		VALUES ($1, $2, $3)
 		RETURNING id, team_id, user_id, penalty_id, paid, date
@@ -350,7 +398,7 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 func (r *Repository) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM penalty_assignments WHERE id = $1 AND team_id = $2`, id, teamID)
+	tag, err := r.db.Exec(ctx, `DELETE FROM penalty_assignments WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("finances.Repository.DeleteAssignment: %w", err)
 	}
@@ -365,7 +413,7 @@ func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.U
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		UPDATE penalty_assignments SET paid = NOT paid WHERE id = $1 AND team_id = $2
 		RETURNING id, team_id, user_id, penalty_id, paid, date
 	`, id, teamID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date)
@@ -385,7 +433,7 @@ func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.U
 func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
 		       u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo
@@ -436,7 +484,7 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	}
 
 	args = append(args, id, teamID)
-	tag, err := r.pool.Exec(ctx, fmt.Sprintf(`
+	tag, err := r.db.Exec(ctx, fmt.Sprintf(`
 		UPDATE contributions SET %s WHERE id = $%d AND team_id = $%d
 	`, strings.Join(setClauses, ", "), n, n+1), args...)
 	if err != nil {
@@ -456,7 +504,7 @@ func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uu
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var currentStatus string
-	err := r.pool.QueryRow(ctx, `SELECT status FROM contributions WHERE id = $1 AND team_id = $2`, id, teamID).Scan(&currentStatus)
+	err := r.db.QueryRow(ctx, `SELECT status FROM contributions WHERE id = $1 AND team_id = $2`, id, teamID).Scan(&currentStatus)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -469,7 +517,7 @@ func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uu
 		newStatus = "open"
 	}
 
-	_, err = r.pool.Exec(ctx, `UPDATE contributions SET status = $1 WHERE id = $2 AND team_id = $3`, newStatus, id, teamID)
+	_, err = r.db.Exec(ctx, `UPDATE contributions SET status = $1 WHERE id = $2 AND team_id = $3`, newStatus, id, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.ToggleContributionStatus update: %w", err)
 	}
@@ -483,7 +531,7 @@ func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUI
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var count int
-	err := r.pool.QueryRow(ctx,
+	err := r.db.QueryRow(ctx,
 		`SELECT COUNT(*) FROM contributions WHERE team_id = $1 AND status = 'open'`,
 		teamID,
 	).Scan(&count)
@@ -495,7 +543,7 @@ func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUI
 
 func (r *Repository) getContributionByID(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error) {
 	c := &ContributionRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
 		       u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo
@@ -517,7 +565,7 @@ func (r *Repository) PenaltyBelongsToTeam(ctx context.Context, penaltyID, teamID
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var exists bool
-	err := r.pool.QueryRow(ctx,
+	err := r.db.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM penalties WHERE id = $1 AND team_id = $2)`,
 		penaltyID, teamID,
 	).Scan(&exists)
@@ -532,8 +580,8 @@ func (r *Repository) UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var exists bool
-	err := r.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM team_members WHERE user_id = $1 AND team_id = $2)`,
+	err := r.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM memberships WHERE user_id = $1 AND team_id = $2)`,
 		userID, teamID,
 	).Scan(&exists)
 	if err != nil {
@@ -550,17 +598,17 @@ type OpenPenaltyAggregate struct {
 	Name        string
 	AvatarColor string
 	HasPhoto    bool
-	TotalAmount float64
+	TotalAmount int64
 }
 
 // ListOpenPenaltiesByUser returns unpaid penalty amounts aggregated per user for the team.
 func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT pa.user_id, u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo,
-		       SUM(p.amount) AS total_amount
+		       SUM(p.amount)::BIGINT AS total_amount
 		FROM penalty_assignments pa
 		JOIN penalties p ON p.id = pa.penalty_id
 		JOIN users u ON u.id = pa.user_id

@@ -79,6 +79,8 @@ export function Av({
     return (
       <Box
         component="span"
+        role="img"
+        aria-label={name || ''}
         sx={{
           ...(base as object),
           backgroundImage: `url(${photo})`,

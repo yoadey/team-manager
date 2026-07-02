@@ -36,6 +36,18 @@ import type {
 
 type S = components['schemas'];
 
+// The backend represents money as integer cents (see openapi.yaml amount
+// fields); the frontend domain model and UI keep working in euros (floats)
+// to minimize changes to components/validation, so the conversion happens
+// once at this API-mapping boundary.
+export function centsToEuros(cents: number): number {
+  return cents / 100;
+}
+
+export function eurosToCents(euros: number): number {
+  return Math.round(euros * 100);
+}
+
 export function mapUser(u: S['User']): User {
   return {
     id: u.id,
@@ -285,7 +297,7 @@ export function mapTransaction(t: S['Transaction']): Transaction {
     teamId: t.teamId,
     type: t.type,
     title: t.title,
-    amount: t.amount,
+    amount: centsToEuros(t.amount),
     date: t.date,
     category: t.category ?? '',
   };
@@ -296,7 +308,7 @@ export function mapPenalty(p: S['Penalty']): Penalty {
     id: p.id,
     teamId: p.teamId,
     label: p.label,
-    amount: p.amount,
+    amount: centsToEuros(p.amount),
   };
 }
 
@@ -312,7 +324,7 @@ export function mapPenaltyAssignment(a: S['PenaltyAssignment']): PenaltyAssignme
     avatarColor: a.memberAvatarColor,
     photo: null,
     label: a.label,
-    amount: a.amount,
+    amount: a.amount == null ? a.amount : centsToEuros(a.amount),
   };
 }
 
@@ -323,7 +335,7 @@ export function mapContribution(c: S['Contribution']): Contribution {
     userId: c.userId,
     month: c.month,
     label: c.label ?? '',
-    amount: c.amount,
+    amount: centsToEuros(c.amount),
     status: c.status,
     name: c.memberName,
     avatarColor: c.memberAvatarColor,
@@ -333,9 +345,9 @@ export function mapContribution(c: S['Contribution']): Contribution {
 
 export function mapFinanceOverview(o: S['FinanceOverview']): FinanceOverview {
   return {
-    balance: o.balance,
-    income: o.income,
-    expense: o.expense,
+    balance: centsToEuros(o.balance),
+    income: centsToEuros(o.income),
+    expense: centsToEuros(o.expense),
     transactions: o.transactions.map(mapTransaction),
     penalties: o.penalties.map(mapPenalty),
     assignments: o.assignments.map(mapPenaltyAssignment),
@@ -344,9 +356,9 @@ export function mapFinanceOverview(o: S['FinanceOverview']): FinanceOverview {
       name: op.name,
       avatarColor: op.avatarColor,
       photo: null,
-      amount: op.amount,
+      amount: centsToEuros(op.amount),
     })),
-    openPenaltySum: o.openPenaltySum,
+    openPenaltySum: centsToEuros(o.openPenaltySum),
     contributions: o.contributions.map(mapContribution),
     contribOpen: o.contribOpen,
   };

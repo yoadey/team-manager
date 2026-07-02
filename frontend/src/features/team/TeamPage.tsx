@@ -73,6 +73,8 @@ export function TeamPage() {
     >
       <Box
         component="span"
+        role={team.logo ? 'img' : undefined}
+        aria-label={team.logo ? t('team.logoAlt') : undefined}
         sx={{
           width: '60px',
           height: '60px',
@@ -155,6 +157,7 @@ export function TeamPage() {
           >
             <Box
               component="span"
+              aria-hidden="true"
               sx={{
                 width: '42px',
                 height: '42px',

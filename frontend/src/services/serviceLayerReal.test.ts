@@ -48,6 +48,11 @@ vi.mock('@/api/map', () => {
     mapPenaltyAssignment: tag('penaltyAssignment'),
     mapContribution: tag('contribution'),
     mapStatsOverview: tag('statsOverview'),
+    // Real (not tagged) — serviceLayerReal calls these directly on request
+    // bodies, not just on responses, so tests exercising request payloads
+    // need the actual conversion, not an identity stub.
+    centsToEuros: (cents: number) => cents / 100,
+    eurosToCents: (euros: number) => Math.round(euros * 100),
   };
 });
 
