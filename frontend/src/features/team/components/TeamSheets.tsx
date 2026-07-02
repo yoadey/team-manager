@@ -53,7 +53,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
       }}
     >
       {F.photo ? (
-        <Av key="a" name="" photo={F.photo} color={NEUTRAL.inputBorder} size={40} />
+        <Av key="a" name={t('team.photoAlt')} photo={F.photo} color={NEUTRAL.inputBorder} size={40} />
       ) : (
         <Sym name="add_photo_alternate" size={24} color={NEUTRAL.secondary} />
       )}
@@ -247,6 +247,8 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
     <Box
       key="lp"
       component="span"
+      role={F.logo ? 'img' : undefined}
+      aria-label={F.logo ? t('team.logoAlt') : undefined}
       sx={{
         width: '58px',
         height: '58px',

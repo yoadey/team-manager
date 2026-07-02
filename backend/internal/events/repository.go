@@ -289,19 +289,29 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
 
-// UpdateEvent updates a single event or all events in its series, scoped to teamID.
+// UpdateEvent updates a single event or all events in its series, scoped to
+// teamID. When scope is "series", the series-wide update and the single-event
+// update run inside one transaction so a failure between them can never leave
+// the series definition and the individual event instance inconsistent.
 func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, params *UpdateEventParams, scope string) (*EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.UpdateEvent: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	if scope == "series" {
 		// Get series_id for this event, verified to belong to teamID.
 		var seriesID *uuid.UUID
-		err := r.pool.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
+		err := tx.QueryRow(ctx, `SELECT series_id FROM events WHERE id = $1 AND team_id = $2`, eventID, teamID).Scan(&seriesID)
 		if err != nil {
 			return nil, fmt.Errorf("events.Repository.UpdateEvent: get series_id: %w", err)
 		}
 		if seriesID != nil {
-			if err := r.updateSeriesEvents(ctx, seriesID.String(), params); err != nil {
+			if err := updateSeriesEvents(ctx, tx, seriesID.String(), params); err != nil {
 				return nil, err
 			}
 		}
@@ -311,7 +321,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 	sets, args := buildUpdateSets(params, eventID)
 	args = append(args, teamID)
 	q := fmt.Sprintf(`UPDATE events SET %s WHERE id = $%d AND team_id = $%d RETURNING %s`, sets, len(args)-1, len(args), selectEventFields)
-	row := r.pool.QueryRow(ctx, q, args...)
+	row := tx.QueryRow(ctx, q, args...)
 	e, err := scanEventRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -319,16 +329,21 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 		}
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
 	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("events.Repository.UpdateEvent: commit: %w", err)
+	}
 	return e, nil
 }
 
-func (r *Repository) updateSeriesEvents(ctx context.Context, seriesID string, params *UpdateEventParams) error {
+// updateSeriesEvents updates every event in seriesID within tx.
+func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params *UpdateEventParams) error {
 	sets, args := buildUpdateSets(params, "")
 	// Remove last arg (the eventID placeholder we added) — we use series_id instead.
 	args = args[:len(args)-1]
 	q := fmt.Sprintf(`UPDATE events SET %s WHERE series_id = $%d`, sets, len(args)+1)
 	args = append(args, seriesID)
-	_, err := r.pool.Exec(ctx, q, args...)
+	_, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		return fmt.Errorf("events.Repository.updateSeriesEvents: %w", err)
 	}

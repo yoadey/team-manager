@@ -6,7 +6,6 @@ package validate
 import (
 	"errors"
 	"fmt"
-	"math"
 	"net/mail"
 	"strings"
 	"unicode/utf8"
@@ -73,10 +72,10 @@ func Text(s, field string) error {
 	return MaxLen(s, maxTextLen, field)
 }
 
-// PositiveAmount returns an error when amount is not a positive, finite
-// monetary value (zero, negative, NaN, or infinite).
-func PositiveAmount(amount float64, field string) error {
-	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+// PositiveAmount returns an error when amount (an integer amount in cents) is
+// not positive (zero or negative).
+func PositiveAmount(amount int64, field string) error {
+	if amount <= 0 {
 		return fmt.Errorf("%s %w", field, ErrAmountNotPositive)
 	}
 	return nil

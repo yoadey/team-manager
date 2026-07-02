@@ -126,9 +126,9 @@ func TestHandler_GetFinanceOverview_Success(t *testing.T) {
 		Assignments:   []gen.PenaltyAssignment{},
 		Contributions: []gen.Contribution{},
 		OpenPenalties: []gen.OpenPenalty{},
-		Balance:       100.0,
-		Income:        200.0,
-		Expense:       100.0,
+		Balance:       10000,
+		Income:        20000,
+		Expense:       10000,
 	}
 	svc := &mockFinanceService{
 		getOverview: func(_ context.Context, _ uuid.UUID) (*gen.FinanceOverview, error) {
@@ -146,7 +146,7 @@ func TestHandler_GetFinanceOverview_Success(t *testing.T) {
 
 	var result gen.FinanceOverview
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
-	assert.InEpsilon(t, 100.0, result.Balance, 0.001)
+	assert.Equal(t, int64(10000), result.Balance)
 }
 
 func TestHandler_GetFinanceOverview_ServiceError(t *testing.T) {
@@ -175,7 +175,7 @@ func TestHandler_CreateTransaction_Success(t *testing.T) {
 		TeamId: testTeamID,
 		Type:   gen.Income,
 		Title:  "Membership fee",
-		Amount: 50.0,
+		Amount: 5000,
 		Date:   openapi_types.Date{Time: time.Now()},
 	}
 	svc := &mockFinanceService{
@@ -189,7 +189,7 @@ func TestHandler_CreateTransaction_Success(t *testing.T) {
 	body := &gen.CreateTransactionJSONRequestBody{
 		Type:   gen.Income,
 		Title:  "Membership fee",
-		Amount: 50.0,
+		Amount: 5000,
 	}
 	resp, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ func TestHandler_CreateTransaction_RejectsNonPositiveAmount(t *testing.T) {
 	}
 	h := finances.NewHandler(svc, slog.Default(), nil)
 
-	for _, amount := range []float64{0, -10} {
+	for _, amount := range []int64{0, -10} {
 		body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Membership fee", Amount: amount}
 		_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
 		require.Error(t, err)
@@ -226,7 +226,7 @@ func TestHandler_UpdateTransaction_RejectsNonPositiveAmount(t *testing.T) {
 	}
 	h := finances.NewHandler(svc, slog.Default(), nil)
 
-	badAmount := -1.0
+	var badAmount int64 = -1
 	body := &gen.UpdateTransactionJSONRequestBody{Amount: &badAmount}
 	_, err := h.UpdateTransaction(authedCtx(), gen.UpdateTransactionRequestObject{TransactionId: testTxID, TeamId: testTeamID, Body: body})
 	require.Error(t, err)
@@ -250,7 +250,7 @@ func TestHandler_CreatePenalty_RejectsNonPositiveAmount(t *testing.T) {
 func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 	tx := &gen.Transaction{
-		Id: testTxID, TeamId: testTeamID, Type: gen.Income, Title: "Fee", Amount: 50.0,
+		Id: testTxID, TeamId: testTeamID, Type: gen.Income, Title: "Fee", Amount: 5000,
 		Date: openapi_types.Date{Time: time.Now()},
 	}
 	svc := &mockFinanceService{
@@ -261,7 +261,7 @@ func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 	var buf bytes.Buffer
 	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
 
-	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Fee", Amount: 50.0}
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Fee", Amount: 5000}
 	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
 	require.NoError(t, err)
 

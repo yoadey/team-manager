@@ -14,9 +14,9 @@ export function Home() {
   const team = app.activeTeam()!;
   const today = todayLocalDate();
 
-  const next = state.events.filter((e) => e.date >= today).slice(0, 3);
+  const next = (state.events ?? []).filter((e) => e.date >= today).slice(0, 3);
   const news = (state.news || []).slice(0, 3);
-  const myPending = state.events.filter(
+  const myPending = (state.events ?? []).filter(
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
@@ -82,7 +82,7 @@ export function Home() {
       <Box sx={{ display: 'flex', gap: '10px', flexWrap: 'wrap', mb: '20px' }}>
         {quickStat(
           tr('home.statUpcoming'),
-          state.events.filter((e) => e.date >= today && e.status !== 'cancelled').length,
+          (state.events ?? []).filter((e) => e.date >= today && e.status !== 'cancelled').length,
           'event',
           t.primary,
           () => app.go('events'),

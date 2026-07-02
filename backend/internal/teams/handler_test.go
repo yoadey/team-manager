@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -293,6 +295,44 @@ func TestTeamHandler_UpdateTeam_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, "team.update", rec["event"])
 	assert.Equal(t, actorID.String(), rec["actor"])
 	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+func TestTeamHandler_UpdateTeam_RejectsEmptyName(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		updateTeam: func(_ context.Context, _ string, _ teams.TeamPatch) (*gen.Team, error) {
+			t.Fatal("service must not be called when validation fails")
+			return nil, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(io.Discard, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	empty := ""
+	body := &gen.UpdateTeamJSONRequestBody{Name: &empty}
+	_, err := h.UpdateTeam(ctx, gen.UpdateTeamRequestObject{TeamId: teamID, Body: body})
+	require.Error(t, err)
+}
+
+func TestTeamHandler_UpdateTeam_RejectsOversizedShort(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		updateTeam: func(_ context.Context, _ string, _ teams.TeamPatch) (*gen.Team, error) {
+			t.Fatal("service must not be called when validation fails")
+			return nil, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(io.Discard, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	oversized := strings.Repeat("x", 51)
+	body := &gen.UpdateTeamJSONRequestBody{Short: &oversized}
+	_, err := h.UpdateTeam(ctx, gen.UpdateTeamRequestObject{TeamId: teamID, Body: body})
+	require.Error(t, err)
 }
 
 func TestTeamHandler_CreateInvite_EmitsAuditEvent(t *testing.T) {

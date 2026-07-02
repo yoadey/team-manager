@@ -21,8 +21,8 @@ type absenceService interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error)
 	ListByUser(ctx context.Context, teamID, userID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error)
 	Create(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
-	Update(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
-	Delete(ctx context.Context, id, teamID uuid.UUID) error
+	Update(ctx context.Context, id, teamID, userID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
+	Delete(ctx context.Context, id, teamID, userID uuid.UUID) error
 }
 
 // Handler implements the absence-related methods of gen.StrictServerInterface.
@@ -57,13 +57,20 @@ func (h *Handler) ListAbsences(ctx context.Context, req gen.ListAbsencesRequestO
 	return gen.ListAbsences200JSONResponse{Items: absences, NextCursor: next}, nil
 }
 
-// CreateAbsence creates a new absence entry.
+// CreateAbsence creates a new absence entry. Absences are self-service (any
+// team member may report their own absence, regardless of RBAC module
+// permissions), so the target user must be the authenticated caller — this is
+// the only guard against one member creating absences on another's behalf.
 func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceRequestObject) (gen.CreateAbsenceResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if req.Body.UserId != user.Id {
+		return nil, apierror.Forbidden("cannot create an absence for another user")
 	}
 	if !req.Body.To.IsZero() && req.Body.From.After(req.Body.To.Time) {
 		return nil, apierror.BadRequest("'from' must not be after 'to'")
@@ -104,12 +111,14 @@ func (h *Handler) ListMyAbsences(ctx context.Context, req gen.ListMyAbsencesRequ
 	return gen.ListMyAbsences200JSONResponse{Items: absences, NextCursor: next}, nil
 }
 
-// DeleteAbsence removes an absence.
+// DeleteAbsence removes an absence. Self-service: a member may only delete
+// their own absence entries.
 func (h *Handler) DeleteAbsence(ctx context.Context, req gen.DeleteAbsenceRequestObject) (gen.DeleteAbsenceResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if err := h.svc.Delete(ctx, req.AbsenceId, req.TeamId); err != nil {
+	if err := h.svc.Delete(ctx, req.AbsenceId, req.TeamId, user.Id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("absence not found")
 		}
@@ -120,9 +129,11 @@ func (h *Handler) DeleteAbsence(ctx context.Context, req gen.DeleteAbsenceReques
 	return gen.DeleteAbsence204Response{}, nil
 }
 
-// UpdateAbsence modifies an existing absence.
+// UpdateAbsence modifies an existing absence. Self-service: a member may only
+// update their own absence entries.
 func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceRequestObject) (gen.UpdateAbsenceResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if req.Body == nil {
@@ -136,7 +147,7 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
-	absence, err := h.svc.Update(ctx, req.AbsenceId, req.TeamId, req.Body)
+	absence, err := h.svc.Update(ctx, req.AbsenceId, req.TeamId, user.Id, req.Body)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("absence not found")

@@ -4,7 +4,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
-import { Sym, EmptyState } from '@/components/ui';
+import { Sym, EmptyState, SkeletonList } from '@/components/ui';
 import { EventCard } from '@/components/cards';
 import { EventCalendar, EventAbsences } from '@/features/events';
 import { t } from '@/i18n';
@@ -16,13 +16,17 @@ export function EventsPage() {
   const today = todayLocalDate();
 
   const scoped = useMemo(() => {
-    let list = state.events.filter((e) => (state.eventScope === 'upcoming' ? e.date >= today : e.date < today));
+    let list = (state.events ?? []).filter((e) =>
+      state.eventScope === 'upcoming' ? e.date >= today : e.date < today,
+    );
     if (state.eventsOnlyPending && state.eventScope === 'upcoming')
       list = list.filter((e) => e.myStatus === 'pending' && e.status !== 'cancelled');
     return list
       .slice()
       .sort((a, b) => (state.eventScope === 'upcoming' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
   }, [state.events, state.eventScope, state.eventsOnlyPending, today]);
+
+  if (!state.events) return <SkeletonList rows={4} rowHeight={110} />;
 
   const seg = <T extends string>(label: string, val: T, cur: string, fn: (v: T) => void, flex?: string) => (
     <ButtonBase

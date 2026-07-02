@@ -41,6 +41,7 @@ export function TeamsSheet({ app }: SheetProps) {
           >
             <Box
               component="span"
+              aria-hidden="true"
               sx={{
                 width: '46px',
                 height: '46px',

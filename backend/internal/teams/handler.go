@@ -109,10 +109,45 @@ func (h *Handler) GetTeam(ctx context.Context, request gen.GetTeamRequestObject)
 	return gen.GetTeam200JSONResponse(*t), nil
 }
 
+// validateUpdateTeamBody validates the optional fields of an UpdateTeam
+// request. CreateTeam validates Name via validate.Name; UpdateTeam must do
+// the same for every field it can patch, since a PATCH could otherwise set an
+// empty or unbounded name/short/icon/description.
+func validateUpdateTeamBody(body *gen.UpdateTeamRequest) error {
+	if body.Name != nil {
+		if err := validate.Name(*body.Name); err != nil {
+			return fmt.Errorf("name: %w", err)
+		}
+	}
+	fields := []struct {
+		val   *string
+		max   int
+		field string
+	}{
+		{body.Short, 50, "short"},
+		{body.Icon, 50, "icon"},
+		{body.IconBg, 50, "iconBg"},
+		{body.IconFg, 50, "iconFg"},
+		{body.Description, 10_000, "description"},
+	}
+	for _, f := range fields {
+		if f.val == nil {
+			continue
+		}
+		if err := validate.MaxLen(*f.val, f.max, f.field); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	return nil
+}
+
 // UpdateTeam applies a patch to the team.
 func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestObject) (gen.UpdateTeamResponseObject, error) {
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if err := validateUpdateTeamBody(request.Body); err != nil {
+		return nil, apierror.BadRequest(err.Error())
 	}
 
 	patch := TeamPatch{}

@@ -21,8 +21,8 @@ type mockRepo struct {
 	listByTeam func(ctx context.Context, teamID uuid.UUID, limit int, cur *absences.ListCursor) ([]*absences.AbsenceRow, error)
 	listByUser func(ctx context.Context, teamID, userID uuid.UUID, limit int, cur *absences.ListCursor) ([]*absences.AbsenceRow, error)
 	create     func(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*absences.AbsenceRow, error)
-	update     func(ctx context.Context, id, teamID uuid.UUID, fromDate, toDate, reason *string) (*absences.AbsenceRow, error)
-	delete     func(ctx context.Context, id, teamID uuid.UUID) error
+	update     func(ctx context.Context, id, teamID, userID uuid.UUID, fromDate, toDate, reason *string) (*absences.AbsenceRow, error)
+	delete     func(ctx context.Context, id, teamID, userID uuid.UUID) error
 }
 
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *absences.ListCursor) ([]*absences.AbsenceRow, error) {
@@ -37,12 +37,12 @@ func (m *mockRepo) Create(ctx context.Context, teamID, userID uuid.UUID, fromDat
 	return m.create(ctx, teamID, userID, fromDate, toDate, reason)
 }
 
-func (m *mockRepo) Update(ctx context.Context, id, teamID uuid.UUID, fromDate, toDate, reason *string) (*absences.AbsenceRow, error) {
-	return m.update(ctx, id, teamID, fromDate, toDate, reason)
+func (m *mockRepo) Update(ctx context.Context, id, teamID, userID uuid.UUID, fromDate, toDate, reason *string) (*absences.AbsenceRow, error) {
+	return m.update(ctx, id, teamID, userID, fromDate, toDate, reason)
 }
 
-func (m *mockRepo) Delete(ctx context.Context, id, teamID uuid.UUID) error {
-	return m.delete(ctx, id, teamID)
+func (m *mockRepo) Delete(ctx context.Context, id, teamID, userID uuid.UUID) error {
+	return m.delete(ctx, id, teamID, userID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -143,19 +143,21 @@ func TestService_Delete(t *testing.T) {
 
 	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	teamID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	userID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	called := false
 
 	repo := &mockRepo{
-		delete: func(_ context.Context, absID, tid uuid.UUID) error {
+		delete: func(_ context.Context, absID, tid, uid uuid.UUID) error {
 			assert.Equal(t, id, absID)
 			assert.Equal(t, teamID, tid)
+			assert.Equal(t, userID, uid)
 			called = true
 			return nil
 		},
 	}
 
 	svc := absences.NewService(repo, nil)
-	err := svc.Delete(context.Background(), id, teamID)
+	err := svc.Delete(context.Background(), id, teamID, userID)
 
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -166,15 +168,16 @@ func TestService_Delete_WrongTeam_PropagatesNoRows(t *testing.T) {
 
 	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	wrongTeamID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	userID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 
 	repo := &mockRepo{
-		delete: func(_ context.Context, _, _ uuid.UUID) error {
+		delete: func(_ context.Context, _, _, _ uuid.UUID) error {
 			return pgx.ErrNoRows
 		},
 	}
 
 	svc := absences.NewService(repo, nil)
-	err := svc.Delete(context.Background(), id, wrongTeamID)
+	err := svc.Delete(context.Background(), id, wrongTeamID, userID)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
@@ -185,13 +188,15 @@ func TestService_Update(t *testing.T) {
 
 	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	teamID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	userID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	row := makeAbsenceRow()
 	reason := "holiday"
 
 	repo := &mockRepo{
-		update: func(_ context.Context, absID, tid uuid.UUID, from, to *string, r *string) (*absences.AbsenceRow, error) {
+		update: func(_ context.Context, absID, tid, uid uuid.UUID, from, to *string, r *string) (*absences.AbsenceRow, error) {
 			assert.Equal(t, id, absID)
 			assert.Equal(t, teamID, tid)
+			assert.Equal(t, userID, uid)
 			assert.Equal(t, "holiday", *r)
 			return row, nil
 		},
@@ -199,7 +204,7 @@ func TestService_Update(t *testing.T) {
 
 	svc := absences.NewService(repo, nil)
 	body := &gen.UpdateAbsenceRequest{Reason: &reason}
-	result, err := svc.Update(context.Background(), id, teamID, body)
+	result, err := svc.Update(context.Background(), id, teamID, userID, body)
 
 	require.NoError(t, err)
 	assert.Equal(t, row.Id, result.Id)
@@ -210,17 +215,18 @@ func TestService_Update_WrongTeam_PropagatesNoRows(t *testing.T) {
 
 	id := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 	wrongTeamID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	userID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
 	reason := "holiday"
 
 	repo := &mockRepo{
-		update: func(_ context.Context, _, _ uuid.UUID, _, _ *string, _ *string) (*absences.AbsenceRow, error) {
+		update: func(_ context.Context, _, _, _ uuid.UUID, _, _ *string, _ *string) (*absences.AbsenceRow, error) {
 			return nil, pgx.ErrNoRows
 		},
 	}
 
 	svc := absences.NewService(repo, nil)
 	body := &gen.UpdateAbsenceRequest{Reason: &reason}
-	_, err := svc.Update(context.Background(), id, wrongTeamID, body)
+	_, err := svc.Update(context.Background(), id, wrongTeamID, userID, body)
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)

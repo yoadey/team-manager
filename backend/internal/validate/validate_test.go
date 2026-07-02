@@ -1,7 +1,6 @@
 package validate_test
 
 import (
-	"math"
 	"strings"
 	"testing"
 
@@ -71,10 +70,8 @@ func TestPasswordStrength(t *testing.T) {
 
 func TestPositiveAmount(t *testing.T) {
 	t.Parallel()
-	assert.NoError(t, validate.PositiveAmount(0.01, "amount"))
-	assert.NoError(t, validate.PositiveAmount(50, "amount"))
+	assert.NoError(t, validate.PositiveAmount(1, "amount"))
+	assert.NoError(t, validate.PositiveAmount(5000, "amount"))
 	assert.Error(t, validate.PositiveAmount(0, "amount"))
 	assert.Error(t, validate.PositiveAmount(-5, "amount"))
-	assert.Error(t, validate.PositiveAmount(math.NaN(), "amount"))
-	assert.Error(t, validate.PositiveAmount(math.Inf(1), "amount"))
 }

@@ -43,14 +43,14 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 
 	category := "income"
-	tx, err := repo.CreateTransaction(ctx, teamID, "income", "Membership Fee", 50.0, time.Now().UTC(), &category)
+	tx, err := repo.CreateTransaction(ctx, teamID, "income", "Membership Fee", 5000, time.Now().UTC(), &category)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 	assert.Equal(t, "Membership Fee", tx.Title)
-	assert.Equal(t, 50.0, tx.Amount)
+	assert.Equal(t, int64(5000), tx.Amount)
 
 	expenseCategory := "gear"
-	_, err = repo.CreateTransaction(ctx, teamID, "expense", "New Balls", 20.0, time.Now().UTC(), &expenseCategory)
+	_, err = repo.CreateTransaction(ctx, teamID, "expense", "New Balls", 2000, time.Now().UTC(), &expenseCategory)
 	require.NoError(t, err)
 
 	list, err := repo.ListTransactions(ctx, teamID)
@@ -60,8 +60,8 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 
 	income, expense, err := repo.SumTransactions(ctx, teamID)
 	require.NoError(t, err)
-	assert.Equal(t, 50.0, income)
-	assert.Equal(t, 20.0, expense)
+	assert.Equal(t, int64(5000), income)
+	assert.Equal(t, int64(2000), expense)
 
 	newTitle := "Updated Fee"
 	updated, err := repo.UpdateTransaction(ctx, tx.ID, teamID, finances.TransactionPatch{Title: &newTitle})
@@ -88,8 +88,8 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 
 	income, expense, err = repo.SumTransactions(ctx, teamID)
 	require.NoError(t, err)
-	assert.Equal(t, 0.0, income)
-	assert.Equal(t, 20.0, expense)
+	assert.Equal(t, int64(0), income)
+	assert.Equal(t, int64(2000), expense)
 }
 
 func TestFinancesRepository_Penalties(t *testing.T) {
@@ -105,11 +105,11 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
 
-	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 5.0)
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 500)
 	require.NoError(t, err)
 	require.NotNil(t, pen)
 	assert.Equal(t, "Late arrival", pen.Label)
-	assert.Equal(t, 5.0, pen.Amount)
+	assert.Equal(t, int64(500), pen.Amount)
 
 	pens, err := repo.ListPenalties(ctx, teamID)
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	var contribID uuid.UUID
 	err := pool.QueryRow(ctx,
 		`INSERT INTO contributions (team_id, user_id, month, amount, status)
-		 VALUES ($1, $2, '2024-06', 25.00, 'open') RETURNING id`,
+		 VALUES ($1, $2, '2024-06', 2500, 'open') RETURNING id`,
 		teamID, userID,
 	).Scan(&contribID)
 	require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, contribID, list[0].ID)
 	assert.Equal(t, "2024-06", list[0].Month)
-	assert.Equal(t, 25.0, list[0].Amount)
+	assert.Equal(t, int64(2500), list[0].Amount)
 	assert.Equal(t, "open", list[0].Status)
 
 	openCount, err := repo.CountOpenContributions(ctx, teamID)
@@ -197,7 +197,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 
 	// UpdateContribution: change label and amount.
 	newLabel := "Monthly Fee"
-	newAmount := 30.0
+	var newAmount int64 = 3000
 	updated, err := repo.UpdateContribution(ctx, contribID, teamID, finances.ContributionPatch{
 		Label:  &newLabel,
 		Amount: &newAmount,
@@ -205,7 +205,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updated.Label)
 	assert.Equal(t, "Monthly Fee", *updated.Label)
-	assert.Equal(t, 30.0, updated.Amount)
+	assert.Equal(t, int64(3000), updated.Amount)
 
 	// ToggleContributionStatus: open → paid.
 	toggled, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
@@ -242,4 +242,41 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "open", list[0].Status)
+}
+
+// TestFinancesRepository_UserIsMemberOfTeam guards against regressing to a
+// nonexistent table name (the query must target `memberships`, the table
+// every other module uses — a prior version queried a nonexistent
+// `team_members` table, which made CreateAssignment always fail its
+// membership check in production).
+func TestFinancesRepository_UserIsMemberOfTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	isMember, err := repo.UserIsMemberOfTeam(ctx, userID, teamID)
+	require.NoError(t, err)
+	assert.False(t, isMember, "user has no membership row yet")
+
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	isMember, err = repo.UserIsMemberOfTeam(ctx, userID, teamID)
+	require.NoError(t, err)
+	assert.True(t, isMember)
+
+	// A user who is not a member of this team must not be reported as one.
+	otherUserID := uuid.New()
+	isMember, err = repo.UserIsMemberOfTeam(ctx, otherUserID, teamID)
+	require.NoError(t, err)
+	assert.False(t, isMember)
 }

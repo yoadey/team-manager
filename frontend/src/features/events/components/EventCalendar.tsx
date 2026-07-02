@@ -22,8 +22,8 @@ export function EventCalendar() {
   const startDow = (first.getDay() + 6) % 7;
   const today = todayLocalDate();
 
-  const evByDate: Record<string, typeof state.events> = {};
-  state.events.forEach((e) => {
+  const evByDate: Record<string, NonNullable<typeof state.events>> = {};
+  (state.events ?? []).forEach((e) => {
     (evByDate[e.date] = evByDate[e.date] || []).push(e);
   });
 
