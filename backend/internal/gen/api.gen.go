@@ -1017,6 +1017,12 @@ type TeamId = openapi_types.UUID
 // NotFound RFC 9457 Problem Details
 type NotFound = Problem
 
+// PayloadTooLarge RFC 9457 Problem Details
+type PayloadTooLarge = Problem
+
+// TooManyRequests RFC 9457 Problem Details
+type TooManyRequests = Problem
+
 // Unauthorized RFC 9457 Problem Details
 type Unauthorized = Problem
 
@@ -4740,6 +4746,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 
 type NotFoundApplicationProblemPlusJSONResponse Problem
 
+type PayloadTooLargeApplicationProblemPlusJSONResponse Problem
+
+type TooManyRequestsApplicationProblemPlusJSONResponse Problem
+
 type UnauthorizedApplicationProblemPlusJSONResponse Problem
 
 type LoginRequestObject struct {
@@ -4776,6 +4786,22 @@ func (response Login401ApplicationProblemPlusJSONResponse) VisitLoginResponse(w 
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Login429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response Login429ApplicationProblemPlusJSONResponse) VisitLoginResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4972,6 +4998,22 @@ func (response UploadMyPhoto200JSONResponse) VisitUploadMyPhotoResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadMyPhoto413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response UploadMyPhoto413ApplicationProblemPlusJSONResponse) VisitUploadMyPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5859,6 +5901,22 @@ func (response UploadTeamLogo200JSONResponse) VisitUploadTeamLogoResponse(w http
 	return err
 }
 
+type UploadTeamLogo413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response UploadTeamLogo413ApplicationProblemPlusJSONResponse) VisitUploadTeamLogoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMembersRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 	Params ListMembersParams
@@ -6168,6 +6226,22 @@ func (response UploadTeamPhoto200JSONResponse) VisitUploadTeamPhotoResponse(w ht
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UploadTeamPhoto413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response UploadTeamPhoto413ApplicationProblemPlusJSONResponse) VisitUploadTeamPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
 	_, err := buf.WriteTo(w)
 	return err
 }

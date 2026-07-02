@@ -98,6 +98,9 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 
 	m, err := h.svc.AddMember(ctx, request.TeamId.String(), params)
 	if err != nil {
+		if errors.Is(err, ErrRoleNotInTeam) {
+			return nil, apierror.UnprocessableEntity("one or more roles do not belong to this team")
+		}
 		h.logger.ErrorContext(ctx, "AddMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.AddMember: %w", err)
 	}

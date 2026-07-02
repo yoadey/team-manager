@@ -2,7 +2,16 @@ openapi: "3.0.3"
 
 info:
   title: Team Manager API
-  description: REST API for the Teamverwaltung sports-club management application.
+  description: >-
+    REST API for the Teamverwaltung sports-club management application.
+
+
+    Every endpoint may return `429 Too Many Requests` (global per-IP rate
+    limit, `RATE_LIMIT_RPS`) or `413 Payload Too Large` (request body cap,
+    4 MB by default) — see the `TooManyRequests`/`PayloadTooLarge` reusable
+    responses. These aren't repeated on every operation below to keep the
+    spec readable; `/auth/login` documents its own stricter rate limit
+    explicitly since it differs from the global default.
   version: "1.0.0"
   contact:
     name: Team Manager
@@ -72,6 +81,8 @@ paths:
                 $ref: "#/components/schemas/LoginResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
 
   /auth/logout:
     post:
@@ -184,6 +195,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   # ── Teams ───────────────────────────────────────────────────────────────────
 
@@ -292,6 +305,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Team"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   /teams/{teamId}/logo:
     parameters:
@@ -332,6 +347,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Team"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
 
   /teams/{teamId}/invite:
     parameters:
@@ -1430,6 +1447,24 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    TooManyRequests:
+      description: >-
+        Too Many Requests. Every endpoint is subject to the global per-IP
+        rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a
+        stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force
+        protection.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: >-
+        Payload Too Large. All request bodies are capped at 4 MB by default;
+        image upload endpoints additionally enforce their own lower limit.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
 
   schemas:
 
@@ -1945,6 +1980,7 @@ components:
         repeatWeeks:
           type: integer
           minimum: 1
+          maximum: 104
 
     UpdateEventRequest:
       type: object

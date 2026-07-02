@@ -27,7 +27,7 @@ type teamRepo interface {
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error)
 	GetMemberCount(ctx context.Context, teamID string) (int, error)
 	GetMembership(ctx context.Context, teamID, userID string) (*MembershipRow, error)
-	GetRolesForMembership(ctx context.Context, membershipID string) ([]RoleRow, error)
+	GetRolesForMembership(ctx context.Context, membershipID, teamID string) ([]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
 	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
@@ -203,7 +203,7 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 		return nil, fmt.Errorf("teams.Service.enrichTeamForUser membership: %w", err)
 	}
 
-	roles, err := s.repo.GetRolesForMembership(ctx, m.Id.String())
+	roles, err := s.repo.GetRolesForMembership(ctx, m.Id.String(), tr.Id.String())
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.enrichTeamForUser roles: %w", err)
 	}

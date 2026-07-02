@@ -13,10 +13,18 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow HTTP from ingress controller and Prometheus scrape
+    # Allow HTTP from ingress controller and Prometheus scrape. Restrict the
+    # source via networkPolicy.ingress.from (see values.yaml) — left
+    # unrestricted (any source in the cluster) by default, matching prior
+    # behavior; set it to scope this to your ingress controller and
+    # Prometheus namespaces/pods.
     - ports:
         - port: 8080
           protocol: TCP
+      {{- with .Values.networkPolicy.ingress.from }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
   egress:
     # Allow DNS resolution
     - ports:

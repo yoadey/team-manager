@@ -86,6 +86,19 @@ func TestLoad_InvalidSessionTTL(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLoad_NonPositiveSessionTTLRejected(t *testing.T) {
+	for _, v := range []string{"0", "-1"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+			t.Setenv("COOKIE_SECURE", "false") // dev mode: allow ephemeral cookie key
+			t.Setenv("SESSION_TTL_HOURS", v)
+
+			_, err := config.Load()
+			require.Error(t, err, "a non-positive SESSION_TTL_HOURS must be rejected at startup, not silently produce already-expired sessions")
+		})
+	}
+}
+
 func TestLoad_CustomAllowedOrigins(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 	t.Setenv("COOKIE_SECURE", "false") // dev mode: allow ephemeral cookie key

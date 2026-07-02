@@ -245,13 +245,23 @@ describe('useCalExportActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('1 Termine als .ics exportiert');
   });
 
-  it('copyCalUrl sets copied and shows toast', () => {
-    Object.assign(navigator, { clipboard: { writeText: vi.fn() } });
+  it('copyCalUrl sets copied and shows toast', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     stateRef = makeState({ sheet: { type: 'calExport' } as never });
     const { result } = renderActions();
-    act(() => {
-      result.current.copyCalUrl();
+    await act(async () => {
+      await result.current.copyCalUrl();
     });
     expect(toastMsg).toHaveBeenCalledWith('Abo-Link kopiert');
+  });
+
+  it('copyCalUrl shows an error toast when the clipboard write fails', async () => {
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    stateRef = makeState({ sheet: { type: 'calExport' } as never });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.copyCalUrl();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen');
   });
 });

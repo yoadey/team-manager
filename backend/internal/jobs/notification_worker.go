@@ -35,8 +35,11 @@ func (NotificationArgs) Kind() string { return "notification" }
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
 // NotificationWorker inserts a notification row into Postgres.
-// River provides at-least-once delivery; the INSERT is idempotent via River's
-// job-state tracking.
+// River provides at-least-once delivery (not exactly-once): the same job can
+// run more than once if the process crashes after the INSERT commits but
+// before River records the job as complete. The insert keys on job.ID (via
+// the unique river_job_id column) with ON CONFLICT DO NOTHING to make a retry
+// a no-op instead of creating a duplicate notification row.
 type NotificationWorker struct {
 	river.WorkerDefaults[NotificationArgs]
 	pool *pgxpool.Pool
@@ -55,9 +58,10 @@ func (w *NotificationWorker) Work(ctx context.Context, job *river.Job[Notificati
 	a := job.Args
 	_, err := w.pool.Exec(ctx, `
 		INSERT INTO notifications
-		    (team_id, type, actor_id, event_id, event_title, event_date, title, note)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, a.TeamID, a.Type, a.ActorID, a.EventID, a.EventTitle, a.EventDate, a.Title, a.Note)
+		    (team_id, type, actor_id, event_id, event_title, event_date, title, note, river_job_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (river_job_id) WHERE river_job_id IS NOT NULL DO NOTHING
+	`, a.TeamID, a.Type, a.ActorID, a.EventID, a.EventTitle, a.EventDate, a.Title, a.Note, job.ID)
 	if err != nil {
 		return fmt.Errorf("jobs.NotificationWorker: insert notification: %w", err)
 	}

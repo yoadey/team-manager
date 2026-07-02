@@ -361,6 +361,33 @@ func TestMembersRepository_SetRoles_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t 
 	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
 }
 
+func TestMembersRepository_AddMember_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Foreign Role Team 2')`, otherTeamID)
+	require.NoError(t, err)
+	foreignRole := seedRole(t, pool, otherTeamID, "Foreign Role 2", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	_, err = repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:    "New Member",
+		Email:   "new-member-foreign-role@example.com",
+		RoleIDs: []string{foreignRole.String()},
+	})
+	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
+
+	// No membership or user row should have leaked in from the rejected call.
+	var count int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE email = 'new-member-foreign-role@example.com'`).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "no user row should be created when role validation fails")
+}
+
 func TestMembersRepository_RemoveMember(t *testing.T) {
 	t.Parallel()
 

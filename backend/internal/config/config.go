@@ -180,12 +180,10 @@ func Load() (*Config, error) {
 }
 
 // loadSessionTTLHours reads SESSION_TTL_HOURS, defaulting to 720 (30 days).
+// Rejects zero/negative values, which would otherwise produce sessions that
+// expire before they're created and a non-positive cookie MaxAge.
 func loadSessionTTLHours() (int, error) {
-	v := os.Getenv("SESSION_TTL_HOURS")
-	if v == "" {
-		return 720, nil
-	}
-	n, err := strconv.Atoi(v)
+	n, err := parseInt(os.Getenv("SESSION_TTL_HOURS"), 720)
 	if err != nil {
 		return 0, fmt.Errorf("SESSION_TTL_HOURS: %w", err)
 	}

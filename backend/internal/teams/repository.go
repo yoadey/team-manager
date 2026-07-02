@@ -312,16 +312,18 @@ func (r *Repository) GetMembership(ctx context.Context, teamID, userID string) (
 	return m, nil
 }
 
-// GetRolesForMembership returns all roles assigned to the given membership.
-func (r *Repository) GetRolesForMembership(ctx context.Context, membershipID string) ([]RoleRow, error) {
+// GetRolesForMembership returns all roles assigned to the given membership
+// that belong to teamID (defense in depth against a membership_roles row
+// ever pointing at a role from a different team).
+func (r *Repository) GetRolesForMembership(ctx context.Context, membershipID, teamID string) ([]RoleRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.pool.Query(ctx, `
 		SELECT r.id, r.team_id, r.name, r.system, r.color, r.permissions
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
-		WHERE mr.membership_id = $1
-	`, membershipID)
+		WHERE mr.membership_id = $1 AND r.team_id = $2
+	`, membershipID, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Repository.GetRolesForMembership: %w", err)
 	}

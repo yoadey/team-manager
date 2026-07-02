@@ -14,9 +14,9 @@ groups:
 
       - alert: HighErrorRate
         expr: |
-          sum(rate(http_requests_total{job="team-manager-backend", status=~"5.."}[5m]))
+          sum(rate(teammanager_http_requests_total{job="team-manager-backend", status=~"5.."}[5m]))
           /
-          sum(rate(http_requests_total{job="team-manager-backend"}[5m])) > 0.05
+          sum(rate(teammanager_http_requests_total{job="team-manager-backend"}[5m])) > 0.05
         for: 2m
         labels:
           severity: critical
@@ -27,7 +27,7 @@ groups:
       - alert: HighLatencyP99
         expr: |
           histogram_quantile(0.99,
-            sum(rate(http_request_duration_seconds_bucket{job="team-manager-backend"}[5m])) by (le)
+            sum(rate(teammanager_http_request_duration_seconds_bucket{job="team-manager-backend"}[5m])) by (le)
           ) > 2
         for: 5m
         labels:
@@ -80,13 +80,14 @@ groups:
     rules:
       - alert: DatabaseConnectionPoolExhausted
         expr: |
-          pgxpool_acquire_duration_seconds{quantile="0.99"} > 5
+          teammanager_pgxpool_acquired_conns{job="team-manager-backend"}
+          / teammanager_pgxpool_max_conns{job="team-manager-backend"} > 0.9
         for: 2m
         labels:
           severity: critical
         annotations:
           summary: "Database connection pool near exhaustion"
-          description: "P99 pool acquire time is {{ $value | humanizeDuration }} — pool may be exhausted."
+          description: "{{ $value | humanizePercentage }} of the pool's max connections are acquired — pool may be exhausted."
 
       - alert: SlowQueriesDetected
         expr: |

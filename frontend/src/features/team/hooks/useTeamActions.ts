@@ -180,13 +180,14 @@ export function useTeamActions({
     }
   }, [api, S, setState, toastMsg]);
 
-  const copyInvite = useCallback(() => {
+  const copyInvite = useCallback(async () => {
     const inv: Invite | null | undefined = S().sheet?.invite;
     if (!inv) return;
     try {
-      navigator.clipboard.writeText(inv.link);
+      await navigator.clipboard.writeText(inv.link);
     } catch {
-      /* ignore */
+      toastMsg(t('error.copy'));
+      return;
     }
     setState((s) => ({ sheet: { ...s.sheet!, copied: true } }));
     toastMsg(t('team.toastLinkCopied'));

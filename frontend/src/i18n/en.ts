@@ -21,6 +21,8 @@ export const en: Messages = {
     login: 'Sign-in failed',
     network: 'Could not connect to the service',
     unknown: 'Unknown error',
+    copy: 'Copy failed',
+    forbidden: "You don't have permission to do that",
   },
   relTime: {
     now: 'just now',

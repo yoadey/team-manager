@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
@@ -82,6 +83,16 @@ func failIfMetricsOpen(cfg *config.Config) {
 	}
 }
 
+// warnIfPaginationKeyOpen logs (does not fail startup — impact is limited to
+// clients being able to craft their own list-ordering cursor within data
+// they can already read) when COOKIE_SECURE=true but PAGINATION_HMAC_KEY is
+// unset, unlike JWT/cookie keys which are hard-required in that case.
+func warnIfPaginationKeyOpen(cfg *config.Config) {
+	if len(cfg.PaginationHMACKey) == 0 && cfg.CookieSecure {
+		slog.Warn("PAGINATION_HMAC_KEY is not set; pagination cursors are unsigned in production")
+	}
+}
+
 // metricsHandler exposes Prometheus metrics, requiring a bearer token when one
 // is configured. Left open when token is empty so local dev and in-cluster
 // scraping over a private network keep working.
@@ -142,6 +153,7 @@ func main() {
 	}
 
 	failIfMetricsOpen(cfg)
+	warnIfPaginationKeyOpen(cfg)
 
 	// ─── Observability ───────────────────────────────────────────────────────
 	// Tracing and error tracking are opt-in (OTEL_EXPORTER_OTLP_ENDPOINT /
@@ -161,6 +173,7 @@ func main() {
 		slog.Error("database connection failed", "err", err)
 		os.Exit(1)
 	}
+	prometheus.MustRegister(db.NewPoolStatsCollector(pool))
 
 	if err := db.RunMigrations(ctx, pool, cfg.MigrationsDir); err != nil {
 		pool.Close()
@@ -192,11 +205,6 @@ func main() {
 		slog.Error("river worker start failed", "err", err)
 		os.Exit(1)
 	}
-	defer func() {
-		if err := riverClient.Stop(ctx); err != nil {
-			slog.Error("river worker stop failed", "err", err)
-		}
-	}()
 
 	// ─── Audit logger ────────────────────────────────────────────────────────
 	// Writes to both structured log (stdout) and the audit_log DB table so that
@@ -208,7 +216,7 @@ func main() {
 	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, logger, auditLogger)
 	if err != nil {
 		slog.Error("auth init failed", "err", err)
-		os.Exit(1) //nolint:gocritic // exitAfterDefer: river client stop defer is non-critical cleanup
+		os.Exit(1)
 	}
 
 	// ─── Pagination ──────────────────────────────────────────────────────────
@@ -239,7 +247,7 @@ func main() {
 	// ─── Events ──────────────────────────────────────────────────────────────
 
 	eventsRepo := events.NewRepository(pool)
-	eventsSvc := events.NewService(eventsRepo, jobsClient, pager, rolesRepo)
+	eventsSvc := events.NewService(eventsRepo, jobsClient, pager, rolesRepo, membersRepo)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
 
 	// ─── Absences ────────────────────────────────────────────────────────────
@@ -326,9 +334,13 @@ func main() {
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Metrics)
 	r.Use(chimiddleware.Timeout(30 * time.Second))
+	// RateLimit runs before CORS so that OPTIONS preflight requests are also
+	// counted against the global limit — CORS answers OPTIONS itself and
+	// never calls next, which would otherwise let preflight traffic bypass
+	// every middleware registered after it.
+	r.Use(middleware.RateLimit(cfg.RateLimitRPS, trustedProxies))
 	r.Use(middleware.CORS(cfg.AllowedOrigins))
 	r.Use(middleware.CSRFOriginCheck(cfg.AllowedOrigins))
-	r.Use(middleware.RateLimit(cfg.RateLimitRPS, trustedProxies))
 	r.Use(middleware.BodyLimit(4 << 20)) // 4 MB default body limit
 	r.Use(middleware.APIVersion("v1"))
 
@@ -398,6 +410,12 @@ func main() {
 	defer cancel()
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
+	}
+	// Stop the job worker (draining in-flight jobs) before closing the pool it
+	// depends on — must happen in this order, not as an unbounded defer
+	// registered near Start, which would otherwise run after pool.Close().
+	if err := riverClient.Stop(shutdownCtx); err != nil {
+		slog.Error("river worker stop failed", "err", err)
 	}
 	shutdownObs(shutdownCtx)
 	pool.Close()

@@ -459,6 +459,24 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
+  security-container-frontend:
+    name: Security · Container scan (Trivy, frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [frontend-build]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Build frontend image
+        run: docker build -t team-manager-frontend:ci frontend/
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: team-manager-frontend:ci
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
   dast:
     name: DAST — OWASP ZAP Baseline
     runs-on: ubuntu-latest

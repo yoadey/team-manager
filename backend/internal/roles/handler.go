@@ -16,6 +16,16 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
+// validPermissions reports whether every per-module level in p is a known
+// PermLevel value (none|read|write). Unrecognized strings currently rank as
+// "none" everywhere permissions are evaluated, so this isn't a privilege
+// escalation, but it's still garbage we shouldn't persist in a
+// security-relevant column.
+func validPermissions(p gen.Permissions) bool {
+	return p.Events.Valid() && p.Members.Valid() && p.Finances.Valid() &&
+		p.News.Valid() && p.Polls.Valid() && p.Settings.Valid()
+}
+
 // roleService is the interface the Handler relies on.
 type roleService interface {
 	ListRoles(ctx context.Context, teamID uuid.UUID) ([]gen.Role, error)
@@ -65,6 +75,9 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 	if err := validate.Name(req.Body.Name); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if !validPermissions(req.Body.Permissions) {
+		return nil, apierror.BadRequest("permissions must each be one of none, read, write")
+	}
 	role, err := h.svc.CreateRole(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateRole failed", "err", err)
@@ -89,6 +102,9 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 		if err := validate.Name(*req.Body.Name); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
+	}
+	if req.Body.Permissions != nil && !validPermissions(*req.Body.Permissions) {
+		return nil, apierror.BadRequest("permissions must each be one of none, read, write")
 	}
 	role, err := h.svc.UpdateRole(ctx, req.RoleId, req.TeamId, req.Body)
 	if err != nil {

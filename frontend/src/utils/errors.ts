@@ -32,12 +32,25 @@ export class ValidationError extends Error {
   }
 }
 
-/** Thrown when the session has expired or credentials are invalid (HTTP 401/403). */
+/** Thrown when the session has expired or credentials are invalid (HTTP 401). */
 export class AuthError extends Error {
   readonly kind = 'auth' as const;
   constructor(message?: string) {
     super(message ?? 'Authentication error');
     this.name = 'AuthError';
+  }
+}
+
+/**
+ * Thrown when the authenticated user lacks permission for the action (HTTP
+ * 403). Distinct from AuthError: the session itself is still valid, so the
+ * user must not be logged out — only told the action isn't allowed.
+ */
+export class ForbiddenError extends Error {
+  readonly kind = 'forbidden' as const;
+  constructor(message?: string) {
+    super(message ?? 'Forbidden');
+    this.name = 'ForbiddenError';
   }
 }
 
@@ -74,9 +87,10 @@ interface ActionReporter {
   setState: (patch: { busy: null }) => void;
   toastMsg: (m: string) => void;
   /**
-   * Called when an AuthError (HTTP 401/403) is caught. Use to trigger logout
-   * and redirect to the login screen so the user is never left in a half-
-   * authenticated state.
+   * Called when an AuthError (HTTP 401 — session expired/invalid) is caught.
+   * Use to trigger logout and redirect to the login screen so the user is
+   * never left in a half-authenticated state. Not called for ForbiddenError
+   * (HTTP 403), since the session is still valid there.
    */
   onAuthError?: () => void;
 }
@@ -98,6 +112,8 @@ export function reportActionError(reporter: ActionReporter, err: unknown, fallba
   } else if (err instanceof AuthError) {
     reporter.toastMsg(t('error.login'));
     reporter.onAuthError?.();
+  } else if (err instanceof ForbiddenError) {
+    reporter.toastMsg(t('error.forbidden'));
   } else {
     reporter.toastMsg(`${t(fallbackKey)}: ${getErrorMessage(err)}`);
   }

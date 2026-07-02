@@ -126,13 +126,19 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `COOKIE_SECURE`   | `true`                      | Cookie `Secure` flag; set `false` for local http |
 | `COOKIE_NAME`     | `tv_session`                | Session cookie name (override only if needed) |
 | `METRICS_TOKEN`   | _(empty)_                   | Bearer token guarding `/metrics`; open when unset. **Recommended in production** — a warning is logged at startup when unset with `COOKIE_SECURE=true`. |
+| `METRICS_ALLOW_OPEN` | `false`                   | Set `true` to allow startup with an open, unauthenticated `/metrics` when `COOKIE_SECURE=true` and `METRICS_TOKEN` is unset (otherwise startup fails). Use only when `/metrics` is restricted at the network layer instead. |
 | `RATE_LIMIT_RPS`  | `100`                       | Global per-IP request rate limit (requests per second). |
 | `LOGIN_RATE_LIMIT_PER_MIN` | `5`              | Per-IP login attempt limit per minute (brute-force protection). |
 | `TRUSTED_PROXY_CIDRS` | _(empty)_                | Comma-separated CIDRs of reverse proxies/load balancers allowed to set `X-Forwarded-For`/`X-Real-IP`/`True-Client-IP` for rate limiting. Empty (default) trusts nothing — rate limiting keys on the raw TCP peer address, so header spoofing cannot bypass it. **Set this when deploying behind a reverse proxy/LB**, or the real clients behind it will all share one rate-limit bucket (the proxy's IP). |
+| `PAGINATION_HMAC_KEY` | _(empty)_               | AES-256-equivalent key (32 bytes, hex or base64) that HMAC-signs keyset pagination cursors so clients can't craft arbitrary ones. Optional — unsigned (plain base64) cursors are used when unset; a warning is logged at startup when unset with `COOKIE_SECURE=true`. |
+| `RETENTION_NOTIFICATIONS_DAYS` | `90`         | How many days to keep notification rows before the daily retention job deletes them. |
+| `RETENTION_SESSIONS_DAYS` | `30`               | How many days past expiry to keep session rows before the daily retention job deletes them. |
+| `RETENTION_AUDIT_LOG_DAYS` | `365`             | How many days to keep `audit_log` rows before the daily retention job deletes them. Compliance-relevant — raise if your retention policy requires longer. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_       | OTLP/HTTP collector URL; enables OpenTelemetry tracing when set (other `OTEL_*` vars honored by the SDK) |
 | `OTEL_SERVICE_NAME` | `team-manager-backend`    | Service name reported in traces |
 | `SENTRY_DSN`      | _(empty)_                   | Sentry DSN for backend error tracking; disabled when empty |
 | `ENVIRONMENT`     | _(empty)_                   | Environment label attached to Sentry events |
+| `ERROR_TYPE_BASE_URI` | _(empty)_               | Base URI prefix for the `type` field of RFC 9457 problem+json error responses (e.g. `https://docs.example.com/errors`); left as relative paths when unset. |
 
 > **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation. Set
 > the new key first, then append the old key(s): `COOKIE_ENCRYPTION_KEYS=<new>,<old>`.
@@ -170,9 +176,20 @@ Integration tests use `testutil.NewTestDB(t)` which spins up a `postgres:17` tes
 
 ## Connecting the Real Backend
 
-When replacing the mock frontend with real API calls:
+The real backend integration is already implemented, not a future step:
 
-1. Replace method bodies in `frontend/src/services/serviceLayer.ts` with `fetch()` calls
-2. The exported `api` object shape must stay unchanged — no other frontend code changes
-3. Set `VITE_API_BASE_URL` in `frontend/.env`
-4. A generated TypeScript client from the OpenAPI spec is the recommended approach (see plan)
+- `frontend/src/services/serviceLayerReal.ts` implements the full API contract against
+  the Go backend, using a generated TypeScript client (`frontend/src/api/`) from
+  `backend/openapi/openapi.yaml`.
+- `frontend/src/services/serviceLayer.ts` exports `api`, which resolves to `realApi`
+  when `VITE_API_BASE_URL` is set (see `frontend/.env`) and falls back to the in-memory
+  mock (`localStorage`-backed) otherwise — no other frontend code needs to change either
+  way, since both implementations satisfy the same `api` shape.
+- `frontend/src/services/serviceContract.test.ts` cross-tests both implementations
+  against the same contract to keep them from drifting apart.
+
+When the OpenAPI spec changes, regenerate `frontend/src/api/types.gen.ts` (via
+`openapi-typescript`, consumed by the `openapi-fetch` client in
+`frontend/src/api/client.ts`) after running `make generate` in `backend/`. There is no
+wired npm script for this yet — run `openapi-typescript` directly against
+`backend/openapi/openapi.yaml`.

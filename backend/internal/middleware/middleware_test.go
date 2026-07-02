@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -421,4 +424,54 @@ func TestRateLimit_TrustedPeer_SameForwardedFor_StillLimited(t *testing.T) {
 		handler.ServeHTTP(rec, req)
 		assert.Equal(t, wantStatus, rec.Code, "request %d", i)
 	}
+}
+
+// ─── Metrics ─────────────────────────────────────────────────────────────────
+
+// TestMetrics_LabelsUseRoutePatternNotRawPath is a regression test: recording
+// metrics with the raw request path (e.g. containing a UUID) instead of the
+// matched chi route pattern gives every distinct ID its own Prometheus label
+// combination, an unbounded-cardinality memory-growth vector reachable by
+// any caller since this middleware runs before auth.
+func TestMetrics_LabelsUseRoutePatternNotRawPath(t *testing.T) {
+	router := chi.NewRouter()
+	router.Use(middleware.Metrics)
+	router.Get("/api/v1/teams/{teamId}/events/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, id := range []string{"11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"} {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+			"/api/v1/teams/team-a/events/"+id, http.NoBody)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	var found *dto.MetricFamily
+	for _, f := range families {
+		if f.GetName() == "teammanager_http_requests_total" {
+			found = f
+			break
+		}
+	}
+	require.NotNil(t, found, "teammanager_http_requests_total must be registered")
+
+	var matchingSeries int
+	for _, m := range found.Metric {
+		for _, l := range m.Label {
+			if l.GetName() == "path" {
+				assert.NotContains(t, l.GetValue(), "11111111-1111-1111-1111-111111111111",
+					"path label must not contain the raw UUID from the request path")
+				if l.GetValue() == "/api/v1/teams/{teamId}/events/{id}" {
+					matchingSeries++
+				}
+			}
+		}
+	}
+	// Both requests (different UUIDs) must collapse into the single route-pattern series.
+	assert.Equal(t, 1, matchingSeries, "both requests must share one label series keyed by route pattern")
 }

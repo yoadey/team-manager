@@ -148,6 +148,9 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 	teamID := "ffffffff-ffff-ffff-ffff-ffffffffffff"
 	userID := "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
 
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
+	require.NoError(t, err)
+
 	params := makeCreateParams("Match Day", time.Now().UTC())
 	ev, err := repo.CreateEvent(ctx, teamID, &params)
 	require.NoError(t, err)
@@ -180,6 +183,71 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 	assert.Equal(t, "no", myRec.Status)
 }
 
+func TestEventRepository_SetAttendance_RejectsNonMember(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	nonMemberID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'No Membership Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Non Member', 'nonmember@example.com', '#123123')
+	`, nonMemberID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Non-Member Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	status := "yes"
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), nonMemberID.String(), teamID.String(), &status, nil, nil, nil)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetAttendance must reject a userID that is not a member of teamID")
+}
+
+func TestEventRepository_GetReasonVisibilityContext(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	trainerRoleID := uuid.New()
+	otherRoleID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name, reason_visibility_role_ids) VALUES ($1, 'Reason Vis Team', $2)`,
+		teamID, []uuid.UUID{trainerRoleID})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Viewer', 'viewer-reasonvis@example.com', '#123123')`,
+		viewerID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO roles (id, team_id, name) VALUES ($1, $2, 'Trainer'), ($3, $2, 'Other')
+	`, trainerRoleID, teamID, otherRoleID)
+	require.NoError(t, err)
+
+	var membershipID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, viewerID,
+	).Scan(&membershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, otherRoleID)
+	require.NoError(t, err)
+
+	teamRoleIDs, viewerRoleIDs, err := repo.GetReasonVisibilityContext(ctx, teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	assert.Equal(t, []string{trainerRoleID.String()}, teamRoleIDs)
+	assert.Equal(t, []string{otherRoleID.String()}, viewerRoleIDs)
+}
+
 func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 	t.Parallel()
 
@@ -199,6 +267,11 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Batch Team')`, teamID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3)
+	`, teamID, userID, otherUserID)
 	require.NoError(t, err)
 
 	params1 := makeCreateParams("Batch Event 1", time.Now().UTC())
@@ -307,6 +380,8 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'IDOR Team A'), ($2, 'IDOR Team B')`, teamA, teamB)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'IDOR User', 'idor@example.com', '#abcdef')`, user)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamA, user)
 	require.NoError(t, err)
 
 	params := makeCreateParams("Team A Event", time.Now().UTC())

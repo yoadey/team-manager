@@ -49,3 +49,53 @@ func TestRetentionWorker_DeletesInBatches(t *testing.T) {
 		`SELECT COUNT(*) FROM notifications WHERE team_id = $1`, teamID).Scan(&remaining))
 	assert.Equal(t, 1, remaining, "only the recent notification should survive retention")
 }
+
+// TestRetentionWorker_KeepsStillValidLongLivedSession is a regression test
+// for a bug where session retention deleted rows based on created_at instead
+// of expires_at: a session created long ago but with a long TTL (still
+// valid, expires_at in the future) must survive retention even though its
+// created_at is older than the retention window. Only sessions that have
+// actually expired (and stayed expired past the retention grace period)
+// should be purged.
+func TestRetentionWorker_KeepsStillValidLongLivedSession(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Retention User', 'retention@example.com', '#123456')`,
+		userID)
+	require.NoError(t, err)
+
+	// Created 60 days ago (older than the 30-day retention window) but still
+	// valid for another 30 days — must NOT be deleted.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sessions (user_id, token_hash, created_at, expires_at)
+		VALUES ($1, 'still-valid-long-lived', now() - interval '60 days', now() + interval '30 days')
+	`, userID)
+	require.NoError(t, err)
+
+	// Expired 100 days ago — must be deleted.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sessions (user_id, token_hash, created_at, expires_at)
+		VALUES ($1, 'long-expired', now() - interval '130 days', now() - interval '100 days')
+	`, userID)
+	require.NoError(t, err)
+
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	require.NoError(t, worker.Work(ctx, &river.Job[jobs.RetentionArgs]{}))
+
+	var tokens []string
+	rows, err := pool.Query(ctx, `SELECT token_hash FROM sessions WHERE user_id = $1`, userID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var tok string
+		require.NoError(t, rows.Scan(&tok))
+		tokens = append(tokens, tok)
+	}
+	require.NoError(t, rows.Err())
+
+	assert.Equal(t, []string{"still-valid-long-lived"}, tokens, "only the still-valid session should survive retention")
+}

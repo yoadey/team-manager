@@ -12,6 +12,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
+	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // Sentinel errors for the events package.
@@ -20,7 +21,16 @@ var (
 	ErrCreateEventNoRow        = errors.New("events.Service.CreateEvent: no row returned")
 	ErrUpdateEventNilBody      = errors.New("events.Service.UpdateEvent: nil body")
 	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
+	ErrSetAttendanceForbidden  = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
+	ErrRepeatWeeksTooLarge     = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
 )
+
+// maxRepeatWeeks caps how many events a single recurring series may create.
+// The OpenAPI spec only declares a minimum, and no request-schema validator
+// is wired into the router, so this is the only enforcement point; without
+// it, CreateSeries would loop an attacker-controlled number of times inside
+// one DB transaction.
+const maxRepeatWeeks = 104
 
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
@@ -36,6 +46,7 @@ type eventRepo interface {
 	GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error)
 	GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]AttendanceDBRow, error)
 	ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error)
+	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
 	SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
 	SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error
 	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
@@ -54,22 +65,32 @@ type teamRoleChecker interface {
 	RolesExistForTeam(ctx context.Context, teamID string, roleIDs []uuid.UUID) (bool, error)
 }
 
+// permissionChecker returns a user's effective RBAC permissions for a team.
+// Implemented by *members.Repository.
+type permissionChecker interface {
+	GetPermissions(ctx context.Context, teamID, userID uuid.UUID) (teams.PermissionsJSON, error)
+}
+
 // Service implements event business logic.
 type Service struct {
 	repo        eventRepo
 	jobs        jobEnqueuer
 	pager       *pagination.Paginator
 	roleChecker teamRoleChecker
+	permChecker permissionChecker
 }
 
 // NewService creates a new Service. pager may be nil (uses default Paginator).
 // roleChecker may be nil; when set, nominated_role_ids are validated to belong
-// to the event's team before any create or update is persisted.
-func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker) *Service {
+// to the event's team before any create or update is persisted. permChecker
+// may be nil in tests that don't exercise SetAttendance; production callers
+// must supply it so that setting another member's attendance requires
+// events:write (see SetAttendance).
+func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker, permChecker permissionChecker) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker}
+	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker, permChecker: permChecker}
 }
 
 // validateNominatedRoles checks that all provided role IDs belong to teamID.
@@ -175,6 +196,9 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 	repeatWeeks := 1
 	if body.RepeatWeeks != nil && *body.RepeatWeeks > 0 {
 		repeatWeeks = *body.RepeatWeeks
+	}
+	if repeatWeeks > maxRepeatWeeks {
+		return nil, ErrRepeatWeeksTooLarge
 	}
 
 	params := CreateEventParams{
@@ -378,21 +402,88 @@ func (s *Service) DeleteComment(ctx context.Context, commentID, userID, teamID s
 // ─── Attendance ─────────────────────────────────────────────────────────────
 
 // ListAttendance returns all attendance rows for an event scoped to teamID.
-func (s *Service) ListAttendance(ctx context.Context, eventID, teamID string) ([]gen.AttendanceRow, error) {
+// A declined ("no") attendance reason is only included for the viewer's own
+// row or for viewers holding one of the team's reason-visibility roles —
+// mirroring the frontend's canSeeReason gate, but enforced here so a member
+// can't read a teammate's private decline reason by calling the API
+// directly. Matches the RequirePermission middleware, which treats
+// events/attendance as self-service (any member may read it), so this
+// redaction is the only enforcement point for reason confidentiality.
+func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error) {
 	attendanceRows, err := s.repo.ListAttendance(ctx, eventID, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.ListAttendance: %w", err)
 	}
 
+	needsRedactionCheck := false
+	for _, a := range attendanceRows {
+		if a.Status == "no" && a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) {
+			needsRedactionCheck = true
+			break
+		}
+	}
+
+	var canSeeReasons bool
+	if needsRedactionCheck {
+		teamRoleIDs, viewerRoleIDs, err := s.repo.GetReasonVisibilityContext(ctx, teamID, viewerID)
+		if err != nil {
+			return nil, fmt.Errorf("events.Service.ListAttendance: %w", err)
+		}
+		canSeeReasons = roleSetsIntersect(teamRoleIDs, viewerRoleIDs)
+	}
+
 	out := make([]gen.AttendanceRow, 0, len(attendanceRows))
 	for _, a := range attendanceRows {
+		if a.Status == "no" && a.UserId.String() != viewerID && !canSeeReasons {
+			a.Reason = nil
+			a.ReasonId = nil
+		}
 		out = append(out, toGenAttendanceRow(&a))
 	}
 	return out, nil
 }
 
-// SetAttendance upserts an attendance record scoped to teamID.
-func (s *Service) SetAttendance(ctx context.Context, eventID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
+// roleSetsIntersect reports whether any ID in a is also present in b.
+func roleSetsIntersect(a, b []string) bool {
+	set := make(map[string]struct{}, len(a))
+	for _, id := range a {
+		set[id] = struct{}{}
+	}
+	for _, id := range b {
+		if _, ok := set[id]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// SetAttendance upserts an attendance record scoped to teamID. callerID is the
+// authenticated user making the request; userID is the member the attendance
+// row is being set for (may differ from callerID). Setting another member's
+// attendance requires events:write — self-service callers may only set their
+// own. Returns ErrSetAttendanceForbidden if the caller lacks that permission.
+func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
+	if callerID != userID {
+		if s.permChecker == nil {
+			return nil, ErrSetAttendanceForbidden
+		}
+		teamUUID, err := uuid.Parse(teamID)
+		if err != nil {
+			return nil, fmt.Errorf("events.Service.SetAttendance: parse teamID: %w", err)
+		}
+		callerUUID, err := uuid.Parse(callerID)
+		if err != nil {
+			return nil, fmt.Errorf("events.Service.SetAttendance: parse callerID: %w", err)
+		}
+		perms, err := s.permChecker.GetPermissions(ctx, teamUUID, callerUUID)
+		if err != nil {
+			return nil, fmt.Errorf("events.Service.SetAttendance: check permissions: %w", err)
+		}
+		if perms.Events != "write" {
+			return nil, ErrSetAttendanceForbidden
+		}
+	}
+
 	statusStr := string(req.Status)
 	var reasonVisStr *string
 	if req.ReasonVisibility != nil {

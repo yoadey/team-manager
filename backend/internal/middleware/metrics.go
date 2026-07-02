@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -43,7 +44,24 @@ func Metrics(next http.Handler) http.Handler {
 		httpRequestsInFlight.Dec()
 		duration := time.Since(start).Seconds()
 		status := strconv.Itoa(rw.status)
-		httpRequestsTotal.WithLabelValues(r.Method, r.URL.Path, status).Inc()
-		httpRequestDuration.WithLabelValues(r.Method, r.URL.Path).Observe(duration)
+		httpRequestsTotal.WithLabelValues(r.Method, routeLabel(r), status).Inc()
+		httpRequestDuration.WithLabelValues(r.Method, routeLabel(r)).Observe(duration)
 	})
+}
+
+// routeLabel returns the matched chi route pattern (e.g.
+// "/api/v1/teams/{teamId}/events/{id}") rather than the raw request path, so
+// dynamic UUID path segments never become distinct label values. Using
+// r.URL.Path directly would give any caller — even unauthenticated, since
+// this middleware runs before auth — unbounded control over the label
+// cardinality of an in-process Prometheus metric, a memory-growth vector.
+// Falls back to a fixed placeholder for paths that matched no route (e.g.
+// 404s), since RoutePattern() is empty in that case.
+func routeLabel(r *http.Request) string {
+	if rctx := chi.RouteContext(r.Context()); rctx != nil {
+		if pattern := rctx.RoutePattern(); pattern != "" {
+			return pattern
+		}
+	}
+	return "unmatched"
 }

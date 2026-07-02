@@ -67,7 +67,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum(rate(http_requests_total{job=\"team-manager\"}[5m]))",
+          "expr": "sum(rate(teammanager_http_requests_total{job=\"team-manager-backend\"}[5m]))",
           "legendFormat": "req/s"
         }
       ],
@@ -96,7 +96,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum(rate(http_requests_total{job=\"team-manager\",code=~\"5..\"}[5m])) / sum(rate(http_requests_total{job=\"team-manager\"}[5m]))",
+          "expr": "sum(rate(teammanager_http_requests_total{job=\"team-manager-backend\",status=~\"5..\"}[5m])) / sum(rate(teammanager_http_requests_total{job=\"team-manager-backend\"}[5m]))",
           "legendFormat": "5xx rate"
         }
       ],
@@ -125,12 +125,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"team-manager\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(teammanager_http_request_duration_seconds_bucket{job=\"team-manager-backend\"}[5m])))",
           "legendFormat": "p99"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"team-manager\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(teammanager_http_request_duration_seconds_bucket{job=\"team-manager-backend\"}[5m])))",
           "legendFormat": "p50"
         }
       ],
@@ -207,12 +207,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "rate(teammanager_login_attempts_total{status=\"success\"}[5m])",
+          "expr": "rate(teammanager_login_attempts_total{outcome=\"success\"}[5m])",
           "legendFormat": "success"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "rate(teammanager_login_attempts_total{status=\"failure\"}[5m])",
+          "expr": "rate(teammanager_login_attempts_total{outcome=\"failure\"}[5m])",
           "legendFormat": "failure"
         }
       ],
@@ -240,8 +240,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum by (limit_context) (rate(teammanager_rate_limit_hits_total[5m]))",
-          "legendFormat": "{{limit_context}}"
+          "expr": "sum by (context) (rate(teammanager_rate_limit_hits_total[5m]))",
+          "legendFormat": "{{context}}"
         }
       ],
       "title": "Rate Limit Hits/s",
@@ -270,7 +270,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "increase(teammanager_login_attempts_total{status=\"failure\"}[5m])",
+          "expr": "increase(teammanager_login_attempts_total{outcome=\"failure\"}[5m])",
           "legendFormat": "Failed logins (5m)"
         }
       ],
@@ -298,18 +298,18 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "go_sql_open_connections{job=\"team-manager\"}",
+          "expr": "teammanager_pgxpool_total_conns{job=\"team-manager-backend\"}",
           "legendFormat": "open"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "go_sql_idle_connections{job=\"team-manager\"}",
+          "expr": "teammanager_pgxpool_idle_conns{job=\"team-manager-backend\"}",
           "legendFormat": "idle"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "go_sql_wait_count_total{job=\"team-manager\"}",
-          "legendFormat": "waiting"
+          "expr": "teammanager_pgxpool_acquired_conns{job=\"team-manager-backend\"}",
+          "legendFormat": "acquired"
         }
       ],
       "title": "DB Connection Pool",

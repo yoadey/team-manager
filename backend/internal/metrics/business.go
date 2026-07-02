@@ -35,4 +35,13 @@ var (
 		Name:      "domain_events_total",
 		Help:      "Total domain-level CRUD events by module and operation.",
 	}, []string{"module", "operation"})
+
+	// SlowQueries counts database queries whose duration exceeded the
+	// slow-query threshold (see internal/db.SlowQueryTracer). Backs the
+	// SlowQueriesDetected alert.
+	SlowQueries = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "slow_queries_total",
+		Help:      "Total number of database queries exceeding the slow-query threshold.",
+	})
 )
