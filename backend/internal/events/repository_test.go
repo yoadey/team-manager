@@ -156,7 +156,7 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 
 	// First upsert: yes.
 	status := "yes"
-	rec, err := repo.SetAttendance(ctx, eventID, userID, &status, nil, nil, nil)
+	rec, err := repo.SetAttendance(ctx, eventID, userID, teamID, &status, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Equal(t, "yes", rec.Status)
@@ -165,7 +165,7 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 	// Second upsert: change to no — should update, not insert.
 	status = "no"
 	reason := "sick"
-	rec2, err := repo.SetAttendance(ctx, eventID, userID, &status, &reason, nil, nil)
+	rec2, err := repo.SetAttendance(ctx, eventID, userID, teamID, &status, &reason, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec2)
 	assert.Equal(t, "no", rec2.Status)
@@ -174,7 +174,7 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 	assert.Equal(t, firstID, rec2.Id, "upsert should update existing row, not insert new one")
 
 	// Verify GetMyAttendance returns the latest record.
-	myRec, err := repo.GetMyAttendance(ctx, eventID, userID)
+	myRec, err := repo.GetMyAttendance(ctx, eventID, userID, teamID)
 	require.NoError(t, err)
 	require.NotNil(t, myRec)
 	assert.Equal(t, "no", myRec.Status)
@@ -213,11 +213,11 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 
 	yes := "yes"
 	no := "no"
-	_, err = repo.SetAttendance(ctx, e1.Id.String(), userID.String(), &yes, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, e1.Id.String(), userID.String(), teamID.String(), &yes, nil, nil, nil)
 	require.NoError(t, err)
-	_, err = repo.SetAttendance(ctx, e1.Id.String(), otherUserID.String(), &no, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, e1.Id.String(), otherUserID.String(), teamID.String(), &no, nil, nil, nil)
 	require.NoError(t, err)
-	_, err = repo.SetAttendance(ctx, e2.Id.String(), userID.String(), &no, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, e2.Id.String(), userID.String(), teamID.String(), &no, nil, nil, nil)
 	require.NoError(t, err)
 
 	eventIDs := []uuid.UUID{e1.Id, e2.Id, e3.Id}
@@ -234,7 +234,7 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 
 	// Cross-check against the single-event methods to prove the batched
 	// queries return identical results, not just plausible-looking ones.
-	singleSummary, err := repo.GetAttendanceSummary(ctx, e1.Id.String())
+	singleSummary, err := repo.GetAttendanceSummary(ctx, e1.Id.String(), teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, singleSummary, summaries[e1.Id])
 
@@ -279,7 +279,7 @@ func TestEventRepository_SetStatus_CrossTeamBlocked(t *testing.T) {
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
 	// The event must remain unaffected.
-	unchanged, err := repo.GetEvent(ctx, ev.Id.String())
+	unchanged, err := repo.GetEvent(ctx, ev.Id.String(), teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, "active", unchanged.Status)
 
@@ -287,4 +287,92 @@ func TestEventRepository_SetStatus_CrossTeamBlocked(t *testing.T) {
 	updated, err := repo.SetStatus(ctx, ev.Id.String(), teamID.String(), "cancelled", "single")
 	require.NoError(t, err)
 	assert.Equal(t, "cancelled", updated.Status)
+}
+
+// TestEventRepository_CrossTenantIDOR verifies that every event-scoped
+// read/write repository method rejects an eventID that belongs to a
+// different team than the one supplied — regression test for the
+// cross-tenant IDOR where these methods used to filter only by eventID.
+func TestEventRepository_CrossTenantIDOR(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	user := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'IDOR Team A'), ($2, 'IDOR Team B')`, teamA, teamB)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'IDOR User', 'idor@example.com', '#abcdef')`, user)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Team A Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	// A member of Team B must not be able to read Team A's event via any
+	// event-scoped method, even though the eventID itself is valid.
+	_, err = repo.GetEvent(ctx, eventID, teamB.String())
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "GetEvent must reject cross-team eventID")
+
+	// Aggregate query, never errors — assert it reports zero for a cross-team event instead.
+	summary, err := repo.GetAttendanceSummary(ctx, eventID, teamB.String())
+	require.NoError(t, err)
+	assert.Equal(t, 0, summary.Total, "GetAttendanceSummary must not see cross-team event's attendance")
+
+	myAtt, err := repo.GetMyAttendance(ctx, eventID, user.String(), teamB.String())
+	require.NoError(t, err)
+	assert.Nil(t, myAtt, "GetMyAttendance must not see cross-team event's attendance")
+
+	attendanceList, err := repo.ListAttendance(ctx, eventID, teamB.String())
+	require.NoError(t, err)
+	assert.Empty(t, attendanceList, "ListAttendance must not see cross-team event's attendance")
+
+	comments, err := repo.ListComments(ctx, eventID, teamB.String(), 50, 0)
+	require.NoError(t, err)
+	assert.Empty(t, comments, "ListComments must not see cross-team event's comments")
+
+	// A member of Team B must not be able to write to Team A's event either.
+	status := "yes"
+	_, err = repo.SetAttendance(ctx, eventID, user.String(), teamB.String(), &status, nil, nil, nil)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetAttendance must reject cross-team eventID")
+
+	err = repo.SetNomination(ctx, eventID, user.String(), teamB.String(), false)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(false) must reject cross-team eventID")
+
+	err = repo.SetNomination(ctx, eventID, user.String(), teamB.String(), true)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(true) must reject cross-team eventID")
+
+	_, err = repo.AddComment(ctx, eventID, user.String(), teamB.String(), "cross-team comment")
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "AddComment must reject cross-team eventID")
+
+	// Verify no attendance/comment rows leaked through despite the rejected calls.
+	attendanceList, err = repo.ListAttendance(ctx, eventID, teamA.String())
+	require.NoError(t, err)
+	assert.Empty(t, attendanceList, "no attendance row should have been created by the rejected cross-team SetAttendance call")
+
+	comments, err = repo.ListComments(ctx, eventID, teamA.String(), 50, 0)
+	require.NoError(t, err)
+	assert.Empty(t, comments, "no comment should have been created by the rejected cross-team AddComment call")
+
+	// Scoped to the correct team, all the same operations succeed.
+	rec, err := repo.SetAttendance(ctx, eventID, user.String(), teamA.String(), &status, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "yes", rec.Status)
+
+	comment, err := repo.AddComment(ctx, eventID, user.String(), teamA.String(), "same-team comment")
+	require.NoError(t, err)
+	assert.Equal(t, "same-team comment", comment.Text)
+
+	// DeleteComment stays scoped by (commentID, userID) for self-ownership,
+	// but must also reject a mismatched teamID.
+	err = repo.DeleteComment(ctx, comment.Id.String(), user.String(), teamB.String())
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "DeleteComment must reject cross-team teamID")
+
+	err = repo.DeleteComment(ctx, comment.Id.String(), user.String(), teamA.String())
+	require.NoError(t, err, "DeleteComment scoped to the correct team must succeed")
 }

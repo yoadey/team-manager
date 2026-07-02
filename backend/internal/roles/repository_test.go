@@ -168,3 +168,67 @@ func TestRolesRepository_DeleteSystemRole_Fails(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "system")
 }
+
+func TestRolesRepository_UpdateSystemRole_NameOrPermissions_Fails(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Sys Role Update Team')`, tid)
+	require.NoError(t, err)
+
+	var roleID string
+	err = pool.QueryRow(
+		ctx,
+		`INSERT INTO roles (team_id, name, system, permissions) VALUES ($1, 'Admin', true, '{}') RETURNING id`, tid,
+	).Scan(&roleID)
+	require.NoError(t, err)
+
+	// A settings:write holder must not be able to rename a system role...
+	newName := "Renamed Admin"
+	_, err = repo.UpdateRole(ctx, roleID, tid, roles.RolePatch{Name: &newName})
+	require.ErrorIs(t, err, roles.ErrSystemRole)
+
+	// ...nor rewrite its permissions (the actual privilege-escalation vector).
+	newPerms := teams.PermissionsJSON{Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write"}
+	_, err = repo.UpdateRole(ctx, roleID, tid, roles.RolePatch{Permissions: &newPerms})
+	require.ErrorIs(t, err, roles.ErrSystemRole)
+
+	// Verify nothing was actually changed by the rejected attempts.
+	list, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "Admin", list[0].Name)
+	assert.Empty(t, list[0].Permissions.Events)
+}
+
+func TestRolesRepository_UpdateSystemRole_ColorOnly_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Sys Role Color Team')`, tid)
+	require.NoError(t, err)
+
+	var roleID string
+	err = pool.QueryRow(
+		ctx,
+		`INSERT INTO roles (team_id, name, system, permissions) VALUES ($1, 'Admin', true, '{}') RETURNING id`, tid,
+	).Scan(&roleID)
+	require.NoError(t, err)
+
+	// Color is cosmetic-only and must remain editable even for system roles.
+	newColor := "#123456"
+	updated, err := repo.UpdateRole(ctx, roleID, tid, roles.RolePatch{Color: &newColor})
+	require.NoError(t, err)
+	assert.Equal(t, &newColor, updated.Color)
+	assert.Equal(t, "Admin", updated.Name)
+}

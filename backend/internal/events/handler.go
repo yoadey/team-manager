@@ -24,12 +24,12 @@ type eventService interface {
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
 	DeleteEvent(ctx context.Context, eventID, teamID, scope string) error
 	SetStatus(ctx context.Context, userID, eventID, teamID, status, scope string) (*gen.TeamEvent, error)
-	ListComments(ctx context.Context, eventID string, limit, offset int) ([]gen.EventComment, error)
-	AddComment(ctx context.Context, eventID, userID, text string) (*gen.EventComment, error)
-	DeleteComment(ctx context.Context, commentID, userID string) error
-	ListAttendance(ctx context.Context, eventID string) ([]gen.AttendanceRow, error)
-	SetAttendance(ctx context.Context, eventID, userID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
-	SetNomination(ctx context.Context, eventID, userID string, req gen.SetNominationRequest) error
+	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]gen.EventComment, error)
+	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error)
+	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
+	ListAttendance(ctx context.Context, eventID, teamID string) ([]gen.AttendanceRow, error)
+	SetAttendance(ctx context.Context, eventID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
+	SetNomination(ctx context.Context, eventID, teamID string, req gen.SetNominationRequest) error
 }
 
 // Handler implements the event-related methods of gen.StrictServerInterface.
@@ -226,7 +226,7 @@ func (h *Handler) ListEventComments(ctx context.Context, request gen.ListEventCo
 	}
 
 	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
-	comments, err := h.svc.ListComments(ctx, request.EventId.String(), limit, offset)
+	comments, err := h.svc.ListComments(ctx, request.EventId.String(), request.TeamId.String(), limit, offset)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListEventComments failed", "err", err)
 		return nil, apierror.Internal("failed to list comments")
@@ -247,8 +247,11 @@ func (h *Handler) AddEventComment(ctx context.Context, request gen.AddEventComme
 		return nil, apierror.BadRequest("missing request body")
 	}
 
-	comment, err := h.svc.AddComment(ctx, request.EventId.String(), user.Id.String(), request.Body.Text)
+	comment, err := h.svc.AddComment(ctx, request.EventId.String(), user.Id.String(), request.TeamId.String(), request.Body.Text)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("event not found")
+		}
 		h.logger.ErrorContext(ctx, "AddEventComment failed", "err", err)
 		return nil, apierror.Internal("failed to add comment")
 	}
@@ -265,7 +268,7 @@ func (h *Handler) DeleteEventComment(ctx context.Context, request gen.DeleteEven
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 
-	if err := h.svc.DeleteComment(ctx, request.CommentId.String(), user.Id.String()); err != nil {
+	if err := h.svc.DeleteComment(ctx, request.CommentId.String(), user.Id.String(), request.TeamId.String()); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("comment not found or not owned by user")
 		}
@@ -285,7 +288,7 @@ func (h *Handler) ListAttendance(ctx context.Context, request gen.ListAttendance
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 
-	rows, err := h.svc.ListAttendance(ctx, request.EventId.String())
+	rows, err := h.svc.ListAttendance(ctx, request.EventId.String(), request.TeamId.String())
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to list attendance")
@@ -312,8 +315,11 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		userID = user.Id.String()
 	}
 
-	rec, err := h.svc.SetAttendance(ctx, request.EventId.String(), userID, *request.Body)
+	rec, err := h.svc.SetAttendance(ctx, request.EventId.String(), userID, request.TeamId.String(), *request.Body)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("event not found")
+		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")
 	}
@@ -325,7 +331,7 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 
 // SetNomination sets or removes nomination for a user on an event.
 func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRequestObject) (gen.SetNominationResponseObject, error) {
-	user, ok := auth.UserFromContext(ctx)
+	_, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
@@ -334,7 +340,10 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 		return nil, apierror.BadRequest("missing request body")
 	}
 
-	if err := h.svc.SetNomination(ctx, request.EventId.String(), user.Id.String(), *request.Body); err != nil {
+	if err := h.svc.SetNomination(ctx, request.EventId.String(), request.TeamId.String(), *request.Body); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("event not found")
+		}
 		h.logger.ErrorContext(ctx, "SetNomination failed", "err", err)
 		return nil, apierror.Internal("failed to set nomination")
 	}

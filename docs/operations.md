@@ -83,6 +83,29 @@ OTEL_TRACES_SAMPLER_ARG=0.1   # sample 10% of requests
 Keep sampling at 100% in staging/low-traffic environments where full
 visibility matters more than collector load.
 
+## Rate limiting
+
+The global (`RATE_LIMIT_RPS`) and login brute-force (`LOGIN_RATE_LIMIT_PER_MIN`)
+limiters key on the client's IP address. By default (`TRUSTED_PROXY_CIDRS`
+unset) that is the raw TCP peer address of the connection — client-supplied
+`X-Forwarded-For`/`X-Real-IP`/`True-Client-IP` headers are ignored, so a
+direct client cannot bypass rate limiting by spoofing them.
+
+**If the backend runs behind a reverse proxy or load balancer**, every real
+client will appear to share the proxy's IP unless you set
+`TRUSTED_PROXY_CIDRS` to the proxy's address range (e.g. your cluster's
+internal CIDR or the load balancer's known egress range). Only once the
+immediate TCP peer falls within that range are the forwarded-IP headers
+honored — this keeps the bypass protection while still supporting the common
+deployment topology. Get the CIDR wrong (too broad) and you reopen the
+spoofing bypass; get it wrong (too narrow or unset) and all clients behind
+the proxy share one rate-limit bucket.
+
+Rate limiting is also per-instance (in-memory, not shared across replicas).
+In a multi-replica deployment the effective limit scales with replica count
+— size `RATE_LIMIT_RPS`/`LOGIN_RATE_LIMIT_PER_MIN` accordingly, or put a
+rate limiter in front (API gateway, WAF) if you need a hard global cap.
+
 ## Metrics endpoint
 
 `/metrics` (Prometheus) is unauthenticated by default for in-cluster scraping

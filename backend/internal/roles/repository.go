@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,8 +15,10 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
-// ErrSystemRole is returned when attempting to delete a system role.
-var ErrSystemRole = errors.New("cannot delete system role")
+// ErrSystemRole is returned when attempting to delete a system role, or to
+// change the name/permissions of a system role (color is cosmetic-only and
+// remains editable).
+var ErrSystemRole = errors.New("cannot modify system role")
 
 // Repository handles role-related DB operations.
 type Repository struct {
@@ -83,50 +86,80 @@ func (r *Repository) CreateRole(ctx context.Context, teamID, name string, color 
 	return rr, nil
 }
 
-// UpdateRole applies a partial update to a role that belongs to teamID.
-func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID string, patch RolePatch) (*teams.RoleRow, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	setClauses := []string{}
-	args := []any{}
+// buildRoleUpdateSets constructs a SET clause and args slice for patch.
+func buildRoleUpdateSets(patch RolePatch) (setSQL string, args []any, err error) {
+	var sets []string
 	n := 1
 
 	if patch.Name != nil {
-		setClauses = append(setClauses, fmt.Sprintf("name = $%d", n))
+		sets = append(sets, fmt.Sprintf("name = $%d", n))
 		args = append(args, *patch.Name)
 		n++
 	}
 	if patch.Color != nil {
-		setClauses = append(setClauses, fmt.Sprintf("color = $%d", n))
+		sets = append(sets, fmt.Sprintf("color = $%d", n))
 		args = append(args, *patch.Color)
 		n++
 	}
 	if patch.Permissions != nil {
-		permJSON, err := json.Marshal(*patch.Permissions)
-		if err != nil {
-			return nil, fmt.Errorf("roles.Repository.UpdateRole: marshal permissions: %w", err)
+		permJSON, marshalErr := json.Marshal(*patch.Permissions)
+		if marshalErr != nil {
+			return "", nil, fmt.Errorf("roles.buildRoleUpdateSets: marshal permissions: %w", marshalErr)
 		}
-		setClauses = append(setClauses, fmt.Sprintf("permissions = $%d", n))
+		sets = append(sets, fmt.Sprintf("permissions = $%d", n))
 		args = append(args, permJSON)
-		n++
 	}
 
-	if len(setClauses) == 0 {
+	return strings.Join(sets, ", "), args, nil
+}
+
+// checkNotSystemRole returns ErrSystemRole if roleID (scoped to teamID) is a
+// system role, and pgx.ErrNoRows if it doesn't exist in that team.
+func (r *Repository) checkNotSystemRole(ctx context.Context, roleID, teamID string) error {
+	var isSystem bool
+	err := r.pool.QueryRow(ctx, `SELECT system FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID).Scan(&isSystem)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgx.ErrNoRows
+		}
+		return fmt.Errorf("roles.Repository.checkNotSystemRole: %w", err)
+	}
+	if isSystem {
+		return ErrSystemRole
+	}
+	return nil
+}
+
+// UpdateRole applies a partial update to a role that belongs to teamID.
+// Renaming or re-permissioning a system role (Admin/Member, created at team
+// setup) would let any settings:write holder silently rewrite what those
+// built-in roles grant — the same escalation DeleteRole already blocks, so
+// those changes are rejected with ErrSystemRole. Color is cosmetic-only and
+// stays editable even on system roles.
+func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID string, patch RolePatch) (*teams.RoleRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	setSQL, args, err := buildRoleUpdateSets(patch)
+	if err != nil {
+		return nil, err
+	}
+	if len(args) == 0 {
 		return r.getRoleByID(ctx, roleID, teamID)
 	}
 
-	setSQL := ""
-	for i, c := range setClauses {
-		if i > 0 {
-			setSQL += ", "
+	if patch.Name != nil || patch.Permissions != nil {
+		if err := r.checkNotSystemRole(ctx, roleID, teamID); err != nil {
+			return nil, err
 		}
-		setSQL += c
 	}
+
+	n := len(args) + 1
 	args = append(args, roleID, teamID)
 
 	rr := &teams.RoleRow{}
 	var permBytes []byte
-	err := r.pool.QueryRow(ctx, fmt.Sprintf(`
+	err = r.pool.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE roles SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, name, system, color, permissions
 	`, setSQL, n, n+1), args...).Scan(
@@ -150,17 +183,8 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID string, patc
 func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// Check system flag first, scoped to the team.
-	var isSystem bool
-	err := r.pool.QueryRow(ctx, `SELECT system FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID).Scan(&isSystem)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return pgx.ErrNoRows
-		}
-		return fmt.Errorf("roles.Repository.DeleteRole: check system: %w", err)
-	}
-	if isSystem {
-		return ErrSystemRole
+	if err := r.checkNotSystemRole(ctx, roleID, teamID); err != nil {
+		return err
 	}
 
 	tag, err := r.pool.Exec(ctx, `DELETE FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID)

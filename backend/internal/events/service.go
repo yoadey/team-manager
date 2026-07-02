@@ -25,22 +25,22 @@ var (
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
 	ListEvents(ctx context.Context, teamID string, scope string, limit int, cur *ListCursor) ([]EventRow, error)
-	GetEvent(ctx context.Context, eventID string) (*EventRow, error)
+	GetEvent(ctx context.Context, eventID, teamID string) (*EventRow, error)
 	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
 	UpdateEvent(ctx context.Context, eventID, teamID string, params *UpdateEventParams, scope string) (*EventRow, error)
 	SetStatus(ctx context.Context, eventID, teamID, status, scope string) (*EventRow, error)
 	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
-	GetAttendanceSummary(ctx context.Context, eventID string) (EventSummaryData, error)
-	GetMyAttendance(ctx context.Context, eventID, userID string) (*AttendanceDBRow, error)
+	GetAttendanceSummary(ctx context.Context, eventID, teamID string) (EventSummaryData, error)
+	GetMyAttendance(ctx context.Context, eventID, userID, teamID string) (*AttendanceDBRow, error)
 	GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error)
 	GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]AttendanceDBRow, error)
-	ListAttendance(ctx context.Context, eventID string) ([]AttendanceEnriched, error)
-	SetAttendance(ctx context.Context, eventID, userID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
-	SetNomination(ctx context.Context, eventID, userID string, nominated bool) error
-	ListComments(ctx context.Context, eventID string, limit, offset int) ([]CommentRow, error)
-	AddComment(ctx context.Context, eventID, userID, text string) (*CommentRow, error)
-	DeleteComment(ctx context.Context, commentID, userID string) error
+	ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error)
+	SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
+	SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error
+	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
+	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error)
+	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
 }
 
 // jobEnqueuer is satisfied by *jobs.Client.
@@ -150,12 +150,12 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor 
 
 // GetEvent retrieves a single event by ID enriched with summary and user status.
 func (s *Service) GetEvent(ctx context.Context, teamID, userID, eventID string) (*gen.TeamEvent, error) {
-	row, err := s.repo.GetEvent(ctx, eventID)
+	row, err := s.repo.GetEvent(ctx, eventID, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.GetEvent: %w", err)
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +291,7 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		return nil, fmt.Errorf("events.Service.UpdateEvent: %w", err)
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +334,7 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID)
+	ev, err := s.enrichEvent(ctx, row, userID, teamID)
 	if err != nil {
 		return nil, err
 	}
@@ -343,9 +343,9 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
-// ListComments returns paginated comments for an event.
-func (s *Service) ListComments(ctx context.Context, eventID string, limit, offset int) ([]gen.EventComment, error) {
-	rows, err := s.repo.ListComments(ctx, eventID, limit, offset)
+// ListComments returns paginated comments for an event scoped to teamID.
+func (s *Service) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]gen.EventComment, error) {
+	rows, err := s.repo.ListComments(ctx, eventID, teamID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.ListComments: %w", err)
 	}
@@ -357,9 +357,9 @@ func (s *Service) ListComments(ctx context.Context, eventID string, limit, offse
 	return out, nil
 }
 
-// AddComment adds a comment to an event.
-func (s *Service) AddComment(ctx context.Context, eventID, userID, text string) (*gen.EventComment, error) {
-	c, err := s.repo.AddComment(ctx, eventID, userID, text)
+// AddComment adds a comment to an event scoped to teamID.
+func (s *Service) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error) {
+	c, err := s.repo.AddComment(ctx, eventID, userID, teamID, text)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.AddComment: %w", err)
 	}
@@ -367,9 +367,9 @@ func (s *Service) AddComment(ctx context.Context, eventID, userID, text string) 
 	return &gc, nil
 }
 
-// DeleteComment deletes a comment if the user owns it.
-func (s *Service) DeleteComment(ctx context.Context, commentID, userID string) error {
-	if err := s.repo.DeleteComment(ctx, commentID, userID); err != nil {
+// DeleteComment deletes a comment if the user owns it and it belongs to teamID.
+func (s *Service) DeleteComment(ctx context.Context, commentID, userID, teamID string) error {
+	if err := s.repo.DeleteComment(ctx, commentID, userID, teamID); err != nil {
 		return fmt.Errorf("events.Service.DeleteComment: %w", err)
 	}
 	return nil
@@ -377,9 +377,9 @@ func (s *Service) DeleteComment(ctx context.Context, commentID, userID string) e
 
 // ─── Attendance ─────────────────────────────────────────────────────────────
 
-// ListAttendance returns all attendance rows for an event.
-func (s *Service) ListAttendance(ctx context.Context, eventID string) ([]gen.AttendanceRow, error) {
-	attendanceRows, err := s.repo.ListAttendance(ctx, eventID)
+// ListAttendance returns all attendance rows for an event scoped to teamID.
+func (s *Service) ListAttendance(ctx context.Context, eventID, teamID string) ([]gen.AttendanceRow, error) {
+	attendanceRows, err := s.repo.ListAttendance(ctx, eventID, teamID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.ListAttendance: %w", err)
 	}
@@ -391,8 +391,8 @@ func (s *Service) ListAttendance(ctx context.Context, eventID string) ([]gen.Att
 	return out, nil
 }
 
-// SetAttendance upserts an attendance record.
-func (s *Service) SetAttendance(ctx context.Context, eventID, userID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
+// SetAttendance upserts an attendance record scoped to teamID.
+func (s *Service) SetAttendance(ctx context.Context, eventID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
 	statusStr := string(req.Status)
 	var reasonVisStr *string
 	if req.ReasonVisibility != nil {
@@ -400,7 +400,7 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, userID string, req
 		reasonVisStr = &rv
 	}
 
-	a, err := s.repo.SetAttendance(ctx, eventID, userID, &statusStr, req.Reason, req.ReasonId, reasonVisStr)
+	a, err := s.repo.SetAttendance(ctx, eventID, userID, teamID, &statusStr, req.Reason, req.ReasonId, reasonVisStr)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.SetAttendance: %w", err)
 	}
@@ -408,9 +408,9 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, userID string, req
 	return &rec, nil
 }
 
-// SetNomination sets or removes a user's nomination on an event.
-func (s *Service) SetNomination(ctx context.Context, eventID, userID string, req gen.SetNominationRequest) error {
-	if err := s.repo.SetNomination(ctx, eventID, req.UserId.String(), req.Nominated); err != nil {
+// SetNomination sets or removes a user's nomination on an event scoped to teamID.
+func (s *Service) SetNomination(ctx context.Context, eventID, teamID string, req gen.SetNominationRequest) error {
+	if err := s.repo.SetNomination(ctx, eventID, req.UserId.String(), teamID, req.Nominated); err != nil {
 		return fmt.Errorf("events.Service.SetNomination: %w", err)
 	}
 	return nil
@@ -419,8 +419,8 @@ func (s *Service) SetNomination(ctx context.Context, eventID, userID string, req
 // ─── internal helpers ────────────────────────────────────────────────────────
 
 // enrichEvent converts an EventRow to a gen.TeamEvent, fetching summary and user attendance.
-func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID string) (gen.TeamEvent, error) {
-	summary, err := s.repo.GetAttendanceSummary(ctx, row.Id.String())
+func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID, teamID string) (gen.TeamEvent, error) {
+	summary, err := s.repo.GetAttendanceSummary(ctx, row.Id.String(), teamID)
 	if err != nil {
 		return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetAttendanceSummary: %w", err)
 	}
@@ -428,7 +428,7 @@ func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID string)
 	ev := toGenEvent(row, summary)
 
 	if userID != "" {
-		myAtt, err := s.repo.GetMyAttendance(ctx, row.Id.String(), userID)
+		myAtt, err := s.repo.GetMyAttendance(ctx, row.Id.String(), userID, teamID)
 		if err != nil {
 			return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetMyAttendance: %w", err)
 		}

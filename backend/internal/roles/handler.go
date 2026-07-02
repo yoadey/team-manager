@@ -95,6 +95,9 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("role not found")
 		}
+		if errors.Is(err, ErrSystemRole) {
+			return nil, apierror.Forbidden("cannot change the name or permissions of a built-in system role")
+		}
 		h.logger.ErrorContext(ctx, "UpdateRole failed", "err", err)
 		return nil, apierror.Internal("failed to update role")
 	}
@@ -113,6 +116,9 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 	if err := h.svc.DeleteRole(ctx, req.RoleId, req.TeamId); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("role not found")
+		}
+		if errors.Is(err, ErrSystemRole) {
+			return nil, apierror.Forbidden("cannot delete a built-in system role")
 		}
 		h.logger.ErrorContext(ctx, "DeleteRole failed", "err", err)
 		return nil, apierror.Internal("failed to delete role")

@@ -252,6 +252,14 @@ func (r *Repository) ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVo
 // aren't inserted yet. Callers must have already rejected optionIDs with
 // len > 1 for single-choice (multiple=false) polls; this method trusts that
 // invariant instead of silently truncating input to the first option.
+//
+// A transaction-scoped advisory lock keyed on (pollID, userID) serializes
+// concurrent calls for the same user+poll. Without it, two concurrent votes
+// for different options on a single-choice poll can each run their DELETE
+// before either INSERT commits (Read Committed isolation), so neither
+// observes the other's row and both succeed — leaving the user with two
+// votes on a poll that's supposed to allow only one. The lock is released
+// automatically on commit/rollback.
 func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -261,6 +269,14 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 		return fmt.Errorf("polls.Repository.ReplaceVotes: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(
+		ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended($1 || $2, 0))`,
+		pollID.String(), userID.String(),
+	); err != nil {
+		return fmt.Errorf("polls.Repository.ReplaceVotes lock: %w", err)
+	}
 
 	if _, err := tx.Exec(
 		ctx,

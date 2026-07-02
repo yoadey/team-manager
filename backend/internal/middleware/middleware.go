@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"runtime/debug"
@@ -133,31 +134,86 @@ func makeLimitHandler(window time.Duration, limitCtx string) httprate.Option {
 	})
 }
 
+// ParseTrustedProxies parses CIDR strings (already validated by
+// config.Load) into *net.IPNet values for use by trustedProxyKeyFunc.
+func ParseTrustedProxies(cidrs []string) ([]*net.IPNet, error) {
+	nets := make([]*net.IPNet, 0, len(cidrs))
+	for _, c := range cidrs {
+		_, ipNet, err := net.ParseCIDR(c)
+		if err != nil {
+			return nil, fmt.Errorf("middleware.ParseTrustedProxies: %q: %w", c, err)
+		}
+		nets = append(nets, ipNet)
+	}
+	return nets, nil
+}
+
+// trustedProxyKeyFunc returns an httprate.KeyFunc that only honors
+// client-supplied IP headers (True-Client-IP / X-Real-IP / X-Forwarded-For)
+// when the immediate TCP peer address falls within a trusted CIDR. For any
+// other peer, those headers are ignored and the raw connection address is
+// used instead — this prevents a client from bypassing rate limiting
+// (including login brute-force protection) by spoofing the headers, while
+// still supporting the common reverse-proxy/load-balancer deployment when
+// its address range is explicitly configured.
+func trustedProxyKeyFunc(trusted []*net.IPNet) httprate.KeyFunc {
+	return func(r *http.Request) (string, error) {
+		if isTrustedPeer(r.RemoteAddr, trusted) {
+			return httprate.KeyByRealIP(r)
+		}
+		return httprate.KeyByIP(r)
+	}
+}
+
+// isTrustedPeer reports whether remoteAddr's host portion falls within any
+// of the trusted CIDR ranges. No ranges configured means nothing is trusted.
+func isTrustedPeer(remoteAddr string, trusted []*net.IPNet) bool {
+	if len(trusted) == 0 {
+		return false
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range trusted {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // RateLimit returns middleware that limits each client IP to requestsPerSecond
 // per second using a sliding-window counter.
 //
 // Keying by IP (rather than a single global counter) means one noisy client
 // cannot exhaust the request budget for everyone, and per-instance throughput
-// is not artificially capped by aggregate traffic. Behind a proxy/load balancer
-// this relies on X-Forwarded-For / X-Real-IP being set correctly.
-func RateLimit(requestsPerSecond int) func(http.Handler) http.Handler {
+// is not artificially capped by aggregate traffic. trustedProxies restricts
+// which peers' X-Forwarded-For/X-Real-IP headers are honored — see
+// trustedProxyKeyFunc.
+func RateLimit(requestsPerSecond int, trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
 	return httprate.NewRateLimiter(
 		requestsPerSecond,
 		time.Second,
 		makeLimitHandler(time.Second, "global"),
-		httprate.WithKeyFuncs(httprate.KeyByRealIP),
+		httprate.WithKeyFuncs(trustedProxyKeyFunc(trustedProxies)),
 	).Handler
 }
 
 // PerIPRateLimit returns middleware that limits each unique remote IP to
 // requestsPerPeriod within period. Intended for sensitive endpoints such as
-// login where brute-force protection is critical.
-func PerIPRateLimit(requestsPerPeriod int, period time.Duration) func(http.Handler) http.Handler {
+// login where brute-force protection is critical. See RateLimit for the
+// trustedProxies semantics.
+func PerIPRateLimit(requestsPerPeriod int, period time.Duration, trustedProxies []*net.IPNet) func(http.Handler) http.Handler {
 	return httprate.NewRateLimiter(
 		requestsPerPeriod,
 		period,
 		makeLimitHandler(period, "login"),
-		httprate.WithKeyFuncs(httprate.KeyByRealIP),
+		httprate.WithKeyFuncs(trustedProxyKeyFunc(trustedProxies)),
 	).Handler
 }
 

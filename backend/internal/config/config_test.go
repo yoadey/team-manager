@@ -166,6 +166,8 @@ func TestLoad_CookieKeyFromHex(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 	t.Setenv("COOKIE_SECURE", "true")
 	t.Setenv("COOKIE_ENCRYPTION_KEY", hexKey)
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -179,6 +181,8 @@ func TestLoad_CookieKeyFromBase64(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 	t.Setenv("COOKIE_SECURE", "true")
 	t.Setenv("COOKIE_ENCRYPTION_KEY", b64Key)
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -202,6 +206,8 @@ func TestLoad_CookieEncryptionKeysPlural(t *testing.T) {
 	t.Setenv("COOKIE_SECURE", "true")
 	t.Setenv("COOKIE_ENCRYPTION_KEY", "")
 	t.Setenv("COOKIE_ENCRYPTION_KEYS", key0+","+key1)
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -218,6 +224,82 @@ func TestLoad_CookieEncryptionKeysPluralInvalidEntry(t *testing.T) {
 
 	_, err := config.Load()
 	require.ErrorIs(t, err, config.ErrInvalidCookieKey)
+}
+
+func TestLoad_AllowedOriginsAllEmpty(t *testing.T) {
+	// Regression test: ALLOWED_ORIGINS set to only commas/whitespace used to
+	// panic with "index out of range [0] with length 0" inside Load() (before
+	// the HTTP server/Recoverer middleware exist) instead of returning a
+	// clean, actionable config error.
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("ALLOWED_ORIGINS", ", ,")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrNoAllowedOrigins)
+}
+
+func TestLoad_JWTKeysRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "")
+	t.Setenv("JWT_PUBLIC_KEY", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrJWTKeysRequired)
+}
+
+func TestLoad_JWTKeysPartialRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrJWTKeysRequired)
+}
+
+func TestLoad_JWTKeysEphemeralInDev(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("JWT_PRIVATE_KEY", "")
+	t.Setenv("JWT_PUBLIC_KEY", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.JWTPrivateKey)
+	assert.Empty(t, cfg.JWTPublicKey)
+}
+
+func TestLoad_TrustedProxyCIDRsDefaultEmpty(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.TrustedProxyCIDRs)
+}
+
+func TestLoad_TrustedProxyCIDRsParsed(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "10.0.0.0/8, 172.16.0.0/12")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.0/8", "172.16.0.0/12"}, cfg.TrustedProxyCIDRs)
+}
+
+func TestLoad_TrustedProxyCIDRsInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("TRUSTED_PROXY_CIDRS", "not-a-cidr")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrInvalidTrustedProxyCIDR)
 }
 
 func TestLoad_DatabaseURLInvalidScheme(t *testing.T) {

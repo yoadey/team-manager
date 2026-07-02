@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/roles"
@@ -204,4 +205,42 @@ func TestHandler_DeleteRole_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitDeleteRoleResponse(w))
 	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestHandler_DeleteRole_SystemRole_Forbidden(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		deleteRole: func(_ context.Context, _, _ uuid.UUID) error { return roles.ErrSystemRole },
+	}
+	h := roles.NewHandler(svc, slog.Default(), nil)
+
+	_, err := h.DeleteRole(rolesAuthedCtx(), gen.DeleteRoleRequestObject{
+		TeamId: rolesTeamID,
+		RoleId: testRoleID,
+	})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestHandler_UpdateRole_SystemRole_Forbidden(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		updateRole: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+			return nil, roles.ErrSystemRole
+		},
+	}
+	h := roles.NewHandler(svc, slog.Default(), nil)
+
+	newName := "Renamed"
+	_, err := h.UpdateRole(rolesAuthedCtx(), gen.UpdateRoleRequestObject{
+		TeamId: rolesTeamID,
+		RoleId: testRoleID,
+		Body:   &gen.UpdateRoleJSONRequestBody{Name: &newName},
+	})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
 }

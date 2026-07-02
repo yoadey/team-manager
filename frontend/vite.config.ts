@@ -44,7 +44,10 @@ export default defineConfig({
     },
   },
   build: {
-    // Emit source maps so Sentry can symbolicate production stack traces.
+    // Emitted for local stack-trace symbolication and potential future Sentry
+    // release uploads. The Dockerfile deletes *.map from dist/ before the
+    // image is built, and nginx also denies *.map requests as a backstop —
+    // never serve source maps from the public production site.
     sourcemap: true,
     rollupOptions: {
       output: {

@@ -2,6 +2,7 @@ package polls_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -108,6 +109,68 @@ func TestPollRepository_Vote(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, votes, 1)
 	assert.Equal(t, noID, votes[0].OptionId)
+}
+
+// TestPollRepository_ReplaceVotes_ConcurrentSingleChoice_NoDoubleVote is a
+// regression test for a race where two concurrent ReplaceVotes calls for the
+// same user on a single-choice poll could each observe an empty poll_votes
+// table (both DELETEs run before either INSERT commits under Read Committed
+// isolation) and both succeed, leaving the user with two votes on a poll
+// that's supposed to allow only one. The advisory lock in ReplaceVotes must
+// serialize these calls so exactly one vote survives.
+func TestPollRepository_ReplaceVotes_ConcurrentSingleChoice_NoDoubleVote(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := polls.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Racer', 'racer@example.com', '#ff00ff')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Race Team')`,
+		tid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	pollID, err := repo.Create(ctx, teamID, userID, "Race?", false, false, []string{"A", "B"})
+	require.NoError(t, err)
+
+	opts, err := repo.ListOptions(ctx, pollID)
+	require.NoError(t, err)
+	require.Len(t, opts, 2)
+	optA, optB := opts[0].Id, opts[1].Id
+
+	const rounds = 20
+	for i := 0; i < rounds; i++ {
+		var wg sync.WaitGroup
+		errs := make(chan error, 2)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			errs <- repo.ReplaceVotes(ctx, pollID, userID, []uuid.UUID{optA}, false)
+		}()
+		go func() {
+			defer wg.Done()
+			errs <- repo.ReplaceVotes(ctx, pollID, userID, []uuid.UUID{optB}, false)
+		}()
+		wg.Wait()
+		close(errs)
+		for e := range errs {
+			require.NoError(t, e)
+		}
+
+		votes, err := repo.ListVotes(ctx, pollID)
+		require.NoError(t, err)
+		require.Lenf(t, votes, 1, "round %d: user must have exactly one vote on a single-choice poll, got %d", i, len(votes))
+	}
 }
 
 func TestPollRepository_Delete(t *testing.T) {

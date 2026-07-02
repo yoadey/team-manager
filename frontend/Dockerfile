@@ -17,7 +17,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
     VITE_BUILD_VERSION=$VITE_BUILD_VERSION \
     VITE_BUILD_COMMIT=$VITE_BUILD_COMMIT
 
-RUN npm run build
+RUN npm run build && find dist -name '*.map' -delete
 
 # ── Runtime stage ───────────────────────────────────────────────────────────────
 # Serve the static bundle with nginx. The image ships no Node runtime or source.
