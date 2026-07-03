@@ -27,6 +27,7 @@ export function MembersPage() {
     return (
       <ButtonBase
         key={m.membershipId}
+        data-testid="member-row"
         onClick={() => app.openMemberDetail(m.membershipId)}
         sx={{
           display: 'flex',

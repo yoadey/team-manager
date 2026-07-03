@@ -25,13 +25,15 @@ test.describe('Accessibility smoke tests', () => {
     await expect(skipLink).toBeAttached();
   });
 
-  test('error boundary retry button is focusable', async ({ page }) => {
-    // Test that the page loads at all without an error boundary triggering
+  test('login boots the app without hitting an error boundary', async ({ page }) => {
+    // Was previously a tautological assertion: `.not.toBeVisible(...).catch(() => {})`
+    // swallows the one rejection this assertion exists to surface, so it could
+    // never fail even if the app actually crashed into ErrorBoundary's
+    // DefaultFallback (components/ErrorBoundary.tsx) on login. There is no
+    // dev/test-only hook to deliberately trigger the boundary and check its
+    // retry button's focusability (what this test's name used to claim), so
+    // this is scoped to what it can actually verify without adding one.
     await login(page);
-    const errorMsg = page.getByText(/something went wrong|fehler/i);
-    // Should NOT see an error
-    await expect(errorMsg)
-      .not.toBeVisible({ timeout: 3_000 })
-      .catch(() => {});
+    await expect(page.getByText(/something went wrong|schiefgelaufen|konnte nicht geladen werden/i)).not.toBeVisible();
   });
 });

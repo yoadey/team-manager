@@ -30,12 +30,8 @@ test.describe('Events', () => {
   test('calendar view renders month grid', async ({ page }) => {
     const calTab = page.getByRole('tab', { name: /calendar|kalender/i });
     await calTab.click();
-    // Calendar grid should have day cells
-    await expect(page.locator('[role="grid"], .calendar-grid').first())
-      .toBeVisible({ timeout: 6_000 })
-      .catch(() => {
-        // Fallback: just ensure the tab is selected
-      });
     await expect(calTab).toHaveAttribute('aria-selected', 'true');
+    // Calendar grid should have day cells
+    await expect(page.getByTestId('calendar-grid')).toBeVisible({ timeout: 6_000 });
   });
 });

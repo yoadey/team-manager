@@ -55,13 +55,6 @@ test.describe('User Journeys', () => {
     await expect(
       page.getByText(/einladen|invite/i).first()
     ).toBeVisible({ timeout: 8_000 });
-
-    // Additionally check for a heading or link/QR related to the invite
-    const inviteHeading = page.getByRole('heading', { name: /einladen|invite/i });
-    const inviteLink = page.locator('input[type="url"], [data-testid="invite-link"], canvas').first();
-    const anyVisible = await inviteHeading.isVisible().catch(() => false) ||
-      await inviteLink.isVisible().catch(() => false);
-    expect(anyVisible || true).toBe(true); // sheet already confirmed above
   });
 
   // Journey 3 — Create a finance booking

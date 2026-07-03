@@ -221,7 +221,9 @@ export function EventCalendar() {
             <Sym name="chevron_right" size={22} color={NEUTRAL.onSurfaceVariant} />
           </ButtonBase>
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}>{cells}</Box>
+        <Box data-testid="calendar-grid" sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}>
+          {cells}
+        </Box>
       </Card>
     </Box>
   );

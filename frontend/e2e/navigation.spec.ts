@@ -31,16 +31,18 @@ test.describe('Navigation', () => {
     const search = page.getByRole('searchbox');
     await search.waitFor({ state: 'visible', timeout: NAV_TIMEOUT });
 
+    const memberRows = page.locator('[data-testid="member-row"]');
+    await expect(memberRows.first()).toBeVisible({ timeout: NAV_TIMEOUT });
+    const countBeforeFilter = await memberRows.count();
+
     // Type a query that will match nobody
     await search.fill('zzz_no_match_xyz');
-    // The list should now be empty (no member rows)
-    const memberRows = page.locator('[data-testid="member-row"]');
-    await expect(memberRows)
-      .toHaveCount(0, { timeout: 3_000 })
-      .catch(() => {
-        // If no data-testid, just verify search input has the value
-      });
+    await expect(memberRows).toHaveCount(0);
     await expect(search).toHaveValue('zzz_no_match_xyz');
+
+    // Clearing the query restores the full, unfiltered list.
+    await search.fill('');
+    await expect(memberRows).toHaveCount(countBeforeFilter);
   });
 
   test('tabs switch between list/calendar/absences on Events page', async ({ page }) => {
