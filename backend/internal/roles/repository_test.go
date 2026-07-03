@@ -198,6 +198,88 @@ func TestRolesRepository_DeleteRole_NotLastSettingsAdmin_Allowed(t *testing.T) {
 	assert.Equal(t, roleB.Id, list[0].Id)
 }
 
+// Regression test: UpdateRole previously had no last-settings-admin guard at
+// all, so revoking settings:write via an edit (instead of deleting the role
+// outright) could lock a team out of settings/role management — exactly the
+// state DeleteRole's ErrLastSettingsAdmin guard exists to prevent.
+func TestRolesRepository_UpdateRole_RevokingLastSettingsWrite_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	uid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Last Admin Update Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Sole Admin', 'sole-update-admin@example.com', '#654321')`, uid)
+	require.NoError(t, err)
+	var mid string
+	err = pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid).Scan(&mid)
+	require.NoError(t, err)
+
+	adminRole, err := repo.CreateRole(ctx, tid, "Custom Admin", nil, teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write",
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid, adminRole.Id.String())
+	require.NoError(t, err)
+
+	downgraded := teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "read",
+	}
+	_, err = repo.UpdateRole(ctx, adminRole.Id.String(), tid, roles.RolePatch{Permissions: &downgraded})
+	require.ErrorIs(t, err, roles.ErrLastSettingsAdmin)
+
+	// The role's permissions must be untouched by the rejected update.
+	got, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "write", got[0].Permissions.Settings)
+}
+
+// A settings:write role's permissions can be downgraded once another
+// role/member already provides equivalent coverage.
+func TestRolesRepository_UpdateRole_NotLastSettingsAdmin_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	uid1 := uuid.New().String()
+	uid2 := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Two Admin Roles Update Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Admin One', 'role-update-admin1@example.com', '#111112')`, uid1)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Admin Two', 'role-update-admin2@example.com', '#222223')`, uid2)
+	require.NoError(t, err)
+	var mid1, mid2 string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid1).Scan(&mid1))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid2).Scan(&mid2))
+
+	adminPerms := teams.PermissionsJSON{Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write"}
+	roleA, err := repo.CreateRole(ctx, tid, "Admin A", nil, adminPerms)
+	require.NoError(t, err)
+	roleB, err := repo.CreateRole(ctx, tid, "Admin B", nil, adminPerms)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid1, roleA.Id.String())
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid2, roleB.Id.String())
+	require.NoError(t, err)
+
+	downgraded := teams.PermissionsJSON{Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "read"}
+	updated, err := repo.UpdateRole(ctx, roleA.Id.String(), tid, roles.RolePatch{Permissions: &downgraded})
+	require.NoError(t, err)
+	assert.Equal(t, "read", updated.Permissions.Settings)
+}
+
 func TestRolesRepository_Delete_WrongTeam_ReturnsNoRows(t *testing.T) {
 	t.Parallel()
 

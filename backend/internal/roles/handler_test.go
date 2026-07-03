@@ -265,6 +265,29 @@ func TestHandler_DeleteRole_LastSettingsAdmin_Returns409(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, apiErr.Status)
 }
 
+func TestHandler_UpdateRole_LastSettingsAdmin_Returns409(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		updateRole: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+			return nil, roles.ErrLastSettingsAdmin
+		},
+	}
+	h := roles.NewHandler(svc, slog.Default(), nil)
+
+	perms := gen.Permissions{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "read",
+	}
+	_, err := h.UpdateRole(rolesAuthedCtx(), gen.UpdateRoleRequestObject{
+		TeamId: rolesTeamID,
+		RoleId: testRoleID,
+		Body:   &gen.UpdateRoleJSONRequestBody{Permissions: &perms},
+	})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusConflict, apiErr.Status)
+}
+
 func TestHandler_UpdateRole_SystemRole_Forbidden(t *testing.T) {
 	t.Parallel()
 	svc := &mockRoleService{

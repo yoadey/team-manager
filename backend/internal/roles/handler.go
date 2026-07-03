@@ -124,6 +124,9 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 		if errors.Is(err, ErrSystemRole) {
 			return nil, apierror.Forbidden("cannot change the name or permissions of a built-in system role")
 		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
+		}
 		h.logger.ErrorContext(ctx, "UpdateRole failed", "err", err)
 		return nil, apierror.Internal("failed to update role")
 	}
