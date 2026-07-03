@@ -461,8 +461,17 @@ jobs:
       - name: Flag unsafe DDL patterns in new/changed migrations
         run: |
           set -euo pipefail
-          git fetch origin "${{ github.base_ref }}" --depth=1
-          changed=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- 'internal/db/migrations/*.sql' || true)
+          # No --depth=1 here: the checkout step already set fetch-depth: 0,
+          # making the repo non-shallow. Shallow-fetching just the base ref
+          # on top of that grafts it as a parentless commit, which breaks
+          # the three-dot diff's merge-base lookup below with "no merge
+          # base" (exit 128) whenever the base has advanced since the PR
+          # branched — the common case for any real PR. That failure must
+          # also be allowed to fail the job (not swallowed with `|| true`):
+          # this is a safety guardrail, so a broken diff should fail loudly
+          # rather than silently report "no migrations changed".
+          git fetch origin "${{ github.base_ref }}"
+          changed=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- 'internal/db/migrations/*.sql')
           if [ -z "$changed" ]; then
             echo "No migration files changed."
             exit 0
@@ -484,8 +493,22 @@ jobs:
             fi
             # ADD CONSTRAINT ... CHECK without NOT VALID validates against
             # every existing row while holding an ACCESS EXCLUSIVE lock.
-            if grep -qiE 'ADD +CONSTRAINT +[^ ]+ +CHECK' "$f" && ! grep -qi 'NOT VALID' "$f"; then
+            # Scoped per matching line (not "NOT VALID anywhere in the
+            # file") — this repo's migration convention is one full ALTER
+            # TABLE statement per line (see e.g. 00007), so a file-wide
+            # check would false-negative on a file with multiple ADD
+            # CONSTRAINT statements where only one carries NOT VALID.
+            if grep -iE 'ADD +CONSTRAINT +[^ ]+ +CHECK' "$f" | grep -qiv 'NOT VALID'; then
               echo "::error file=$f::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+              fail=1
+            fi
+            # CREATE INDEX without CONCURRENTLY holds a table-level lock
+            # blocking writes for the duration of the index build — the
+            # single most common unsafe-DDL mistake in Postgres migrations,
+            # and one this codebase has hit before (00009_notification_idempotency.sql,
+            # already applied and not retroactively edited).
+            if grep -iE 'CREATE +(UNIQUE +)?INDEX' "$f" | grep -qivE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY'; then
+              echo "::error file=$f::CREATE INDEX without CONCURRENTLY holds a table-level lock blocking writes for the duration of the index build. Add CONCURRENTLY (and a '+goose NO TRANSACTION' annotation, since CONCURRENTLY cannot run inside a transaction)."
               fail=1
             fi
           done <<< "$changed"

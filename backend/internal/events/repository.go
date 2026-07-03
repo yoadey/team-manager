@@ -347,6 +347,20 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 	sets, args := buildUpdateSets(&seriesParams, "")
 	// Remove last arg (the eventID placeholder we added) — we use series_id instead.
 	args = args[:len(args)-1]
+	if len(args) == 0 {
+		// Nothing but Date was set (the common "change just this occurrence's
+		// date, scope=series" request) — buildUpdateSets' no-op fallback
+		// ("SET id = $1") assumes the last arg is the primary key of the row
+		// being updated, which held for the direct single-event UPDATE this
+		// function's sibling call site does, but not here: with args empty,
+		// the fallback's placeholder would bind to series_id in the WHERE
+		// clause too, producing `UPDATE events SET id = $1 WHERE series_id =
+		// $1` — overwriting every event's primary key with the series ID.
+		// There's nothing series-wide to update, so skip the query entirely;
+		// UpdateEvent's subsequent direct update still applies the date to
+		// the single targeted event.
+		return nil
+	}
 	q := fmt.Sprintf(`UPDATE events SET %s WHERE series_id = $%d`, sets, len(args)+1)
 	args = append(args, seriesID)
 	_, err := tx.Exec(ctx, q, args...)

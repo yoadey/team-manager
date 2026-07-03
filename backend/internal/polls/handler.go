@@ -72,8 +72,8 @@ func (h *Handler) CreatePoll(ctx context.Context, req gen.CreatePollRequestObjec
 	if err := validate.MaxLen(req.Body.Question, 1000, "question"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
-	if len(req.Body.Options) < 2 {
-		return nil, apierror.BadRequest("polls must have at least 2 options")
+	if len(req.Body.Options) < 2 || len(req.Body.Options) > 4 {
+		return nil, apierror.BadRequest("polls must have between 2 and 4 options")
 	}
 	for i, opt := range req.Body.Options {
 		if err := validate.RequireNonEmpty(opt, "option"); err != nil {

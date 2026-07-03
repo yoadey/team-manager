@@ -182,6 +182,70 @@ func TestEventRepository_UpdateEvent_Series_DoesNotCollapseDates(t *testing.T) {
 	assert.Len(t, dates, 3, "each occurrence must keep its own distinct date, not collapse onto the updated event's date")
 }
 
+// A series-scope update with ONLY Date set (no other field) — the primary
+// use case the fix above exists to support — must not corrupt the
+// series-wide UPDATE: with every other field nil, buildUpdateSets' "nothing
+// to update" no-op fallback ("SET id = $1") combined with the stripped
+// eventID arg previously produced "UPDATE events SET id = $1 WHERE
+// series_id = $1", overwriting every event's primary key with the series
+// ID. Only the single targeted event's date should change; every other
+// occurrence and the events table's row identities must be untouched.
+func TestEventRepository_UpdateEvent_Series_OnlyDateSet_DoesNotCorruptSQL(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "56565656-5656-5656-5656-565656565656"
+	teamID := "78787878-7878-7878-7878-787878787878"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Only Date User', 'only-date@example.com', '#abcdef')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Only Date Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	eventRows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 3)
+	originalTitle := eventRows[0].Title
+	targetID := eventRows[0].Id
+	otherIDs := []uuid.UUID{eventRows[1].Id, eventRows[2].Id}
+
+	newDate := startDate.AddDate(0, 0, 1)
+	updated, err := repo.UpdateEvent(ctx, targetID.String(), teamID, &events.UpdateEventParams{
+		Date: &newDate,
+	}, "series")
+	require.NoError(t, err, "must not error — the degenerate all-nil-except-Date series update must be a safe no-op for the series-wide UPDATE")
+	assert.Equal(t, newDate.Format("2006-01-02"), updated.Date.Format("2006-01-02"))
+	assert.Equal(t, targetID, updated.Id, "the targeted event's own identity must be unchanged")
+	assert.Equal(t, originalTitle, updated.Title, "title must be untouched since it wasn't in the patch")
+
+	all, err := repo.ListEvents(ctx, teamID, "all", 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 3, "no rows must be lost or merged")
+
+	seenIDs := make(map[uuid.UUID]bool)
+	for _, e := range all {
+		seenIDs[e.Id] = true
+		assert.Equal(t, originalTitle, e.Title)
+	}
+	assert.True(t, seenIDs[targetID])
+	for _, id := range otherIDs {
+		assert.True(t, seenIDs[id], "every event's primary key must survive unchanged")
+	}
+}
+
 // Deleting a series must remove every occurrence (past and future), not just
 // the event_series definition row — events.series_id is ON DELETE SET NULL,
 // so leaving DeleteEvent to rely on FK cascade alone would silently detach

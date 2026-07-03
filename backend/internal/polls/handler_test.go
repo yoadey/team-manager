@@ -66,6 +66,54 @@ func TestPollHandler_CreatePoll_RejectsTooLongOption(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPollHandler_CreatePoll_RejectsTooFewOptions(t *testing.T) {
+	t.Parallel()
+	svc := &mockPollService{
+		create: func(_ context.Context, _, _ uuid.UUID, _ *gen.CreatePollRequest) (gen.Poll, error) {
+			t.Fatal("service should not be called when option count validation fails")
+			return gen.Poll{}, nil
+		},
+	}
+	h := polls.NewHandler(svc, slog.Default())
+
+	body := &gen.CreatePollRequest{Question: "Which date?", Options: []string{"Monday"}}
+	_, err := h.CreatePoll(authedCtx(), gen.CreatePollRequestObject{TeamId: uuid.New(), Body: body})
+	require.Error(t, err)
+}
+
+// The OpenAPI contract declares maxItems: 4 on CreatePollRequest.options, but
+// oapi-codegen doesn't generate runtime array-length checks and no request
+// validator is wired into the router — the handler is the only enforcement
+// point, matching how minItems is already enforced.
+func TestPollHandler_CreatePoll_RejectsTooManyOptions(t *testing.T) {
+	t.Parallel()
+	svc := &mockPollService{
+		create: func(_ context.Context, _, _ uuid.UUID, _ *gen.CreatePollRequest) (gen.Poll, error) {
+			t.Fatal("service should not be called when option count validation fails")
+			return gen.Poll{}, nil
+		},
+	}
+	h := polls.NewHandler(svc, slog.Default())
+
+	body := &gen.CreatePollRequest{Question: "Which date?", Options: []string{"A", "B", "C", "D", "E"}}
+	_, err := h.CreatePoll(authedCtx(), gen.CreatePollRequestObject{TeamId: uuid.New(), Body: body})
+	require.Error(t, err)
+}
+
+func TestPollHandler_CreatePoll_AcceptsFourOptions(t *testing.T) {
+	t.Parallel()
+	svc := &mockPollService{
+		create: func(_ context.Context, _, _ uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error) {
+			return gen.Poll{Options: make([]gen.PollOption, len(body.Options))}, nil
+		},
+	}
+	h := polls.NewHandler(svc, slog.Default())
+
+	body := &gen.CreatePollRequest{Question: "Which date?", Options: []string{"A", "B", "C", "D"}}
+	_, err := h.CreatePoll(authedCtx(), gen.CreatePollRequestObject{TeamId: uuid.New(), Body: body})
+	require.NoError(t, err)
+}
+
 func TestPollHandler_CreatePoll_Success(t *testing.T) {
 	t.Parallel()
 	svc := &mockPollService{
