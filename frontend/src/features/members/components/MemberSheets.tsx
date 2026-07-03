@@ -183,6 +183,7 @@ export function MemberFormSheet({ app }: SheetProps) {
   const errs = state.formErrors;
   const myIds: string[] = F.roleIds || [];
   const canRoles = app.can('members', 'write');
+  const canSubmit = !!F.name?.trim();
 
   const validateName = () => {
     const r = validateRequiredText(F.name, t('members.fieldNameError'));
@@ -308,6 +309,7 @@ export function MemberFormSheet({ app }: SheetProps) {
         label={t('members.saveProfile')}
         onClick={() => app.saveMember()}
         busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
       />
     </Box>
   );

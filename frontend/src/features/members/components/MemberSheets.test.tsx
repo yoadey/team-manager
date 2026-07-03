@@ -292,10 +292,17 @@ describe('MemberFormSheet', () => {
   });
 
   it('calls saveMember when save button is clicked', () => {
-    const app = makeFormApp();
+    const app = makeFormApp({ name: 'Alice' });
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     fireEvent.click(screen.getByRole('button', { name: /Profil speichern/i }));
     expect(app.saveMember).toHaveBeenCalled();
+  });
+
+  it('disables the save button when the name is empty', () => {
+    const app = makeFormApp({ name: '' });
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    fireEvent.click(screen.getByRole('button', { name: /Profil speichern/i }));
+    expect(app.saveMember).not.toHaveBeenCalled();
   });
 
   it('shows name validation error on blur when name is empty', () => {

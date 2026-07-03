@@ -177,6 +177,19 @@ describe('useMemberActions', () => {
     expect(api.members.update).not.toHaveBeenCalled();
   });
 
+  it('saveMember shows toast when name is whitespace-only, without calling the API', async () => {
+    stateRef = makeState({
+      form: { name: '   ', membershipId: 'ms1' },
+      sheet: { type: 'memberForm', mode: 'edit', self: false } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.');
+    expect(api.members.update).not.toHaveBeenCalled();
+  });
+
   it('saveMember updates member data and shows toast', async () => {
     stateRef = makeState({
       form: { name: 'Alice Updated', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
@@ -192,6 +205,22 @@ describe('useMemberActions', () => {
       'team1',
     );
     expect(toastMsg).toHaveBeenCalledWith('Profil gespeichert');
+  });
+
+  it('saveMember trims leading/trailing whitespace from the name before saving', async () => {
+    stateRef = makeState({
+      form: { name: '  Alice Updated  ', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember();
+    });
+    expect(api.members.update).toHaveBeenCalledWith(
+      'ms1',
+      expect.objectContaining({ name: 'Alice Updated' }),
+      'team1',
+    );
   });
 
   it('saveMember refreshes teams and user when saving own profile', async () => {

@@ -4,7 +4,7 @@ import type { Member, MemberFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
-import { validateEmail, validatePhone, validateBirthday } from '@/utils/validation';
+import { validateEmail, validatePhone, validateBirthday, validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -82,8 +82,9 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
 
   const saveMember = useCallback(async () => {
     const f = S().form as MemberFormValues;
-    if (!f.name) {
-      toastMsg(t('members.fieldNameError'));
+    const nameResult = validateRequiredText(f.name, t('members.fieldNameError'));
+    if (!nameResult.ok) {
+      toastMsg(nameResult.message!);
       return;
     }
     const emailResult = validateEmail(f.email, t('validation.emailInvalid'));
@@ -109,7 +110,7 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
       await api.members.update(
         f.membershipId,
         {
-          name: f.name,
+          name: nameResult.value!,
           email: f.email,
           phone: f.phone,
           birthday: f.birthday,
