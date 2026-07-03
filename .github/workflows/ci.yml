@@ -481,36 +481,41 @@ jobs:
           fail=0
           while IFS= read -r f; do
             [ -z "$f" ] && continue
-            # ALTER COLUMN ... TYPE rewrites the whole table under an
-            # ACCESS EXCLUSIVE lock, blocking all reads/writes for the
-            # duration on large tables — use an expand/contract migration
-            # instead (add a new column, batch-backfill, then a fast
-            # rename/drop), as internal/jobs/retention.go's batching
-            # helper already does for large-table deletes.
-            if grep -qiE 'ALTER +COLUMN +[^ ]+ +TYPE' "$f"; then
-              echo "::error file=$f::ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE lock. Use an expand/contract migration instead (add a new column, batch-backfill, then rename/drop)."
-              fail=1
-            fi
-            # ADD CONSTRAINT ... CHECK without NOT VALID validates against
-            # every existing row while holding an ACCESS EXCLUSIVE lock.
-            # Scoped per matching line (not "NOT VALID anywhere in the
-            # file") — this repo's migration convention is one full ALTER
-            # TABLE statement per line (see e.g. 00007), so a file-wide
-            # check would false-negative on a file with multiple ADD
-            # CONSTRAINT statements where only one carries NOT VALID.
-            if grep -iE 'ADD +CONSTRAINT +[^ ]+ +CHECK' "$f" | grep -qiv 'NOT VALID'; then
-              echo "::error file=$f::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
-              fail=1
-            fi
-            # CREATE INDEX without CONCURRENTLY holds a table-level lock
-            # blocking writes for the duration of the index build — the
-            # single most common unsafe-DDL mistake in Postgres migrations,
-            # and one this codebase has hit before (00009_notification_idempotency.sql,
-            # already applied and not retroactively edited).
-            if grep -iE 'CREATE +(UNIQUE +)?INDEX' "$f" | grep -qivE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY'; then
-              echo "::error file=$f::CREATE INDEX without CONCURRENTLY holds a table-level lock blocking writes for the duration of the index build. Add CONCURRENTLY (and a '+goose NO TRANSACTION' annotation, since CONCURRENTLY cannot run inside a transaction)."
-              fail=1
-            fi
+            # Split the file into ;-terminated statements and flatten each
+            # statement's internal newlines to spaces, so a multi-line
+            # ALTER TABLE / CREATE INDEX (this repo uses both styles — see
+            # e.g. 00002/00005 for multi-line, 00007 for single-line) is
+            # matched the same way regardless of line breaks. Checking stays
+            # scoped per statement, not file-wide, so a safe NOT VALID on one
+            # statement can't mask an unsafe one elsewhere in the file.
+            while IFS= read -r stmt; do
+              [ -z "${stmt// /}" ] && continue
+              # ALTER COLUMN ... TYPE rewrites the whole table under an
+              # ACCESS EXCLUSIVE lock, blocking all reads/writes for the
+              # duration on large tables — use an expand/contract migration
+              # instead (add a new column, batch-backfill, then a fast
+              # rename/drop), as internal/jobs/retention.go's batching
+              # helper already does for large-table deletes.
+              if echo "$stmt" | grep -qiE 'ALTER +COLUMN +[^ ]+ +TYPE'; then
+                echo "::error file=$f::ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE lock. Use an expand/contract migration instead (add a new column, batch-backfill, then rename/drop)."
+                fail=1
+              fi
+              # ADD CONSTRAINT ... CHECK without NOT VALID validates against
+              # every existing row while holding an ACCESS EXCLUSIVE lock.
+              if echo "$stmt" | grep -iE 'ADD +CONSTRAINT +[^ ]+ +CHECK' | grep -qiv 'NOT VALID'; then
+                echo "::error file=$f::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+                fail=1
+              fi
+              # CREATE INDEX without CONCURRENTLY holds a table-level lock
+              # blocking writes for the duration of the index build — the
+              # single most common unsafe-DDL mistake in Postgres migrations,
+              # and one this codebase has hit before (00009_notification_idempotency.sql,
+              # already applied and not retroactively edited).
+              if echo "$stmt" | grep -iE 'CREATE +(UNIQUE +)?INDEX' | grep -qivE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY'; then
+                echo "::error file=$f::CREATE INDEX without CONCURRENTLY holds a table-level lock blocking writes for the duration of the index build. Add CONCURRENTLY (and a '+goose NO TRANSACTION' annotation, since CONCURRENTLY cannot run inside a transaction)."
+                fail=1
+              fi
+            done <<< "$(awk 'BEGIN{RS=";"} {gsub(/\n/," "); print}' "$f")"
           done <<< "$changed"
           exit $fail
 
@@ -623,3 +628,31 @@ jobs:
       - name: Stop backend
         if: always()
         run: kill $(cat /tmp/server.pid) || true
+
+  helm-lint:
+    name: Helm · Lint & template
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install Helm
+        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash -s -- --no-sudo --version v3.16.3
+
+      # Lint and render against every values file this chart ships (base
+      # values.yaml, plus each environment overlay) — a values-dependent
+      # template error (e.g. a required field only set in one overlay) would
+      # otherwise only surface at actual deploy time.
+      - name: helm lint
+        run: |
+          set -e
+          helm lint helm/team-manager
+          helm lint helm/team-manager -f helm/team-manager/values-staging.yaml
+          helm lint helm/team-manager -f helm/team-manager/values-prod.yaml
+
+      - name: helm template
+        run: |
+          set -e
+          helm template team-manager helm/team-manager > /dev/null
+          helm template team-manager helm/team-manager -f helm/team-manager/values-staging.yaml > /dev/null
+          helm template team-manager helm/team-manager -f helm/team-manager/values-prod.yaml > /dev/null
