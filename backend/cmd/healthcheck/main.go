@@ -10,6 +10,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -18,15 +19,17 @@ func main() {
 }
 
 func run() int {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	port := parsePort(os.Getenv("PORT"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+port+"/healthz", http.NoBody)
+	// The host is always the hardcoded loopback address; only the numeric
+	// port varies, and parsePort rejects anything that isn't a valid port
+	// number. This is not an SSRF sink despite building the URL from an env
+	// var — PORT is trusted deployment config, not attacker-controlled input,
+	// and the validated port can't smuggle a different host/path into the URL.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(port)+"/healthz", http.NoBody)
 	if err != nil {
 		return 1
 	}
@@ -41,4 +44,20 @@ func run() int {
 		return 1
 	}
 	return 0
+}
+
+// defaultPort matches the PORT default documented in CLAUDE.md / config.go.
+const defaultPort = 8080
+
+// parsePort validates s as a TCP port number (1-65535), falling back to
+// defaultPort when s is empty or not a valid port.
+func parsePort(s string) int {
+	if s == "" {
+		return defaultPort
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n < 1 || n > 65535 {
+		return defaultPort
+	}
+	return n
 }

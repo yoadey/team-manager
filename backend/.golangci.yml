@@ -75,6 +75,16 @@ linters:
       - path: "internal/auth/cookie\\.go"
         linters:
           - gosec
+      # G704 (SSRF via taint analysis): the healthcheck binary builds its
+      # request URL from the PORT env var, which gosec's taint tracker flags
+      # regardless of validation. PORT is trusted deployment config (set by
+      # the Dockerfile/compose/Helm chart, never attacker input), the host is
+      # a hardcoded loopback literal, and parsePort() already validates the
+      # value is a real port number — this is not an actual SSRF sink. Scoped
+      # to this one file so G704 stays active everywhere else.
+      - path: "cmd/healthcheck/main\\.go"
+        linters:
+          - gosec
       - path: "internal/server/server\\.go"
         linters:
           - wrapcheck

@@ -56,6 +56,27 @@ func TestRun_UnhealthyStatus_ReturnsOne(t *testing.T) {
 	}
 }
 
+func TestParsePort(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"", defaultPort},
+		{"8080", 8080},
+		{"3000", 3000},
+		{"0", defaultPort},
+		{"-1", defaultPort},
+		{"70000", defaultPort},
+		{"not-a-port", defaultPort},
+		{"8080; rm -rf /", defaultPort},
+	}
+	for _, c := range cases {
+		if got := parsePort(c.in); got != c.want {
+			t.Errorf("parsePort(%q) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
 func TestRun_NoServer_ReturnsOne(t *testing.T) {
 	// An unused port — connection should fail outright.
 	var lc net.ListenConfig
