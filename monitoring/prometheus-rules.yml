@@ -141,7 +141,7 @@ groups:
         # Compares the container's actual working set (cAdvisor) against its
         # own Kubernetes resource limit (kube-state-metrics), not the app
         # process's RSS against the whole node's memory. The backend's pod
-        # memory limit is 256Mi/512Mi (helm/team-manager/values-{staging,prod}.yaml)
+        # memory limit is 128Mi/512Mi (helm/team-manager/values-{staging,prod}.yaml)
         # — a small fraction of any real node's total memory — so comparing
         # against node_memory_MemTotal_bytes could never cross 85% before the
         # kernel/cgroup OOMKills the pod at its actual limit, making the old
