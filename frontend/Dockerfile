@@ -42,7 +42,15 @@ RUN which envsubst
 # Replace the default site with our SPA + security-header config.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY security-headers.conf /etc/nginx/conf.d/security-headers.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
+# --chown=101:101 (nginx-unprivileged's non-root user): plain COPY defaults
+# to root:root regardless of the image's USER directive, since these files
+# come from the root-run builder stage. docker-entrypoint-runtime-config.sh
+# below runs as uid 101 (containers don't switch users between ENTRYPOINT
+# and CMD) and needs write permission on index.html specifically — an
+# `envsubst > existing-file` redirect opens the existing inode for writing,
+# which fails on a root-owned, group/other-unwritable file even though the
+# directory itself is otherwise servable.
+COPY --chown=101:101 --from=builder /app/dist /usr/share/nginx/html
 
 # index.html.template is the *built* index.html (correct hashed asset paths)
 # re-used as an envsubst template for its CSP connect-src placeholder — see

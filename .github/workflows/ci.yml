@@ -560,6 +560,30 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
+      # `docker build` only proves the image compiles; it never runs
+      # docker-entrypoint-runtime-config.sh (frontend/docker/), which
+      # executes as the image's non-root user (uid 101) at container start
+      # to regenerate config.js/index.html from API_BASE_URL — a permissions
+      # or scripting bug there would only surface here, not in the build or
+      # the Trivy scan above.
+      - name: Boot the image and verify the runtime-config entrypoint
+        run: |
+          set -euo pipefail
+          cid=$(docker run -d -p 18080:8080 -e API_BASE_URL=https://api.example.com team-manager-frontend:ci)
+          trap 'docker logs "$cid"; docker rm -f "$cid" >/dev/null' EXIT
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:18080/healthz && break
+            sleep 1
+            if [ "$i" = 30 ]; then
+              echo "::error::container never became healthy"
+              exit 1
+            fi
+          done
+          config_js=$(curl -sf http://localhost:18080/config.js)
+          echo "$config_js"
+          echo "$config_js" | grep -q 'https://api.example.com'
+          curl -sf http://localhost:18080/ | grep -q 'https://api.example.com'
+
   dast:
     name: DAST — OWASP ZAP Baseline
     runs-on: ubuntu-latest
