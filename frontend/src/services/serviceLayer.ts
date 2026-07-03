@@ -1180,7 +1180,12 @@ const _mockApi = {
         teamId,
         name,
         system: false,
-        color: color || '#5B6470',
+        // Matches api/map.ts's mapRole fallback (r.color ?? '#888888') — the
+        // real backend stores an omitted color as NULL and that's the
+        // default applied on read, so the mock must agree or a role created
+        // without an explicit color (RoleFormSheet has no color picker)
+        // renders a different color depending on which backend is active.
+        color: color || '#888888',
         permissions: permissions || perms('read', 'read', 'none', 'read', 'read', 'none'),
       };
       DB.roles.push(r);
