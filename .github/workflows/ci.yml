@@ -288,9 +288,32 @@ jobs:
       - name: Install go-licenses
         run: go install github.com/google/go-licenses@latest
       - name: Report all dependency licenses
-        run: go-licenses report ./... 2>/dev/null > licenses.csv || true
+        id: licenses
+        # go-licenses is known to be brittle (crashes on some generics/newer-Go
+        # packages), so this step deliberately doesn't hard-fail the job on a
+        # tool crash — but it must not silently report "no GPL/AGPL found" in
+        # that case either, since an empty/partial licenses.csv would make the
+        # next step's grep look identical to a real clean scan (the same
+        # silent-false-green shape the migration-safety job had before it was
+        # fixed to distinguish "nothing found" from "couldn't check").
+        run: |
+          set +e
+          go-licenses report ./... 2>go-licenses.stderr > licenses.csv
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::go-licenses report failed (exit $status) — the GPL/AGPL check below is skipped and cannot be trusted this run. See the uploaded go-licenses.stderr artifact."
+            cat go-licenses.stderr
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check for GPL/AGPL licenses
         run: |
+          if [ "${{ steps.licenses.outputs.failed }}" = "true" ]; then
+            echo "::warning::Skipping GPL/AGPL check — license report generation failed above."
+            exit 0
+          fi
           if grep -qE '\b(GPL|AGPL)\b' licenses.csv 2>/dev/null; then
             echo "WARNING: GPL/AGPL licensed dependencies found:"
             grep -E '\b(GPL|AGPL)\b' licenses.csv
@@ -301,7 +324,9 @@ jobs:
         if: always()
         with:
           name: backend-licenses
-          path: backend/licenses.csv
+          path: |
+            backend/licenses.csv
+            backend/go-licenses.stderr
           retention-days: 30
 
   backend-security:
