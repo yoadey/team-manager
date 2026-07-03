@@ -276,7 +276,7 @@ export const realApi = {
     },
 
     async add(teamId: string, params: {
-      name: string; email: string; phone?: string | null; group?: string | null; roleIDs?: string[];
+      name: string; email: string; phone?: string | null; group?: string | null; roleIds?: string[];
     }): Promise<Member> {
       const res = await apiClient.POST('/teams/{teamId}/members', {
         params: { path: { teamId } },
@@ -285,7 +285,7 @@ export const realApi = {
           email: params.email as string & { format: 'email' },
           phone: params.phone ?? undefined,
           group: params.group ?? undefined,
-          roleIds: params.roleIDs,
+          roleIds: params.roleIds,
         },
       });
       const m = await check(res);
