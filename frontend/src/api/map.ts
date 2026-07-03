@@ -279,7 +279,11 @@ export function mapPoll(p: S['Poll']): Poll {
     anonymous: p.anonymous,
     createdAt: p.createdAt,
     totalVotes: p.totalVotes,
-    myVote: p.myVote ?? [],
+    // p.myVote is null (never []) from the backend when the caller hasn't
+    // voted — PollsPage.tsx's `voted = !!p.myVote` treats [] as "voted" too
+    // (!![] is true in JS), so coalescing null to [] here made every unvoted
+    // poll render as if the user had already voted. Preserve the null.
+    myVote: p.myVote ?? null,
     options: (p.options ?? []).map((o) => ({
       id: o.id,
       text: o.text,

@@ -12,6 +12,7 @@ import {
   mapMemberStat,
   mapEventStat,
   mapStatsOverview,
+  mapPoll,
 } from './map';
 
 describe('centsToEuros / eurosToCents', () => {
@@ -183,5 +184,32 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
     expect(o.avg).toBe(67);
     expect(o.members[0].quote).toBe(50);
     expect(o.events[0].pct).toBe(75);
+  });
+});
+
+// PollsPage.tsx computes `voted = !!p.myVote`, and !![] is true in JS —
+// coalescing the backend's null "not voted" sentinel to [] made every unvoted
+// poll render as if the user had already voted.
+describe('mapPoll preserves myVote:null as the "not voted" sentinel', () => {
+  const base = {
+    id: 'p1',
+    question: 'Q?',
+    multiple: false,
+    anonymous: false,
+    createdAt: '2024-01-01',
+    totalVotes: 0,
+    options: [],
+  };
+
+  it('maps a missing/null myVote to null, not []', () => {
+    // The generated type declares myVote as string[] | undefined (no
+    // `nullable: true` in the OpenAPI schema), but the real backend's JSON
+    // can genuinely be null (a nil Go slice) — hence the cast to simulate
+    // what actually arrives over the wire.
+    expect(mapPoll({ ...base, myVote: null } as unknown as Parameters<typeof mapPoll>[0]).myVote).toBeNull();
+  });
+
+  it('maps a real vote array through unchanged', () => {
+    expect(mapPoll({ ...base, myVote: ['opt1'] }).myVote).toEqual(['opt1']);
   });
 });
