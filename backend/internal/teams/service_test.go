@@ -77,6 +77,8 @@ type mockTeamRepo struct {
 	createInvite          func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
 	updateTeamPhoto       func(ctx context.Context, teamID string, data []byte, mime string) error
 	updateTeamLogo        func(ctx context.Context, teamID string, data []byte, mime string) error
+	deleteTeamPhoto       func(ctx context.Context, teamID string) error
+	deleteTeamLogo        func(ctx context.Context, teamID string) error
 }
 
 func (m *mockTeamRepo) ListTeamsForUser(ctx context.Context, userID string) ([]teams.TeamRow, error) {
@@ -117,6 +119,14 @@ func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID string, data 
 
 func (m *mockTeamRepo) UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error {
 	return m.updateTeamLogo(ctx, teamID, data, mime)
+}
+
+func (m *mockTeamRepo) DeleteTeamPhoto(ctx context.Context, teamID string) error {
+	return m.deleteTeamPhoto(ctx, teamID)
+}
+
+func (m *mockTeamRepo) DeleteTeamLogo(ctx context.Context, teamID string) error {
+	return m.deleteTeamLogo(ctx, teamID)
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -236,6 +246,56 @@ func TestTeamService_UpdateLogo_StoresResizedJPEGAndReturnsTeam(t *testing.T) {
 	assert.Equal(t, "image/jpeg", storedMime)
 	assert.NotEmpty(t, storedData)
 	assert.True(t, *result.HasLogo)
+}
+
+func TestTeamService_DeletePhoto_ClearsStoredPhoto(t *testing.T) {
+	teamID := uuid.New()
+	called := false
+	repo := &mockTeamRepo{
+		deleteTeamPhoto: func(_ context.Context, tid string) error {
+			assert.Equal(t, teamID.String(), tid)
+			called = true
+			return nil
+		},
+	}
+	svc := teams.NewService(repo, "https://app.example.com")
+	err := svc.DeletePhoto(context.Background(), teamID.String())
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+func TestTeamService_DeletePhoto_WrongTeam_PropagatesNoRows(t *testing.T) {
+	repo := &mockTeamRepo{
+		deleteTeamPhoto: func(context.Context, string) error { return pgx.ErrNoRows },
+	}
+	svc := teams.NewService(repo, "https://app.example.com")
+	err := svc.DeletePhoto(context.Background(), uuid.New().String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestTeamService_DeleteLogo_ClearsStoredLogo(t *testing.T) {
+	teamID := uuid.New()
+	called := false
+	repo := &mockTeamRepo{
+		deleteTeamLogo: func(_ context.Context, tid string) error {
+			assert.Equal(t, teamID.String(), tid)
+			called = true
+			return nil
+		},
+	}
+	svc := teams.NewService(repo, "https://app.example.com")
+	err := svc.DeleteLogo(context.Background(), teamID.String())
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
+func TestTeamService_DeleteLogo_WrongTeam_PropagatesNoRows(t *testing.T) {
+	repo := &mockTeamRepo{
+		deleteTeamLogo: func(context.Context, string) error { return pgx.ErrNoRows },
+	}
+	svc := teams.NewService(repo, "https://app.example.com")
+	err := svc.DeleteLogo(context.Background(), uuid.New().String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 // A PNG that declares dimensions exceeding the decompression-bomb guard must

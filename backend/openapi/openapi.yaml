@@ -307,6 +307,13 @@ paths:
                 $ref: "#/components/schemas/Team"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+    delete:
+      tags: [teams]
+      operationId: deleteTeamPhoto
+      summary: Remove team photo (revert to icon)
+      responses:
+        "204":
+          description: No Content
 
   /teams/{teamId}/logo:
     parameters:
@@ -349,6 +356,13 @@ paths:
                 $ref: "#/components/schemas/Team"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+    delete:
+      tags: [teams]
+      operationId: deleteTeamLogo
+      summary: Remove team logo (revert to icon)
+      responses:
+        "204":
+          description: No Content
 
   /teams/{teamId}/invite:
     parameters:

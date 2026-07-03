@@ -289,6 +289,28 @@ describe('teams', () => {
     vi.unstubAllGlobals();
   });
 
+  it('updateSettings calls DELETE when logo is explicitly null (revert to icon)', async () => {
+    client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.DELETE.mockResolvedValueOnce({ response: { ok: true, status: 204 } });
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.updateSettings('t1', { icon: '🏆', logo: null });
+    expect(client.DELETE).toHaveBeenCalledWith('/teams/{teamId}/logo', { params: { path: { teamId: 't1' } } });
+  });
+
+  it('updateSettings calls DELETE when photo is explicitly null', async () => {
+    client.DELETE.mockResolvedValueOnce({ response: { ok: true, status: 204 } });
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.updateSettings('t1', { photo: null });
+    expect(client.DELETE).toHaveBeenCalledWith('/teams/{teamId}/photo', { params: { path: { teamId: 't1' } } });
+  });
+
+  it('updateSettings does not call DELETE when photo/logo are simply omitted', async () => {
+    client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.updateSettings('t1', { name: 'New' });
+    expect(client.DELETE).not.toHaveBeenCalled();
+  });
+
   it('createInvite maps the invite', async () => {
     client.POST.mockResolvedValueOnce(ok({ code: 'abc' }));
     const res = await realApi.teams.createInvite('t1');

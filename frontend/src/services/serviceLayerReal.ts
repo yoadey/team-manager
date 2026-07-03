@@ -240,9 +240,13 @@ export const realApi = {
 
       if (patch.photo) {
         await uploadImage(`/api/v1/teams/${teamId}/photo`, 'photo', patch.photo);
+      } else if (patch.photo === null) {
+        await checkOk(await apiClient.DELETE('/teams/{teamId}/photo', { params: { path: { teamId } } }));
       }
       if (patch.logo) {
         await uploadImage(`/api/v1/teams/${teamId}/logo`, 'logo', patch.logo);
+      } else if (patch.logo === null) {
+        await checkOk(await apiClient.DELETE('/teams/{teamId}/logo', { params: { path: { teamId } } }));
       }
 
       const res = await apiClient.GET('/teams/{teamId}', { params: { path: { teamId } } });

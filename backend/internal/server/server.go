@@ -87,6 +87,14 @@ func (StrictUnimplemented) UploadTeamPhoto(_ context.Context, _ gen.UploadTeamPh
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) DeleteTeamPhoto(_ context.Context, _ gen.DeleteTeamPhotoRequestObject) (gen.DeleteTeamPhotoResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) DeleteTeamLogo(_ context.Context, _ gen.DeleteTeamLogoRequestObject) (gen.DeleteTeamLogoResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 func (StrictUnimplemented) ListMembers(_ context.Context, _ gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
 	return nil, errNotImplemented
 }
@@ -430,6 +438,14 @@ func (s *Server) GetTeamPhoto(ctx context.Context, req gen.GetTeamPhotoRequestOb
 
 func (s *Server) UploadTeamPhoto(ctx context.Context, req gen.UploadTeamPhotoRequestObject) (gen.UploadTeamPhotoResponseObject, error) {
 	return s.Teams.UploadTeamPhoto(ctx, req)
+}
+
+func (s *Server) DeleteTeamPhoto(ctx context.Context, req gen.DeleteTeamPhotoRequestObject) (gen.DeleteTeamPhotoResponseObject, error) {
+	return s.Teams.DeleteTeamPhoto(ctx, req)
+}
+
+func (s *Server) DeleteTeamLogo(ctx context.Context, req gen.DeleteTeamLogoRequestObject) (gen.DeleteTeamLogoResponseObject, error) {
+	return s.Teams.DeleteTeamLogo(ctx, req)
 }
 
 // ─── Members delegations ──────────────────────────────────────────────────────

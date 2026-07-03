@@ -456,6 +456,36 @@ func (r *Repository) UpdateTeamLogo(ctx context.Context, teamID string, data []b
 	return nil
 }
 
+// DeleteTeamPhoto clears the stored photo for the given team, reverting
+// display to the icon fallback. Returns pgx.ErrNoRows if teamID doesn't exist.
+func (r *Repository) DeleteTeamPhoto(ctx context.Context, teamID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `UPDATE teams SET photo_data = NULL, photo_mime = NULL WHERE id = $1`, teamID)
+	if err != nil {
+		return fmt.Errorf("teams.Repository.DeleteTeamPhoto: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteTeamLogo clears the stored logo for the given team, reverting
+// display to the icon fallback. Returns pgx.ErrNoRows if teamID doesn't exist.
+func (r *Repository) DeleteTeamLogo(ctx context.Context, teamID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `UPDATE teams SET logo_data = NULL, logo_mime = NULL WHERE id = $1`, teamID)
+	if err != nil {
+		return fmt.Errorf("teams.Repository.DeleteTeamLogo: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 // ─── Role query helpers ───────────────────────────────────────────────────────
 
 func scanRole(row interface{ Scan(dest ...any) error }) (*RoleRow, error) {

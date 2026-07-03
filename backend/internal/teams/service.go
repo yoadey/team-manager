@@ -48,6 +48,8 @@ type teamRepo interface {
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
 	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
+	DeleteTeamPhoto(ctx context.Context, teamID string) error
+	DeleteTeamLogo(ctx context.Context, teamID string) error
 }
 
 // Service implements team business logic.
@@ -175,6 +177,17 @@ func (s *Service) UpdatePhoto(ctx context.Context, teamID string, data []byte, m
 	return toGenTeam(tr), nil
 }
 
+// DeletePhoto clears the team photo, reverting display to the icon fallback.
+func (s *Service) DeletePhoto(ctx context.Context, teamID string) error {
+	if err := s.repo.DeleteTeamPhoto(ctx, teamID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgx.ErrNoRows
+		}
+		return fmt.Errorf("teams.Service.DeletePhoto: %w", err)
+	}
+	return nil
+}
+
 // GetTeamLogoData returns the raw logo bytes and MIME type for the given team.
 func (s *Service) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
 	tr, err := s.repo.GetTeam(ctx, teamID)
@@ -208,6 +221,17 @@ func (s *Service) UpdateLogo(ctx context.Context, teamID string, data []byte, mi
 		return nil, fmt.Errorf("teams.Service.UpdateLogo: refresh: %w", err)
 	}
 	return toGenTeam(tr), nil
+}
+
+// DeleteLogo clears the team logo, reverting display to the icon fallback.
+func (s *Service) DeleteLogo(ctx context.Context, teamID string) error {
+	if err := s.repo.DeleteTeamLogo(ctx, teamID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgx.ErrNoRows
+		}
+		return fmt.Errorf("teams.Service.DeleteLogo: %w", err)
+	}
+	return nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

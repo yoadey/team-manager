@@ -35,8 +35,10 @@ type mockTeamService struct {
 	createInvite     func(ctx context.Context, teamID string) (*gen.Invite, error)
 	getTeamPhotoData func(ctx context.Context, teamID string) ([]byte, string, error)
 	updatePhoto      func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
+	deletePhoto      func(ctx context.Context, teamID string) error
 	getTeamLogoData  func(ctx context.Context, teamID string) ([]byte, string, error)
 	updateLogo       func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
+	deleteLogo       func(ctx context.Context, teamID string) error
 }
 
 func (m *mockTeamService) ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error) {
@@ -67,12 +69,20 @@ func (m *mockTeamService) UpdatePhoto(ctx context.Context, teamID string, data [
 	return m.updatePhoto(ctx, teamID, data, mimeType)
 }
 
+func (m *mockTeamService) DeletePhoto(ctx context.Context, teamID string) error {
+	return m.deletePhoto(ctx, teamID)
+}
+
 func (m *mockTeamService) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mimeType string, err error) {
 	return m.getTeamLogoData(ctx, teamID)
 }
 
 func (m *mockTeamService) UpdateLogo(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error) {
 	return m.updateLogo(ctx, teamID, data, mimeType)
+}
+
+func (m *mockTeamService) DeleteLogo(ctx context.Context, teamID string) error {
+	return m.deleteLogo(ctx, teamID)
 }
 
 // fakeAuthSvc satisfies the internal authService interface for the auth.Handler.

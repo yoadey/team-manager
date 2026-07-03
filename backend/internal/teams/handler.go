@@ -29,8 +29,10 @@ type teamService interface {
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
 	GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error)
 	UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
+	DeletePhoto(ctx context.Context, teamID string) error
 	GetTeamLogoData(ctx context.Context, teamID string) ([]byte, string, error)
 	UpdateLogo(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
+	DeleteLogo(ctx context.Context, teamID string) error
 }
 
 // Handler implements the team-related methods of gen.StrictServerInterface.
@@ -310,6 +312,32 @@ func (h *Handler) UploadTeamLogo(ctx context.Context, request gen.UploadTeamLogo
 	}
 	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
 	return gen.UploadTeamLogo200JSONResponse(*t), nil
+}
+
+// DeleteTeamPhoto removes the team photo, reverting display to the icon fallback.
+func (h *Handler) DeleteTeamPhoto(ctx context.Context, request gen.DeleteTeamPhotoRequestObject) (gen.DeleteTeamPhotoResponseObject, error) {
+	if err := h.svc.DeletePhoto(ctx, request.TeamId.String()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("team not found")
+		}
+		h.logger.ErrorContext(ctx, "DeleteTeamPhoto failed", "err", err)
+		return nil, apierror.Internal("photo removal failed")
+	}
+	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	return gen.DeleteTeamPhoto204Response{}, nil
+}
+
+// DeleteTeamLogo removes the team logo, reverting display to the icon fallback.
+func (h *Handler) DeleteTeamLogo(ctx context.Context, request gen.DeleteTeamLogoRequestObject) (gen.DeleteTeamLogoResponseObject, error) {
+	if err := h.svc.DeleteLogo(ctx, request.TeamId.String()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("team not found")
+		}
+		h.logger.ErrorContext(ctx, "DeleteTeamLogo failed", "err", err)
+		return nil, apierror.Internal("logo removal failed")
+	}
+	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	return gen.DeleteTeamLogo204Response{}, nil
 }
 
 // ─── error helpers ───────────────────────────────────────────────────────────

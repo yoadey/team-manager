@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -122,4 +123,74 @@ func TestTeamRepository_UpdateTeam_ReasonVisibilityRoleIDs_ValidatesOwnership(t 
 	require.NoError(t, err)
 	require.Len(t, updated.ReasonVisibilityRoleIDs, 1)
 	assert.Equal(t, uuid.MustParse(ownRoleID), updated.ReasonVisibilityRoleIDs[0])
+}
+
+func TestTeamRepository_DeleteTeamPhoto_ClearsStoredPhoto(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	var userID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO users (name, email, avatar_color)
+		VALUES ('Photo Delete User', 'photo-delete@example.com', '#778899')
+		RETURNING id
+	`).Scan(&userID)
+	require.NoError(t, err)
+
+	repo := teams.NewRepository(pool)
+	tr, err := repo.CreateTeam(ctx, "Photo Delete Team", userID)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.UpdateTeamPhoto(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
+	withPhoto, err := repo.GetTeam(ctx, tr.Id.String())
+	require.NoError(t, err)
+	require.NotEmpty(t, withPhoto.PhotoData)
+
+	require.NoError(t, repo.DeleteTeamPhoto(ctx, tr.Id.String()))
+	cleared, err := repo.GetTeam(ctx, tr.Id.String())
+	require.NoError(t, err)
+	assert.Empty(t, cleared.PhotoData)
+	assert.Nil(t, cleared.PhotoMime)
+}
+
+func TestTeamRepository_DeleteTeamPhoto_UnknownTeam_ReturnsNoRows(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	repo := teams.NewRepository(pool)
+	err := repo.DeleteTeamPhoto(context.Background(), uuid.New().String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestTeamRepository_DeleteTeamLogo_ClearsStoredLogo(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	var userID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO users (name, email, avatar_color)
+		VALUES ('Logo Delete User', 'logo-delete@example.com', '#998877')
+		RETURNING id
+	`).Scan(&userID)
+	require.NoError(t, err)
+
+	repo := teams.NewRepository(pool)
+	tr, err := repo.CreateTeam(ctx, "Logo Delete Team", userID)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.UpdateTeamLogo(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
+	withLogo, err := repo.GetTeam(ctx, tr.Id.String())
+	require.NoError(t, err)
+	require.NotEmpty(t, withLogo.LogoData)
+
+	require.NoError(t, repo.DeleteTeamLogo(ctx, tr.Id.String()))
+	cleared, err := repo.GetTeam(ctx, tr.Id.String())
+	require.NoError(t, err)
+	assert.Empty(t, cleared.LogoData)
+	assert.Nil(t, cleared.LogoMime)
+}
+
+func TestTeamRepository_DeleteTeamLogo_UnknownTeam_ReturnsNoRows(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	repo := teams.NewRepository(pool)
+	err := repo.DeleteTeamLogo(context.Background(), uuid.New().String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

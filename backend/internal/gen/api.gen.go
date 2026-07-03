@@ -1350,6 +1350,9 @@ type ServerInterface interface {
 	// Generate a 7-day invite link
 	// (POST /teams/{teamId}/invite)
 	CreateInvite(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Remove team logo (revert to icon)
+	// (DELETE /teams/{teamId}/logo)
+	DeleteTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Get team logo
 	// (GET /teams/{teamId}/logo)
 	GetTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1389,6 +1392,9 @@ type ServerInterface interface {
 	// Mark all notifications as seen
 	// (POST /teams/{teamId}/notifications/seen)
 	MarkNotificationsSeen(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Remove team photo (revert to icon)
+	// (DELETE /teams/{teamId}/photo)
+	DeleteTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Get team photo
 	// (GET /teams/{teamId}/photo)
 	GetTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1683,6 +1689,12 @@ func (_ Unimplemented) CreateInvite(w http.ResponseWriter, r *http.Request, team
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Remove team logo (revert to icon)
+// (DELETE /teams/{teamId}/logo)
+func (_ Unimplemented) DeleteTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get team logo
 // (GET /teams/{teamId}/logo)
 func (_ Unimplemented) GetTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
@@ -1758,6 +1770,12 @@ func (_ Unimplemented) ListNotifications(w http.ResponseWriter, r *http.Request,
 // Mark all notifications as seen
 // (POST /teams/{teamId}/notifications/seen)
 func (_ Unimplemented) MarkNotificationsSeen(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove team photo (revert to icon)
+// (DELETE /teams/{teamId}/photo)
+func (_ Unimplemented) DeleteTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3420,6 +3438,38 @@ func (siw *ServerInterfaceWrapper) CreateInvite(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteTeamLogo operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTeamLogo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTeamLogo(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTeamLogo operation middleware
 func (siw *ServerInterfaceWrapper) GetTeamLogo(w http.ResponseWriter, r *http.Request) {
 
@@ -3930,6 +3980,38 @@ func (siw *ServerInterfaceWrapper) MarkNotificationsSeen(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MarkNotificationsSeen(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTeamPhoto operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTeamPhoto(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTeamPhoto(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4666,6 +4748,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/teams/{teamId}/invite", wrapper.CreateInvite)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/logo", wrapper.DeleteTeamLogo)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/logo", wrapper.GetTeamLogo)
 	})
 	r.Group(func(r chi.Router) {
@@ -4703,6 +4788,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{teamId}/notifications/seen", wrapper.MarkNotificationsSeen)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/photo", wrapper.DeleteTeamPhoto)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/photo", wrapper.GetTeamPhoto)
@@ -5834,6 +5922,22 @@ func (response CreateInvite201JSONResponse) VisitCreateInviteResponse(w http.Res
 	return err
 }
 
+type DeleteTeamLogoRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type DeleteTeamLogoResponseObject interface {
+	VisitDeleteTeamLogoResponse(w http.ResponseWriter) error
+}
+
+type DeleteTeamLogo204Response struct {
+}
+
+func (response DeleteTeamLogo204Response) VisitDeleteTeamLogoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
 type GetTeamLogoRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 }
@@ -6159,6 +6263,22 @@ type MarkNotificationsSeen204Response struct {
 }
 
 func (response MarkNotificationsSeen204Response) VisitMarkNotificationsSeenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTeamPhotoRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type DeleteTeamPhotoResponseObject interface {
+	VisitDeleteTeamPhotoResponse(w http.ResponseWriter) error
+}
+
+type DeleteTeamPhoto204Response struct {
+}
+
+func (response DeleteTeamPhoto204Response) VisitDeleteTeamPhotoResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
 }
@@ -6598,6 +6718,9 @@ type StrictServerInterface interface {
 	// Generate a 7-day invite link
 	// (POST /teams/{teamId}/invite)
 	CreateInvite(ctx context.Context, request CreateInviteRequestObject) (CreateInviteResponseObject, error)
+	// Remove team logo (revert to icon)
+	// (DELETE /teams/{teamId}/logo)
+	DeleteTeamLogo(ctx context.Context, request DeleteTeamLogoRequestObject) (DeleteTeamLogoResponseObject, error)
 	// Get team logo
 	// (GET /teams/{teamId}/logo)
 	GetTeamLogo(ctx context.Context, request GetTeamLogoRequestObject) (GetTeamLogoResponseObject, error)
@@ -6637,6 +6760,9 @@ type StrictServerInterface interface {
 	// Mark all notifications as seen
 	// (POST /teams/{teamId}/notifications/seen)
 	MarkNotificationsSeen(ctx context.Context, request MarkNotificationsSeenRequestObject) (MarkNotificationsSeenResponseObject, error)
+	// Remove team photo (revert to icon)
+	// (DELETE /teams/{teamId}/photo)
+	DeleteTeamPhoto(ctx context.Context, request DeleteTeamPhotoRequestObject) (DeleteTeamPhotoResponseObject, error)
 	// Get team photo
 	// (GET /teams/{teamId}/photo)
 	GetTeamPhoto(ctx context.Context, request GetTeamPhotoRequestObject) (GetTeamPhotoResponseObject, error)
@@ -7937,6 +8063,32 @@ func (sh *strictHandler) CreateInvite(w http.ResponseWriter, r *http.Request, te
 	}
 }
 
+// DeleteTeamLogo operation middleware
+func (sh *strictHandler) DeleteTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request DeleteTeamLogoRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTeamLogo(ctx, request.(DeleteTeamLogoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTeamLogo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTeamLogoResponseObject); ok {
+		if err := validResponse.VisitDeleteTeamLogoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetTeamLogo operation middleware
 func (sh *strictHandler) GetTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	var request GetTeamLogoRequestObject
@@ -8317,6 +8469,32 @@ func (sh *strictHandler) MarkNotificationsSeen(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MarkNotificationsSeenResponseObject); ok {
 		if err := validResponse.VisitMarkNotificationsSeenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTeamPhoto operation middleware
+func (sh *strictHandler) DeleteTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request DeleteTeamPhotoRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTeamPhoto(ctx, request.(DeleteTeamPhotoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTeamPhoto")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTeamPhotoResponseObject); ok {
+		if err := validResponse.VisitDeleteTeamPhotoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

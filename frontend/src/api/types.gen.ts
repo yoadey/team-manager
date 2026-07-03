@@ -166,7 +166,8 @@ export interface paths {
         /** Upload team photo (scaled to max 800×800 px) */
         put: operations["uploadTeamPhoto"];
         post?: never;
-        delete?: never;
+        /** Remove team photo (revert to icon) */
+        delete: operations["deleteTeamPhoto"];
         options?: never;
         head?: never;
         patch?: never;
@@ -186,7 +187,8 @@ export interface paths {
         /** Upload team logo (scaled to max 800×800 px) */
         put: operations["uploadTeamLogo"];
         post?: never;
-        delete?: never;
+        /** Remove team logo (revert to icon) */
+        delete: operations["deleteTeamLogo"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1566,6 +1568,24 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection. */
+        TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Payload Too Large. All request bodies are capped at 4 MB by default; image upload endpoints additionally enforce their own lower limit. */
+        PayloadTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
     };
     parameters: {
         teamId: string;
@@ -1626,6 +1646,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     logout: {
@@ -1761,6 +1782,7 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
+            413: components["responses"]["PayloadTooLarge"];
         };
     };
     listTeams: {
@@ -1906,6 +1928,27 @@ export interface operations {
                     "application/json": components["schemas"]["Team"];
                 };
             };
+            413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    deleteTeamPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getTeamLogo: {
@@ -1957,6 +2000,27 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Team"];
                 };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    deleteTeamLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
