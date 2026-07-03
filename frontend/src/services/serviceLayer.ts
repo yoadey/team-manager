@@ -1548,7 +1548,7 @@ const _mockApi = {
         userId: uid,
         from,
         to,
-        reason: reason || 'Abwesend',
+        reason: reason || '',
         createdAt: iso(new Date()),
       };
       DB.absences.push(a);
@@ -1705,7 +1705,7 @@ const _mockApi = {
         title,
         amount: Number(amount),
         date: todayLocalDate(),
-        category: category || 'Sonstiges',
+        category: category || '',
       };
       DB.transactions.push(t);
       persist();
