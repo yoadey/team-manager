@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { DateRange } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
@@ -242,13 +242,20 @@ export function useFinanceActions({
     }
   }, [api, S, setState, loadFinances, toastMsg]);
 
+  const toggleInFlight = useRef(new Set<string>());
+
   const togglePenalty = useCallback(
     async (id: string) => {
+      const key = 'penalty:' + id;
+      if (toggleInFlight.current.has(key)) return;
+      toggleInFlight.current.add(key);
       try {
         await api.finances.togglePenaltyPaid(id, S().activeTeamId!);
         await loadFinances();
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
+      } finally {
+        toggleInFlight.current.delete(key);
       }
     },
     [api, S, loadFinances, setState, toastMsg],
@@ -256,11 +263,16 @@ export function useFinanceActions({
 
   const toggleContribution = useCallback(
     async (id: string) => {
+      const key = 'contribution:' + id;
+      if (toggleInFlight.current.has(key)) return;
+      toggleInFlight.current.add(key);
       try {
         await api.finances.toggleContribution(id, S().activeTeamId!);
         await loadFinances();
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
+      } finally {
+        toggleInFlight.current.delete(key);
       }
     },
     [api, S, loadFinances, setState, toastMsg],

@@ -202,6 +202,14 @@ describe('ProfileSheet', () => {
     expect(app.toggleMyRole).toHaveBeenCalledWith('r1');
   });
 
+  it('does not call toggleMyRole when the user lacks members:write (no self role-escalation)', () => {
+    const app = makeApp();
+    app.can.mockReturnValue(false);
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    fireEvent.click(screen.getByText('Trainer'));
+    expect(app.toggleMyRole).not.toHaveBeenCalled();
+  });
+
   it('renders logout button', () => {
     const app = makeApp();
     render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });

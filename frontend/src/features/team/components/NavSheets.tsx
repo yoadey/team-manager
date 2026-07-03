@@ -115,6 +115,10 @@ export function ProfileSheet({ app }: SheetProps) {
   const S = state;
   const roles = S.roles;
   const myIds = app.myRoles().map((r) => r.id);
+  // Self-assigning a role is the same privileged operation as assigning it to
+  // another member (MemberSheets gates that behind members:write) — without
+  // this check, any member could grant themselves an admin role here.
+  const canEditMyRoles = app.can('members', 'write');
 
   // Account erasure (GDPR Art. 17): a destructive, irreversible action gated by
   // retyping the account email — no password, since accounts may be OIDC-only.
@@ -180,7 +184,8 @@ export function ProfileSheet({ app }: SheetProps) {
             return (
               <ButtonBase
                 key={r.id}
-                onClick={() => app.toggleMyRole(r.id)}
+                disabled={!canEditMyRoles}
+                onClick={canEditMyRoles ? () => app.toggleMyRole(r.id) : undefined}
                 sx={{
                   display: 'flex',
                   alignItems: 'center',
@@ -188,7 +193,7 @@ export function ProfileSheet({ app }: SheetProps) {
                   width: '100%',
                   p: '12px 14px',
                   borderRadius: '14px',
-                  cursor: 'pointer',
+                  cursor: canEditMyRoles ? 'pointer' : 'default',
                   border: '1px solid ' + (sel ? tk.primary : '#E6E7EE'),
                   background: sel ? tk.primaryContainer : NEUTRAL.card,
                   justifyContent: 'flex-start',

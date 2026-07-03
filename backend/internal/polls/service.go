@@ -140,6 +140,9 @@ func (s *Service) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, op
 		return gen.Poll{}, ErrSingleChoiceMultipleOptions
 	}
 	if err := s.repo.ReplaceVotes(ctx, pollID, userID, optionIDs, pr.Multiple); err != nil {
+		if errors.Is(err, ErrOptionNotInPoll) {
+			return gen.Poll{}, ErrOptionNotInPoll
+		}
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote ReplaceVotes: %w", err)
 	}
 	return s.buildPoll(ctx, pr, userID)

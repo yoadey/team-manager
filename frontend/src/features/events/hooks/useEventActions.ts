@@ -157,16 +157,22 @@ export function useEventDetailActions({
     }
   }, [api, S, setState, refreshEvents, openEventDetail, toastMsg]);
 
+  const commentInFlight = useRef(new Set<string>());
+
   const postEventComment = useCallback(
     async (eventId: string) => {
       const txt = (formValues<EventCommentFormValues>(S()).newEventComment || '').trim();
       if (!txt) return;
+      if (commentInFlight.current.has(eventId)) return;
+      commentInFlight.current.add(eventId);
       try {
         await api.events.addComment(eventId, txt, S().activeTeamId!);
         setFormVal({ newEventComment: '' });
         await reloadDetail(eventId);
       } catch (err) {
         reportActionError({ setState, toastMsg }, err, 'error.save');
+      } finally {
+        commentInFlight.current.delete(eventId);
       }
     },
     [api, S, setFormVal, reloadDetail, setState, toastMsg],

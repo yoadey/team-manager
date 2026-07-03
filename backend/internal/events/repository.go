@@ -672,10 +672,51 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 	return out, nil
 }
 
+// GetReasonVisibilityContext returns the team's configured reason-visibility
+// role whitelist (teams.reason_visibility_role_ids) and the viewer's own role
+// IDs within that team, so the service layer can decide whether to redact a
+// declined-attendance reason for a given viewer.
+func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := r.pool.QueryRow(ctx,
+		`SELECT reason_visibility_role_ids FROM teams WHERE id = $1`, teamID,
+	).Scan(&teamRoleIDs); err != nil {
+		return nil, nil, fmt.Errorf("events.Repository.GetReasonVisibilityContext team: %w", err)
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT r.id::text
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE m.team_id = $1 AND m.user_id = $2
+	`, teamID, viewerID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("events.Repository.GetReasonVisibilityContext viewer roles: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, nil, fmt.Errorf("events.Repository.GetReasonVisibilityContext scan: %w", err)
+		}
+		viewerRoleIDs = append(viewerRoleIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("events.Repository.GetReasonVisibilityContext: %w", err)
+	}
+	return teamRoleIDs, viewerRoleIDs, nil
+}
+
 // ─── SetAttendance ──────────────────────────────────────────────────────────
 
 // SetAttendance upserts an attendance record for an event scoped to teamID.
-// Returns pgx.ErrNoRows if eventID does not belong to teamID.
+// Returns pgx.ErrNoRows if eventID does not belong to teamID, or if userID is
+// not a member of teamID (prevents forging attendance rows for arbitrary
+// users outside the team).
 func (r *Repository) SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -683,6 +724,7 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, userID, teamID 
 		INSERT INTO attendance (event_id, user_id, status, reason, reason_id, reason_visibility, at)
 		SELECT $1, $2, $3, $4, $5, $6, now()
 		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7)
+		  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $7 AND user_id = $2)
 		ON CONFLICT (event_id, user_id) DO UPDATE
 			SET status = EXCLUDED.status,
 			    reason = EXCLUDED.reason,

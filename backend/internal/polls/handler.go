@@ -111,6 +111,9 @@ func (h *Handler) VotePoll(ctx context.Context, req gen.VotePollRequestObject) (
 		if errors.Is(err, ErrSingleChoiceMultipleOptions) {
 			return nil, apierror.UnprocessableEntity(err.Error())
 		}
+		if errors.Is(err, ErrOptionNotInPoll) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "VotePoll failed", "err", err)
 		return nil, apierror.Internal("failed to vote on poll")
 	}

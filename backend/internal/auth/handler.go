@@ -94,8 +94,10 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 }
 
 // DeleteCurrentUser erases the authenticated account by anonymization
-// (GDPR Art. 17). The account password must be supplied to re-authenticate the
-// request; on success the session cookie is cleared by the cookie middleware.
+// (GDPR Art. 17). The account's own email must be supplied in confirmEmail to
+// re-authenticate the request (not the password, so OIDC-only accounts with
+// no password can still confirm); on success the session cookie is cleared
+// by the cookie middleware.
 func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurrentUserRequestObject) (gen.DeleteCurrentUserResponseObject, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok {

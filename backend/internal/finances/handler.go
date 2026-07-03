@@ -320,6 +320,14 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if req.Body.Label != nil {
+		if err := validate.RequireNonEmpty(*req.Body.Label, "label"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+		if err := validate.MaxLen(*req.Body.Label, 255, "label"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	if req.Body.Amount != nil {
 		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
 			return nil, apierror.BadRequest(err.Error())

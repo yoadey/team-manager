@@ -2,6 +2,7 @@ package polls
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrOptionNotInPoll is returned when a vote references an optionID that
+// does not belong to the poll being voted on.
+var ErrOptionNotInPoll = errors.New("option does not belong to poll")
 
 // Repository handles all polls-related DB operations.
 type Repository struct {
@@ -287,12 +292,22 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 	}
 
 	for _, optID := range optionIDs {
-		if _, err := tx.Exec(
+		tag, err := tx.Exec(
 			ctx,
-			`INSERT INTO poll_votes (poll_id, option_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+			`INSERT INTO poll_votes (poll_id, option_id, user_id)
+			 SELECT $1, $2, $3
+			 WHERE EXISTS (SELECT 1 FROM poll_options WHERE id = $2 AND poll_id = $1)
+			 ON CONFLICT DO NOTHING`,
 			pollID, optID, userID,
-		); err != nil {
+		)
+		if err != nil {
 			return fmt.Errorf("polls.Repository.ReplaceVotes insert: %w", err)
+		}
+		// Rows were just cleared for (pollID, userID) above, so a duplicate-key
+		// conflict is impossible here — zero rows affected can only mean the
+		// WHERE EXISTS guard rejected an optionID that doesn't belong to pollID.
+		if tag.RowsAffected() == 0 {
+			return ErrOptionNotInPoll
 		}
 	}
 

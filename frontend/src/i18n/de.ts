@@ -22,6 +22,8 @@ export const de = {
     login: 'Anmeldung fehlgeschlagen',
     network: 'Verbindung zum Service fehlgeschlagen',
     unknown: 'Unbekannter Fehler',
+    copy: 'Kopieren fehlgeschlagen',
+    forbidden: 'Dafür fehlt dir die Berechtigung',
   },
   relTime: {
     now: 'gerade eben',

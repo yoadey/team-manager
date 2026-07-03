@@ -36,7 +36,7 @@ type mockTeamRepo struct {
 	updateTeam            func(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error)
 	getMemberCount        func(ctx context.Context, teamID string) (int, error)
 	getMembership         func(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error)
-	getRolesForMembership func(ctx context.Context, membershipID string) ([]teams.RoleRow, error)
+	getRolesForMembership func(ctx context.Context, membershipID, teamID string) ([]teams.RoleRow, error)
 	createInvite          func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
 	updateTeamPhoto       func(ctx context.Context, teamID string, data []byte, mime string) error
 	updateTeamLogo        func(ctx context.Context, teamID string, data []byte, mime string) error
@@ -66,8 +66,8 @@ func (m *mockTeamRepo) GetMembership(ctx context.Context, teamID, userID string)
 	return m.getMembership(ctx, teamID, userID)
 }
 
-func (m *mockTeamRepo) GetRolesForMembership(ctx context.Context, membershipID string) ([]teams.RoleRow, error) {
-	return m.getRolesForMembership(ctx, membershipID)
+func (m *mockTeamRepo) GetRolesForMembership(ctx context.Context, membershipID, teamID string) ([]teams.RoleRow, error) {
+	return m.getRolesForMembership(ctx, membershipID, teamID)
 }
 
 func (m *mockTeamRepo) CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error) {
@@ -135,7 +135,7 @@ func TestTeamService_ListForUser(t *testing.T) {
 		},
 		getMemberCount: func(_ context.Context, _ string) (int, error) { return 3, nil },
 		getMembership:  func(_ context.Context, _, _ string) (*teams.MembershipRow, error) { return membership, nil },
-		getRolesForMembership: func(_ context.Context, _ string) ([]teams.RoleRow, error) {
+		getRolesForMembership: func(_ context.Context, _, _ string) ([]teams.RoleRow, error) {
 			return []teams.RoleRow{role}, nil
 		},
 	}

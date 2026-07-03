@@ -22,4 +22,12 @@ spec:
       name: {{ include "team-manager.fullname" . }}-metrics-token
       key: token
     {{- end }}
+    # Without an explicit jobLabel/relabeling, Prometheus Operator derives the
+    # `job` label from this ServiceMonitor's Service name, which varies with
+    # the Helm release name — silently breaking every alert/dashboard query
+    # that hardcodes job="team-manager-backend". Pin it to a stable value so
+    # those queries always match regardless of release name.
+    relabelings:
+    - targetLabel: job
+      replacement: team-manager-backend
 {{- end }}

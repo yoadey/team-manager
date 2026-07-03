@@ -27,8 +27,8 @@ type eventService interface {
 	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]gen.EventComment, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error)
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
-	ListAttendance(ctx context.Context, eventID, teamID string) ([]gen.AttendanceRow, error)
-	SetAttendance(ctx context.Context, eventID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
+	ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error)
+	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
 	SetNomination(ctx context.Context, eventID, teamID string, req gen.SetNominationRequest) error
 }
 
@@ -93,6 +93,9 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 	if err != nil {
 		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
 			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+		}
+		if errors.Is(err, ErrRepeatWeeksTooLarge) {
+			return nil, apierror.BadRequest(err.Error())
 		}
 		h.logger.ErrorContext(ctx, "CreateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to create event")
@@ -246,6 +249,9 @@ func (h *Handler) AddEventComment(ctx context.Context, request gen.AddEventComme
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if err := validate.Text(request.Body.Text, "text"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 
 	comment, err := h.svc.AddComment(ctx, request.EventId.String(), user.Id.String(), request.TeamId.String(), request.Body.Text)
 	if err != nil {
@@ -283,12 +289,12 @@ func (h *Handler) DeleteEventComment(ctx context.Context, request gen.DeleteEven
 
 // ListAttendance returns all attendance rows for an event.
 func (h *Handler) ListAttendance(ctx context.Context, request gen.ListAttendanceRequestObject) (gen.ListAttendanceResponseObject, error) {
-	_, ok := auth.UserFromContext(ctx)
+	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 
-	rows, err := h.svc.ListAttendance(ctx, request.EventId.String(), request.TeamId.String())
+	rows, err := h.svc.ListAttendance(ctx, request.EventId.String(), request.TeamId.String(), user.Id.String())
 	if err != nil {
 		h.logger.ErrorContext(ctx, "ListAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to list attendance")
@@ -315,10 +321,13 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		userID = user.Id.String()
 	}
 
-	rec, err := h.svc.SetAttendance(ctx, request.EventId.String(), userID, request.TeamId.String(), *request.Body)
+	rec, err := h.svc.SetAttendance(ctx, request.EventId.String(), user.Id.String(), userID, request.TeamId.String(), *request.Body)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")
+		}
+		if errors.Is(err, ErrSetAttendanceForbidden) {
+			return nil, apierror.Forbidden("not allowed to set attendance for another member")
 		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")

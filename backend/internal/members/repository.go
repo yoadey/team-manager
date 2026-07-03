@@ -95,9 +95,26 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 }
 
 // AddMember inserts a user (if not exists by email), creates membership and assigns roles.
+// Every role in params.RoleIDs must belong to teamID — otherwise ErrRoleNotInTeam is
+// returned, matching the check SetRoles already performs.
 func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	if len(params.RoleIDs) > 0 {
+		var count int
+		err := r.pool.QueryRow(ctx,
+			`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
+			params.RoleIDs, teamID,
+		).Scan(&count)
+		if err != nil {
+			return nil, fmt.Errorf("members.Repository.AddMember: check roles: %w", err)
+		}
+		if count != len(params.RoleIDs) {
+			return nil, ErrRoleNotInTeam
+		}
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.AddMember: begin tx: %w", err)
@@ -357,7 +374,7 @@ func (r *Repository) GetPermissions(ctx context.Context, teamID, userID uuid.UUI
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
 		JOIN memberships m ON m.id = mr.membership_id
-		WHERE m.team_id = $1 AND m.user_id = $2
+		WHERE m.team_id = $1 AND m.user_id = $2 AND r.team_id = $1
 	`, teamID, userID)
 	if err != nil {
 		return teams.PermissionsJSON{}, fmt.Errorf("members.Repository.GetPermissions: %w", err)

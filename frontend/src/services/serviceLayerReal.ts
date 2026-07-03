@@ -32,22 +32,26 @@ import type { NewsItem } from '@/features/news';
 import type { Poll } from '@/features/polls';
 import type { NotificationsResult } from '@/features/notifications';
 import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribution } from '@/features/finances';
-import { AuthError, NetworkError, ValidationError } from '@/utils/errors';
+import { AuthError, ForbiddenError, NetworkError, ValidationError } from '@/utils/errors';
 
 // Builds the typed error for a given HTTP status + optional RFC 9457
 // problem+json body, preferring `detail` then `title` over a generic
 // "HTTP {status}" message so callers (and the toasts they feed) can surface
-// the server's actual explanation (e.g. "Email already in use").
+// the server's actual explanation (e.g. "Email already in use"). 401 (no/
+// expired session) and 403 (valid session, insufficient permission) map to
+// distinct error types — conflating them would log a fully-authenticated
+// user out just for lacking write access to a module.
 function errorFor(status: number, body?: { detail?: string; title?: string } | null): Error {
   const msg = body?.detail ?? body?.title ?? `HTTP ${status}`;
-  if (status === 401 || status === 403) return new AuthError(msg);
+  if (status === 401) return new AuthError(msg);
+  if (status === 403) return new ForbiddenError(msg);
   if (status === 400 || status === 422) return new ValidationError(msg);
   if (status >= 500) return new NetworkError(msg);
   return new Error(msg);
 }
 
 // Throws a typed error when the API returns an error response, so callers can
-// react to the failure class — notably AuthError (401/403), which the app's
+// react to the failure class — notably AuthError (401), which the app's
 // reportActionError/onAuthError wiring turns into a logout + redirect to the
 // login screen when a session expires mid-use.
 async function check<T>(
@@ -71,7 +75,7 @@ async function checkOk(result: { error?: unknown; response: Response }): Promise
 }
 
 // Uploads a data: URL as a multipart image field via PUT, throwing the same
-// typed errors as check() (notably AuthError on 401/403, so a session expiring
+// typed errors as check() (notably AuthError on 401, so a session expiring
 // mid-upload still triggers the app's logout redirect). On failure, the
 // response body is parsed as RFC 9457 problem+json (best-effort) so the
 // thrown error carries the server's actual detail (e.g. "File too large")

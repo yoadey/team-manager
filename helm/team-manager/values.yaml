@@ -116,6 +116,19 @@ allowedOrigins: "https://team-manager.example.com"
 
 networkPolicy:
   enabled: true
+  ingress:
+    # Restrict who may reach port 8080 by uncommenting and filling in `from`
+    # below (podSelector/namespaceSelector for your ingress controller and
+    # Prometheus). Left empty by default so ingress is only port-restricted
+    # (any source in the cluster may reach it), matching prior behavior.
+    from: []
+    # from:
+    #   - namespaceSelector:
+    #       matchLabels:
+    #         kubernetes.io/metadata.name: ingress-nginx
+    #   - namespaceSelector:
+    #       matchLabels:
+    #         kubernetes.io/metadata.name: monitoring
   egress:
     # Restrict egress destinations by uncommenting and filling in `to` below
     # (podSelector/namespaceSelector for in-cluster Postgres, or ipBlock for
@@ -137,7 +150,12 @@ monitoring:
   enabled: false        # Set to true when Prometheus Operator is installed
   namespace: ""         # Override to deploy ServiceMonitor to a different namespace
   scrapeInterval: "30s"
-  metricsToken: ""      # If set, creates a Secret with the bearer token
+  # If set, creates a Secret with this bearer token for the ServiceMonitor's
+  # scrape credential. Must match the METRICS_TOKEN key inside the app's own
+  # `existingSecret` — the two are independent Secrets with no validation
+  # tying them together; a mismatch causes Prometheus to get silent 401s from
+  # /metrics with no obvious link back to this setting.
+  metricsToken: ""
   additionalLabels: {}  # Labels to help Prometheus Operator find this ServiceMonitor
 
 migrations:

@@ -31,6 +31,8 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
     const esc = (s: string) =>
       String(s || '')
         .replace(/\\/g, '\\\\')
+        .replace(/\r\n/g, '\\n')
+        .replace(/\r/g, '\\n')
         .replace(/\n/g, '\\n')
         .replace(/,/g, '\\,')
         .replace(/;/g, '\\;');
@@ -92,13 +94,14 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
     }
   }, [activeTeam, buildIcs, toastMsg]);
 
-  const copyCalUrl = useCallback(() => {
+  const copyCalUrl = useCallback(async () => {
     const team = activeTeam();
     const url = 'webcal://teamverwaltung.app/cal/' + ((team && team.id) || 'team') + '.ics';
     try {
-      navigator.clipboard.writeText(url.replace('webcal://', 'https://'));
+      await navigator.clipboard.writeText(url.replace('webcal://', 'https://'));
     } catch {
-      /* ignore */
+      toastMsg(t('error.copy'));
+      return;
     }
     setState((s) => (s.sheet && s.sheet.type === 'calExport' ? { sheet: { ...s.sheet, copied: true } } : {}));
     toastMsg(t('events.toastCalLinkCopied'));

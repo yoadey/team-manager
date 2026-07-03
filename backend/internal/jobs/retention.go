@@ -94,10 +94,15 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	}
 	slog.Info("retention: deleted old notifications", "rows", notifRows, "cutoff", notifCutoff)
 
-	// Delete expired sessions. The sessions table may not exist in all
-	// environments, so a failure here is logged as a warning only.
+	// Delete sessions that expired more than sessionRetention ago. Keying off
+	// expires_at (not created_at) is required for correctness: a long-lived
+	// session (e.g. SESSION_TTL_HOURS raised above RETENTION_SESSIONS_DAYS*24)
+	// must never be purged while it's still valid, only once it has actually
+	// expired and the retention grace period has passed. The sessions table
+	// may not exist in all environments, so a failure here is logged as a
+	// warning only.
 	sessionCutoff := now.Add(-w.sessionRetention)
-	sessionRows, err := deleteBatched(ctx, w.pool, "sessions", "created_at", sessionCutoff)
+	sessionRows, err := deleteBatched(ctx, w.pool, "sessions", "expires_at", sessionCutoff)
 	if err != nil {
 		slog.Warn("retention: delete sessions skipped (table may not exist)", "err", err)
 	} else {

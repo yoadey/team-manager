@@ -12,6 +12,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // ─── mock repository ────────────────────────────────────────────────────────
@@ -30,6 +31,7 @@ type mockSvcRepo struct {
 	getAttendanceSummariesFn func(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]events.EventSummaryData, error)
 	getMyAttendancesFn       func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.AttendanceDBRow, error)
 	listAttendanceFn         func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
+	getReasonVisibilityCtxFn func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
 	setAttendanceFn          func(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
 	setNominationFn          func(ctx context.Context, eventID, userID, teamID string, nominated bool) error
 	listCommentsFn           func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
@@ -89,6 +91,13 @@ func (m *mockSvcRepo) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID
 
 func (m *mockSvcRepo) ListAttendance(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error) {
 	return m.listAttendanceFn(ctx, eventID, teamID)
+}
+
+func (m *mockSvcRepo) GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error) {
+	if m.getReasonVisibilityCtxFn != nil {
+		return m.getReasonVisibilityCtxFn(ctx, teamID, viewerID)
+	}
+	return nil, nil, nil
 }
 
 func (m *mockSvcRepo) SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error) {
@@ -153,7 +162,7 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil)
 	result, next, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming", "", 50)
 	require.NoError(t, err)
 	assert.Nil(t, next)
@@ -192,7 +201,7 @@ func TestEventService_CreateEvent_Recurring(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil)
 	repeatWeeks := 3
 	recurring := true
 	body := &gen.CreateEventRequest{
@@ -210,6 +219,31 @@ func TestEventService_CreateEvent_Recurring(t *testing.T) {
 	assert.False(t, createCalled, "CreateEvent should NOT be called for recurring events")
 	assert.True(t, result.Recurring, "resulting event should have Recurring=true")
 	assert.NotNil(t, result.SeriesId)
+}
+
+func TestEventService_CreateEvent_Recurring_RejectsExcessiveRepeatWeeks(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockSvcRepo{
+		createSeriesFn: func(_ context.Context, _ string, _ *events.CreateEventParams) ([]events.EventRow, error) {
+			t.Fatal("CreateSeries must not be called when repeatWeeks exceeds the cap")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil)
+	repeatWeeks := 100000
+	recurring := true
+	body := &gen.CreateEventRequest{
+		Type:        gen.Training,
+		Title:       "Runaway Series",
+		Date:        openapi_types.Date{Time: time.Now().UTC()},
+		Recurring:   &recurring,
+		RepeatWeeks: &repeatWeeks,
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrRepeatWeeksTooLarge)
 }
 
 func TestEventService_SetAttendance(t *testing.T) {
@@ -239,17 +273,74 @@ func TestEventService_SetAttendance(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil)
 	req := gen.SetAttendanceRequest{
 		UserId: userID,
 		Status: gen.Yes,
 	}
 
-	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), teamID.String(), req)
+	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, "yes", capturedStatus)
 	assert.Equal(t, gen.Yes, result.Status)
+}
+
+// mockPermChecker satisfies the unexported permissionChecker interface via
+// structural typing.
+type mockPermChecker struct {
+	perms teams.PermissionsJSON
+	err   error
+}
+
+func (m *mockPermChecker) GetPermissions(_ context.Context, _, _ uuid.UUID) (teams.PermissionsJSON, error) {
+	return m.perms, m.err
+}
+
+func TestEventService_SetAttendance_ForOtherMember_RequiresEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	callerID := uuid.New()
+	targetUserID := uuid.New()
+	teamID := uuid.New()
+
+	repo := &mockSvcRepo{
+		setAttendanceFn: func(_ context.Context, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			t.Fatal("repository must not be called when caller lacks events:write")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}})
+	req := gen.SetAttendanceRequest{UserId: targetUserID, Status: gen.Yes}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), callerID.String(), targetUserID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrSetAttendanceForbidden)
+}
+
+func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	callerID := uuid.New()
+	targetUserID := uuid.New()
+	teamID := uuid.New()
+
+	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: targetUserID, Status: "yes"}
+	repo := &mockSvcRepo{
+		setAttendanceFn: func(_ context.Context, _, uID, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			assert.Equal(t, targetUserID.String(), uID)
+			return rec, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}})
+	req := gen.SetAttendanceRequest{UserId: targetUserID, Status: gen.Yes}
+
+	result, err := svc.SetAttendance(context.Background(), eventID.String(), callerID.String(), targetUserID.String(), teamID.String(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 }
 
 func TestEventService_SetStatus_PassesTeamIDThrough(t *testing.T) {
@@ -273,8 +364,92 @@ func TestEventService_SetStatus_PassesTeamIDThrough(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil)
 	_, err := svc.SetStatus(context.Background(), testUserID, eventID.String(), otherTeamID.String(), "cancelled", "single")
 	require.NoError(t, err)
 	assert.Equal(t, otherTeamID.String(), capturedTeamID, "teamID must be threaded through to the repository so cross-team status changes are rejected at the DB layer")
+}
+
+func TestEventService_ListAttendance_RedactsDeclineReasonWithoutRole(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	otherUserID := uuid.New()
+	reason := "private medical reason"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(_ context.Context, _, _ string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: otherUserID, Status: "no", Reason: &reason, Name: "Other"},
+			}, nil
+		},
+		getReasonVisibilityCtxFn: func(_ context.Context, _, _ string) ([]string, []string, error) {
+			// Team requires role "trainer-role"; viewer has no roles at all.
+			return []string{"trainer-role"}, nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil)
+	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].Reason, "a viewer without a reason-visibility role must not see another member's decline reason")
+}
+
+func TestEventService_ListAttendance_ShowsOwnDeclineReason(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	reason := "my own reason"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(_ context.Context, _, _ string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: viewerID, Status: "no", Reason: &reason, Name: "Self"},
+			}, nil
+		},
+		getReasonVisibilityCtxFn: func(_ context.Context, _, _ string) ([]string, []string, error) {
+			t.Fatal("reason-visibility context must not be fetched for the viewer's own row")
+			return nil, nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil)
+	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].Reason)
+	assert.Equal(t, reason, *rows[0].Reason)
+}
+
+func TestEventService_ListAttendance_ShowsDeclineReasonWithMatchingRole(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	otherUserID := uuid.New()
+	reason := "private medical reason"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(_ context.Context, _, _ string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: otherUserID, Status: "no", Reason: &reason, Name: "Other"},
+			}, nil
+		},
+		getReasonVisibilityCtxFn: func(_ context.Context, _, _ string) ([]string, []string, error) {
+			return []string{"trainer-role"}, []string{"trainer-role"}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil)
+	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].Reason)
+	assert.Equal(t, reason, *rows[0].Reason)
 }

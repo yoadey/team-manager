@@ -5,8 +5,10 @@ Verwaltung von Trainingsterminen und Spielern für einen Verein.
 Produktive React-Umsetzung des Design-Prototyps „Teamverwaltung“ (mandantenfähige
 Team-/Vereins-App für den Formations-/Sportbetrieb). Das Design des hochauflösenden
 Prototyps wurde **1:1 übernommen**, aber vollständig auf **React + TypeScript + MUI**
-aufgebaut. In dieser ersten Stufe läuft die App **rein im Frontend** – das Backend
-wird über den `serviceLayer` gemockt (In-Memory + `localStorage`, künstliche Latenz).
+aufgebaut. Das Repo enthält ein produktivfähiges **Go/PostgreSQL-Backend** (siehe
+`backend/`); `serviceLayer.ts` schaltet automatisch zwischen dem Mock-Backend
+(In-Memory + `localStorage`, künstliche Latenz) und echten HTTP-Aufrufen an dieses
+Backend um, je nachdem ob `VITE_API_BASE_URL` gesetzt ist.
 
 > Die ausführliche Entwickler-/Architekturdokumentation steht in [`CLAUDE.md`](./CLAUDE.md).
 
@@ -90,9 +92,11 @@ und GitHub-Actions wöchentlich. Siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 ## Vom Mock zum echten Backend
 
 `serviceLayer.ts` definiert den vollständigen **API-Vertrag** (gleiche Namespaces &
-Signaturen wie das spätere Go/PostgreSQL-Backend). Für die Produktivanbindung werden
-lediglich die Methodenrümpfe gegen HTTP-Calls getauscht – die exportierte `api`-Form bleibt
-unverändert.
+Signaturen wie das Go/PostgreSQL-Backend in `backend/`). Die Produktivanbindung
+(`serviceLayerReal.ts`, ein generierter TypeScript-Client aus dem OpenAPI-Spec) ist
+bereits implementiert und wird automatisch verwendet, sobald `VITE_API_BASE_URL`
+gesetzt ist – ohne weitere Änderungen am restlichen Frontend-Code, da die exportierte
+`api`-Form unverändert bleibt.
 
 ## Funktionsumfang (gemäß Lastenheft)
 
@@ -104,7 +108,6 @@ Benachrichtigungs-Center · Team-Wechsel, Einladungslinks & Team-Einstellungen �
 
 ### Noch offen / nächste Schritte
 
-- Echtes Backend (Go/PostgreSQL) anbinden – `serviceLayer` als Vertrag nutzen.
 - Echte OIDC-Anbindung (Authorization Code Flow + PKCE) statt Mock-Login.
 - Web-Push-Benachrichtigungen, serverseitiger Kalender-Abo-Feed.
 - Vollständige Typisierung der Formularzustände (`AppState.form`) je Sheet.

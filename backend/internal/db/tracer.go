@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 )
 
 // slowQueryThreshold is the minimum query duration that triggers a warning log.
@@ -42,6 +44,7 @@ func (t *SlowQueryTracer) TraceQueryEnd(ctx context.Context, _ *pgx.Conn, _ pgx.
 	}
 	duration := time.Since(d.start)
 	if duration >= slowQueryThreshold {
+		metrics.SlowQueries.Inc()
 		t.logger.WarnContext(ctx, "slow query detected",
 			slog.Duration("duration", duration),
 			slog.String("sql", d.sql),

@@ -8,7 +8,7 @@
 // VITE_API_BASE_URL is set), so it is exercised here directly rather than only
 // through docker-compose integration tests.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { AuthError, NetworkError, ValidationError } from '@/utils/errors';
+import { AuthError, ForbiddenError, NetworkError, ValidationError } from '@/utils/errors';
 
 // ── Mock the HTTP client ─────────────────────────────────────────────────────
 vi.mock('@/api/client', () => ({
@@ -80,11 +80,11 @@ beforeEach(() => {
 // ─── check(): HTTP status → typed error mapping ───────────────────────────────
 
 describe('error translation (check)', () => {
-  it('throws AuthError on 401 and 403', async () => {
+  it('throws AuthError on 401 and ForbiddenError on 403', async () => {
     client.GET.mockResolvedValueOnce(fail(401, { detail: 'expired' }));
     await expect(realApi.auth.providers()).rejects.toBeInstanceOf(AuthError);
     client.GET.mockResolvedValueOnce(fail(403));
-    await expect(realApi.auth.providers()).rejects.toBeInstanceOf(AuthError);
+    await expect(realApi.auth.providers()).rejects.toBeInstanceOf(ForbiddenError);
   });
 
   it('throws ValidationError on 400 and 422', async () => {

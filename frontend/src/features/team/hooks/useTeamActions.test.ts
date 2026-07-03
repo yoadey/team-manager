@@ -346,23 +346,33 @@ describe('useTeamActions', () => {
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'invite', invite: null } });
   });
 
-  it('copyInvite does nothing when no invite in sheet', () => {
+  it('copyInvite does nothing when no invite in sheet', async () => {
     stateRef = makeState({ sheet: { type: 'invite', invite: null } as never });
     const { result } = renderActions();
-    act(() => {
-      result.current.copyInvite();
+    await act(async () => {
+      await result.current.copyInvite();
     });
     expect(toastMsg).not.toHaveBeenCalled();
   });
 
-  it('copyInvite shows toast when invite link exists', () => {
+  it('copyInvite shows toast when invite link exists', async () => {
     stateRef = makeState({ sheet: { type: 'invite', invite: { link: 'https://example.com/abc' } } as never });
-    Object.assign(navigator, { clipboard: { writeText: vi.fn() } });
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     const { result } = renderActions();
-    act(() => {
-      result.current.copyInvite();
+    await act(async () => {
+      await result.current.copyInvite();
     });
     expect(toastMsg).toHaveBeenCalledWith('Link kopiert');
+  });
+
+  it('copyInvite shows an error toast when the clipboard write fails', async () => {
+    stateRef = makeState({ sheet: { type: 'invite', invite: { link: 'https://example.com/abc' } } as never });
+    Object.assign(navigator, { clipboard: { writeText: vi.fn().mockRejectedValue(new Error('denied')) } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.copyInvite();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen');
   });
 
   it('uploadMyPhoto updates user photo and shows toast', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getErrorMessage, reportActionError, NetworkError, ValidationError, AuthError, retryable } from './errors';
+import { getErrorMessage, reportActionError, NetworkError, ValidationError, AuthError, ForbiddenError, retryable } from './errors';
 
 describe('getErrorMessage', () => {
   it('uses Error.message', () => {
@@ -47,6 +47,23 @@ describe('reportActionError', () => {
     reportActionError({ setState, toastMsg }, new AuthError());
     expect(toastMsg.mock.calls[0][0]).toBe('Anmeldung fehlgeschlagen');
   });
+
+  it('AuthError triggers onAuthError (session must be cleared)', () => {
+    const setState = vi.fn();
+    const toastMsg = vi.fn();
+    const onAuthError = vi.fn();
+    reportActionError({ setState, toastMsg, onAuthError }, new AuthError());
+    expect(onAuthError).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps ForbiddenError to error.forbidden i18n key without logging out', () => {
+    const setState = vi.fn();
+    const toastMsg = vi.fn();
+    const onAuthError = vi.fn();
+    reportActionError({ setState, toastMsg, onAuthError }, new ForbiddenError());
+    expect(toastMsg.mock.calls[0][0]).toBe('Dafür fehlt dir die Berechtigung');
+    expect(onAuthError).not.toHaveBeenCalled();
+  });
 });
 
 describe('typed error classes', () => {
@@ -70,6 +87,13 @@ describe('typed error classes', () => {
     const err = new AuthError();
     expect(err.kind).toBe('auth');
     expect(err instanceof AuthError).toBe(true);
+  });
+
+  it('ForbiddenError has kind "forbidden" and is distinct from AuthError', () => {
+    const err = new ForbiddenError();
+    expect(err.kind).toBe('forbidden');
+    expect(err instanceof ForbiddenError).toBe(true);
+    expect(err instanceof AuthError).toBe(false);
   });
 });
 
