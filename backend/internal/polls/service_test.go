@@ -337,6 +337,38 @@ func TestService_Vote_SingleChoiceRejectsMultipleOptions(t *testing.T) {
 	assert.ErrorIs(t, err, polls.ErrSingleChoiceMultipleOptions)
 }
 
+func TestService_Vote_SingleChoiceDuplicateOptionID_NotRejected(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow() // Multiple: false
+	opt := makeOptionRow()
+	var gotOptionIDs []uuid.UUID
+
+	repo := &mockRepo{
+		findByID: func(context.Context, uuid.UUID, uuid.UUID) (*polls.PollRow, error) {
+			return pr, nil
+		},
+		replaceVotes: func(_ context.Context, _, _ uuid.UUID, oids []uuid.UUID, _ bool) error {
+			gotOptionIDs = oids
+			return nil
+		},
+		listOptions: func(context.Context, uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{opt}, nil
+		},
+		listVotes: func(context.Context, uuid.UUID) ([]*polls.PollVoteRow, error) {
+			return nil, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil)
+	// Same option submitted twice — a single-choice vote in substance, must
+	// not trip ErrSingleChoiceMultipleOptions (raw, undeduped length is 2).
+	_, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID, optionID})
+
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{optionID}, gotOptionIDs, "duplicate must be deduped before reaching the repository")
+}
+
 func TestService_Delete(t *testing.T) {
 	t.Parallel()
 

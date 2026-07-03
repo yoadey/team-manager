@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -74,4 +75,51 @@ func TestTeamRepository_UpdateTeam(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Updated Name", updated.Name)
 	assert.Equal(t, tr.Id, updated.Id)
+}
+
+func TestTeamRepository_UpdateTeam_ReasonVisibilityRoleIDs_ValidatesOwnership(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	var userID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO users (name, email, avatar_color)
+		VALUES ('Reason Vis User', 'reason-vis@example.com', '#445566')
+		RETURNING id
+	`).Scan(&userID)
+	require.NoError(t, err)
+
+	repo := teams.NewRepository(pool)
+	tr, err := repo.CreateTeam(ctx, "Reason Vis Team", userID)
+	require.NoError(t, err)
+
+	// A role from a different team must be rejected.
+	otherTeam, err := repo.CreateTeam(ctx, "Other Team", userID)
+	require.NoError(t, err)
+	var foreignRoleID string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Foreign Role', '{}') RETURNING id`,
+		otherTeam.Id.String(),
+	).Scan(&foreignRoleID)
+	require.NoError(t, err)
+
+	_, err = repo.UpdateTeam(ctx, tr.Id.String(), teams.TeamPatch{
+		ReasonVisibilityRoleIDs: []string{foreignRoleID},
+	})
+	require.ErrorIs(t, err, teams.ErrRoleNotInTeam)
+
+	// A role belonging to the team is accepted.
+	var ownRoleID string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Own Role', '{}') RETURNING id`,
+		tr.Id.String(),
+	).Scan(&ownRoleID)
+	require.NoError(t, err)
+
+	updated, err := repo.UpdateTeam(ctx, tr.Id.String(), teams.TeamPatch{
+		ReasonVisibilityRoleIDs: []string{ownRoleID},
+	})
+	require.NoError(t, err)
+	require.Len(t, updated.ReasonVisibilityRoleIDs, 1)
+	assert.Equal(t, uuid.MustParse(ownRoleID), updated.ReasonVisibilityRoleIDs[0])
 }

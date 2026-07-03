@@ -146,6 +146,9 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 		if errors.Is(err, ErrSystemRole) {
 			return nil, apierror.Forbidden("cannot delete a built-in system role")
 		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
+		}
 		h.logger.ErrorContext(ctx, "DeleteRole failed", "err", err)
 		return nil, apierror.Internal("failed to delete role")
 	}

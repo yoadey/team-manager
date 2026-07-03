@@ -136,6 +136,10 @@ func (s *Service) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, op
 	if err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote FindByID: %w", err)
 	}
+	// Dedupe before the single-choice check: a client submitting the same
+	// option twice (the OpenAPI schema doesn't declare uniqueItems) is still
+	// only choosing one option and must not trip ErrSingleChoiceMultipleOptions.
+	optionIDs = dedupeUUIDs(optionIDs)
 	if !pr.Multiple && len(optionIDs) > 1 {
 		return gen.Poll{}, ErrSingleChoiceMultipleOptions
 	}

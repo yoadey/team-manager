@@ -336,9 +336,15 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 	return e, nil
 }
 
-// updateSeriesEvents updates every event in seriesID within tx.
+// updateSeriesEvents updates every event in seriesID within tx. Date is
+// deliberately excluded: it's what makes each occurrence in a series
+// distinct, so applying it series-wide would collapse every occurrence onto
+// the same date instead of updating only the specific event scope=series was
+// invoked on (which UpdateEvent still does afterward with the full params).
 func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params *UpdateEventParams) error {
-	sets, args := buildUpdateSets(params, "")
+	seriesParams := *params
+	seriesParams.Date = nil
+	sets, args := buildUpdateSets(&seriesParams, "")
 	// Remove last arg (the eventID placeholder we added) — we use series_id instead.
 	args = args[:len(args)-1]
 	q := fmt.Sprintf(`UPDATE events SET %s WHERE series_id = $%d`, sets, len(args)+1)

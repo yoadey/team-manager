@@ -111,6 +111,43 @@ func TestPollRepository_Vote(t *testing.T) {
 	assert.Equal(t, noID, votes[0].OptionId)
 }
 
+// A client submitting the same option ID twice (the OpenAPI schema doesn't
+// declare uniqueItems on optionIds) must not be misread as "an option that
+// doesn't belong to the poll" — the second insert of a duplicate hits ON
+// CONFLICT DO NOTHING (RowsAffected=0), which without deduping the loop
+// would mistake for ErrOptionNotInPoll and abort the whole vote.
+func TestPollRepository_ReplaceVotes_DuplicateOptionIDs_DoesNotError(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := polls.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Dup Voter', 'dup-voter@example.com', '#aabbcc')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Dup Vote Team')`, tid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	pollID, err := repo.Create(ctx, teamID, userID, "Multi?", true, false, []string{"A", "B", "C"})
+	require.NoError(t, err)
+	opts, err := repo.ListOptions(ctx, pollID)
+	require.NoError(t, err)
+	require.Len(t, opts, 3)
+
+	err = repo.ReplaceVotes(ctx, pollID, userID, []uuid.UUID{opts[0].Id, opts[0].Id, opts[1].Id}, true)
+	require.NoError(t, err)
+
+	votes, err := repo.ListVotes(ctx, pollID)
+	require.NoError(t, err)
+	require.Len(t, votes, 2, "duplicate option ID must be deduped, and the other legitimate option must not be dropped")
+}
+
 func TestPollRepository_ReplaceVotes_RejectsOptionFromOtherPoll(t *testing.T) {
 	t.Parallel()
 

@@ -13,11 +13,28 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"golang.org/x/image/draw"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 )
 
 const inviteTTL = 7 * 24 * time.Hour
+
+// ErrImageTooLarge is returned by resizeImage when the uploaded image's
+// dimensions exceed maxDecodePixels.
+var ErrImageTooLarge = errors.New("teams.resizeImage: image dimensions exceed the allowed maximum")
+
+// maxLogoDim caps the longest edge of a resized team photo/logo.
+const maxLogoDim = 800
+
+// maxDecodePixels caps the total pixel count of an uploaded image before it
+// is fully decoded, bounding peak memory against decompression-bomb inputs
+// (a small compressed file can declare enormous dimensions that blow up
+// memory when fully decoded — the 2 MB upload-size limit in readMultipartImage
+// does not bound the decoded pixel count). 50 MP comfortably covers
+// legitimate phone-camera photos. Mirrors internal/auth/service.go's
+// resizeImage, which guards user profile photo uploads the same way.
+const maxDecodePixels = 50_000_000
 
 // teamRepo is the interface the Service relies on.
 type teamRepo interface {
@@ -97,6 +114,9 @@ func (s *Service) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
+		}
+		if errors.Is(err, ErrRoleNotInTeam) {
+			return nil, ErrRoleNotInTeam
 		}
 		return nil, fmt.Errorf("teams.Service.UpdateTeam: %w", err)
 	}
@@ -282,25 +302,73 @@ func toGenRole(r RoleRow) gen.Role {
 	}
 }
 
+// resizeImage decodes a JPEG or PNG, scales it proportionally so neither
+// dimension exceeds maxLogoDim, and re-encodes as JPEG.
 func resizeImage(data []byte, mime string) ([]byte, error) {
-	reader := bytes.NewReader(data)
+	// Read the header first (cheap) and reject oversized images before a full
+	// decode — see maxDecodePixels.
+	var cfg image.Config
+	var cfgErr error
+	switch mime {
+	case "image/png":
+		cfg, cfgErr = png.DecodeConfig(bytes.NewReader(data))
+	default:
+		cfg, cfgErr = jpeg.DecodeConfig(bytes.NewReader(data))
+	}
+	if cfgErr != nil {
+		return nil, fmt.Errorf("decode image config: %w", cfgErr)
+	}
+	if cfg.Width*cfg.Height > maxDecodePixels {
+		return nil, fmt.Errorf("%w (%dx%d)", ErrImageTooLarge, cfg.Width, cfg.Height)
+	}
 
 	var src image.Image
 	var decodeErr error
 
 	switch mime {
 	case "image/png":
-		src, decodeErr = png.Decode(reader)
+		src, decodeErr = png.Decode(bytes.NewReader(data))
 	default:
-		src, decodeErr = jpeg.Decode(reader)
+		src, decodeErr = jpeg.Decode(bytes.NewReader(data))
 	}
 	if decodeErr != nil {
 		return nil, fmt.Errorf("decode image: %w", decodeErr)
 	}
 
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	if w <= maxLogoDim && h <= maxLogoDim {
+		// No resize needed — still re-encode as JPEG for consistency.
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, src, &jpeg.Options{Quality: 85}); err != nil {
+			return nil, fmt.Errorf("encode image: %w", err)
+		}
+		return buf.Bytes(), nil
+	}
+
+	// Compute new dimensions preserving aspect ratio.
+	var newW, newH int
+	if w > h {
+		newH = h * maxLogoDim / w
+		newW = maxLogoDim
+	} else {
+		newW = w * maxLogoDim / h
+		newH = maxLogoDim
+	}
+	if newW < 1 {
+		newW = 1
+	}
+	if newH < 1 {
+		newH = 1
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	draw.BiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
+
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, src, &jpeg.Options{Quality: 85}); err != nil {
-		return nil, fmt.Errorf("encode jpeg: %w", err)
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, fmt.Errorf("encode resized image: %w", err)
 	}
 	return buf.Bytes(), nil
 }

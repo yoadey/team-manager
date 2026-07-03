@@ -118,6 +118,86 @@ func TestRolesRepository_Delete(t *testing.T) {
 	assert.Empty(t, list)
 }
 
+// Deleting the team's only settings:write-granting role must be blocked —
+// membership_roles cascades on role deletion, so this would otherwise
+// silently strip every member holding it of admin access in one step, the
+// same unrecoverable lockout members.SetRoles/RemoveMember already guard
+// against.
+func TestRolesRepository_DeleteRole_LastSettingsAdmin_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	uid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Last Admin Role Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Sole Admin', 'sole-role-admin@example.com', '#123456')`, uid)
+	require.NoError(t, err)
+	var mid string
+	err = pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid).Scan(&mid)
+	require.NoError(t, err)
+
+	adminRole, err := repo.CreateRole(ctx, tid, "Custom Admin", nil, teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write",
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid, adminRole.Id.String())
+	require.NoError(t, err)
+
+	err = repo.DeleteRole(ctx, adminRole.Id.String(), tid)
+	require.ErrorIs(t, err, roles.ErrLastSettingsAdmin)
+
+	list, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	assert.Len(t, list, 1, "role must still exist")
+}
+
+// A settings:write role can be deleted once another role/member already
+// provides equivalent coverage.
+func TestRolesRepository_DeleteRole_NotLastSettingsAdmin_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	uid1 := uuid.New().String()
+	uid2 := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Two Admin Roles Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Admin One', 'role-admin1@example.com', '#111111')`, uid1)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Admin Two', 'role-admin2@example.com', '#222222')`, uid2)
+	require.NoError(t, err)
+	var mid1, mid2 string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid1).Scan(&mid1))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid2).Scan(&mid2))
+
+	adminPerms := teams.PermissionsJSON{Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write"}
+	roleA, err := repo.CreateRole(ctx, tid, "Admin A", nil, adminPerms)
+	require.NoError(t, err)
+	roleB, err := repo.CreateRole(ctx, tid, "Admin B", nil, adminPerms)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid1, roleA.Id.String())
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid2, roleB.Id.String())
+	require.NoError(t, err)
+
+	require.NoError(t, repo.DeleteRole(ctx, roleA.Id.String(), tid))
+
+	list, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+	assert.Equal(t, roleB.Id, list[0].Id)
+}
+
 func TestRolesRepository_Delete_WrongTeam_ReturnsNoRows(t *testing.T) {
 	t.Parallel()
 

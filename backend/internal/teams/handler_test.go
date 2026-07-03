@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/teams"
@@ -295,6 +296,27 @@ func TestTeamHandler_UpdateTeam_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, "team.update", rec["event"])
 	assert.Equal(t, actorID.String(), rec["actor"])
 	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+func TestTeamHandler_CreateTeam_RejectsEmptyName_Returns400(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		createTeam: func(context.Context, string, string) (*gen.TeamForUser, error) {
+			t.Fatal("service must not be called when validation fails")
+			return nil, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(io.Discard, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	body := &gen.CreateTeamJSONRequestBody{Name: ""}
+	_, err := h.CreateTeam(ctx, gen.CreateTeamRequestObject{Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T (%v) — invalid input must not fall through to the generic 500", err, err)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 }
 
 func TestTeamHandler_UpdateTeam_RejectsEmptyName(t *testing.T) {

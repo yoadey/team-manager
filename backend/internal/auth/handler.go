@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -229,6 +230,9 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 
 	updated, err := h.svc.UpdatePhoto(ctx, user.Id.String(), data, ct)
 	if err != nil {
+		if errors.Is(err, ErrImageTooLarge) {
+			return nil, errBadRequest("image dimensions exceed the allowed maximum")
+		}
 		h.logger.ErrorContext(ctx, "update photo failed", "err", err)
 		return nil, errInternal("photo update failed")
 	}

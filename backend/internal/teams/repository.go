@@ -26,6 +26,10 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+// ErrRoleNotInTeam is returned when one or more role IDs passed to UpdateTeam
+// (via ReasonVisibilityRoleIDs) do not belong to the team being updated.
+var ErrRoleNotInTeam = errors.New("role does not belong to team")
+
 // TeamPatch carries optional fields for an UPDATE teams query.
 type TeamPatch struct {
 	Name                    *string
@@ -190,6 +194,33 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 	return &tr, nil
 }
 
+// parseAndValidateTeamRoleIDs parses ids as UUIDs and verifies every one
+// belongs to teamID, returning ErrRoleNotInTeam otherwise.
+func (r *Repository) parseAndValidateTeamRoleIDs(ctx context.Context, teamID string, ids []string) ([]uuid.UUID, error) {
+	uids := make([]uuid.UUID, len(ids))
+	for i, s := range ids {
+		u, err := uuid.Parse(s)
+		if err != nil {
+			return nil, fmt.Errorf("teams.Repository: invalid role id %q: %w", s, err)
+		}
+		uids[i] = u
+	}
+	if len(uids) == 0 {
+		return uids, nil
+	}
+	var count int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
+		uids, teamID,
+	).Scan(&count); err != nil {
+		return nil, fmt.Errorf("teams.Repository: check roles: %w", err)
+	}
+	if count != len(uids) {
+		return nil, ErrRoleNotInTeam
+	}
+	return uids, nil
+}
+
 // UpdateTeam applies a partial update to the teams row and returns the updated row.
 func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -230,13 +261,9 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 		argN++
 	}
 	if patch.ReasonVisibilityRoleIDs != nil {
-		uids := make([]uuid.UUID, len(patch.ReasonVisibilityRoleIDs))
-		for i, s := range patch.ReasonVisibilityRoleIDs {
-			u, err := uuid.Parse(s)
-			if err != nil {
-				return nil, fmt.Errorf("teams.Repository.UpdateTeam: invalid role id %q: %w", s, err)
-			}
-			uids[i] = u
+		uids, err := r.parseAndValidateTeamRoleIDs(ctx, teamID, patch.ReasonVisibilityRoleIDs)
+		if err != nil {
+			return nil, err
 		}
 		setClauses = append(setClauses, fmt.Sprintf("reason_visibility_role_ids = $%d", argN))
 		args = append(args, uids)

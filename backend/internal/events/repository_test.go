@@ -127,6 +127,61 @@ func TestEventRepository_CreateRecurringEvent(t *testing.T) {
 	assert.Equal(t, *eventRows[0].SeriesId, *eventRows[3].SeriesId)
 }
 
+// A series-scope update with a new title AND a new date must apply the title
+// to every occurrence but NOT collapse every occurrence onto the same date —
+// date is what makes each occurrence distinct; only the specific event the
+// update was invoked on should get the new date.
+func TestEventRepository_UpdateEvent_Series_DoesNotCollapseDates(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "12121212-1212-1212-1212-121212121212"
+	teamID := "34343434-3434-3434-3434-343434343434"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Series Update User', 'series-update@example.com', '#654321')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Update Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	eventRows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 3)
+
+	newTitle := "Renamed Training"
+	newDate := startDate.AddDate(0, 0, 1) // shift only the targeted event by one day
+	updated, err := repo.UpdateEvent(ctx, eventRows[0].Id.String(), teamID, &events.UpdateEventParams{
+		Title: &newTitle,
+		Date:  &newDate,
+	}, "series")
+	require.NoError(t, err)
+	assert.Equal(t, newTitle, updated.Title)
+	assert.Equal(t, newDate.Format("2006-01-02"), updated.Date.Format("2006-01-02"))
+
+	all, err := repo.ListEvents(ctx, teamID, "all", 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+
+	dates := make(map[string]bool)
+	for _, e := range all {
+		assert.Equal(t, newTitle, e.Title, "title must apply to every occurrence in the series")
+		dates[e.Date.Format("2006-01-02")] = true
+	}
+	assert.Len(t, dates, 3, "each occurrence must keep its own distinct date, not collapse onto the updated event's date")
+}
+
 // Deleting a series must remove every occurrence (past and future), not just
 // the event_series definition row — events.series_id is ON DELETE SET NULL,
 // so leaving DeleteEvent to rely on FK cascade alone would silently detach

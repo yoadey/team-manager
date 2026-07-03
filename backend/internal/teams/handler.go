@@ -83,7 +83,7 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 		return nil, apierror.BadRequest("missing request body")
 	}
 	if err := validate.Name(request.Body.Name); err != nil {
-		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
+		return nil, apierror.BadRequest(err.Error())
 	}
 
 	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name)
@@ -182,6 +182,9 @@ func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestO
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("team not found")
 		}
+		if errors.Is(err, ErrRoleNotInTeam) {
+			return nil, apierror.UnprocessableEntity("one or more roles do not belong to this team")
+		}
 		h.logger.ErrorContext(ctx, "UpdateTeam failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.UpdateTeam: %w", err)
 	}
@@ -264,6 +267,9 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 
 	t, err := h.svc.UpdatePhoto(ctx, request.TeamId.String(), data, ct)
 	if err != nil {
+		if errors.Is(err, ErrImageTooLarge) {
+			return nil, apierror.BadRequest("image dimensions exceed the allowed maximum")
+		}
 		h.logger.ErrorContext(ctx, "UploadTeamPhoto failed", "err", err)
 		return nil, apierror.Internal("photo update failed")
 	}
@@ -296,6 +302,9 @@ func (h *Handler) UploadTeamLogo(ctx context.Context, request gen.UploadTeamLogo
 
 	t, err := h.svc.UpdateLogo(ctx, request.TeamId.String(), data, ct)
 	if err != nil {
+		if errors.Is(err, ErrImageTooLarge) {
+			return nil, apierror.BadRequest("image dimensions exceed the allowed maximum")
+		}
 		h.logger.ErrorContext(ctx, "UploadTeamLogo failed", "err", err)
 		return nil, apierror.Internal("logo update failed")
 	}

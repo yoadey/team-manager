@@ -291,6 +291,15 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 		return fmt.Errorf("polls.Repository.ReplaceVotes delete: %w", err)
 	}
 
+	// Dedupe: the "duplicate-key conflict is impossible" invariant the loop
+	// below relies on only holds if optionIDs itself has no duplicates. The
+	// OpenAPI schema doesn't declare uniqueItems, so a client can legally
+	// submit e.g. ["A","A","B"] — without this, the second insert of "A"
+	// hits ON CONFLICT DO NOTHING (RowsAffected=0), which the loop
+	// misreads as "A doesn't belong to this poll" and aborts the whole
+	// vote, silently dropping the legitimate "B" selection too.
+	optionIDs = dedupeUUIDs(optionIDs)
+
 	for _, optID := range optionIDs {
 		tag, err := tx.Exec(
 			ctx,
@@ -315,4 +324,18 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 		return fmt.Errorf("polls.Repository.ReplaceVotes: commit: %w", err)
 	}
 	return nil
+}
+
+// dedupeUUIDs returns ids with duplicates removed, preserving first-seen order.
+func dedupeUUIDs(ids []uuid.UUID) []uuid.UUID {
+	seen := make(map[uuid.UUID]struct{}, len(ids))
+	out := make([]uuid.UUID, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
 }

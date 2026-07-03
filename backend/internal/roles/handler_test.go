@@ -248,6 +248,23 @@ func TestHandler_DeleteRole_SystemRole_Forbidden(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, apiErr.Status)
 }
 
+func TestHandler_DeleteRole_LastSettingsAdmin_Returns409(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		deleteRole: func(_ context.Context, _, _ uuid.UUID) error { return roles.ErrLastSettingsAdmin },
+	}
+	h := roles.NewHandler(svc, slog.Default(), nil)
+
+	_, err := h.DeleteRole(rolesAuthedCtx(), gen.DeleteRoleRequestObject{
+		TeamId: rolesTeamID,
+		RoleId: testRoleID,
+	})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusConflict, apiErr.Status)
+}
+
 func TestHandler_UpdateRole_SystemRole_Forbidden(t *testing.T) {
 	t.Parallel()
 	svc := &mockRoleService{

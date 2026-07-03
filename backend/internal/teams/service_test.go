@@ -3,6 +3,8 @@ package teams_test
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -24,6 +26,41 @@ func fixedJPEG(t *testing.T) []byte {
 	img.Set(0, 0, color.RGBA{R: 255, A: 255})
 	var buf bytes.Buffer
 	require.NoError(t, jpeg.Encode(&buf, img, nil))
+	return buf.Bytes()
+}
+
+// fakeOversizedPNGHeader builds just enough of a PNG (signature + a valid
+// IHDR chunk declaring width x height) for image/png.DecodeConfig to
+// successfully read the declared dimensions — without actually encoding
+// width*height pixels, which would itself be the decompression-bomb-sized
+// allocation the resize code is meant to reject before ever happening.
+func fakeOversizedPNGHeader(width, height uint32) []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}) // PNG signature
+
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], width)
+	binary.BigEndian.PutUint32(ihdr[4:8], height)
+	ihdr[8] = 8  // bit depth
+	ihdr[9] = 6  // color type: RGBA
+	ihdr[10] = 0 // compression
+	ihdr[11] = 0 // filter
+	ihdr[12] = 0 // interlace
+
+	chunkType := []byte("IHDR")
+	var lenBuf [4]byte
+	binary.BigEndian.PutUint32(lenBuf[:], uint32(len(ihdr)))
+	buf.Write(lenBuf[:])
+	buf.Write(chunkType)
+	buf.Write(ihdr)
+
+	crc := crc32.NewIEEE()
+	crc.Write(chunkType)
+	crc.Write(ihdr)
+	var crcBuf [4]byte
+	binary.BigEndian.PutUint32(crcBuf[:], crc.Sum32())
+	buf.Write(crcBuf[:])
+
 	return buf.Bytes()
 }
 
@@ -199,6 +236,41 @@ func TestTeamService_UpdateLogo_StoresResizedJPEGAndReturnsTeam(t *testing.T) {
 	assert.Equal(t, "image/jpeg", storedMime)
 	assert.NotEmpty(t, storedData)
 	assert.True(t, *result.HasLogo)
+}
+
+// A PNG that declares dimensions exceeding the decompression-bomb guard must
+// be rejected before decode — full decode of e.g. 20000x20000 would allocate
+// ~1.6 GB for a single upload.
+func TestTeamService_UpdateLogo_RejectsOversizedImage(t *testing.T) {
+	repo := &mockTeamRepo{
+		updateTeamLogo: func(context.Context, string, []byte, string) error {
+			t.Fatal("must not store an oversized image")
+			return nil
+		},
+	}
+	svc := teams.NewService(repo, "https://app.example.com")
+
+	oversized := fakeOversizedPNGHeader(20000, 20000)
+	_, err := svc.UpdateLogo(context.Background(), uuid.New().String(), oversized, "image/png")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, teams.ErrImageTooLarge)
+}
+
+func TestTeamService_UpdatePhoto_RejectsOversizedImage(t *testing.T) {
+	repo := &mockTeamRepo{
+		updateTeamPhoto: func(context.Context, string, []byte, string) error {
+			t.Fatal("must not store an oversized image")
+			return nil
+		},
+	}
+	svc := teams.NewService(repo, "https://app.example.com")
+
+	oversized := fakeOversizedPNGHeader(20000, 20000)
+	_, err := svc.UpdatePhoto(context.Background(), uuid.New().String(), oversized, "image/png")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, teams.ErrImageTooLarge)
 }
 
 func TestTeamService_GetTeamLogoData_ReturnsStoredBytes(t *testing.T) {
