@@ -7,6 +7,8 @@ import {
   mapPenaltyAssignment,
   mapContribution,
   mapFinanceOverview,
+  mapUser,
+  mapTeam,
 } from './map';
 
 describe('centsToEuros / eurosToCents', () => {
@@ -102,5 +104,31 @@ describe('finance mappers convert amount fields from cents to euros', () => {
     expect(o.expense).toBe(200);
     expect(o.openPenaltySum).toBe(15);
     expect(o.openPenalties[0].amount).toBe(15);
+  });
+});
+
+describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
+  it('mapUser returns null photo when hasPhoto is false or absent', () => {
+    const base = { id: 'u1', name: 'Alice', email: 'a@x.com', avatarColor: '#000' };
+    expect(mapUser({ ...base, hasPhoto: false }).photo).toBeNull();
+    expect(mapUser(base).photo).toBeNull();
+  });
+
+  it('mapUser builds a /auth/me/photo URL when hasPhoto is true', () => {
+    const u = mapUser({ id: 'u1', name: 'Alice', email: 'a@x.com', avatarColor: '#000', hasPhoto: true });
+    expect(u.photo).toMatch(/^.*\/api\/v1\/auth\/me\/photo\?v=\d+$/);
+  });
+
+  it('mapTeam returns null photo/logo when hasPhoto/hasLogo are false or absent', () => {
+    const base = { id: 't1', name: 'Team' };
+    const t = mapTeam(base);
+    expect(t.photo).toBeNull();
+    expect(t.logo).toBeNull();
+  });
+
+  it('mapTeam builds per-team photo/logo URLs when hasPhoto/hasLogo are true', () => {
+    const t = mapTeam({ id: 't1', name: 'Team', hasPhoto: true, hasLogo: true });
+    expect(t.photo).toMatch(new RegExp(`/api/v1/teams/t1/photo\\?v=\\d+$`));
+    expect(t.logo).toMatch(new RegExp(`/api/v1/teams/t1/logo\\?v=\\d+$`));
   });
 });

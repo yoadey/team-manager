@@ -1,7 +1,13 @@
 // Mapping functions: API schema types → frontend domain types.
-// Photos: the backend stores raw bytes and returns hasPhoto:boolean.
-// Photo display uses null (initials/avatar fallback) for now; upload still works.
+// Photos: the backend stores raw bytes and returns hasPhoto:boolean. Only two
+// GET-by-bytes endpoints exist — the current user's own photo (/auth/me/photo)
+// and a team's photo/logo (/teams/{teamId}/photo|logo) — so only those two
+// entities can be resolved to a display URL here. Other members' photos
+// (attendance rows, comments, poll voters, finance rows, stats, ...) have no
+// per-arbitrary-user photo endpoint on the backend, so they stay null
+// (initials/avatar fallback) until such an endpoint exists.
 
+import { config } from '@/config';
 import type { components } from './types.gen';
 import type {
   User,
@@ -48,6 +54,19 @@ export function eurosToCents(euros: number): number {
   return Math.round(euros * 100);
 }
 
+// photoUrl builds a cache-busted display URL for a hasPhoto-gated GET
+// endpoint, or null when the entity has no photo. The session cookie is
+// same-origin (or configured-CORS) and sent automatically by <img>/CSS
+// background-image requests, so no auth token needs to be embedded here.
+// The timestamp query param exists purely to bust the browser's HTTP cache
+// on re-upload — it is recomputed only when the mapper re-runs (i.e. on a
+// fresh API response), not on every render, so it doesn't defeat caching
+// between unrelated re-renders of the same mapped object.
+function photoUrl(hasPhoto: boolean | undefined, path: string): string | null {
+  if (!hasPhoto) return null;
+  return `${config.apiBaseUrl}/api/v1${path}?v=${Date.now()}`;
+}
+
 export function mapUser(u: S['User']): User {
   return {
     id: u.id,
@@ -55,7 +74,7 @@ export function mapUser(u: S['User']): User {
     email: u.email,
     phone: u.phone ?? '',
     avatarColor: u.avatarColor,
-    photo: null, // hasPhoto→null; photo upload/display via separate endpoints
+    photo: photoUrl(u.hasPhoto, '/auth/me/photo'),
     birthday: u.birthday ?? '',
     address: u.address ?? '',
   };
@@ -92,8 +111,8 @@ export function mapTeam(t: S['Team']): Team {
     icon: t.icon ?? '⭐',
     iconBg: t.iconBg ?? '#1565C0',
     iconFg: t.iconFg ?? '#FFFFFF',
-    photo: null,
-    logo: null,
+    photo: photoUrl(t.hasPhoto, `/teams/${t.id}/photo`),
+    logo: photoUrl(t.hasLogo, `/teams/${t.id}/logo`),
     description: t.description ?? '',
     reasonVisibilityRoles: t.reasonVisibilityRoleIds,
   };

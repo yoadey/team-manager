@@ -442,6 +442,55 @@ jobs:
         env:
           DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
 
+  backend-migration-safety:
+    name: Backend · Migration safety lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only meaningful with a base ref to diff against; only lints migration
+    # files added/changed in this PR, so it never flags already-applied
+    # migrations (e.g. 00007/00008, which predate this check and are not
+    # retroactively edited — editing an already-applied migration is unsafe).
+    if: github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: Flag unsafe DDL patterns in new/changed migrations
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          changed=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- 'internal/db/migrations/*.sql' || true)
+          if [ -z "$changed" ]; then
+            echo "No migration files changed."
+            exit 0
+          fi
+          echo "Checking changed migrations:"
+          echo "$changed"
+          fail=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            # ALTER COLUMN ... TYPE rewrites the whole table under an
+            # ACCESS EXCLUSIVE lock, blocking all reads/writes for the
+            # duration on large tables — use an expand/contract migration
+            # instead (add a new column, batch-backfill, then a fast
+            # rename/drop), as internal/jobs/retention.go's batching
+            # helper already does for large-table deletes.
+            if grep -qiE 'ALTER +COLUMN +[^ ]+ +TYPE' "$f"; then
+              echo "::error file=$f::ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE lock. Use an expand/contract migration instead (add a new column, batch-backfill, then rename/drop)."
+              fail=1
+            fi
+            # ADD CONSTRAINT ... CHECK without NOT VALID validates against
+            # every existing row while holding an ACCESS EXCLUSIVE lock.
+            if grep -qiE 'ADD +CONSTRAINT +[^ ]+ +CHECK' "$f" && ! grep -qi 'NOT VALID' "$f"; then
+              echo "::error file=$f::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+              fail=1
+            fi
+          done <<< "$changed"
+          exit $fail
+
   security-container:
     name: Security · Container scan (Trivy)
     runs-on: ubuntu-latest

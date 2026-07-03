@@ -10,10 +10,12 @@ DATABASE_URL    ?= postgres://teammanager:teammanager@localhost:5432/teammanager
 all: generate build
 
 ## Install code-generation and quality tools (run once after cloning)
+# golangci-lint is pinned to match .github/workflows/ci.yml's version so local
+# `make lint` and CI agree on findings — bump both together deliberately.
 tools:
 	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
 	go install github.com/pressly/goose/v3/cmd/goose@latest
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.12.2
 	go install golang.org/x/vuln/cmd/govulncheck@latest
 
 ## Generate Go server code from OpenAPI spec
