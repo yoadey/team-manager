@@ -244,6 +244,54 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, "open", list[0].Status)
 }
 
+// TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates
+// guards against a read-then-write race: ToggleContributionStatus previously
+// read the current status, computed the flip in Go, then wrote it back in a
+// separate statement — two concurrent toggles could both read "open", both
+// compute "paid", and both write "paid", losing one of the two toggle
+// intents (net effect of two toggles should be back to "open"). The fix
+// flips the status atomically in a single UPDATE ... CASE statement.
+func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	var contribID uuid.UUID
+	err := pool.QueryRow(ctx,
+		`INSERT INTO contributions (team_id, user_id, month, amount, status)
+		 VALUES ($1, $2, '2024-07', 1500, 'open') RETURNING id`,
+		teamID, userID,
+	).Scan(&contribID)
+	require.NoError(t, err)
+
+	const n = 20
+	errs := make(chan error, n)
+	for range n {
+		go func() {
+			_, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
+			errs <- err
+		}()
+	}
+	for range n {
+		require.NoError(t, <-errs)
+	}
+
+	// An even number of toggles must land back on the original status —
+	// a lost update would instead leave it stuck on "paid".
+	list, err := repo.ListContributions(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "open", list[0].Status)
+}
+
 // TestFinancesRepository_UserIsMemberOfTeam guards against regressing to a
 // nonexistent table name (the query must target `memberships`, the table
 // every other module uses — a prior version queried a nonexistent

@@ -1,6 +1,7 @@
 package validate_test
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -74,4 +75,11 @@ func TestPositiveAmount(t *testing.T) {
 	assert.NoError(t, validate.PositiveAmount(5000, "amount"))
 	assert.Error(t, validate.PositiveAmount(0, "amount"))
 	assert.Error(t, validate.PositiveAmount(-5, "amount"))
+}
+
+func TestPositiveAmount_RejectsAboveMax(t *testing.T) {
+	t.Parallel()
+	assert.NoError(t, validate.PositiveAmount(100_000_000, "amount"))
+	assert.ErrorIs(t, validate.PositiveAmount(100_000_001, "amount"), validate.ErrAmountTooLarge)
+	assert.Error(t, validate.PositiveAmount(math.MaxInt64, "amount"))
 }

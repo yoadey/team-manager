@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -210,7 +211,7 @@ func TestHandler_CreateTransaction_RejectsNonPositiveAmount(t *testing.T) {
 	}
 	h := finances.NewHandler(svc, slog.Default(), nil)
 
-	for _, amount := range []int64{0, -10} {
+	for _, amount := range []int64{0, -10, 100_000_001, math.MaxInt64} {
 		body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Membership fee", Amount: amount}
 		_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
 		require.Error(t, err)

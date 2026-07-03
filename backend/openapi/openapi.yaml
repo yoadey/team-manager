@@ -2461,6 +2461,8 @@ components:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+          minimum: 1
+          maximum: 100000000
         category:
           type: string
           maxLength: 255
@@ -2477,6 +2479,8 @@ components:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+          minimum: 1
+          maximum: 100000000
         category:
           type: string
           maxLength: 255
@@ -2508,6 +2512,8 @@ components:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+          minimum: 1
+          maximum: 100000000
 
     UpdatePenaltyRequest:
       type: object
@@ -2518,6 +2524,8 @@ components:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+          minimum: 1
+          maximum: 100000000
 
     PenaltyAssignment:
       type: object
@@ -2622,6 +2630,8 @@ components:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+          minimum: 1
+          maximum: 100000000
 
     FinanceOverview:
       type: object

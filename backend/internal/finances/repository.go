@@ -503,23 +503,16 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var currentStatus string
-	err := r.db.QueryRow(ctx, `SELECT status FROM contributions WHERE id = $1 AND team_id = $2`, id, teamID).Scan(&currentStatus)
+	tag, err := r.db.Exec(ctx, `
+		UPDATE contributions
+		SET status = CASE WHEN status = 'paid' THEN 'open' ELSE 'paid' END
+		WHERE id = $1 AND team_id = $2
+	`, id, teamID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, pgx.ErrNoRows
-		}
 		return nil, fmt.Errorf("finances.Repository.ToggleContributionStatus: %w", err)
 	}
-
-	newStatus := "paid"
-	if currentStatus == "paid" {
-		newStatus = "open"
-	}
-
-	_, err = r.db.Exec(ctx, `UPDATE contributions SET status = $1 WHERE id = $2 AND team_id = $3`, newStatus, id, teamID)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Repository.ToggleContributionStatus update: %w", err)
+	if tag.RowsAffected() == 0 {
+		return nil, pgx.ErrNoRows
 	}
 	return r.getContributionByID(ctx, id, teamID)
 }

@@ -17,6 +17,14 @@ const (
 	maxTextLen     = 10_000
 	minPasswordLen = 8
 	maxPasswordLen = 128
+	// maxAmountCents caps a single monetary amount at 1,000,000.00 (in the
+	// club's currency, stored as integer cents). Generous for any club
+	// transaction, while keeping SUM(amount) aggregates (see
+	// finances.Repository.SumTransactions, ListOpenPenaltiesByUser) far below
+	// the int64/Postgres BIGINT range even across many rows — without a cap, a
+	// single amount near math.MaxInt64 makes those ::BIGINT-cast aggregates
+	// overflow and error out, permanently breaking the team's finance overview.
+	maxAmountCents = 100_000_000
 )
 
 // Sentinel errors for static analysis compliance.
@@ -28,6 +36,7 @@ var (
 	ErrFieldRequired     = errors.New("is required")
 	ErrFieldTooLong      = errors.New("is too long")
 	ErrAmountNotPositive = errors.New("must be greater than zero")
+	ErrAmountTooLarge    = errors.New("exceeds the maximum allowed amount")
 	ErrTimeOfDayInvalid  = errors.New("must be a 24-hour HH:MM time")
 )
 
@@ -89,10 +98,13 @@ func Text(s, field string) error {
 }
 
 // PositiveAmount returns an error when amount (an integer amount in cents) is
-// not positive (zero or negative).
+// not positive (zero or negative), or exceeds maxAmountCents.
 func PositiveAmount(amount int64, field string) error {
 	if amount <= 0 {
 		return fmt.Errorf("%s %w", field, ErrAmountNotPositive)
+	}
+	if amount > maxAmountCents {
+		return fmt.Errorf("%s %w", field, ErrAmountTooLarge)
 	}
 	return nil
 }
