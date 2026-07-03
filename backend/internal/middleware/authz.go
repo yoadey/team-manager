@@ -102,6 +102,20 @@ var selfServiceWritePaths = map[string]bool{
 	"notifications/seen": true,
 }
 
+// selfServiceWritePathsWithTrailingID lists the subset of selfServiceWritePaths
+// leaves that are also reached via a 4-segment path with a trailing
+// sub-resource ID, e.g. DELETE .../events/{eventId}/comments/{commentId}.
+// Deliberately a separate, narrower set from selfServiceWritePaths — matching
+// every 4-segment path against the full self-service set previously
+// misclassified PUT .../events/{eventId}/attendance/nominations (nominating
+// another member, an events:write-only action never exposed to non-writers
+// in the UI) as self-service, since "events"+"attendance" also collapses to
+// the "events/attendance" leaf. Only list a leaf here when its real 4th path
+// segment is a resource ID, never a fixed route keyword like "nominations".
+var selfServiceWritePathsWithTrailingID = map[string]bool{
+	"events/comments": true,
+}
+
 // RequirePermission enforces module-level access for team-scoped routes.
 //
 // Mutating methods (POST, PUT, PATCH, DELETE) require "write" on the relevant
@@ -234,17 +248,27 @@ func isSelfService(subPath string) bool {
 	if selfServiceWritePaths[subPath] {
 		return true
 	}
-	// Match generic patterns like "events/{id}/attendance", "events/{id}/comments"
-	// (create), and "events/{id}/comments/{commentId}" (delete one's own
-	// comment) — a trailing sub-resource ID doesn't change which self-service
-	// route this is, so both 3- and 4-segment paths are checked against the
-	// same "events/comments" entry. The ownership check itself (e.g. a comment
-	// delete is scoped to its own author) happens below in the handler/service,
-	// not here.
 	parts := strings.Split(subPath, "/")
-	if len(parts) == 3 || len(parts) == 4 {
+	// "events/{id}/attendance" or "events/{id}/comments" (create) — a plain
+	// 3-segment resource path.
+	if len(parts) == 3 {
 		leaf := parts[0] + "/" + parts[2]
 		if selfServiceWritePaths[leaf] {
+			return true
+		}
+	}
+	// "events/{id}/comments/{commentId}" (delete one's own comment) — a
+	// trailing sub-resource ID doesn't change which self-service route this
+	// is. Checked against the narrower selfServiceWritePathsWithTrailingID,
+	// NOT the full selfServiceWritePaths set: the latter would also match
+	// "events/{id}/attendance/nominations", whose 4th segment is a fixed
+	// route keyword (not a resource ID) naming an events:write-only action,
+	// not a self-service one. The ownership check for the trailing-ID case
+	// (e.g. a comment delete scoped to its own author) happens below in the
+	// handler/service, not here.
+	if len(parts) == 4 {
+		leaf := parts[0] + "/" + parts[2]
+		if selfServiceWritePathsWithTrailingID[leaf] {
 			return true
 		}
 	}

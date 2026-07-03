@@ -22,6 +22,7 @@ var (
 	ErrUpdateEventNilBody      = errors.New("events.Service.UpdateEvent: nil body")
 	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
 	ErrSetAttendanceForbidden  = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
+	ErrSetNominationForbidden  = errors.New("events.Service.SetNomination: caller lacks events:write")
 	ErrRepeatWeeksTooLarge     = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
 )
 
@@ -500,7 +501,32 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 }
 
 // SetNomination sets or removes a user's nomination on an event scoped to teamID.
-func (s *Service) SetNomination(ctx context.Context, eventID, teamID string, req gen.SetNominationRequest) error {
+// SetNomination sets or clears a member's nomination for an event. Unlike
+// SetAttendance, this is never self-service — nominating (even oneself) is
+// an organizer action gated on events:write, matching the frontend's
+// canEdit-only nominate/denominate controls. callerID is the authenticated
+// user making the request. Returns ErrSetNominationForbidden if the caller
+// lacks events:write.
+func (s *Service) SetNomination(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error {
+	if s.permChecker == nil {
+		return ErrSetNominationForbidden
+	}
+	teamUUID, err := uuid.Parse(teamID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetNomination: parse teamID: %w", err)
+	}
+	callerUUID, err := uuid.Parse(callerID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetNomination: parse callerID: %w", err)
+	}
+	perms, err := s.permChecker.GetPermissions(ctx, teamUUID, callerUUID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetNomination: check permissions: %w", err)
+	}
+	if perms.Events != "write" {
+		return ErrSetNominationForbidden
+	}
+
 	if err := s.repo.SetNomination(ctx, eventID, req.UserId.String(), teamID, req.Nominated); err != nil {
 		return fmt.Errorf("events.Service.SetNomination: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/gen"
@@ -24,6 +25,7 @@ type mockEventService struct {
 	updateEvent   func(ctx context.Context, teamID, userID, eventID, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
 	setStatus     func(ctx context.Context, userID, eventID, teamID, status, scope string) (*gen.TeamEvent, error)
 	setAttendance func(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
+	setNomination func(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error
 }
 
 func (m *mockEventService) ListEvents(context.Context, string, string, string, string, int) ([]gen.TeamEvent, *string, error) {
@@ -70,7 +72,10 @@ func (m *mockEventService) SetAttendance(ctx context.Context, eventID, callerID,
 	return m.setAttendance(ctx, eventID, callerID, userID, teamID, req)
 }
 
-func (m *mockEventService) SetNomination(context.Context, string, string, gen.SetNominationRequest) error {
+func (m *mockEventService) SetNomination(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error {
+	if m.setNomination != nil {
+		return m.setNomination(ctx, eventID, callerID, teamID, req)
+	}
 	panic("not implemented")
 }
 
@@ -173,6 +178,24 @@ func TestEventHandler_SetAttendance_RejectsOversizedReason(t *testing.T) {
 		TeamId: uuid.New(), EventId: uuid.New(), Body: body,
 	})
 	require.Error(t, err)
+}
+
+func TestEventHandler_SetNomination_ForbiddenMapsTo403(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{
+		setNomination: func(context.Context, string, string, string, gen.SetNominationRequest) error {
+			return events.ErrSetNominationForbidden
+		},
+	}, slog.Default())
+
+	body := &gen.SetNominationJSONRequestBody{UserId: uuid.New(), Nominated: true}
+	_, err := h.SetNomination(ctxWithUser(), gen.SetNominationRequestObject{
+		TeamId: uuid.New(), EventId: uuid.New(), Body: body,
+	})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, 403, apiErr.Status)
 }
 
 func ptr[T any](v T) *T { return &v }

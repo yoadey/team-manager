@@ -343,6 +343,80 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 	require.NotNil(t, result)
 }
 
+// TestEventService_SetNomination_RequiresEventsWrite guards against a
+// regression where a middleware path-parsing bug made this endpoint
+// self-service (any member, regardless of permissions) instead of requiring
+// events:write — nominating another member is an organizer-only action,
+// never self-service, even for nominating oneself. This test exercises the
+// service-layer check directly so the endpoint stays safe even if the
+// middleware's route classification regresses again.
+func TestEventService_SetNomination_RequiresEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	callerID := uuid.New()
+	targetUserID := uuid.New()
+	teamID := uuid.New()
+
+	repo := &mockSvcRepo{
+		setNominationFn: func(context.Context, string, string, string, bool) error {
+			t.Fatal("repository must not be called when caller lacks events:write")
+			return nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}})
+	req := gen.SetNominationRequest{UserId: targetUserID, Nominated: true}
+
+	err := svc.SetNomination(context.Background(), eventID.String(), callerID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrSetNominationForbidden)
+}
+
+func TestEventService_SetNomination_NilPermChecker_Forbidden(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockSvcRepo{
+		setNominationFn: func(context.Context, string, string, string, bool) error {
+			t.Fatal("repository must not be called when there is no permission checker")
+			return nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil)
+	req := gen.SetNominationRequest{UserId: uuid.New(), Nominated: true}
+
+	err := svc.SetNomination(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), req)
+	require.ErrorIs(t, err, events.ErrSetNominationForbidden)
+}
+
+func TestEventService_SetNomination_AllowedWithEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	callerID := uuid.New()
+	targetUserID := uuid.New()
+	teamID := uuid.New()
+
+	called := false
+	repo := &mockSvcRepo{
+		setNominationFn: func(_ context.Context, evID, uID, tID string, nominated bool) error {
+			called = true
+			assert.Equal(t, eventID.String(), evID)
+			assert.Equal(t, targetUserID.String(), uID)
+			assert.Equal(t, teamID.String(), tID)
+			assert.True(t, nominated)
+			return nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}})
+	req := gen.SetNominationRequest{UserId: targetUserID, Nominated: true}
+
+	err := svc.SetNomination(context.Background(), eventID.String(), callerID.String(), teamID.String(), req)
+	require.NoError(t, err)
+	assert.True(t, called)
+}
+
 func TestEventService_SetStatus_PassesTeamIDThrough(t *testing.T) {
 	t.Parallel()
 

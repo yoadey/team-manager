@@ -30,7 +30,7 @@ type eventService interface {
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
 	ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error)
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
-	SetNomination(ctx context.Context, eventID, teamID string, req gen.SetNominationRequest) error
+	SetNomination(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error
 }
 
 // Handler implements the event-related methods of gen.StrictServerInterface.
@@ -367,7 +367,7 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 
 // SetNomination sets or removes nomination for a user on an event.
 func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRequestObject) (gen.SetNominationResponseObject, error) {
-	_, ok := auth.UserFromContext(ctx)
+	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
@@ -376,9 +376,12 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 		return nil, apierror.BadRequest("missing request body")
 	}
 
-	if err := h.svc.SetNomination(ctx, request.EventId.String(), request.TeamId.String(), *request.Body); err != nil {
+	if err := h.svc.SetNomination(ctx, request.EventId.String(), user.Id.String(), request.TeamId.String(), *request.Body); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")
+		}
+		if errors.Is(err, ErrSetNominationForbidden) {
+			return nil, apierror.Forbidden("events:write required to nominate a member")
 		}
 		h.logger.ErrorContext(ctx, "SetNomination failed", "err", err)
 		return nil, apierror.Internal("failed to set nomination")

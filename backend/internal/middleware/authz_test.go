@@ -237,6 +237,22 @@ func TestRequirePermission_Mutations(t *testing.T) {
 			"/api/v1/teams/" + tid + "/events/" + evID + "/comments/" + uuid.New().String(),
 			allReadPerms(), http.StatusOK,
 		},
+		// events/attendance/nominations is a 4-segment path whose leaf
+		// ("events" + "attendance") collapses to the same string as the
+		// self-service "events/attendance" 3-segment leaf — regression test
+		// for a bug where this made nominating another member self-service
+		// (bypassing events:write) instead of requiring it, since nominating
+		// is an events:write-only action, never self-service.
+		{
+			"nominations requires events:write, not self-service (read perms denied)", http.MethodPut,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/attendance/nominations",
+			allReadPerms(), http.StatusForbidden,
+		},
+		{
+			"nominations write ok", http.MethodPut,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/attendance/nominations",
+			allWritePerms(), http.StatusOK,
+		},
 		// self-service: notifications/seen
 		{
 			"notifications seen self-service ok (read perms)", http.MethodPost,
