@@ -9,6 +9,9 @@ import {
   mapFinanceOverview,
   mapUser,
   mapTeam,
+  mapMemberStat,
+  mapEventStat,
+  mapStatsOverview,
 } from './map';
 
 describe('centsToEuros / eurosToCents', () => {
@@ -130,5 +133,50 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
     const t = mapTeam({ id: 't1', name: 'Team', hasPhoto: true, hasLogo: true });
     expect(t.photo).toMatch(new RegExp(`/api/v1/teams/t1/photo\\?v=\\d+$`));
     expect(t.logo).toMatch(new RegExp(`/api/v1/teams/t1/logo\\?v=\\d+$`));
+  });
+});
+
+// The backend's quote/pct/avg attendance fields are 0-1 fractions
+// (internal/stats/service.go's quote()); every UI consumer (Stats.tsx,
+// MemberSheets.tsx) renders them as a 0-100 percentage. Regression coverage
+// for a bug where the real service layer passed these through unscaled,
+// making e.g. a 50% attendance rate render as "0.5%" and always fall into
+// the worst color bucket.
+describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
+  it('mapMemberStat scales quote', () => {
+    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }).quote).toBe(50);
+    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 1, counted: 4, yes: 4 }).quote).toBe(100);
+    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0, counted: 0, yes: 0 }).quote).toBe(0);
+  });
+
+  it('mapEventStat scales pct and passes enough through unchanged', () => {
+    const s = mapEventStat({
+      id: 'e1',
+      title: 'Training',
+      type: 'training',
+      date: '2024-06-01',
+      yes: 3,
+      nominated: 4,
+      pct: 0.75,
+      enough: true,
+    });
+    expect(s.pct).toBe(75);
+    expect(s.enough).toBe(true);
+  });
+
+  it('mapStatsOverview scales avg and nested member/event fractions', () => {
+    const o = mapStatsOverview({
+      avg: 0.667,
+      members: [{ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }],
+      events: [
+        { id: 'e1', title: 'Training', type: 'training', date: '2024-06-01', yes: 3, nominated: 4, pct: 0.75, enough: true },
+      ],
+      pastCount: 1,
+      from: '2024-01-01',
+      to: '2024-06-30',
+    });
+    expect(o.avg).toBe(67);
+    expect(o.members[0].quote).toBe(50);
+    expect(o.events[0].pct).toBe(75);
   });
 });

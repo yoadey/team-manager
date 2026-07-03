@@ -67,6 +67,17 @@ function photoUrl(hasPhoto: boolean | undefined, path: string): string | null {
   return `${config.apiBaseUrl}/api/v1${path}?v=${Date.now()}`;
 }
 
+// The backend's attendance-quote fields (MemberStat.quote, EventStat.pct,
+// StatsOverview.avg, MemberAttendanceStats.quote) are 0-1 fractions
+// (internal/stats/service.go's quote() divides yes/counted); every frontend
+// consumer (Stats.tsx, MemberSheets.tsx) renders them as a whole-number
+// percentage (`+ '%'`) with 0-100 thresholds, matching the mock service
+// layer's convention. Round to the nearest integer percentage here, once, so
+// every caller of these mappers gets the scale the UI already assumes.
+function fractionToPercent(fraction: number): number {
+  return Math.round(fraction * 100);
+}
+
 export function mapUser(u: S['User']): User {
   return {
     id: u.id,
@@ -389,7 +400,7 @@ export function mapMemberStat(s: S['MemberStat']): MemberStat {
     name: s.name,
     avatarColor: s.avatarColor,
     photo: null,
-    quote: s.quote,
+    quote: fractionToPercent(s.quote),
     counted: s.counted,
     yes: s.yes,
   };
@@ -403,14 +414,14 @@ export function mapEventStat(s: S['EventStat']): EventStat {
     date: s.date,
     yes: s.yes,
     nominated: s.nominated,
-    pct: s.pct,
+    pct: fractionToPercent(s.pct),
     enough: s.enough,
   };
 }
 
 export function mapStatsOverview(o: S['StatsOverview']): StatsOverview {
   return {
-    avg: o.avg,
+    avg: fractionToPercent(o.avg),
     members: o.members.map(mapMemberStat),
     events: o.events.map(mapEventStat),
     pastCount: o.pastCount,

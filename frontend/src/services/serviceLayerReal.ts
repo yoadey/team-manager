@@ -763,7 +763,9 @@ export const realApi = {
         params: { path: { teamId, userId } },
       });
       const s = await check(res);
-      return { quote: s.quote, counted: s.counted, yes: s.yes };
+      // s.quote is a 0-1 fraction (see api/map.ts's fractionToPercent doc
+      // comment); every UI consumer expects a 0-100 percentage.
+      return { quote: Math.round(s.quote * 100), counted: s.counted, yes: s.yes };
     },
 
     async teamOverview(teamId: string, range?: DateRange | null): Promise<StatsOverview> {

@@ -603,9 +603,9 @@ describe('finances', () => {
 // ─── stats ──────────────────────────────────────────────────────────────────
 
 describe('stats', () => {
-  it('attendanceFor returns the raw quote/counted/yes', async () => {
+  it('attendanceFor scales the backend 0-1 quote fraction to a 0-100 percentage', async () => {
     client.GET.mockResolvedValueOnce(ok({ quote: 0.5, counted: 4, yes: 2 }));
-    expect(await realApi.stats.attendanceFor('t1', 'u1')).toEqual({ quote: 0.5, counted: 4, yes: 2 });
+    expect(await realApi.stats.attendanceFor('t1', 'u1')).toEqual({ quote: 50, counted: 4, yes: 2 });
   });
 
   it('teamOverview forwards the date range and maps the overview', async () => {
