@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -214,6 +215,37 @@ func TestHandler_CreateTransaction_RejectsNonPositiveAmount(t *testing.T) {
 		_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
 		require.Error(t, err)
 	}
+}
+
+func TestHandler_CreateTransaction_RejectsOversizedCategory(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when category validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	category := strings.Repeat("x", 256)
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Membership fee", Amount: 100, Category: &category}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+}
+
+func TestHandler_CreateTransaction_RejectsInvalidType(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when type validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.TransactionType("bogus"), Title: "Membership fee", Amount: 100}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
 }
 
 func TestHandler_UpdateTransaction_RejectsNonPositiveAmount(t *testing.T) {

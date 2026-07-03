@@ -58,7 +58,7 @@ func (s *Service) MarkSeen(ctx context.Context, teamID, userID uuid.UUID) error 
 
 // toGenNotification maps a NotificationRow to the generated gen.AppNotification type.
 func toGenNotification(row *NotificationRow) gen.AppNotification {
-	hasPhoto := len(row.PhotoData) > 0
+	hasPhoto := row.HasPhoto
 	n := gen.AppNotification{
 		Id:            row.Id,
 		TeamId:        row.TeamId,

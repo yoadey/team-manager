@@ -127,6 +127,52 @@ func TestEventRepository_CreateRecurringEvent(t *testing.T) {
 	assert.Equal(t, *eventRows[0].SeriesId, *eventRows[3].SeriesId)
 }
 
+// Deleting a series must remove every occurrence (past and future), not just
+// the event_series definition row — events.series_id is ON DELETE SET NULL,
+// so leaving DeleteEvent to rely on FK cascade alone would silently detach
+// the events instead of removing them, contradicting the UI's "all events in
+// this series ... will be permanently removed" confirmation copy.
+func TestEventRepository_DeleteEvent_Series_RemovesAllOccurrences(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+	teamID := "ffffffff-ffff-ffff-ffff-ffffffffffff"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Series Delete User', 'series-delete@example.com', '#123456')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Delete Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	eventRows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 3)
+
+	err = repo.DeleteEvent(ctx, eventRows[0].Id.String(), teamID, "series")
+	require.NoError(t, err)
+
+	all, err := repo.ListEvents(ctx, teamID, "all", 50, nil)
+	require.NoError(t, err)
+	assert.Empty(t, all, "all occurrences of the deleted series must be gone, not just detached")
+
+	var seriesCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM event_series WHERE id = $1`, *eventRows[0].SeriesId).Scan(&seriesCount))
+	assert.Equal(t, 0, seriesCount)
+}
+
 func TestEventRepository_SetAttendance(t *testing.T) {
 	t.Parallel()
 

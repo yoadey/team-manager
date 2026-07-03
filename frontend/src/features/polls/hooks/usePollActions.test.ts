@@ -161,6 +161,32 @@ describe('usePollActions', () => {
     expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt2'], 'team1');
   });
 
+  it('votePoll drops a second concurrent vote for the same poll to avoid a lost-update race', async () => {
+    let resolveFirstVote: () => void = () => {};
+    api.polls.vote.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFirstVote = resolve;
+        }),
+    );
+
+    const poll = { id: 'poll1', multiple: true, myVote: ['opt1'] } as never;
+    const { result } = renderActions();
+
+    await act(async () => {
+      // Fire two rapid clicks on different options before the first request
+      // resolves — both read the same stale poll.myVote via togglePollOption.
+      result.current.togglePollOption(poll, 'opt2');
+      result.current.togglePollOption(poll, 'opt3');
+      resolveFirstVote();
+      // Flush the pending vote/loadPolls microtasks.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(api.polls.vote).toHaveBeenCalledTimes(1);
+    expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt1', 'opt2'], 'team1');
+  });
+
   it('removePoll calls askConfirm', () => {
     const { result } = renderActions();
     act(() => {

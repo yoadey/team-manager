@@ -96,6 +96,14 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if req.Body.Category != nil {
+		if err := validate.MaxLen(*req.Body.Category, 255, "category"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if !req.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid transaction type")
+	}
 	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
@@ -125,6 +133,14 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 		if err := validate.MaxLen(*req.Body.Title, 255, "title"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
+	}
+	if req.Body.Category != nil {
+		if err := validate.MaxLen(*req.Body.Category, 255, "category"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Type != nil && !req.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid transaction type")
 	}
 	if req.Body.Amount != nil {
 		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {

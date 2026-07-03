@@ -99,20 +99,64 @@ groups:
           summary: "Elevated slow query count"
           description: "{{ $value }} queries exceeded the slow-query threshold in the last 10 minutes."
 
+  # ── Background Jobs ───────────────────────────────────────────────────────────
+
+  - name: background_jobs
+    rules:
+      - alert: RetentionJobStale
+        # The retention job (internal/jobs.RetentionWorker) runs every 24h
+        # (river.PeriodicInterval in internal/jobs/notification_worker.go).
+        # A silent repeated failure would otherwise let notifications,
+        # sessions, and the compliance-relevant audit_log table grow
+        # unbounded with no signal until the DB runs out of disk. 36h gives
+        # one missed run of grace before paging.
+        # The `> 0` guard excludes the metric's zero-value default (present
+        # from process startup, before the job's first successful run ever
+        # happens) from tripping this alert on a fresh deploy.
+        expr: |
+          teammanager_retention_job_last_success_timestamp_seconds > 0
+          and (time() - teammanager_retention_job_last_success_timestamp_seconds > 36 * 3600)
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Retention job has not succeeded in over 36 hours"
+          description: "Last successful retention run was {{ $value | humanizeDuration }} ago; notifications/sessions/audit_log may be growing unbounded."
+
+      - alert: RetentionJobFailing
+        expr: |
+          increase(teammanager_retention_job_failures_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Retention job run failed"
+          description: "The retention job failed to delete from {{ $labels.table }} in the last hour."
+
   # ── Infrastructure ────────────────────────────────────────────────────────────
 
   - name: infrastructure
     rules:
       - alert: HighMemoryUsage
+        # Compares the container's actual working set (cAdvisor) against its
+        # own Kubernetes resource limit (kube-state-metrics), not the app
+        # process's RSS against the whole node's memory. The backend's pod
+        # memory limit is 256Mi/512Mi (helm/team-manager/values-{staging,prod}.yaml)
+        # — a small fraction of any real node's total memory — so comparing
+        # against node_memory_MemTotal_bytes could never cross 85% before the
+        # kernel/cgroup OOMKills the pod at its actual limit, making the old
+        # expression unable to catch the failure mode it exists to warn about.
         expr: |
-          process_resident_memory_bytes{job="team-manager-backend"}
-          / on() group_left() node_memory_MemTotal_bytes > 0.85
+          sum(container_memory_working_set_bytes{container="team-manager"}) by (namespace, pod)
+          / on(namespace, pod) group_left()
+          sum(kube_pod_container_resource_limits{resource="memory", container="team-manager"}) by (namespace, pod)
+          > 0.85
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "Backend memory usage above 85%"
-          description: "Memory usage is {{ $value | humanizePercentage }}."
+          summary: "Backend memory usage above 85% of its container limit"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit."
 
       - alert: DiskSpaceLow
         expr: |

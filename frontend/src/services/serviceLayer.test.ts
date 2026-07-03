@@ -384,8 +384,9 @@ describe('absences', () => {
   beforeEach(login);
 
   it('creates an absence for the current user and lists it among personal absences', async () => {
+    const me = await settle(api.auth.currentUser());
     const created = await settle(
-      api.absences.create({ teamId: 't_a', from: '2099-05-01', to: '2099-05-05', reason: 'Urlaub' }),
+      api.absences.create({ teamId: 't_a', userId: me!.id, from: '2099-05-01', to: '2099-05-05', reason: 'Urlaub' }),
     );
     expect(created.reason).toBe('Urlaub');
     const mine = await settle(api.absences.listMine('t_a'));

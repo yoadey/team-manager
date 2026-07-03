@@ -260,6 +260,12 @@ func moduleForPath(subPath string, r *http.Request) (string, bool) {
 	if subPath == "" && r.Method == http.MethodPatch {
 		return "settings", true
 	}
+	// members/{membershipId}/roles assigns role-derived privileges (including
+	// settings:write itself) to a member, so it requires settings write —
+	// members:write alone must not be enough to self-grant admin access.
+	if isMemberRolesPath(subPath) {
+		return "settings", true
+	}
 	// photo / logo / invite are explicit settings mutations.
 	first := strings.SplitN(subPath, "/", 2)[0]
 	if knownSettingsSegments[first] {
@@ -271,6 +277,12 @@ func moduleForPath(subPath string, r *http.Request) (string, bool) {
 		return "", false
 	}
 	return m, true
+}
+
+// isMemberRolesPath returns true for "members/{membershipId}/roles".
+func isMemberRolesPath(subPath string) bool {
+	parts := strings.Split(subPath, "/")
+	return len(parts) == 3 && parts[0] == "members" && parts[2] == "roles"
 }
 
 // hasWritePermission returns true if the effective permissions include write for module.

@@ -1758,6 +1758,7 @@ components:
           type: string
         color:
           type: string
+          maxLength: 32
         permissions:
           $ref: "#/components/schemas/Permissions"
 
@@ -1768,6 +1769,7 @@ components:
           type: string
         color:
           type: string
+          maxLength: 32
         permissions:
           $ref: "#/components/schemas/Permissions"
 
@@ -2126,6 +2128,7 @@ components:
           $ref: "#/components/schemas/AttendanceStatus"
         reason:
           type: string
+          maxLength: 500
         reasonId:
           type: string
         reasonVisibility:
@@ -2439,12 +2442,14 @@ components:
           $ref: "#/components/schemas/TransactionType"
         title:
           type: string
+          maxLength: 255
         amount:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
         category:
           type: string
+          maxLength: 255
 
     UpdateTransactionRequest:
       type: object
@@ -2453,12 +2458,14 @@ components:
           $ref: "#/components/schemas/TransactionType"
         title:
           type: string
+          maxLength: 255
         amount:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
         category:
           type: string
+          maxLength: 255
 
     Penalty:
       type: object

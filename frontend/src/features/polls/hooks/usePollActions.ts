@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Poll, PollFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
@@ -37,13 +37,26 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
     setState({ sheet: { type: 'pollForm' }, form, formErrors: {} });
   }, [setState]);
 
+  // Guards against the lost-update race where two quick clicks on different
+  // options of the same multi-select poll both read the same stale
+  // poll.myVote and fire overlapping vote requests — whichever response
+  // lands last would silently overwrite the other's selection. Dropping a
+  // second click while the first is still in flight (rather than queuing it)
+  // matches the same-class guards elsewhere (e.g. useFinanceActions'
+  // togglePenalty/toggleContribution).
+  const voteInFlight = useRef(new Set<string>());
+
   const votePoll = useCallback(
     async (pollId: string, optionIds: string[]) => {
+      if (voteInFlight.current.has(pollId)) return;
+      voteInFlight.current.add(pollId);
       try {
         await api.polls.vote(pollId, optionIds, S().activeTeamId!);
         await loadPolls();
       } catch (err) {
         reportActionError({ setState, toastMsg }, err);
+      } finally {
+        voteInFlight.current.delete(pollId);
       }
     },
     [api, S, loadPolls, setState, toastMsg],

@@ -9,14 +9,30 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
+// pgUniqueViolation is the Postgres SQLSTATE for a violated UNIQUE constraint.
+const pgUniqueViolation = "23505"
+
 // ErrRoleNotInTeam is returned when one or more role IDs passed to SetRoles do
 // not belong to the membership's team.
 var ErrRoleNotInTeam = errors.New("role does not belong to team")
+
+// ErrDuplicateMembership is returned when AddMember would create a second
+// membership for a user that is already on the team (unique (team_id,
+// user_id) violation) — e.g. two concurrent "add member" calls for the same
+// email.
+var ErrDuplicateMembership = errors.New("user is already a member of this team")
+
+// ErrLastSettingsAdmin is returned when SetRoles or RemoveMember would leave
+// a team with no member holding settings:write — that would be an
+// unrecoverable state via the API (no one left able to manage roles,
+// invites, or settings).
+var ErrLastSettingsAdmin = errors.New("cannot remove the last member with settings management permission")
 
 // Repository handles member-related DB operations.
 type Repository struct {
@@ -149,6 +165,10 @@ func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMem
 		RETURNING id
 	`, teamID, userID, params.Group).Scan(&membershipID)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+			return nil, ErrDuplicateMembership
+		}
 		return nil, fmt.Errorf("members.Repository.AddMember: create membership: %w", err)
 	}
 
@@ -256,32 +276,8 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// Verify the membership belongs to the team.
-	var exists bool
-	err := r.pool.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM memberships WHERE id = $1 AND team_id = $2)`,
-		membershipID, teamID,
-	).Scan(&exists)
-	if err != nil {
-		return nil, fmt.Errorf("members.Repository.SetRoles: check membership: %w", err)
-	}
-	if !exists {
-		return nil, pgx.ErrNoRows
-	}
-
-	// Verify every role belongs to the team.
-	if len(roleIDs) > 0 {
-		var count int
-		err = r.pool.QueryRow(ctx,
-			`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
-			roleIDs, teamID,
-		).Scan(&count)
-		if err != nil {
-			return nil, fmt.Errorf("members.Repository.SetRoles: check roles: %w", err)
-		}
-		if count != len(roleIDs) {
-			return nil, ErrRoleNotInTeam
-		}
+	if err := r.validateSetRolesInputs(ctx, membershipID, teamID, roleIDs); err != nil {
+		return nil, err
 	}
 
 	tx, err := r.pool.Begin(ctx)
@@ -289,6 +285,17 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 		return nil, fmt.Errorf("members.Repository.SetRoles: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize against concurrent role changes in the same team so the
+	// "last settings admin" check below can't race with another admin's
+	// simultaneous demotion.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return nil, fmt.Errorf("members.Repository.SetRoles: advisory lock: %w", err)
+	}
+
+	if err := enforceSettingsAdminGuard(ctx, tx, teamID, membershipID, roleIDs); err != nil {
+		return nil, err
+	}
 
 	_, err = tx.Exec(ctx, `DELETE FROM membership_roles WHERE membership_id = $1`, membershipID)
 	if err != nil {
@@ -311,18 +318,143 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 	return r.getMemberByMembershipID(ctx, membershipID)
 }
 
+// validateSetRolesInputs checks that membershipID belongs to teamID and every
+// role in roleIDs belongs to teamID, returning pgx.ErrNoRows / ErrRoleNotInTeam
+// respectively when not.
+func (r *Repository) validateSetRolesInputs(ctx context.Context, membershipID, teamID string, roleIDs []string) error {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM memberships WHERE id = $1 AND team_id = $2)`,
+		membershipID, teamID,
+	).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("members.Repository.SetRoles: check membership: %w", err)
+	}
+	if !exists {
+		return pgx.ErrNoRows
+	}
+
+	if len(roleIDs) > 0 {
+		var count int
+		err = r.pool.QueryRow(ctx,
+			`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
+			roleIDs, teamID,
+		).Scan(&count)
+		if err != nil {
+			return fmt.Errorf("members.Repository.SetRoles: check roles: %w", err)
+		}
+		if count != len(roleIDs) {
+			return ErrRoleNotInTeam
+		}
+	}
+	return nil
+}
+
+// enforceSettingsAdminGuard returns ErrLastSettingsAdmin if replacing
+// membershipID's roles with roleIDs would leave the team with no
+// settings:write holder.
+func enforceSettingsAdminGuard(ctx context.Context, tx pgx.Tx, teamID, membershipID string, roleIDs []string) error {
+	willHaveSettingsWrite, err := roleSetHasSettingsWrite(ctx, tx, teamID, roleIDs)
+	if err != nil {
+		return fmt.Errorf("members.Repository.SetRoles: %w", err)
+	}
+	if willHaveSettingsWrite {
+		return nil
+	}
+	othersHaveSettingsWrite, err := teamHasOtherSettingsWriteMember(ctx, tx, teamID, membershipID)
+	if err != nil {
+		return fmt.Errorf("members.Repository.SetRoles: %w", err)
+	}
+	if !othersHaveSettingsWrite {
+		return ErrLastSettingsAdmin
+	}
+	return nil
+}
+
+// roleSetHasSettingsWrite reports whether any role in roleIDs grants
+// settings:write.
+func roleSetHasSettingsWrite(ctx context.Context, tx pgx.Tx, teamID string, roleIDs []string) (bool, error) {
+	if len(roleIDs) == 0 {
+		return false, nil
+	}
+	var has bool
+	err := tx.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM roles WHERE id = ANY($1) AND team_id = $2 AND permissions->>'settings' = 'write')`,
+		roleIDs, teamID,
+	).Scan(&has)
+	if err != nil {
+		return false, fmt.Errorf("check settings write: %w", err)
+	}
+	return has, nil
+}
+
+// teamHasOtherSettingsWriteMember reports whether any membership in teamID,
+// other than excludeMembershipID, holds settings:write via any assigned role.
+func teamHasOtherSettingsWriteMember(ctx context.Context, tx pgx.Tx, teamID, excludeMembershipID string) (bool, error) {
+	var has bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM memberships m
+			JOIN membership_roles mr ON mr.membership_id = m.id
+			JOIN roles r ON r.id = mr.role_id
+			WHERE m.team_id = $1 AND m.id != $2 AND r.permissions->>'settings' = 'write'
+		)`, teamID, excludeMembershipID,
+	).Scan(&has)
+	if err != nil {
+		return false, fmt.Errorf("check other settings admins: %w", err)
+	}
+	return has, nil
+}
+
 // RemoveMember deletes a membership (cascades membership_roles) that belongs
 // to teamID. Returns pgx.ErrNoRows if no membership with id exists within
-// teamID.
+// teamID, or ErrLastSettingsAdmin if the membership is the team's last
+// settings:write holder.
 func (r *Repository) RemoveMember(ctx context.Context, membershipID, teamID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM memberships WHERE id = $1 AND team_id = $2`, membershipID, teamID)
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("members.Repository.RemoveMember: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return fmt.Errorf("members.Repository.RemoveMember: advisory lock: %w", err)
+	}
+
+	var isSettingsWriter bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM membership_roles mr
+			JOIN roles r ON r.id = mr.role_id
+			WHERE mr.membership_id = $1 AND r.permissions->>'settings' = 'write'
+		)`, membershipID,
+	).Scan(&isSettingsWriter)
+	if err != nil {
+		return fmt.Errorf("members.Repository.RemoveMember: check settings write: %w", err)
+	}
+	if isSettingsWriter {
+		othersHaveSettingsWrite, err := teamHasOtherSettingsWriteMember(ctx, tx, teamID, membershipID)
+		if err != nil {
+			return fmt.Errorf("members.Repository.RemoveMember: %w", err)
+		}
+		if !othersHaveSettingsWrite {
+			return ErrLastSettingsAdmin
+		}
+	}
+
+	tag, err := tx.Exec(ctx, `DELETE FROM memberships WHERE id = $1 AND team_id = $2`, membershipID, teamID)
 	if err != nil {
 		return fmt.Errorf("members.Repository.RemoveMember: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("members.Repository.RemoveMember: commit: %w", err)
 	}
 	return nil
 }

@@ -152,6 +152,9 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("absence not found")
 		}
+		if errors.Is(err, ErrInvalidDateRange) {
+			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
 		h.logger.ErrorContext(ctx, "UpdateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to update absence")
 	}

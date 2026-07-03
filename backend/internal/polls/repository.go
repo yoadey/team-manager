@@ -201,7 +201,7 @@ func (r *Repository) ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID
 	rows, err := r.pool.Query(
 		ctx,
 		`SELECT pv.poll_id, pv.option_id, pv.user_id,
-		        u.name, u.avatar_color, COALESCE(u.photo_data, ''::bytea)
+		        u.name, u.avatar_color, (u.photo_data IS NOT NULL)
 		 FROM poll_votes pv
 		 JOIN users u ON u.id = pv.user_id
 		 WHERE pv.poll_id = ANY($1)`,
@@ -214,7 +214,7 @@ func (r *Repository) ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID
 
 	for rows.Next() {
 		v := &PollVoteRow{}
-		if err := rows.Scan(&v.PollId, &v.OptionId, &v.UserId, &v.UserName, &v.UserColor, &v.PhotoData); err != nil {
+		if err := rows.Scan(&v.PollId, &v.OptionId, &v.UserId, &v.UserName, &v.UserColor, &v.HasPhoto); err != nil {
 			return nil, fmt.Errorf("polls.Repository.ListVotesByPollIDs scan: %w", err)
 		}
 		result[v.PollId] = append(result[v.PollId], v)
@@ -229,7 +229,7 @@ func (r *Repository) ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVo
 	rows, err := r.pool.Query(
 		ctx,
 		`SELECT pv.poll_id, pv.option_id, pv.user_id,
-		        u.name, u.avatar_color, COALESCE(u.photo_data, ''::bytea)
+		        u.name, u.avatar_color, (u.photo_data IS NOT NULL)
 		 FROM poll_votes pv
 		 JOIN users u ON u.id = pv.user_id
 		 WHERE pv.poll_id = $1`,
@@ -243,7 +243,7 @@ func (r *Repository) ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVo
 	var result []*PollVoteRow
 	for rows.Next() {
 		v := &PollVoteRow{}
-		if err := rows.Scan(&v.PollId, &v.OptionId, &v.UserId, &v.UserName, &v.UserColor, &v.PhotoData); err != nil {
+		if err := rows.Scan(&v.PollId, &v.OptionId, &v.UserId, &v.UserName, &v.UserColor, &v.HasPhoto); err != nil {
 			return nil, fmt.Errorf("polls.Repository.ListVotes scan: %w", err)
 		}
 		result = append(result, v)

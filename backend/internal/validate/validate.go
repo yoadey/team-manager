@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -27,7 +28,22 @@ var (
 	ErrFieldRequired     = errors.New("is required")
 	ErrFieldTooLong      = errors.New("is too long")
 	ErrAmountNotPositive = errors.New("must be greater than zero")
+	ErrTimeOfDayInvalid  = errors.New("must be a 24-hour HH:MM time")
 )
+
+// timeOfDayRE matches a 24-hour "HH:MM" time-of-day string, the format the
+// events repository passes straight into a Postgres ::time cast.
+var timeOfDayRE = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
+
+// TimeOfDay validates a 24-hour "HH:MM" time-of-day string (e.g. "09:30").
+// Empty strings are rejected — callers should skip validation for optional
+// fields that are nil rather than pass "".
+func TimeOfDay(s, field string) error {
+	if !timeOfDayRE.MatchString(s) {
+		return fmt.Errorf("%s %w", field, ErrTimeOfDayInvalid)
+	}
+	return nil
+}
 
 // Email checks that s is a valid RFC 5322 e-mail address.
 func Email(s string) error {

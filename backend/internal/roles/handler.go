@@ -75,6 +75,11 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 	if err := validate.Name(req.Body.Name); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if req.Body.Color != nil {
+		if err := validate.MaxLen(*req.Body.Color, 32, "color"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	if !validPermissions(req.Body.Permissions) {
 		return nil, apierror.BadRequest("permissions must each be one of none, read, write")
 	}
@@ -100,6 +105,11 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 	}
 	if req.Body.Name != nil {
 		if err := validate.Name(*req.Body.Name); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Color != nil {
+		if err := validate.MaxLen(*req.Body.Color, 32, "color"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}

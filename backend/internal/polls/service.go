@@ -212,7 +212,7 @@ func assemblePoll(pr *PollRow, options []*PollOptionRow, votes []*PollVoteRow, c
 				Name     *string `json:"name,omitempty"`
 			}, 0, len(voters))
 			for _, v := range voters {
-				hasPhoto := len(v.PhotoData) > 0
+				hasPhoto := v.HasPhoto
 				voterList = append(voterList, struct {
 					Color    *string `json:"color,omitempty"`
 					HasPhoto *bool   `json:"hasPhoto,omitempty"`

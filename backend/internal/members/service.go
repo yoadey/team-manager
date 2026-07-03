@@ -106,6 +106,9 @@ func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, rol
 		if errors.Is(err, ErrRoleNotInTeam) {
 			return nil, ErrRoleNotInTeam
 		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			return nil, ErrLastSettingsAdmin
+		}
 		return nil, fmt.Errorf("members.Service.SetRoles: %w", err)
 	}
 	m := toGenMember(*mr)
@@ -117,6 +120,9 @@ func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID string)
 	if err := s.repo.RemoveMember(ctx, membershipID, teamID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
+		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			return ErrLastSettingsAdmin
 		}
 		return fmt.Errorf("members.Service.RemoveMember: %w", err)
 	}

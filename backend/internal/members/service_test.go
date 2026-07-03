@@ -167,6 +167,34 @@ func TestMemberService_SetRoles_RoleNotInTeam_Propagates(t *testing.T) {
 	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
 }
 
+func TestMemberService_SetRoles_LastSettingsAdmin_Propagates(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockMemberRepo{
+		setRoles: func(context.Context, string, string, []string) (*members.MemberRow, error) {
+			return nil, members.ErrLastSettingsAdmin
+		},
+	}
+
+	svc := members.NewService(repo, nil)
+	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{})
+	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
+}
+
+func TestMemberService_RemoveMember_LastSettingsAdmin_Propagates(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockMemberRepo{
+		removeMember: func(context.Context, string, string) error {
+			return members.ErrLastSettingsAdmin
+		},
+	}
+
+	svc := members.NewService(repo, nil)
+	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String())
+	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
+}
+
 func TestMemberService_RemoveMember_PassesTeamID(t *testing.T) {
 	t.Parallel()
 

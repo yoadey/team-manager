@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,6 +163,29 @@ func TestHandler_CreateRole_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitCreateRoleResponse(w))
 	assert.Equal(t, http.StatusCreated, w.Code)
+}
+
+func TestHandler_CreateRole_RejectsOversizedColor(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		createRole: func(_ context.Context, _ uuid.UUID, _ *gen.CreateRoleJSONRequestBody) (*gen.Role, error) {
+			t.Fatal("service should not be called when color validation fails")
+			return nil, nil
+		},
+	}
+	h := roles.NewHandler(svc, slog.Default(), nil)
+
+	color := strings.Repeat("x", 33)
+	body := &gen.CreateRoleJSONRequestBody{
+		Name:  "Coach",
+		Color: &color,
+		Permissions: gen.Permissions{
+			Events: "write", Members: "read", Finances: "none",
+			News: "write", Polls: "read", Settings: "none",
+		},
+	}
+	_, err := h.CreateRole(rolesAuthedCtx(), gen.CreateRoleRequestObject{TeamId: rolesTeamID, Body: body})
+	require.Error(t, err)
 }
 
 func TestHandler_CreateRole_EmitsAuditEvent(t *testing.T) {

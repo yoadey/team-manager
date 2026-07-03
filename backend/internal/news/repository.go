@@ -23,14 +23,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 const selectNewsFields = `
 	n.id, n.team_id, n.author_id, n.title, n.body, n.pinned, n.created_at,
 	u.name AS author_name, u.avatar_color AS author_color,
-	COALESCE(u.photo_data, ''::bytea) AS photo_data
+	(u.photo_data IS NOT NULL) AS has_photo
 `
 
 func scanNews(row interface{ Scan(dest ...any) error }) (*NewsRow, error) {
 	nr := &NewsRow{}
 	err := row.Scan(
 		&nr.Id, &nr.TeamId, &nr.AuthorId, &nr.Title, &nr.Body, &nr.Pinned, &nr.CreatedAt,
-		&nr.AuthorName, &nr.AuthorColor, &nr.PhotoData,
+		&nr.AuthorName, &nr.AuthorColor, &nr.HasPhoto,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)

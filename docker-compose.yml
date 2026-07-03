@@ -43,7 +43,11 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      # The distroless/static image has no shell/wget, so this must be the
+      # exec form invoking the /healthcheck binary directly (see backend
+      # Dockerfile) rather than "CMD-SHELL wget ... || exit 1", which can
+      # never exec and always reports unhealthy.
+      test: ["CMD", "/healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -127,7 +127,9 @@ describe('useAbsenceActions', () => {
     await act(async () => {
       await result.current.saveAbsence();
     });
-    expect(api.absences.create).toHaveBeenCalledWith(expect.objectContaining({ from: '2026-01-10', to: '2026-01-15' }));
+    expect(api.absences.create).toHaveBeenCalledWith(
+      expect.objectContaining({ from: '2026-01-10', to: '2026-01-15', userId: 'u1' }),
+    );
     expect(toastMsg).toHaveBeenCalledWith('Abwesenheit eingetragen');
   });
 

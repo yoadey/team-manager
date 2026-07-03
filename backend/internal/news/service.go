@@ -118,7 +118,7 @@ func (s *Service) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 
 // toGenNewsItem maps a NewsRow to the generated gen.NewsItem type.
 func toGenNewsItem(row *NewsRow) gen.NewsItem {
-	hasPhoto := len(row.PhotoData) > 0
+	hasPhoto := row.HasPhoto
 	ni := gen.NewsItem{
 		Id:             row.Id,
 		TeamId:         row.TeamId,

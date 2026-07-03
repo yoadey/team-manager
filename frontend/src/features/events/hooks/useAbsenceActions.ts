@@ -57,7 +57,14 @@ export function useAbsenceActions({
       const teamId = S().activeTeamId!;
       if (mode === 'edit')
         await api.absences.update(f.id!, { from: range.value!.from, to: range.value!.to, reason: f.reason }, teamId);
-      else await api.absences.create({ teamId, from: range.value!.from, to: range.value!.to, reason: f.reason });
+      else
+        await api.absences.create({
+          teamId,
+          userId: S().user!.id,
+          from: range.value!.from,
+          to: range.value!.to,
+          reason: f.reason,
+        });
       await Promise.all([refreshEvents(), loadAbsences()]);
       setState({ busy: null, sheet: null });
       toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));

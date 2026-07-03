@@ -5,6 +5,12 @@ on:
     branches: [main, master]
   pull_request:
 
+# Least-privilege default: most jobs only need to read the repo checkout.
+# Jobs that need more (e.g. security-sast's security-events: write) declare
+# their own `permissions:` block, which overrides this default.
+permissions:
+  contents: read
+
 jobs:
   # ── Frontend ──────────────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -88,6 +89,12 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 	if err := validate.Name(request.Body.Title); err != nil {
 		return nil, apierror.BadRequest("title: " + err.Error())
 	}
+	if !request.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid event type")
+	}
+	if err := validateEventFields(request.Body.Location, request.Body.Note, request.Body.MeetTime, request.Body.StartTime, request.Body.EndTime, request.Body.ResponseMode); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)
 	if err != nil {
@@ -142,6 +149,12 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		if err := validate.Name(*request.Body.Title); err != nil {
 			return nil, apierror.BadRequest("title: " + err.Error())
 		}
+	}
+	if request.Body.Type != nil && !request.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid event type")
+	}
+	if err := validateEventFields(request.Body.Location, request.Body.Note, request.Body.MeetTime, request.Body.StartTime, request.Body.EndTime, request.Body.ResponseMode); err != nil {
+		return nil, apierror.BadRequest(err.Error())
 	}
 
 	scope := "single"
@@ -200,6 +213,9 @@ func (h *Handler) SetEventStatus(ctx context.Context, request gen.SetEventStatus
 
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if !request.Body.Status.Valid() {
+		return nil, apierror.BadRequest("status: not a valid event status")
 	}
 
 	scope := "single"
@@ -314,6 +330,17 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if !request.Body.Status.Valid() {
+		return nil, apierror.BadRequest("status: not a valid attendance status")
+	}
+	if request.Body.ReasonVisibility != nil && !request.Body.ReasonVisibility.Valid() {
+		return nil, apierror.BadRequest("reasonVisibility: not a valid value")
+	}
+	if request.Body.Reason != nil {
+		if err := validate.MaxLen(*request.Body.Reason, 500, "reason"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 
 	// Use user from body (manager setting attendance for others) or fall back to authed user.
 	userID := request.Body.UserId.String()
@@ -358,6 +385,62 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 	}
 	metrics.TeamEvents.WithLabelValues("event", "update").Inc()
 	return gen.SetNomination204Response{}, nil
+}
+
+// errInvalidResponseMode is returned by validateEventFields when responseMode
+// is set to a value outside the ResponseMode enum.
+var errInvalidResponseMode = errors.New("responseMode: not a valid response mode")
+
+// validateEventFields validates the optional free-text/time/enum fields shared
+// by CreateEvent and UpdateEvent. No request-schema validator is wired into
+// the router (see events/service.go), so these are the only enforcement point
+// for the openapi.yaml-declared constraints on these fields.
+func validateEventFields(location, note, meetTime, startTime, endTime *string, responseMode *gen.ResponseMode) error {
+	if err := validateEventTextFields(location, note); err != nil {
+		return err
+	}
+	if err := validateEventTimeFields(meetTime, startTime, endTime); err != nil {
+		return err
+	}
+	if responseMode != nil && !responseMode.Valid() {
+		return errInvalidResponseMode
+	}
+	return nil
+}
+
+// validateEventTextFields validates the optional location/note free-text fields.
+func validateEventTextFields(location, note *string) error {
+	if location != nil {
+		if err := validate.MaxLen(*location, 255, "location"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if note != nil {
+		if err := validate.MaxLen(*note, 10000, "note"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	return nil
+}
+
+// validateEventTimeFields validates the optional HH:MM time-of-day fields.
+func validateEventTimeFields(meetTime, startTime, endTime *string) error {
+	if meetTime != nil && *meetTime != "" {
+		if err := validate.TimeOfDay(*meetTime, "meetTime"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if startTime != nil && *startTime != "" {
+		if err := validate.TimeOfDay(*startTime, "startTime"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if endTime != nil && *endTime != "" {
+		if err := validate.TimeOfDay(*endTime, "endTime"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	return nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

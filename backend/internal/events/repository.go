@@ -448,7 +448,11 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, sco
 
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
 
-// DeleteEvent deletes a single event or the entire series (cascade), scoped to teamID.
+// DeleteEvent deletes a single event, or the entire series (all occurrences,
+// past and future, plus their attendance and comments) scoped to teamID.
+// events.series_id is ON DELETE SET NULL, not CASCADE, so the individual
+// event rows must be deleted explicitly — deleting only the event_series row
+// would detach the events instead of removing them.
 func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -459,11 +463,22 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 			return fmt.Errorf("events.Repository.DeleteEvent: get series_id: %w", err)
 		}
 		if seriesID != nil {
-			_, err = r.pool.Exec(ctx, `DELETE FROM event_series WHERE id = $1`, seriesID)
+			tx, err := r.pool.Begin(ctx)
 			if err != nil {
+				return fmt.Errorf("events.Repository.DeleteEvent: begin tx: %w", err)
+			}
+			defer func() { _ = tx.Rollback(ctx) }()
+
+			if _, err = tx.Exec(ctx, `DELETE FROM events WHERE series_id = $1 AND team_id = $2`, seriesID, teamID); err != nil {
+				return fmt.Errorf("events.Repository.DeleteEvent: delete series events: %w", err)
+			}
+			if _, err = tx.Exec(ctx, `DELETE FROM event_series WHERE id = $1`, seriesID); err != nil {
 				return fmt.Errorf("events.Repository.DeleteEvent: delete series: %w", err)
 			}
-			return nil // cascade deletes events
+			if err := tx.Commit(ctx); err != nil {
+				return fmt.Errorf("events.Repository.DeleteEvent: commit: %w", err)
+			}
+			return nil
 		}
 	}
 

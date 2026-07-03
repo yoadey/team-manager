@@ -1538,10 +1538,10 @@ const _mockApi = {
       from: string;
       to: string;
       reason?: string;
-      userId?: string;
+      userId: string;
     }): Promise<Absence> {
       await delay(220, 420);
-      const uid = userId || session.userId!;
+      const uid = userId;
       const a: Absence = {
         id: rid('abs'),
         userId: uid,

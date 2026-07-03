@@ -292,6 +292,17 @@ func TestMembersRepository_SetRoles(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// A second Admin so demoting/clearing m's roles below never trips the
+	// last-settings-admin guard — this test is about role-replacement
+	// mechanics, not the admin-guard (covered separately).
+	other, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Other Admin",
+		Email: "other-admin@example.com",
+	})
+	require.NoError(t, err)
+	_, err = repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{roleA.String()})
+	require.NoError(t, err)
+
 	// Assign roleA.
 	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String()})
 	require.NoError(t, err)
@@ -435,6 +446,86 @@ func TestMembersRepository_RemoveMember_WrongTeam_ReturnsNoRows(t *testing.T) {
 	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
 	require.NoError(t, err)
 	assert.Len(t, list, 1)
+}
+
+func TestMembersRepository_RemoveMember_LastSettingsAdmin_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Sole Admin",
+		Email: "sole-admin@example.com",
+	})
+	require.NoError(t, err)
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	require.NoError(t, err)
+
+	err = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
+	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
+
+	// Still present.
+	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+}
+
+func TestMembersRepository_RemoveMember_NotLastSettingsAdmin_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	m1, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{Name: "Admin One", Email: "admin1@example.com"})
+	require.NoError(t, err)
+	_, err = repo.SetRoles(ctx, m1.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	require.NoError(t, err)
+
+	m2, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{Name: "Admin Two", Email: "admin2@example.com"})
+	require.NoError(t, err)
+	_, err = repo.SetRoles(ctx, m2.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	require.NoError(t, err)
+
+	// Removing m1 is fine — m2 still holds settings:write.
+	err = repo.RemoveMember(ctx, m1.MembershipID.String(), teamID.String())
+	require.NoError(t, err)
+}
+
+func TestMembersRepository_SetRoles_LastSettingsAdmin_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+	memberRole := seedRole(t, pool, teamID, "Member", `{"events":"read","members":"none","finances":"none","news":"read","polls":"read","settings":"none"}`)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Sole Admin",
+		Email: "sole-admin-2@example.com",
+	})
+	require.NoError(t, err)
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	require.NoError(t, err)
+
+	// Demoting the sole admin to a non-settings role must be blocked.
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{memberRole.String()})
+	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
+
+	// Clearing all roles from the sole admin must also be blocked.
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{})
+	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
 }
 
 func TestMembersRepository_IsMember(t *testing.T) {

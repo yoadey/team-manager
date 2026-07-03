@@ -189,6 +189,20 @@ func TestRequirePermission_Mutations(t *testing.T) {
 			teams.PermissionsJSON{Events: "write", Members: "write", Settings: "read"},
 			http.StatusForbidden,
 		},
+		// members/{id}/roles: role assignment must require settings:write, not
+		// just members:write — otherwise a members-write-only member could
+		// self-grant admin permissions via their own membership.
+		{
+			"assign member roles settings write ok", http.MethodPut,
+			"/api/v1/teams/" + tid + "/members/" + uuid.New().String() + "/roles",
+			allWritePerms(), http.StatusOK,
+		},
+		{
+			"assign member roles members-write-only denied", http.MethodPut,
+			"/api/v1/teams/" + tid + "/members/" + uuid.New().String() + "/roles",
+			teams.PermissionsJSON{Members: "write", Settings: "none"},
+			http.StatusForbidden,
+		},
 		// self-service: attendance (POST) — any member may write
 		{
 			"attendance self-service ok (read perms)", http.MethodPost,

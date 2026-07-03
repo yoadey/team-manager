@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 )
 
 // RetentionArgs are the arguments for the daily retention cleanup job.
@@ -90,8 +92,10 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	notifCutoff := now.Add(-w.notificationRetention)
 	notifRows, err := deleteBatched(ctx, w.pool, "notifications", "created_at", notifCutoff)
 	if err != nil {
+		metrics.RetentionJobFailures.WithLabelValues("notifications").Inc()
 		return fmt.Errorf("retention: delete notifications: %w", err)
 	}
+	metrics.RetentionJobRowsDeleted.WithLabelValues("notifications").Add(float64(notifRows))
 	slog.Info("retention: deleted old notifications", "rows", notifRows, "cutoff", notifCutoff)
 
 	// Delete sessions that expired more than sessionRetention ago. Keying off
@@ -104,8 +108,13 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	sessionCutoff := now.Add(-w.sessionRetention)
 	sessionRows, err := deleteBatched(ctx, w.pool, "sessions", "expires_at", sessionCutoff)
 	if err != nil {
+		// Not counted in RetentionJobFailures: this is a soft warning (the
+		// table may legitimately not exist in some environments), not a
+		// failed job run — see the alerting note below on
+		// RetentionJobLastSuccessTimestamp.
 		slog.Warn("retention: delete sessions skipped (table may not exist)", "err", err)
 	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("sessions").Add(float64(sessionRows))
 		slog.Info("retention: deleted old sessions", "rows", sessionRows, "cutoff", sessionCutoff)
 	}
 
@@ -116,9 +125,12 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	auditCutoff := now.Add(-w.auditLogRetention)
 	auditRows, err := deleteBatched(ctx, w.pool, "audit_log", "occurred_at", auditCutoff)
 	if err != nil {
+		metrics.RetentionJobFailures.WithLabelValues("audit_log").Inc()
 		return fmt.Errorf("retention: delete audit_log: %w", err)
 	}
+	metrics.RetentionJobRowsDeleted.WithLabelValues("audit_log").Add(float64(auditRows))
 	slog.Info("retention: deleted old audit_log entries", "rows", auditRows, "cutoff", auditCutoff)
 
+	metrics.RetentionJobLastSuccessTimestamp.Set(float64(now.Unix()))
 	return nil
 }

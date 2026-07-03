@@ -2,13 +2,26 @@ package absences
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
+const pgCheckViolation = "23514"
+
+// ErrInvalidDateRange is returned when a partial update would leave an
+// absence's to_date before its from_date (violates the absences_date_range
+// CHECK constraint). CreateAbsence/UpdateAbsence request bodies are validated
+// in the handler when both dates are present in the same request, but a
+// partial UpdateAbsence (only one of from/to) can only be caught here, since
+// the merge happens inside the UPDATE statement itself.
+var ErrInvalidDateRange = errors.New("to date must not be before from date")
 
 // Repository handles all absence-related DB operations.
 type Repository struct {
@@ -181,6 +194,10 @@ func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, f
 		id, teamID, userID, fromDate, toDate, reason,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			return nil, ErrInvalidDateRange
+		}
 		return nil, fmt.Errorf("absences.Repository.Update: %w", err)
 	}
 	if tag.RowsAffected() == 0 {

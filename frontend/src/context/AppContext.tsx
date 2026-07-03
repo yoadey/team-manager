@@ -29,7 +29,7 @@ import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
-import { reportActionError } from '@/utils/errors';
+import { reportActionError, retryable } from '@/utils/errors';
 import { captureException, setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
@@ -620,12 +620,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         eventsOnlyPending: false,
       });
       try {
+        // Retry on transient network failures — this is the initial-load
+        // read path for the whole app, so a single dropped connection
+        // shouldn't fail the entire team switch/login when a retry would
+        // likely succeed. All five calls are idempotent reads.
         const [events, members, roles, news, notif] = await Promise.all([
-          api.events.list(teamId, 'all'),
-          api.members.list(teamId),
-          api.roles.list(teamId),
-          api.news.list(teamId),
-          api.notifications.list(teamId),
+          retryable(() => api.events.list(teamId, 'all')),
+          retryable(() => api.members.list(teamId)),
+          retryable(() => api.roles.list(teamId)),
+          retryable(() => api.news.list(teamId)),
+          retryable(() => api.notifications.list(teamId)),
         ]);
         // Discard results if the user switched to a different team while loading,
         // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
@@ -645,7 +649,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const refreshEvents = useCallback(async () => {
     try {
-      const events = await api.events.list(S().activeTeamId!, 'all');
+      const events = await retryable(() => api.events.list(S().activeTeamId!, 'all'));
       setState({ events });
       loadNotifications();
     } catch (err) {
