@@ -3,6 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { NewsItem, NewsFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
+import { validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -39,19 +40,20 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
 
   const saveNews = useCallback(async () => {
     const f = S().form as NewsFormValues;
-    if (!f.title) {
-      toastMsg(t('news.titleRequired'));
+    const titleResult = validateRequiredText(f.title, t('news.titleRequired'));
+    if (!titleResult.ok) {
+      toastMsg(titleResult.message!);
       return;
     }
     setState({ busy: 'save' });
     try {
       if (f.id) {
-        await api.news.update(f.id, { title: f.title, body: f.body, pinned: f.pinned }, S().activeTeamId!);
+        await api.news.update(f.id, { title: titleResult.value!, body: f.body, pinned: f.pinned }, S().activeTeamId!);
         await loadNews();
         setState({ busy: null, sheet: null });
         toastMsg(t('news.toastUpdated'));
       } else {
-        await api.news.create(S().activeTeamId!, { title: f.title, body: f.body, pinned: f.pinned });
+        await api.news.create(S().activeTeamId!, { title: titleResult.value!, body: f.body, pinned: f.pinned });
         await loadNews();
         setState({ busy: null, sheet: null });
         toastMsg(t('news.toastPublished'));

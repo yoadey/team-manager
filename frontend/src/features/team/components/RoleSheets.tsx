@@ -110,6 +110,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
   const team = app.activeTeam()!;
   void team;
   const F = formValues<RoleFormValues>(app.state);
+  const canSubmit = !!F.name?.trim();
 
   const rows = (Object.keys(MODULE_LABELS) as ModuleKey[]).map((mod) => (
     <Box
@@ -180,7 +181,12 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
           {rows}
         </Box>
       </Box>
-      <PrimaryButton label={t('team.saveRole')} onClick={() => app.saveRole()} busy={app.state.busy === 'save'} />
+      <PrimaryButton
+        label={t('team.saveRole')}
+        onClick={() => app.saveRole()}
+        busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
+      />
     </Box>
   );
 }

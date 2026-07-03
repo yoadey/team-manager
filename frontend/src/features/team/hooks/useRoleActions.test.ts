@@ -131,6 +131,25 @@ describe('useRoleActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Rolle angelegt');
   });
 
+  it('saveRole shows toast when name is whitespace-only, without calling the API', async () => {
+    stateRef = makeState({ form: { name: '   ' } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveRole();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.');
+    expect(api.roles.create).not.toHaveBeenCalled();
+  });
+
+  it('saveRole trims leading/trailing whitespace from the name before saving', async () => {
+    stateRef = makeState({ form: { name: '  Trainer  ', perms: { events: 'write', finances: 'none' } } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveRole();
+    });
+    expect(api.roles.create).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Trainer' }));
+  });
+
   it('toggleMyRole adds role and shows toast', async () => {
     const { result } = renderActions(['r1']);
     await act(async () => {

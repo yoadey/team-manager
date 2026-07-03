@@ -276,11 +276,24 @@ describe('RoleFormSheet', () => {
   });
 
   it('clicking save button calls saveRole', () => {
-    const app = makeFormApp();
+    const app = makeFormApp({
+      form: {
+        name: 'Trainer',
+        perms: { events: 'none', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+      },
+    });
     render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
     const saveBtn = screen.getByRole('button', { name: /Rolle speichern/i });
     fireEvent.click(saveBtn);
     expect(app.saveRole).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables the save button when the name is empty', () => {
+    const app = makeFormApp();
+    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    const saveBtn = screen.getByRole('button', { name: /Rolle speichern/i });
+    fireEvent.click(saveBtn);
+    expect(app.saveRole).not.toHaveBeenCalled();
   });
 
   it('save button is disabled when busy is "save"', () => {

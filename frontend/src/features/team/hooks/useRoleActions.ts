@@ -5,6 +5,7 @@ import type { AppState } from '@/context/AppContext';
 import type { RoleFormValues } from '../types';
 import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
+import { validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -41,13 +42,14 @@ export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, ref
 
   const saveRole = useCallback(async () => {
     const f = S().form as RoleFormValues;
-    if (!f.name) {
-      toastMsg(t('team.roleNameRequired'));
+    const nameResult = validateRequiredText(f.name, t('team.roleNameRequired'));
+    if (!nameResult.ok) {
+      toastMsg(nameResult.message!);
       return;
     }
     setState({ busy: 'save' });
     try {
-      await api.roles.create(S().activeTeamId!, { name: f.name, permissions: f.perms });
+      await api.roles.create(S().activeTeamId!, { name: nameResult.value!, permissions: f.perms });
       await refreshRoles();
       setState({ busy: null, sheet: { type: 'roles' } });
       toastMsg(t('team.toastRoleCreated'));
