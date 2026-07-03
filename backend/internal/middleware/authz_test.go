@@ -228,6 +228,15 @@ func TestRequirePermission_Mutations(t *testing.T) {
 			"/api/v1/teams/" + tid + "/events/" + evID + "/comments",
 			allReadPerms(), http.StatusOK,
 		},
+		// self-service: event comments DELETE — the trailing commentId segment
+		// must not stop this from matching the same "events/comments"
+		// self-service entry as the POST case above (regression test: this
+		// previously fell through to requiring events:write).
+		{
+			"event comment delete self-service ok (read perms)", http.MethodDelete,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/comments/" + uuid.New().String(),
+			allReadPerms(), http.StatusOK,
+		},
 		// self-service: notifications/seen
 		{
 			"notifications seen self-service ok (read perms)", http.MethodPost,

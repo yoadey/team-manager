@@ -234,9 +234,15 @@ func isSelfService(subPath string) bool {
 	if selfServiceWritePaths[subPath] {
 		return true
 	}
-	// Match generic patterns like "events/{id}/attendance" or "events/{id}/comments"
-	parts := strings.SplitN(subPath, "/", 3)
-	if len(parts) >= 3 {
+	// Match generic patterns like "events/{id}/attendance", "events/{id}/comments"
+	// (create), and "events/{id}/comments/{commentId}" (delete one's own
+	// comment) — a trailing sub-resource ID doesn't change which self-service
+	// route this is, so both 3- and 4-segment paths are checked against the
+	// same "events/comments" entry. The ownership check itself (e.g. a comment
+	// delete is scoped to its own author) happens below in the handler/service,
+	// not here.
+	parts := strings.Split(subPath, "/")
+	if len(parts) == 3 || len(parts) == 4 {
 		leaf := parts[0] + "/" + parts[2]
 		if selfServiceWritePaths[leaf] {
 			return true
