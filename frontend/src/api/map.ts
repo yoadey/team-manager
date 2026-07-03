@@ -400,7 +400,11 @@ export function mapMemberStat(s: S['MemberStat']): MemberStat {
     name: s.name,
     avatarColor: s.avatarColor,
     photo: null,
-    quote: fractionToPercent(s.quote),
+    // counted === 0 means "no data yet", not "0% attendance" — Stats.tsx
+    // renders these as distinct states (– / gray vs. 0% / red). The backend
+    // always returns a number (0 when counted is 0), so map that case to
+    // null here, matching the mock and stats.attendanceFor's convention.
+    quote: s.counted > 0 ? fractionToPercent(s.quote) : null,
     counted: s.counted,
     yes: s.yes,
   };

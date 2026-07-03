@@ -608,6 +608,11 @@ describe('stats', () => {
     expect(await realApi.stats.attendanceFor('t1', 'u1')).toEqual({ quote: 50, counted: 4, yes: 2 });
   });
 
+  it('attendanceFor maps counted:0 to quote:null ("no data"), matching the mock', async () => {
+    client.GET.mockResolvedValueOnce(ok({ quote: 0, counted: 0, yes: 0 }));
+    expect(await realApi.stats.attendanceFor('t1', 'u1')).toEqual({ quote: null, counted: 0, yes: 0 });
+  });
+
   it('teamOverview forwards the date range and maps the overview', async () => {
     client.GET.mockResolvedValueOnce(ok({ totals: {} }));
     await realApi.stats.teamOverview('t1', { from: '2026-01-01', to: '2026-02-01' });

@@ -146,7 +146,12 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
   it('mapMemberStat scales quote', () => {
     expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }).quote).toBe(50);
     expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 1, counted: 4, yes: 4 }).quote).toBe(100);
-    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0, counted: 0, yes: 0 }).quote).toBe(0);
+  });
+
+  it('mapMemberStat maps counted:0 to quote:null ("no data"), not 0%', () => {
+    // A member with 0 counted events attended none of zero, not 0% of some —
+    // Stats.tsx renders these as distinct states (gray "–" vs. red "0%").
+    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0, counted: 0, yes: 0 }).quote).toBeNull();
   });
 
   it('mapEventStat scales pct and passes enough through unchanged', () => {

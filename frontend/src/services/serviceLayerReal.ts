@@ -764,8 +764,14 @@ export const realApi = {
       });
       const s = await check(res);
       // s.quote is a 0-1 fraction (see api/map.ts's fractionToPercent doc
-      // comment); every UI consumer expects a 0-100 percentage.
-      return { quote: Math.round(s.quote * 100), counted: s.counted, yes: s.yes };
+      // comment); every UI consumer expects a 0-100 percentage. The backend
+      // always returns a number (0 when counted is 0 — see
+      // internal/stats/service.go's quote()), but MemberSheets.tsx renders
+      // null as "no data" (–) vs. 0 as "0% attendance" (red) — genuinely
+      // different states for a member with no counted events yet vs. one who
+      // attended none of several. Map counted === 0 to null here so both
+      // service layers agree on that distinction.
+      return { quote: s.counted > 0 ? Math.round(s.quote * 100) : null, counted: s.counted, yes: s.yes };
     },
 
     async teamOverview(teamId: string, range?: DateRange | null): Promise<StatsOverview> {
