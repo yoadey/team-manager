@@ -467,7 +467,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // onAuthError handler without a TDZ issue. doLogin depends on afterLoginLoad
   // (defined below) so it stays in the data-loaders section.
   const logout = useCallback(() => {
-    api.auth.logout();
+    // The session may already be invalid (e.g. this logout was triggered by an
+    // AuthError from another call), in which case the server 401s here too;
+    // client-side state is cleared regardless, so a failed server-side
+    // invalidation isn't actionable — just report it instead of letting it
+    // surface as an unhandled rejection.
+    api.auth.logout().catch((err: unknown) => {
+      captureException(err, { context: 'logout' });
+    });
     setSentryUser(null);
     setState({
       phase: 'login',

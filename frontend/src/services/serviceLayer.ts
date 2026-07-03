@@ -10,6 +10,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { realApi } from './serviceLayerReal';
 import { mapAttendanceDtoToRow, mapEventDtoToTeamEvent, mapMemberDtoToMember } from './mappers';
+import { config } from '@/config';
 import type {
   AttendanceStatus,
   DateRange,
@@ -925,7 +926,7 @@ const _mockApi = {
       await delay(50, 120);
       return session.userId ? clone(DB.users.find((u) => u.id === session.userId)!) : null;
     },
-    logout() {
+    async logout() {
       session.userId = null;
     },
     // GDPR Art. 15: a minimal personal-data export for the current mock user.
@@ -2011,5 +2012,5 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
 };
 export const STATUS_ORDER_EXPORT = STATUS_ORDER;
 
-export const api = (import.meta.env.VITE_API_BASE_URL ? realApi : _mockApi) as typeof _mockApi;
+export const api = (config.apiBaseUrl ? realApi : _mockApi) as typeof _mockApi;
 export type Api = typeof _mockApi;
