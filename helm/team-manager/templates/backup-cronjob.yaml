@@ -43,8 +43,17 @@ spec:
             - |
               set -e
               TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-              pg_dump "$DATABASE_URL" | gzip > /backup/backup-${TIMESTAMP}.sql.gz
-              echo "Dump complete: backup-${TIMESTAMP}.sql.gz"
+              # --format=custom writes directly to --file (no shell pipe), and is
+              # already compressed — matches docs/operations.md's documented
+              # backup/restore procedure (pg_restore, not psql < dump). The
+              # previous `pg_dump | gzip > file` piped through /bin/sh, which in
+              # this image is dash: dash has no `pipefail`, so a failing pg_dump
+              # (bad connection, disk pressure) still lets `gzip` exit 0 on empty
+              # input, `set -e` never trips, and the job reports success while
+              # silently producing a corrupt/empty backup.
+              pg_dump --format=custom --no-owner --dbname="$DATABASE_URL" \
+                --file="/backup/teammanager-${TIMESTAMP}.dump"
+              echo "Dump complete: teammanager-${TIMESTAMP}.dump"
             env:
             - name: DATABASE_URL
               valueFrom:
@@ -76,7 +85,7 @@ spec:
             - -c
             - |
               set -e
-              for f in /backup/*.sql.gz; do
+              for f in /backup/*.dump; do
                 echo "Uploading $f to s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/$(basename "$f")"
                 aws s3 cp "$f" "s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/$(basename "$f")" \
                   {{- if .Values.backup.s3.endpoint }}

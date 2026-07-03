@@ -21,12 +21,15 @@ Run it from a cron job / Kubernetes CronJob against the production DSN. Keep at
 least 7 daily + 4 weekly copies; encrypt at rest and verify restores regularly
 (a backup you have never restored is not a backup).
 
-This repo does not ship a CronJob/scheduler manifest, since the scheduling
-mechanism is deployment-topology-specific (Kubernetes CronJob, systemd timer,
-managed-Postgres provider backup, ...). Whichever mechanism is used, wire up
-a periodic *restore* test (e.g. restore the latest dump into a scratch
-database and run a trivial query) — a backup pipeline that only ever writes
-and never restores can silently produce unusable dumps for months.
+`helm/team-manager/templates/backup-cronjob.yaml` ships exactly this: a
+`--format=custom` dump on `backup.schedule` (disabled by default — set
+`backup.enabled=true`), uploaded to S3-compatible object storage when
+`backup.s3.enabled=true` (otherwise the job intentionally fails with a
+warning, since an unpersisted dump discarded with the pod isn't a backup).
+Whichever mechanism is used, wire up a periodic *restore* test (e.g. restore
+the latest dump into a scratch database and run a trivial query) — a backup
+pipeline that only ever writes and never restores can silently produce
+unusable dumps for months.
 
 ### Restore
 
