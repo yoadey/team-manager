@@ -34,10 +34,24 @@ RUN npm run build && find dist -name '*.map' -delete
 # added Trivy frontend scan caught.
 FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:a8d5564c3354241473c1e152d5dd3281ab4224edb61b23c291e0bfd9854687a1 AS runtime
 
+# envsubst (gettext) ships in the base image for its own built-in
+# entrypoint.d templating feature; fail the build loudly here rather than
+# discovering it's missing only when a container starts.
+RUN which envsubst
+
 # Replace the default site with our SPA + security-header config.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY security-headers.conf /etc/nginx/conf.d/security-headers.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
+
+# index.html.template is the *built* index.html (correct hashed asset paths)
+# re-used as an envsubst template for its CSP connect-src placeholder — see
+# docker-entrypoint-runtime-config.sh, which runs before nginx starts (via
+# the base image's inherited ENTRYPOINT) and overwrites both this and
+# config.js in /usr/share/nginx/html from the API_BASE_URL env var.
+COPY --from=builder /app/dist/index.html /etc/nginx/templates/index.html.template
+COPY docker/config.js.template /etc/nginx/templates/config.js.template
+COPY --chmod=755 docker/docker-entrypoint-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

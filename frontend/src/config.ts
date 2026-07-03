@@ -3,6 +3,28 @@
 // checked here so a malformed `.env` fails loudly/predictably instead of
 // producing `NaN` delays or silently-empty settings deep in the app.
 
+declare global {
+  interface Window {
+    // Populated by /config.js, loaded before this module runs (see
+    // index.html). frontend/public/config.js checks in a `{ API_BASE_URL: '' }`
+    // default for local dev/tests/preview; the production Docker image
+    // regenerates it from the container's API_BASE_URL env var at startup
+    // (see frontend/docker/) so one built image can point at any backend
+    // without rebuilding.
+    __RUNTIME_CONFIG__?: { API_BASE_URL?: string };
+  }
+}
+
+/**
+ * The API base URL, preferring the runtime-injected value over the
+ * build-time VITE_API_BASE_URL Vite env var (used when no config.js is
+ * loaded, e.g. Vitest's jsdom environment).
+ */
+function resolveApiBaseUrl(): string {
+  const runtime = typeof window !== 'undefined' ? window.__RUNTIME_CONFIG__?.API_BASE_URL : undefined;
+  return runtime && runtime.trim() !== '' ? runtime.trim() : stringEnv(import.meta.env.VITE_API_BASE_URL, '');
+}
+
 /** Parse a non-negative integer env var, falling back when missing/invalid. */
 function numberEnv(raw: string | undefined, fallback: number): number {
   if (raw == null || raw === '') return fallback;
@@ -27,7 +49,7 @@ const mockDelayMax = Math.max(mockDelayMin, mockDelayMaxRaw);
 
 export const config = {
   appName: stringEnv(import.meta.env.VITE_APP_NAME, 'Teamverwaltung'),
-  apiBaseUrl: stringEnv(import.meta.env.VITE_API_BASE_URL, ''),
+  apiBaseUrl: resolveApiBaseUrl(),
   storageKeyPrefix: stringEnv(import.meta.env.VITE_STORAGE_KEY_PREFIX, 'tv_db_'),
   mockDelayMin,
   mockDelayMax,

@@ -119,3 +119,31 @@ Tagging a release (`vX.Y.Z`) triggers `.github/workflows/release.yml`, which
 builds and pushes versioned backend and frontend images to GHCR. Deploy by
 pinning the image to the released tag; roll back by redeploying the previous
 tag (images are immutable per digest).
+
+### Frontend image: pointing it at a backend
+
+The frontend image is built once per release and is environment-agnostic —
+which backend it talks to is resolved at **container start**, not baked in at
+build time, so the same image tag can be deployed to staging and production
+unchanged. Set the `API_BASE_URL` environment variable on the container to
+the backend's public URL:
+
+```
+docker run -e API_BASE_URL=https://api.example.com ghcr.io/<org>/team-manager-frontend:vX.Y.Z
+```
+
+An entrypoint script (`frontend/docker/docker-entrypoint-runtime-config.sh`)
+regenerates `config.js` and the page's CSP `connect-src` from this env var
+before nginx starts. Leaving `API_BASE_URL` unset serves the app against its
+built-in in-memory mock backend (useful for a quick demo/preview, but not a
+real deployment) — always set it in staging/production. If the backend is
+reachable on a different origin than the frontend, that origin also needs
+`ALLOWED_ORIGINS` on the backend to include the frontend's origin (see the
+environment variable table in `CLAUDE.md`) so the browser's CORS preflight
+succeeds.
+
+Note: there is currently no Helm/Kubernetes manifest for deploying the
+frontend image itself (only the backend has one under `helm/team-manager/`);
+until one exists, deploy the frontend container by whatever means fits your
+infrastructure (a plain Deployment/Service, a static host that proxies to the
+image, etc.), setting `API_BASE_URL` as above.

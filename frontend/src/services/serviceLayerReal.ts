@@ -1,7 +1,8 @@
 // Real backend service layer — replaces localStorage mock with HTTP API calls.
-// Only activated when VITE_API_BASE_URL is set.
+// Only activated when config.apiBaseUrl is set (see src/config.ts).
 
 import { apiClient } from '@/api/client';
+import { config } from '@/config';
 import {
   mapUser,
   mapProvider,
@@ -92,7 +93,7 @@ async function uploadImage(path: string, fieldName: string, dataUrl: string): Pr
   const formData = new FormData();
   formData.append(fieldName, blob, fieldName + '.jpg');
 
-  const resp = await fetch((import.meta.env.VITE_API_BASE_URL ?? '') + path, {
+  const resp = await fetch(config.apiBaseUrl + path, {
     method: 'PUT',
     credentials: 'include',
     body: formData,
