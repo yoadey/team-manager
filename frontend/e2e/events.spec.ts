@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers';
+import { login, NAV_TIMEOUT } from './helpers';
 
 test.describe('Events', () => {
   test.beforeEach(async ({ page }) => {
@@ -9,7 +9,7 @@ test.describe('Events', () => {
       .getByRole('button', { name: /events|termine/i })
       .first()
       .click();
-    await page.getByRole('tablist').first().waitFor({ state: 'visible', timeout: 8_000 });
+    await page.getByRole('tablist').first().waitFor({ state: 'visible', timeout: NAV_TIMEOUT });
   });
 
   test('event list loads and shows upcoming tab selected by default', async ({ page }) => {
