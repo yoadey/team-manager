@@ -686,7 +686,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install Helm
-        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash -s -- --no-sudo --version v3.16.3
+        # Pinned to the v3.16.3 tag ref (not the mutable `main` branch) so
+        # the installer *script* is as pinned as the Helm *binary* it
+        # installs (--version v3.16.3 already pins that) — every other
+        # third-party dependency in this workflow is SHA/digest-pinned
+        # (see the trivy-action pin's comment for why), this was the one
+        # curl-|-bash exception fetching from a live, writable ref.
+        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/v3.16.3/scripts/get-helm-3 | bash -s -- --no-sudo --version v3.16.3
 
       # Lint and render against every values file this chart ships (base
       # values.yaml, plus each environment overlay) — a values-dependent
