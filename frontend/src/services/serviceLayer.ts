@@ -1252,7 +1252,17 @@ const _mockApi = {
         {
           teamId,
           recurring: false,
-          meetTimeMandatory: true,
+          // Matches the real backend: CreateEventRequest.meetTimeMandatory is
+          // optional, and internal/events/repository.go's boolVal(nil) stores
+          // `false` when the field is omitted (see also api/map.ts's
+          // `e.meetTimeMandatory ?? false` read-side fallback). The event
+          // creation UI (useEventFormActions.ts) always sends an explicit
+          // boolean, so this default only bites callers that omit the field
+          // (e.g. serviceLayer.test.ts's `api.events.create(..., { type,
+          // title, date })` calls) — but it must still agree with the real
+          // backend, or such a caller sees a different value depending on
+          // which backend is active.
+          meetTimeMandatory: false,
           location: '',
           note: '',
           responseMode: 'opt_in',
