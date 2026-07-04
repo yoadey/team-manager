@@ -13,6 +13,7 @@ import {
   mapEventStat,
   mapStatsOverview,
   mapPoll,
+  mapTeamEvent,
 } from './map';
 
 describe('centsToEuros / eurosToCents', () => {
@@ -211,5 +212,37 @@ describe('mapPoll preserves myVote:null as the "not voted" sentinel', () => {
 
   it('maps a real vote array through unchanged', () => {
     expect(mapPoll({ ...base, myVote: ['opt1'] }).myVote).toEqual(['opt1']);
+  });
+});
+
+// events.Service.{ListEvents,GetEvent} populate TeamEvent.myReason from the
+// caller's own attendance row (internal/events/service.go). mapTeamEvent used
+// to always return '', silently discarding it against the real backend —
+// useEventActions.ts's setMyStatus() reads `ev.myReason` to preserve the
+// user's existing reason across a quick yes/no/maybe tap, so this erased
+// saved attendance reasons every time, and EventDetailSheet.tsx's
+// comment-reason indicator always rendered as "no reason given".
+describe('mapTeamEvent preserves myReason from the backend', () => {
+  const baseEvent = {
+    id: 'e1',
+    teamId: 't1',
+    type: 'training',
+    title: 'Training',
+    date: '2024-01-01',
+    recurring: false,
+    status: 'active',
+    summary: { yes: 0, no: 0, maybe: 0, pending: 0, notNominated: 0, nominated: 0, total: 0 },
+  };
+
+  it('passes a present myReason through unchanged', () => {
+    expect(
+      mapTeamEvent({ ...baseEvent, myReason: 'Grippe, kuriere mich aus' } as unknown as Parameters<
+        typeof mapTeamEvent
+      >[0]).myReason,
+    ).toBe('Grippe, kuriere mich aus');
+  });
+
+  it('maps a missing myReason to the empty-string default', () => {
+    expect(mapTeamEvent(baseEvent as unknown as Parameters<typeof mapTeamEvent>[0]).myReason).toBe('');
   });
 });

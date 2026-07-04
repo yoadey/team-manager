@@ -206,7 +206,15 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
     summary: mapEventSummary(e.summary),
     myStatus: e.myStatus ?? 'pending',
     myAuto: e.myAuto ?? false,
-    myReason: '',
+    // events.Service.{ListEvents,GetEvent} populate MyReason from the
+    // caller's own attendance row (see internal/events/service.go). Dropping
+    // it here (as this used to, always returning '') meant setMyStatus()
+    // (useEventActions.ts's `keep = ev.myReason || ''`) always saw an empty
+    // reason for the real backend and silently erased the user's previously
+    // saved attendance reason on every quick yes/no/maybe tap, and
+    // EventDetailSheet.tsx's comment-reason indicator always rendered as
+    // "no reason" even when one existed.
+    myReason: e.myReason ?? '',
   };
 }
 
