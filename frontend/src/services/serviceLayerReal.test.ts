@@ -512,12 +512,40 @@ describe('events', () => {
   it('comments: list, add and remove', async () => {
     client.GET.mockResolvedValueOnce(ok([{ id: 'c1' }]));
     expect((await realApi.events.listComments('e1', 't1'))[0]).toMatchObject({ __mapped: 'eventComment' });
+    expect(client.GET).toHaveBeenCalledWith(
+      '/teams/{teamId}/events/{eventId}/comments',
+      expect.objectContaining({ params: { path: { teamId: 't1', eventId: 'e1' }, query: { limit: 500, offset: 0 } } }),
+    );
 
     client.POST.mockResolvedValueOnce(ok({ id: 'c1' }));
     expect(await realApi.events.addComment('e1', 'hi', 't1')).toMatchObject({ __mapped: 'eventComment' });
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.events.removeComment('c1', 'e1', 't1')).resolves.toBeUndefined();
+  });
+
+  // listEventComments is limit/offset paginated (default limit 50, backend
+  // caps at 500) with no { items, nextCursor } envelope — the backend orders
+  // ORDER BY created_at ASC, so without walking every page to completion an
+  // event with a full page of comments would silently lose everything after
+  // it (its most recent activity) against the real backend, while the mock
+  // returns every comment unconditionally.
+  it('listComments walks every offset page until a short page is returned', async () => {
+    const fullPage = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}` }));
+    client.GET.mockResolvedValueOnce(ok(fullPage)).mockResolvedValueOnce(ok([{ id: 'c500' }]));
+    const res = await realApi.events.listComments('e1', 't1');
+    expect(res).toHaveLength(501);
+    expect(client.GET).toHaveBeenCalledTimes(2);
+    expect(client.GET).toHaveBeenNthCalledWith(
+      1,
+      '/teams/{teamId}/events/{eventId}/comments',
+      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, offset: 0 } }) }),
+    );
+    expect(client.GET).toHaveBeenNthCalledWith(
+      2,
+      '/teams/{teamId}/events/{eventId}/comments',
+      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, offset: 500 } }) }),
+    );
   });
 });
 
