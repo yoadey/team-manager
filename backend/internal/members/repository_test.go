@@ -252,6 +252,39 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	assert.Equal(t, &grp, updated.Group)
 }
 
+// Regression test: unlike AddMember (which catches the users.email UNIQUE
+// violation and maps it to ErrDuplicateMembership), UpdateMember used to have
+// no handling at all for the same constraint, so changing a member's email
+// to one already used by a different user account fell through to a raw
+// wrapped Postgres error instead of a clean, mapped ErrEmailTaken.
+func TestMembersRepository_UpdateMember_EmailTaken_ReturnsErrEmailTaken(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+
+	_, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Existing User",
+		Email: "existing-email-taken@example.com",
+	})
+	require.NoError(t, err)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Other Member",
+		Email: "other-email-taken@example.com",
+	})
+	require.NoError(t, err)
+
+	collidingEmail := "existing-email-taken@example.com"
+	_, err = repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
+		Email: &collidingEmail,
+	})
+	require.ErrorIs(t, err, members.ErrEmailTaken)
+}
+
 func TestMembersRepository_UpdateMember_WrongTeam_ReturnsNoRows(t *testing.T) {
 	t.Parallel()
 

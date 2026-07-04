@@ -49,6 +49,12 @@ func dedupeStrings(ids []string) []string {
 // email.
 var ErrDuplicateMembership = errors.New("user is already a member of this team")
 
+// ErrEmailTaken is returned when UpdateMember would change a user's email to
+// one already used by a different user account (users.email UNIQUE
+// violation) -- distinct from ErrDuplicateMembership, which is about a
+// second membership row for the same team, not a colliding user account.
+var ErrEmailTaken = errors.New("email is already used by another account")
+
 // ErrLastSettingsAdmin is returned when SetRoles or RemoveMember would leave
 // a team with no member holding settings:write — that would be an
 // unrecoverable state via the API (no one left able to manage roles,
@@ -280,6 +286,10 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID stri
 		userArgs = append(userArgs, userID)
 		_, err = tx.Exec(ctx, fmt.Sprintf("UPDATE users SET %s WHERE id = $%d", setSQL, n), userArgs...)
 		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+				return nil, ErrEmailTaken
+			}
 			return nil, fmt.Errorf("members.Repository.UpdateMember: update user: %w", err)
 		}
 	}

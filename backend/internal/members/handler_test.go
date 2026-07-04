@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -189,6 +190,28 @@ func TestMemberHandler_AddMember_DuplicateMembership_Returns409(t *testing.T) {
 
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "members.Handler.AddMember", "must map to the specific 409, not fall through to the generic wrapped error")
+}
+
+// Regression test: unlike AddMember, UpdateMember's users.email UNIQUE
+// violation used to have no special handling at all, so changing a member's
+// email to one already used by a different account surfaced as a raw
+// wrapped error -> generic 500, instead of a clean 409.
+func TestMemberHandler_UpdateMember_EmailTaken_Returns409(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		updateMember: func(context.Context, string, string, members.MemberPatch) (*gen.Member, error) {
+			return nil, members.ErrEmailTaken
+		},
+	}
+	h := members.NewHandler(svc, &mockPermissionChecker{}, slog.Default(), nil)
+
+	email := openapi_types.Email("taken@example.com")
+	body := &gen.UpdateMemberJSONRequestBody{Email: &email}
+	_, err := h.UpdateMember(context.Background(), gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "members.Handler.UpdateMember", "must map to the specific 409, not fall through to the generic wrapped error")
 }
 
 func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_Returns409(t *testing.T) {

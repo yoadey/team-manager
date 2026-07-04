@@ -161,53 +161,66 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 	return gen.AddMember201JSONResponse(*m), nil
 }
 
+// validateMemberPatch validates the optional fields of an UpdateMember
+// request body and builds the resulting MemberPatch.
+func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, error) {
+	patch := MemberPatch{}
+	if body.Name != nil {
+		if err := validate.Name(*body.Name); err != nil {
+			return patch, fmt.Errorf("%w", err)
+		}
+		patch.Name = body.Name
+	}
+	if body.Email != nil {
+		if err := validate.Email(string(*body.Email)); err != nil {
+			return patch, fmt.Errorf("%w", err)
+		}
+		s := string(*body.Email)
+		patch.Email = &s
+	}
+	if body.Phone != nil {
+		if err := validate.MaxLen(*body.Phone, 32, "phone"); err != nil {
+			return patch, fmt.Errorf("%w", err)
+		}
+		patch.Phone = body.Phone
+	}
+	if body.Address != nil {
+		if err := validate.MaxLen(*body.Address, 500, "address"); err != nil {
+			return patch, fmt.Errorf("%w", err)
+		}
+		patch.Address = body.Address
+	}
+	if body.Birthday != nil {
+		t := body.Birthday.Time
+		patch.Birthday = &t
+	}
+	if body.Group != nil {
+		if err := validate.MaxLen(*body.Group, 100, "group"); err != nil {
+			return patch, fmt.Errorf("%w", err)
+		}
+		patch.Group = body.Group
+	}
+	return patch, nil
+}
+
 // UpdateMember updates member profile fields.
 func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequestObject) (gen.UpdateMemberResponseObject, error) {
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
 
-	patch := MemberPatch{}
-	if request.Body.Name != nil {
-		if err := validate.Name(*request.Body.Name); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		patch.Name = request.Body.Name
-	}
-	if request.Body.Email != nil {
-		if err := validate.Email(string(*request.Body.Email)); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		s := string(*request.Body.Email)
-		patch.Email = &s
-	}
-	if request.Body.Phone != nil {
-		if err := validate.MaxLen(*request.Body.Phone, 32, "phone"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		patch.Phone = request.Body.Phone
-	}
-	if request.Body.Address != nil {
-		if err := validate.MaxLen(*request.Body.Address, 500, "address"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		patch.Address = request.Body.Address
-	}
-	if request.Body.Birthday != nil {
-		t := request.Body.Birthday.Time
-		patch.Birthday = &t
-	}
-	if request.Body.Group != nil {
-		if err := validate.MaxLen(*request.Body.Group, 100, "group"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		patch.Group = request.Body.Group
+	patch, err := validateMemberPatch(request.Body)
+	if err != nil {
+		return nil, apierror.BadRequest(err.Error())
 	}
 
 	m, err := h.svc.UpdateMember(ctx, request.MembershipId.String(), request.TeamId.String(), patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("member not found")
+		}
+		if errors.Is(err, ErrEmailTaken) {
+			return nil, apierror.Conflict("email is already used by another account")
 		}
 		h.logger.ErrorContext(ctx, "UpdateMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.UpdateMember: %w", err)
