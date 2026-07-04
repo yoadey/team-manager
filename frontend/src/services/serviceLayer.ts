@@ -1902,8 +1902,14 @@ const _mockApi = {
           };
         })
         .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de')); // ORDER BY yes_count DESC, u.name
-      const quotes = memberStats.filter((s) => s.quote !== null).map((s) => s.quote!);
-      const avg = quotes.length ? Math.round(quotes.reduce((s, q) => s + q, 0) / quotes.length) : 0;
+      // Matches stats.Service.GetOverview: `avg` sums every member's quote
+      // (quote() returns 0, not skipped, for a member with 0 counted events)
+      // and divides by the total member count — a member with no counted
+      // attendance in range still drags the average down instead of being
+      // excluded from both the numerator and the denominator.
+      const avg = memberStats.length
+        ? Math.round(memberStats.reduce((s, m) => s + (m.quote ?? 0), 0) / memberStats.length)
+        : 0;
       const eventStats = events.map((e) => {
         let yes = 0,
           counted = 0;

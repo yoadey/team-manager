@@ -378,6 +378,32 @@ describe('stats', () => {
       expect(stat.quote).toBeLessThanOrEqual(100);
     }
   });
+
+  // Regression coverage for stats.Service.GetOverview's `avg`: it sums every
+  // team member's quote (0, not skipped, when a member has 0 counted events)
+  // and divides by the total member count. The mock previously excluded
+  // no-data members from both the numerator and denominator, which inflates
+  // the average whenever any member has no counted attendance in range (e.g.
+  // a member with only opt-in events they haven't responded to yet).
+  it('averages every member including those with zero counted events, not just members with data', async () => {
+    // Team t_b has no events in the seed, so this is the only event in its
+    // default 3-month range and every other member stays 'pending' (opt_in,
+    // no explicit record) => counted 0 => quote null for them.
+    const event = await settle(
+      api.events.create('t_b', { type: 'training', title: 'Opt-in only test', date: todayLocalDate() }),
+    );
+    await settle(api.attendance.set(event.id, 'u20', { status: 'yes' }, 't_b'));
+
+    const stats = await settle(api.stats.teamOverview('t_b'));
+    expect(stats.members).toHaveLength(5);
+    const u20Stat = stats.members.find((m) => m.userId === 'u20')!;
+    expect(u20Stat.quote).toBe(100);
+    const others = stats.members.filter((m) => m.userId !== 'u20');
+    expect(others.every((m) => m.quote === null)).toBe(true);
+    // (100 + 0 + 0 + 0 + 0) / 5 = 20 — not 100, which is what you'd get by
+    // averaging only the one member with counted > 0.
+    expect(stats.avg).toBe(20);
+  });
 });
 
 describe('polls', () => {
