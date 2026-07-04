@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/stats"
 )
 
@@ -50,8 +51,8 @@ func TestService_GetOverview_ComputesQuotesAndAverage(t *testing.T) {
 		},
 		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) {
 			return []stats.EventStatRow{
-				{EventID: uuid.New(), Title: "Match", Date: "2026-01-15", Yes: 6, Counted: 10},    // 0.6 -> Enough
-				{EventID: uuid.New(), Title: "Training", Date: "2026-01-20", Yes: 3, Counted: 10}, // 0.3 -> not Enough
+				{EventID: uuid.New(), Title: "Match", Type: "auftritt", Date: "2026-01-15", Yes: 6, Counted: 10},    // 0.6 -> Enough
+				{EventID: uuid.New(), Title: "Training", Type: "training", Date: "2026-01-20", Yes: 3, Counted: 10}, // 0.3 -> not Enough
 			}, nil
 		},
 	}
@@ -70,6 +71,10 @@ func TestService_GetOverview_ComputesQuotesAndAverage(t *testing.T) {
 	require.Len(t, overview.Events, 2)
 	assert.True(t, overview.Events[0].Enough, "0.6 attendance ratio should meet the 0.5 threshold")
 	assert.False(t, overview.Events[1].Enough, "0.3 attendance ratio should not meet the 0.5 threshold")
+	// Regression: Type used to be dropped entirely between EventStatRow and
+	// gen.EventStat, always defaulting the client to the generic "event" icon.
+	assert.Equal(t, gen.EventType("auftritt"), overview.Events[0].Type)
+	assert.Equal(t, gen.EventType("training"), overview.Events[1].Type)
 	assert.Equal(t, 2, overview.PastCount)
 }
 

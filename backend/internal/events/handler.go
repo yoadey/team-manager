@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
@@ -55,6 +56,9 @@ func (h *Handler) ListEvents(ctx context.Context, request gen.ListEventsRequestO
 
 	scope := "upcoming"
 	if request.Params.Scope != nil {
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
 		scope = string(*request.Params.Scope)
 	}
 	limit := pagination.ParseLimit(request.Params.Limit)
@@ -172,6 +176,9 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 
 	scope := "single"
 	if request.Params.Scope != nil {
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
 		scope = string(*request.Params.Scope)
 	}
 
@@ -201,6 +208,9 @@ func (h *Handler) DeleteEvent(ctx context.Context, request gen.DeleteEventReques
 
 	scope := "single"
 	if request.Params.Scope != nil {
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
 		scope = string(*request.Params.Scope)
 	}
 
@@ -233,6 +243,9 @@ func (h *Handler) SetEventStatus(ctx context.Context, request gen.SetEventStatus
 
 	scope := "single"
 	if request.Params.Scope != nil {
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
 		scope = string(*request.Params.Scope)
 	}
 
@@ -387,6 +400,9 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if request.Body.UserId == uuid.Nil {
+		return nil, apierror.BadRequest("userId: is required")
 	}
 
 	if err := h.svc.SetNomination(ctx, request.EventId.String(), user.Id.String(), request.TeamId.String(), *request.Body); err != nil {

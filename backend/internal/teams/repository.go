@@ -215,7 +215,14 @@ func (r *Repository) parseAndValidateTeamRoleIDs(ctx context.Context, teamID str
 	).Scan(&count); err != nil {
 		return nil, fmt.Errorf("teams.Repository: check roles: %w", err)
 	}
-	if count != len(uids) {
+	// COUNT(*) counts matching rows (one per distinct role), not input array
+	// elements -- compare against the distinct id count so a request that
+	// legitimately repeats the same valid role ID isn't wrongly rejected.
+	seen := make(map[uuid.UUID]struct{}, len(uids))
+	for _, u := range uids {
+		seen[u] = struct{}{}
+	}
+	if count != len(seen) {
 		return nil, ErrRoleNotInTeam
 	}
 	return uids, nil

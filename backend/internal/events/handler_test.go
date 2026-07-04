@@ -144,6 +144,58 @@ func TestEventHandler_UpdateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
 	require.Error(t, err)
 }
 
+// The generated *ParamsScope enum types all have a .Valid() method, but
+// unlike Type/Status/ResponseMode elsewhere in this handler, an unrecognized
+// ?scope= value used to be silently absorbed instead of rejected: ListEvents
+// fell through to its "all" default, and UpdateEvent/DeleteEvent/
+// SetEventStatus fell through to "single" -- both cases are still exercised
+// below to lock in the fix.
+func TestEventHandler_ListEvents_RejectsInvalidScope(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	scope := gen.ListEventsParamsScope("not-a-scope")
+	_, err := h.ListEvents(ctxWithUser(), gen.ListEventsRequestObject{
+		TeamId: uuid.New(), Params: gen.ListEventsParams{Scope: &scope},
+	})
+	require.Error(t, err)
+}
+
+func TestEventHandler_UpdateEvent_RejectsInvalidScope(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	scope := gen.UpdateEventParamsScope("not-a-scope")
+	body := &gen.UpdateEventJSONRequestBody{}
+	_, err := h.UpdateEvent(ctxWithUser(), gen.UpdateEventRequestObject{
+		TeamId: uuid.New(), EventId: uuid.New(), Params: gen.UpdateEventParams{Scope: &scope}, Body: body,
+	})
+	require.Error(t, err)
+}
+
+func TestEventHandler_DeleteEvent_RejectsInvalidScope(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	scope := gen.DeleteEventParamsScope("not-a-scope")
+	_, err := h.DeleteEvent(ctxWithUser(), gen.DeleteEventRequestObject{
+		TeamId: uuid.New(), EventId: uuid.New(), Params: gen.DeleteEventParams{Scope: &scope},
+	})
+	require.Error(t, err)
+}
+
+func TestEventHandler_SetEventStatus_RejectsInvalidScope(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	scope := gen.SetEventStatusParamsScope("not-a-scope")
+	body := &gen.SetEventStatusJSONRequestBody{Status: gen.Active}
+	_, err := h.SetEventStatus(ctxWithUser(), gen.SetEventStatusRequestObject{
+		TeamId: uuid.New(), EventId: uuid.New(), Params: gen.SetEventStatusParams{Scope: &scope}, Body: body,
+	})
+	require.Error(t, err)
+}
+
 func TestEventHandler_CreateEvent_RejectsInvalidType(t *testing.T) {
 	t.Parallel()
 	h := events.NewHandler(&mockEventService{}, slog.Default())
@@ -255,6 +307,29 @@ func TestEventHandler_SetNomination_ForbiddenMapsTo403(t *testing.T) {
 	apiErr, ok := err.(*apierror.APIError)
 	require.True(t, ok, "expected *apierror.APIError, got %T", err)
 	assert.Equal(t, 403, apiErr.Status)
+}
+
+// SetNominationRequest.UserId is a non-pointer required UUID (per
+// openapi.yaml); an omitted field decodes to the zero UUID rather than
+// failing at decode time. Unlike SetAttendance (which explicitly treats the
+// zero UUID as "fall back to the caller" for self-service calls),
+// SetNomination has no such self-service meaning -- a caller must always
+// specify who they're nominating -- so this must 400, not silently pass the
+// zero UUID through to a misleading 404 "event not found".
+func TestEventHandler_SetNomination_MissingUserId_Returns400(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{
+		setNomination: func(context.Context, string, string, string, gen.SetNominationRequest) error {
+			t.Fatal("service must not be called when userId is missing")
+			return nil
+		},
+	}, slog.Default())
+
+	body := &gen.SetNominationJSONRequestBody{Nominated: true}
+	_, err := h.SetNomination(ctxWithUser(), gen.SetNominationRequestObject{
+		TeamId: uuid.New(), EventId: uuid.New(), Body: body,
+	})
+	require.Error(t, err)
 }
 
 func ptr[T any](v T) *T { return &v }

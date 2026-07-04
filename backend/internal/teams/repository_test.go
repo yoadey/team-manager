@@ -123,6 +123,20 @@ func TestTeamRepository_UpdateTeam_ReasonVisibilityRoleIDs_ValidatesOwnership(t 
 	require.NoError(t, err)
 	require.Len(t, updated.ReasonVisibilityRoleIDs, 1)
 	assert.Equal(t, uuid.MustParse(ownRoleID), updated.ReasonVisibilityRoleIDs[0])
+
+	// Regression: `COUNT(*) FROM roles WHERE id = ANY($1)` counts matching
+	// rows once per distinct role, so comparing it against len(ids) directly
+	// used to wrongly reject a request that legitimately repeats the same
+	// valid role ID. This only asserts the (valid) request is accepted, not
+	// that storage deduplicates -- deduping the stored array is a separate,
+	// unrelated concern.
+	updated, err = repo.UpdateTeam(ctx, tr.Id.String(), teams.TeamPatch{
+		ReasonVisibilityRoleIDs: []string{ownRoleID, ownRoleID},
+	})
+	require.NoError(t, err)
+	require.Len(t, updated.ReasonVisibilityRoleIDs, 2)
+	assert.Equal(t, uuid.MustParse(ownRoleID), updated.ReasonVisibilityRoleIDs[0])
+	assert.Equal(t, uuid.MustParse(ownRoleID), updated.ReasonVisibilityRoleIDs[1])
 }
 
 func TestTeamRepository_DeleteTeamPhoto_ClearsStoredPhoto(t *testing.T) {

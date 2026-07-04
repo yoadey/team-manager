@@ -22,6 +22,27 @@ const pgUniqueViolation = "23505"
 // not belong to the membership's team.
 var ErrRoleNotInTeam = errors.New("role does not belong to team")
 
+// dedupeStrings returns ids with duplicates removed, preserving the order of
+// first occurrence. AddMember/SetRoles both validate role ownership via
+// `COUNT(*) FROM roles WHERE id = ANY($1)` (which counts matching rows once
+// per distinct role, not input array elements) and then INSERT one
+// membership_roles row per ID -- that table's composite primary key
+// (membership_id, role_id) rejects a duplicate pair within the same call, so
+// a caller legitimately repeating the same valid role ID must be
+// deduplicated up front, not just tolerated by the count check.
+func dedupeStrings(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 // ErrDuplicateMembership is returned when AddMember would create a second
 // membership for a user that is already on the team (unique (team_id,
 // user_id) violation) — e.g. two concurrent "add member" calls for the same
@@ -116,6 +137,7 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	params.RoleIDs = dedupeStrings(params.RoleIDs)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -283,6 +305,7 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID stri
 func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*MemberRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	roleIDs = dedupeStrings(roleIDs)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {

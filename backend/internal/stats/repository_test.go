@@ -95,6 +95,10 @@ func TestStatsRepository_EventStats(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "Game Day", rows[0].Title)
+	// Regression: the query used to omit e.type entirely, leaving
+	// EventStatRow.Type at its Go zero value ("") even though
+	// gen.EventStat.Type is a required field of the API contract.
+	assert.Equal(t, "training", rows[0].Type)
 	assert.Equal(t, 1, rows[0].Yes)
 }
 

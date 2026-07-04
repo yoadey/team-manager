@@ -16,6 +16,7 @@ type MemberStatRow struct {
 type EventStatRow struct {
 	EventID uuid.UUID
 	Title   string
+	Type    string
 	Date    string // YYYY-MM-DD
 	Yes     int
 	Counted int

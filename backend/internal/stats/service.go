@@ -84,6 +84,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 		genEvents = append(genEvents, gen.EventStat{
 			Id:        e.EventID,
 			Title:     e.Title,
+			Type:      gen.EventType(e.Type),
 			Date:      parseDateOrZero(e.Date),
 			Yes:       e.Yes,
 			Nominated: e.Counted,

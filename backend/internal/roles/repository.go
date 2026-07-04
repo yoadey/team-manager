@@ -334,7 +334,14 @@ func (r *Repository) RolesExistForTeam(ctx context.Context, teamID string, roleI
 	if err != nil {
 		return false, fmt.Errorf("roles.Repository.RolesExistForTeam: %w", err)
 	}
-	return count == len(roleIDs), nil
+	// COUNT(*) counts matching rows (one per distinct role), not input array
+	// elements -- compare against the distinct id count so a request that
+	// legitimately repeats the same valid role ID isn't wrongly rejected.
+	seen := make(map[uuid.UUID]struct{}, len(roleIDs))
+	for _, id := range roleIDs {
+		seen[id] = struct{}{}
+	}
+	return count == len(seen), nil
 }
 
 // ─── internal helpers ─────────────────────────────────────────────────────────

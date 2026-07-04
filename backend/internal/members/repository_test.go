@@ -120,6 +120,33 @@ func TestMembersRepository_AddMember_WithRoles(t *testing.T) {
 	assert.Equal(t, "Player", m.Roles[0].Name)
 }
 
+// Regression test: the role-existence check compares `COUNT(*) FROM roles
+// WHERE id = ANY($1)` (which counts matching rows once per distinct role)
+// against len(RoleIDs) directly, so a caller submitting the same valid role
+// ID twice used to be wrongly rejected with ErrRoleNotInTeam even though
+// every ID it sent was genuinely valid.
+func TestMembersRepository_AddMember_DuplicateValidRoleID_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	roleID := seedRole(t, pool, teamID, "Player", `{"events":"read","members":"none","finances":"none","news":"none","polls":"read","settings":"none"}`)
+
+	params := members.AddMemberParams{
+		Name:    "Bob Jones",
+		Email:   "bob@example.com",
+		RoleIDs: []string{roleID.String(), roleID.String()},
+	}
+	m, err := repo.AddMember(ctx, teamID.String(), params)
+	require.NoError(t, err)
+	require.NotNil(t, m)
+	require.Len(t, m.Roles, 1)
+	assert.Equal(t, roleID, m.Roles[0].Id)
+}
+
 func TestMembersRepository_ListMembers(t *testing.T) {
 	t.Parallel()
 
@@ -370,6 +397,34 @@ func TestMembersRepository_SetRoles_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t 
 
 	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{foreignRole.String()})
 	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
+}
+
+// Regression test: the role-existence check (COUNT(*) FROM roles WHERE id =
+// ANY($1), compared against len(roleIDs)) used to wrongly reject a caller
+// that legitimately repeats the same valid role ID, and even after fixing
+// that comparison, the membership_roles INSERT loop would still fail on the
+// composite primary key (membership_id, role_id) for the duplicate pair.
+// SetRoles must dedupe up front so both problems are avoided.
+func TestMembersRepository_SetRoles_DuplicateValidRoleID_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	_, teamID := seedMemberFixtures(t, pool)
+	roleA := seedRole(t, pool, teamID, "Player", `{"events":"read","members":"none","finances":"none","news":"none","polls":"read","settings":"none"}`)
+
+	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Grace Hopper",
+		Email: "grace@example.com",
+	})
+	require.NoError(t, err)
+
+	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleA.String()})
+	require.NoError(t, err)
+	require.Len(t, updated.Roles, 1)
+	assert.Equal(t, roleA, updated.Roles[0].Id)
 }
 
 func TestMembersRepository_AddMember_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t *testing.T) {

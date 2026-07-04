@@ -65,6 +65,7 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 		SELECT
 			e.id,
 			e.title,
+			e.type,
 			e.date::text,
 			COUNT(*) FILTER (WHERE a.status = 'yes') AS yes_count,
 			COUNT(*) FILTER (WHERE a.status IN ('yes','no','maybe')) AS counted
@@ -73,7 +74,7 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 		WHERE e.team_id = $1
 		  AND e.date BETWEEN $2 AND $3
 		  AND e.status = 'active'
-		GROUP BY e.id, e.title, e.date
+		GROUP BY e.id, e.title, e.type, e.date
 		ORDER BY e.date
 	`, teamID, from, to)
 	if err != nil {
@@ -84,7 +85,7 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 	var out []EventStatRow
 	for rows.Next() {
 		var s EventStatRow
-		if err := rows.Scan(&s.EventID, &s.Title, &s.Date, &s.Yes, &s.Counted); err != nil {
+		if err := rows.Scan(&s.EventID, &s.Title, &s.Type, &s.Date, &s.Yes, &s.Counted); err != nil {
 			return nil, fmt.Errorf("stats.Repository.EventStats scan: %w", err)
 		}
 		out = append(out, s)

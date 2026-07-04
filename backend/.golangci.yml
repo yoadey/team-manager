@@ -92,6 +92,14 @@ linters:
       - path: "internal/finances/handler\\.go"
         linters:
           - dupl
+      # MemberStats and EventStats are independent aggregation queries against
+      # different tables with different scan signatures; the query-loop-scan
+      # shape they share is inherent to database/sql, not copy-paste, and
+      # became "dupl"-similar only because both now select their subject's
+      # `type`/`avatar_color`-equivalent column.
+      - path: "internal/stats/repository\\.go"
+        linters:
+          - dupl
 
 formatters:
   enable:
