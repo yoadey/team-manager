@@ -198,6 +198,40 @@ func TestRolesRepository_DeleteRole_NotLastSettingsAdmin_Allowed(t *testing.T) {
 	assert.Equal(t, roleB.Id, list[0].Id)
 }
 
+// Regression test: reason_visibility_role_ids (a plain UUID[] column on
+// teams, set via teams.Repository.UpdateTeam) has no FK to roles, so
+// deleting a role that a team references there used to leave a permanently
+// dangling ID with no error or indication. DeleteRole must scrub it.
+func TestRolesRepository_DeleteRole_ScrubsReasonVisibilityRoleIDs(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Reason Vis Cleanup Team')`, tid)
+	require.NoError(t, err)
+
+	trainerRole, err := repo.CreateRole(ctx, tid, "Trainer", nil, teams.PermissionsJSON{
+		Events: "read", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none",
+	})
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx,
+		`UPDATE teams SET reason_visibility_role_ids = $1 WHERE id = $2`,
+		[]string{trainerRole.Id.String()}, tid,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.DeleteRole(ctx, trainerRole.Id.String(), tid))
+
+	var remaining []string
+	err = pool.QueryRow(ctx, `SELECT reason_visibility_role_ids FROM teams WHERE id = $1`, tid).Scan(&remaining)
+	require.NoError(t, err)
+	assert.Empty(t, remaining, "deleted role's ID must be scrubbed from reason_visibility_role_ids")
+}
+
 // Regression test: UpdateRole previously had no last-settings-admin guard at
 // all, so revoking settings:write via an edit (instead of deleting the role
 // outright) could lock a team out of settings/role management — exactly the

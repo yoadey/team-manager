@@ -311,6 +311,18 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 		return pgx.ErrNoRows
 	}
 
+	// reason_visibility_role_ids has no FK (it's a plain UUID[] column, set
+	// via teams.Repository.UpdateTeam), so deleting a role that a team
+	// references there would otherwise leave a permanently dangling ID with
+	// no error or indication -- scrub it in the same transaction as the role
+	// deletion itself.
+	if _, err = tx.Exec(ctx,
+		`UPDATE teams SET reason_visibility_role_ids = array_remove(reason_visibility_role_ids, $1) WHERE id = $2`,
+		roleID, teamID,
+	); err != nil {
+		return fmt.Errorf("roles.Repository.DeleteRole: scrub reason_visibility_role_ids: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("roles.Repository.DeleteRole: commit: %w", err)
 	}
