@@ -3,7 +3,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
 )
 
@@ -138,16 +138,8 @@ func makeLimitHandler(window time.Duration, limitCtx string) httprate.Option {
 	retryAfter := strconv.Itoa(max(1, int(window.Seconds())))
 	return httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		metrics.RateLimitHits.WithLabelValues(limitCtx).Inc()
-		w.Header().Set("Content-Type", "application/problem+json")
 		w.Header().Set("Retry-After", retryAfter)
-		w.WriteHeader(http.StatusTooManyRequests)
-		body := map[string]any{
-			"type":   "https://teammanager.example/errors/too-many-requests",
-			"title":  "Too Many Requests",
-			"status": http.StatusTooManyRequests,
-			"detail": "rate limit exceeded; please slow down",
-		}
-		_ = json.NewEncoder(w).Encode(body)
+		apierror.New(http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded; please slow down").Render(w)
 	})
 }
 
@@ -380,15 +372,7 @@ func Recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 					span.RecordError(fmt.Errorf("%w: %v", errPanicRecovered, rec))
 					span.SetStatus(codes.Error, "panic recovered")
 
-					w.Header().Set("Content-Type", "application/problem+json")
-					w.WriteHeader(http.StatusInternalServerError)
-					body := map[string]any{
-						"type":   "https://teammanager.example/errors/internal-server-error",
-						"title":  "Internal Server Error",
-						"status": http.StatusInternalServerError,
-						"detail": "an unexpected error occurred",
-					}
-					_ = json.NewEncoder(w).Encode(body)
+					apierror.Internal("an unexpected error occurred").Render(w)
 				}
 			}()
 

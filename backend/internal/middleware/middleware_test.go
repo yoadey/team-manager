@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/middleware"
 )
 
@@ -293,6 +294,10 @@ func TestRecoverer_CatchesPanic(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.EqualValues(t, http.StatusInternalServerError, body["status"])
+	// Regression: this response used to hardcode a literal "type" URI instead
+	// of going through apierror, so it never honored ERROR_TYPE_BASE_URI.
+	assert.Equal(t, apierror.Internal("").Type, body["type"],
+		"panic-recovery response must use apierror's type URI, not a hardcoded literal")
 
 	logOutput := buf.String()
 	assert.True(t, strings.Contains(logOutput, "panic"), "log must mention the panic")
@@ -413,6 +418,13 @@ func TestRateLimit_UntrustedPeer_IgnoresSpoofedForwardedFor(t *testing.T) {
 
 	assert.Equal(t, http.StatusTooManyRequests, rec2.Code,
 		"second request from the same untrusted peer must be blocked despite a different spoofed X-Forwarded-For")
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body))
+	// Regression: this response used to hardcode a literal "type" URI instead
+	// of going through apierror, so it never honored ERROR_TYPE_BASE_URI.
+	assert.Equal(t, apierror.New(http.StatusTooManyRequests, "Too Many Requests", "").Type, body["type"],
+		"rate-limit response must use apierror's type URI, not a hardcoded literal")
 }
 
 func TestRateLimit_TrustedPeer_HonorsForwardedFor(t *testing.T) {
