@@ -6,13 +6,19 @@
 declare global {
   interface Window {
     // Populated by /config.js, loaded before this module runs (see
-    // index.html). frontend/public/config.js checks in a `{ API_BASE_URL: '' }`
-    // default for local dev/tests/preview; the production Docker image
-    // regenerates it from the container's API_BASE_URL env var at startup
-    // (see frontend/docker/) so one built image can point at any backend
-    // without rebuilding.
-    __RUNTIME_CONFIG__?: { API_BASE_URL?: string };
+    // index.html). frontend/public/config.js checks in defaults for local
+    // dev/tests/preview; the production Docker image regenerates it from the
+    // container's API_BASE_URL/SENTRY_DSN env vars at startup (see
+    // frontend/docker/) so one built image can point at any backend/Sentry
+    // project without rebuilding.
+    __RUNTIME_CONFIG__?: { API_BASE_URL?: string; SENTRY_DSN?: string };
   }
+}
+
+/** Reads a runtime-injected __RUNTIME_CONFIG__ value, treating blank as unset. */
+function runtimeConfig(key: 'API_BASE_URL' | 'SENTRY_DSN'): string | undefined {
+  const v = typeof window !== 'undefined' ? window.__RUNTIME_CONFIG__?.[key] : undefined;
+  return v && v.trim() !== '' ? v.trim() : undefined;
 }
 
 /**
@@ -21,8 +27,18 @@ declare global {
  * loaded, e.g. Vitest's jsdom environment).
  */
 function resolveApiBaseUrl(): string {
-  const runtime = typeof window !== 'undefined' ? window.__RUNTIME_CONFIG__?.API_BASE_URL : undefined;
-  return runtime && runtime.trim() !== '' ? runtime.trim() : stringEnv(import.meta.env.VITE_API_BASE_URL, '');
+  return runtimeConfig('API_BASE_URL') ?? stringEnv(import.meta.env.VITE_API_BASE_URL, '');
+}
+
+/**
+ * The Sentry DSN, preferring the runtime-injected value over the build-time
+ * VITE_SENTRY_DSN Vite env var. The runtime path is the only way to enable
+ * Sentry in a released Docker image at all — the Dockerfile/release.yml
+ * build pipeline never passes VITE_SENTRY_DSN as a build arg, so without
+ * this it would be permanently baked in as empty regardless of environment.
+ */
+function resolveSentryDsn(): string {
+  return runtimeConfig('SENTRY_DSN') ?? stringEnv(import.meta.env.VITE_SENTRY_DSN, '');
 }
 
 /** Parse a non-negative integer env var, falling back when missing/invalid. */
@@ -53,5 +69,5 @@ export const config = {
   storageKeyPrefix: stringEnv(import.meta.env.VITE_STORAGE_KEY_PREFIX, 'tv_db_'),
   mockDelayMin,
   mockDelayMax,
-  sentryDsn: stringEnv(import.meta.env.VITE_SENTRY_DSN, ''),
+  sentryDsn: resolveSentryDsn(),
 } as const;

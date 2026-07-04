@@ -116,6 +116,16 @@ over a private network. To expose it on an untrusted network, set
 `METRICS_TOKEN` and configure the scraper with
 `Authorization: Bearer <token>`.
 
+**`METRICS_TOKEN` is not merely a recommendation once `COOKIE_SECURE=true`**
+(the production default): the backend fails startup outright
+(`os.Exit(1)`, every replica crash-loops, not just a logged warning) if
+`METRICS_TOKEN` is empty in that case. Either set `METRICS_TOKEN`, or set
+`METRICS_ALLOW_OPEN=true` if `/metrics` is already restricted at the network
+layer and you accept it being unauthenticated. The Helm chart's
+`templates/NOTES.txt` prints a reminder about this at deploy time, since
+`values.yaml`'s `existingSecret` doesn't create the Secret's contents for
+you.
+
 ## Container images & releases
 
 Tagging a release (`vX.Y.Z`) triggers `.github/workflows/release.yml`, which
@@ -126,24 +136,33 @@ tag (images are immutable per digest).
 ### Frontend image: pointing it at a backend
 
 The frontend image is built once per release and is environment-agnostic —
-which backend it talks to is resolved at **container start**, not baked in at
-build time, so the same image tag can be deployed to staging and production
-unchanged. Set the `API_BASE_URL` environment variable on the container to
-the backend's public URL:
+which backend it talks to (and which Sentry project, if any, it reports
+errors to) is resolved at **container start**, not baked in at build time, so
+the same image tag can be deployed to staging and production unchanged. Set
+the `API_BASE_URL` and (optionally) `SENTRY_DSN` environment variables on the
+container:
 
 ```
-docker run -e API_BASE_URL=https://api.example.com ghcr.io/<org>/team-manager-frontend:vX.Y.Z
+docker run -e API_BASE_URL=https://api.example.com -e SENTRY_DSN=https://key@o0.ingest.sentry.io/1 \
+  ghcr.io/<org>/team-manager-frontend:vX.Y.Z
 ```
 
 An entrypoint script (`frontend/docker/docker-entrypoint-runtime-config.sh`)
-regenerates `config.js` and the page's CSP `connect-src` from this env var
-before nginx starts. Leaving `API_BASE_URL` unset serves the app against its
-built-in in-memory mock backend (useful for a quick demo/preview, but not a
-real deployment) — always set it in staging/production. If the backend is
-reachable on a different origin than the frontend, that origin also needs
+regenerates `config.js` from these env vars (and the page's CSP
+`connect-src` from `API_BASE_URL`) before nginx starts. Leaving
+`API_BASE_URL` unset serves the app against its built-in in-memory mock
+backend (useful for a quick demo/preview, but not a real deployment) —
+always set it in staging/production. If the backend is reachable on a
+different origin than the frontend, that origin also needs
 `ALLOWED_ORIGINS` on the backend to include the frontend's origin (see the
 environment variable table in `CLAUDE.md`) so the browser's CORS preflight
 succeeds.
+
+`SENTRY_DSN` has no build-time equivalent that reaches the release image —
+the release workflow only ever passes `VITE_BUILD_VERSION`/
+`VITE_BUILD_COMMIT` as build args — so this runtime env var is the *only*
+way to enable Sentry error tracking in a released frontend image. Leaving it
+unset disables Sentry, matching today's default.
 
 Note: there is currently no Helm/Kubernetes manifest for deploying the
 frontend image itself (only the backend has one under `helm/team-manager/`);

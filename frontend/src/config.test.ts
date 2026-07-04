@@ -36,3 +36,22 @@ describe('config.apiBaseUrl', () => {
     expect(config.apiBaseUrl).toBe('');
   });
 });
+
+describe('config.sentryDsn', () => {
+  it('falls back to empty (disabled) when no runtime config is injected', async () => {
+    const { config } = await import('./config');
+    expect(config.sentryDsn).toBe('');
+  });
+
+  it('prefers a non-empty window.__RUNTIME_CONFIG__.SENTRY_DSN over the build-time env var', async () => {
+    window.__RUNTIME_CONFIG__ = { SENTRY_DSN: 'https://key@o0.ingest.sentry.io/1' };
+    const { config } = await import('./config');
+    expect(config.sentryDsn).toBe('https://key@o0.ingest.sentry.io/1');
+  });
+
+  it('treats an empty or whitespace-only runtime value as unset (falls back to build-time env)', async () => {
+    window.__RUNTIME_CONFIG__ = { SENTRY_DSN: '   ' };
+    const { config } = await import('./config');
+    expect(config.sentryDsn).toBe('');
+  });
+});
