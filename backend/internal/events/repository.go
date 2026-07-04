@@ -795,6 +795,7 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, userID, teamID 
 			INSERT INTO attendance (event_id, user_id, status, at)
 			SELECT $1, $2, 'not_nominated', now()
 			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $3)
+			  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $3 AND user_id = $2)
 			ON CONFLICT (event_id, user_id) DO UPDATE
 				SET status = 'not_nominated', at = now()
 		`

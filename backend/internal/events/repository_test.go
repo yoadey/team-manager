@@ -616,3 +616,47 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	err = repo.DeleteComment(ctx, comment.Id.String(), user.String(), teamA.String())
 	require.NoError(t, err, "DeleteComment scoped to the correct team must succeed")
 }
+
+// TestEventRepository_SetNomination_RejectsNonMemberUser regression-tests a bug
+// where SetNomination(false) checked that eventID belonged to teamID but never
+// checked that userID was actually a member of that team (unlike the
+// equivalent SetAttendance query) — a caller with events:write could nominate
+// an arbitrary, unrelated user UUID onto the event, leaking that user's
+// identity via ListAttendance to every member of a team they have no
+// relationship to.
+func TestEventRepository_SetNomination_RejectsNonMemberUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	member := uuid.New()
+	outsider := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Nomination Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Member', 'member@example.com', '#abcdef'),
+		($2, 'Outsider', 'outsider@example.com', '#123456')`, member, outsider)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Nomination Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	err = repo.SetNomination(ctx, eventID, outsider.String(), teamID.String(), false)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(false) must reject a userID that is not a member of teamID")
+
+	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	assert.Empty(t, attendanceList, "no attendance row should have been created for the non-member user")
+
+	// A real member of the team is unaffected.
+	err = repo.SetNomination(ctx, eventID, member.String(), teamID.String(), false)
+	require.NoError(t, err, "SetNomination(false) scoped to an actual team member must succeed")
+}
