@@ -117,9 +117,26 @@ func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMem
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("members.Repository.AddMember: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Uses the same advisory lock key as roles.DeleteRole/UpdateRole so the
+	// role-existence check below can't race with a concurrent role deletion:
+	// checking on r.pool before this transaction began (as this used to)
+	// left a window where DeleteRole could commit between the check and the
+	// membership_roles INSERT below, hitting its FK constraint and
+	// surfacing as an unhandled 500 instead of the clean ErrRoleNotInTeam
+	// this check exists to produce.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return nil, fmt.Errorf("members.Repository.AddMember: advisory lock: %w", err)
+	}
+
 	if len(params.RoleIDs) > 0 {
 		var count int
-		err := r.pool.QueryRow(ctx,
+		err := tx.QueryRow(ctx,
 			`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
 			params.RoleIDs, teamID,
 		).Scan(&count)
@@ -130,12 +147,6 @@ func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMem
 			return nil, ErrRoleNotInTeam
 		}
 	}
-
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("members.Repository.AddMember: begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Upsert user: find by email or insert. Done as a single atomic statement
 	// (rather than a SELECT followed by a conditional INSERT) so two
@@ -273,10 +284,6 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := r.validateSetRolesInputs(ctx, membershipID, teamID, roleIDs); err != nil {
-		return nil, err
-	}
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.SetRoles: begin tx: %w", err)
@@ -284,10 +291,19 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Serialize against concurrent role changes in the same team so the
-	// "last settings admin" check below can't race with another admin's
-	// simultaneous demotion.
+	// "last settings admin" check below, and the membership/role-existence
+	// validation, can't race with another admin's simultaneous role
+	// deletion/demotion (checking on r.pool before this transaction began, as
+	// this used to, left a window where a concurrent DeleteRole could commit
+	// between the check and the INSERT below, hitting its FK constraint and
+	// surfacing as an unhandled 500 instead of the clean ErrRoleNotInTeam
+	// this check exists to produce).
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
 		return nil, fmt.Errorf("members.Repository.SetRoles: advisory lock: %w", err)
+	}
+
+	if err := validateSetRolesInputs(ctx, tx, membershipID, teamID, roleIDs); err != nil {
+		return nil, err
 	}
 
 	if err := enforceSettingsAdminGuard(ctx, tx, teamID, membershipID, roleIDs); err != nil {
@@ -317,10 +333,12 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 
 // validateSetRolesInputs checks that membershipID belongs to teamID and every
 // role in roleIDs belongs to teamID, returning pgx.ErrNoRows / ErrRoleNotInTeam
-// respectively when not.
-func (r *Repository) validateSetRolesInputs(ctx context.Context, membershipID, teamID string, roleIDs []string) error {
+// respectively when not. Takes tx (not the pool) so the check runs inside the
+// caller's transaction, after it holds the team's advisory lock — otherwise a
+// role could be deleted between this check and the caller's later write.
+func validateSetRolesInputs(ctx context.Context, tx pgx.Tx, membershipID, teamID string, roleIDs []string) error {
 	var exists bool
-	err := r.pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM memberships WHERE id = $1 AND team_id = $2)`,
 		membershipID, teamID,
 	).Scan(&exists)
@@ -333,7 +351,7 @@ func (r *Repository) validateSetRolesInputs(ctx context.Context, membershipID, t
 
 	if len(roleIDs) > 0 {
 		var count int
-		err = r.pool.QueryRow(ctx,
+		err = tx.QueryRow(ctx,
 			`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
 			roleIDs, teamID,
 		).Scan(&count)
