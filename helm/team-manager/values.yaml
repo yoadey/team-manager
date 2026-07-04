@@ -6,7 +6,12 @@ replicaCount: 2
 image:
   repository: ghcr.io/yoadey/team-manager-backend
   pullPolicy: IfNotPresent
-  tag: ""  # Defaults to Chart.appVersion when empty
+  # Defaults to Chart.appVersion when empty — but nothing bumps Chart.yaml's
+  # appVersion as part of a release, so that default is a fixed placeholder,
+  # not "the latest released version". ALWAYS set this explicitly (e.g.
+  # 1.2.3, matching a real vX.Y.Z release tag with the v stripped) for any
+  # real deployment. templates/NOTES.txt warns about this at deploy time.
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""

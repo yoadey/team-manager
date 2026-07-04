@@ -6,11 +6,17 @@ replicaCount: 1
 # vX.Y.Z tag push (see its metadata-action tag list) or "latest" for tagged
 # releases — it never publishes a "main"-tagged image, so that reference
 # resolved to a nonexistent tag and staging deploys would ImagePullBackOff.
-# Staging now falls back to the same default as production (image.tag empty
-# -> Chart.appVersion, i.e. the most recently released version). If you want
-# staging to continuously track unreleased main-branch commits, add your own
-# image-publishing pipeline for that and set image.tag (or pass
-# --set image.tag=... at deploy time) — this chart doesn't ship one.
+# Staging falls back to the same default as production (image.tag empty ->
+# Chart.appVersion) — but nothing in the release process bumps
+# Chart.yaml's appVersion to match the latest released tag (it's been
+# hand-set to "0.1.0" since the chart's initial commit), so that fallback is
+# NOT "the most recently released version" despite what an earlier version
+# of this comment claimed — it's a fixed placeholder. templates/NOTES.txt
+# warns about this at deploy time. ALWAYS set image.tag explicitly (e.g.
+# --set image.tag=1.2.3, stripped of the v prefix, matching a real release
+# tag) for any real staging/production deploy. If you want staging to
+# continuously track unreleased main-branch commits instead, add your own
+# image-publishing pipeline for that — this chart doesn't ship one.
 ingress:
   enabled: true
   className: nginx

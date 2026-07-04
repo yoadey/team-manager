@@ -1,4 +1,19 @@
 {{ include "team-manager.fullname" . }} has been deployed.
+
+{{- if not .Values.image.tag }}
+
+WARNING: image.tag is not set, so the backend image resolves to
+Chart.appVersion ("{{ .Chart.AppVersion }}") — a value hand-set in
+Chart.yaml that nothing in the release process bumps to match the
+latest published tag. .github/workflows/release.yml publishes images
+tagged by the actual released version (e.g. "1.2.3", the v stripped),
+never "{{ .Chart.AppVersion }}" unless that happens to coincidentally be
+a real release. Set image.tag explicitly to a real release tag, e.g.:
+
+  helm upgrade --install {{ .Release.Name }} . --set image.tag=1.2.3
+
+or you risk an ImagePullBackOff against a tag GHCR never published.
+{{- end }}
 {{- if .Values.ingress.enabled }}
 
 Ingress host(s):
