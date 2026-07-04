@@ -27,7 +27,7 @@ docker compose up          # Postgres + Backend + Frontend
 
 ```
 team-manager/
-├── frontend/              React 18 + TypeScript SPA
+├── frontend/              React 19 + TypeScript SPA
 │   ├── src/               Application source
 │   │   ├── services/serviceLayer.ts   Mock backend (replace with real API)
 │   │   └── ...
@@ -66,9 +66,9 @@ team-manager/
 
 ### Frontend
 
-- **React 18** + **TypeScript 5** (strict mode)
-- **Material UI v6** for components, **Emotion** for styling
-- **Vite 6** for bundling, **Vitest 2** for tests
+- **React 19** + **TypeScript 5** (strict mode)
+- **Material UI v9** for components, **Emotion** for styling
+- **Vite 8** for bundling, **Vitest 4** for tests
 - **State-based routing** (no router dependency; navigation driven by `state.route`)
 - **i18n** via lightweight in-house layer (`src/i18n`)
 - All state in `src/context/AppContext.tsx`; access via `useApp()`
