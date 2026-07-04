@@ -92,6 +92,9 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 	if !request.Body.Type.Valid() {
 		return nil, apierror.BadRequest("type: not a valid event type")
 	}
+	if request.Body.Date.IsZero() {
+		return nil, apierror.BadRequest("date: is required")
+	}
 	if err := validateEventFields(request.Body.Location, request.Body.Note, request.Body.MeetTime, request.Body.StartTime, request.Body.EndTime, request.Body.ResponseMode); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}

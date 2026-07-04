@@ -240,6 +240,22 @@ jobs:
             exit 1
           fi
           echo "Tool-version pins are in sync (goose $goose_gomod, oapi-codegen $oapi_gomod, golangci-lint $lint_makefile)."
+      - name: Forbid hardcoded RFC 9457 type-URI literals outside apierror
+        # internal/apierror is the single source of truth for the Problem
+        # Details `type` field (honors ERROR_TYPE_BASE_URI). Multiple rounds
+        # of review found handlers/middleware hand-rolling their own
+        # "https://teammanager.example/errors/..." literal instead of calling
+        # into apierror, silently bypassing that override in production. This
+        # guards against the bug class recurring.
+        run: |
+          set -euo pipefail
+          hits=$(grep -rn 'https://teammanager\.example/errors/' --include='*.go' . | grep -v '^\./internal/apierror/' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Found hardcoded RFC 9457 type-URI literals outside internal/apierror/ — use apierror.New/apierror.BadRequest/etc. instead so ERROR_TYPE_BASE_URI is honored:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No hardcoded RFC 9457 type-URI literals found outside internal/apierror/."
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod

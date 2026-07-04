@@ -34,8 +34,8 @@ Common labels.
 {{- define "team-manager.labels" -}}
 helm.sh/chart: {{ include "team-manager.chart" . }}
 {{ include "team-manager.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- with .Values.image.tag | default .Chart.AppVersion }}
+app.kubernetes.io/version: {{ . | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}

@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -90,6 +92,7 @@ func TestEventHandler_CreateEvent_RejectsOversizedLocation(t *testing.T) {
 	body := &gen.CreateEventJSONRequestBody{
 		Type:     gen.Training,
 		Title:    "Practice",
+		Date:     openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
 		Location: ptr(strings.Repeat("x", 256)),
 	}
 	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
@@ -103,6 +106,7 @@ func TestEventHandler_CreateEvent_RejectsMalformedTime(t *testing.T) {
 	body := &gen.CreateEventJSONRequestBody{
 		Type:      gen.Training,
 		Title:     "Practice",
+		Date:      openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
 		StartTime: ptr("not-a-time"),
 	}
 	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
@@ -120,6 +124,7 @@ func TestEventHandler_CreateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
 	body := &gen.CreateEventJSONRequestBody{
 		Type:             gen.Training,
 		Title:            "Practice",
+		Date:             openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
 		NominatedRoleIds: &roleIDs,
 	}
 	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
@@ -165,12 +170,36 @@ func TestEventHandler_CreateEvent_AcceptsValidFields(t *testing.T) {
 	body := &gen.CreateEventJSONRequestBody{
 		Type:      gen.Training,
 		Title:     "Practice",
+		Date:      openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
 		Location:  ptr("Main Hall"),
 		StartTime: ptr("18:30"),
 	}
 	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
 	require.NoError(t, err)
 	assert.True(t, called)
+}
+
+// CreateEventRequest.Date is a non-pointer Date field (required per
+// openapi.yaml), but nothing in this stack enforces "required" at decode
+// time — an omitted field just leaves Go's zero time.Time{}. Unlike absences,
+// there is no DB CHECK constraint backstop, so an unguarded handler would
+// silently persist an event dated 0001-01-01 with a 201.
+func TestEventHandler_CreateEvent_MissingDate_Returns400(t *testing.T) {
+	t.Parallel()
+	svc := &mockEventService{
+		createEvent: func(context.Context, string, string, *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error) {
+			t.Fatal("service must not be called when 'date' is missing")
+			return nil, nil
+		},
+	}
+	h := events.NewHandler(svc, slog.Default())
+
+	body := &gen.CreateEventJSONRequestBody{
+		Type:  gen.Training,
+		Title: "Practice",
+	}
+	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
+	require.Error(t, err)
 }
 
 func TestEventHandler_SetEventStatus_RejectsInvalidStatus(t *testing.T) {
