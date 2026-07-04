@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -109,6 +110,66 @@ func TestMemberHandler_AddMember_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, actorID.String(), rec["actor"])
 	assert.Equal(t, teamID.String(), rec["teamId"])
 	assert.Equal(t, member.MembershipId.String(), rec["membershipId"])
+}
+
+func TestMemberHandler_AddMember_PhoneTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, &mockPermissionChecker{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	longPhone := strings.Repeat("1", 33)
+	body := &gen.AddMemberJSONRequestBody{Name: "Bob", Email: "bob@example.com", Phone: &longPhone}
+	_, err := h.AddMember(ctx, gen.AddMemberRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_AddMember_GroupTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, &mockPermissionChecker{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	longGroup := strings.Repeat("g", 101)
+	body := &gen.AddMemberJSONRequestBody{Name: "Bob", Email: "bob@example.com", Group: &longGroup}
+	_, err := h.AddMember(ctx, gen.AddMemberRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_UpdateMember_PhoneTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, &mockPermissionChecker{}, slog.Default(), nil)
+	ctx := context.Background()
+	longPhone := strings.Repeat("1", 33)
+	body := &gen.UpdateMemberJSONRequestBody{Phone: &longPhone}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_UpdateMember_AddressTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, &mockPermissionChecker{}, slog.Default(), nil)
+	ctx := context.Background()
+	longAddress := strings.Repeat("a", 501)
+	body := &gen.UpdateMemberJSONRequestBody{Address: &longAddress}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_UpdateMember_GroupTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, &mockPermissionChecker{}, slog.Default(), nil)
+	ctx := context.Background()
+	longGroup := strings.Repeat("g", 101)
+	body := &gen.UpdateMemberJSONRequestBody{Group: &longGroup}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
 }
 
 func TestMemberHandler_AddMember_DuplicateMembership_Returns409(t *testing.T) {

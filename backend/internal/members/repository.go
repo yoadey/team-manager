@@ -137,24 +137,21 @@ func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMem
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Upsert user: find by email or insert.
+	// Upsert user: find by email or insert. Done as a single atomic statement
+	// (rather than a SELECT followed by a conditional INSERT) so two
+	// concurrent AddMember calls for the same brand-new email — e.g. two team
+	// admins inviting the same unregistered person at once — can't race: the
+	// loser of the INSERT would otherwise hit the email UNIQUE constraint and
+	// surface as an unhandled 500 instead of resolving to the same user row.
 	var userID string
 	err = tx.QueryRow(ctx, `
-		SELECT id FROM users WHERE email = $1
-	`, params.Email).Scan(&userID)
+		INSERT INTO users (name, email, phone, avatar_color)
+		VALUES ($1, $2, $3, '#6366f1')
+		ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+		RETURNING id
+	`, params.Name, params.Email, params.Phone).Scan(&userID)
 	if err != nil {
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("members.Repository.AddMember: find user: %w", err)
-		}
-		// User not found, create.
-		err = tx.QueryRow(ctx, `
-			INSERT INTO users (name, email, phone, avatar_color)
-			VALUES ($1, $2, $3, '#6366f1')
-			RETURNING id
-		`, params.Name, params.Email, params.Phone).Scan(&userID)
-		if err != nil {
-			return nil, fmt.Errorf("members.Repository.AddMember: create user: %w", err)
-		}
+		return nil, fmt.Errorf("members.Repository.AddMember: upsert user: %w", err)
 	}
 
 	// Insert membership.

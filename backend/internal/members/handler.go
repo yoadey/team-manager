@@ -81,6 +81,28 @@ func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersReques
 	return gen.ListMembers200JSONResponse{Items: members, NextCursor: next}, nil
 }
 
+// validateAddMemberBody validates the required and optional fields of an
+// AddMember request.
+func validateAddMemberBody(body *gen.AddMemberRequest) error {
+	if err := validate.Name(body.Name); err != nil {
+		return fmt.Errorf("%w", err)
+	}
+	if err := validate.Email(string(body.Email)); err != nil {
+		return fmt.Errorf("%w", err)
+	}
+	if body.Phone != nil {
+		if err := validate.MaxLen(*body.Phone, 32, "phone"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if body.Group != nil {
+		if err := validate.MaxLen(*body.Group, 100, "group"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	return nil
+}
+
 // AddMember adds a new member to the team.
 func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObject) (gen.AddMemberResponseObject, error) {
 	user, ok := auth.UserFromContext(ctx)
@@ -90,10 +112,7 @@ func (h *Handler) AddMember(ctx context.Context, request gen.AddMemberRequestObj
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if err := validate.Name(request.Body.Name); err != nil {
-		return nil, apierror.BadRequest(err.Error())
-	}
-	if err := validate.Email(string(request.Body.Email)); err != nil {
+	if err := validateAddMemberBody(request.Body); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
 
@@ -158,9 +177,15 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 		patch.Email = &s
 	}
 	if request.Body.Phone != nil {
+		if err := validate.MaxLen(*request.Body.Phone, 32, "phone"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 		patch.Phone = request.Body.Phone
 	}
 	if request.Body.Address != nil {
+		if err := validate.MaxLen(*request.Body.Address, 500, "address"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 		patch.Address = request.Body.Address
 	}
 	if request.Body.Birthday != nil {
@@ -168,6 +193,9 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 		patch.Birthday = &t
 	}
 	if request.Body.Group != nil {
+		if err := validate.MaxLen(*request.Body.Group, 100, "group"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 		patch.Group = request.Body.Group
 	}
 
