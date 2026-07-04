@@ -414,6 +414,18 @@ func TestMembersRepository_SetRoles_DuplicateValidRoleID_Succeeds(t *testing.T) 
 
 	_, teamID := seedMemberFixtures(t, pool)
 	roleA := seedRole(t, pool, teamID, "Player", `{"events":"read","members":"none","finances":"none","news":"none","polls":"read","settings":"none"}`)
+	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	// A settings:write admin so assigning Grace a non-admin role below never
+	// trips the last-settings-admin guard — this test is about duplicate role
+	// ID handling, not the admin-guard (covered separately).
+	other, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
+		Name:  "Other Admin",
+		Email: "other-admin-dup-test@example.com",
+	})
+	require.NoError(t, err)
+	_, err = repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	require.NoError(t, err)
 
 	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
 		Name:  "Grace Hopper",

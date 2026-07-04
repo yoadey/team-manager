@@ -501,4 +501,25 @@ describe('resetDemoData', () => {
     mod.resetDemoData();
     expect(Object.keys(localStorage).some((k) => k.startsWith('tv_db_'))).toBe(false);
   });
+
+  // Regression: config.storageKeyPrefix was defined and documented (.env,
+  // CLAUDE.md) but never actually consumed -- the persistence layer hardcoded
+  // its own 'tv_db_' literal, so setting VITE_STORAGE_KEY_PREFIX had no effect
+  // on where the mock stored its data or what resetDemoData cleaned up.
+  it('honors a custom VITE_STORAGE_KEY_PREFIX for both persistence and reset', async () => {
+    vi.stubEnv('VITE_STORAGE_KEY_PREFIX', 'custom_prefix_');
+    vi.resetModules();
+    const customMod = await import('./serviceLayer');
+    const customApi = customMod.api;
+
+    await settle(customApi.auth.login('google'));
+    await settle(customApi.teams.updateSettings('t_a', { description: 'x' }));
+
+    expect(Object.keys(localStorage).some((k) => k.startsWith('custom_prefix_'))).toBe(true);
+
+    customMod.resetDemoData();
+    expect(Object.keys(localStorage).some((k) => k.startsWith('custom_prefix_'))).toBe(false);
+
+    vi.unstubAllEnvs();
+  });
 });

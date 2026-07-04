@@ -55,3 +55,20 @@ describe('config.sentryDsn', () => {
     expect(config.sentryDsn).toBe('');
   });
 });
+
+describe('config.storageKeyPrefix', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('falls back to tv_db_ when no build-time env var is set', async () => {
+    const { config } = await import('./config');
+    expect(config.storageKeyPrefix).toBe('tv_db_');
+  });
+
+  it('honors VITE_STORAGE_KEY_PREFIX', async () => {
+    vi.stubEnv('VITE_STORAGE_KEY_PREFIX', 'custom_prefix_');
+    const { config } = await import('./config');
+    expect(config.storageKeyPrefix).toBe('custom_prefix_');
+  });
+});

@@ -707,7 +707,7 @@ function seed(): DB {
 
 // ---- Persistenz (tagesfrisch) ----------------------------------------------
 function todayKey() {
-  return 'tv_db_v7_' + todayLocalDate();
+  return config.storageKeyPrefix + 'v7_' + todayLocalDate();
 }
 function loadDb(): DB {
   try {
@@ -739,7 +739,7 @@ const session: { userId: string | null } = { userId: null };
 export function resetDemoData() {
   try {
     Object.keys(localStorage)
-      .filter((k) => k.startsWith('tv_db_'))
+      .filter((k) => k.startsWith(config.storageKeyPrefix))
       .forEach((k) => localStorage.removeItem(k));
   } catch {
     /* ignore */
