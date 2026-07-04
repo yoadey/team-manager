@@ -14,7 +14,10 @@ fullnameOverride: ""
 
 serviceAccount:
   create: true
-  automount: true
+  # The backend makes no Kubernetes API calls (no client-go/InClusterConfig
+  # usage), so there's nothing that needs the pod's own API token — leave
+  # disabled unless a future feature requires it.
+  automount: false
   annotations: {}
   name: ""
 

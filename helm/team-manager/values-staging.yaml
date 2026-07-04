@@ -1,9 +1,16 @@
 # Staging overrides — lower resource footprint, debug logging enabled.
 replicaCount: 1
 
-image:
-  tag: "main"  # track main branch image for staging
-
+# No image.tag override here (deliberately): it used to hardcode "main", but
+# .github/workflows/release.yml only ever builds and pushes images on a
+# vX.Y.Z tag push (see its metadata-action tag list) or "latest" for tagged
+# releases — it never publishes a "main"-tagged image, so that reference
+# resolved to a nonexistent tag and staging deploys would ImagePullBackOff.
+# Staging now falls back to the same default as production (image.tag empty
+# -> Chart.appVersion, i.e. the most recently released version). If you want
+# staging to continuously track unreleased main-branch commits, add your own
+# image-publishing pipeline for that and set image.tag (or pass
+# --set image.tag=... at deploy time) — this chart doesn't ship one.
 ingress:
   enabled: true
   className: nginx
