@@ -323,6 +323,53 @@ describe('stats', () => {
     expect(stats.avg).toBeLessThanOrEqual(100);
   });
 
+  // Regression coverage for aligning the mock's stats semantics with the
+  // real backend's (stats.Service.GetOverview / stats.Repository) after a
+  // set of divergences surfaced: an 80% "enough" threshold instead of the
+  // backend's 50%, a denominator that included 'pending' responses instead
+  // of excluding them like the backend's yes/no/maybe-only COUNT FILTER, and
+  // an events cap of 8 plus a strict "date < today" filter that don't exist
+  // on the real backend.
+  it('marks an event "enough" at 60% attendance, matching the backend\'s 50% threshold (not the old 80%)', async () => {
+    const today = todayLocalDate();
+    const event = await settle(api.events.create('t_a', { type: 'training', title: 'Threshold test', date: today }));
+    // 3 yes, 2 no => 60% of 5 counted responses. Any other team members are
+    // left with no explicit record (pending) and must not count toward the
+    // denominator.
+    await settle(api.attendance.set(event.id, 'u1', { status: 'yes' }, 't_a'));
+    await settle(api.attendance.set(event.id, 'u2', { status: 'yes' }, 't_a'));
+    await settle(api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a'));
+    await settle(api.attendance.set(event.id, 'u5', { status: 'no' }, 't_a'));
+    await settle(api.attendance.set(event.id, 'u6', { status: 'no' }, 't_a'));
+
+    const stats = await settle(api.stats.teamOverview('t_a'));
+    const stat = stats.events.find((e) => e.id === event.id)!;
+    expect(stat.nominated).toBe(5);
+    expect(stat.yes).toBe(3);
+    expect(stat.pct).toBe(60);
+    expect(stat.enough).toBe(true);
+  });
+
+  it('includes today-dated events in the default range, not just strictly-past ones', async () => {
+    const today = todayLocalDate();
+    const event = await settle(api.events.create('t_a', { type: 'training', title: 'Today event', date: today }));
+
+    const stats = await settle(api.stats.teamOverview('t_a'));
+    expect(stats.events.some((e) => e.id === event.id)).toBe(true);
+  });
+
+  it('does not cap events to 8 within the default range', async () => {
+    const today = todayLocalDate();
+    const created = await Promise.all(
+      Array.from({ length: 9 }, (_, i) => settle(api.events.create('t_a', { type: 'training', title: `Cap test ${i}`, date: today }))),
+    );
+
+    const stats = await settle(api.stats.teamOverview('t_a'));
+    for (const c of created) {
+      expect(stats.events.some((e) => e.id === c.id)).toBe(true);
+    }
+  });
+
   it('computes a single member attendance quote', async () => {
     const stat = await settle(api.stats.attendanceFor('t_a', 'u1'));
     expect(stat.counted).toBeGreaterThanOrEqual(0);

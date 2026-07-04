@@ -780,6 +780,21 @@ function primaryRole(roles: Role[]): Role | null {
 function absenceCovers(userId: string, date: string) {
   return DB.absences.some((a) => a.userId === userId && date >= a.from && date <= a.to);
 }
+// Matches stats.Repository's `COUNT(*) FILTER (WHERE a.status IN
+// ('yes','no','maybe'))` — the attendance-stats denominator excludes both
+// 'pending' and 'not_nominated', unlike the general-purpose "nominated"
+// count used elsewhere (events._withSummary) which only excludes
+// 'not_nominated'.
+function isCountedStatus(status: string): boolean {
+  return status === 'yes' || status === 'no' || status === 'maybe';
+}
+// Matches stats.Service.defaultDateRange's `now.AddDate(0, -3, 0)` — 3
+// calendar months before `dateStr`, not literally 90 days.
+function threeMonthsBeforeLocal(dateStr: string): string {
+  const d = parseDateOnlyLocal(dateStr);
+  d.setMonth(d.getMonth() - 3);
+  return formatDateOnly(d);
+}
 function effectiveStatus(event: EventDto, userId: string | null) {
   const rec = DB.attendance.find((a) => a.eventId === event.id && a.userId === userId);
   if (rec)
@@ -1827,13 +1842,22 @@ const _mockApi = {
   stats: {
     async attendanceFor(teamId: string, userId: string) {
       await delay(110, 220);
-      const today = todayLocalDate();
-      const past = DB.events.filter((e) => e.teamId === teamId && e.date < today && e.status !== 'cancelled');
+      // Matches stats.Service.GetMemberStats / SingleMemberStats: default
+      // date range is 3 calendar months ago -> today when none is supplied
+      // (this mock method takes no range param, so it always uses the
+      // default), and `counted` is yes/no/maybe responses only — excludes
+      // both 'pending' and 'not_nominated' (COUNT(*) FILTER (WHERE a.status
+      // IN ('yes','no','maybe'))), not just 'not_nominated'.
+      const to = todayLocalDate();
+      const from = threeMonthsBeforeLocal(to);
+      const inRange = DB.events.filter(
+        (e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to,
+      );
       let yes = 0,
         counted = 0;
-      past.forEach((e) => {
+      inRange.forEach((e) => {
         const s = effectiveStatus(e, userId).status;
-        if (s === 'not_nominated') return;
+        if (!isCountedStatus(s)) return;
         counted++;
         if (s === 'yes') yes++;
       });
@@ -1841,22 +1865,29 @@ const _mockApi = {
     },
     async teamOverview(teamId: string, range?: DateRange | null): Promise<StatsOverview> {
       await delay(180, 360);
+      // Matches stats.Service.defaultDateRange (90 days ago exactly? no —
+      // 3 calendar months, i.e. Go's `now.AddDate(0, -3, 0)`) -> today.
       const today = todayLocalDate();
-      const from = range && range.from ? range.from : null;
-      const to = range && range.to ? range.to : null;
-      const members = DB.memberships.filter((m) => m.teamId === teamId);
-      let past = DB.events.filter((e) => e.teamId === teamId && e.date < today && e.status !== 'cancelled');
-      if (from) past = past.filter((e) => e.date >= from);
-      if (to) past = past.filter((e) => e.date <= to);
-      past = past.sort((a, b) => b.date.localeCompare(a.date));
-      const memberStats = members
-        .map((m) => {
-          const u = DB.users.find((x) => x.id === m.userId)!;
+      const from = range && range.from ? range.from : threeMonthsBeforeLocal(today);
+      const to = range && range.to ? range.to : today;
+      const memberIds = DB.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+      // stats.Repository.{MemberStats,EventStats} filter status='active'
+      // (this mock's only other status is 'cancelled', so `!== 'cancelled'`
+      // is equivalent) and date BETWEEN from AND to — no "date < today"
+      // requirement, unlike this mock's previous "past events only" filter,
+      // which excluded today's/future-dated events within the range that
+      // the real backend would include.
+      const events = DB.events
+        .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to)
+        .sort((a, b) => a.date.localeCompare(b.date)); // ORDER BY e.date
+      const memberStats = memberIds
+        .map((uid) => {
+          const u = DB.users.find((x) => x.id === uid)!;
           let yes = 0,
             counted = 0;
-          past.forEach((e) => {
-            const s = effectiveStatus(e, u.id).status;
-            if (s === 'not_nominated') return;
+          events.forEach((e) => {
+            const s = effectiveStatus(e, uid).status;
+            if (!isCountedStatus(s)) return;
             counted++;
             if (s === 'yes') yes++;
           });
@@ -1870,27 +1901,31 @@ const _mockApi = {
             yes,
           };
         })
-        .sort((a, b) => (b.quote || 0) - (a.quote || 0));
+        .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de')); // ORDER BY yes_count DESC, u.name
       const quotes = memberStats.filter((s) => s.quote !== null).map((s) => s.quote!);
       const avg = quotes.length ? Math.round(quotes.reduce((s, q) => s + q, 0) / quotes.length) : 0;
-      const eventStats = past
-        .slice(0, 8)
-        .map((e) => {
-          const sum = api.events._withSummary(e, teamId).summary;
-          const pct = sum.nominated ? Math.round((sum.yes / sum.nominated) * 100) : 0;
-          return {
-            id: e.id,
-            title: e.title,
-            type: e.type,
-            date: e.date,
-            yes: sum.yes,
-            nominated: sum.nominated,
-            pct,
-            enough: pct >= 80,
-          };
-        })
-        .reverse();
-      return { avg, members: memberStats, events: eventStats, pastCount: past.length, from, to };
+      const eventStats = events.map((e) => {
+        let yes = 0,
+          counted = 0;
+        memberIds.forEach((uid) => {
+          const s = effectiveStatus(e, uid).status;
+          if (!isCountedStatus(s)) return;
+          counted++;
+          if (s === 'yes') yes++;
+        });
+        const pct = counted ? Math.round((yes / counted) * 100) : 0;
+        return {
+          id: e.id,
+          title: e.title,
+          type: e.type,
+          date: e.date,
+          yes,
+          nominated: counted,
+          pct,
+          enough: pct >= 50, // matches stats.Service.GetOverview's `pct >= 0.5`
+        };
+      });
+      return { avg, members: memberStats, events: eventStats, pastCount: events.length, from, to };
     },
   },
 
