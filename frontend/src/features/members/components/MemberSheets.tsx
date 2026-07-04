@@ -177,7 +177,7 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
   );
 }
 
-export function MemberFormSheet({ app }: SheetProps) {
+export function MemberFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const F = formValues<MemberFormValues>(app.state);
   const errs = state.formErrors;
@@ -188,6 +188,10 @@ export function MemberFormSheet({ app }: SheetProps) {
   // save would be rejected.
   const canRoles = app.can('settings', 'write');
   const canSubmit = !!F.name?.trim();
+  // The backend has no endpoint to set another member's photo at all (only
+  // PUT /auth/me/photo, self-only) — show the control only when editing your
+  // own profile, not when an admin edits someone else's.
+  const canEditPhoto = !!sheet.self;
 
   const validateName = () => {
     const r = validateRequiredText(F.name, t('members.fieldNameError'));
@@ -206,7 +210,7 @@ export function MemberFormSheet({ app }: SheetProps) {
     app.setFormErrors({ birthday: r.ok ? '' : r.message! });
   };
 
-  const photoRow = (
+  const photoRow = canEditPhoto ? (
     <Box key="ph" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '4px' }}>
       <Av key="a" name={F.name || '?'} photo={F.photo} color={NEUTRAL.faint} size={56} font={20} />
       <Box
@@ -237,7 +241,7 @@ export function MemberFormSheet({ app }: SheetProps) {
         />
       </Box>
     </Box>
-  );
+  ) : null;
 
   const roleChips = canRoles ? (
     <Box key="rc">

@@ -56,6 +56,7 @@ function makeApi() {
     },
     auth: {
       currentUser: vi.fn().mockResolvedValue({ id: 'u1', name: 'Updated User' }),
+      setPhoto: vi.fn().mockResolvedValue(undefined),
     },
   };
 }
@@ -248,6 +249,59 @@ describe('useMemberActions', () => {
       await result.current.saveMember();
     });
     expect(api.members.setRoles).not.toHaveBeenCalled();
+  });
+
+  it('saveMember calls auth.setPhoto (not members.update) when saving your own changed photo', async () => {
+    stateRef = makeState({
+      form: {
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+        photo: 'data:image/png;base64,newphoto',
+      },
+      sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember();
+    });
+    expect(api.auth.setPhoto).toHaveBeenCalledWith('data:image/png;base64,newphoto');
+    expect(api.members.update).toHaveBeenCalledWith(
+      'ms1',
+      expect.not.objectContaining({ photo: expect.anything() }),
+      'team1',
+    );
+  });
+
+  it('saveMember does not call auth.setPhoto when your own photo is unchanged', async () => {
+    stateRef = makeState({
+      form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'], photo: null },
+      sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember();
+    });
+    expect(api.auth.setPhoto).not.toHaveBeenCalled();
+  });
+
+  it('saveMember does not call auth.setPhoto when an admin edits someone else, even if the photo field changed', async () => {
+    stateRef = makeState({
+      form: {
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+        photo: 'data:image/png;base64,newphoto',
+      },
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember();
+    });
+    expect(api.auth.setPhoto).not.toHaveBeenCalled();
   });
 
   it('saveMember trims leading/trailing whitespace from the name before saving', async () => {

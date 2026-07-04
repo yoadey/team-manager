@@ -117,6 +117,12 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
     const rolesChanged =
       originalRoleIds.length !== nextRoleIds.length ||
       [...originalRoleIds].sort().some((id, i) => id !== [...nextRoleIds].sort()[i]);
+    // Photo has its own dedicated endpoint (auth.setPhoto, self-only — there
+    // is no backend endpoint to set another member's photo at all), not a
+    // members.update() field; the sheet only lets you change your own photo
+    // (MemberSheets.tsx hides the control when editing someone else), so this
+    // only ever fires for self.
+    const photoChanged = self && !!f.photo && f.photo !== original?.photo;
     setState({ busy: 'save' });
     try {
       await api.members.update(
@@ -128,12 +134,14 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
           birthday: f.birthday,
           address: f.address,
           group: f.group,
-          photo: f.photo,
         },
         S().activeTeamId!,
       );
       if (rolesChanged) {
         await api.members.setRoles(f.membershipId, nextRoleIds, S().activeTeamId!);
+      }
+      if (photoChanged) {
+        await api.auth.setPhoto(f.photo!);
       }
       await refreshMembers();
       if (self) {

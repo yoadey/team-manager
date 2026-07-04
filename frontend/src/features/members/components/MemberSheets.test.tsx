@@ -237,7 +237,10 @@ describe('MemberFormSheet', () => {
     vi.clearAllMocks();
   });
 
-  const formSheet: SheetState = { type: 'memberForm' } as SheetState;
+  // self: true by default since most of these tests exercise generic form
+  // behavior, not the self-vs-admin-editing-someone-else distinction; the
+  // photo-visibility tests below cover the self: false case explicitly.
+  const formSheet: SheetState = { type: 'memberForm', self: true } as SheetState;
 
   function makeFormApp(
     formOverrides: Record<string, unknown> = {},
@@ -375,6 +378,16 @@ describe('MemberFormSheet', () => {
     const app = makeFormApp({ photo: 'data:image/png;base64,abc' });
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     expect(screen.getByText(/Foto ändern/i)).toBeTruthy();
+  });
+
+  it('hides the photo control when an admin edits someone else\'s profile', () => {
+    // No backend endpoint exists to set another member's photo, so the
+    // control must not be shown at all when self is false.
+    const app = makeFormApp({ photo: null }, {}, true);
+    const otherSheet: SheetState = { type: 'memberForm', self: false } as SheetState;
+    render(<MemberFormSheet app={app} sheet={otherSheet} />);
+    expect(screen.queryByText(/Foto hochladen/i)).toBeNull();
+    expect(screen.queryByText(/Foto ändern/i)).toBeNull();
   });
 
   it('shows busy state on save button when busy is "save"', () => {
