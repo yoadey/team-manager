@@ -65,8 +65,8 @@ func (h *Handler) CreateNews(ctx context.Context, req gen.CreateNewsRequestObjec
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if err := validate.Text(req.Body.Title, "title"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
+	if err := validate.Name(req.Body.Title); err != nil {
+		return nil, apierror.BadRequest("title: " + err.Error())
 	}
 	if err := validate.Text(req.Body.Body, "body"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
@@ -89,8 +89,8 @@ func (h *Handler) UpdateNews(ctx context.Context, req gen.UpdateNewsRequestObjec
 		return nil, apierror.BadRequest("missing request body")
 	}
 	if req.Body.Title != nil {
-		if err := validate.Text(*req.Body.Title, "title"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
+		if err := validate.Name(*req.Body.Title); err != nil {
+			return nil, apierror.BadRequest("title: " + err.Error())
 		}
 	}
 	if req.Body.Body != nil {
