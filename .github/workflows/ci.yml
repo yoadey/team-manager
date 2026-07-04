@@ -202,6 +202,44 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # goose/oapi-codegen are pinned in Makefile's `tools` target to match
+      # go.mod (so the installed CLI agrees with the library version the rest
+      # of the build depends on), and golangci-lint is pinned in Makefile to
+      # match this job's golangci-lint-action version (so local `make lint`
+      # and CI agree on findings) — but those pins live in plain shell/YAML
+      # text that Dependabot's gomod ecosystem entry never touches when it
+      # bumps go.mod, so a merged dependency bump could silently desync them.
+      # This step turns that into a hard CI failure instead of a silent drift.
+      - name: Verify tool-version pins stay in sync
+        working-directory: .
+        run: |
+          set -euo pipefail
+          goose_gomod=$(grep -oP 'github\.com/pressly/goose/v3 \K\S+' backend/go.mod)
+          goose_makefile=$(grep -oP 'goose/v3/cmd/goose@\K\S+' backend/Makefile)
+          if [ "$goose_gomod" != "$goose_makefile" ]; then
+            echo "::error::goose version mismatch: go.mod has $goose_gomod, backend/Makefile pins $goose_makefile"
+            exit 1
+          fi
+          goose_ci=$(grep -oP '^\s*run: go install github\.com/pressly/goose/v3/cmd/goose@\K\S+' .github/workflows/ci.yml | sort -u)
+          if [ "$(echo "$goose_ci" | wc -l)" != "1" ] || [ "$goose_gomod" != "$goose_ci" ]; then
+            echo "::error::goose version mismatch: go.mod has $goose_gomod, ci.yml pins [$goose_ci]"
+            exit 1
+          fi
+
+          oapi_gomod=$(grep -oP 'github\.com/oapi-codegen/oapi-codegen/v2 \K\S+' backend/go.mod)
+          oapi_makefile=$(grep -oP 'oapi-codegen/v2/cmd/oapi-codegen@\K\S+' backend/Makefile)
+          if [ "$oapi_gomod" != "$oapi_makefile" ]; then
+            echo "::error::oapi-codegen version mismatch: go.mod has $oapi_gomod, backend/Makefile pins $oapi_makefile"
+            exit 1
+          fi
+
+          lint_makefile=$(grep -oP 'golangci-lint@\K\S+' backend/Makefile)
+          lint_ci=$(grep -A5 '^\s*uses: golangci/golangci-lint-action@' .github/workflows/ci.yml | grep -oP '^\s*version:\s*\K\S+' | head -1)
+          if [ "$lint_makefile" != "$lint_ci" ]; then
+            echo "::error::golangci-lint version mismatch: backend/Makefile pins $lint_makefile, ci.yml pins $lint_ci"
+            exit 1
+          fi
+          echo "Tool-version pins are in sync (goose $goose_gomod, oapi-codegen $oapi_gomod, golangci-lint $lint_makefile)."
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
