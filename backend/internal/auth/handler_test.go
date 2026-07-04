@@ -521,7 +521,7 @@ func TestHandler_GetMyPhoto_NoPhoto_Returns404WithType(t *testing.T) {
 	require.Nil(t, resp)
 
 	w := httptest.NewRecorder()
-	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequest(http.MethodGet, "/auth/me/photo", http.NoBody), err)
+	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me/photo", http.NoBody), err)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	var body map[string]any
