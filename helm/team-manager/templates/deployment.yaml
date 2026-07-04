@@ -75,6 +75,18 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: METRICS_TOKEN
                   optional: true
+            - name: PAGINATION_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: PAGINATION_HMAC_KEY
+                  optional: true
+            - name: COOKIE_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: COOKIE_ENCRYPTION_KEYS
+                  optional: true
             {{- end }}
       {{- end }}
       containers:
@@ -132,6 +144,18 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: METRICS_TOKEN
+                  optional: true
+            - name: PAGINATION_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: PAGINATION_HMAC_KEY
+                  optional: true
+            - name: COOKIE_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: COOKIE_ENCRYPTION_KEYS
                   optional: true
             {{- end }}
       # Explicit (possibly empty) volumes array: some Kubernetes admission

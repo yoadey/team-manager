@@ -111,7 +111,9 @@ env:
 
 # Reference to an existing Secret containing sensitive values.
 # The Secret must have keys: DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY,
-# COOKIE_ENCRYPTION_KEY, and optionally SENTRY_DSN.
+# COOKIE_ENCRYPTION_KEY, and optionally SENTRY_DSN, PAGINATION_HMAC_KEY,
+# COOKIE_ENCRYPTION_KEYS (plural — takes precedence over the singular key
+# above when set; use it for zero-downtime key rotation, see docs/operations.md).
 # METRICS_TOKEN is listed as optional in the Deployment template (it's fine
 # to omit when env.COOKIE_SECURE is "false", e.g. local/dev), but the
 # backend hard-fails startup (os.Exit(1), not just a warning) when
