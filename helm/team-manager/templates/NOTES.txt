@@ -1,0 +1,33 @@
+{{ include "team-manager.fullname" . }} has been deployed.
+{{- if .Values.ingress.enabled }}
+
+Ingress host(s):
+{{- range .Values.ingress.hosts }}
+  https://{{ .host }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.ingress.enabled (not (index .Values.env "TRUSTED_PROXY_CIDRS")) }}
+
+WARNING: ingress is enabled but env.TRUSTED_PROXY_CIDRS is not set.
+
+Every request reaches the backend proxied through your ingress controller
+({{ .Values.ingress.className | default "nginx" }}), so without
+TRUSTED_PROXY_CIDRS every real client appears to share the ingress
+controller's own IP address for the global rate limiter (RATE_LIMIT_RPS)
+and, more importantly, the login brute-force limiter
+(LOGIN_RATE_LIMIT_PER_MIN) — see docs/operations.md's "Rate limiting"
+section for the full explanation.
+
+Set env.TRUSTED_PROXY_CIDRS to your cluster's ingress-controller pod CIDR
+(or load balancer's known egress range) via a values override, e.g.:
+
+  helm upgrade --install {{ .Release.Name }} . \
+    --set env.TRUSTED_PROXY_CIDRS=10.244.0.0/16
+
+The correct CIDR is cluster/CNI-specific (varies by Kubernetes
+distribution and networking plugin) and cannot be safely defaulted by
+this chart — a too-broad value would let clients on the same network
+spoof X-Forwarded-For and bypass rate limiting entirely, which is worse
+than leaving it unset.
+{{- end }}
