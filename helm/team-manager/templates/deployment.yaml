@@ -134,6 +134,15 @@ spec:
                   key: METRICS_TOKEN
                   optional: true
             {{- end }}
+      # Explicit (possibly empty) volumes array: some Kubernetes admission
+      # webhooks that inject a volume by name (e.g. EKS's IRSA pod-identity
+      # webhook, if serviceAccount.annotations carries an IAM role ARN) apply
+      # their mutation as a JSON patch "add" at /spec/volumes/0, which fails
+      # if the pod has no volumes key at all — which is the case here now
+      # that serviceAccount.automount defaults to false (no more
+      # kubelet-injected token volume). See
+      # https://github.com/aws/amazon-eks-pod-identity-webhook/issues/17.
+      volumes: []
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
