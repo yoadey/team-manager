@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 )
@@ -132,12 +133,19 @@ func callLogout(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
 	_ = resp.VisitLogoutResponse(w)
 }
 
-// callUploadMyPhoto invokes the handler UploadMyPhoto method.
+// callUploadMyPhoto invokes the handler UploadMyPhoto method, routing any
+// returned error through apierror.ResponseErrorHandler exactly like the real
+// strict-server dispatch in cmd/server/main.go does. A hardcoded
+// http.Error(..., http.StatusBadRequest) here previously masked a real bug:
+// every UploadMyPhoto error path returned a bespoke error type that
+// ResponseErrorHandler's errors.As(*apierror.APIError) didn't recognize, so
+// production actually served a 500 for all of them, but the old test helper
+// couldn't observe that because it forced 400 regardless of the real status.
 func callUploadMyPhoto(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
 	mr := multipart.NewReader(r.Body, extractBoundary(r.Header.Get("Content-Type")))
 	resp, err := h.UploadMyPhoto(r.Context(), gen.UploadMyPhotoRequestObject{Body: mr})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		apierror.ResponseErrorHandler(slog.Default())(w, r, err)
 		return
 	}
 	_ = resp.VisitUploadMyPhotoResponse(w)
@@ -454,6 +462,71 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// Regression test: UploadMyPhoto's error paths (errUnauthorized/errBadRequest/
+// errInternal) used to return a bespoke *handlerError type that
+// apierror.ResponseErrorHandler's errors.As(*apierror.APIError) never
+// matched, so every one of these fell through to a generic 500 in
+// production regardless of the intended status. They must now return an
+// *apierror.APIError so the real status/detail reaches the client.
+func TestHandler_UploadMyPhoto_RejectsNonImageContent(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		validateToken: func(_ context.Context, _ string) (*auth.UserRow, error) {
+			return testUser(), nil
+		},
+	}
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Put("/auth/me/photo", func(w http.ResponseWriter, req *http.Request) {
+			callUploadMyPhoto(h, w, req)
+		})
+	})
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("photo", "not-an-image.txt")
+	require.NoError(t, err)
+	_, err = fw.Write([]byte("plain text, not an image"))
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/auth/me/photo", &buf)
+	addSessionCookie(t, codec, req, "token")
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "JPEG")
+}
+
+// Regression test: GetMyPhoto's 404 used to be hand-built with no `type`
+// field at all (the only error response in this package that shipped
+// without one), instead of going through apierror.NotFound like every other
+// error path.
+func TestHandler_GetMyPhoto_NoPhoto_Returns404WithType(t *testing.T) {
+	t.Parallel()
+
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+	resp, err := h.GetMyPhoto(ctx, gen.GetMyPhotoRequestObject{})
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	w := httptest.NewRecorder()
+	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequest(http.MethodGet, "/auth/me/photo", http.NoBody), err)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	assert.NotEmpty(t, body["type"])
 }
 
 func TestHandler_GetMyDataExport(t *testing.T) {

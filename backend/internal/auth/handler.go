@@ -175,16 +175,7 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 func (h *Handler) GetMyPhoto(ctx context.Context, _ gen.GetMyPhotoRequestObject) (gen.GetMyPhotoResponseObject, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok || len(user.PhotoData) == 0 {
-		title := "Not Found"
-		detail := "no profile photo"
-		status := 404
-		return gen.GetMyPhoto404ApplicationProblemPlusJSONResponse{
-			NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-				Title:  &title,
-				Detail: &detail,
-				Status: &status,
-			},
-		}, nil
+		return nil, apierror.NotFound("no profile photo")
 	}
 	return gen.GetMyPhoto200ImagejpegResponse{
 		Body:          bytes.NewReader(user.PhotoData),
@@ -350,18 +341,15 @@ func writeUnauthorized(w http.ResponseWriter, detail string) {
 	apierror.Unauthorized(detail).Render(w)
 }
 
-// handlerError is a sentinel error type carrying an HTTP status for use in
-// UploadMyPhoto where we cannot use typed response objects for non-200 paths.
-type handlerError struct {
-	status  int
-	message string
-}
-
-func (e *handlerError) Error() string { return e.message }
-
-func errUnauthorized(msg string) error { return &handlerError{status: 401, message: msg} }
-func errBadRequest(msg string) error   { return &handlerError{status: 400, message: msg} }
-func errInternal(msg string) error     { return &handlerError{status: 500, message: msg} }
+// errUnauthorized/errBadRequest/errInternal build *apierror.APIError values
+// for handler methods (e.g. UploadMyPhoto) that return non-200 responses as
+// a plain error rather than a typed response object. ResponseErrorHandler's
+// errors.As(err, *apierror.APIError) only matches *apierror.APIError, so
+// these must return that concrete type -- a bespoke error type here would
+// silently fall through to a generic 500 on every call site.
+func errUnauthorized(msg string) error { return apierror.Unauthorized(msg) }
+func errBadRequest(msg string) error   { return apierror.BadRequest(msg) }
+func errInternal(msg string) error     { return apierror.Internal(msg) }
 
 // ensure time is used (time.Time in UserRow.Birthday).
 var _ = time.Time{}
