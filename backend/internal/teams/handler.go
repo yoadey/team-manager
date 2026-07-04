@@ -348,37 +348,37 @@ func (h *Handler) DeleteTeamLogo(ctx context.Context, request gen.DeleteTeamLogo
 // ─── error helpers ───────────────────────────────────────────────────────────
 
 func notFoundTeamResponse(detail string) gen.GetTeamResponseObject {
-	title := "Not Found"
-	status := 404
+	e := apierror.NotFound(detail)
 	return gen.GetTeam404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-			Title:  &title,
+			Title:  &e.Title,
 			Detail: &detail,
-			Status: &status,
+			Status: &e.Status,
+			Type:   &e.Type,
 		},
 	}
 }
 
 func notFoundPhotoResponse(detail string) gen.GetTeamPhotoResponseObject {
-	title := "Not Found"
-	status := 404
+	e := apierror.NotFound(detail)
 	return gen.GetTeamPhoto404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-			Title:  &title,
+			Title:  &e.Title,
 			Detail: &detail,
-			Status: &status,
+			Status: &e.Status,
+			Type:   &e.Type,
 		},
 	}
 }
 
 func notFoundLogoResponse(detail string) gen.GetTeamLogoResponseObject {
-	title := "Not Found"
-	status := 404
+	e := apierror.NotFound(detail)
 	return gen.GetTeamLogo404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-			Title:  &title,
+			Title:  &e.Title,
 			Detail: &detail,
-			Status: &status,
+			Status: &e.Status,
+			Type:   &e.Type,
 		},
 	}
 }

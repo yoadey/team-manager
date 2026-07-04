@@ -458,15 +458,15 @@ func validateEventTimeFields(meetTime, startTime, endTime *string) error {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-// notFoundProblem builds a gen.NotFoundApplicationProblemPlusJSONResponse value.
+// notFoundProblem builds a gen.NotFoundApplicationProblemPlusJSONResponse
+// value, with a Type URI computed via apierror so it honors
+// ERROR_TYPE_BASE_URI like every other error response.
 func notFoundProblem(detail string) gen.NotFoundApplicationProblemPlusJSONResponse {
-	title := "Not Found"
-	status := http.StatusNotFound
-	typeStr := "https://teammanager.example/errors/not-found"
+	e := apierror.New(http.StatusNotFound, "Not Found", detail)
 	return gen.NotFoundApplicationProblemPlusJSONResponse{
-		Title:  &title,
-		Status: &status,
+		Title:  &e.Title,
+		Status: &e.Status,
 		Detail: &detail,
-		Type:   &typeStr,
+		Type:   &e.Type,
 	}
 }

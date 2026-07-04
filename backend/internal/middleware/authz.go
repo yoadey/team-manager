@@ -2,13 +2,13 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
@@ -360,7 +360,8 @@ func hasAnyPermission(p teams.PermissionsJSON, module string) bool {
 	return level == "read" || level == "write"
 }
 
-// writeProblem writes an RFC 9457 Problem Details response.
+// writeProblem writes an RFC 9457 Problem Details response via apierror, so
+// the Type URI honors ERROR_TYPE_BASE_URI like every other error response.
 func writeProblem(w http.ResponseWriter, status int, detail string) {
 	titles := map[int]string{
 		http.StatusBadRequest:          "Bad Request",
@@ -373,12 +374,5 @@ func writeProblem(w http.ResponseWriter, status int, detail string) {
 	if !ok {
 		title = http.StatusText(status)
 	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"type":   "https://teammanager.example/errors/authz",
-		"title":  title,
-		"status": status,
-		"detail": detail,
-	})
+	apierror.New(status, title, detail).Render(w)
 }

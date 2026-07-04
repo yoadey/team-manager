@@ -12,6 +12,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
@@ -331,35 +332,22 @@ func toGenUser(u *UserRow) gen.User {
 	return gu
 }
 
-// unauthorized builds an UnauthorizedApplicationProblemPlusJSONResponse.
+// unauthorized builds an UnauthorizedApplicationProblemPlusJSONResponse, with
+// a Type URI computed via apierror so it honors ERROR_TYPE_BASE_URI like
+// every other error response.
 func unauthorized(detail string) gen.UnauthorizedApplicationProblemPlusJSONResponse {
-	title := "Unauthorized"
-	status := 401
-	typeStr := "https://teammanager.example/errors/unauthorized"
+	e := apierror.New(http.StatusUnauthorized, "Unauthorized", detail)
 	return gen.UnauthorizedApplicationProblemPlusJSONResponse{
-		Title:  &title,
-		Status: &status,
+		Title:  &e.Title,
+		Status: &e.Status,
 		Detail: &detail,
-		Type:   &typeStr,
+		Type:   &e.Type,
 	}
 }
 
 // writeUnauthorized writes a 401 Problem Details JSON response directly.
 func writeUnauthorized(w http.ResponseWriter, detail string) {
-	type problem struct {
-		Type   string `json:"type"`
-		Title  string `json:"title"`
-		Status int    `json:"status"`
-		Detail string `json:"detail"`
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(problem{
-		Type:   "https://teammanager.example/errors/unauthorized",
-		Title:  "Unauthorized",
-		Status: http.StatusUnauthorized,
-		Detail: detail,
-	})
+	apierror.Unauthorized(detail).Render(w)
 }
 
 // handlerError is a sentinel error type carrying an HTTP status for use in
