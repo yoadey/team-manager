@@ -208,6 +208,19 @@ export const realApi = {
         body: { name: opts.name, icon: opts.icon, iconBg: opts.iconBg, iconFg: opts.iconFg },
       });
       const t = await check(res);
+      // CreateTeamRequest has no photo field (see openapi.yaml) — the mock
+      // accepts `opts.photo` directly on the created team, but the real
+      // backend only exposes a photo upload via the per-team PUT
+      // .../{teamId}/photo endpoint, so it must be applied as a second step
+      // once the team (and its id) exists, matching updateSettings()'s
+      // photo-upload path below. Without this, a photo picked in
+      // CreateTeamSheet (useTeamActions.ts's createTeam()) was silently
+      // dropped against the real backend while the mock persisted it.
+      if (opts.photo) {
+        await uploadImage(`/api/v1/teams/${t.id}/photo`, 'photo', opts.photo);
+        const refreshed = await check(await apiClient.GET('/teams/{teamId}', { params: { path: { teamId: t.id } } }));
+        return mapTeam(refreshed);
+      }
       return mapTeam(t);
     },
 

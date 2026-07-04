@@ -250,6 +250,35 @@ describe('teams', () => {
     expect(client.POST).toHaveBeenCalledWith('/teams', { body: { name: 'A', icon: 'i', iconBg: undefined, iconFg: undefined } });
   });
 
+  it('create does not attempt a photo upload when no photo was picked', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.create({ name: 'A' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  // CreateTeamRequest (openapi.yaml) has no photo field, so a photo picked in
+  // CreateTeamSheet before the first save must be uploaded as a second step
+  // via the per-team PUT .../photo endpoint once the team id exists —
+  // otherwise it's silently dropped against the real backend while the mock
+  // (which accepts `photo` directly in its create() call) persists it.
+  it('create uploads a picked photo via multipart PUT after the team is created', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
+    client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    const dataUrl = 'data:image/png;base64,' + btoa('img');
+    await realApi.teams.create({ name: 'A', photo: dataUrl });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/v1/teams/t1/photo');
+    expect(init.method).toBe('PUT');
+    expect(client.GET).toHaveBeenCalledWith('/teams/{teamId}', { params: { path: { teamId: 't1' } } });
+    vi.unstubAllGlobals();
+  });
+
   it('updateSettings maps reasonVisibilityRoles onto reasonVisibilityRoleIds', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
     client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
