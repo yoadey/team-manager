@@ -557,6 +557,24 @@ describe('attendance', () => {
     expect((await realApi.attendance.listForEvent('e1', 't1'))[0]).toMatchObject({ __mapped: 'attendanceRow' });
   });
 
+  it('listForEvent groups by status (yes, maybe, pending, no, not_nominated) then name, matching the mock', async () => {
+    // The backend orders attendance rows alphabetically only (ORDER BY
+    // u.name ASC); EventDetailSheet.tsx renders the rows in the order it
+    // receives them, so the service layer must re-impose the mock's status
+    // grouping itself.
+    client.GET.mockResolvedValueOnce(
+      ok([
+        { status: 'no', name: 'Bob' },
+        { status: 'yes', name: 'Zoe' },
+        { status: 'yes', name: 'Anna' },
+        { status: 'not_nominated', name: 'Cy' },
+        { status: 'pending', name: 'Mo' },
+      ]),
+    );
+    const rows = (await realApi.attendance.listForEvent('e1', 't1')) as unknown as { input: { name: string } }[];
+    expect(rows.map((r) => r.input.name)).toEqual(['Anna', 'Zoe', 'Mo', 'Bob', 'Cy']);
+  });
+
   it('set posts the attendance body', async () => {
     client.POST.mockResolvedValueOnce(ok({ ok: true }));
     await realApi.attendance.set('e1', 'u1', { status: 'yes' }, 't1');
@@ -590,6 +608,36 @@ describe('absences', () => {
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.absences.remove('ab1', 't1')).resolves.toBeUndefined();
+  });
+
+  it('listForTeam and listMine sort ascending by `from`, matching the mock (backend returns newest-first)', async () => {
+    // absences.Repository orders `from_date DESC, id DESC`; the mock sorts
+    // ascending so the soonest-upcoming absence is first, and
+    // EventAbsences.tsx renders the list in the order it receives with no
+    // client-side sort.
+    client.GET.mockResolvedValueOnce(
+      ok({
+        items: [
+          { id: 'ab-aug', from: '2026-08-01' },
+          { id: 'ab-jul', from: '2026-07-01' },
+        ],
+        nextCursor: null,
+      }),
+    );
+    const forTeam = (await realApi.absences.listForTeam('t1')) as unknown as { input: { id: string } }[];
+    expect(forTeam.map((a) => a.input.id)).toEqual(['ab-jul', 'ab-aug']);
+
+    client.GET.mockResolvedValueOnce(
+      ok({
+        items: [
+          { id: 'ab-aug', from: '2026-08-01' },
+          { id: 'ab-jul', from: '2026-07-01' },
+        ],
+        nextCursor: null,
+      }),
+    );
+    const mine = (await realApi.absences.listMine('t1')) as unknown as { input: { id: string } }[];
+    expect(mine.map((a) => a.input.id)).toEqual(['ab-jul', 'ab-aug']);
   });
 });
 
@@ -633,8 +681,24 @@ describe('polls', () => {
 
 describe('finances', () => {
   it('overview maps the finance overview', async () => {
-    client.GET.mockResolvedValueOnce(ok({ balance: 0 }));
+    client.GET.mockResolvedValueOnce(ok({ balance: 0, assignments: [] }));
     expect(await realApi.finances.overview('t1')).toMatchObject({ __mapped: 'finance' });
+  });
+
+  it('overview reverses assignments to ascending order, matching the mock (backend returns newest-first)', async () => {
+    // finances.Repository.ListAssignments orders `pa.date DESC`; the mock's
+    // array is in ascending insertion order. FinancesPenalties.tsx renders
+    // `f.assignments.slice().reverse()`, which only yields newest-first if
+    // fed an ascending array — passing the backend's descending order straight
+    // through would get reversed a second time and show the oldest
+    // assignment on top.
+    client.GET.mockResolvedValueOnce(
+      ok({ balance: 0, assignments: [{ id: 'a-newest' }, { id: 'a-oldest' }] }),
+    );
+    const overview = (await realApi.finances.overview('t1')) as unknown as {
+      input: { assignments: { id: string }[] };
+    };
+    expect(overview.input.assignments.map((a) => a.id)).toEqual(['a-oldest', 'a-newest']);
   });
 
   it('transaction lifecycle', async () => {

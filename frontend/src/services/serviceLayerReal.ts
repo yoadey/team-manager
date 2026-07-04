@@ -111,6 +111,10 @@ async function uploadImage(path: string, fieldName: string, dataUrl: string): Pr
 // Per-page size when walking a keyset list to completion (the backend caps at 500).
 const PAGE_LIMIT = 500;
 
+// Mirrors serviceLayer.ts's STATUS_ORDER — the display grouping the mock uses
+// for attendance rows (see attendance.listForEvent below).
+const ATTENDANCE_STATUS_ORDER: Record<string, number> = { yes: 0, maybe: 1, pending: 2, no: 3, not_nominated: 4 };
+
 // fetchAllPages walks the keyset { items, nextCursor } envelope to the end and
 // returns every row. The app has no paging UI yet and consumers expect full
 // arrays, so without this the real backend would silently truncate lists to the
@@ -541,7 +545,17 @@ export const realApi = {
         params: { path: { teamId, eventId } },
       });
       const rows = await check(res);
-      return rows.map(mapAttendanceRow);
+      // events.Repository.ListAttendance orders `ORDER BY u.name ASC` only;
+      // the mock additionally groups rows by response status first (yes,
+      // maybe, pending, no, not_nominated — see serviceLayer.ts's
+      // STATUS_ORDER) before falling back to name. EventDetailSheet.tsx
+      // renders `sheet.rows` in the order it receives them (no client-side
+      // re-sort), so without this the participant list order silently
+      // differed depending on which backend served the request.
+      const sorted = [...rows].sort(
+        (a, b) => ATTENDANCE_STATUS_ORDER[a.status] - ATTENDANCE_STATUS_ORDER[b.status] || a.name.localeCompare(b.name, 'de'),
+      );
+      return sorted.map(mapAttendanceRow);
     },
 
     async set(
@@ -581,7 +595,12 @@ export const realApi = {
         });
         return check(res);
       });
-      return items.map(mapAbsence);
+      // absences.Repository orders `from_date DESC, id DESC` (newest-starting
+      // first); the mock sorts ascending by `from` so the soonest-upcoming
+      // absence appears first. EventAbsences.tsx renders the list in the
+      // order it receives (no client-side sort), so re-sort ascending here to
+      // match the mock's convention.
+      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map(mapAbsence);
     },
 
     async listMine(teamId: string): Promise<Absence[]> {
@@ -591,7 +610,7 @@ export const realApi = {
         });
         return check(res);
       });
-      return items.map(mapAbsence);
+      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map(mapAbsence);
     },
 
     async create(payload: { teamId: string; userId: string; from: string; to: string; reason?: string }): Promise<Absence> {
@@ -711,7 +730,15 @@ export const realApi = {
     async overview(teamId: string): Promise<FinanceOverview> {
       const res = await apiClient.GET('/teams/{teamId}/finances', { params: { path: { teamId } } });
       const o = await check(res);
-      return mapFinanceOverview(o);
+      // finances.Repository.ListAssignments orders `pa.date DESC` (newest
+      // first); the mock's array is in ascending insertion order (oldest
+      // first). FinancesPenalties.tsx renders `f.assignments.slice().reverse()`
+      // — which only produces newest-first if the input was ascending — so
+      // passing the backend's already-descending order through unchanged
+      // gets reversed a second time and shows the oldest assignment on top.
+      // Reverse here so both service layers hand the UI the same (ascending)
+      // convention.
+      return mapFinanceOverview({ ...o, assignments: [...o.assignments].reverse() });
     },
 
     async addTransaction(teamId: string, payload: {
