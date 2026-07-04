@@ -406,17 +406,25 @@ func main() {
 	<-quit
 
 	slog.Info("shutting down server")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+	// Each phase gets its own fresh timeout budget rather than sharing one
+	// deadline: river.Client.Stop returns as soon as its context is done,
+	// without waiting for in-flight jobs, so a slow HTTP drain eating into a
+	// shared deadline would silently skip job draining before pool.Close().
+	httpShutdownCtx, httpCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer httpCancel()
+	if err := httpSrv.Shutdown(httpShutdownCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
 	// Stop the job worker (draining in-flight jobs) before closing the pool it
 	// depends on — must happen in this order, not as an unbounded defer
 	// registered near Start, which would otherwise run after pool.Close().
-	if err := riverClient.Stop(shutdownCtx); err != nil {
+	riverStopCtx, riverCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer riverCancel()
+	if err := riverClient.Stop(riverStopCtx); err != nil {
 		slog.Error("river worker stop failed", "err", err)
 	}
-	shutdownObs(shutdownCtx)
+	obsShutdownCtx, obsCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer obsCancel()
+	shutdownObs(obsShutdownCtx)
 	pool.Close()
 }
