@@ -111,7 +111,15 @@ env:
 
 # Reference to an existing Secret containing sensitive values.
 # The Secret must have keys: DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY,
-# COOKIE_ENCRYPTION_KEY, and optionally SENTRY_DSN, METRICS_TOKEN.
+# COOKIE_ENCRYPTION_KEY, and optionally SENTRY_DSN.
+# METRICS_TOKEN is listed as optional in the Deployment template (it's fine
+# to omit when env.COOKIE_SECURE is "false", e.g. local/dev), but the
+# backend hard-fails startup (os.Exit(1), not just a warning) when
+# COOKIE_SECURE is "true" (the default, and what every shipped environment
+# overlay uses) and METRICS_TOKEN is empty — unless env.METRICS_ALLOW_OPEN
+# is also set to "true". Set a METRICS_TOKEN key in this Secret for any
+# COOKIE_SECURE=true deployment, or you'll get a guaranteed crash-loop.
+# templates/NOTES.txt reminds you of this at deploy time.
 existingSecret: ""
 
 # ALLOWED_ORIGINS as a comma-separated list.

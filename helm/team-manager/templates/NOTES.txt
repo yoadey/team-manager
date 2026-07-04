@@ -31,3 +31,14 @@ this chart — a too-broad value would let clients on the same network
 spoof X-Forwarded-For and bypass rate limiting entirely, which is worse
 than leaving it unset.
 {{- end }}
+
+{{- if and (eq (index .Values.env "COOKIE_SECURE") "true") (ne (index .Values.env "METRICS_ALLOW_OPEN") "true") }}
+
+REMINDER: env.COOKIE_SECURE is "true", so the backend hard-fails startup
+(exit 1, every replica crash-loops) unless your {{ .Values.existingSecret | default "existingSecret" }}
+Secret has a non-empty METRICS_TOKEN key — this chart cannot verify that
+from here, since it only sees the Secret's name, not its contents. If you
+haven't set one, either add a METRICS_TOKEN key to that Secret, or set
+env.METRICS_ALLOW_OPEN=true if /metrics is already restricted at the
+network layer and you accept it being unauthenticated.
+{{- end }}
