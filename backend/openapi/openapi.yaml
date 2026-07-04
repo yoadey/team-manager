@@ -2366,7 +2366,11 @@ components:
           items:
             type: string
             format: uuid
-          minItems: 1
+          minItems: 0
+          description: >-
+            Empty array clears the caller's vote. Voting UIs let a user
+            un-select their last remaining choice on a multi-select poll,
+            which submits an empty array to retract the vote entirely.
 
     # ── Notifications ────────────────────────────────────────────────────────
 

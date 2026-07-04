@@ -109,6 +109,18 @@ func TestPollRepository_Vote(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, votes, 1)
 	assert.Equal(t, noID, votes[0].OptionId)
+
+	// Regression: VotePollRequest.optionIds must accept an empty array to
+	// retract a vote entirely (the openapi.yaml schema previously declared
+	// minItems: 1, contradicting this actually-relied-upon behavior — a
+	// multi-select poll UI lets a user un-select their last remaining
+	// choice, which submits optionIds: []).
+	err = repo.ReplaceVotes(ctx, pollID, userID, []uuid.UUID{}, false)
+	require.NoError(t, err)
+
+	votes, err = repo.ListVotes(ctx, pollID)
+	require.NoError(t, err)
+	assert.Empty(t, votes)
 }
 
 // A client submitting the same option ID twice (the OpenAPI schema doesn't

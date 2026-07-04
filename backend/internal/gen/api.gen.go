@@ -990,6 +990,7 @@ type User struct {
 
 // VotePollRequest defines model for VotePollRequest.
 type VotePollRequest struct {
+	// OptionIds Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely.
 	OptionIds []openapi_types.UUID `json:"optionIds"`
 }
 
