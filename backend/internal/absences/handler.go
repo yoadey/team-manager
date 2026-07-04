@@ -72,7 +72,18 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	if req.Body.UserId != user.Id {
 		return nil, apierror.Forbidden("cannot create an absence for another user")
 	}
-	if !req.Body.To.IsZero() && req.Body.From.After(req.Body.To.Time) {
+	// from/to are non-pointer Date fields (required per openapi.yaml), but
+	// nothing in this stack enforces "required" at the request-decode layer
+	// — an omitted field just leaves Go's zero time.Time{}, indistinguishable
+	// from a genuinely-absent value here. Without this explicit check, an
+	// omitted `to` skipped the ordering check below entirely (From.After on
+	// a zero To is never true), and an omitted `from` passed it vacuously
+	// (zero time is never After anything), silently persisting a ~2000-year
+	// absence instead of rejecting the malformed request.
+	if req.Body.From.IsZero() || req.Body.To.IsZero() {
+		return nil, apierror.BadRequest("'from' and 'to' are required")
+	}
+	if req.Body.From.After(req.Body.To.Time) {
 		return nil, apierror.BadRequest("'from' must not be after 'to'")
 	}
 	if req.Body.Reason != nil {
@@ -82,6 +93,9 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	}
 	absence, err := h.svc.Create(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrInvalidDateRange) {
+			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to create absence")
 	}

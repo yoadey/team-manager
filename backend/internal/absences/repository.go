@@ -173,6 +173,10 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 		userID, teamID, fromDate, toDate, reason,
 	).Scan(&id)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			return nil, ErrInvalidDateRange
+		}
 		return nil, fmt.Errorf("absences.Repository.Create: %w", err)
 	}
 	return r.findByID(ctx, id)

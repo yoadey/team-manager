@@ -16,6 +16,7 @@ import (
 )
 
 type mockAbsenceService struct {
+	create func(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error)
 	update func(ctx context.Context, id, teamID, userID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error)
 }
 
@@ -27,8 +28,8 @@ func (m *mockAbsenceService) ListByUser(context.Context, uuid.UUID, uuid.UUID, i
 	panic("not implemented")
 }
 
-func (m *mockAbsenceService) Create(context.Context, uuid.UUID, *gen.CreateAbsenceRequest) (gen.Absence, error) {
-	panic("not implemented")
+func (m *mockAbsenceService) Create(ctx context.Context, teamID uuid.UUID, body *gen.CreateAbsenceRequest) (gen.Absence, error) {
+	return m.create(ctx, teamID, body)
 }
 
 func (m *mockAbsenceService) Update(ctx context.Context, id, teamID, userID uuid.UUID, body *gen.UpdateAbsenceRequest) (gen.Absence, error) {
@@ -63,4 +64,75 @@ func TestAbsenceHandler_UpdateAbsence_InvalidDateRange_Returns400(t *testing.T) 
 
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "failed to update absence", "must map to the specific 400, not fall through to the generic 500")
+}
+
+// CreateAbsenceRequest.From/.To are non-pointer Date fields (required per
+// openapi.yaml), but nothing in this stack enforces "required" at decode
+// time — an omitted field just leaves Go's zero time.Time{}. These
+// regression tests cover the two ways that used to slip through: an omitted
+// "to" skipped the ordering check entirely, and an omitted "from" passed it
+// vacuously (zero time is never After anything), silently persisting an
+// absence spanning from year 1.
+func TestAbsenceHandler_CreateAbsence_MissingTo_Returns400(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		create: func(context.Context, uuid.UUID, *gen.CreateAbsenceRequest) (gen.Absence, error) {
+			t.Fatal("service must not be called when 'to' is missing")
+			return gen.Absence{}, nil
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.CreateAbsenceRequest{
+		UserId: userID,
+		From:   openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	_, err := h.CreateAbsence(ctx, gen.CreateAbsenceRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestAbsenceHandler_CreateAbsence_MissingFrom_Returns400(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		create: func(context.Context, uuid.UUID, *gen.CreateAbsenceRequest) (gen.Absence, error) {
+			t.Fatal("service must not be called when 'from' is missing")
+			return gen.Absence{}, nil
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.CreateAbsenceRequest{
+		UserId: userID,
+		To:     openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	_, err := h.CreateAbsence(ctx, gen.CreateAbsenceRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestAbsenceHandler_CreateAbsence_InvalidDateRange_Returns400(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		create: func(context.Context, uuid.UUID, *gen.CreateAbsenceRequest) (gen.Absence, error) {
+			return gen.Absence{}, absences.ErrInvalidDateRange
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.CreateAbsenceRequest{
+		UserId: userID,
+		From:   openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+		To:     openapi_types.Date{Time: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)},
+	}
+	_, err := h.CreateAbsence(ctx, gen.CreateAbsenceRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "failed to create absence", "must map to the specific 400, not fall through to the generic 500")
 }
