@@ -294,7 +294,7 @@ export const realApi = {
 
     async update(membershipId: string, patch: {
       name?: string; email?: string; phone?: string | null; birthday?: string | null;
-      address?: string | null; group?: string | null; roleIds?: string[];
+      address?: string | null; group?: string | null;
     }, teamId: string): Promise<Member> {
       const res = await apiClient.PATCH('/teams/{teamId}/members/{membershipId}', {
         params: { path: { teamId, membershipId } },
@@ -305,7 +305,6 @@ export const realApi = {
           birthday: patch.birthday ?? undefined,
           address: patch.address ?? undefined,
           group: patch.group ?? undefined,
-          roleIds: patch.roleIds,
         },
       });
       const m = await check(res);

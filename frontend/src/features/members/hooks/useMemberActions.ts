@@ -105,6 +105,18 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
     const sh = S().sheet!;
     const back = sh.back;
     const self = sh.self;
+    // Role assignment is a separate write path (members.setRoles ->
+    // PUT .../roles, gated on settings:write) from the profile-field patch
+    // (members.update -> PATCH .../{membershipId}, gated on members:write) —
+    // the backend's UpdateMember handler never applies a roleIds field
+    // embedded in the PATCH body, so it must be sent via setRoles() whenever
+    // it actually changed, not folded into the profile update.
+    const original = (S().members ?? []).find((x) => x.membershipId === f.membershipId);
+    const originalRoleIds = original ? original.roles.map((r) => r.id) : [];
+    const nextRoleIds = f.roleIds ?? [];
+    const rolesChanged =
+      originalRoleIds.length !== nextRoleIds.length ||
+      [...originalRoleIds].sort().some((id, i) => id !== [...nextRoleIds].sort()[i]);
     setState({ busy: 'save' });
     try {
       await api.members.update(
@@ -115,12 +127,14 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
           phone: f.phone,
           birthday: f.birthday,
           address: f.address,
-          roleIds: f.roleIds,
           group: f.group,
           photo: f.photo,
         },
         S().activeTeamId!,
       );
+      if (rolesChanged) {
+        await api.members.setRoles(f.membershipId, nextRoleIds, S().activeTeamId!);
+      }
       await refreshMembers();
       if (self) {
         const u = await api.auth.currentUser();

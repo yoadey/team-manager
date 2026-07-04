@@ -51,6 +51,7 @@ function makeApi() {
     },
     members: {
       update: vi.fn().mockResolvedValue(undefined),
+      setRoles: vi.fn().mockResolvedValue(undefined),
       remove: vi.fn().mockResolvedValue(undefined),
     },
     auth: {
@@ -205,6 +206,48 @@ describe('useMemberActions', () => {
       'team1',
     );
     expect(toastMsg).toHaveBeenCalledWith('Profil gespeichert');
+  });
+
+  it('saveMember calls setRoles when the form roleIds differ from the member\'s current roles', async () => {
+    stateRef = makeState({
+      form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1', 'r2'] },
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember();
+    });
+    expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1', 'r2'], 'team1');
+  });
+
+  it('saveMember does not call setRoles when the form roleIds match the member\'s current roles (order-independent)', async () => {
+    stateRef = makeState({
+      members: [
+        {
+          membershipId: 'ms1',
+          userId: 'u2',
+          name: 'Alice',
+          email: 'alice@test.com',
+          phone: '',
+          birthday: '',
+          address: '',
+          group: '',
+          photo: null,
+          roles: [
+            { id: 'r1', name: 'Mitglied' },
+            { id: 'r2', name: 'Trainer' },
+          ],
+          avatarColor: '#aaa',
+        },
+      ] as never,
+      form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r2', 'r1'] },
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember();
+    });
+    expect(api.members.setRoles).not.toHaveBeenCalled();
   });
 
   it('saveMember trims leading/trailing whitespace from the name before saving', async () => {

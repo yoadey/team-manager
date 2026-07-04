@@ -116,9 +116,11 @@ export function ProfileSheet({ app }: SheetProps) {
   const roles = S.roles;
   const myIds = app.myRoles().map((r) => r.id);
   // Self-assigning a role is the same privileged operation as assigning it to
-  // another member (MemberSheets gates that behind members:write) — without
-  // this check, any member could grant themselves an admin role here.
-  const canEditMyRoles = app.can('members', 'write');
+  // another member (MemberSheets gates that the same way) — the backend
+  // requires settings:write for any members/{id}/roles mutation (assigning a
+  // role can hand out settings:write itself), so members:write alone must
+  // not be enough to self-grant admin access here either.
+  const canEditMyRoles = app.can('settings', 'write');
 
   // Account erasure (GDPR Art. 17): a destructive, irreversible action gated by
   // retyping the account email — no password, since accounts may be OIDC-only.

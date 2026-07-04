@@ -1121,7 +1121,6 @@ const _mockApi = {
         phone,
         birthday,
         address,
-        roleIds,
         group,
         photo,
       }: {
@@ -1130,7 +1129,6 @@ const _mockApi = {
         phone?: string;
         birthday?: string;
         address?: string;
-        roleIds?: string[];
         group?: string;
         photo?: string | null;
       },
@@ -1145,7 +1143,6 @@ const _mockApi = {
       if (birthday !== undefined) u.birthday = birthday;
       if (address !== undefined) u.address = address;
       if (photo !== undefined) u.photo = photo;
-      if (roleIds !== undefined && roleIds.length) m.roleIds = roleIds;
       if (group !== undefined) m.group = group;
       persist();
       return true;

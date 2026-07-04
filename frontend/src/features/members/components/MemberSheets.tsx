@@ -182,7 +182,11 @@ export function MemberFormSheet({ app }: SheetProps) {
   const F = formValues<MemberFormValues>(app.state);
   const errs = state.formErrors;
   const myIds: string[] = F.roleIds || [];
-  const canRoles = app.can('members', 'write');
+  // Role assignment is a settings:write operation on the backend (assigning a
+  // role can hand out settings:write itself), not members:write — gating on
+  // members:write would show editable role chips to an admin whose actual
+  // save would be rejected.
+  const canRoles = app.can('settings', 'write');
   const canSubmit = !!F.name?.trim();
 
   const validateName = () => {
