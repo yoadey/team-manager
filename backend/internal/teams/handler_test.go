@@ -348,6 +348,28 @@ func TestTeamHandler_UpdateTeam_RejectsEmptyName(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestTeamHandler_UpdateTeam_RejectsTooManyReasonVisibilityRoleIds(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		updateTeam: func(_ context.Context, _ string, _ teams.TeamPatch) (*gen.Team, error) {
+			t.Fatal("service must not be called when validation fails")
+			return nil, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(io.Discard, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	roleIDs := make([]uuid.UUID, 201)
+	for i := range roleIDs {
+		roleIDs[i] = uuid.New()
+	}
+	body := &gen.UpdateTeamJSONRequestBody{ReasonVisibilityRoleIds: &roleIDs}
+	_, err := h.UpdateTeam(ctx, gen.UpdateTeamRequestObject{TeamId: teamID, Body: body})
+	require.Error(t, err)
+}
+
 func TestTeamHandler_UpdateTeam_RejectsOversizedShort(t *testing.T) {
 	t.Parallel()
 

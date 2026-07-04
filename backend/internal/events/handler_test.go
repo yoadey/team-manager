@@ -109,6 +109,36 @@ func TestEventHandler_CreateEvent_RejectsMalformedTime(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestEventHandler_CreateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	roleIDs := make([]uuid.UUID, 201)
+	for i := range roleIDs {
+		roleIDs[i] = uuid.New()
+	}
+	body := &gen.CreateEventJSONRequestBody{
+		Type:             gen.Training,
+		Title:            "Practice",
+		NominatedRoleIds: &roleIDs,
+	}
+	_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
+	require.Error(t, err)
+}
+
+func TestEventHandler_UpdateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	roleIDs := make([]uuid.UUID, 201)
+	for i := range roleIDs {
+		roleIDs[i] = uuid.New()
+	}
+	body := &gen.UpdateEventJSONRequestBody{NominatedRoleIds: &roleIDs}
+	_, err := h.UpdateEvent(ctxWithUser(), gen.UpdateEventRequestObject{TeamId: uuid.New(), EventId: uuid.New(), Body: body})
+	require.Error(t, err)
+}
+
 func TestEventHandler_CreateEvent_RejectsInvalidType(t *testing.T) {
 	t.Parallel()
 	h := events.NewHandler(&mockEventService{}, slog.Default())

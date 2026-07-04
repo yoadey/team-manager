@@ -273,6 +273,35 @@ func TestMemberHandler_AddMember_WithRoleIds_AllowedForSettingsWriter(t *testing
 	require.NoError(t, err)
 }
 
+func TestMemberHandler_AddMember_TooManyRoleIds_Returns400(t *testing.T) {
+	t.Parallel()
+
+	roleIDs := make([]uuid.UUID, 201)
+	for i := range roleIDs {
+		roleIDs[i] = uuid.New()
+	}
+	h := members.NewHandler(&mockMemberService{}, &mockPermissionChecker{perms: teams.PermissionsJSON{Settings: "write"}}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	body := &gen.AddMemberJSONRequestBody{Name: "Bob", Email: "bob@example.com", RoleIds: &roleIDs}
+	_, err := h.AddMember(ctx, gen.AddMemberRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_SetMemberRoles_TooManyRoleIds_Returns400(t *testing.T) {
+	t.Parallel()
+
+	roleIDs := make([]uuid.UUID, 201)
+	for i := range roleIDs {
+		roleIDs[i] = uuid.New()
+	}
+	h := members.NewHandler(&mockMemberService{}, &mockPermissionChecker{}, slog.Default(), nil)
+	body := &gen.SetMemberRolesJSONRequestBody{RoleIds: roleIDs}
+	_, err := h.SetMemberRoles(context.Background(), gen.SetMemberRolesRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
 func TestMemberHandler_ListMembers(t *testing.T) {
 	t.Parallel()
 

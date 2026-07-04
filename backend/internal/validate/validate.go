@@ -25,6 +25,14 @@ const (
 	// single amount near math.MaxInt64 makes those ::BIGINT-cast aggregates
 	// overflow and error out, permanently breaking the team's finance overview.
 	maxAmountCents = 100_000_000
+	// maxUUIDItems caps role-ID-array-shaped request fields (roleIds,
+	// nominatedRoleIds, reasonVisibilityRoleIds). Generous for any real
+	// club's role list, while preventing a caller from submitting an
+	// absurdly large array — e.g. members.SetRoles/AddMember process one
+	// INSERT per ID sequentially while holding the team's exclusive
+	// advisory lock, so an unbounded array would block every other admin
+	// mutation on that team for the duration.
+	maxUUIDItems = 200
 )
 
 // Sentinel errors for static analysis compliance.
@@ -38,6 +46,7 @@ var (
 	ErrAmountNotPositive = errors.New("must be greater than zero")
 	ErrAmountTooLarge    = errors.New("exceeds the maximum allowed amount")
 	ErrTimeOfDayInvalid  = errors.New("must be a 24-hour HH:MM time")
+	ErrTooManyItems      = errors.New("has too many items")
 )
 
 // timeOfDayRE matches a 24-hour "HH:MM" time-of-day string, the format the
@@ -105,6 +114,15 @@ func PositiveAmount(amount int64, field string) error {
 	}
 	if amount > maxAmountCents {
 		return fmt.Errorf("%s %w", field, ErrAmountTooLarge)
+	}
+	return nil
+}
+
+// UUIDItems returns an error when n (the length of a role-ID-shaped array
+// field) exceeds maxUUIDItems.
+func UUIDItems(n int, field string) error {
+	if n > maxUUIDItems {
+		return fmt.Errorf("%s %w", field, ErrTooManyItems)
 	}
 	return nil
 }

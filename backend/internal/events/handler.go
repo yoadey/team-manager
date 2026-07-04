@@ -95,6 +95,11 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 	if err := validateEventFields(request.Body.Location, request.Body.Note, request.Body.MeetTime, request.Body.StartTime, request.Body.EndTime, request.Body.ResponseMode); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if request.Body.NominatedRoleIds != nil {
+		if err := validate.UUIDItems(len(*request.Body.NominatedRoleIds), "nominatedRoleIds"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)
 	if err != nil {
@@ -155,6 +160,11 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 	}
 	if err := validateEventFields(request.Body.Location, request.Body.Note, request.Body.MeetTime, request.Body.StartTime, request.Body.EndTime, request.Body.ResponseMode); err != nil {
 		return nil, apierror.BadRequest(err.Error())
+	}
+	if request.Body.NominatedRoleIds != nil {
+		if err := validate.UUIDItems(len(*request.Body.NominatedRoleIds), "nominatedRoleIds"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 
 	scope := "single"

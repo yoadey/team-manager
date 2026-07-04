@@ -140,6 +140,11 @@ func validateUpdateTeamBody(body *gen.UpdateTeamRequest) error {
 			return fmt.Errorf("%w", err)
 		}
 	}
+	if body.ReasonVisibilityRoleIds != nil {
+		if err := validate.UUIDItems(len(*body.ReasonVisibilityRoleIds), "reasonVisibilityRoleIds"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
 	return nil
 }
 

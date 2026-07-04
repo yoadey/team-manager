@@ -100,6 +100,11 @@ func validateAddMemberBody(body *gen.AddMemberRequest) error {
 			return fmt.Errorf("%w", err)
 		}
 	}
+	if body.RoleIds != nil {
+		if err := validate.UUIDItems(len(*body.RoleIds), "roleIds"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
 	return nil
 }
 
@@ -217,6 +222,9 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRolesRequestObject) (gen.SetMemberRolesResponseObject, error) {
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if err := validate.UUIDItems(len(request.Body.RoleIds), "roleIds"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
 	}
 
 	roleIDs := make([]string, len(request.Body.RoleIds))
