@@ -15,7 +15,7 @@ Backend um, je nachdem ob `VITE_API_BASE_URL` gesetzt ist.
 ## Tech-Stack
 
 - **React 19 + TypeScript 5 (strict)** + **Vite**
-- **MUI (Material UI v6)** + **Emotion** als Komponenten- und Theming-Basis (Material Design 3)
+- **MUI (Material UI v9)** + **Emotion** als Komponenten- und Theming-Basis (Material Design 3)
 - **Roboto** (`@fontsource/roboto`) + **Material Symbols Outlined** (`material-symbols`)
 - **Vitest** (+ Testing Library, `vitest-axe`) für Unit-/Komponententests, **Playwright** für E2E
 - **Sentry** für Fehler-Monitoring (optional, via `VITE_SENTRY_DSN`)

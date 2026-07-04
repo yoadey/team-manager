@@ -76,7 +76,7 @@ team-manager/
 
 ### Backend
 
-- **Go 1.24+** with **Chi v5** router
+- **Go 1.25+** with **Chi v5** router
 - **PostgreSQL 17** via **pgx/v5**; migrations via **goose**
 - **Spec-first**: `openapi/openapi.yaml` → `oapi-codegen` → `internal/gen/api.gen.go`; never edit gen manually
 - **JWT (RS256)** session management; keys configurable via env; auto-generates dev keys when empty
