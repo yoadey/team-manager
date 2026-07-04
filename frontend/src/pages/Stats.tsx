@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '@/styles/tokens';
-import { formatDateOnly, parseDateOnlyLocal } from '@/utils/date';
+import { ALL_TIME_FROM_DATE, formatDateOnly, parseDateOnlyLocal } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
 import type { DateRange } from '@/types';
@@ -21,15 +21,23 @@ export function Stats() {
     return formatDateOnly(x);
   };
   const R: DateRange = state.statsRange || { from: null, to: null };
+  // 'all' passes an explicit far-past `from` rather than null: the service
+  // layers treat a null/omitted `from` as "no range selected yet" and apply
+  // their 3-month default (see ALL_TIME_FROM_DATE's doc comment), so an
+  // unselected range and a genuine "show everything" request must be
+  // distinguishable, not both collapse to the same null value.
   const presets: [string, string, DateRange | null][] = [
-    ['all', tr('stats.presetAll'), null],
+    ['all', tr('stats.presetAll'), { from: ALL_TIME_FROM_DATE, to: today }],
     ['3m', tr('stats.presetMonths', { n: 3 }), { from: ago(3), to: today }],
     ['6m', tr('stats.presetMonths', { n: 6 }), { from: ago(6), to: today }],
     ['12m', tr('stats.presetMonths', { n: 12 }), { from: ago(12), to: today }],
   ];
+  // No explicit selection yet (R.from/to both null) means the service layers
+  // are actually applying their 3-month default, so highlight '3 Monate'
+  // rather than 'Gesamt' — matches what's genuinely being displayed.
   const activeKey =
     !R || (!R.from && !R.to)
-      ? 'all'
+      ? '3m'
       : (presets.find((p) => p[2] && p[2].from === R.from && p[2].to === R.to) || ['custom'])[0];
 
   const dateInput: React.CSSProperties = { ...inputSx, padding: '7px 9px', fontSize: '12px', width: 'auto' };

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { todayLocalDate } from '@/utils/date';
+import { ALL_TIME_FROM_DATE, todayLocalDate } from '@/utils/date';
 
 /**
  * The service layer keeps an in-memory `DB` singleton that is seeded once at
@@ -368,6 +368,24 @@ describe('stats', () => {
     for (const c of created) {
       expect(stats.events.some((e) => e.id === c.id)).toBe(true);
     }
+  });
+
+  // Regression coverage for the Stats page's "Gesamt" preset: it passes
+  // ALL_TIME_FROM_DATE as an explicit `from` rather than omitting the range,
+  // since an omitted `from` makes teamOverview apply its 3-month default —
+  // the same value a genuinely all-time request must not collapse into.
+  it('includes events far outside the 3-month default range when given an explicit all-time range', async () => {
+    const old = await settle(
+      api.events.create('t_a', { type: 'training', title: 'Ancient event', date: '2020-01-01' }),
+    );
+
+    const defaultRange = await settle(api.stats.teamOverview('t_a'));
+    expect(defaultRange.events.some((e) => e.id === old.id)).toBe(false);
+
+    const allTime = await settle(
+      api.stats.teamOverview('t_a', { from: ALL_TIME_FROM_DATE, to: todayLocalDate() }),
+    );
+    expect(allTime.events.some((e) => e.id === old.id)).toBe(true);
   });
 
   it('computes a single member attendance quote', async () => {

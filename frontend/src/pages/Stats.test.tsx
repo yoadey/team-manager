@@ -64,11 +64,11 @@ describe('Stats', () => {
     expect(screen.getByText('12 Monate')).toBeTruthy();
   });
 
-  it('calls setStatsRange with null when clicking Gesamt', async () => {
+  it('calls setStatsRange with an explicit all-time range when clicking Gesamt', async () => {
     mockUseApp.mockReturnValue(makeApp(null));
     render(<Stats />);
     await userEvent.click(screen.getByText('Gesamt'));
-    expect(mockSetStatsRange).toHaveBeenCalledWith(null);
+    expect(mockSetStatsRange).toHaveBeenCalledWith({ from: '1970-01-01', to: expect.any(String) });
   });
 
   it('calls setStatsRange with 3-month range when clicking "3 Monate"', async () => {
