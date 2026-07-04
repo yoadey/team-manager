@@ -382,9 +382,17 @@ export const realApi = {
       return mapTeamEvent(e);
     },
 
+    // `meetT`/`startT`/`endT` (not `meetTime`/`startTime`/`endTime`) are the
+    // names the event form (useEventFormActions.ts) actually sends — they
+    // hold "HH:mm" strings, which is also exactly the wire format the
+    // backend's meetTime/startTime/endTime fields expect (see openapi.yaml),
+    // so no conversion is needed, only the rename below. Reading
+    // `payload.meetTime` here (as this used to) is always undefined given
+    // the caller's actual payload shape, silently dropping every meet/start/
+    // end time on event creation against the real backend.
     async create(teamId: string, payload: {
       type: string; title: string; date: string; location?: string; note?: string;
-      meetTime?: string | null; startTime?: string | null; endTime?: string | null;
+      meetT?: string | null; startT?: string | null; endT?: string | null;
       meetTimeMandatory?: boolean; responseMode?: string; nominatedRoleIds?: string[];
       recurring?: boolean; repeatWeeks?: number;
     }): Promise<TeamEvent> {
@@ -396,9 +404,9 @@ export const realApi = {
           date: payload.date,
           location: payload.location ?? undefined,
           note: payload.note ?? undefined,
-          meetTime: payload.meetTime ?? undefined,
-          startTime: payload.startTime ?? undefined,
-          endTime: payload.endTime ?? undefined,
+          meetTime: payload.meetT ?? undefined,
+          startTime: payload.startT ?? undefined,
+          endTime: payload.endT ?? undefined,
           meetTimeMandatory: payload.meetTimeMandatory,
           responseMode: payload.responseMode as 'opt_in' | 'opt_out' | undefined,
           nominatedRoleIds: payload.nominatedRoleIds,
@@ -416,10 +424,33 @@ export const realApi = {
       return mapTeamEvent(first);
     },
 
-    async update(eventId: string, patch: Record<string, unknown>, scope: 'single' | 'series', teamId: string): Promise<TeamEvent> {
+    // Same `meetT`/`startT`/`endT` -> `meetTime`/`startTime`/`endTime` rename
+    // as create() above. This used to forward the raw `patch` object as the
+    // request body (cast past the generated client's body type), so it sent
+    // unrecognised `meetT`/`startT`/`endT` JSON keys that the backend's
+    // plain (non-DisallowUnknownFields) json.Decode silently ignores — the
+    // PATCH still returns 200 and the UI still shows a success toast, but
+    // edited meet/start/end times never persisted.
+    async update(eventId: string, patch: {
+      type?: string; title?: string; date?: string; location?: string; note?: string;
+      meetT?: string | null; startT?: string | null; endT?: string | null;
+      meetTimeMandatory?: boolean; responseMode?: string; nominatedRoleIds?: string[];
+    }, scope: 'single' | 'series', teamId: string): Promise<TeamEvent> {
       const res = await apiClient.PATCH('/teams/{teamId}/events/{eventId}', {
         params: { path: { teamId, eventId }, query: { scope } },
-        body: patch as Parameters<typeof apiClient.PATCH>[1]['body'],
+        body: {
+          type: patch.type as 'training' | 'auftritt' | 'event' | undefined,
+          title: patch.title,
+          date: patch.date,
+          location: patch.location,
+          note: patch.note,
+          meetTime: patch.meetT ?? undefined,
+          startTime: patch.startT ?? undefined,
+          endTime: patch.endT ?? undefined,
+          meetTimeMandatory: patch.meetTimeMandatory,
+          responseMode: patch.responseMode as 'opt_in' | 'opt_out' | undefined,
+          nominatedRoleIds: patch.nominatedRoleIds,
+        },
       });
       const e = await check(res);
       return mapTeamEvent(e);

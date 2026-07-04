@@ -435,6 +435,35 @@ describe('events', () => {
     await expect(realApi.events.create('t1', { type: 'event', title: 'T', date: 'd' })).rejects.toThrow('HTTP 500');
   });
 
+  it('create sends meetT/startT/endT under the meetTime/startTime/endTime keys the backend expects', async () => {
+    client.POST.mockResolvedValueOnce(ok({ id: 'e1' }));
+    await realApi.events.create('t1', {
+      type: 'training',
+      title: 'T',
+      date: '2026-01-01',
+      meetT: '19:15',
+      startT: '19:30',
+      endT: '21:30',
+    });
+    expect(client.POST).toHaveBeenCalledWith(
+      '/teams/{teamId}/events',
+      expect.objectContaining({
+        body: expect.objectContaining({ meetTime: '19:15', startTime: '19:30', endTime: '21:30' }),
+      }),
+    );
+  });
+
+  it('update sends meetT/startT/endT under the meetTime/startTime/endTime keys the backend expects', async () => {
+    client.PATCH.mockResolvedValueOnce(ok({ id: 'e1' }));
+    await realApi.events.update('e1', { title: 'X', meetT: '20:00', startT: '20:15', endT: '22:00' }, 'single', 't1');
+    expect(client.PATCH).toHaveBeenCalledWith(
+      '/teams/{teamId}/events/{eventId}',
+      expect.objectContaining({
+        body: expect.objectContaining({ meetTime: '20:00', startTime: '20:15', endTime: '22:00' }),
+      }),
+    );
+  });
+
   it('update, setStatus and remove pass the scope query', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 'e1' }));
     await realApi.events.update('e1', { title: 'X' }, 'series', 't1');
