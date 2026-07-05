@@ -516,7 +516,7 @@ func TestTeamHandler_AcceptInvite_ReturnsTeamAndEmitsAuditEvent(t *testing.T) {
 	var rec map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
 	assert.Equal(t, true, rec["audit"])
-	assert.Equal(t, "team.invite_create", rec["event"])
+	assert.Equal(t, "team.invite_accept", rec["event"])
 	assert.Equal(t, actorID.String(), rec["actor"])
 	assert.Equal(t, teamID.String(), rec["teamId"])
 }

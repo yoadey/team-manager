@@ -231,7 +231,7 @@ func (h *Handler) AcceptInvite(ctx context.Context, request gen.AcceptInviteRequ
 		h.logger.ErrorContext(ctx, "AcceptInvite failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.AcceptInvite: %w", err)
 	}
-	h.audit.Record(ctx, audit.EventTeamInvite, audit.Success, actor(ctx),
+	h.audit.Record(ctx, audit.EventTeamInviteAccept, audit.Success, actor(ctx),
 		slog.String("teamId", tfu.Id.String()))
 	metrics.TeamEvents.WithLabelValues("team", "invite_accept").Inc()
 	return gen.AcceptInvite200JSONResponse(*tfu), nil

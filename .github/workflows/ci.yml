@@ -193,6 +193,50 @@ jobs:
 
   # ── Backend ───────────────────────────────────────────────────────────────
 
+  backend-openapi-drift:
+    name: Backend · OpenAPI codegen drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # Reads the version straight from backend/Makefile (kept in sync with
+      # go.mod by backend-lint's "tool-version pins" check below) instead of a
+      # third hardcoded copy of the pin.
+      - name: Install oapi-codegen
+        run: |
+          set -euo pipefail
+          version=$(grep -oP 'oapi-codegen/v2/cmd/oapi-codegen@\K\S+' backend/Makefile)
+          go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$version"
+      - name: Regenerate backend/internal/gen/api.gen.go
+        run: cd backend && make generate
+      - name: npm ci (frontend, for openapi-typescript)
+        working-directory: frontend
+        run: npm ci
+      - name: Regenerate frontend/src/api/types.gen.ts
+        run: make generate-ts
+      # backend/internal/gen/api.gen.go is marked "DO NOT EDIT" and
+      # frontend/src/api/types.gen.ts is likewise generated; both must be
+      # regenerated and committed whenever openapi.yaml changes. Without this
+      # check, a PR that edits the spec but forgets (or loses to a merge
+      # conflict) the regeneration step passes every other job green with the
+      # client/server contract silently out of sync.
+      - name: Fail if generated code is out of sync with openapi.yaml
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code -- backend/internal/gen/api.gen.go frontend/src/api/types.gen.ts; then
+            echo "::error::backend/internal/gen/api.gen.go and/or frontend/src/api/types.gen.ts are out of sync with backend/openapi/openapi.yaml. Run 'make generate && make generate-ts' at the repo root and commit the result."
+            exit 1
+          fi
+
   backend-lint:
     name: Backend · Lint
     runs-on: ubuntu-latest

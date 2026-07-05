@@ -46,8 +46,9 @@ const (
 	// action is carried in an "operation" attribute (e.g. transaction.create).
 	EventFinanceMutation = "finance.mutation"
 
-	EventTeamUpdate = "team.update"
-	EventTeamInvite = "team.invite_create"
+	EventTeamUpdate       = "team.update"
+	EventTeamInvite       = "team.invite_create"
+	EventTeamInviteAccept = "team.invite_accept"
 )
 
 // Logger emits audit records to the application log and, when a DB pool is
