@@ -102,6 +102,9 @@ func (h *Handler) VotePoll(ctx context.Context, req gen.VotePollRequestObject) (
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if err := validate.UUIDItems(len(req.Body.OptionIds), "optionIds"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 	optionIDs := append([]uuid.UUID(nil), req.Body.OptionIds...)
 	poll, err := h.svc.Vote(ctx, req.PollId, req.TeamId, user.Id, optionIDs)
 	if err != nil {

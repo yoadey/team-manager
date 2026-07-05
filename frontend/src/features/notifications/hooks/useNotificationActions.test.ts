@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useNotificationActions } from './useNotificationActions';
+import { AuthError } from '@/utils/errors';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -34,6 +35,7 @@ describe('useNotificationActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
   let loadNotifications: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: { notifications: { markSeen: ReturnType<typeof vi.fn> } };
   let stateRef: AppState;
 
@@ -49,6 +51,7 @@ describe('useNotificationActions', () => {
     });
     toastMsg = vi.fn();
     loadNotifications = vi.fn().mockResolvedValue(undefined);
+    logout = vi.fn();
     api = {
       notifications: {
         markSeen: vi.fn().mockResolvedValue(undefined),
@@ -64,6 +67,7 @@ describe('useNotificationActions', () => {
         setState: setState as never,
         loadNotifications: loadNotifications as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }
@@ -118,6 +122,16 @@ describe('useNotificationActions', () => {
     });
     await new Promise((r) => setTimeout(r, 10));
     expect(toastMsg).toHaveBeenCalled();
+  });
+
+  it('openNotifications triggers logout on a 401 (expired session)', async () => {
+    api.notifications.markSeen = vi.fn().mockRejectedValue(new AuthError());
+    const { result } = renderActions();
+    await act(async () => {
+      result.current.openNotifications();
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(logout).toHaveBeenCalled();
   });
 
   it('setNotifFilter updates notifFilter in state', () => {

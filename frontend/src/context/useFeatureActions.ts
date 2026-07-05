@@ -88,7 +88,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     askConfirm,
     openEventDetail: eventDetailActions.openEventDetail,
   });
-  const notifActions = useNotificationActions({ api, S, setState, loadNotifications, toastMsg });
+  const notifActions = useNotificationActions({ api, S, setState, loadNotifications, toastMsg, logout });
   const memberActions = useMemberActions({
     api,
     S,

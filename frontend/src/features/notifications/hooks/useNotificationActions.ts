@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { AppState } from '@/context/AppContext';
-import { t } from '@/i18n';
+import { reportActionError } from '@/utils/errors';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -11,9 +11,10 @@ type NotifDeps = {
   setState: SetState;
   loadNotifications: () => Promise<void>;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
-export function useNotificationActions({ api, S, setState, loadNotifications, toastMsg }: NotifDeps) {
+export function useNotificationActions({ api, S, setState, loadNotifications, toastMsg, logout }: NotifDeps) {
   const openNotifications = useCallback(() => {
     const teamId = S().activeTeamId;
     if (!teamId) return;
@@ -29,11 +30,11 @@ export function useNotificationActions({ api, S, setState, loadNotifications, to
             notifUnread: 0,
           };
         });
-      } catch {
-        toastMsg(t('notifications.markReadError'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'notifications.markReadError');
       }
     })();
-  }, [api, S, setState, loadNotifications, toastMsg]);
+  }, [api, S, setState, loadNotifications, toastMsg, logout]);
 
   const setNotifFilter = useCallback((f: AppState['notifFilter']) => setState({ notifFilter: f }), [setState]);
 

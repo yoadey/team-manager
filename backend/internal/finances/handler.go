@@ -110,6 +110,7 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
+		h.recordFinanceFailure(ctx, "transaction.create", "internal error")
 		return nil, apierror.Internal("failed to create transaction")
 	}
 	h.recordFinance(ctx, "transaction.create",
@@ -201,6 +202,7 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	p, err := h.svc.CreatePenalty(ctx, req.TeamId, req.Body)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
+		h.recordFinanceFailure(ctx, "penalty.create", "internal error")
 		return nil, apierror.Internal("failed to create penalty")
 	}
 	h.recordFinance(ctx, "penalty.create",

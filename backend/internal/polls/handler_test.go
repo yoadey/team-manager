@@ -114,6 +114,29 @@ func TestPollHandler_CreatePoll_AcceptsFourOptions(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// Regression test: VotePoll used to pass req.Body.OptionIds straight through
+// with no length check at all, unlike every other UUID-array-shaped request
+// field in the codebase (members.roleIds, events.nominatedRoleIds,
+// teams.reasonVisibilityRoleIds), which all cap at validate.UUIDItems's 200.
+func TestPollHandler_VotePoll_RejectsTooManyOptionIds(t *testing.T) {
+	t.Parallel()
+	svc := &mockPollService{
+		vote: func(_ context.Context, _, _, _ uuid.UUID, _ []uuid.UUID) (gen.Poll, error) {
+			t.Fatal("service should not be called when optionIds count validation fails")
+			return gen.Poll{}, nil
+		},
+	}
+	h := polls.NewHandler(svc, slog.Default())
+
+	optionIDs := make([]uuid.UUID, 201)
+	for i := range optionIDs {
+		optionIDs[i] = uuid.New()
+	}
+	body := &gen.VotePollRequest{OptionIds: optionIDs}
+	_, err := h.VotePoll(authedCtx(), gen.VotePollRequestObject{TeamId: uuid.New(), PollId: uuid.New(), Body: body})
+	require.Error(t, err)
+}
+
 func TestPollHandler_CreatePoll_Success(t *testing.T) {
 	t.Parallel()
 	svc := &mockPollService{

@@ -1322,7 +1322,7 @@ export interface components {
             anonymous: boolean;
         };
         VotePollRequest: {
-            /** @description Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. */
+            /** @description Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. Capped to match CreatePollRequest.options' maxItems, since a poll can never have more options than that to vote for. */
             optionIds: string[];
         };
         AppNotification: {

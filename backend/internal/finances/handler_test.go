@@ -110,6 +110,26 @@ func authedCtx() context.Context {
 	return auth.ContextWithUser(ctx, user)
 }
 
+// findAuditLogLine parses a multi-line JSON log buffer (a handler that logs
+// both an error and an audit record writes two separate JSON objects to the
+// same buffer, which json.Unmarshal can't parse as one value) and returns the
+// first line that is an audit record.
+func findAuditLogLine(t *testing.T, buf []byte) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(string(buf), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+		if rec["audit"] == true {
+			return rec
+		}
+	}
+	t.Fatal("no audit log line found")
+	return nil
+}
+
 // ─── tests ───────────────────────────────────────────────────────────────────
 
 func TestHandler_GetFinanceOverview_Unauthenticated(t *testing.T) {
@@ -305,6 +325,53 @@ func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, "transaction.create", rec["operation"])
 	assert.Equal(t, testUserID.String(), rec["actor"])
 	assert.Equal(t, testTxID.String(), rec["transactionId"])
+}
+
+// Regression test: unlike UpdateTransaction/DeleteTransaction/UpdatePenalty/etc.,
+// CreateTransaction's service-error branch used to only log via h.logger and
+// never call h.recordFinanceFailure, leaving no audit_log trace of a failed
+// (or repeatedly probed) transaction creation.
+func TestHandler_CreateTransaction_ServiceError_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Fee", Amount: 5000}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+
+	rec := findAuditLogLine(t, buf.Bytes())
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "finance.mutation", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "transaction.create", rec["operation"])
+}
+
+// Regression test: same gap as CreateTransaction above, for CreatePenalty.
+func TestHandler_CreatePenalty_ServiceError_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createPenalty: func(_ context.Context, _ uuid.UUID, _ *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	body := &gen.CreatePenaltyJSONRequestBody{Label: "Late", Amount: 500}
+	_, err := h.CreatePenalty(authedCtx(), gen.CreatePenaltyRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+
+	rec := findAuditLogLine(t, buf.Bytes())
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "finance.mutation", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "penalty.create", rec["operation"])
 }
 
 func TestHandler_DeleteTransaction_Success(t *testing.T) {
