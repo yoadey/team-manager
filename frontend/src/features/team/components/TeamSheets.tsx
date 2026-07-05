@@ -329,6 +329,24 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
         {upLabel('photo_camera', team.photo ? t('team.settingsPhotoChange') : t('team.settingsPhotoUpload'), (d) =>
           app.saveTeamPhoto(d),
         )}
+        {team.photo ? (
+          <ButtonBase
+            key="rm"
+            onClick={() => app.removeTeamPhoto()}
+            aria-label={t('team.settingsPhotoRemove')}
+            sx={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              background: NEUTRAL.errorBg,
+              color: NEUTRAL.error,
+              cursor: 'pointer',
+              flex: '0 0 auto',
+            }}
+          >
+            <Sym name="delete" size={18} color={NEUTRAL.error} />
+          </ButtonBase>
+        ) : null}
       </Box>
       <Box key="h" sx={{ fontSize: '12px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
         {t('team.settingsPhotoHint')}

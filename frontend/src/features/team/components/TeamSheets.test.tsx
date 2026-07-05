@@ -99,6 +99,7 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     saveTeamSettings: vi.fn(),
     saveTeamLogo: vi.fn(),
     saveTeamPhoto: vi.fn(),
+    removeTeamPhoto: vi.fn(),
     setTeamIcon: vi.fn(),
     toggleReasonRole: vi.fn(),
     ...methods,
@@ -425,6 +426,24 @@ describe('TeamSettingsSheet', () => {
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     // t('team.settingsPhotoChange') → 'Bild ändern'
     expect(document.body.textContent).toContain('Bild ändern');
+  });
+
+  it('does not render a remove-photo button when the team has no photo', () => {
+    const app = makeSettingsApp();
+    render(<TeamSettingsSheet app={app} sheet={sheet} />);
+    // t('team.settingsPhotoRemove') → 'Bild entfernen'
+    expect(screen.queryByLabelText('Bild entfernen')).toBeNull();
+  });
+
+  it('renders a remove-photo button when the team has a photo, and calls removeTeamPhoto on click', () => {
+    const app = makeApp({
+      form: { name: '', icon: '🏆', logo: null, description: '', reasonRoles: [] },
+    });
+    (app.activeTeam as ReturnType<typeof vi.fn>).mockReturnValue(makeTeam({ photo: 'data:image/png;base64,xyz' }));
+    render(<TeamSettingsSheet app={app} sheet={sheet} />);
+    const removeBtn = screen.getByLabelText('Bild entfernen');
+    fireEvent.click(removeBtn);
+    expect(app.removeTeamPhoto).toHaveBeenCalled();
   });
 
   it('renders role chips in visibility section', () => {

@@ -281,6 +281,7 @@ export interface AppContextValue {
   openMore: () => void;
   openTeamSettings: () => void;
   saveTeamPhoto: (dataUrl: string) => Promise<void>;
+  removeTeamPhoto: () => Promise<void>;
   saveTeamLogo: (dataUrl: string) => Promise<void>;
   setTeamIcon: (em: string) => void;
   toggleReasonRole: (roleId: string) => void;
@@ -895,6 +896,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openMore,
     openTeamSettings,
     saveTeamPhoto,
+    removeTeamPhoto,
     saveTeamLogo,
     setTeamIcon,
     toggleReasonRole,
@@ -1103,6 +1105,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openMore,
       openTeamSettings,
       saveTeamPhoto,
+      removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
       toggleReasonRole,
@@ -1207,6 +1210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openMore,
       openTeamSettings,
       saveTeamPhoto,
+      removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
       toggleReasonRole,

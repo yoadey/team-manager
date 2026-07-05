@@ -154,6 +154,62 @@ describe('useTeamActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Gruppenbild aktualisiert');
   });
 
+  it('removeTeamPhoto calls updateSettings with null and shows toast', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.removeTeamPhoto();
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { photo: null });
+    expect(setFormVal).toHaveBeenCalledWith({ photo: null });
+    expect(toastMsg).toHaveBeenCalledWith('Gruppenbild entfernt');
+  });
+
+  it('removeTeamPhoto ignores a second call while the first is still in flight', async () => {
+    let resolveUpdate: () => void;
+    api.teams.updateSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveUpdate = () => resolve(undefined);
+      }),
+    );
+    const { result } = renderActions();
+
+    let firstCall: Promise<void>;
+    act(() => {
+      firstCall = result.current.removeTeamPhoto();
+      void result.current.removeTeamPhoto();
+    });
+
+    expect(api.teams.updateSettings).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveUpdate();
+      await firstCall;
+    });
+  });
+
+  it('removeTeamPhoto and saveTeamPhoto share the same in-flight guard key', async () => {
+    let resolveUpdate: () => void;
+    api.teams.updateSettings.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveUpdate = () => resolve(undefined);
+      }),
+    );
+    const { result } = renderActions();
+
+    let firstCall: Promise<void>;
+    act(() => {
+      firstCall = result.current.saveTeamPhoto('data:image/png;base64,first');
+      void result.current.removeTeamPhoto();
+    });
+
+    expect(api.teams.updateSettings).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveUpdate();
+      await firstCall;
+    });
+  });
+
   it('saveTeamLogo calls updateSettings and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {

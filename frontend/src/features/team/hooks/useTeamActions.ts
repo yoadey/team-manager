@@ -79,6 +79,22 @@ export function useTeamActions({
     [api, S, refreshTeams, setFormVal, setState, toastMsg],
   );
 
+  const removeTeamPhoto = useCallback(async () => {
+    const key = 'photo';
+    if (photoLogoInFlight.current.has(key)) return;
+    photoLogoInFlight.current.add(key);
+    try {
+      await api.teams.updateSettings(S().activeTeamId!, { photo: null });
+      await refreshTeams();
+      setFormVal({ photo: null });
+      toastMsg(t('team.toastPhotoRemoved'));
+    } catch (err) {
+      reportActionError({ setState, toastMsg }, err, 'error.save');
+    } finally {
+      photoLogoInFlight.current.delete(key);
+    }
+  }, [api, S, refreshTeams, setFormVal, setState, toastMsg]);
+
   const saveTeamLogo = useCallback(
     async (dataUrl: string) => {
       const key = 'logo';
@@ -214,6 +230,7 @@ export function useTeamActions({
     openMore,
     openTeamSettings,
     saveTeamPhoto,
+    removeTeamPhoto,
     saveTeamLogo,
     setTeamIcon,
     toggleReasonRole,
