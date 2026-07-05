@@ -177,15 +177,6 @@ describe('members', () => {
     expect(members.every((m) => 'primaryRole' in m)).toBe(true);
   });
 
-  it('adds a member and grows the roster', async () => {
-    const before = (await settle(api.members.list('t_a'))).length;
-    const created = await settle(api.members.add('t_a', { name: 'Neue Tänzerin' }));
-    expect(created.membershipId).toBeTruthy();
-    const after = await settle(api.members.list('t_a'));
-    expect(after).toHaveLength(before + 1);
-    expect(after.some((m) => m.name === 'Neue Tänzerin')).toBe(true);
-  });
-
   it('updates a member profile', async () => {
     const members = await settle(api.members.list('t_a'));
     const target = members[0];

@@ -17,7 +17,6 @@ import (
 // memberRepo is the interface the Service relies on.
 type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
-	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error)
 	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*MemberRow, error)
 	RemoveMember(ctx context.Context, membershipID, teamID string) error
@@ -71,16 +70,6 @@ func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cur
 		out[i] = toGenMember(r)
 	}
 	return out, next, nil
-}
-
-// AddMember adds a member and returns the gen.Member.
-func (s *Service) AddMember(ctx context.Context, teamID string, params AddMemberParams) (*gen.Member, error) {
-	mr, err := s.repo.AddMember(ctx, teamID, params)
-	if err != nil {
-		return nil, fmt.Errorf("members.Service.AddMember: %w", err)
-	}
-	m := toGenMember(*mr)
-	return &m, nil
 }
 
 // UpdateMember updates member profile and returns the updated gen.Member.

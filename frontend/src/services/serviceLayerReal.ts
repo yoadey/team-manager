@@ -317,23 +317,6 @@ export const realApi = {
       return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
     },
 
-    async add(teamId: string, params: {
-      name: string; email: string; phone?: string | null; group?: string | null; roleIds?: string[];
-    }): Promise<Member> {
-      const res = await apiClient.POST('/teams/{teamId}/members', {
-        params: { path: { teamId } },
-        body: {
-          name: params.name,
-          email: params.email as string & { format: 'email' },
-          phone: params.phone ?? undefined,
-          group: params.group ?? undefined,
-          roleIds: params.roleIds,
-        },
-      });
-      const m = await check(res);
-      return mapMember(m);
-    },
-
     async update(membershipId: string, patch: {
       name?: string; email?: string; phone?: string | null; birthday?: string | null;
       address?: string | null; group?: string | null;

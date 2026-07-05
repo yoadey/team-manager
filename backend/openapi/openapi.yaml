@@ -432,23 +432,6 @@ paths:
                     type: string
                     nullable: true
                     description: Cursor for the next page, or null when there are no more items.
-    post:
-      tags: [members]
-      operationId: addMember
-      summary: Add a member to the team
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AddMemberRequest"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Member"
 
   /teams/{teamId}/members/{membershipId}:
     parameters:
@@ -1850,25 +1833,6 @@ components:
         joinedAt:
           type: string
           format: date-time
-
-    AddMemberRequest:
-      type: object
-      required: [name, email]
-      properties:
-        name:
-          type: string
-        email:
-          type: string
-          format: email
-        phone:
-          type: string
-        roleIds:
-          type: array
-          items:
-            type: string
-            format: uuid
-        group:
-          type: string
 
     UpdateMemberRequest:
       type: object

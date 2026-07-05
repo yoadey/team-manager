@@ -881,7 +881,7 @@ export const SERVICE_ENDPOINTS = {
     'teams.acceptInvite',
   ],
   // members: list returns Member ViewModels mapped from MemberDto plus derived primaryRole/perms.
-  members: ['members.list', 'members.add', 'members.update', 'members.setRoles', 'members.remove'],
+  members: ['members.list', 'members.update', 'members.setRoles', 'members.remove'],
   // roles: direct RoleDto CRUD endpoints.
   roles: ['roles.list', 'roles.create', 'roles.update', 'roles.remove'],
   // events: list/get map EventDto to TeamEvent with client-side summary/myStatus aggregation.
@@ -1132,44 +1132,6 @@ const _mockApi = {
           return mapMemberDtoToMember(dto, clone(primaryRole(roles)), mergePerms(roles));
         })
         .sort((a, b) => a.name.localeCompare(b.name, 'de'));
-    },
-    async add(
-      teamId: string,
-      {
-        name,
-        email,
-        phone,
-        roleIds,
-        group,
-        photo,
-      }: { name: string; email?: string; phone?: string; roleIds?: string[]; group?: string; photo?: string | null },
-    ) {
-      await delay(280, 520);
-      const u: User = {
-        id: rid('u'),
-        name,
-        email: email || '',
-        phone: phone || '',
-        avatarColor: ['#1565C0', '#00796B', '#C2185B', '#5D4037', '#7B1FA2', '#455A64'][Math.floor(Math.random() * 6)],
-        photo: photo || null,
-        birthday: '',
-        address: '',
-      };
-      DB.users.push(u);
-      const mem: Membership = {
-        id: rid('mem'),
-        teamId,
-        userId: u.id,
-        roleIds:
-          roleIds && roleIds.length
-            ? roleIds
-            : [DB.roles.find((r) => r.teamId === teamId && r.name === 'Tänzer / Mitglied')!.id],
-        group: group || '',
-        joinedAt: iso(new Date()),
-      };
-      DB.memberships.push(mem);
-      persist();
-      return { membershipId: mem.id, userId: u.id };
     },
     async update(
       membershipId: string,

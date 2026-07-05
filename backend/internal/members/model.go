@@ -33,12 +33,3 @@ type MemberPatch struct {
 	Address  *string
 	Group    *string
 }
-
-// AddMemberParams holds the fields needed to add a member to a team.
-type AddMemberParams struct {
-	Name    string
-	Email   string
-	Phone   *string
-	Group   *string
-	RoleIDs []string
-}

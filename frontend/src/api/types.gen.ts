@@ -247,8 +247,7 @@ export interface paths {
         /** List team members */
         get: operations["listMembers"];
         put?: never;
-        /** Add a member to the team */
-        post: operations["addMember"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1079,14 +1078,6 @@ export interface components {
             perms?: components["schemas"]["Permissions"];
             /** Format: date-time */
             joinedAt: string;
-        };
-        AddMemberRequest: {
-            name: string;
-            /** Format: email */
-            email: string;
-            phone?: string;
-            roleIds?: string[];
-            group?: string;
         };
         UpdateMemberRequest: {
             name?: string;
@@ -2118,32 +2109,6 @@ export interface operations {
                         /** @description Cursor for the next page, or null when there are no more items. */
                         nextCursor: string | null;
                     };
-                };
-            };
-        };
-    };
-    addMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                teamId: components["parameters"]["teamId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddMemberRequest"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
                 };
             };
         };

@@ -15,11 +15,13 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/testutil"
 )
 
-// seedMemberFixtures inserts a user and team into the DB, returning their IDs.
-func seedMemberFixtures(t *testing.T, pool *pgxpool.Pool) (userID, teamID uuid.UUID) {
+// seedMemberFixtures inserts an owner user and a team into the DB, returning
+// the team's ID (the owner row exists only to satisfy tables that reference a
+// user elsewhere in the fixture; no test needs its ID back).
+func seedMemberFixtures(t *testing.T, pool *pgxpool.Pool) (teamID uuid.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	userID = uuid.New()
+	userID := uuid.New()
 	teamID = uuid.New()
 	_, err := pool.Exec(ctx,
 		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Test Owner', 'owner@example.com', '#334455')`,
@@ -28,7 +30,7 @@ func seedMemberFixtures(t *testing.T, pool *pgxpool.Pool) (userID, teamID uuid.U
 	_, err = pool.Exec(ctx,
 		`INSERT INTO teams (id, name) VALUES ($1, 'Test Team')`, teamID)
 	require.NoError(t, err)
-	return userID, teamID
+	return teamID
 }
 
 // seedRole inserts a role for the given team and returns its ID.
@@ -43,108 +45,32 @@ func seedRole(t *testing.T, pool *pgxpool.Pool, teamID uuid.UUID, name, perms st
 	return roleID
 }
 
-func TestMembersRepository_AddMember_NewUser(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := members.NewRepository(pool)
+// seedMember inserts a user and a membership (optionally with roles) directly
+// via SQL. Test-only fixture setup, standing in for the removed AddMember
+// repository method (deleted along with the unreachable direct-add-member API
+// once invite-link redemption became the supported way to join a team).
+func seedMember(t *testing.T, pool *pgxpool.Pool, teamID uuid.UUID, name, email string, roleIDs ...uuid.UUID) *members.MemberRow {
+	t.Helper()
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	var userID uuid.UUID
+	err := pool.QueryRow(ctx, `
+		INSERT INTO users (name, email, avatar_color) VALUES ($1, $2, '#6366f1') RETURNING id
+	`, name, email).Scan(&userID)
+	require.NoError(t, err)
 
-	params := members.AddMemberParams{
-		Name:  "Alice Smith",
-		Email: "alice@example.com",
+	var membershipID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id
+	`, teamID, userID).Scan(&membershipID)
+	require.NoError(t, err)
+
+	for _, roleID := range roleIDs {
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
 	}
-	m, err := repo.AddMember(ctx, teamID.String(), params)
-	require.NoError(t, err)
-	require.NotNil(t, m)
-	assert.Equal(t, "Alice Smith", m.Name)
-	assert.Equal(t, "alice@example.com", m.Email)
-	assert.Empty(t, m.Roles)
-}
 
-func TestMembersRepository_AddMember_ExistingUser(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := members.NewRepository(pool)
-	ctx := context.Background()
-
-	existingUID, teamID := seedMemberFixtures(t, pool)
-
-	// Add the existing user (owner) to a second team — AddMember should look up
-	// the user by email and reuse the existing user row.
-	teamID2 := uuid.New()
-	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Team 2')`, teamID2)
-	require.NoError(t, err)
-
-	// Confirm owner email
-	var ownerEmail string
-	err = pool.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, existingUID).Scan(&ownerEmail)
-	require.NoError(t, err)
-
-	params := members.AddMemberParams{
-		Name:  "Should Be Ignored",
-		Email: ownerEmail,
-	}
-	m, err := repo.AddMember(ctx, teamID2.String(), params)
-	require.NoError(t, err)
-	require.NotNil(t, m)
-	// The user row already exists — the returned membership should reference the original user.
-	assert.Equal(t, existingUID, m.UserID)
-	// Unused teamID to avoid compiler error
-	_ = teamID
-}
-
-func TestMembersRepository_AddMember_WithRoles(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := members.NewRepository(pool)
-	ctx := context.Background()
-
-	_, teamID := seedMemberFixtures(t, pool)
-	roleID := seedRole(t, pool, teamID, "Player", `{"events":"read","members":"none","finances":"none","news":"none","polls":"read","settings":"none"}`)
-
-	params := members.AddMemberParams{
-		Name:    "Bob Jones",
-		Email:   "bob@example.com",
-		RoleIDs: []string{roleID.String()},
-	}
-	m, err := repo.AddMember(ctx, teamID.String(), params)
-	require.NoError(t, err)
-	require.NotNil(t, m)
-	require.Len(t, m.Roles, 1)
-	assert.Equal(t, roleID, m.Roles[0].Id)
-	assert.Equal(t, "Player", m.Roles[0].Name)
-}
-
-// Regression test: the role-existence check compares `COUNT(*) FROM roles
-// WHERE id = ANY($1)` (which counts matching rows once per distinct role)
-// against len(RoleIDs) directly, so a caller submitting the same valid role
-// ID twice used to be wrongly rejected with ErrRoleNotInTeam even though
-// every ID it sent was genuinely valid.
-func TestMembersRepository_AddMember_DuplicateValidRoleID_Succeeds(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := members.NewRepository(pool)
-	ctx := context.Background()
-
-	_, teamID := seedMemberFixtures(t, pool)
-	roleID := seedRole(t, pool, teamID, "Player", `{"events":"read","members":"none","finances":"none","news":"none","polls":"read","settings":"none"}`)
-
-	params := members.AddMemberParams{
-		Name:    "Bob Jones",
-		Email:   "bob@example.com",
-		RoleIDs: []string{roleID.String(), roleID.String()},
-	}
-	m, err := repo.AddMember(ctx, teamID.String(), params)
-	require.NoError(t, err)
-	require.NotNil(t, m)
-	require.Len(t, m.Roles, 1)
-	assert.Equal(t, roleID, m.Roles[0].Id)
+	return &members.MemberRow{MembershipID: membershipID, UserID: userID, Name: name, Email: email}
 }
 
 func TestMembersRepository_ListMembers(t *testing.T) {
@@ -154,16 +80,12 @@ func TestMembersRepository_ListMembers(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
 	// Add three members with names that sort deterministically.
 	names := []string{"Charlie", "Alice", "Bob"}
 	for _, name := range names {
-		_, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-			Name:  name,
-			Email: name + "@example.com",
-		})
-		require.NoError(t, err)
+		seedMember(t, pool, teamID, name, name+"@example.com")
 	}
 
 	page, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
@@ -182,14 +104,10 @@ func TestMembersRepository_ListMembers_Pagination(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
 	for _, name := range []string{"Alpha", "Beta", "Gamma", "Delta"} {
-		_, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-			Name:  name,
-			Email: name + "@example.com",
-		})
-		require.NoError(t, err)
+		seedMember(t, pool, teamID, name, name+"@example.com")
 	}
 
 	// First page of 2.
@@ -218,13 +136,9 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Dana White",
-		Email: "dana@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Dana White", "dana@example.com")
 
 	newName := "Dana Updated"
 	newEmail := "dana2@example.com"
@@ -252,11 +166,10 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	assert.Equal(t, &grp, updated.Group)
 }
 
-// Regression test: unlike AddMember (which catches the users.email UNIQUE
-// violation and maps it to ErrDuplicateMembership), UpdateMember used to have
-// no handling at all for the same constraint, so changing a member's email
-// to one already used by a different user account fell through to a raw
-// wrapped Postgres error instead of a clean, mapped ErrEmailTaken.
+// Regression test: UpdateMember must map a users.email UNIQUE violation to a
+// clean ErrEmailTaken instead of letting a raw wrapped Postgres error fall
+// through when a member's email is changed to one already used by a
+// different user account.
 func TestMembersRepository_UpdateMember_EmailTaken_ReturnsErrEmailTaken(t *testing.T) {
 	t.Parallel()
 
@@ -264,22 +177,13 @@ func TestMembersRepository_UpdateMember_EmailTaken_ReturnsErrEmailTaken(t *testi
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
-	_, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Existing User",
-		Email: "existing-email-taken@example.com",
-	})
-	require.NoError(t, err)
-
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Other Member",
-		Email: "other-email-taken@example.com",
-	})
-	require.NoError(t, err)
+	seedMember(t, pool, teamID, "Existing User", "existing-email-taken@example.com")
+	m := seedMember(t, pool, teamID, "Other Member", "other-email-taken@example.com")
 
 	collidingEmail := "existing-email-taken@example.com"
-	_, err = repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
+	_, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
 		Email: &collidingEmail,
 	})
 	require.ErrorIs(t, err, members.ErrEmailTaken)
@@ -292,16 +196,12 @@ func TestMembersRepository_UpdateMember_WrongTeam_ReturnsNoRows(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	otherTeamID := uuid.New()
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTeamID)
 	require.NoError(t, err)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Cross Team Target",
-		Email: "crossteam-member@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Cross Team Target", "crossteam-member@example.com")
 
 	newName := "Attacker Renamed"
 	_, err = repo.UpdateMember(ctx, m.MembershipID.String(), otherTeamID.String(), members.MemberPatch{
@@ -317,13 +217,9 @@ func TestMembersRepository_UpdateMember_PartialPatch(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Eve Original",
-		Email: "eve@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Eve Original", "eve@example.com")
 
 	newName := "Eve Renamed"
 	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
@@ -342,25 +238,17 @@ func TestMembersRepository_SetRoles(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	roleA := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 	roleB := seedRole(t, pool, teamID, "Member", `{"events":"read","members":"none","finances":"none","news":"read","polls":"read","settings":"none"}`)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Frank Castle",
-		Email: "frank@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Frank Castle", "frank@example.com")
 
 	// A second Admin so demoting/clearing m's roles below never trips the
 	// last-settings-admin guard — this test is about role-replacement
 	// mechanics, not the admin-guard (covered separately).
-	other, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Other Admin",
-		Email: "other-admin@example.com",
-	})
-	require.NoError(t, err)
-	_, err = repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{roleA.String()})
+	other := seedMember(t, pool, teamID, "Other Admin", "other-admin@example.com")
+	_, err := repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{roleA.String()})
 	require.NoError(t, err)
 
 	// Assign roleA.
@@ -393,17 +281,13 @@ func TestMembersRepository_SetRoles_WrongTeam_ReturnsNoRows(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	otherTeamID := uuid.New()
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'SetRoles Other Team')`, otherTeamID)
 	require.NoError(t, err)
 	roleA := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Membership Owner",
-		Email: "membership-owner@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Membership Owner", "membership-owner@example.com")
 
 	_, err = repo.SetRoles(ctx, m.MembershipID.String(), otherTeamID.String(), []string{roleA.String()})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
@@ -416,17 +300,13 @@ func TestMembersRepository_SetRoles_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t 
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	otherTeamID := uuid.New()
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Foreign Role Team')`, otherTeamID)
 	require.NoError(t, err)
 	foreignRole := seedRole(t, pool, otherTeamID, "Foreign Role", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Legit Member",
-		Email: "legit-member@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Legit Member", "legit-member@example.com")
 
 	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{foreignRole.String()})
 	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
@@ -445,58 +325,23 @@ func TestMembersRepository_SetRoles_DuplicateValidRoleID_Succeeds(t *testing.T) 
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	roleA := seedRole(t, pool, teamID, "Player", `{"events":"read","members":"none","finances":"none","news":"none","polls":"read","settings":"none"}`)
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
 	// A settings:write admin so assigning Grace a non-admin role below never
 	// trips the last-settings-admin guard — this test is about duplicate role
 	// ID handling, not the admin-guard (covered separately).
-	other, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Other Admin",
-		Email: "other-admin-dup-test@example.com",
-	})
-	require.NoError(t, err)
-	_, err = repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	other := seedMember(t, pool, teamID, "Other Admin", "other-admin-dup-test@example.com")
+	_, err := repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{adminRole.String()})
 	require.NoError(t, err)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Grace Hopper",
-		Email: "grace@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Grace Hopper", "grace@example.com")
 
 	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleA.String()})
 	require.NoError(t, err)
 	require.Len(t, updated.Roles, 1)
 	assert.Equal(t, roleA, updated.Roles[0].Id)
-}
-
-func TestMembersRepository_AddMember_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := members.NewRepository(pool)
-	ctx := context.Background()
-
-	_, teamID := seedMemberFixtures(t, pool)
-	otherTeamID := uuid.New()
-	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Foreign Role Team 2')`, otherTeamID)
-	require.NoError(t, err)
-	foreignRole := seedRole(t, pool, otherTeamID, "Foreign Role 2", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
-
-	_, err = repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:    "New Member",
-		Email:   "new-member-foreign-role@example.com",
-		RoleIDs: []string{foreignRole.String()},
-	})
-	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
-
-	// No membership or user row should have leaked in from the rejected call.
-	var count int
-	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM users WHERE email = 'new-member-foreign-role@example.com'`).Scan(&count)
-	require.NoError(t, err)
-	assert.Equal(t, 0, count, "no user row should be created when role validation fails")
 }
 
 func TestMembersRepository_RemoveMember(t *testing.T) {
@@ -506,15 +351,11 @@ func TestMembersRepository_RemoveMember(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Grace Hopper",
-		Email: "grace@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Grace Hopper", "grace@example.com")
 
-	err = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
+	err := repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
 	require.NoError(t, err)
 
 	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
@@ -529,16 +370,12 @@ func TestMembersRepository_RemoveMember_WrongTeam_ReturnsNoRows(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	otherTeamID := uuid.New()
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Remove Other Team')`, otherTeamID)
 	require.NoError(t, err)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Should Survive",
-		Email: "should-survive@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Should Survive", "should-survive@example.com")
 
 	err = repo.RemoveMember(ctx, m.MembershipID.String(), otherTeamID.String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
@@ -555,15 +392,11 @@ func TestMembersRepository_RemoveMember_LastSettingsAdmin_Blocked(t *testing.T) 
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Sole Admin",
-		Email: "sole-admin@example.com",
-	})
-	require.NoError(t, err)
-	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin@example.com")
+	_, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
 	require.NoError(t, err)
 
 	err = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
@@ -582,16 +415,14 @@ func TestMembersRepository_RemoveMember_NotLastSettingsAdmin_Allowed(t *testing.
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
-	m1, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{Name: "Admin One", Email: "admin1@example.com"})
-	require.NoError(t, err)
-	_, err = repo.SetRoles(ctx, m1.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	m1 := seedMember(t, pool, teamID, "Admin One", "admin1@example.com")
+	_, err := repo.SetRoles(ctx, m1.MembershipID.String(), teamID.String(), []string{adminRole.String()})
 	require.NoError(t, err)
 
-	m2, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{Name: "Admin Two", Email: "admin2@example.com"})
-	require.NoError(t, err)
+	m2 := seedMember(t, pool, teamID, "Admin Two", "admin2@example.com")
 	_, err = repo.SetRoles(ctx, m2.MembershipID.String(), teamID.String(), []string{adminRole.String()})
 	require.NoError(t, err)
 
@@ -607,16 +438,12 @@ func TestMembersRepository_SetRoles_LastSettingsAdmin_Blocked(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 	memberRole := seedRole(t, pool, teamID, "Member", `{"events":"read","members":"none","finances":"none","news":"read","polls":"read","settings":"none"}`)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Sole Admin",
-		Email: "sole-admin-2@example.com",
-	})
-	require.NoError(t, err)
-	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin-2@example.com")
+	_, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
 	require.NoError(t, err)
 
 	// Demoting the sole admin to a non-settings role must be blocked.
@@ -635,13 +462,9 @@ func TestMembersRepository_IsMember(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Henry Ford",
-		Email: "henry@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Henry Ford", "henry@example.com")
 
 	isMember, err := repo.IsMember(ctx, teamID, m.UserID)
 	require.NoError(t, err)
@@ -660,13 +483,9 @@ func TestMembersRepository_GetPermissions_NoRoles(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Iris West",
-		Email: "iris@example.com",
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Iris West", "iris@example.com")
 
 	perms, err := repo.GetPermissions(ctx, teamID, m.UserID)
 	require.NoError(t, err)
@@ -685,7 +504,7 @@ func TestMembersRepository_GetPermissions_MaxFold(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	// roleA grants events=read, members=none.
 	roleA := seedRole(t, pool, teamID, "Viewer",
 		`{"events":"read","members":"none","finances":"none","news":"none","polls":"none","settings":"none"}`)
@@ -693,12 +512,7 @@ func TestMembersRepository_GetPermissions_MaxFold(t *testing.T) {
 	roleB := seedRole(t, pool, teamID, "Editor",
 		`{"events":"write","members":"read","finances":"none","news":"none","polls":"none","settings":"none"}`)
 
-	m, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:    "Jack London",
-		Email:   "jack@example.com",
-		RoleIDs: []string{roleA.String(), roleB.String()},
-	})
-	require.NoError(t, err)
+	m := seedMember(t, pool, teamID, "Jack London", "jack@example.com", roleA, roleB)
 
 	perms, err := repo.GetPermissions(ctx, teamID, m.UserID)
 	require.NoError(t, err)
@@ -715,21 +529,12 @@ func TestMembersRepository_ListMembers_BatchRolesLoaded(t *testing.T) {
 	repo := members.NewRepository(pool)
 	ctx := context.Background()
 
-	_, teamID := seedMemberFixtures(t, pool)
+	teamID := seedMemberFixtures(t, pool)
 	roleID := seedRole(t, pool, teamID, "Coach",
 		`{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
-	_, err := repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:    "Karen Page",
-		Email:   "karen@example.com",
-		RoleIDs: []string{roleID.String()},
-	})
-	require.NoError(t, err)
-	_, err = repo.AddMember(ctx, teamID.String(), members.AddMemberParams{
-		Name:  "Luke Cage",
-		Email: "luke@example.com",
-	})
-	require.NoError(t, err)
+	seedMember(t, pool, teamID, "Karen Page", "karen@example.com", roleID)
+	seedMember(t, pool, teamID, "Luke Cage", "luke@example.com")
 
 	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
 	require.NoError(t, err)

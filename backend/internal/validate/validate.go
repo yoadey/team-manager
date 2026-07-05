@@ -28,7 +28,7 @@ const (
 	// maxUUIDItems caps role-ID-array-shaped request fields (roleIds,
 	// nominatedRoleIds, reasonVisibilityRoleIds). Generous for any real
 	// club's role list, while preventing a caller from submitting an
-	// absurdly large array — e.g. members.SetRoles/AddMember process one
+	// absurdly large array — e.g. members.SetRoles processes one
 	// INSERT per ID sequentially while holding the team's exclusive
 	// advisory lock, so an unbounded array would block every other admin
 	// mutation on that team for the duration.

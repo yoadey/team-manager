@@ -23,7 +23,7 @@ const pgUniqueViolation = "23505"
 var ErrRoleNotInTeam = errors.New("role does not belong to team")
 
 // dedupeStrings returns ids with duplicates removed, preserving the order of
-// first occurrence. AddMember/SetRoles both validate role ownership via
+// first occurrence. SetRoles validates role ownership via
 // `COUNT(*) FROM roles WHERE id = ANY($1)` (which counts matching rows once
 // per distinct role, not input array elements) and then INSERT one
 // membership_roles row per ID -- that table's composite primary key
@@ -43,16 +43,9 @@ func dedupeStrings(ids []string) []string {
 	return out
 }
 
-// ErrDuplicateMembership is returned when AddMember would create a second
-// membership for a user that is already on the team (unique (team_id,
-// user_id) violation) — e.g. two concurrent "add member" calls for the same
-// email.
-var ErrDuplicateMembership = errors.New("user is already a member of this team")
-
 // ErrEmailTaken is returned when UpdateMember would change a user's email to
 // one already used by a different user account (users.email UNIQUE
-// violation) -- distinct from ErrDuplicateMembership, which is about a
-// second membership row for the same team, not a colliding user account.
+// violation).
 var ErrEmailTaken = errors.New("email is already used by another account")
 
 // ErrLastSettingsAdmin is returned when SetRoles or RemoveMember would leave
@@ -135,94 +128,6 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 	}
 
 	return members, nil
-}
-
-// AddMember inserts a user (if not exists by email), creates membership and assigns roles.
-// Every role in params.RoleIDs must belong to teamID — otherwise ErrRoleNotInTeam is
-// returned, matching the check SetRoles already performs.
-func (r *Repository) AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	params.RoleIDs = dedupeStrings(params.RoleIDs)
-
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("members.Repository.AddMember: begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Uses the same advisory lock key as roles.DeleteRole/UpdateRole so the
-	// role-existence check below can't race with a concurrent role deletion:
-	// checking on r.pool before this transaction began (as this used to)
-	// left a window where DeleteRole could commit between the check and the
-	// membership_roles INSERT below, hitting its FK constraint and
-	// surfacing as an unhandled 500 instead of the clean ErrRoleNotInTeam
-	// this check exists to produce.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
-		return nil, fmt.Errorf("members.Repository.AddMember: advisory lock: %w", err)
-	}
-
-	if len(params.RoleIDs) > 0 {
-		var count int
-		err := tx.QueryRow(ctx,
-			`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
-			params.RoleIDs, teamID,
-		).Scan(&count)
-		if err != nil {
-			return nil, fmt.Errorf("members.Repository.AddMember: check roles: %w", err)
-		}
-		if count != len(params.RoleIDs) {
-			return nil, ErrRoleNotInTeam
-		}
-	}
-
-	// Upsert user: find by email or insert. Done as a single atomic statement
-	// (rather than a SELECT followed by a conditional INSERT) so two
-	// concurrent AddMember calls for the same brand-new email — e.g. two team
-	// admins inviting the same unregistered person at once — can't race: the
-	// loser of the INSERT would otherwise hit the email UNIQUE constraint and
-	// surface as an unhandled 500 instead of resolving to the same user row.
-	var userID string
-	err = tx.QueryRow(ctx, `
-		INSERT INTO users (name, email, phone, avatar_color)
-		VALUES ($1, $2, $3, '#6366f1')
-		ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-		RETURNING id
-	`, params.Name, params.Email, params.Phone).Scan(&userID)
-	if err != nil {
-		return nil, fmt.Errorf("members.Repository.AddMember: upsert user: %w", err)
-	}
-
-	// Insert membership.
-	var membershipID string
-	err = tx.QueryRow(ctx, `
-		INSERT INTO memberships (team_id, user_id, "group")
-		VALUES ($1, $2, $3)
-		RETURNING id
-	`, teamID, userID, params.Group).Scan(&membershipID)
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
-			return nil, ErrDuplicateMembership
-		}
-		return nil, fmt.Errorf("members.Repository.AddMember: create membership: %w", err)
-	}
-
-	// Assign roles.
-	for _, roleID := range params.RoleIDs {
-		_, err = tx.Exec(ctx, `
-			INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)
-		`, membershipID, roleID)
-		if err != nil {
-			return nil, fmt.Errorf("members.Repository.AddMember: assign role %s: %w", roleID, err)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("members.Repository.AddMember: commit: %w", err)
-	}
-
-	return r.getMemberByMembershipID(ctx, membershipID)
 }
 
 // UpdateMember applies a partial update to the user fields and optionally the

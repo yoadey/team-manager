@@ -377,15 +377,6 @@ describe('members', () => {
     );
   });
 
-  it('add forwards roleIds', async () => {
-    client.POST.mockResolvedValueOnce(ok({ id: 'm1' }));
-    await realApi.members.add('t1', { name: 'N', email: 'e@x.c', roleIds: ['r1'] });
-    expect(client.POST).toHaveBeenCalledWith(
-      '/teams/{teamId}/members',
-      expect.objectContaining({ body: expect.objectContaining({ roleIds: ['r1'] }) }),
-    );
-  });
-
   it('update patches a membership', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 'm1' }));
     await realApi.members.update('m1', { name: 'N' }, 't1');

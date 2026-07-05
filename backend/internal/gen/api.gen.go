@@ -352,15 +352,6 @@ type AddCommentRequest struct {
 	Text string `json:"text"`
 }
 
-// AddMemberRequest defines model for AddMemberRequest.
-type AddMemberRequest struct {
-	Email   openapi_types.Email   `json:"email"`
-	Group   *string               `json:"group,omitempty"`
-	Name    string                `json:"name"`
-	Phone   *string               `json:"phone,omitempty"`
-	RoleIds *[]openapi_types.UUID `json:"roleIds,omitempty"`
-}
-
 // AppNotification defines model for AppNotification.
 type AppNotification struct {
 	ActorColor    *string             `json:"actorColor,omitempty"`
@@ -1193,9 +1184,6 @@ type UpdateTransactionJSONRequestBody = UpdateTransactionRequest
 // UploadTeamLogoMultipartRequestBody defines body for UploadTeamLogo for multipart/form-data ContentType.
 type UploadTeamLogoMultipartRequestBody UploadTeamLogoMultipartBody
 
-// AddMemberJSONRequestBody defines body for AddMember for application/json ContentType.
-type AddMemberJSONRequestBody = AddMemberRequest
-
 // UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
 type UpdateMemberJSONRequestBody = UpdateMemberRequest
 
@@ -1366,9 +1354,6 @@ type ServerInterface interface {
 	// List team members
 	// (GET /teams/{teamId}/members)
 	ListMembers(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListMembersParams)
-	// Add a member to the team
-	// (POST /teams/{teamId}/members)
-	AddMember(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Remove member from team
 	// (DELETE /teams/{teamId}/members/{membershipId})
 	RemoveMember(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId)
@@ -1720,12 +1705,6 @@ func (_ Unimplemented) UploadTeamLogo(w http.ResponseWriter, r *http.Request, te
 // List team members
 // (GET /teams/{teamId}/members)
 func (_ Unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListMembersParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Add a member to the team
-// (POST /teams/{teamId}/members)
-func (_ Unimplemented) AddMember(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3637,38 +3616,6 @@ func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
-// AddMember operation middleware
-func (siw *ServerInterfaceWrapper) AddMember(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "teamId" -------------
-	var teamId TeamId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddMember(w, r, teamId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // RemoveMember operation middleware
 func (siw *ServerInterfaceWrapper) RemoveMember(w http.ResponseWriter, r *http.Request) {
 
@@ -4803,9 +4750,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/members", wrapper.ListMembers)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/teams/{teamId}/members", wrapper.AddMember)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/teams/{teamId}/members/{membershipId}", wrapper.RemoveMember)
@@ -6132,29 +6076,6 @@ func (response ListMembers200JSONResponse) VisitListMembersResponse(w http.Respo
 	return err
 }
 
-type AddMemberRequestObject struct {
-	TeamId TeamId `json:"teamId"`
-	Body   *AddMemberJSONRequestBody
-}
-
-type AddMemberResponseObject interface {
-	VisitAddMemberResponse(w http.ResponseWriter) error
-}
-
-type AddMember201JSONResponse Member
-
-func (response AddMember201JSONResponse) VisitAddMemberResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type RemoveMemberRequestObject struct {
 	TeamId       TeamId       `json:"teamId"`
 	MembershipId MembershipId `json:"membershipId"`
@@ -6816,9 +6737,6 @@ type StrictServerInterface interface {
 	// List team members
 	// (GET /teams/{teamId}/members)
 	ListMembers(ctx context.Context, request ListMembersRequestObject) (ListMembersResponseObject, error)
-	// Add a member to the team
-	// (POST /teams/{teamId}/members)
-	AddMember(ctx context.Context, request AddMemberRequestObject) (AddMemberResponseObject, error)
 	// Remove member from team
 	// (DELETE /teams/{teamId}/members/{membershipId})
 	RemoveMember(ctx context.Context, request RemoveMemberRequestObject) (RemoveMemberResponseObject, error)
@@ -8280,39 +8198,6 @@ func (sh *strictHandler) ListMembers(w http.ResponseWriter, r *http.Request, tea
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListMembersResponseObject); ok {
 		if err := validResponse.VisitListMembersResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AddMember operation middleware
-func (sh *strictHandler) AddMember(w http.ResponseWriter, r *http.Request, teamId TeamId) {
-	var request AddMemberRequestObject
-
-	request.TeamId = teamId
-
-	var body AddMemberJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddMember(ctx, request.(AddMemberRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddMember")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddMemberResponseObject); ok {
-		if err := validResponse.VisitAddMemberResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

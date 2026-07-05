@@ -236,7 +236,7 @@ func main() {
 
 	membersRepo := members.NewRepository(pool)
 	membersSvc := members.NewService(membersRepo, pager)
-	membersHandler := members.NewHandler(membersSvc, membersRepo, logger, auditLogger)
+	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
 
 	// ─── Roles ───────────────────────────────────────────────────────────────
 

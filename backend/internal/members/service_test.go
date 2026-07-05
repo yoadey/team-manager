@@ -18,7 +18,6 @@ import (
 
 type mockMemberRepo struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
-	addMember    func(ctx context.Context, teamID string, params members.AddMemberParams) (*members.MemberRow, error)
 	updateMember func(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*members.MemberRow, error)
 	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string) (*members.MemberRow, error)
 	removeMember func(ctx context.Context, membershipID, teamID string) error
@@ -26,10 +25,6 @@ type mockMemberRepo struct {
 
 func (m *mockMemberRepo) ListMembers(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error) {
 	return m.listMembers(ctx, teamID, limit, cur)
-}
-
-func (m *mockMemberRepo) AddMember(ctx context.Context, teamID string, params members.AddMemberParams) (*members.MemberRow, error) {
-	return m.addMember(ctx, teamID, params)
 }
 
 func (m *mockMemberRepo) UpdateMember(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*members.MemberRow, error) {

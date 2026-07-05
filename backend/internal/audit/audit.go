@@ -38,7 +38,6 @@ const (
 	EventRoleUpdate = "role.update"
 	EventRoleDelete = "role.delete"
 
-	EventMemberAdd         = "member.add"
 	EventMemberUpdate      = "member.update"
 	EventMemberRemove      = "member.remove"
 	EventMemberRolesChange = "member.roles_change"
