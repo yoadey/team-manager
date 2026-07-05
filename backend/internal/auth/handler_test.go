@@ -507,6 +507,55 @@ func TestHandler_UploadMyPhoto_RejectsNonImageContent(t *testing.T) {
 	assert.Contains(t, w.Body.String(), "JPEG")
 }
 
+// Regression test: io.LimitReader silently truncates rather than erroring
+// once its cap is reached, so a photo between 2 MB and the global body-size
+// cap used to sail past the "cannot read file data" check with intact JPEG
+// magic bytes but truncated body -- decoding it downstream failed with a
+// plain error (not ErrImageTooLarge), falling through to a generic 500
+// instead of a clean 413 for what's really an oversized-payload problem.
+func TestHandler_UploadMyPhoto_RejectsOversizedFile(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		validateToken: func(_ context.Context, _ string) (*auth.UserRow, error) {
+			return testUser(), nil
+		},
+		updatePhoto: func(context.Context, string, []byte, string) (*auth.UserRow, error) {
+			t.Fatal("service must not be called for an oversized upload")
+			return nil, nil
+		},
+	}
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Put("/auth/me/photo", func(w http.ResponseWriter, req *http.Request) {
+			callUploadMyPhoto(h, w, req)
+		})
+	})
+
+	// JPEG magic bytes followed by > 2 MB of filler so DetectContentType
+	// still identifies it as a JPEG, but the file exceeds the 2 MB cap.
+	oversized := append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, make([]byte, 3<<20)...)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("photo", "huge.jpg")
+	require.NoError(t, err)
+	_, err = fw.Write(oversized)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/auth/me/photo", &buf)
+	addSessionCookie(t, codec, req, "token")
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
 // Regression test: GetMyPhoto's 404 used to be hand-built with no `type`
 // field at all (the only error response in this package that shipped
 // without one), instead of going through apierror.NotFound like every other
