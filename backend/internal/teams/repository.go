@@ -195,8 +195,11 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 }
 
 // parseAndValidateTeamRoleIDs parses ids as UUIDs and verifies every one
-// belongs to teamID, returning ErrRoleNotInTeam otherwise.
-func (r *Repository) parseAndValidateTeamRoleIDs(ctx context.Context, teamID string, ids []string) ([]uuid.UUID, error) {
+// belongs to teamID, returning ErrRoleNotInTeam otherwise. Takes tx (not the
+// pool) so the check runs inside the caller's transaction, after it holds the
+// team's advisory lock -- otherwise a role could be deleted between this
+// check and the caller's later write, leaving a dangling reference.
+func parseAndValidateTeamRoleIDs(ctx context.Context, tx pgx.Tx, teamID string, ids []string) ([]uuid.UUID, error) {
 	uids := make([]uuid.UUID, len(ids))
 	for i, s := range ids {
 		u, err := uuid.Parse(s)
@@ -209,7 +212,7 @@ func (r *Repository) parseAndValidateTeamRoleIDs(ctx context.Context, teamID str
 		return uids, nil
 	}
 	var count int
-	if err := r.pool.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
 		uids, teamID,
 	).Scan(&count); err != nil {
@@ -228,15 +231,12 @@ func (r *Repository) parseAndValidateTeamRoleIDs(ctx context.Context, teamID str
 	return uids, nil
 }
 
-// UpdateTeam applies a partial update to the teams row and returns the updated row.
-func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	// Build a dynamic SET clause.
-	setClauses := []string{}
-	args := []any{}
-	argN := 1
-
+// buildSimpleTeamPatchClauses builds the SET clauses/args for TeamPatch
+// fields that need no extra validation, returning the next free placeholder
+// index. ReasonVisibilityRoleIDs is handled separately by the caller since it
+// needs a transaction to validate against.
+func buildSimpleTeamPatchClauses(patch TeamPatch) (setClauses []string, args []any, argN int) {
+	argN = 1
 	if patch.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argN))
 		args = append(args, *patch.Name)
@@ -267,8 +267,37 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 		args = append(args, *patch.Description)
 		argN++
 	}
+	return setClauses, args, argN
+}
+
+// UpdateTeam applies a partial update to the teams row and returns the updated row.
+func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.UpdateTeam: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	if patch.ReasonVisibilityRoleIDs != nil {
-		uids, err := r.parseAndValidateTeamRoleIDs(ctx, teamID, patch.ReasonVisibilityRoleIDs)
+		// Uses the same advisory lock key as members.SetRoles/roles.DeleteRole
+		// (hashtextextended(teamID, 0)) so validating these role IDs can't
+		// race with a concurrent DeleteRole -- otherwise a role could be
+		// deleted (and scrubbed from this same array) between the check
+		// below and this UPDATE's commit, re-introducing a dangling
+		// reference right after DeleteRole just removed it.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+			return nil, fmt.Errorf("teams.Repository.UpdateTeam: advisory lock: %w", err)
+		}
+	}
+
+	// Build a dynamic SET clause.
+	setClauses, args, argN := buildSimpleTeamPatchClauses(patch)
+
+	if patch.ReasonVisibilityRoleIDs != nil {
+		uids, err := parseAndValidateTeamRoleIDs(ctx, tx, teamID, patch.ReasonVisibilityRoleIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -300,7 +329,7 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 	`, setSQL, argN)
 
 	var tr TeamRow
-	err := r.pool.QueryRow(ctx, q, args...).Scan(
+	err = tx.QueryRow(ctx, q, args...).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
 		&tr.PhotoData, &tr.PhotoMime,
 		&tr.LogoData, &tr.LogoMime,
@@ -311,6 +340,9 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 			return nil, pgx.ErrNoRows
 		}
 		return nil, fmt.Errorf("teams.Repository.UpdateTeam: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("teams.Repository.UpdateTeam: commit: %w", err)
 	}
 	return &tr, nil
 }

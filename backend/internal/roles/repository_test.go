@@ -232,6 +232,53 @@ func TestRolesRepository_DeleteRole_ScrubsReasonVisibilityRoleIDs(t *testing.T) 
 	assert.Empty(t, remaining, "deleted role's ID must be scrubbed from reason_visibility_role_ids")
 }
 
+// Regression test: events.nominated_role_ids and event_series.nominated_role_ids
+// are the same kind of plain UUID[] column with no FK to roles -- deleting a
+// role referenced there used to leave a permanently dangling ID in every
+// future ListEvents/GetEvent response for that event/series.
+func TestRolesRepository_DeleteRole_ScrubsNominatedRoleIDs(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Nominated Roles Cleanup Team')`, tid)
+	require.NoError(t, err)
+
+	trainerRole, err := repo.CreateRole(ctx, tid, "Trainer", nil, teams.PermissionsJSON{
+		Events: "read", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none",
+	})
+	require.NoError(t, err)
+
+	var seriesID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO event_series (team_id, type, title, nominated_role_ids)
+		VALUES ($1, 'training', 'Weekly Training', $2)
+		RETURNING id`,
+		tid, []string{trainerRole.Id.String()},
+	).Scan(&seriesID)
+	require.NoError(t, err)
+
+	var eventID string
+	err = pool.QueryRow(ctx, `
+		INSERT INTO events (team_id, series_id, type, title, date, nominated_role_ids)
+		VALUES ($1, $2, 'training', 'Training', CURRENT_DATE, $3)
+		RETURNING id`,
+		tid, seriesID, []string{trainerRole.Id.String()},
+	).Scan(&eventID)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.DeleteRole(ctx, trainerRole.Id.String(), tid))
+
+	var eventRemaining, seriesRemaining []string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT nominated_role_ids FROM events WHERE id = $1`, eventID).Scan(&eventRemaining))
+	require.NoError(t, pool.QueryRow(ctx, `SELECT nominated_role_ids FROM event_series WHERE id = $1`, seriesID).Scan(&seriesRemaining))
+	assert.Empty(t, eventRemaining, "deleted role's ID must be scrubbed from events.nominated_role_ids")
+	assert.Empty(t, seriesRemaining, "deleted role's ID must be scrubbed from event_series.nominated_role_ids")
+}
+
 // Regression test: UpdateRole previously had no last-settings-admin guard at
 // all, so revoking settings:write via an edit (instead of deleting the role
 // outright) could lock a team out of settings/role management — exactly the

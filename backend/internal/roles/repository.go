@@ -311,20 +311,40 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 		return pgx.ErrNoRows
 	}
 
-	// reason_visibility_role_ids has no FK (it's a plain UUID[] column, set
-	// via teams.Repository.UpdateTeam), so deleting a role that a team
-	// references there would otherwise leave a permanently dangling ID with
-	// no error or indication -- scrub it in the same transaction as the role
-	// deletion itself.
-	if _, err = tx.Exec(ctx,
-		`UPDATE teams SET reason_visibility_role_ids = array_remove(reason_visibility_role_ids, $1) WHERE id = $2`,
-		roleID, teamID,
-	); err != nil {
-		return fmt.Errorf("roles.Repository.DeleteRole: scrub reason_visibility_role_ids: %w", err)
+	if err := scrubDanglingRoleReferences(ctx, tx, roleID, teamID); err != nil {
+		return err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("roles.Repository.DeleteRole: commit: %w", err)
+	}
+	return nil
+}
+
+// scrubDanglingRoleReferences removes roleID from every plain UUID[] column
+// that references roles with no FK: teams.reason_visibility_role_ids and
+// events/event_series.nominated_role_ids. Without this, deleting a role
+// referenced there leaves a permanently dangling ID with no error or
+// indication. Runs inside the caller's transaction so it's atomic with the
+// role deletion itself.
+func scrubDanglingRoleReferences(ctx context.Context, tx pgx.Tx, roleID, teamID string) error {
+	if _, err := tx.Exec(ctx,
+		`UPDATE teams SET reason_visibility_role_ids = array_remove(reason_visibility_role_ids, $1) WHERE id = $2`,
+		roleID, teamID,
+	); err != nil {
+		return fmt.Errorf("roles.Repository: scrub reason_visibility_role_ids: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE events SET nominated_role_ids = array_remove(nominated_role_ids, $1) WHERE team_id = $2`,
+		roleID, teamID,
+	); err != nil {
+		return fmt.Errorf("roles.Repository: scrub events.nominated_role_ids: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE event_series SET nominated_role_ids = array_remove(nominated_role_ids, $1) WHERE team_id = $2`,
+		roleID, teamID,
+	); err != nil {
+		return fmt.Errorf("roles.Repository: scrub event_series.nominated_role_ids: %w", err)
 	}
 	return nil
 }
