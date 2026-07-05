@@ -22,7 +22,7 @@ vi.mock('./SheetHost', () => ({
 }));
 
 vi.mock('./Toast', () => ({
-  Toast: () => null,
+  Toast: () => <div data-testid="toast">Toast</div>,
 }));
 
 import { useApp } from '@/context/AppContext';
@@ -37,6 +37,13 @@ describe('Root', () => {
     mockUseApp.mockReturnValue({ state: { phase: 'loading', primaryColor: '#4285F4' } });
     render(<Root />);
     expect(screen.getByRole('status')).toBeTruthy();
+  });
+
+  it('mounts Toast even while phase is loading, so a toast set during the ' +
+    'cookie-restore establishSession call (e.g. invite-link redemption) is not silently swallowed', () => {
+    mockUseApp.mockReturnValue({ state: { phase: 'loading', primaryColor: '#4285F4' } });
+    render(<Root />);
+    expect(screen.getByTestId('toast')).toBeTruthy();
   });
 
   it('renders Login component when phase is login', () => {
