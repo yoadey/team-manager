@@ -598,6 +598,8 @@ export const de = {
     nameRequired: 'Bitte Team-Namen angeben.',
     toastSettingsSaved: 'Team-Einstellungen gespeichert',
     toastTeamCreated: 'Team angelegt – du bist Admin',
+    toastJoined: 'Team „{name}“ beigetreten',
+    toastInviteInvalid: 'Einladungslink ist ungültig oder abgelaufen.',
     toastLinkCopied: 'Link kopiert',
     toastMyPhotoSaved: 'Profilfoto aktualisiert',
     roleNameRequired: 'Bitte Rollennamen angeben.',

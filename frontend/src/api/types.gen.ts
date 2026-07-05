@@ -213,6 +213,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/invites/{code}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem an invite code, adding the authenticated user to its team
+         * @description Idempotent: redeeming a code for a team the caller already belongs to just returns that team rather than erroring.
+         */
+        post: operations["acceptInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{teamId}/members": {
         parameters: {
             query?: never;
@@ -1309,6 +1331,7 @@ export interface components {
             anonymous: boolean;
         };
         VotePollRequest: {
+            /** @description Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. */
             optionIds: string[];
         };
         AppNotification: {
@@ -2044,6 +2067,29 @@ export interface operations {
                     "application/json": components["schemas"]["Invite"];
                 };
             };
+        };
+    };
+    acceptInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamForUser"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listMembers: {

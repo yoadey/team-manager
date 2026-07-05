@@ -71,6 +71,10 @@ func (StrictUnimplemented) CreateInvite(_ context.Context, _ gen.CreateInviteReq
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) AcceptInvite(_ context.Context, _ gen.AcceptInviteRequestObject) (gen.AcceptInviteResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 func (StrictUnimplemented) GetTeamLogo(_ context.Context, _ gen.GetTeamLogoRequestObject) (gen.GetTeamLogoResponseObject, error) {
 	return nil, errNotImplemented
 }
@@ -422,6 +426,10 @@ func (s *Server) UpdateTeam(ctx context.Context, req gen.UpdateTeamRequestObject
 
 func (s *Server) CreateInvite(ctx context.Context, req gen.CreateInviteRequestObject) (gen.CreateInviteResponseObject, error) {
 	return s.Teams.CreateInvite(ctx, req)
+}
+
+func (s *Server) AcceptInvite(ctx context.Context, req gen.AcceptInviteRequestObject) (gen.AcceptInviteResponseObject, error) {
+	return s.Teams.AcceptInvite(ctx, req)
 }
 
 func (s *Server) GetTeamLogo(ctx context.Context, req gen.GetTeamLogoRequestObject) (gen.GetTeamLogoResponseObject, error) {

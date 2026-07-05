@@ -296,6 +296,12 @@ export const realApi = {
       const inv = await check(res);
       return mapInvite(inv);
     },
+
+    async acceptInvite(code: string): Promise<TeamForUser> {
+      const res = await apiClient.POST('/invites/{code}/accept', { params: { path: { code } } });
+      const tfu = await check(res);
+      return mapTeamForUser(tfu);
+    },
   },
 
   members: {

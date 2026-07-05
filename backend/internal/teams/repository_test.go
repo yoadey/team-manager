@@ -3,15 +3,31 @@ package teams_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/teams"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
 )
+
+// insertUser is a small helper shared by the AcceptInvite tests below to cut
+// down on repeated boilerplate for tests that need several distinct users.
+func insertUser(t *testing.T, pool *pgxpool.Pool, email string) string {
+	t.Helper()
+	var userID string
+	err := pool.QueryRow(context.Background(), `
+		INSERT INTO users (name, email, avatar_color)
+		VALUES ('Invite Test User', $1, '#445566')
+		RETURNING id
+	`, email).Scan(&userID)
+	require.NoError(t, err)
+	return userID
+}
 
 func TestTeamRepository_CreateTeam(t *testing.T) {
 	pool := testutil.NewTestDB(t)
@@ -207,4 +223,95 @@ func TestTeamRepository_DeleteTeamLogo_UnknownTeam_ReturnsNoRows(t *testing.T) {
 	repo := teams.NewRepository(pool)
 	err := repo.DeleteTeamLogo(context.Background(), uuid.New().String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestTeamRepository_AcceptInvite_NewMember_JoinsAndGetsDefaultMemberRole(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+	repo := teams.NewRepository(pool)
+
+	creatorID := insertUser(t, pool, "invite-accept-creator@example.com")
+	tr, err := repo.CreateTeam(ctx, "Invite Accept Team", creatorID)
+	require.NoError(t, err)
+
+	inv, err := repo.CreateInvite(ctx, tr.Id.String(), 7*24*time.Hour)
+	require.NoError(t, err)
+
+	joinerID := insertUser(t, pool, "invite-accept-joiner@example.com")
+	joined, err := repo.AcceptInvite(ctx, inv.Code, joinerID)
+	require.NoError(t, err)
+	assert.Equal(t, tr.Id, joined.Id)
+
+	var membershipID string
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, tr.Id, joinerID).
+		Scan(&membershipID)
+	require.NoError(t, err)
+
+	var roleName string
+	err = pool.QueryRow(ctx, `
+		SELECT r.name FROM membership_roles mr
+		JOIN roles r ON r.id = mr.role_id
+		WHERE mr.membership_id = $1
+	`, membershipID).Scan(&roleName)
+	require.NoError(t, err)
+	assert.Equal(t, "Member", roleName)
+}
+
+func TestTeamRepository_AcceptInvite_AlreadyMember_IsIdempotentAndKeepsRoles(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+	repo := teams.NewRepository(pool)
+
+	creatorID := insertUser(t, pool, "invite-idempotent-creator@example.com")
+	tr, err := repo.CreateTeam(ctx, "Invite Idempotent Team", creatorID)
+	require.NoError(t, err)
+
+	inv, err := repo.CreateInvite(ctx, tr.Id.String(), 7*24*time.Hour)
+	require.NoError(t, err)
+
+	// Creator re-clicking the team's own invite link is already a member and
+	// already holds the (all-write) Admin role -- redeeming the code again
+	// must not touch that.
+	joined, err := repo.AcceptInvite(ctx, inv.Code, creatorID)
+	require.NoError(t, err)
+	assert.Equal(t, tr.Id, joined.Id)
+
+	var membershipID string
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, tr.Id, creatorID).
+		Scan(&membershipID)
+	require.NoError(t, err)
+
+	var roleCount int
+	err = pool.QueryRow(ctx, `SELECT COUNT(*) FROM membership_roles WHERE membership_id = $1`, membershipID).
+		Scan(&roleCount)
+	require.NoError(t, err)
+	assert.Equal(t, 1, roleCount, "re-accepting must not add a second (Member) role alongside the existing Admin role")
+}
+
+func TestTeamRepository_AcceptInvite_ExpiredCode_ReturnsErrInviteNotFound(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+	repo := teams.NewRepository(pool)
+
+	creatorID := insertUser(t, pool, "invite-expired-creator@example.com")
+	tr, err := repo.CreateTeam(ctx, "Invite Expired Team", creatorID)
+	require.NoError(t, err)
+
+	inv, err := repo.CreateInvite(ctx, tr.Id.String(), 7*24*time.Hour)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE invites SET expires_at = now() - interval '1 minute' WHERE id = $1`, inv.Id)
+	require.NoError(t, err)
+
+	joinerID := insertUser(t, pool, "invite-expired-joiner@example.com")
+	_, err = repo.AcceptInvite(ctx, inv.Code, joinerID)
+	require.ErrorIs(t, err, teams.ErrInviteNotFound)
+}
+
+func TestTeamRepository_AcceptInvite_UnknownCode_ReturnsErrInviteNotFound(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	repo := teams.NewRepository(pool)
+
+	joinerID := insertUser(t, pool, "invite-unknown-joiner@example.com")
+	_, err := repo.AcceptInvite(context.Background(), "does-not-exist", joinerID)
+	require.ErrorIs(t, err, teams.ErrInviteNotFound)
 }

@@ -1249,6 +1249,9 @@ type ServerInterface interface {
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
+	// Redeem an invite code, adding the authenticated user to its team
+	// (POST /invites/{code}/accept)
+	AcceptInvite(w http.ResponseWriter, r *http.Request, code string)
 	// List teams the authenticated user belongs to
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request)
@@ -1483,6 +1486,12 @@ func (_ Unimplemented) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
 // List available login providers
 // (GET /auth/providers)
 func (_ Unimplemented) ListProviders(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Redeem an invite code, adding the authenticated user to its team
+// (POST /invites/{code}/accept)
+func (_ Unimplemented) AcceptInvite(w http.ResponseWriter, r *http.Request, code string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2000,6 +2009,38 @@ func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptInvite operation middleware
+func (siw *ServerInterfaceWrapper) AcceptInvite(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", chi.URLParam(r, "code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptInvite(w, r, code)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4647,6 +4688,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/auth/providers", wrapper.ListProviders)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/invites/{code}/accept", wrapper.AcceptInvite)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams", wrapper.ListTeams)
 	})
 	r.Group(func(r chi.Router) {
@@ -5124,6 +5168,44 @@ func (response ListProviders200JSONResponse) VisitListProvidersResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInviteRequestObject struct {
+	Code string `json:"code"`
+}
+
+type AcceptInviteResponseObject interface {
+	VisitAcceptInviteResponse(w http.ResponseWriter) error
+}
+
+type AcceptInvite200JSONResponse TeamForUser
+
+func (response AcceptInvite200JSONResponse) VisitAcceptInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvite404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response AcceptInvite404ApplicationProblemPlusJSONResponse) VisitAcceptInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6617,6 +6699,9 @@ type StrictServerInterface interface {
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
+	// Redeem an invite code, adding the authenticated user to its team
+	// (POST /invites/{code}/accept)
+	AcceptInvite(ctx context.Context, request AcceptInviteRequestObject) (AcceptInviteResponseObject, error)
 	// List teams the authenticated user belongs to
 	// (GET /teams)
 	ListTeams(ctx context.Context, request ListTeamsRequestObject) (ListTeamsResponseObject, error)
@@ -7037,6 +7122,32 @@ func (sh *strictHandler) ListProviders(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListProvidersResponseObject); ok {
 		if err := validResponse.VisitListProvidersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptInvite operation middleware
+func (sh *strictHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, code string) {
+	var request AcceptInviteRequestObject
+
+	request.Code = code
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptInvite(ctx, request.(AcceptInviteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptInvite")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptInviteResponseObject); ok {
+		if err := validResponse.VisitAcceptInviteResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

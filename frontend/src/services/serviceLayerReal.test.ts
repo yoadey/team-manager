@@ -345,6 +345,13 @@ describe('teams', () => {
     const res = await realApi.teams.createInvite('t1');
     expect(res).toMatchObject({ __mapped: 'invite' });
   });
+
+  it('acceptInvite posts the code and maps the resulting team', async () => {
+    client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
+    const res = await realApi.teams.acceptInvite('abc123');
+    expect(client.POST).toHaveBeenCalledWith('/invites/{code}/accept', { params: { path: { code: 'abc123' } } });
+    expect(res).toMatchObject({ __mapped: 'teamForUser' });
+  });
 });
 
 // ─── members ──────────────────────────────────────────────────────────────────

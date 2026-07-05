@@ -46,6 +46,7 @@ type teamRepo interface {
 	GetMembership(ctx context.Context, teamID, userID string) (*MembershipRow, error)
 	GetRolesForMembership(ctx context.Context, membershipID, teamID string) ([]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
+	AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
 	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
 	DeleteTeamPhoto(ctx context.Context, teamID string) error
@@ -96,6 +97,19 @@ func (s *Service) CreateTeam(ctx context.Context, userID, name string) (*gen.Tea
 		return nil, err
 	}
 	return tfu, nil
+}
+
+// AcceptInvite redeems a 7-day invite code, adding userID to the invite's
+// team, and returns that team enriched for the caller.
+func (s *Service) AcceptInvite(ctx context.Context, code, userID string) (*gen.TeamForUser, error) {
+	tr, err := s.repo.AcceptInvite(ctx, code, userID)
+	if err != nil {
+		if errors.Is(err, ErrInviteNotFound) {
+			return nil, ErrInviteNotFound
+		}
+		return nil, fmt.Errorf("teams.Service.AcceptInvite: %w", err)
+	}
+	return s.enrichTeamForUser(ctx, *tr, userID)
 }
 
 // GetTeam returns the gen.Team for the given ID.

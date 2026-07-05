@@ -379,6 +379,30 @@ paths:
               schema:
                 $ref: "#/components/schemas/Invite"
 
+  /invites/{code}/accept:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [teams]
+      operationId: acceptInvite
+      summary: Redeem an invite code, adding the authenticated user to its team
+      description: >-
+        Idempotent: redeeming a code for a team the caller already belongs to
+        just returns that team rather than erroring.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamForUser"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # ── Members ─────────────────────────────────────────────────────────────────
 
   /teams/{teamId}/members:

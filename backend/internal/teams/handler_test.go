@@ -33,6 +33,7 @@ type mockTeamService struct {
 	getTeam          func(ctx context.Context, teamID string) (*gen.Team, error)
 	updateTeam       func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
 	createInvite     func(ctx context.Context, teamID string) (*gen.Invite, error)
+	acceptInvite     func(ctx context.Context, code, userID string) (*gen.TeamForUser, error)
 	getTeamPhotoData func(ctx context.Context, teamID string) ([]byte, string, error)
 	updatePhoto      func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
 	deletePhoto      func(ctx context.Context, teamID string) error
@@ -59,6 +60,10 @@ func (m *mockTeamService) UpdateTeam(ctx context.Context, teamID string, patch t
 
 func (m *mockTeamService) CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error) {
 	return m.createInvite(ctx, teamID)
+}
+
+func (m *mockTeamService) AcceptInvite(ctx context.Context, code, userID string) (*gen.TeamForUser, error) {
+	return m.acceptInvite(ctx, code, userID)
 }
 
 func (m *mockTeamService) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mimeType string, err error) {
@@ -468,4 +473,66 @@ func TestTeamHandler_CreateInvite_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, actorID.String(), rec["actor"])
 	assert.Equal(t, teamID.String(), rec["teamId"])
 	assert.Equal(t, inviteID.String(), rec["inviteId"])
+}
+
+func TestTeamHandler_AcceptInvite_RequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		acceptInvite: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+			t.Fatal("service must not be called when unauthenticated")
+			return nil, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+
+	_, err := h.AcceptInvite(context.Background(), gen.AcceptInviteRequestObject{Code: "ABC123"})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
+}
+
+func TestTeamHandler_AcceptInvite_ReturnsTeamAndEmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		acceptInvite: func(_ context.Context, code, userID string) (*gen.TeamForUser, error) {
+			assert.Equal(t, "ABC123", code)
+			return &gen.TeamForUser{Id: teamID, Name: "Joined Team"}, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	actorID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Joiner", Email: "j@x.c"})
+	resp, err := h.AcceptInvite(ctx, gen.AcceptInviteRequestObject{Code: "ABC123"})
+	require.NoError(t, err)
+	require.IsType(t, gen.AcceptInvite200JSONResponse{}, resp)
+	assert.Equal(t, teamID, gen.TeamForUser(resp.(gen.AcceptInvite200JSONResponse)).Id)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.invite_create", rec["event"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+func TestTeamHandler_AcceptInvite_InviteNotFound_Returns404(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		acceptInvite: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+			return nil, teams.ErrInviteNotFound
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Joiner", Email: "j@x.c"})
+	resp, err := h.AcceptInvite(ctx, gen.AcceptInviteRequestObject{Code: "does-not-exist"})
+	require.NoError(t, err)
+	require.IsType(t, gen.AcceptInvite404ApplicationProblemPlusJSONResponse{}, resp)
 }

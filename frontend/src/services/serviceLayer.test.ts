@@ -142,6 +142,22 @@ describe('teams', () => {
     const invite = await settle(api.teams.createInvite('t_a'));
     expect(invite.code).toHaveLength(6);
     expect(invite.link).toContain(invite.code);
+    expect(invite.link).toContain('/join/t_a/' + invite.code);
+  });
+
+  it('acceptInvite is idempotent for a code redeemed by an already-existing member', async () => {
+    const invite = await settle(api.teams.createInvite('t_a'));
+    const before = await settle(api.members.list('t_a'));
+
+    const joined = await settle(api.teams.acceptInvite(invite.code));
+    expect(joined.id).toBe('t_a');
+
+    const after = await settle(api.members.list('t_a'));
+    expect(after).toHaveLength(before.length);
+  });
+
+  it('acceptInvite rejects an unknown code', async () => {
+    await expectRejection(api.teams.acceptInvite('does-not-exist'));
   });
 
   it('rejects when fetching a non-existent team (error handling)', async () => {

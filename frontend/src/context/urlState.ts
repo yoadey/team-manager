@@ -88,3 +88,22 @@ export function parseLocation(pathname: string, search: string): ParsedLocation 
 export function currentPath(): string {
   return window.location.pathname + window.location.search;
 }
+
+/** An invite link's team + code, parsed from the URL (see PendingInvite below). */
+export interface PendingInvite {
+  teamId: string;
+  code: string;
+}
+
+/**
+ * Parses a `/join/<teamId>/<code>` invite link path (the shape both service
+ * layers' createInvite build — see teams.Service.CreateInvite on the backend
+ * and serviceLayer.ts's mock equivalent). teamId is decorative here (the
+ * backend resolves the team from the code alone) but is still validated as
+ * present so a malformed link doesn't silently half-match.
+ */
+export function parsePendingInvite(pathname: string): PendingInvite | null {
+  const segs = pathname.replace(/^\//, '').split('/');
+  if (segs.length !== 3 || segs[0] !== 'join' || !segs[1] || !segs[2]) return null;
+  return { teamId: decodeURIComponent(segs[1]), code: decodeURIComponent(segs[2]) };
+}

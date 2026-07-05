@@ -27,6 +27,7 @@ type teamService interface {
 	GetTeam(ctx context.Context, teamID string) (*gen.Team, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*gen.Team, error)
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
+	AcceptInvite(ctx context.Context, code, userID string) (*gen.TeamForUser, error)
 	GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error)
 	UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
 	DeletePhoto(ctx context.Context, teamID string) error
@@ -214,6 +215,28 @@ func (h *Handler) CreateInvite(ctx context.Context, request gen.CreateInviteRequ
 	return gen.CreateInvite201JSONResponse(*inv), nil
 }
 
+// AcceptInvite redeems an invite code, adding the authenticated caller to the
+// invite's team.
+func (h *Handler) AcceptInvite(ctx context.Context, request gen.AcceptInviteRequestObject) (gen.AcceptInviteResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+
+	tfu, err := h.svc.AcceptInvite(ctx, request.Code, user.Id.String())
+	if err != nil {
+		if errors.Is(err, ErrInviteNotFound) {
+			return notFoundInviteResponse("invite not found or expired"), nil
+		}
+		h.logger.ErrorContext(ctx, "AcceptInvite failed", "err", err)
+		return nil, fmt.Errorf("teams.Handler.AcceptInvite: %w", err)
+	}
+	h.audit.Record(ctx, audit.EventTeamInvite, audit.Success, actor(ctx),
+		slog.String("teamId", tfu.Id.String()))
+	metrics.TeamEvents.WithLabelValues("team", "invite_accept").Inc()
+	return gen.AcceptInvite200JSONResponse(*tfu), nil
+}
+
 // GetTeamPhoto returns the team photo as JPEG.
 func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequestObject) (gen.GetTeamPhotoResponseObject, error) {
 	data, _, err := h.svc.GetTeamPhotoData(ctx, request.TeamId.String())
@@ -359,6 +382,18 @@ func (h *Handler) DeleteTeamLogo(ctx context.Context, request gen.DeleteTeamLogo
 func notFoundTeamResponse(detail string) gen.GetTeamResponseObject {
 	e := apierror.NotFound(detail)
 	return gen.GetTeam404ApplicationProblemPlusJSONResponse{
+		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
+			Title:  &e.Title,
+			Detail: &detail,
+			Status: &e.Status,
+			Type:   &e.Type,
+		},
+	}
+}
+
+func notFoundInviteResponse(detail string) gen.AcceptInviteResponseObject {
+	e := apierror.NotFound(detail)
+	return gen.AcceptInvite404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
 			Title:  &e.Title,
 			Detail: &detail,

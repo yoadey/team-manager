@@ -390,3 +390,88 @@ describe('AppProvider / can() permission checks', () => {
     expect(capturedCan('members')).toBe(false);
   });
 });
+
+// This block exercises real login (doLogin -> api.auth.login -> establishSession)
+// against the mock service layer, unlike every other describe above which
+// fast-forwards to 'app' phase via a direct setState. Because the mock's
+// session/DB singleton persists across tests within a module (no per-test
+// reset), each test here re-imports both modules fresh via vi.resetModules()
+// so a real login here can never leak session state into the rest of this
+// file's tests.
+describe('AppProvider / invite-redemption join flow', () => {
+  async function freshModules() {
+    vi.resetModules();
+    localStorage.clear();
+    const svc = await import('@/services/serviceLayer');
+    const ctx = await import('./AppContext');
+    return { api: svc.api, AppProvider: ctx.AppProvider, useApp: ctx.useApp, useAppActions: ctx.useAppActions };
+  }
+
+  it('redeems a pending invite on login, joins the team, and lands on it', async () => {
+    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
+      await freshModules();
+    const invite = await api.teams.createInvite('t_a');
+    window.history.pushState({}, '', '/join/t_a/' + invite.code);
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
+          <div data-testid="toast">{state.toast?.message ?? ''}</div>
+        </div>
+      );
+    }
+
+    render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    expect(screen.getByTestId('activeTeamId').textContent).toBe('t_a');
+    expect(screen.getByTestId('toast').textContent).toContain('A-Team TSC Schwarz-Gelb Aachen');
+    expect(window.location.pathname).toBe('/home');
+  });
+
+  it('shows an error toast for an invalid invite code but still logs in normally', async () => {
+    const { AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
+      await freshModules();
+    window.history.pushState({}, '', '/join/bogus-team/does-not-exist');
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="toast">{state.toast?.message ?? ''}</div>
+        </div>
+      );
+    }
+
+    render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    expect(screen.getByTestId('toast').textContent).toBe('Einladungslink ist ungültig oder abgelaufen.');
+  });
+});

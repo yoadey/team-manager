@@ -37,7 +37,7 @@ import { useFeatureActions } from './useFeatureActions';
 export type Phase = 'loading' | 'login' | 'noTeam' | 'app';
 export { ALL_ROUTES, routeFromPath } from './urlState';
 export type { Route } from './urlState';
-import { parseLocation, buildPath, currentPath, type Route, type UrlState } from './urlState';
+import { parseLocation, buildPath, currentPath, parsePendingInvite, type Route, type UrlState } from './urlState';
 
 /** Map the active detail sheet (walking the back-stack) to a URL detail ref. */
 function detailOfSheet(sheet: SheetState | null): UrlState['detail'] {
@@ -754,18 +754,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // startup session-restore effect.
   const establishSession = useCallback(
     async (user: User | null) => {
+      // An invite link (/join/<teamId>/<code>) may have brought the user here,
+      // whether they already had a session (redirected straight back in) or
+      // just logged in for the first time. Redeem it before loading the team
+      // list so the newly joined team is included and can be auto-selected.
+      const invite = parsePendingInvite(window.location.pathname);
+      let joinedTeamId: string | null = null;
+      if (invite) {
+        try {
+          const joined = await api.teams.acceptInvite(invite.code);
+          joinedTeamId = joined.id;
+          toastMsg(t('team.toastJoined', { name: joined.name }));
+        } catch {
+          toastMsg(t('team.toastInviteInvalid'));
+        }
+      }
+
       const teams = await api.teams.listForCurrentUser();
       setSentryUser(user);
       if (!teams.length) {
+        if (invite) history.replaceState({}, '', '/');
         setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
         return;
       }
-      const activeTeamId = teams[0].id;
+      const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0].id;
       history.replaceState({ route: 'home' }, '', '/home');
       setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
       await afterLoginLoad(activeTeamId);
     },
-    [api, setState, afterLoginLoad],
+    [api, setState, afterLoginLoad, toastMsg],
   );
 
   const doLogin = useCallback(

@@ -75,6 +75,7 @@ type mockTeamRepo struct {
 	getMembership         func(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error)
 	getRolesForMembership func(ctx context.Context, membershipID, teamID string) ([]teams.RoleRow, error)
 	createInvite          func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
+	acceptInvite          func(ctx context.Context, code, userID string) (*teams.TeamRow, error)
 	updateTeamPhoto       func(ctx context.Context, teamID string, data []byte, mime string) error
 	updateTeamLogo        func(ctx context.Context, teamID string, data []byte, mime string) error
 	deleteTeamPhoto       func(ctx context.Context, teamID string) error
@@ -111,6 +112,10 @@ func (m *mockTeamRepo) GetRolesForMembership(ctx context.Context, membershipID, 
 
 func (m *mockTeamRepo) CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error) {
 	return m.createInvite(ctx, teamID, ttl)
+}
+
+func (m *mockTeamRepo) AcceptInvite(ctx context.Context, code, userID string) (*teams.TeamRow, error) {
+	return m.acceptInvite(ctx, code, userID)
 }
 
 func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
@@ -222,6 +227,51 @@ func TestCreateInvite_BuildsLinkFromPublicBaseURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "https://app.example.com/join/"+teamID.String()+"/ABC123", inv.Link)
 	assert.Equal(t, "ABC123", inv.Code)
+}
+
+func TestTeamService_AcceptInvite_ReturnsEnrichedTeam(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	membershipID := uuid.New()
+	userID := uuid.New()
+
+	row := fixedTeamRow(teamID)
+	membership := fixedMembershipRow(membershipID, teamID, userID)
+	role := fixedAdminRole(teamID)
+
+	repo := &mockTeamRepo{
+		acceptInvite: func(_ context.Context, code, uid string) (*teams.TeamRow, error) {
+			assert.Equal(t, "ABC123", code)
+			assert.Equal(t, userID.String(), uid)
+			return &row, nil
+		},
+		getMemberCount: func(_ context.Context, _ string) (int, error) { return 4, nil },
+		getMembership:  func(_ context.Context, _, _ string) (*teams.MembershipRow, error) { return membership, nil },
+		getRolesForMembership: func(_ context.Context, _, _ string) ([]teams.RoleRow, error) {
+			return []teams.RoleRow{role}, nil
+		},
+	}
+
+	svc := teams.NewService(repo, "https://app.example.com")
+	tfu, err := svc.AcceptInvite(context.Background(), "ABC123", userID.String())
+	require.NoError(t, err)
+	assert.Equal(t, teamID, tfu.Id)
+	assert.Equal(t, 4, tfu.MemberCount)
+}
+
+func TestTeamService_AcceptInvite_PropagatesErrInviteNotFound(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockTeamRepo{
+		acceptInvite: func(_ context.Context, _, _ string) (*teams.TeamRow, error) {
+			return nil, teams.ErrInviteNotFound
+		},
+	}
+
+	svc := teams.NewService(repo, "https://app.example.com")
+	_, err := svc.AcceptInvite(context.Background(), "expired-or-unknown", uuid.New().String())
+	require.ErrorIs(t, err, teams.ErrInviteNotFound)
 }
 
 func TestTeamService_UpdateLogo_StoresResizedJPEGAndReturnsTeam(t *testing.T) {

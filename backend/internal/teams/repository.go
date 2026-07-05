@@ -30,6 +30,10 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 // (via ReasonVisibilityRoleIDs) do not belong to the team being updated.
 var ErrRoleNotInTeam = errors.New("role does not belong to team")
 
+// ErrInviteNotFound is returned by AcceptInvite when no non-expired invite
+// matches the given code.
+var ErrInviteNotFound = errors.New("invite not found or expired")
+
 // TeamPatch carries optional fields for an UPDATE teams query.
 type TeamPatch struct {
 	Name                    *string
@@ -463,6 +467,95 @@ func (r *Repository) CreateInvite(ctx context.Context, teamID string, ttl time.D
 		return nil, fmt.Errorf("teams.Repository.CreateInvite: %w", err)
 	}
 	return inv, nil
+}
+
+// AcceptInvite redeems a non-expired invite code, adding userID as a member of
+// its team. Idempotent: redeeming a code for a team the user already belongs
+// to is a no-op that still returns that team, and only a brand-new membership
+// gets the default system "Member" role -- an admin who has since stripped a
+// re-joining member's roles must not have that silently undone by the member
+// re-clicking their old invite link.
+func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.AcceptInvite: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var teamID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT team_id FROM invites WHERE code = $1 AND expires_at > now()
+	`, code).Scan(&teamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrInviteNotFound
+		}
+		return nil, fmt.Errorf("teams.Repository.AcceptInvite: lookup invite: %w", err)
+	}
+
+	// Same advisory lock key as every other team-mutating path (roles
+	// deletion, CreateEvent/UpdateEvent nominations, UpdateTeam), so a
+	// concurrent role deletion can't race the default-role assignment below.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID.String()); err != nil {
+		return nil, fmt.Errorf("teams.Repository.AcceptInvite: advisory lock: %w", err)
+	}
+
+	var membershipID uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, userID).
+		Scan(&membershipID)
+	isNewMembership := errors.Is(err, pgx.ErrNoRows)
+	if err != nil && !isNewMembership {
+		return nil, fmt.Errorf("teams.Repository.AcceptInvite: check membership: %w", err)
+	}
+
+	if isNewMembership {
+		err = tx.QueryRow(ctx, `
+			INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id
+		`, teamID, userID).Scan(&membershipID)
+		if err != nil {
+			return nil, fmt.Errorf("teams.Repository.AcceptInvite: create membership: %w", err)
+		}
+
+		var memberRoleID uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM roles WHERE team_id = $1 AND system = true AND name = 'Member'
+		`, teamID).Scan(&memberRoleID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("teams.Repository.AcceptInvite: find member role: %w", err)
+		}
+		if err == nil {
+			if _, err = tx.Exec(ctx, `
+				INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)
+			`, membershipID, memberRoleID); err != nil {
+				return nil, fmt.Errorf("teams.Repository.AcceptInvite: assign member role: %w", err)
+			}
+		}
+	}
+
+	var tr TeamRow
+	err = tx.QueryRow(ctx, `
+		SELECT id, name, short, icon, icon_bg, icon_fg,
+		       COALESCE(photo_data, ''::bytea), photo_mime,
+		       COALESCE(logo_data, ''::bytea), logo_mime,
+		       description, reason_visibility_role_ids, created_at
+		FROM teams WHERE id = $1
+	`, teamID).Scan(
+		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
+		&tr.PhotoData, &tr.PhotoMime,
+		&tr.LogoData, &tr.LogoMime,
+		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.AcceptInvite: fetch team: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("teams.Repository.AcceptInvite: commit: %w", err)
+	}
+	return &tr, nil
 }
 
 // UpdateTeamPhoto stores raw photo bytes and MIME type for the given team.

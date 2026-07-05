@@ -872,7 +872,14 @@ export const SERVICE_ENDPOINTS = {
   // auth: thin wrappers for future authentication/session endpoints.
   auth: ['auth.providers', 'auth.login', 'auth.currentUser', 'auth.logout', 'auth.setPhoto'],
   // teams: thin wrappers for team CRUD and invite endpoints; listForCurrentUser is enriched with role permissions.
-  teams: ['teams.listForCurrentUser', 'teams.get', 'teams.create', 'teams.updateSettings', 'teams.createInvite'],
+  teams: [
+    'teams.listForCurrentUser',
+    'teams.get',
+    'teams.create',
+    'teams.updateSettings',
+    'teams.createInvite',
+    'teams.acceptInvite',
+  ],
   // members: list returns Member ViewModels mapped from MemberDto plus derived primaryRole/perms.
   members: ['members.list', 'members.add', 'members.update', 'members.setRoles', 'members.remove'],
   // roles: direct RoleDto CRUD endpoints.
@@ -1054,13 +1061,49 @@ const _mockApi = {
         id: rid('inv'),
         teamId,
         code,
-        link: 'https://teamverwaltung.app/join/' + code,
+        // Matches serviceLayerReal.ts's `${publicBaseURL}/join/{teamId}/{code}`
+        // shape (teams.Service.CreateInvite on the real backend), since
+        // acceptInvite's URL-parsing on the frontend expects that format
+        // regardless of which service layer generated the link.
+        link: 'https://teamverwaltung.app/join/' + teamId + '/' + code,
         createdAt: iso(new Date()),
         expiresAt: iso(new Date(Date.now() + 7 * DAY)),
       };
       DB.invites.push(inv);
       persist();
       return clone(inv);
+    },
+
+    async acceptInvite(code: string): Promise<TeamForUser> {
+      await delay(180, 360);
+      const inv = DB.invites.find((i) => i.code === code);
+      if (!inv || new Date(inv.expiresAt).getTime() <= Date.now()) {
+        throw new Error('invite not found or expired');
+      }
+
+      const existing = DB.memberships.find((m) => m.teamId === inv.teamId && m.userId === session.userId);
+      if (!existing) {
+        const memberRole = DB.roles.find((r) => r.teamId === inv.teamId && r.name === 'Tänzer / Mitglied');
+        DB.memberships.push({
+          id: rid('mem'),
+          teamId: inv.teamId,
+          userId: session.userId!,
+          roleIds: memberRole ? [memberRole.id] : [],
+          group: '',
+          joinedAt: iso(new Date()),
+        });
+        persist();
+      }
+
+      const t = DB.teams.find((x) => x.id === inv.teamId)!;
+      const m = DB.memberships.find((x) => x.teamId === inv.teamId && x.userId === session.userId)!;
+      const roles = rolesOf(m);
+      return Object.assign(clone(t), {
+        myRoles: clone(roles),
+        myPerms: mergePerms(roles),
+        membershipId: m.id,
+        memberCount: DB.memberships.filter((x) => x.teamId === t.id).length,
+      });
     },
   },
 

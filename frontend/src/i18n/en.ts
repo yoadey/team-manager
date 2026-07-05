@@ -590,6 +590,8 @@ export const en: Messages = {
     nameRequired: 'Please enter a team name.',
     toastSettingsSaved: 'Team settings saved',
     toastTeamCreated: 'Team created – you are the admin',
+    toastJoined: 'Joined team "{name}"',
+    toastInviteInvalid: 'This invite link is invalid or has expired.',
     toastLinkCopied: 'Link copied',
     toastMyPhotoSaved: 'Profile photo updated',
     roleNameRequired: 'Please enter a role name.',
