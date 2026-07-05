@@ -116,8 +116,10 @@ func TestPollHandler_CreatePoll_AcceptsFourOptions(t *testing.T) {
 
 // Regression test: VotePoll used to pass req.Body.OptionIds straight through
 // with no length check at all, unlike every other UUID-array-shaped request
-// field in the codebase (members.roleIds, events.nominatedRoleIds,
-// teams.reasonVisibilityRoleIds), which all cap at validate.UUIDItems's 200.
+// field in the codebase. Capped at maxPollOptions (4, matching a poll's own
+// option-count ceiling) rather than the generic 200-item validate.UUIDItems
+// bound meant for role-ID-shaped arrays, since a vote can never legitimately
+// select more options than the poll itself can have.
 func TestPollHandler_VotePoll_RejectsTooManyOptionIds(t *testing.T) {
 	t.Parallel()
 	svc := &mockPollService{
@@ -128,13 +130,28 @@ func TestPollHandler_VotePoll_RejectsTooManyOptionIds(t *testing.T) {
 	}
 	h := polls.NewHandler(svc, slog.Default())
 
-	optionIDs := make([]uuid.UUID, 201)
+	optionIDs := make([]uuid.UUID, 5)
 	for i := range optionIDs {
 		optionIDs[i] = uuid.New()
 	}
 	body := &gen.VotePollRequest{OptionIds: optionIDs}
 	_, err := h.VotePoll(authedCtx(), gen.VotePollRequestObject{TeamId: uuid.New(), PollId: uuid.New(), Body: body})
 	require.Error(t, err)
+}
+
+func TestPollHandler_VotePoll_AcceptsFourOptionIds(t *testing.T) {
+	t.Parallel()
+	svc := &mockPollService{
+		vote: func(_ context.Context, _, _, _ uuid.UUID, optionIDs []uuid.UUID) (gen.Poll, error) {
+			return gen.Poll{Options: make([]gen.PollOption, len(optionIDs))}, nil
+		},
+	}
+	h := polls.NewHandler(svc, slog.Default())
+
+	optionIDs := []uuid.UUID{uuid.New(), uuid.New(), uuid.New(), uuid.New()}
+	body := &gen.VotePollRequest{OptionIds: optionIDs}
+	_, err := h.VotePoll(authedCtx(), gen.VotePollRequestObject{TeamId: uuid.New(), PollId: uuid.New(), Body: body})
+	require.NoError(t, err)
 }
 
 func TestPollHandler_CreatePoll_Success(t *testing.T) {

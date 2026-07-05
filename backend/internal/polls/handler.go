@@ -16,6 +16,14 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
+// maxPollOptions caps both a poll's own option list (CreatePoll) and a vote's
+// optionIds (VotePoll) -- a poll can never have more options than this, so a
+// vote can never legitimately select more, either. Deliberately its own
+// constant rather than the generic 200-item validate.UUIDItems bound (meant
+// for role-ID-shaped arrays), which would let a client submit far more
+// optionIds than any real poll could ever contain.
+const maxPollOptions = 4
+
 // pollService is the interface the Handler relies on.
 type pollService interface {
 	ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUID, limit int, cursor string) ([]gen.Poll, *string, error)
@@ -72,7 +80,7 @@ func (h *Handler) CreatePoll(ctx context.Context, req gen.CreatePollRequestObjec
 	if err := validate.MaxLen(req.Body.Question, 1000, "question"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
-	if len(req.Body.Options) < 2 || len(req.Body.Options) > 4 {
+	if len(req.Body.Options) < 2 || len(req.Body.Options) > maxPollOptions {
 		return nil, apierror.BadRequest("polls must have between 2 and 4 options")
 	}
 	for i, opt := range req.Body.Options {
@@ -102,8 +110,8 @@ func (h *Handler) VotePoll(ctx context.Context, req gen.VotePollRequestObject) (
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if err := validate.UUIDItems(len(req.Body.OptionIds), "optionIds"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
+	if len(req.Body.OptionIds) > maxPollOptions {
+		return nil, apierror.BadRequest("optionIds has too many items")
 	}
 	optionIDs := append([]uuid.UUID(nil), req.Body.OptionIds...)
 	poll, err := h.svc.Vote(ctx, req.PollId, req.TeamId, user.Id, optionIDs)
