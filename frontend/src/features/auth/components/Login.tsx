@@ -9,7 +9,7 @@ import { config } from '@/config';
 
 export function Login() {
   const { state, doLogin, doPasswordLogin } = useApp();
-  const { providers, busy } = state;
+  const { providers, busy, error } = state;
 
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [email, setEmail] = useState('');
@@ -100,6 +100,27 @@ export function Login() {
             {t('auth.loginHintNote')}
           </Box>
         </Box>
+
+        {error && (
+          <Box
+            role="alert"
+            sx={{
+              mb: '16px',
+              p: '12px 14px',
+              borderRadius: '14px',
+              background: NEUTRAL.errorBg,
+              color: NEUTRAL.error,
+              fontSize: '13px',
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: '10px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <Sym name="error" size={18} color={NEUTRAL.error} sx={{ lineHeight: 1.2 }} />
+            {error}
+          </Box>
+        )}
 
         {showPasswordForm ? (
           <Box component="form" onSubmit={handlePasswordSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>

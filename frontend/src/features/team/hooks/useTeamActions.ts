@@ -20,6 +20,7 @@ type TeamDeps = {
   setFormVal: (patch: Record<string, unknown>) => void;
   afterLoginLoad: (teamId: string) => Promise<void>;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
 export function useTeamActions({
@@ -32,6 +33,7 @@ export function useTeamActions({
   setFormVal,
   afterLoginLoad,
   toastMsg,
+  logout,
 }: TeamDeps) {
   const openTeamSwitcher = useCallback(() => setState({ sheet: { type: 'teams' } }), [setState]);
 
@@ -40,8 +42,8 @@ export function useTeamActions({
     api.absences
       .listMine(S().activeTeamId!)
       .then((myAbsences) => setState({ myAbsences }))
-      .catch((err) => reportActionError({ setState, toastMsg }, err, 'error.load'));
-  }, [api, S, setState, toastMsg]);
+      .catch((err) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load'));
+  }, [api, S, setState, toastMsg, logout]);
 
   const openMore = useCallback(() => setState({ sheet: { type: 'more' } }), [setState]);
 
@@ -71,12 +73,12 @@ export function useTeamActions({
         setFormVal({ photo: dataUrl });
         toastMsg(t('team.toastPhotoSaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       } finally {
         photoLogoInFlight.current.delete(key);
       }
     },
-    [api, S, refreshTeams, setFormVal, setState, toastMsg],
+    [api, S, refreshTeams, setFormVal, setState, toastMsg, logout],
   );
 
   const removeTeamPhoto = useCallback(async () => {
@@ -89,11 +91,11 @@ export function useTeamActions({
       setFormVal({ photo: null });
       toastMsg(t('team.toastPhotoRemoved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     } finally {
       photoLogoInFlight.current.delete(key);
     }
-  }, [api, S, refreshTeams, setFormVal, setState, toastMsg]);
+  }, [api, S, refreshTeams, setFormVal, setState, toastMsg, logout]);
 
   const saveTeamLogo = useCallback(
     async (dataUrl: string) => {
@@ -106,12 +108,12 @@ export function useTeamActions({
         setFormVal({ logo: dataUrl });
         toastMsg(t('team.toastLogoSaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       } finally {
         photoLogoInFlight.current.delete(key);
       }
     },
-    [api, S, refreshTeams, setFormVal, setState, toastMsg],
+    [api, S, refreshTeams, setFormVal, setState, toastMsg, logout],
   );
 
   const setTeamIcon = useCallback(
@@ -120,9 +122,9 @@ export function useTeamActions({
       api.teams
         .updateSettings(S().activeTeamId!, { icon: em, logo: null })
         .then(() => refreshTeams())
-        .catch((err) => reportActionError({ setState, toastMsg }, err, 'error.save'));
+        .catch((err) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save'));
     },
-    [api, S, setFormVal, refreshTeams, setState, toastMsg],
+    [api, S, setFormVal, refreshTeams, setState, toastMsg, logout],
   );
 
   const toggleReasonRole = useCallback(
@@ -152,9 +154,9 @@ export function useTeamActions({
       setState({ busy: null });
       toastMsg(t('team.toastSettingsSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, refreshTeams, toastMsg]);
+  }, [api, S, setState, refreshTeams, toastMsg, logout]);
 
   const openCreateTeam = useCallback(() => {
     const form: CreateTeamFormValues = { name: '', icon: '⭐', photo: null };
@@ -182,9 +184,9 @@ export function useTeamActions({
       await afterLoginLoad(team.id);
       toastMsg(t('team.toastTeamCreated'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, refreshTeams, afterLoginLoad, toastMsg]);
+  }, [api, S, setState, refreshTeams, afterLoginLoad, toastMsg, logout]);
 
   const openInvite = useCallback(async () => {
     setState({ sheet: { type: 'invite', invite: null } });
@@ -192,9 +194,9 @@ export function useTeamActions({
       const invite = await api.teams.createInvite(S().activeTeamId!);
       setState((s) => (s.sheet && s.sheet.type === 'invite' ? { sheet: { ...s.sheet, invite } } : {}));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err);
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err);
     }
-  }, [api, S, setState, toastMsg]);
+  }, [api, S, setState, toastMsg, logout]);
 
   const copyInvite = useCallback(async () => {
     const inv: Invite | null | undefined = S().sheet?.invite;
@@ -218,10 +220,10 @@ export function useTeamActions({
         setState({ user });
         toastMsg(t('team.toastMyPhotoSaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       }
     },
-    [api, refreshTeams, refreshMembers, setState, toastMsg],
+    [api, refreshTeams, refreshMembers, setState, toastMsg, logout],
   );
 
   return {

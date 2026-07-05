@@ -53,6 +53,7 @@ describe('useEventDetailActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let refreshEvents: ReturnType<typeof vi.fn>;
   let setFormVal: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -69,6 +70,7 @@ describe('useEventDetailActions', () => {
     toastMsg = vi.fn();
     refreshEvents = vi.fn().mockResolvedValue(undefined);
     setFormVal = vi.fn();
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -83,6 +85,7 @@ describe('useEventDetailActions', () => {
         refreshEvents: refreshEvents as never,
         setFormVal: setFormVal as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }
@@ -234,6 +237,7 @@ describe('useEventActionFeatures', () => {
   let refreshEvents: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let openEventDetail: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -251,6 +255,7 @@ describe('useEventActionFeatures', () => {
     refreshEvents = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
     openEventDetail = vi.fn().mockResolvedValue(undefined);
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -267,6 +272,7 @@ describe('useEventActionFeatures', () => {
         toastMsg: toastMsg as never,
         askConfirm: askConfirm as never,
         openEventDetail: openEventDetail as never,
+        logout: logout as never,
       }),
     );
   }

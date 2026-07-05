@@ -19,6 +19,7 @@ type RoleDeps = {
   refreshTeams: () => Promise<void>;
   askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
 export function useRoleActions({
@@ -30,6 +31,7 @@ export function useRoleActions({
   refreshTeams,
   askConfirm,
   toastMsg,
+  logout,
 }: RoleDeps) {
   const openRoles = useCallback(() => setState({ sheet: { type: 'roles' } }), [setState]);
 
@@ -76,9 +78,9 @@ export function useRoleActions({
         toastMsg(t('team.toastRoleCreated'));
       }
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, refreshRoles, toastMsg]);
+  }, [api, S, setState, refreshRoles, toastMsg, logout]);
 
   const removeRole = useCallback(
     (roleId: string) =>
@@ -93,11 +95,11 @@ export function useRoleActions({
             await refreshRoles();
             toastMsg(t('team.toastRoleDeleted'));
           } catch (err) {
-            reportActionError({ setState, toastMsg }, err, 'error.delete');
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
       }),
-    [api, S, askConfirm, refreshRoles, setState, toastMsg],
+    [api, S, askConfirm, refreshRoles, setState, toastMsg, logout],
   );
 
   const toggleMyRole = useCallback(
@@ -114,10 +116,10 @@ export function useRoleActions({
         await refreshTeams();
         toastMsg(t('team.toastRolesSaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       }
     },
-    [api, activeTeam, refreshTeams, setState, toastMsg],
+    [api, activeTeam, refreshTeams, setState, toastMsg, logout],
   );
 
   return { openRoles, openRoleForm, setRolePerm, saveRole, removeRole, toggleMyRole };

@@ -26,6 +26,7 @@ type FinanceFeatureDeps = {
   refreshMembers: () => Promise<void>;
   askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
 export function useFinanceActions({
@@ -37,6 +38,7 @@ export function useFinanceActions({
   refreshMembers,
   askConfirm,
   toastMsg,
+  logout,
 }: FinanceFeatureDeps) {
   const openTxForm = useCallback(
     (tx?: Transaction) => {
@@ -84,9 +86,9 @@ export function useFinanceActions({
       setState({ busy: null, sheet: null });
       toastMsg(t('finances.toastTxSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, loadFinances, toastMsg]);
+  }, [api, S, setState, loadFinances, toastMsg, logout]);
 
   const deleteTx = useCallback(
     async (id: string) => {
@@ -97,10 +99,10 @@ export function useFinanceActions({
         setState({ busy: null, sheet: null });
         toastMsg(t('finances.toastTxDeleted'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.delete');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
       }
     },
-    [api, S, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg, logout],
   );
 
   const openPenaltyCatalog = useCallback(() => setState({ sheet: { type: 'penaltyCatalog' } }), [setState]);
@@ -143,9 +145,9 @@ export function useFinanceActions({
       setState({ busy: null, sheet: back });
       toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, loadFinances, toastMsg]);
+  }, [api, S, setState, loadFinances, toastMsg, logout]);
 
   const deletePenaltyDef = useCallback(
     (id: string) =>
@@ -161,11 +163,11 @@ export function useFinanceActions({
             setState({ sheet: { type: 'penaltyCatalog' } });
             toastMsg(t('finances.toastPenaltyRemoved'));
           } catch (err) {
-            reportActionError({ setState, toastMsg }, err, 'error.delete');
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
       }),
-    [api, S, askConfirm, loadFinances, setState, toastMsg],
+    [api, S, askConfirm, loadFinances, setState, toastMsg, logout],
   );
 
   const openPenaltyAssign = useCallback(() => {
@@ -194,9 +196,9 @@ export function useFinanceActions({
       setState({ busy: null, sheet: null });
       toastMsg(t('finances.toastPenaltyAssigned'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, loadFinances, toastMsg]);
+  }, [api, S, setState, loadFinances, toastMsg, logout]);
 
   const deleteAssignment = useCallback(
     async (id: string) => {
@@ -205,10 +207,10 @@ export function useFinanceActions({
         await loadFinances();
         toastMsg(t('finances.toastPenaltyAssignDeleted'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.delete');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
       }
     },
-    [api, S, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg, logout],
   );
 
   const openContribForm = useCallback(
@@ -238,9 +240,9 @@ export function useFinanceActions({
       setState({ busy: null, sheet: null });
       toastMsg(t('finances.toastContribSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, loadFinances, toastMsg]);
+  }, [api, S, setState, loadFinances, toastMsg, logout]);
 
   const toggleInFlight = useRef(new Set<string>());
 
@@ -253,12 +255,12 @@ export function useFinanceActions({
         await api.finances.togglePenaltyPaid(id, S().activeTeamId!);
         await loadFinances();
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       } finally {
         toggleInFlight.current.delete(key);
       }
     },
-    [api, S, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg, logout],
   );
 
   const toggleContribution = useCallback(
@@ -270,12 +272,12 @@ export function useFinanceActions({
         await api.finances.toggleContribution(id, S().activeTeamId!);
         await loadFinances();
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       } finally {
         toggleInFlight.current.delete(key);
       }
     },
-    [api, S, loadFinances, setState, toastMsg],
+    [api, S, loadFinances, setState, toastMsg, logout],
   );
 
   const setStatsRange = useCallback(

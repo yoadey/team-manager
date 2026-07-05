@@ -67,6 +67,7 @@ describe('useMemberActions', () => {
   let refreshMembers: ReturnType<typeof vi.fn>;
   let refreshTeams: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -84,6 +85,7 @@ describe('useMemberActions', () => {
     refreshMembers = vi.fn().mockResolvedValue(undefined);
     refreshTeams = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -97,6 +99,7 @@ describe('useMemberActions', () => {
         refreshTeams: refreshTeams as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }

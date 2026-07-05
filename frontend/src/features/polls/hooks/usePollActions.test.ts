@@ -35,6 +35,7 @@ describe('usePollActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let loadPolls: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: {
     polls: { vote: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   };
@@ -53,6 +54,7 @@ describe('usePollActions', () => {
     toastMsg = vi.fn();
     loadPolls = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    logout = vi.fn();
     api = {
       polls: {
         vote: vi.fn().mockResolvedValue(undefined),
@@ -71,6 +73,7 @@ describe('usePollActions', () => {
         loadPolls: loadPolls as never,
         toastMsg: toastMsg as never,
         askConfirm: askConfirm as never,
+        logout: logout as never,
       }),
     );
   }

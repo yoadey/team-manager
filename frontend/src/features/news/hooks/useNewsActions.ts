@@ -21,9 +21,10 @@ type NewsDeps = {
     onConfirm: () => void | Promise<void>;
   }) => void;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
-export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg }: NewsDeps) {
+export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg, logout }: NewsDeps) {
   const openNewsForm = useCallback(
     (n?: NewsItem) => {
       const form: NewsFormValues = n
@@ -59,9 +60,9 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
         toastMsg(t('news.toastPublished'));
       }
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, loadNews, toastMsg]);
+  }, [api, S, setState, loadNews, toastMsg, logout]);
 
   const removeNews = useCallback(
     (id: string) =>
@@ -76,11 +77,11 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
             await loadNews();
             toastMsg(t('news.toastDeleted'));
           } catch (err) {
-            reportActionError({ setState, toastMsg }, err, 'error.delete');
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
       }),
-    [api, S, askConfirm, loadNews, setState, toastMsg],
+    [api, S, askConfirm, loadNews, setState, toastMsg, logout],
   );
 
   return { openNewsForm, saveNews, removeNews };

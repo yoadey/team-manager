@@ -35,6 +35,7 @@ describe('useNewsActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let loadNews: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: {
     news: { create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   };
@@ -53,6 +54,7 @@ describe('useNewsActions', () => {
     toastMsg = vi.fn();
     loadNews = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    logout = vi.fn();
     api = {
       news: {
         create: vi.fn().mockResolvedValue({ id: 'n1' }),
@@ -71,6 +73,7 @@ describe('useNewsActions', () => {
         loadNews: loadNews as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }

@@ -21,9 +21,10 @@ type PollFeatureDeps = {
     danger?: boolean;
     onConfirm: () => void | Promise<void>;
   }) => void;
+  logout: () => void;
 };
 
-export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm }: PollFeatureDeps) {
+export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm, logout }: PollFeatureDeps) {
   const openPollForm = useCallback(() => {
     const form: PollFormValues = {
       question: '',
@@ -54,12 +55,12 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
         await api.polls.vote(pollId, optionIds, S().activeTeamId!);
         await loadPolls();
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       } finally {
         voteInFlight.current.delete(pollId);
       }
     },
-    [api, S, loadPolls, setState, toastMsg],
+    [api, S, loadPolls, setState, toastMsg, logout],
   );
 
   const savePoll = useCallback(async () => {
@@ -81,9 +82,9 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
       setState({ busy: null, sheet: null });
       toastMsg(t('polls.toastCreated'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, loadPolls, toastMsg]);
+  }, [api, S, setState, loadPolls, toastMsg, logout]);
 
   const togglePollOption = useCallback(
     (poll: Poll, optId: string) => {
@@ -109,11 +110,11 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
             await loadPolls();
             toastMsg(t('polls.toastDeleted'));
           } catch (err) {
-            reportActionError({ setState, toastMsg }, err, 'error.delete');
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
       }),
-    [api, S, askConfirm, loadPolls, setState, toastMsg],
+    [api, S, askConfirm, loadPolls, setState, toastMsg, logout],
   );
 
   return { openPollForm, savePoll, togglePollOption, removePoll };

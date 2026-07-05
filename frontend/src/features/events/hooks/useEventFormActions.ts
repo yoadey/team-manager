@@ -17,9 +17,18 @@ type EventFormDeps = {
   refreshEvents: () => Promise<void>;
   openEventDetail: (eventId: string) => Promise<void>;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
-export function useEventFormActions({ api, S, setState, refreshEvents, openEventDetail, toastMsg }: EventFormDeps) {
+export function useEventFormActions({
+  api,
+  S,
+  setState,
+  refreshEvents,
+  openEventDetail,
+  toastMsg,
+  logout,
+}: EventFormDeps) {
   const openEventForm = useCallback(
     (event: TeamEvent | null) => {
       const f: EventFormValues = event
@@ -113,10 +122,10 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
             : t('events.toastEventCreated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       }
     },
-    [api, S, setState, refreshEvents, openEventDetail, toastMsg],
+    [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout],
   );
 
   const toggleFormNomRole = useCallback(

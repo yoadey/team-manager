@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useTeamActions } from './useTeamActions';
+import { AuthError } from '@/utils/errors';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -70,6 +71,7 @@ describe('useTeamActions', () => {
   let refreshMembers: ReturnType<typeof vi.fn>;
   let setFormVal: ReturnType<typeof vi.fn>;
   let afterLoginLoad: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -88,6 +90,7 @@ describe('useTeamActions', () => {
     refreshMembers = vi.fn().mockResolvedValue(undefined);
     setFormVal = vi.fn();
     afterLoginLoad = vi.fn().mockResolvedValue(undefined);
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -103,6 +106,7 @@ describe('useTeamActions', () => {
         setFormVal: setFormVal as never,
         afterLoginLoad: afterLoginLoad as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }
@@ -359,6 +363,16 @@ describe('useTeamActions', () => {
     });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Updated Team' }));
     expect(toastMsg).toHaveBeenCalledWith('Team-Einstellungen gespeichert');
+  });
+
+  it('saveTeamSettings triggers logout on a 401 (expired session)', async () => {
+    stateRef = makeState({ form: { name: 'Updated Team', description: 'Desc', reasonRoles: [] } });
+    api.teams.updateSettings.mockRejectedValueOnce(new AuthError());
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTeamSettings();
+    });
+    expect(logout).toHaveBeenCalled();
   });
 
   it('openCreateTeam sets createTeam sheet', () => {

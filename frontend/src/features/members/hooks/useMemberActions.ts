@@ -23,9 +23,19 @@ type MemberDeps = {
     onConfirm: () => void | Promise<void>;
   }) => void;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
-export function useMemberActions({ api, S, setState, refreshMembers, refreshTeams, askConfirm, toastMsg }: MemberDeps) {
+export function useMemberActions({
+  api,
+  S,
+  setState,
+  refreshMembers,
+  refreshTeams,
+  askConfirm,
+  toastMsg,
+  logout,
+}: MemberDeps) {
   const openMemberDetail = useCallback(
     async (membershipId: string) => {
       const m = (S().members ?? []).find((x) => x.membershipId === membershipId);
@@ -38,10 +48,10 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
             : {},
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.load');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load');
       }
     },
-    [api, S, setState, toastMsg],
+    [api, S, setState, toastMsg, logout],
   );
 
   const openMemberForm = useCallback(
@@ -153,9 +163,9 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
       if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId);
       toastMsg(t('members.toastProfileSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, refreshMembers, refreshTeams, openMemberDetail, toastMsg]);
+  }, [api, S, setState, refreshMembers, refreshTeams, openMemberDetail, toastMsg, logout]);
 
   const removeMember = useCallback(
     (membershipId: string) => {
@@ -172,12 +182,12 @@ export function useMemberActions({ api, S, setState, refreshMembers, refreshTeam
             setState({ sheet: null });
             toastMsg(t('members.toastMemberRemoved'));
           } catch (err) {
-            reportActionError({ setState, toastMsg }, err, 'error.delete');
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
       });
     },
-    [api, S, askConfirm, refreshMembers, setState, toastMsg],
+    [api, S, askConfirm, refreshMembers, setState, toastMsg, logout],
   );
 
   return { openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember };

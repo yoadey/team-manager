@@ -55,6 +55,7 @@ describe('useFinanceActions', () => {
   let loadStats: ReturnType<typeof vi.fn>;
   let refreshMembers: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -73,6 +74,7 @@ describe('useFinanceActions', () => {
     loadStats = vi.fn().mockResolvedValue(undefined);
     refreshMembers = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -87,6 +89,7 @@ describe('useFinanceActions', () => {
         refreshMembers: refreshMembers as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }

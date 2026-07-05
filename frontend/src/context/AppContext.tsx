@@ -974,6 +974,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toastMsg,
     setFormVal,
     askConfirm,
+    logout,
   });
 
   // ---------- routing: state <-> URL ----------

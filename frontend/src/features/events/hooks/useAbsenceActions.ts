@@ -23,6 +23,7 @@ type AbsenceDeps = {
     onConfirm: () => void | Promise<void>;
   }) => void;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
 export function useAbsenceActions({
@@ -33,6 +34,7 @@ export function useAbsenceActions({
   loadAbsences,
   askConfirm,
   toastMsg,
+  logout,
 }: AbsenceDeps) {
   const openAbsenceForm = useCallback(
     (absence?: { id: string; from: string; to: string; reason: string } | null) => {
@@ -69,9 +71,9 @@ export function useAbsenceActions({
       setState({ busy: null, sheet: null });
       toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, refreshEvents, loadAbsences, toastMsg]);
+  }, [api, S, setState, refreshEvents, loadAbsences, toastMsg, logout]);
 
   const removeAbsence = useCallback(
     (id: string) => {
@@ -86,12 +88,12 @@ export function useAbsenceActions({
             await Promise.all([refreshEvents(), loadAbsences()]);
             toastMsg(t('events.toastAbsenceDeleted'));
           } catch (err) {
-            reportActionError({ setState, toastMsg }, err, 'error.delete');
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
       });
     },
-    [api, S, askConfirm, refreshEvents, loadAbsences, setState, toastMsg],
+    [api, S, askConfirm, refreshEvents, loadAbsences, setState, toastMsg, logout],
   );
 
   return { openAbsenceForm, saveAbsence, removeAbsence };

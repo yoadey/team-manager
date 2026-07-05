@@ -30,12 +30,15 @@ const appleProvider = {
   glyph: 'A',
 };
 
-function makeApp(overrides: { providers?: (typeof googleProvider)[]; busy?: string | null } = {}) {
+function makeApp(
+  overrides: { providers?: (typeof googleProvider)[]; busy?: string | null; error?: string | null } = {},
+) {
   const doLogin = vi.fn();
   const app = {
     state: {
       providers: overrides.providers ?? [googleProvider],
       busy: overrides.busy ?? null,
+      error: overrides.error ?? null,
     },
     doLogin,
   };
@@ -97,6 +100,18 @@ describe('Login', () => {
     render(<Login />);
     const googleBtn = screen.getByText('Google').closest('button');
     expect(googleBtn).not.toBeDisabled();
+  });
+
+  it('shows no error banner when state.error is null', () => {
+    makeApp();
+    render(<Login />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows an error banner with the message when state.error is set', () => {
+    makeApp({ error: 'Anmeldung fehlgeschlagen.' });
+    render(<Login />);
+    expect(screen.getByRole('alert').textContent).toContain('Anmeldung fehlgeschlagen.');
   });
 
   it('renders hint text (auth.loginHint key)', () => {

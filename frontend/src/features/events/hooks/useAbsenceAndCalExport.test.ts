@@ -37,6 +37,7 @@ describe('useAbsenceActions', () => {
   let refreshEvents: ReturnType<typeof vi.fn>;
   let loadAbsences: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: {
     absences: { create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   };
@@ -56,6 +57,7 @@ describe('useAbsenceActions', () => {
     refreshEvents = vi.fn().mockResolvedValue(undefined);
     loadAbsences = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    logout = vi.fn();
     api = {
       absences: {
         create: vi.fn().mockResolvedValue({ id: 'ab1' }),
@@ -75,6 +77,7 @@ describe('useAbsenceActions', () => {
         loadAbsences: loadAbsences as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }

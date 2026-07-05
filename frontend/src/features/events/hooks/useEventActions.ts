@@ -19,6 +19,7 @@ type EventFeatureDeps = {
   refreshEvents: () => Promise<void>;
   setFormVal: (patch: Record<string, unknown>) => void;
   toastMsg: (m: string) => void;
+  logout: () => void;
 };
 
 export function useEventDetailActions({
@@ -30,6 +31,7 @@ export function useEventDetailActions({
   refreshEvents,
   setFormVal,
   toastMsg,
+  logout,
 }: EventFeatureDeps) {
   const reloadDetail = useCallback(
     async (eventId: string) => {
@@ -46,10 +48,10 @@ export function useEventDetailActions({
             : {},
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.load');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load');
       }
     },
-    [api, S, setState, toastMsg],
+    [api, S, setState, toastMsg, logout],
   );
 
   const openEventDetail = useCallback(
@@ -77,10 +79,10 @@ export function useEventDetailActions({
               : t('attendance.no'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       }
     },
-    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
   );
 
   const inFlight = useRef(new Set<string>());
@@ -96,13 +98,13 @@ export function useEventDetailActions({
           await refreshEvents();
           await reloadDetail(e.id);
         } catch (err) {
-          reportActionError({ setState, toastMsg }, err);
+          reportActionError({ setState, toastMsg, onAuthError: logout }, err);
         } finally {
           inFlight.current.delete(key);
         }
       })();
     },
-    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
   );
 
   const canSeeComment = useCallback(
@@ -153,9 +155,9 @@ export function useEventDetailActions({
       openEventDetail(eid);
       toastMsg(t('events.toastCommentSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, refreshEvents, openEventDetail, toastMsg]);
+  }, [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout]);
 
   const commentInFlight = useRef(new Set<string>());
 
@@ -170,12 +172,12 @@ export function useEventDetailActions({
         setFormVal({ newEventComment: '' });
         await reloadDetail(eventId);
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       } finally {
         commentInFlight.current.delete(eventId);
       }
     },
-    [api, S, setFormVal, reloadDetail, setState, toastMsg],
+    [api, S, setFormVal, reloadDetail, setState, toastMsg, logout],
   );
 
   const removeEventComment = useCallback(
@@ -184,10 +186,10 @@ export function useEventDetailActions({
         await api.events.removeComment(cid, eventId, S().activeTeamId!);
         await reloadDetail(eventId);
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.delete');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
       }
     },
-    [api, S, reloadDetail, setState, toastMsg],
+    [api, S, reloadDetail, setState, toastMsg, logout],
   );
 
   const toggleNomination = useCallback(
@@ -198,10 +200,10 @@ export function useEventDetailActions({
         await reloadDetail(eventId);
         toastMsg(currentlyNominated ? t('attendance.not_nominated') : t('attendance.nominated'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       }
     },
-    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
   );
 
   return {
@@ -236,6 +238,7 @@ export function useEventActionFeatures({
   refreshEvents,
   openEventDetail,
   toastMsg,
+  logout,
 }: EventActionDeps) {
   const runEventAction = useCallback(
     async (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => {
@@ -253,7 +256,7 @@ export function useEventActionFeatures({
               setState({ sheet: null });
               toastMsg(scope === 'series' ? t('events.toastSeriesDeleted') : t('events.toastEventDeleted'));
             } catch (err) {
-              reportActionError({ setState, toastMsg }, err, 'error.delete');
+              reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
             }
           },
         });
@@ -275,10 +278,10 @@ export function useEventActionFeatures({
               : t('events.toastEventActivated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       }
     },
-    [api, askConfirm, refreshEvents, setState, openEventDetail, toastMsg],
+    [api, askConfirm, refreshEvents, setState, openEventDetail, toastMsg, logout],
   );
 
   const askEventAction = useCallback(
