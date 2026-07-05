@@ -10,6 +10,17 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
+  # Without this, an unset namespaceSelector restricts Prometheus Operator's
+  # service/endpoint discovery to the ServiceMonitor's OWN namespace. That's
+  # fine when monitoring.namespace is unset (ServiceMonitor and Service share
+  # .Release.Namespace), but monitoring.namespace exists specifically to let
+  # operators centralize ServiceMonitors in a shared "monitoring" namespace
+  # (a common Prometheus Operator pattern) -- without pinning this to the
+  # Service's actual namespace, that exact documented use case silently
+  # discovers zero targets.
+  namespaceSelector:
+    matchNames:
+    - {{ .Release.Namespace }}
   selector:
     matchLabels:
       {{- include "team-manager.selectorLabels" . | nindent 6 }}

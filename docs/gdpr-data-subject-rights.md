@@ -75,12 +75,15 @@ sign-off and changes to the financial-retention requirements.
 ```sql
 -- +goose Up
 ALTER TABLE users ADD COLUMN deleted_at TIMESTAMPTZ;
--- partial index so the login lookup can skip anonymized accounts cheaply
-CREATE INDEX ON users (email) WHERE deleted_at IS NULL;
+
 -- +goose Down
-DROP INDEX IF EXISTS users_email_idx;  -- name as generated; verify before applying
 ALTER TABLE users DROP COLUMN IF EXISTS deleted_at;
 ```
+
+No partial index was added -- `email` already has a plain `UNIQUE` index from
+`00001_init.sql`, and login/validation lookups exclude anonymized accounts via
+an explicit `deleted_at IS NULL` predicate rather than an index shaped around
+it.
 
 ### Service
 

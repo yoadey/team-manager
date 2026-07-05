@@ -35,6 +35,8 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--migrate-only"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
           env:
             - name: ALLOWED_ORIGINS
               value: {{ .Values.allowedOrigins | quote }}

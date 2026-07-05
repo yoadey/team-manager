@@ -329,7 +329,9 @@ jobs:
     name: Backend · License check
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [backend-build]
+    # No needs: -- this only runs go-licenses report against source, never
+    # consuming backend-build's binary/SBOM artifacts, so it doesn't need to
+    # wait on that job and can run in parallel with lint/test/build.
     defaults:
       run:
         working-directory: backend
@@ -401,7 +403,7 @@ jobs:
   backend-coverage:
     name: Backend · Coverage gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     needs: [backend-test]
     defaults:
       run:
@@ -412,11 +414,14 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Run tests with coverage
-        run: go test ./... -race -count=1 -coverprofile=coverage.out -timeout=300s
-        env:
-          TESTCONTAINERS_RYUK_DISABLED: "true"
+      # Reuses the coverage.out backend-test already produced and uploaded,
+      # instead of re-running the entire (slow, Testcontainers-based) suite a
+      # second time from scratch just to recompute this gate.
+      - name: Download coverage from backend-test
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: backend-coverage
+          path: backend/
       - name: Enforce minimum coverage threshold
         # The gate measures business-logic packages only. Generated code
         # (internal/gen) and infra/wiring packages (cmd/server, internal/db,
