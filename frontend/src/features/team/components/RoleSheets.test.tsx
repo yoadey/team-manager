@@ -71,9 +71,10 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     },
     can: vi.fn().mockReturnValue(true),
     activeTeam: vi.fn().mockReturnValue({ id: 't1', name: 'Testteam' }),
-    openCreateRole: vi.fn(),
+    openRoleForm: vi.fn(),
     setRolePerm: vi.fn(),
     saveRole: vi.fn(),
+    removeRole: vi.fn(),
     onFormInput: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
@@ -144,12 +145,44 @@ describe('RolesSheet', () => {
     expect(screen.queryByText('Eigene Rolle definieren')).toBeNull();
   });
 
-  it('clicking "Add role" button calls openCreateRole', () => {
+  it('clicking "Add role" button calls openRoleForm with no argument', () => {
     const app = makeApp();
     app.can.mockReturnValue(true);
     render(<RolesSheet app={app as never} sheet={SHEET} />);
     fireEvent.click(screen.getByText('Eigene Rolle definieren'));
-    expect(app.openCreateRole).toHaveBeenCalledTimes(1);
+    expect(app.openRoleForm).toHaveBeenCalledWith();
+  });
+
+  it('shows edit/delete actions for custom roles but not system roles when settings:write is held', () => {
+    const app = makeApp();
+    app.can.mockReturnValue(true);
+    render(<RolesSheet app={app as never} sheet={SHEET} />);
+    expect(screen.getAllByLabelText('Rolle bearbeiten')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Rolle löschen')).toHaveLength(1);
+  });
+
+  it('hides edit/delete actions entirely without settings:write, even for custom roles', () => {
+    const app = makeApp();
+    app.can.mockReturnValue(false);
+    render(<RolesSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByLabelText('Rolle bearbeiten')).toBeNull();
+    expect(screen.queryByLabelText('Rolle löschen')).toBeNull();
+  });
+
+  it('clicking the edit action opens the role form pre-filled with that role', () => {
+    const app = makeApp();
+    app.can.mockReturnValue(true);
+    render(<RolesSheet app={app as never} sheet={SHEET} />);
+    fireEvent.click(screen.getByLabelText('Rolle bearbeiten'));
+    expect(app.openRoleForm).toHaveBeenCalledWith(MOCK_ROLES[1]);
+  });
+
+  it('clicking the delete action calls removeRole with the role id', () => {
+    const app = makeApp();
+    app.can.mockReturnValue(true);
+    render(<RolesSheet app={app as never} sheet={SHEET} />);
+    fireEvent.click(screen.getByLabelText('Rolle löschen'));
+    expect(app.removeRole).toHaveBeenCalledWith('r2');
   });
 
   it('renders all 5 module rows for each role (e.g. Finanzen appears twice)', () => {

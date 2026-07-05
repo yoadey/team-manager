@@ -86,7 +86,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
   });
   const notifActions = useNotificationActions({ api, S, setState, loadNotifications, toastMsg });
   const memberActions = useMemberActions({ api, S, setState, refreshMembers, refreshTeams, askConfirm, toastMsg });
-  const roleActions = useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, toastMsg });
+  const roleActions = useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, askConfirm, toastMsg });
   const teamActions = useTeamActions({
     api,
     S,

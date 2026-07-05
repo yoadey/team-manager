@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
-import type { ModuleKey, PermLevel, TeamForUser } from '@/types';
-import type { AppState } from '@/context/AppContext';
+import type { ModuleKey, PermLevel, Role, TeamForUser } from '@/types';
+import type { AppState, ConfirmConfig } from '@/context/AppContext';
 import type { RoleFormValues } from '../types';
 import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
@@ -17,19 +17,34 @@ type RoleDeps = {
   activeTeam: () => TeamForUser | null;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
+  askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string) => void;
 };
 
-export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, toastMsg }: RoleDeps) {
+export function useRoleActions({
+  api,
+  S,
+  setState,
+  activeTeam,
+  refreshRoles,
+  refreshTeams,
+  askConfirm,
+  toastMsg,
+}: RoleDeps) {
   const openRoles = useCallback(() => setState({ sheet: { type: 'roles' } }), [setState]);
 
-  const openCreateRole = useCallback(() => {
-    const form: RoleFormValues = {
-      name: '',
-      perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' },
-    };
-    setState((st) => ({ sheet: { type: 'roleForm', back: st.sheet }, form }));
-  }, [setState]);
+  const openRoleForm = useCallback(
+    (role?: Role) => {
+      const form: RoleFormValues = role
+        ? { id: role.id, name: role.name, perms: role.permissions }
+        : {
+            name: '',
+            perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' },
+          };
+      setState((st) => ({ sheet: { type: 'roleForm', mode: role ? 'edit' : 'create', back: st.sheet }, form }));
+    },
+    [setState],
+  );
 
   const setRolePerm = useCallback(
     (module: ModuleKey, level: PermLevel) =>
@@ -49,14 +64,41 @@ export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, ref
     }
     setState({ busy: 'save' });
     try {
-      await api.roles.create(S().activeTeamId!, { name: nameResult.value!, permissions: f.perms });
-      await refreshRoles();
-      setState({ busy: null, sheet: { type: 'roles' } });
-      toastMsg(t('team.toastRoleCreated'));
+      if (f.id) {
+        await api.roles.update(f.id, { name: nameResult.value!, permissions: f.perms }, S().activeTeamId!);
+        await refreshRoles();
+        setState({ busy: null, sheet: { type: 'roles' } });
+        toastMsg(t('team.toastRoleUpdated'));
+      } else {
+        await api.roles.create(S().activeTeamId!, { name: nameResult.value!, permissions: f.perms });
+        await refreshRoles();
+        setState({ busy: null, sheet: { type: 'roles' } });
+        toastMsg(t('team.toastRoleCreated'));
+      }
     } catch (err) {
       reportActionError({ setState, toastMsg }, err, 'error.save');
     }
   }, [api, S, setState, refreshRoles, toastMsg]);
+
+  const removeRole = useCallback(
+    (roleId: string) =>
+      askConfirm({
+        title: t('team.deleteRoleConfirmTitle'),
+        message: t('team.deleteRoleConfirmMsg'),
+        confirmLabel: t('common.delete'),
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await api.roles.remove(roleId, S().activeTeamId!);
+            await refreshRoles();
+            toastMsg(t('team.toastRoleDeleted'));
+          } catch (err) {
+            reportActionError({ setState, toastMsg }, err, 'error.delete');
+          }
+        },
+      }),
+    [api, S, askConfirm, refreshRoles, setState, toastMsg],
+  );
 
   const toggleMyRole = useCallback(
     async (roleId: string) => {
@@ -78,5 +120,5 @@ export function useRoleActions({ api, S, setState, activeTeam, refreshRoles, ref
     [api, activeTeam, refreshTeams, setState, toastMsg],
   );
 
-  return { openRoles, openCreateRole, setRolePerm, saveRole, toggleMyRole };
+  return { openRoles, openRoleForm, setRolePerm, saveRole, removeRole, toggleMyRole };
 }

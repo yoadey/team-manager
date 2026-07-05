@@ -270,9 +270,10 @@ export interface AppContextValue {
   removeMember: (membershipId: string) => void;
   // roles
   openRoles: () => void;
-  openCreateRole: () => void;
+  openRoleForm: (role?: Role) => void;
   setRolePerm: (module: ModuleKey, level: PermLevel) => void;
   saveRole: () => Promise<void>;
+  removeRole: (roleId: string) => void;
   toggleMyRole: (roleId: string) => Promise<void>;
   // team
   openTeamSwitcher: () => void;
@@ -884,9 +885,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveMember,
     removeMember,
     openRoles,
-    openCreateRole,
+    openRoleForm,
     setRolePerm,
     saveRole,
+    removeRole,
     toggleMyRole,
     openTeamSwitcher,
     openProfile,
@@ -1091,9 +1093,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveMember,
       removeMember,
       openRoles,
-      openCreateRole,
+      openRoleForm,
       setRolePerm,
       saveRole,
+      removeRole,
       toggleMyRole,
       openTeamSwitcher,
       openProfile,
@@ -1194,9 +1197,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveMember,
       removeMember,
       openRoles,
-      openCreateRole,
+      openRoleForm,
       setRolePerm,
       saveRole,
+      removeRole,
       toggleMyRole,
       openTeamSwitcher,
       openProfile,

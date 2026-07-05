@@ -59,7 +59,7 @@ export function sheetMeta(
     memberDetail: t('sheet.memberDetail'),
     memberForm: t('sheet.memberForm'),
     roles: t('sheet.roles'),
-    roleForm: t('sheet.roleForm'),
+    roleForm: s.mode === 'edit' ? t('sheet.roleFormEdit') : t('sheet.roleFormCreate'),
     createTeam: t('sheet.createTeam'),
     invite: t('sheet.invite'),
     teamSettings: t('sheet.teamSettings'),
