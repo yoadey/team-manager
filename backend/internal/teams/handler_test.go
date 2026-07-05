@@ -281,6 +281,60 @@ func TestTeamHandler_UploadTeamLogo_StoresAndReturnsTeam(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+// Regression test: io.LimitReader silently truncates rather than erroring
+// once its cap is reached, so a photo/logo between 2 MB and the global
+// body-size cap used to sail past the "cannot read file data" check with
+// intact JPEG magic bytes but a truncated body -- decoding it downstream
+// failed with a plain error (not ErrImageTooLarge), falling through to a
+// generic 500 instead of the 413 openapi.yaml documents for this endpoint.
+// Routes the error through apierror.ResponseErrorHandler (like the real
+// strict-server dispatch does) rather than a hardcoded status, since a
+// hardcoded one would mask exactly this kind of wrong-status-code bug.
+func TestTeamHandler_UploadTeamLogo_RejectsOversizedFile(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		updateLogo: func(context.Context, string, []byte, string) (*gen.Team, error) {
+			t.Fatal("service must not be called for an oversized upload")
+			return nil, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		require.NoError(t, err)
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		resp, err := h.UploadTeamLogo(r.Context(), gen.UploadTeamLogoRequestObject{TeamId: teamID, Body: mr})
+		if err != nil {
+			apierror.ResponseErrorHandler(slog.Default())(w, r, err)
+			return
+		}
+		_ = resp.VisitUploadTeamLogoResponse(w)
+	})
+	handler := withAuthUser(inner, testAuthUser())
+
+	// JPEG magic bytes followed by > 2 MB of filler so DetectContentType
+	// still identifies it as a JPEG, but the file exceeds the 2 MB cap.
+	oversized := append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, make([]byte, 3<<20)...)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("logo", "huge.jpg")
+	require.NoError(t, err)
+	_, err = fw.Write(oversized)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/teams/"+teamID.String()+"/logo", &buf)
+	req.AddCookie(sessionCookie("test-token"))
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
 func TestTeamHandler_UpdateTeam_EmitsAuditEvent(t *testing.T) {
 	t.Parallel()
 

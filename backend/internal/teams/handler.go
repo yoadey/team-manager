@@ -251,10 +251,19 @@ func (h *Handler) readMultipartImage(ctx context.Context, body *multipart.Reader
 		}
 	}()
 
-	data, err = io.ReadAll(io.LimitReader(part, 2<<20)) // 2 MB max
+	const maxImageBytes = 2 << 20 // 2 MB max
+	data, err = io.ReadAll(io.LimitReader(part, maxImageBytes+1))
 	if err != nil {
 		h.logger.WarnContext(ctx, label+": read file data failed", "err", err)
 		return nil, "", apierror.BadRequest("cannot read file data")
+	}
+	// io.LimitReader silently truncates rather than erroring once the cap is
+	// reached, so io.ReadAll alone can't distinguish "exactly at the limit"
+	// from "oversized" -- reading one extra byte lets us detect the latter
+	// and reject it explicitly (413) instead of letting the truncated data
+	// fail image decoding downstream and fall through to a generic 500.
+	if len(data) > maxImageBytes {
+		return nil, "", apierror.New(http.StatusRequestEntityTooLarge, "Payload Too Large", "image exceeds the 2 MB upload limit")
 	}
 
 	// Detect MIME from actual content; reject anything other than JPEG/PNG.
