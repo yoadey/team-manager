@@ -466,6 +466,7 @@ export const de = {
     contribFieldAmountError: 'Betrag fehlt.',
     contribFieldAmountErrorPositive: 'Betrag muss größer als 0 sein.',
     contribSave: 'Änderungen speichern',
+    editContribLabel: 'Beitrag bearbeiten',
     contribEmpty: 'Noch keine Beiträge erfasst',
     contribPaid: 'bezahlt',
     contribOpen: 'offen',

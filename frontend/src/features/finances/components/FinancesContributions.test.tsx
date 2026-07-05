@@ -46,6 +46,7 @@ function makeApp(overrides = {}) {
     setState: vi.fn(),
     state: { contribMonth: null },
     openContribForm: vi.fn(),
+    toggleContribution: vi.fn(),
     ...overrides,
   };
 }
@@ -182,5 +183,50 @@ describe('FinancesContributions', () => {
       />,
     );
     expect(screen.getAllByText('finances.contribOpen').length).toBeGreaterThan(0);
+  });
+
+  // Regression: openContribForm/api.finances.updateContribution were fully
+  // implemented (hook, sheet, service layer) but no rendered component ever
+  // called openContribForm -- a contribution's label/amount could never be
+  // corrected through the UI. Only visible with canFin=true.
+  it('shows an edit action for each contribution when canFin is true', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={true}
+      />,
+    );
+    expect(screen.getByLabelText('finances.editContribLabel')).toBeTruthy();
+  });
+
+  it('hides the edit action when canFin is false', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.queryByLabelText('finances.editContribLabel')).toBeNull();
+  });
+
+  it('clicking the edit action calls openContribForm with the contribution', () => {
+    const app = makeApp();
+    const contrib = makeContrib();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [contrib] })}
+        canFin={true}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('finances.editContribLabel'));
+    expect(app.openContribForm).toHaveBeenCalledWith(contrib);
   });
 });

@@ -459,6 +459,7 @@ export const en: Messages = {
     contribFieldAmountError: 'Amount is required.',
     contribFieldAmountErrorPositive: 'Amount must be greater than 0.',
     contribSave: 'Save changes',
+    editContribLabel: 'Edit contribution',
     contribEmpty: 'No contributions recorded yet',
     contribPaid: 'paid',
     contribOpen: 'open',

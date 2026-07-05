@@ -134,6 +134,23 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
             </Box>
             {canFin ? (
               <ButtonBase
+                onClick={() => app.openContribForm(c)}
+                aria-label={t('finances.editContribLabel')}
+                sx={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '50%',
+                  background: NEUTRAL.sidebar,
+                  color: NEUTRAL.faint,
+                  cursor: 'pointer',
+                  flex: '0 0 auto',
+                }}
+              >
+                <Sym name="edit" size={16} color={NEUTRAL.faint} />
+              </ButtonBase>
+            ) : null}
+            {canFin ? (
+              <ButtonBase
                 onClick={() => app.toggleContribution(c.id)}
                 sx={{
                   border: 'none',
