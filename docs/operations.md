@@ -56,6 +56,31 @@ Logical dumps remain the simplest portable baseline.
   these drops pending notifications but not core data.
 - Session rows: users simply re-authenticate.
 
+### Rolling upgrades & schema-changing migrations
+
+The Helm chart's Deployment has no explicit `strategy:`, so it uses
+Kubernetes' default `RollingUpdate`: with `replicaCount > 1` (the default and
+prod values), old- and new-version pods run concurrently for the whole
+rollout window, each applying migrations via their own `initContainer` (the
+migration runner itself is safe under this — concurrent execution across
+replicas is serialized via a Postgres session-level advisory lock). CI's
+`backend-migration-safety` job only checks *lock-duration* safety
+(unindexed `CREATE INDEX`, `ALTER COLUMN ... TYPE`, unvalidated `CHECK`
+constraints) — it does not, and cannot, check whether a migration is
+*semantically* backward-incompatible with the old binary still serving
+traffic during that window. `00008_amount_cents.sql` (converting
+`transactions`/`penalties`/`contributions.amount` from euro floats to integer
+cents in place) is a concrete example of the shape to watch for: had that
+migration shipped under a live rolling upgrade with replicas > 1, the
+still-running old-version pods would have read/written the new column
+expecting the old type for the duration of the rollout. For any future
+migration that changes a column's *meaning* (not just its lock duration),
+either use the standard expand/contract pattern (add the new column, dual-write
+from both binary versions, backfill, then drop the old column in a later
+release) or scale to a single replica / use `Recreate` strategy for that one
+deploy so no two binary versions serve traffic against the changed schema
+simultaneously.
+
 ## JWT key rotation
 
 Sessions are signed with `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` (RS256). Unlike
