@@ -127,6 +127,52 @@ func TestEventRepository_CreateRecurringEvent(t *testing.T) {
 	assert.Equal(t, *eventRows[0].SeriesId, *eventRows[3].SeriesId)
 }
 
+// Regression test: CreateEvent/CreateSeries/UpdateEvent must validate
+// nominated_role_ids against the roles table inside their own transaction
+// (holding the same pg_advisory_xact_lock key roles.DeleteRole uses), not
+// just via the service layer's separate, lock-free pre-check -- otherwise a
+// role deleted concurrently between that pre-check and this write could
+// leave a dangling ID in nominated_role_ids that DeleteRole's scrub (which
+// only runs once, at deletion time) would never clean up.
+func TestEventRepository_CreateEvent_RejectsForeignTeamNominatedRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New().String()
+	otherTeamID := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Nom Role Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Nom Role Team')`, otherTeamID)
+	require.NoError(t, err)
+
+	var foreignRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Foreign Role', '{}') RETURNING id`,
+		otherTeamID,
+	).Scan(&foreignRoleID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Bad Nomination", time.Now().UTC())
+	params.NominatedRoleIds = []uuid.UUID{foreignRoleID}
+	_, err = repo.CreateEvent(ctx, teamID, &params)
+	require.ErrorIs(t, err, events.ErrInvalidNominatedRoleIDs)
+
+	// A role that genuinely belongs to the team is accepted.
+	var ownRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Own Role', '{}') RETURNING id`,
+		teamID,
+	).Scan(&ownRoleID)
+	require.NoError(t, err)
+	params.NominatedRoleIds = []uuid.UUID{ownRoleID}
+	ev, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+}
+
 // A series-scope update with a new title AND a new date must apply the title
 // to every occurrence but NOT collapse every occurrence onto the same date —
 // date is what makes each occurrence distinct; only the specific event the

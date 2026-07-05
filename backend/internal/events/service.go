@@ -220,7 +220,7 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		params.ResponseMode = &rm
 	}
 	if body.NominatedRoleIds != nil {
-		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
+		params.NominatedRoleIds = *body.NominatedRoleIds
 	}
 
 	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
@@ -304,7 +304,12 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		params.ResponseMode = &rm
 	}
 	if body.NominatedRoleIds != nil {
-		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
+		// Direct assignment (not append onto the nil zero value) so an
+		// explicit empty array ("clear all nominations") stays a non-nil
+		// empty slice -- append(nil, emptySlice...) returns nil per Go's
+		// append semantics, which buildUpdateSets' `!= nil` check would then
+		// read as "field not provided," silently no-op'ing the clear.
+		params.NominatedRoleIds = *body.NominatedRoleIds
 	}
 
 	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {

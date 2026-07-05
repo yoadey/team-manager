@@ -221,6 +221,40 @@ func TestEventService_CreateEvent_Recurring(t *testing.T) {
 	assert.NotNil(t, result.SeriesId)
 }
 
+// Regression test: UpdateEventJSONRequestBody.NominatedRoleIds is a
+// *[]uuid.UUID, distinguishing "omitted" (nil) from "explicit empty array"
+// (non-nil, len 0) -- a client clearing all nominated roles sends the
+// latter. The service used to build params.NominatedRoleIds via
+// append(params.NominatedRoleIds, *body.NominatedRoleIds...), and Go's
+// append(nil, ...zero elements) returns nil, so the field silently stayed
+// nil and buildUpdateSets' `!= nil` check treated the clear request as "not
+// provided," never actually clearing the column.
+func TestEventService_UpdateEvent_ClearsNominatedRoleIdsWithExplicitEmptyArray(t *testing.T) {
+	t.Parallel()
+
+	var capturedRoleIDs []uuid.UUID
+	capturedWasNil := true
+	repo := &mockSvcRepo{
+		updateEventFn: func(_ context.Context, _, _ string, params *events.UpdateEventParams, _ string) (*events.EventRow, error) {
+			capturedRoleIDs = params.NominatedRoleIds
+			capturedWasNil = params.NominatedRoleIds == nil
+			row := svcMakeEventRow("Training")
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+	svc := events.NewService(repo, nil, nil, nil, nil)
+
+	emptyRoleIDs := []uuid.UUID{}
+	body := &gen.UpdateEventJSONRequestBody{NominatedRoleIds: &emptyRoleIDs}
+	_, err := svc.UpdateEvent(context.Background(), testTeamID, testUserID, uuid.New().String(), "single", body)
+	require.NoError(t, err)
+
+	assert.False(t, capturedWasNil, "NominatedRoleIds must stay non-nil so buildUpdateSets actually clears the column")
+	assert.Empty(t, capturedRoleIDs)
+}
+
 func TestEventService_CreateEvent_Recurring_RejectsExcessiveRepeatWeeks(t *testing.T) {
 	t.Parallel()
 

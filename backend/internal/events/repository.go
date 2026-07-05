@@ -171,12 +171,58 @@ func (r *Repository) GetEvent(ctx context.Context, eventID, teamID string) (*Eve
 	return e, nil
 }
 
+// validateNominatedRolesInTx verifies every ID in roleIDs is a role belonging
+// to teamID, returning ErrInvalidNominatedRoleIDs otherwise. Takes the same
+// pg_advisory_xact_lock(hashtextextended(teamID, 0)) key
+// roles.DeleteRole/members.SetRoles/teams.UpdateTeam already use, so this
+// check can't race with a concurrent role deletion committing (and scrubbing
+// nominated_role_ids) between this validation and the caller's write --
+// otherwise a role could be deleted right after being validated here,
+// re-introducing the dangling reference DeleteRole's scrub just removed.
+// Service.validateNominatedRoles (a separate, lock-free pre-check via the
+// injected roleChecker) still runs first as a fast UX rejection; this is the
+// authoritative, race-free check.
+func validateNominatedRolesInTx(ctx context.Context, tx pgx.Tx, teamID string, roleIDs []uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return fmt.Errorf("events.Repository: advisory lock: %w", err)
+	}
+	if len(roleIDs) == 0 {
+		return nil
+	}
+	seen := make(map[uuid.UUID]struct{}, len(roleIDs))
+	for _, id := range roleIDs {
+		seen[id] = struct{}{}
+	}
+	var count int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
+		roleIDs, teamID,
+	).Scan(&count); err != nil {
+		return fmt.Errorf("events.Repository: check nominated roles: %w", err)
+	}
+	if count != len(seen) {
+		return ErrInvalidNominatedRoleIDs
+	}
+	return nil
+}
+
 // ─── CreateEvent ────────────────────────────────────────────────────────────
 
 // CreateEvent inserts a single event row and returns it.
 func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error) { //nolint:gocritic
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateEvent: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := validateNominatedRolesInTx(ctx, tx, teamID, params.NominatedRoleIds); err != nil {
+		return nil, err
+	}
+
 	q := fmt.Sprintf(`
 		INSERT INTO events (
 			team_id, type, title, date, location, note,
@@ -190,7 +236,7 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 		RETURNING %s
 	`, selectEventFields)
 
-	row := r.pool.QueryRow(
+	row := tx.QueryRow(
 		ctx, q,
 		teamID, params.Type, params.Title, params.Date,
 		params.Location, params.Note,
@@ -202,6 +248,10 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 	e, err := scanEventRow(row)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateEvent: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateEvent: commit: %w", err)
 	}
 	return e, nil
 }
@@ -220,6 +270,10 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		return nil, fmt.Errorf("events.Repository.CreateSeries: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := validateNominatedRolesInTx(ctx, tx, teamID, params.NominatedRoleIds); err != nil {
+		return nil, err
+	}
 
 	// Insert series row.
 	var seriesID uuid.UUID
@@ -302,6 +356,12 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	if params.NominatedRoleIds != nil {
+		if err := validateNominatedRolesInTx(ctx, tx, teamID, params.NominatedRoleIds); err != nil {
+			return nil, err
+		}
+	}
 
 	if scope == "series" {
 		// Get series_id for this event, verified to belong to teamID.
