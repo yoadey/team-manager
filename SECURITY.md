@@ -54,6 +54,12 @@ birthday, address, photo). The following data-subject rights are implemented:
   confirmed by retyping the account email (verified server-side).
 - Security-sensitive actions (login, logout, account erasure) emit structured
   **audit-log** events.
+- **Storage limitation (Art. 5(1)(e)):** a daily retention job deletes rows
+  once they age past a configurable window: notifications after
+  `RETENTION_NOTIFICATIONS_DAYS` (default 90), expired sessions after
+  `RETENTION_SESSIONS_DAYS` past expiry (default 30), and `audit_log` rows
+  after `RETENTION_AUDIT_LOG_DAYS` (default 365) — raise the audit-log window
+  if your organization's retention policy requires longer.
 
 ## Hardening Already in Place
 

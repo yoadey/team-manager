@@ -63,6 +63,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: COOKIE_ENCRYPTION_KEY
+                  # Optional: config.go's loadCookieEncryptionKeys checks
+                  # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never
+                  # even looks at this singular key -- a Secret populated per
+                  # the zero-downtime-rotation guidance in CLAUDE.md (only
+                  # COOKIE_ENCRYPTION_KEYS set) must not fail pod scheduling
+                  # just because this optional fallback key is absent.
+                  optional: true
             - name: SENTRY_DSN
               valueFrom:
                 secretKeyRef:
@@ -133,6 +140,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: COOKIE_ENCRYPTION_KEY
+                  # Optional: config.go's loadCookieEncryptionKeys checks
+                  # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never
+                  # even looks at this singular key -- a Secret populated per
+                  # the zero-downtime-rotation guidance in CLAUDE.md (only
+                  # COOKIE_ENCRYPTION_KEYS set) must not fail pod scheduling
+                  # just because this optional fallback key is absent.
+                  optional: true
             - name: SENTRY_DSN
               valueFrom:
                 secretKeyRef:
