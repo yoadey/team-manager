@@ -132,6 +132,26 @@ describe('NotificationsSheet', () => {
     expect(screen.getByText(/Training Montag/)).toBeTruthy();
   });
 
+  // Regression test: eventDate is optional per the OpenAPI AppNotification
+  // schema (and the nullable event_date DB column), but line2 used to call
+  // fmtDate(n.eventDate!) unconditionally -- passing undefined through to
+  // Intl.DateTimeFormat.format(new Date(undefined)) throws a RangeError and
+  // would crash the sheet. Must render the event title alone instead.
+  it('renders an attendance notification without an eventDate without throwing', () => {
+    const n = makeNotification({
+      id: 'n2b',
+      type: 'attendance',
+      status: 'yes',
+      actorName: 'Klaus Fischer',
+      eventTitle: 'Training Montag',
+      eventDate: undefined,
+      eventId: 'e1',
+    });
+    const app = makeApp({ notifications: [n] });
+    expect(() => render(<NotificationsSheet app={app} sheet={{ type: 'notifications' }} />)).not.toThrow();
+    expect(screen.getByText('Training Montag')).toBeTruthy();
+  });
+
   it('renders an event_created notification', () => {
     const n = makeNotification({
       id: 'n3',

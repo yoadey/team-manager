@@ -624,6 +624,7 @@ export const en: Messages = {
     eventCancelled: 'Event cancelled',
     eventReactivated: 'Event reactivated',
     eventDeleted: 'Event deleted',
+    eventGeneric: 'Event',
     newsNew: 'New news item',
     pollNew: 'New poll',
     absenceLogged: 'logged an absence',

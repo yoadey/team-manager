@@ -632,6 +632,7 @@ export const de = {
     eventCancelled: 'Termin abgesagt',
     eventReactivated: 'Termin wieder aktiviert',
     eventDeleted: 'Termin gelöscht',
+    eventGeneric: 'Termin',
     newsNew: 'Neue Neuigkeit',
     pollNew: 'Neue Umfrage',
     absenceLogged: 'hat eine Abwesenheit eingetragen',

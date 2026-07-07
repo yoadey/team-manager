@@ -297,7 +297,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {photoRow}
       <Field label={t('members.fieldName')} required error={!!errs.name} errorText={errs.name}>
-        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} onBlur={validateName} />
+        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} onBlur={validateName} maxLength={255} />
       </Field>
       <Field label={t('members.fieldEmail')} error={!!errs.email} errorText={errs.email}>
         <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} onBlur={validateEmail_} />

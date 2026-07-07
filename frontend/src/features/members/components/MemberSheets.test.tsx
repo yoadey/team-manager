@@ -288,9 +288,16 @@ describe('MemberFormSheet', () => {
     expect(screen.getByPlaceholderText('Straße, PLZ Ort')).toBeTruthy();
   });
 
-  // Regression test: phone/address had no client-side maxLength, unlike
+  // Regression test: name/phone/address had no client-side maxLength, unlike
   // every other create/edit form field, matching the backend's
-  // validate.MaxLen bounds (32 / 500).
+  // validate.MaxLen bounds (255 / 32 / 500).
+  it('caps the name input at 255 characters matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = screen.getByPlaceholderText('Vor- und Nachname') as HTMLInputElement;
+    expect(input.maxLength).toBe(255);
+  });
+
   it('caps the phone input at 32 characters matching the backend limit', () => {
     const app = makeFormApp();
     render(<MemberFormSheet app={app} sheet={formSheet} />);
