@@ -159,6 +159,10 @@ describe('useTeamActions', () => {
   });
 
   it('removeTeamPhoto calls updateSettings with null and shows toast', async () => {
+    // setFormVal is only applied while still on the teamSettings sheet for
+    // the same team the removal was issued for -- see the team-switch race
+    // regression test below.
+    stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
     const { result } = renderActions();
     await act(async () => {
       await result.current.removeTeamPhoto();
@@ -166,6 +170,34 @@ describe('useTeamActions', () => {
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { photo: null });
     expect(setFormVal).toHaveBeenCalledWith({ photo: null });
     expect(toastMsg).toHaveBeenCalledWith('Gruppenbild entfernt');
+  });
+
+  // Regression test: setFormVal writes into the single shared, untyped form
+  // buffer regardless of which sheet is open. A slow photo upload for team1
+  // used to unconditionally apply its result even after the user had since
+  // switched away from the teamSettings sheet (e.g. to CreateTeamSheet,
+  // which reads the same form.photo field for its own, unrelated preview).
+  it('saveTeamPhoto does not touch the form if the user left the teamSettings sheet while the save was in flight', async () => {
+    let resolveUpdate!: () => void;
+    api.teams.updateSettings = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
+    stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveTeamPhoto('data:image/png;base64,fromTeam1');
+    });
+    expect(api.teams.updateSettings).toHaveBeenCalled();
+
+    // User navigates away to a different sheet before the upload resolves.
+    stateRef = { ...stateRef, sheet: { type: 'createTeam' } as never };
+
+    await act(async () => {
+      resolveUpdate();
+      await savePromise;
+    });
+
+    expect(setFormVal).not.toHaveBeenCalled();
   });
 
   it('removeTeamPhoto ignores a second call while the first is still in flight', async () => {

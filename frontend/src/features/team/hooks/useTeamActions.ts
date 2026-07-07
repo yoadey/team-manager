@@ -62,15 +62,27 @@ export function useTeamActions({
 
   const photoLogoInFlight = useRef(new Set<string>());
 
+  // setFormVal writes into the single shared, untyped form buffer regardless
+  // of which sheet is currently open, so an upload that resolves after the
+  // user has since switched teams and/or opened a different sheet must not
+  // apply its result -- otherwise it silently overwrites whatever the OTHER
+  // sheet's form fields (e.g. CreateTeamSheet's own photo preview) currently
+  // hold with stale data from a completely different team.
+  const stillOnTeamSettingsFor = useCallback(
+    (teamId: string) => S().activeTeamId === teamId && S().sheet?.type === 'teamSettings',
+    [S],
+  );
+
   const saveTeamPhoto = useCallback(
     async (dataUrl: string) => {
       const key = 'photo';
       if (photoLogoInFlight.current.has(key)) return;
       photoLogoInFlight.current.add(key);
+      const teamId = S().activeTeamId!;
       try {
-        await api.teams.updateSettings(S().activeTeamId!, { photo: dataUrl });
+        await api.teams.updateSettings(teamId, { photo: dataUrl });
         await refreshTeams();
-        setFormVal({ photo: dataUrl });
+        if (stillOnTeamSettingsFor(teamId)) setFormVal({ photo: dataUrl });
         toastMsg(t('team.toastPhotoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -78,34 +90,36 @@ export function useTeamActions({
         photoLogoInFlight.current.delete(key);
       }
     },
-    [api, S, refreshTeams, setFormVal, setState, toastMsg, logout],
+    [api, S, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout],
   );
 
   const removeTeamPhoto = useCallback(async () => {
     const key = 'photo';
     if (photoLogoInFlight.current.has(key)) return;
     photoLogoInFlight.current.add(key);
+    const teamId = S().activeTeamId!;
     try {
-      await api.teams.updateSettings(S().activeTeamId!, { photo: null });
+      await api.teams.updateSettings(teamId, { photo: null });
       await refreshTeams();
-      setFormVal({ photo: null });
+      if (stillOnTeamSettingsFor(teamId)) setFormVal({ photo: null });
       toastMsg(t('team.toastPhotoRemoved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     } finally {
       photoLogoInFlight.current.delete(key);
     }
-  }, [api, S, refreshTeams, setFormVal, setState, toastMsg, logout]);
+  }, [api, S, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout]);
 
   const saveTeamLogo = useCallback(
     async (dataUrl: string) => {
       const key = 'logo';
       if (photoLogoInFlight.current.has(key)) return;
       photoLogoInFlight.current.add(key);
+      const teamId = S().activeTeamId!;
       try {
-        await api.teams.updateSettings(S().activeTeamId!, { logo: dataUrl });
+        await api.teams.updateSettings(teamId, { logo: dataUrl });
         await refreshTeams();
-        setFormVal({ logo: dataUrl });
+        if (stillOnTeamSettingsFor(teamId)) setFormVal({ logo: dataUrl });
         toastMsg(t('team.toastLogoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -113,7 +127,7 @@ export function useTeamActions({
         photoLogoInFlight.current.delete(key);
       }
     },
-    [api, S, refreshTeams, setFormVal, setState, toastMsg, logout],
+    [api, S, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout],
   );
 
   const setTeamIcon = useCallback(
