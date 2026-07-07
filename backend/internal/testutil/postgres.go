@@ -31,10 +31,17 @@ func migrationsDir() string {
 	return filepath.Join(backendRoot, "internal", "db", "migrations")
 }
 
-// RequireDocker skips the test if a Docker daemon is not reachable.
-// Call at the top of any test that uses testcontainers.
+// RequireDocker skips the test if a Docker daemon is not reachable, or if
+// the test binary was run with -short (e.g. via `make test-unit`) --
+// testing.Short() is otherwise never checked anywhere in this codebase, so
+// without this, -short filtered nothing and test-unit silently ran the full
+// Docker-backed suite whenever Docker happened to be available, identical
+// to plain `make test`. Call at the top of any test that uses testcontainers.
 func RequireDocker(t *testing.T) {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping Docker-backed integration test in -short mode")
+	}
 	client, err := testcontainers.NewDockerClientWithOpts(context.Background())
 	if err != nil {
 		t.Skipf("Docker not available (%v) — skipping integration test", err)

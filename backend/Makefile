@@ -52,9 +52,14 @@ test:
 test-unit:
 	go test ./... -race -count=1 -short
 
-## Run integration tests (requires Docker for testcontainers)
+## Run integration tests (requires Docker for testcontainers). The old
+## "-run Integration" filter matched zero test names (no Test* function in
+## this codebase contains that substring) and silently reported "ok" having
+## run nothing; Docker-backed tests are actually gated by
+## testutil.RequireDocker checking testing.Short(), not by test naming, so
+## the correct way to select them is to run everything WITHOUT -short.
 test-integration:
-	go test ./... -race -count=1 -run Integration
+	go test ./... -race -count=1
 
 ## Run tests with coverage report
 test-coverage:
