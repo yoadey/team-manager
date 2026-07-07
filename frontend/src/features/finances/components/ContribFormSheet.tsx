@@ -42,7 +42,7 @@ export function ContribFormSheet({ app }: SheetProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Field label={t('finances.contribFieldLabel')} required error={!!errs.label} errorText={errs.label}>
-        <TextInput name="label" placeholder={t('finances.contribFieldLabelPlaceholder')} onBlur={validateLabel} />
+        <TextInput name="label" placeholder={t('finances.contribFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
       </Field>
       <Field label={t('finances.contribFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
         <TextInput name="amount" type="number" onBlur={validateAmount} />

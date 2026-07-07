@@ -58,6 +58,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           name="category"
           list="tvCatList"
           autoComplete="off"
+          maxLength={255}
           value={F.category == null ? '' : F.category}
           onChange={app.onFormInput}
           placeholder={t('finances.txCategoryPlaceholder')}
@@ -163,7 +164,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box sx={{ display: 'flex', gap: '8px' }}>{typeBtns}</Box>
       <Field label={t('finances.txFieldTitle')} required error={!!errs.title} errorText={errs.title}>
-        <TextInput name="title" placeholder={t('finances.txFieldTitlePlaceholder')} onBlur={validateTitle} />
+        <TextInput name="title" placeholder={t('finances.txFieldTitlePlaceholder')} onBlur={validateTitle} maxLength={255} />
       </Field>
       <Field label={t('finances.txFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
         <TextInput name="amount" type="number" onBlur={validateAmount} />

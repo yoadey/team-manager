@@ -1040,7 +1040,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state.sheet,
   ]);
 
+  const bootstrapStarted = useRef(false);
   useEffect(() => {
+    // React.StrictMode double-invokes effects on initial mount in dev; without
+    // this guard that means two concurrent establishSession() calls (each
+    // fanning out teams.listForCurrentUser() + 5 afterLoginLoad requests) on
+    // every dev-mode app load. The ref (not state) survives both invocations
+    // since StrictMode replays the same component instance.
+    if (bootstrapStarted.current) return;
+    bootstrapStarted.current = true;
     (async () => {
       try {
         // Restore an existing session from the HttpOnly cookie. If one is active,

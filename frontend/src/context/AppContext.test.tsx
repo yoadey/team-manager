@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { AppProvider, useApp, useAppActions, useAppSelector } from './AppContext';
@@ -599,5 +600,31 @@ describe('AppProvider / session-restore resilience', () => {
     // per-call latency pushes this well past the default 1000ms waitFor.
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 5000 });
     await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
+  });
+
+  // Regression test: React.StrictMode double-invokes effects on initial
+  // mount in dev, and the session-restore effect had no guard against that --
+  // meaning api.auth.currentUser() (and, for a valid session,
+  // establishSession()'s full team-list + afterLoginLoad fan-out) fired
+  // twice on every dev-mode app load. The bootstrapStarted ref must make
+  // this idempotent even under StrictMode's double-invoke.
+  it('only calls currentUser once under React.StrictMode double-invoke', async () => {
+    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp } = await freshModules();
+    const spy = vi.spyOn(api.auth, 'currentUser');
+
+    function Probe() {
+      const { state } = freshUseApp();
+      return <div data-testid="phase">{state.phase}</div>;
+    }
+
+    render(
+      <StrictMode>
+        <FreshAppProvider>
+          <Probe />
+        </FreshAppProvider>
+      </StrictMode>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

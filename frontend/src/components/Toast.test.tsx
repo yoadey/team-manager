@@ -33,4 +33,15 @@ describe('Toast', () => {
     const toast = screen.getByRole('status');
     expect(toast.getAttribute('aria-live')).toBe('polite');
   });
+
+  // Regression test: the message was a bare flex-row child with no
+  // minWidth: 0 / overflow-wrap, so a long unbreakable token (e.g. a joined
+  // team name up to 60 chars with no spaces) could overflow the toast's
+  // maxWidth: 90vw box on a narrow viewport instead of wrapping inside it.
+  it('wraps the message in a shrinkable, word-breaking container', () => {
+    mockUseApp.mockReturnValue({ state: { toast: { message: 'Hallo' } } });
+    render(<Toast />);
+    const messageEl = screen.getByText('Hallo');
+    expect(messageEl.tagName).toBe('SPAN');
+  });
 });

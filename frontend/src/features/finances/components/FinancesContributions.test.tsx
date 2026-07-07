@@ -215,6 +215,30 @@ describe('FinancesContributions', () => {
     expect(screen.queryByLabelText('finances.editContribLabel')).toBeNull();
   });
 
+  // Regression test: memberName is optional per the OpenAPI Contribution
+  // schema (not in `required`), and the row-sort comparator used to call
+  // `.name!.localeCompare(...)` unguarded -- a contribution with no name
+  // (e.g. a left-outer-join for a member who left the team) would throw
+  // "Cannot read properties of undefined" and crash the whole page.
+  it('does not throw when a contribution has no member name', () => {
+    const app = makeApp();
+    const contribs = [
+      makeContrib({ id: 'c1', name: undefined }),
+      makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' }),
+    ];
+    expect(() =>
+      render(
+        <FinancesContributions
+          app={app as never}
+          t={tk}
+          f={makeFinances({ contributions: contribs })}
+          canFin={false}
+        />,
+      ),
+    ).not.toThrow();
+    expect(screen.getByText('Bob')).toBeTruthy();
+  });
+
   it('clicking the edit action calls openContribForm with the contribution', () => {
     const app = makeApp();
     const contrib = makeContrib();

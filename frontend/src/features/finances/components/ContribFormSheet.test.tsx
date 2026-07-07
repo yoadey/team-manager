@@ -48,6 +48,16 @@ describe('ContribFormSheet', () => {
     expect(screen.getByPlaceholderText('z. B. Monatsbeitrag')).toBeTruthy();
   });
 
+  // Regression test: the label field had no client-side maxLength, matching
+  // the backend's 255-char validate.MaxLen bound.
+  it('caps the label input at 255 characters matching the backend limit', () => {
+    makeApp();
+    const app = mockUseApp();
+    render(<ContribFormSheet app={app as never} sheet={sheet} />);
+    const input = screen.getByPlaceholderText('z. B. Monatsbeitrag') as HTMLInputElement;
+    expect(input.maxLength).toBe(255);
+  });
+
   it('shows label error when label is empty on blur', () => {
     const app = makeApp({ label: '' });
     render(<ContribFormSheet app={app as never} sheet={sheet} />);

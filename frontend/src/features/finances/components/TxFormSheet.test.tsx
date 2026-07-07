@@ -71,6 +71,18 @@ describe('TxFormSheet', () => {
     expect(app.setFormVal).toHaveBeenCalledWith({ type: 'expense' });
   });
 
+  // Regression test: title/category had no client-side maxLength, matching
+  // the backend's 255-char validate.MaxLen bound for both fields.
+  it('caps title and category inputs at 255 characters matching the backend limit', () => {
+    const app = makeApp();
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    const titleInput = screen.getByPlaceholderText('z. B. Mitgliedsbeiträge') as HTMLInputElement;
+    const categoryInput = document.querySelector('input[name="category"]') as HTMLInputElement;
+    expect(titleInput.maxLength).toBe(255);
+    expect(categoryInput.maxLength).toBe(255);
+  });
+
   it('shows title error when title is blank on blur', () => {
     const app = makeApp({ title: '' });
     const sheet = { mode: 'create' } as never;

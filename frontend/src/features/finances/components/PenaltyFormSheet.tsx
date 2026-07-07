@@ -62,7 +62,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         {create ? t('finances.penaltyFormHintCreate') : t('finances.penaltyFormHintEdit')}
       </Box>
       <Field label={t('finances.penaltyFieldLabel')} required error={!!errs.label} errorText={errs.label}>
-        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} onBlur={validateLabel} />
+        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
       </Field>
       <Field label={t('finances.penaltyFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
         <TextInput name="amount" type="number" onBlur={validateAmount} />

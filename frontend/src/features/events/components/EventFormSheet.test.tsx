@@ -145,6 +145,19 @@ describe('EventFormSheet', () => {
     expect(screen.getByText('events.fieldNote')).toBeTruthy();
   });
 
+  // Regression test: location/note had no client-side maxLength, unlike
+  // every other create/edit form field, matching the backend's
+  // validate.MaxLen bounds (255 / 10000).
+  it('caps location and note inputs matching the backend limits', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    const location = document.querySelector('input[name="location"]') as HTMLInputElement;
+    const note = document.querySelector('textarea[name="note"]') as HTMLTextAreaElement;
+    expect(location.maxLength).toBe(255);
+    expect(note.maxLength).toBe(10000);
+  });
+
   it('renders recurring toggle in create mode', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);

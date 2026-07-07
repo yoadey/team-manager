@@ -22,7 +22,9 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const months = [...new Set(contribs.map((c) => c.month).filter(Boolean))].sort().reverse();
   if (!months.length) return <EmptyState icon="payments" text={t('finances.contribEmpty')} />;
   const sel = state.contribMonth && months.includes(state.contribMonth) ? state.contribMonth : months[0];
-  const rows = contribs.filter((c) => c.month === sel).sort((a, b) => a.name!.localeCompare(b.name!, 'de'));
+  const rows = contribs
+    .filter((c) => c.month === sel)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'de'));
   const paidRows = rows.filter((c) => c.status === 'paid');
   const sum = paidRows.reduce((s, c) => s + c.amount, 0);
   const total = rows.reduce((s, c) => s + c.amount, 0);
