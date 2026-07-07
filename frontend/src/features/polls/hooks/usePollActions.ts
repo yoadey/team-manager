@@ -70,16 +70,20 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
       toastMsg(poll.message!);
       return;
     }
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
-      await api.polls.create(S().activeTeamId!, {
+      await api.polls.create(teamId, {
         question: poll.value!.question,
         options: poll.value!.options,
         multiple: f.multiple,
         anonymous: f.anonymous,
       });
       await loadPolls();
-      setState({ busy: null, sheet: null });
+      setState({ busy: null });
+      // Don't close a sheet the user has since opened for a different team
+      // after switching away mid-request.
+      if (S().activeTeamId === teamId) setState({ sheet: null });
       toastMsg(t('polls.toastCreated'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');

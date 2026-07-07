@@ -46,17 +46,22 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
       toastMsg(titleResult.message!);
       return;
     }
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
       if (f.id) {
-        await api.news.update(f.id, { title: titleResult.value!, body: f.body, pinned: f.pinned }, S().activeTeamId!);
+        await api.news.update(f.id, { title: titleResult.value!, body: f.body, pinned: f.pinned }, teamId);
         await loadNews();
-        setState({ busy: null, sheet: null });
+        setState({ busy: null });
+        // Don't close a sheet the user has since opened for a different
+        // team after switching away mid-request.
+        if (S().activeTeamId === teamId) setState({ sheet: null });
         toastMsg(t('news.toastUpdated'));
       } else {
-        await api.news.create(S().activeTeamId!, { title: titleResult.value!, body: f.body, pinned: f.pinned });
+        await api.news.create(teamId, { title: titleResult.value!, body: f.body, pinned: f.pinned });
         await loadNews();
-        setState({ busy: null, sheet: null });
+        setState({ busy: null });
+        if (S().activeTeamId === teamId) setState({ sheet: null });
         toastMsg(t('news.toastPublished'));
       }
     } catch (err) {

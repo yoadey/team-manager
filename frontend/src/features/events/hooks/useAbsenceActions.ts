@@ -68,7 +68,10 @@ export function useAbsenceActions({
           reason: f.reason,
         });
       await Promise.all([refreshEvents(), loadAbsences()]);
-      setState({ busy: null, sheet: null });
+      setState({ busy: null });
+      // Don't close a sheet the user has since opened for a different team
+      // after switching away mid-request.
+      if (S().activeTeamId === teamId) setState({ sheet: null });
       toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');

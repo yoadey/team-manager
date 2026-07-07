@@ -62,6 +62,7 @@ export function useFinanceActions({
       toastMsg(amount.message!);
       return;
     }
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
       if (S().sheet!.mode === 'edit')
@@ -73,17 +74,20 @@ export function useFinanceActions({
             amount: amount.value!,
             category: f.category,
           },
-          S().activeTeamId!,
+          teamId,
         );
       else
-        await api.finances.addTransaction(S().activeTeamId!, {
+        await api.finances.addTransaction(teamId, {
           type: f.type,
           title: title.value!,
           amount: amount.value!,
           category: f.category,
         });
       await loadFinances();
-      setState({ busy: null, sheet: null });
+      setState({ busy: null });
+      // Don't close a sheet the user has since opened for a different team
+      // after switching away mid-request.
+      if (S().activeTeamId === teamId) setState({ sheet: null });
       toastMsg(t('finances.toastTxSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -92,11 +96,13 @@ export function useFinanceActions({
 
   const deleteTx = useCallback(
     async (id: string) => {
+      const teamId = S().activeTeamId!;
       setState({ busy: 'delete' });
       try {
-        await api.finances.deleteTransaction(id, S().activeTeamId!);
+        await api.finances.deleteTransaction(id, teamId);
         await loadFinances();
-        setState({ busy: null, sheet: null });
+        setState({ busy: null });
+        if (S().activeTeamId === teamId) setState({ sheet: null });
         toastMsg(t('finances.toastTxDeleted'));
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
@@ -137,12 +143,16 @@ export function useFinanceActions({
     const sh = S().sheet!;
     const back = sh.back || null;
     const create = sh.mode === 'create';
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
-      if (create) await api.finances.createPenalty(S().activeTeamId!, { label: label.value!, amount: amount.value! });
-      else await api.finances.updatePenalty(f.id!, { label: label.value!, amount: amount.value! }, S().activeTeamId!);
+      if (create) await api.finances.createPenalty(teamId, { label: label.value!, amount: amount.value! });
+      else await api.finances.updatePenalty(f.id!, { label: label.value!, amount: amount.value! }, teamId);
       await loadFinances();
-      setState({ busy: null, sheet: back });
+      setState({ busy: null });
+      // Don't navigate away from a sheet the user has since opened for a
+      // different team after switching away mid-request.
+      if (S().activeTeamId === teamId) setState({ sheet: back });
       toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -157,10 +167,11 @@ export function useFinanceActions({
         confirmLabel: t('finances.penaltyDeleteConfirm'),
         danger: true,
         onConfirm: async () => {
+          const teamId = S().activeTeamId!;
           try {
-            await api.finances.deletePenalty(id, S().activeTeamId!);
+            await api.finances.deletePenalty(id, teamId);
             await loadFinances();
-            setState({ sheet: { type: 'penaltyCatalog' } });
+            if (S().activeTeamId === teamId) setState({ sheet: { type: 'penaltyCatalog' } });
             toastMsg(t('finances.toastPenaltyRemoved'));
           } catch (err) {
             reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
@@ -189,11 +200,13 @@ export function useFinanceActions({
       toastMsg(t('finances.assignPenaltyError'));
       return;
     }
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
-      await api.finances.assignPenalty(S().activeTeamId!, { userId: f.userId, penaltyId: f.penaltyId });
+      await api.finances.assignPenalty(teamId, { userId: f.userId, penaltyId: f.penaltyId });
       await loadFinances();
-      setState({ busy: null, sheet: null });
+      setState({ busy: null });
+      if (S().activeTeamId === teamId) setState({ sheet: null });
       toastMsg(t('finances.toastPenaltyAssigned'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -233,11 +246,13 @@ export function useFinanceActions({
       toastMsg(amount.message!);
       return;
     }
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
-      await api.finances.updateContribution(f.id, { label: label.value!, amount: amount.value! }, S().activeTeamId!);
+      await api.finances.updateContribution(f.id, { label: label.value!, amount: amount.value! }, teamId);
       await loadFinances();
-      setState({ busy: null, sheet: null });
+      setState({ busy: null });
+      if (S().activeTeamId === teamId) setState({ sheet: null });
       toastMsg(t('finances.toastContribSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');

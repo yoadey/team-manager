@@ -143,6 +143,7 @@ export function useEventDetailActions({
 
   const submitComment = useCallback(async () => {
     const s = S().sheet!;
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
       await api.attendance.set(
@@ -152,12 +153,17 @@ export function useEventDetailActions({
           status: s.status!,
           reason: formValues<AttendanceCommentFormValues>(S()).commentText || '',
         },
-        S().activeTeamId!,
+        teamId,
       );
       await refreshEvents();
       const eid = s.eventId!;
-      setState({ busy: null, sheet: null });
-      openEventDetail(eid);
+      setState({ busy: null });
+      // Don't close/reopen a sheet the user has since opened for a
+      // different team after switching away mid-request.
+      if (S().activeTeamId === teamId) {
+        setState({ sheet: null });
+        openEventDetail(eid);
+      }
       toastMsg(t('events.toastCommentSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -238,6 +244,7 @@ export type EventActionDeps = EventFeatureDeps & {
 
 export function useEventActionFeatures({
   api,
+  S,
   setState,
   askConfirm,
   refreshEvents,
@@ -258,7 +265,9 @@ export function useEventActionFeatures({
             try {
               await api.events.remove(event.id, scope, event.teamId);
               await refreshEvents();
-              setState({ sheet: null });
+              // Don't close a sheet the user has since opened for a
+              // different team after switching away mid-request.
+              if (S().activeTeamId === event.teamId) setState({ sheet: null });
               toastMsg(scope === 'series' ? t('events.toastSeriesDeleted') : t('events.toastEventDeleted'));
             } catch (err) {
               reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
@@ -271,8 +280,12 @@ export function useEventActionFeatures({
       try {
         await api.events.setStatus(event.id, status, scope, event.teamId);
         await refreshEvents();
-        setState({ sheet: null });
-        openEventDetail(event.id);
+        // Don't close/reopen a sheet the user has since opened for a
+        // different team after switching away mid-request.
+        if (S().activeTeamId === event.teamId) {
+          setState({ sheet: null });
+          openEventDetail(event.id);
+        }
         toastMsg(
           action === 'cancel'
             ? scope === 'series'
@@ -286,7 +299,7 @@ export function useEventActionFeatures({
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       }
     },
-    [api, askConfirm, refreshEvents, setState, openEventDetail, toastMsg, logout],
+    [api, S, askConfirm, refreshEvents, setState, openEventDetail, toastMsg, logout],
   );
 
   const askEventAction = useCallback(

@@ -88,6 +88,7 @@ export function useEventFormActions({
         return;
       }
       const back = sh.back;
+      const teamId = S().activeTeamId!;
       setState({ busy: 'save' });
       const payload = {
         type: f.type,
@@ -103,17 +104,23 @@ export function useEventFormActions({
         nominatedRoleIds: f.nominatedRoleIds,
       };
       try {
-        if (mode === 'edit') await api.events.update(f.id!, payload, scope, S().activeTeamId!);
+        if (mode === 'edit') await api.events.update(f.id!, payload, scope, teamId);
         else
-          await api.events.create(S().activeTeamId!, {
+          await api.events.create(teamId, {
             ...payload,
             recurring: f.recurring,
             repeatWeeks: validation.value!.repeatWeeks,
             nominatedRoleIds: f.nominatedRoleIds,
           });
         await refreshEvents();
-        setState({ busy: null, sheet: null });
-        if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
+        setState({ busy: null });
+        // Don't close/reopen a sheet the user has since opened for a
+        // different team after switching away mid-request -- openEventDetail
+        // would look up f.id in the new team's event list and find nothing.
+        if (S().activeTeamId === teamId) {
+          setState({ sheet: null });
+          if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
+        }
         toastMsg(
           mode === 'edit'
             ? scope === 'series'

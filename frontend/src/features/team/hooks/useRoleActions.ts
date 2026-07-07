@@ -64,17 +64,22 @@ export function useRoleActions({
       toastMsg(nameResult.message!);
       return;
     }
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
       if (f.id) {
-        await api.roles.update(f.id, { name: nameResult.value!, permissions: f.perms }, S().activeTeamId!);
+        await api.roles.update(f.id, { name: nameResult.value!, permissions: f.perms }, teamId);
         await refreshRoles();
-        setState({ busy: null, sheet: { type: 'roles' } });
+        setState({ busy: null });
+        // Don't navigate to the roles sheet for a different team than the
+        // one the user has since switched to.
+        if (S().activeTeamId === teamId) setState({ sheet: { type: 'roles' } });
         toastMsg(t('team.toastRoleUpdated'));
       } else {
-        await api.roles.create(S().activeTeamId!, { name: nameResult.value!, permissions: f.perms });
+        await api.roles.create(teamId, { name: nameResult.value!, permissions: f.perms });
         await refreshRoles();
-        setState({ busy: null, sheet: { type: 'roles' } });
+        setState({ busy: null });
+        if (S().activeTeamId === teamId) setState({ sheet: { type: 'roles' } });
         toastMsg(t('team.toastRoleCreated'));
       }
     } catch (err) {

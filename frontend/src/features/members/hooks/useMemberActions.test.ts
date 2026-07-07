@@ -336,6 +336,37 @@ describe('useMemberActions', () => {
     expect(refreshTeams).toHaveBeenCalled();
   });
 
+  // Regression test: saveMember used to unconditionally close/reopen the
+  // sheet after its await resolved, with no check that the user was still
+  // on the team the save was for. A slow members.update() for team1, if the
+  // user switched to team2 (and opened some other sheet there) before it
+  // resolved, would clobber that unrelated sheet.
+  it('saveMember does not touch the sheet if the user switched teams while the save was in flight', async () => {
+    let resolveUpdate!: () => void;
+    api.members.update = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
+    stateRef = makeState({
+      form: { name: 'Alice Updated', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveMember();
+    });
+    expect(api.members.update).toHaveBeenCalled();
+
+    // User switches teams and opens a different sheet before the save resolves.
+    stateRef = { ...stateRef, activeTeamId: 'team2', sheet: { type: 'teams' } as never };
+
+    await act(async () => {
+      resolveUpdate();
+      await savePromise;
+    });
+
+    expect(stateRef.sheet).toEqual({ type: 'teams' });
+  });
+
   it('removeMember calls askConfirm with member name', () => {
     const { result } = renderActions();
     act(() => {

@@ -133,6 +133,7 @@ export function useMemberActions({
     // (MemberSheets.tsx hides the control when editing someone else), so this
     // only ever fires for self.
     const photoChanged = self && !!f.photo && f.photo !== original?.photo;
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
       await api.members.update(
@@ -145,10 +146,10 @@ export function useMemberActions({
           address: f.address,
           group: f.group,
         },
-        S().activeTeamId!,
+        teamId,
       );
       if (rolesChanged) {
-        await api.members.setRoles(f.membershipId, nextRoleIds, S().activeTeamId!);
+        await api.members.setRoles(f.membershipId, nextRoleIds, teamId);
       }
       if (photoChanged) {
         await api.auth.setPhoto(f.photo!);
@@ -159,8 +160,17 @@ export function useMemberActions({
         await refreshTeams();
         setState({ user: u });
       }
-      setState({ busy: null, sheet: null });
-      if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId);
+      setState({ busy: null });
+      // Only touch the sheet if the user is still on the team this save was
+      // for -- otherwise closing/reopening it would clobber whatever sheet
+      // they've since opened for the team they switched to, and
+      // openMemberDetail would look up f.membershipId in the NEW team's
+      // (already-refreshed) member list, finding nothing and rendering a
+      // broken detail sheet.
+      if (S().activeTeamId === teamId) {
+        setState({ sheet: null });
+        if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId);
+      }
       toastMsg(t('members.toastProfileSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -176,10 +186,13 @@ export function useMemberActions({
         confirmLabel: t('members.removeConfirm'),
         danger: true,
         onConfirm: async () => {
+          const teamId = S().activeTeamId!;
           try {
-            await api.members.remove(membershipId, S().activeTeamId!);
+            await api.members.remove(membershipId, teamId);
             await refreshMembers();
-            setState({ sheet: null });
+            // Don't close a sheet the user has since opened for a different
+            // team after switching away mid-request.
+            if (S().activeTeamId === teamId) setState({ sheet: null });
             toastMsg(t('members.toastMemberRemoved'));
           } catch (err) {
             reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
