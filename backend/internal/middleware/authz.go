@@ -121,7 +121,13 @@ var selfServiceWritePathsWithTrailingID = map[string]bool{
 // Mutating methods (POST, PUT, PATCH, DELETE) require "write" on the relevant
 // module, as before. Self-service routes (attendance, comments, vote,
 // absences, notifications) are passed through for any member regardless of
-// method.
+// method and without requiring module "write" — but a self-service leaf
+// mapped in selfServiceModule (events/attendance, events/comments,
+// polls/vote) still requires at least "read" on its module, since these
+// routes can read back module data (the attendance matrix, comment thread,
+// or a fully assembled poll including other members' votes) that "none" is
+// meant to hide. Self-standing self-service routes with no module mapping
+// (absences, notifications/seen) remain ungated, exactly as before.
 //
 // GET/HEAD/OPTIONS additionally require at least "read" (i.e. not "none") on
 // the six core RBAC modules (events, members, finances, news, polls, settings
@@ -133,7 +139,7 @@ var selfServiceWritePathsWithTrailingID = map[string]bool{
 //
 // Path parsing: given a URL like /api/v1/teams/{teamId}/events/123/attendance,
 // the segment right after the teamId UUID is used to look up the module.
-func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handler { //nolint:gocognit // complexity inherent in RBAC permission checking
+func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handler { //nolint:gocognit,cyclop // complexity inherent in RBAC permission checking
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			isRead := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
@@ -161,8 +167,21 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 			// Determine the sub-path after /teams/{teamId}/.
 			subPath := subPathAfterTeam(r.URL.Path, teamIDStr)
 
-			// Self-service routes — any member may read or write.
-			if isSelfService(subPath) {
+			// Self-service routes — any member may read or write, but a leaf
+			// mapped in selfServiceModule still requires at least "read" on
+			// its module: self-service exempts "write", not "none".
+			if leaf, ok := selfServiceLeaf(subPath); ok {
+				if module, gated := selfServiceModule[leaf]; gated {
+					perms, err := checker.GetPermissions(r.Context(), teamID, user.Id)
+					if err != nil {
+						writeProblem(w, http.StatusInternalServerError, "permission check failed")
+						return
+					}
+					if !hasAnyPermission(perms, module) {
+						writeProblem(w, http.StatusForbidden, "insufficient permissions for "+module)
+						return
+					}
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -243,10 +262,31 @@ func subPathAfterTeam(urlPath, teamIDStr string) string {
 	return strings.Trim(rest, "/")
 }
 
-// isSelfService returns true when the sub-path is a self-service write route.
-func isSelfService(subPath string) bool {
+// selfServiceModule maps a self-service leaf (as computed by selfServiceLeaf)
+// to the RBAC module a member must have at least "read" on to use it.
+// Self-service exempts a member from needing "write" on the module — they
+// may always record their own attendance/vote/comment regardless of write
+// permission — but a module permission of "none" is documented (see
+// RequirePermission below) to hide that module entirely, not just block
+// writes. Without this map, a member demoted to "none" could still read the
+// full attendance matrix / comment thread, or vote and receive back the
+// fully assembled poll (question, options, vote counts, and other members'
+// names for non-anonymous polls) by hitting the self-service route
+// directly, bypassing the "none" guarantee. Leaves with no module mapping
+// here (absences, notifications/seen) are self-standing and not gated by
+// any of the six RBAC modules.
+var selfServiceModule = map[string]string{
+	"events/attendance": "events",
+	"events/comments":   "events",
+	"polls/vote":        "polls",
+}
+
+// selfServiceLeaf returns the canonical self-service key for subPath (as
+// used by selfServiceWritePaths / selfServiceModule) and whether subPath is
+// a self-service route at all.
+func selfServiceLeaf(subPath string) (leaf string, ok bool) {
 	if selfServiceWritePaths[subPath] {
-		return true
+		return subPath, true
 	}
 	parts := strings.Split(subPath, "/")
 	// "events/{id}/attendance" or "events/{id}/comments" (create) — a plain
@@ -254,7 +294,7 @@ func isSelfService(subPath string) bool {
 	if len(parts) == 3 {
 		leaf := parts[0] + "/" + parts[2]
 		if selfServiceWritePaths[leaf] {
-			return true
+			return leaf, true
 		}
 	}
 	// "events/{id}/comments/{commentId}" (delete one's own comment) — a
@@ -269,10 +309,10 @@ func isSelfService(subPath string) bool {
 	if len(parts) == 4 {
 		leaf := parts[0] + "/" + parts[2]
 		if selfServiceWritePathsWithTrailingID[leaf] {
-			return true
+			return leaf, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // moduleForPath returns the RBAC module name for a sub-path and whether the

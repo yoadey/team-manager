@@ -194,6 +194,75 @@ func TestRepository_EraseUser_AnotherSettingsAdminExists_Succeeds(t *testing.T) 
 	assert.NotNil(t, deletedAt)
 }
 
+// Regression test: EraseUser's sole-settings-admin check used to run without
+// taking the per-team pg_advisory_xact_lock(hashtextextended(teamID, 0)) that
+// every other role/membership-mutating operation (SetRoles, RemoveMember,
+// UpdateRole, DeleteRole) takes to serialize against the same invariant --
+// so a concurrent self-erasure and a role change stripping another member's
+// settings:write could each pass their own check against a stale snapshot
+// and both commit, leaving a team with zero settings:write holders. This
+// test holds the same lock key open in a separate transaction and asserts
+// EraseUser blocks until it's released, proving the lock is actually taken.
+func TestRepository_EraseUser_TakesAdvisoryLockForUserTeams(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "dddddddd-1111-1111-1111-111111111111"
+	userID := "dddddddd-2222-2222-2222-222222222222"
+	otherAdminID := "dddddddd-3333-3333-3333-333333333333"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Lock Test Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Locked User', 'locked-user@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Admin', 'lock-other-admin@example.com', '#654321')`, otherAdminID)
+	require.NoError(t, err)
+
+	var roleID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO roles (team_id, name, permissions)
+		VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+		RETURNING id
+	`, teamID).Scan(&roleID))
+	for _, uid := range []string{userID, otherAdminID} {
+		var membershipID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, uid).Scan(&membershipID))
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
+	}
+
+	// Hold the same advisory lock key EraseUser must take, in a separate,
+	// uncommitted transaction on its own connection.
+	lockConn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer lockConn.Release()
+	lockTx, err := lockConn.Begin(ctx)
+	require.NoError(t, err)
+	_, err = lockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- repo.EraseUser(ctx, userID) }()
+
+	select {
+	case <-done:
+		t.Fatal("EraseUser returned before the held advisory lock was released -- it isn't taking the lock")
+	case <-time.After(300 * time.Millisecond):
+		// Expected: EraseUser is blocked waiting for the lock.
+	}
+
+	require.NoError(t, lockTx.Rollback(ctx))
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("EraseUser did not complete after the advisory lock was released")
+	}
+}
+
 func TestRepository_DeleteSession(t *testing.T) {
 	t.Parallel()
 

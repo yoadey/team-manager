@@ -259,6 +259,44 @@ func TestRequirePermission_Mutations(t *testing.T) {
 			"/api/v1/teams/" + tid + "/notifications/seen",
 			allReadPerms(), http.StatusOK,
 		},
+		// Regression: self-service exempts a member from needing "write" on
+		// the module, but not from "none" -- a module permission of "none" is
+		// documented to hide the module entirely, and these self-service
+		// routes read back module data (the attendance matrix, comment
+		// thread, or a fully assembled poll including other members' votes),
+		// so they must still require at least "read".
+		{
+			"attendance self-service denied with events:none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/attendance",
+			teams.PermissionsJSON{Events: "none"},
+			http.StatusForbidden,
+		},
+		{
+			"event comments self-service denied with events:none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/comments",
+			teams.PermissionsJSON{Events: "none"},
+			http.StatusForbidden,
+		},
+		{
+			"poll vote self-service denied with polls:none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/polls/" + uuid.New().String() + "/vote",
+			teams.PermissionsJSON{Polls: "none"},
+			http.StatusForbidden,
+		},
+		// Self-standing self-service routes (no RBAC module) stay ungated even
+		// with every module at "none".
+		{
+			"absences self-service ok with all modules none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/absences",
+			teams.PermissionsJSON{},
+			http.StatusOK,
+		},
+		{
+			"notifications seen self-service ok with all modules none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/notifications/seen",
+			teams.PermissionsJSON{},
+			http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {

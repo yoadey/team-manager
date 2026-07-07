@@ -156,6 +156,23 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Lock every team the user belongs to, in a deterministic (team_id) order,
+	// before running the sole-settings-admin check below. Without this, the
+	// check races against members.SetRoles/RemoveMember and
+	// roles.UpdateRole/DeleteRole -- each of which locks its team with the
+	// same pg_advisory_xact_lock(hashtextextended(teamID, 0)) key before
+	// mutating role assignments -- so under READ COMMITTED, a concurrent
+	// self-erasure and a role change stripping another member's
+	// settings:write could each see a stale "another admin still exists"
+	// snapshot and both commit, leaving the team with zero settings:write
+	// holders.
+	if _, err := tx.Exec(ctx, `
+		SELECT pg_advisory_xact_lock(hashtextextended(team_id, 0))
+		FROM (SELECT DISTINCT team_id FROM memberships WHERE user_id = $1 ORDER BY team_id) t
+	`, userID); err != nil {
+		return fmt.Errorf("auth.Repository.EraseUser: advisory lock: %w", err)
+	}
+
 	var soleAdminTeamIDs []string
 	err = tx.QueryRow(ctx, `
 		SELECT COALESCE(ARRAY_AGG(DISTINCT m.team_id), '{}')
