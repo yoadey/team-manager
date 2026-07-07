@@ -76,6 +76,22 @@ autoscaling:
 # httpGet.port is deliberately omitted here: the deployment template fills it
 # in from service.targetPort, so the probes always target the same port the
 # container actually listens on, even if targetPort is overridden.
+#
+# startupProbe gates liveness/readiness until the app has bound its HTTP
+# port: main.go runs DB migrations synchronously before ListenAndServe, so
+# a slow migration (e.g. CREATE INDEX CONCURRENTLY on a large table, see
+# docs/operations.md) means the port isn't listening yet -- without this,
+# livenessProbe's own tight timing (10s + 3*15s ~= 55s) would kill and
+# restart the pod mid-migration instead of just waiting, which doesn't fix
+# a slow migration and can crash-loop indefinitely. Up to ~5 minutes here
+# before falling through to the (deliberately tight) liveness/readiness
+# probes for the steady state.
+startupProbe:
+  httpGet:
+    path: /healthz
+  periodSeconds: 5
+  failureThreshold: 60
+
 livenessProbe:
   httpGet:
     path: /healthz
