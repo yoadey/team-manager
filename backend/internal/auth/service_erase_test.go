@@ -46,6 +46,19 @@ func TestEraseAccount(t *testing.T) {
 		assert.ErrorIs(t, err, auth.ErrErasureConfirmation)
 	})
 
+	t.Run("propagates ErrSoleSettingsAdmin from the repository", func(t *testing.T) {
+		repo := &mockRepo{
+			userByID: userByID,
+			eraseUser: func(_ context.Context, _ string) error {
+				return auth.ErrSoleSettingsAdmin
+			},
+		}
+		svc := newTestService(t, repo)
+
+		err := svc.EraseAccount(context.Background(), "user-1", "member@example.com")
+		assert.ErrorIs(t, err, auth.ErrSoleSettingsAdmin)
+	})
+
 	t.Run("rejects an unknown user without erasing", func(t *testing.T) {
 		repo := &mockRepo{
 			userByID: func(_ context.Context, _ string) (*auth.UserRow, error) {

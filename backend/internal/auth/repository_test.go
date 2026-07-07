@@ -86,6 +86,76 @@ func TestRepository_CreateAndFindSession(t *testing.T) {
 	assert.Equal(t, "33333333-3333-3333-3333-333333333333", found.UserId.String())
 }
 
+func TestRepository_EraseUser_SoleSettingsAdmin_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "aaaaaaaa-1111-1111-1111-111111111111"
+	userID := "aaaaaaaa-2222-2222-2222-222222222222"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Erase Test Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Sole Admin', 'sole-admin@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+	var membershipID, roleID string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, userID).Scan(&membershipID))
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO roles (team_id, name, permissions)
+		VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+		RETURNING id
+	`, teamID).Scan(&roleID))
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+	require.NoError(t, err)
+
+	err = repo.EraseUser(ctx, userID)
+	require.ErrorIs(t, err, auth.ErrSoleSettingsAdmin)
+
+	// Must not have been anonymized -- the erasure was fully rejected.
+	var deletedAt *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT deleted_at FROM users WHERE id = $1`, userID).Scan(&deletedAt))
+	assert.Nil(t, deletedAt)
+}
+
+func TestRepository_EraseUser_AnotherSettingsAdminExists_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "bbbbbbbb-1111-1111-1111-111111111111"
+	userID := "bbbbbbbb-2222-2222-2222-222222222222"
+	otherAdminID := "bbbbbbbb-3333-3333-3333-333333333333"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Erase Test Team 2')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Leaving Admin', 'leaving-admin@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Admin', 'other-admin@example.com', '#654321')`, otherAdminID)
+	require.NoError(t, err)
+
+	var roleID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO roles (team_id, name, permissions)
+		VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+		RETURNING id
+	`, teamID).Scan(&roleID))
+
+	for _, uid := range []string{userID, otherAdminID} {
+		var membershipID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, uid).Scan(&membershipID))
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, repo.EraseUser(ctx, userID))
+
+	var deletedAt *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT deleted_at FROM users WHERE id = $1`, userID).Scan(&deletedAt))
+	assert.NotNil(t, deletedAt)
+}
+
 func TestRepository_DeleteSession(t *testing.T) {
 	t.Parallel()
 

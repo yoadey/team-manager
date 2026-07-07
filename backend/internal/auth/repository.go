@@ -2,12 +2,20 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// ErrSoleSettingsAdmin is returned by EraseUser when the caller is the only
+// living settings:write holder of at least one team they belong to --
+// erasing them would leave that team permanently unable to manage its own
+// roles/members/settings, since every one of those mutations itself
+// requires settings:write held by an authenticatable account.
+var ErrSoleSettingsAdmin = errors.New("cannot erase the account: you are the only settings administrator of a team")
 
 // Repository handles all auth-related DB operations.
 type Repository struct {
@@ -136,6 +144,34 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 		return fmt.Errorf("auth.Repository.EraseUser: begin: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	var soleAdmin bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM memberships m
+			JOIN membership_roles mr ON mr.membership_id = m.id
+			JOIN roles r ON r.id = mr.role_id
+			WHERE m.user_id = $1 AND r.permissions->>'settings' = 'write'
+			AND NOT EXISTS (
+				SELECT 1
+				FROM memberships m2
+				JOIN membership_roles mr2 ON mr2.membership_id = m2.id
+				JOIN roles r2 ON r2.id = mr2.role_id
+				JOIN users u2 ON u2.id = m2.user_id
+				WHERE m2.team_id = m.team_id
+				  AND m2.user_id != m.user_id
+				  AND r2.permissions->>'settings' = 'write'
+				  AND u2.deleted_at IS NULL
+			)
+		)
+	`, userID).Scan(&soleAdmin)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.EraseUser: check settings admin: %w", err)
+	}
+	if soleAdmin {
+		return ErrSoleSettingsAdmin
+	}
 
 	const anonName = "Gelöschtes Mitglied"
 	steps := []struct {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -576,6 +577,34 @@ func TestHandler_GetMyPhoto_NoPhoto_Returns404WithType(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.NotEmpty(t, body["type"])
+}
+
+// Regression test: erasing the sole settings administrator of a team used
+// to have no guard at all, permanently orphaning that team's ability to
+// manage roles/members/settings (the erased account's membership_roles row
+// still holds settings:write, but the account can never authenticate again).
+// This must map to a 409, not the generic 401 used for wrong-confirmation.
+func TestHandler_DeleteCurrentUser_SoleSettingsAdmin_Returns409(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		eraseAccount: func(context.Context, string, string) error {
+			return auth.ErrSoleSettingsAdmin
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+	email := openapi_types.Email("test@example.com")
+	resp, err := h.DeleteCurrentUser(ctx, gen.DeleteCurrentUserRequestObject{
+		Body: &gen.DeleteAccountRequest{ConfirmEmail: email},
+	})
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	w := httptest.NewRecorder()
+	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/auth/me", http.NoBody), err)
+	assert.Equal(t, http.StatusConflict, w.Code)
 }
 
 func TestHandler_GetMyDataExport(t *testing.T) {
