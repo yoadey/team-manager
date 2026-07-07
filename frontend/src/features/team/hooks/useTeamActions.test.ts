@@ -128,6 +128,31 @@ describe('useTeamActions', () => {
     expect(api.absences.listMine).toHaveBeenCalled();
   });
 
+  // Regression test: the .then handler used to call setState({ myAbsences })
+  // unconditionally, with no re-check of activeTeamId (unlike every other
+  // loader in this codebase). A slow listMine() for team1, if the user
+  // switched to team2 before it resolved, would overwrite state.myAbsences
+  // with team1's data while the user is looking at team2.
+  it('does not apply a stale absences response after the user switched teams', async () => {
+    let resolveListMine!: (v: never[]) => void;
+    api.absences.listMine = vi.fn(() => new Promise((resolve) => (resolveListMine = resolve)));
+    const { result } = renderActions();
+
+    act(() => {
+      result.current.openProfile();
+    });
+    expect(api.absences.listMine).toHaveBeenCalledWith('team1');
+
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+
+    await act(async () => {
+      resolveListMine([]);
+      await Promise.resolve();
+    });
+
+    expect(stateRef).not.toHaveProperty('myAbsences');
+  });
+
   it('openMore sets more sheet', () => {
     const { result } = renderActions();
     act(() => {

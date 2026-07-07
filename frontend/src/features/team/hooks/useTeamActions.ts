@@ -39,9 +39,10 @@ export function useTeamActions({
 
   const openProfile = useCallback(() => {
     setState({ sheet: { type: 'profile' } });
+    const teamId = S().activeTeamId!;
     api.absences
-      .listMine(S().activeTeamId!)
-      .then((myAbsences) => setState({ myAbsences }))
+      .listMine(teamId)
+      .then((myAbsences) => setState((s) => (s.activeTeamId === teamId ? { myAbsences } : {})))
       .catch((err) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load'));
   }, [api, S, setState, toastMsg, logout]);
 
