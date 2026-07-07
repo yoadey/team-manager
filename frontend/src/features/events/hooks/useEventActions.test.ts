@@ -122,6 +122,35 @@ describe('useEventDetailActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Abgesagt');
   });
 
+  // Regression test: a rapid double-tap on the RSVP buttons (or a user
+  // switching Yes -> No before the first request resolves) used to fire two
+  // concurrent api.attendance.set calls with no guard, unlike the sibling
+  // setStatusFor (roster admin view), risking an out-of-order response
+  // overwriting the UI with a stale status.
+  it('setMyStatus ignores a second call while the first is still in flight', async () => {
+    let resolveFirst!: () => void;
+    api.attendance.set = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValue(undefined);
+    const { result } = renderActions();
+
+    let firstDone = false;
+    const first = act(async () => {
+      await result.current.setMyStatus('ev1', 'yes').then(() => (firstDone = true));
+    });
+    await act(async () => {
+      await result.current.setMyStatus('ev1', 'no');
+    });
+
+    expect(firstDone).toBe(false);
+    expect(api.attendance.set).toHaveBeenCalledTimes(1);
+
+    resolveFirst();
+    await first;
+    expect(firstDone).toBe(true);
+  });
+
   it('openComment sets comment sheet', () => {
     const { result } = renderActions();
     act(() => {

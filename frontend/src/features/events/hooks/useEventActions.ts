@@ -62,8 +62,13 @@ export function useEventDetailActions({
     [setState, reloadDetail],
   );
 
+  const inFlight = useRef(new Set<string>());
+
   const setMyStatus = useCallback(
     async (eventId: string, status: AttendanceStatus) => {
+      const key = `${eventId}:${S().user!.id}`;
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
       const ev = S().sheet && S().sheet!.event;
       const keep = ev && ev.id === eventId ? ev.myReason || '' : '';
       try {
@@ -80,12 +85,12 @@ export function useEventDetailActions({
         );
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
+      } finally {
+        inFlight.current.delete(key);
       }
     },
     [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
   );
-
-  const inFlight = useRef(new Set<string>());
 
   const setStatusFor = useCallback(
     (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => {

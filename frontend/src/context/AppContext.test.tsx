@@ -475,3 +475,78 @@ describe('AppProvider / invite-redemption join flow', () => {
     expect(screen.getByTestId('toast').textContent).toBe('Einladungslink ist ungültig oder abgelaufen.');
   });
 });
+
+// Regression test: a valid session (cookie/currentUser succeeds) whose
+// establishSession then failed to load the team list used to strand the user
+// on a login screen with providers: [] -- no SSO buttons, no way to reach the
+// password form, a true dead end short of a manual reload. Uses the same
+// freshModules isolation as the invite-redemption block above since it also
+// exercises a real login against the mock service layer's session singleton.
+describe('AppProvider / session-restore resilience', () => {
+  async function freshModules() {
+    vi.resetModules();
+    localStorage.clear();
+    const svc = await import('@/services/serviceLayer');
+    const errors = await import('@/utils/errors');
+    const ctx = await import('./AppContext');
+    return {
+      api: svc.api,
+      NetworkError: errors.NetworkError,
+      AppProvider: ctx.AppProvider,
+      useApp: ctx.useApp,
+      useAppActions: ctx.useAppActions,
+    };
+  }
+
+  it('recovers to a usable login screen when the post-restore team fetch keeps failing', async () => {
+    const {
+      api,
+      NetworkError,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="providerCount">{state.providers.length}</div>
+        </div>
+      );
+    }
+
+    const { unmount } = render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+
+    // A normal login establishes a real session (session.userId in the mock),
+    // which persists across remounts within this module instance.
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    unmount();
+
+    // Simulate the team list becoming permanently unreachable (e.g. a
+    // backend outage) for the next session-restore attempt.
+    api.teams.listForCurrentUser = vi.fn().mockRejectedValue(new NetworkError());
+
+    render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+
+    // retryable's backoff (300ms + 600ms) plus the mock's own randomized
+    // per-call latency pushes this well past the default 1000ms waitFor.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 5000 });
+    await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
+  });
+});

@@ -770,7 +770,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      const teams = await api.teams.listForCurrentUser();
+      const teams = await retryable(() => api.teams.listForCurrentUser());
       setSentryUser(user);
       if (!teams.length) {
         if (invite) history.replaceState({}, '', '/');
@@ -1048,7 +1048,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const providers = await api.auth.providers();
         setState({ providers, phase: 'login' });
       } catch {
-        setState({ phase: 'login', providers: [], error: t('error.network') });
+        // A valid session but a failed establishSession (e.g. a transient
+        // network error loading the team list, already retried once inside
+        // establishSession) must still land on a *usable* login screen --
+        // otherwise providers stays [] forever, Login has no SSO buttons and
+        // no password-provider button to reach the password form, and the
+        // user is stuck with only a manual page reload to recover.
+        try {
+          const providers = await api.auth.providers();
+          setState({ phase: 'login', providers, error: t('error.network') });
+        } catch {
+          setState({ phase: 'login', providers: [], error: t('error.network') });
+        }
       }
     })();
   }, [api, setState, establishSession]);
