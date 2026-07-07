@@ -265,6 +265,47 @@ func TestHandler_DeleteRole_LastSettingsAdmin_Returns409(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, apiErr.Status)
 }
 
+// Regression test: a rejected attempt to delete/demote the last
+// settings-admin role -- a security-relevant rejected privilege change --
+// used to leave no audit trail at all, unlike every successful role change.
+func TestHandler_DeleteRole_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		deleteRole: func(_ context.Context, _, _ uuid.UUID) error { return roles.ErrLastSettingsAdmin },
+	}
+	var buf bytes.Buffer
+	h := roles.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	_, err := h.DeleteRole(rolesAuthedCtx(), gen.DeleteRoleRequestObject{TeamId: rolesTeamID, RoleId: testRoleID})
+	require.Error(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "role.delete", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "last_settings_admin", rec["reason"])
+}
+
+func TestHandler_DeleteRole_SystemRole_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		deleteRole: func(_ context.Context, _, _ uuid.UUID) error { return roles.ErrSystemRole },
+	}
+	var buf bytes.Buffer
+	h := roles.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	_, err := h.DeleteRole(rolesAuthedCtx(), gen.DeleteRoleRequestObject{TeamId: rolesTeamID, RoleId: testRoleID})
+	require.Error(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "role.delete", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "system_role", rec["reason"])
+}
+
 func TestHandler_UpdateRole_LastSettingsAdmin_Returns409(t *testing.T) {
 	t.Parallel()
 	svc := &mockRoleService{
@@ -286,6 +327,34 @@ func TestHandler_UpdateRole_LastSettingsAdmin_Returns409(t *testing.T) {
 	apiErr, ok := err.(*apierror.APIError)
 	require.True(t, ok, "expected *apierror.APIError, got %T", err)
 	assert.Equal(t, http.StatusConflict, apiErr.Status)
+}
+
+func TestHandler_UpdateRole_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		updateRole: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+			return nil, roles.ErrLastSettingsAdmin
+		},
+	}
+	var buf bytes.Buffer
+	h := roles.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	perms := gen.Permissions{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "read",
+	}
+	_, err := h.UpdateRole(rolesAuthedCtx(), gen.UpdateRoleRequestObject{
+		TeamId: rolesTeamID,
+		RoleId: testRoleID,
+		Body:   &gen.UpdateRoleJSONRequestBody{Permissions: &perms},
+	})
+	require.Error(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "role.update", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "last_settings_admin", rec["reason"])
 }
 
 func TestHandler_UpdateRole_SystemRole_Forbidden(t *testing.T) {

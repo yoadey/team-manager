@@ -161,6 +161,9 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 			return nil, apierror.UnprocessableEntity("one or more roles do not belong to this team")
 		}
 		if errors.Is(err, ErrLastSettingsAdmin) {
+			h.audit.Record(ctx, audit.EventMemberRolesChange, audit.Failure, actor(ctx),
+				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+				slog.String("reason", "last_settings_admin"))
 			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
 		}
 		h.logger.ErrorContext(ctx, "SetMemberRoles failed", "err", err)
@@ -180,6 +183,9 @@ func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequ
 			return nil, apierror.NotFound("member not found")
 		}
 		if errors.Is(err, ErrLastSettingsAdmin) {
+			h.audit.Record(ctx, audit.EventMemberRemove, audit.Failure, actor(ctx),
+				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+				slog.String("reason", "last_settings_admin"))
 			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
 		}
 		h.logger.ErrorContext(ctx, "RemoveMember failed", "err", err)

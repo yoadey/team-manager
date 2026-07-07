@@ -120,6 +120,36 @@ func TestService_GetOverview_UsesExplicitDateRange(t *testing.T) {
 	assert.Equal(t, "2026-02-28", capturedTo)
 }
 
+// Regression test: from/to were previously passed straight into a Postgres
+// BETWEEN clause with no bound on how far apart they could be, so a caller
+// could force a full-history aggregation (e.g. from=0001-01-01) on every
+// request. The effective range must now be clamped to maxStatsRangeDays.
+func TestService_GetOverview_ClampsOversizedDateRange(t *testing.T) {
+	t.Parallel()
+
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		memberStatsFn: func(_ context.Context, _ uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
+			capturedFrom, capturedTo = from, to
+			return nil, nil
+		},
+		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) { return nil, nil },
+	}
+
+	from := openapi_types.Date{Time: mustParseDate(t, "0001-01-01")}
+	to := openapi_types.Date{Time: mustParseDate(t, "2026-02-28")}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetOverview(context.Background(), uuid.New(), &from, &to)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-02-28", capturedTo)
+	gotFrom, err := time.Parse("2006-01-02", capturedFrom)
+	require.NoError(t, err)
+	gotTo, err := time.Parse("2006-01-02", capturedTo)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, gotTo.Sub(gotFrom), 730*24*time.Hour)
+}
+
 func TestService_GetOverview_PropagatesRepositoryError(t *testing.T) {
 	t.Parallel()
 

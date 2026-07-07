@@ -67,19 +67,22 @@ func fakeOversizedPNGHeader(width, height uint32) []byte {
 // ─── mock repository ─────────────────────────────────────────────────────────
 
 type mockTeamRepo struct {
-	listTeamsForUser      func(ctx context.Context, userID string) ([]teams.TeamRow, error)
-	getTeam               func(ctx context.Context, teamID string) (*teams.TeamRow, error)
-	createTeam            func(ctx context.Context, name, creatorUserID string) (*teams.TeamRow, error)
-	updateTeam            func(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error)
-	getMemberCount        func(ctx context.Context, teamID string) (int, error)
-	getMembership         func(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error)
-	getRolesForMembership func(ctx context.Context, membershipID, teamID string) ([]teams.RoleRow, error)
-	createInvite          func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
-	acceptInvite          func(ctx context.Context, code, userID string) (*teams.TeamRow, error)
-	updateTeamPhoto       func(ctx context.Context, teamID string, data []byte, mime string) error
-	updateTeamLogo        func(ctx context.Context, teamID string, data []byte, mime string) error
-	deleteTeamPhoto       func(ctx context.Context, teamID string) error
-	deleteTeamLogo        func(ctx context.Context, teamID string) error
+	listTeamsForUser       func(ctx context.Context, userID string) ([]teams.TeamRow, error)
+	getTeam                func(ctx context.Context, teamID string) (*teams.TeamRow, error)
+	createTeam             func(ctx context.Context, name, creatorUserID string) (*teams.TeamRow, error)
+	updateTeam             func(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error)
+	getMemberCount         func(ctx context.Context, teamID string) (int, error)
+	getMembership          func(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error)
+	getRolesForMembership  func(ctx context.Context, membershipID, teamID string) ([]teams.RoleRow, error)
+	getMemberCounts        func(ctx context.Context, teamIDs []string) (map[string]int, error)
+	getMembershipsForUser  func(ctx context.Context, teamIDs []string, userID string) (map[string]teams.MembershipRow, error)
+	getRolesForMemberships func(ctx context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error)
+	createInvite           func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
+	acceptInvite           func(ctx context.Context, code, userID string) (*teams.TeamRow, error)
+	updateTeamPhoto        func(ctx context.Context, teamID string, data []byte, mime string) error
+	updateTeamLogo         func(ctx context.Context, teamID string, data []byte, mime string) error
+	deleteTeamPhoto        func(ctx context.Context, teamID string) error
+	deleteTeamLogo         func(ctx context.Context, teamID string) error
 }
 
 func (m *mockTeamRepo) ListTeamsForUser(ctx context.Context, userID string) ([]teams.TeamRow, error) {
@@ -108,6 +111,18 @@ func (m *mockTeamRepo) GetMembership(ctx context.Context, teamID, userID string)
 
 func (m *mockTeamRepo) GetRolesForMembership(ctx context.Context, membershipID, teamID string) ([]teams.RoleRow, error) {
 	return m.getRolesForMembership(ctx, membershipID, teamID)
+}
+
+func (m *mockTeamRepo) GetMemberCounts(ctx context.Context, teamIDs []string) (map[string]int, error) {
+	return m.getMemberCounts(ctx, teamIDs)
+}
+
+func (m *mockTeamRepo) GetMembershipsForUser(ctx context.Context, teamIDs []string, userID string) (map[string]teams.MembershipRow, error) {
+	return m.getMembershipsForUser(ctx, teamIDs, userID)
+}
+
+func (m *mockTeamRepo) GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error) {
+	return m.getRolesForMemberships(ctx, membershipIDs)
 }
 
 func (m *mockTeamRepo) CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error) {
@@ -185,10 +200,18 @@ func TestTeamService_ListForUser(t *testing.T) {
 			assert.Equal(t, userID.String(), uid)
 			return []teams.TeamRow{row}, nil
 		},
-		getMemberCount: func(_ context.Context, _ string) (int, error) { return 3, nil },
-		getMembership:  func(_ context.Context, _, _ string) (*teams.MembershipRow, error) { return membership, nil },
-		getRolesForMembership: func(_ context.Context, _, _ string) ([]teams.RoleRow, error) {
-			return []teams.RoleRow{role}, nil
+		getMemberCounts: func(_ context.Context, teamIDs []string) (map[string]int, error) {
+			assert.Equal(t, []string{teamID.String()}, teamIDs)
+			return map[string]int{teamID.String(): 3}, nil
+		},
+		getMembershipsForUser: func(_ context.Context, teamIDs []string, uid string) (map[string]teams.MembershipRow, error) {
+			assert.Equal(t, []string{teamID.String()}, teamIDs)
+			assert.Equal(t, userID.String(), uid)
+			return map[string]teams.MembershipRow{teamID.String(): *membership}, nil
+		},
+		getRolesForMemberships: func(_ context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error) {
+			assert.Equal(t, []string{membershipID.String()}, membershipIDs)
+			return map[string][]teams.RoleRow{membershipID.String(): {role}}, nil
 		},
 	}
 
@@ -200,6 +223,53 @@ func TestTeamService_ListForUser(t *testing.T) {
 	assert.Equal(t, 3, result[0].MemberCount)
 	assert.Len(t, result[0].MyRoles, 1)
 	assert.Equal(t, "write", string(result[0].MyPerms.Events))
+}
+
+// Regression test: ListForUser previously called GetMemberCount/GetMembership/
+// GetRolesForMembership once per team (3N+1 sequential queries for N teams).
+// It must now fetch all three in one batched call each, regardless of how
+// many teams the user belongs to.
+func TestTeamService_ListForUser_BatchesAcrossMultipleTeams(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	teamA, teamB := uuid.New(), uuid.New()
+	membershipA, membershipB := uuid.New(), uuid.New()
+	rowA, rowB := fixedTeamRow(teamA), fixedTeamRow(teamB)
+	roleA := fixedAdminRole(teamA)
+
+	var memberCountsCalls, membershipsCalls, rolesCalls int
+	repo := &mockTeamRepo{
+		listTeamsForUser: func(_ context.Context, _ string) ([]teams.TeamRow, error) {
+			return []teams.TeamRow{rowA, rowB}, nil
+		},
+		getMemberCounts: func(_ context.Context, teamIDs []string) (map[string]int, error) {
+			memberCountsCalls++
+			assert.ElementsMatch(t, []string{teamA.String(), teamB.String()}, teamIDs)
+			return map[string]int{teamA.String(): 2, teamB.String(): 5}, nil
+		},
+		getMembershipsForUser: func(_ context.Context, teamIDs []string, _ string) (map[string]teams.MembershipRow, error) {
+			membershipsCalls++
+			assert.ElementsMatch(t, []string{teamA.String(), teamB.String()}, teamIDs)
+			return map[string]teams.MembershipRow{
+				teamA.String(): *fixedMembershipRow(membershipA, teamA, userID),
+				teamB.String(): *fixedMembershipRow(membershipB, teamB, userID),
+			}, nil
+		},
+		getRolesForMemberships: func(_ context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error) {
+			rolesCalls++
+			assert.ElementsMatch(t, []string{membershipA.String(), membershipB.String()}, membershipIDs)
+			return map[string][]teams.RoleRow{membershipA.String(): {roleA}}, nil
+		},
+	}
+
+	svc := teams.NewService(repo, "https://app.example.com")
+	result, err := svc.ListForUser(context.Background(), userID.String())
+	require.NoError(t, err)
+	require.Len(t, result, 2)
+	assert.Equal(t, 1, memberCountsCalls)
+	assert.Equal(t, 1, membershipsCalls)
+	assert.Equal(t, 1, rolesCalls)
 }
 
 func TestCreateInvite_BuildsLinkFromPublicBaseURL(t *testing.T) {

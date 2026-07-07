@@ -291,7 +291,11 @@ func loadTrustedProxyCIDRs() ([]string, error) {
 func validateDatabaseURL(dsn string) error {
 	u, err := url.Parse(dsn)
 	if err != nil {
-		return fmt.Errorf("DATABASE_URL: %w: %w", ErrInvalidDatabaseURL, err)
+		// Deliberately drop err: url.Error.Error() embeds the full input
+		// string, so wrapping it here would leak the DSN -- including a
+		// plaintext password -- into the startup log line this ultimately
+		// reaches (main.go's slog.Error("config error", "err", err)).
+		return ErrInvalidDatabaseURL
 	}
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return ErrInvalidDatabaseURL

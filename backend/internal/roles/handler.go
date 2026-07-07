@@ -122,9 +122,13 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 			return nil, apierror.NotFound("role not found")
 		}
 		if errors.Is(err, ErrSystemRole) {
+			h.audit.Record(ctx, audit.EventRoleUpdate, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "system_role"))
 			return nil, apierror.Forbidden("cannot change the name or permissions of a built-in system role")
 		}
 		if errors.Is(err, ErrLastSettingsAdmin) {
+			h.audit.Record(ctx, audit.EventRoleUpdate, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "last_settings_admin"))
 			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateRole failed", "err", err)
@@ -147,9 +151,13 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 			return nil, apierror.NotFound("role not found")
 		}
 		if errors.Is(err, ErrSystemRole) {
+			h.audit.Record(ctx, audit.EventRoleDelete, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "system_role"))
 			return nil, apierror.Forbidden("cannot delete a built-in system role")
 		}
 		if errors.Is(err, ErrLastSettingsAdmin) {
+			h.audit.Record(ctx, audit.EventRoleDelete, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "last_settings_admin"))
 			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
 		}
 		h.logger.ErrorContext(ctx, "DeleteRole failed", "err", err)

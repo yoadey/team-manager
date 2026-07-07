@@ -71,6 +71,54 @@ func TestTeamRepository_ListForUser(t *testing.T) {
 	assert.Equal(t, "List Team", result[0].Name)
 }
 
+// Regression test for the ListForUser N+1 fix: GetMemberCounts,
+// GetMembershipsForUser, and GetRolesForMemberships must return correct,
+// per-team results in one batched call each, across teams from different
+// creators (so member counts genuinely differ) and with a second member
+// added to one team.
+func TestTeamRepository_BatchedListEnrichment_ReturnsPerTeamResults(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := insertUser(t, pool, "batch-owner@example.com")
+	otherUserID := insertUser(t, pool, "batch-other@example.com")
+
+	repo := teams.NewRepository(pool)
+	teamA, err := repo.CreateTeam(ctx, "Batch Team A", userID)
+	require.NoError(t, err)
+	teamB, err := repo.CreateTeam(ctx, "Batch Team B", userID)
+	require.NoError(t, err)
+
+	// Add a second member to team A only, so its member count (2) differs
+	// from team B's (1).
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamA.Id, otherUserID)
+	require.NoError(t, err)
+
+	teamIDs := []string{teamA.Id.String(), teamB.Id.String()}
+
+	counts, err := repo.GetMemberCounts(ctx, teamIDs)
+	require.NoError(t, err)
+	assert.Equal(t, 2, counts[teamA.Id.String()])
+	assert.Equal(t, 1, counts[teamB.Id.String()])
+
+	memberships, err := repo.GetMembershipsForUser(ctx, teamIDs, userID)
+	require.NoError(t, err)
+	require.Contains(t, memberships, teamA.Id.String())
+	require.Contains(t, memberships, teamB.Id.String())
+	assert.NotContains(t, memberships, "unrelated-key")
+	membershipA := memberships[teamA.Id.String()]
+	membershipB := memberships[teamB.Id.String()]
+	assert.Equal(t, teamA.Id, membershipA.TeamID)
+	assert.Equal(t, teamB.Id, membershipB.TeamID)
+
+	rolesByMembership, err := repo.GetRolesForMemberships(ctx, []string{membershipA.Id.String(), membershipB.Id.String()})
+	require.NoError(t, err)
+	require.Len(t, rolesByMembership[membershipA.Id.String()], 1)
+	require.Len(t, rolesByMembership[membershipB.Id.String()], 1)
+	assert.Equal(t, "Admin", rolesByMembership[membershipA.Id.String()][0].Name)
+	assert.Equal(t, "Admin", rolesByMembership[membershipB.Id.String()][0].Name)
+}
+
 func TestTeamRepository_UpdateTeam(t *testing.T) {
 	pool := testutil.NewTestDB(t)
 	ctx := context.Background()

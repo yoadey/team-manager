@@ -45,6 +45,9 @@ type teamRepo interface {
 	GetMemberCount(ctx context.Context, teamID string) (int, error)
 	GetMembership(ctx context.Context, teamID, userID string) (*MembershipRow, error)
 	GetRolesForMembership(ctx context.Context, membershipID, teamID string) ([]RoleRow, error)
+	GetMemberCounts(ctx context.Context, teamIDs []string) (map[string]int, error)
+	GetMembershipsForUser(ctx context.Context, teamIDs []string, userID string) (map[string]MembershipRow, error)
+	GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
 	AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
@@ -68,20 +71,50 @@ func NewService(repo teamRepo, publicBaseURL string) *Service {
 }
 
 // ListForUser returns all teams for the given user enriched with member count,
-// the user's roles, and merged permissions.
+// the user's roles, and merged permissions. Enrichment is batched across all
+// of the user's teams (3 queries total) rather than per-team, since this
+// backs GET /teams -- hit on essentially every session -- and a user can
+// belong to an unbounded number of teams.
 func (s *Service) ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error) {
 	teams, err := s.repo.ListTeamsForUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.ListForUser: %w", err)
 	}
+	if len(teams) == 0 {
+		return []gen.TeamForUser{}, nil
+	}
+
+	teamIDs := make([]string, len(teams))
+	for i, t := range teams {
+		teamIDs[i] = t.Id.String()
+	}
+
+	counts, err := s.repo.GetMemberCounts(ctx, teamIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.ListForUser counts: %w", err)
+	}
+	memberships, err := s.repo.GetMembershipsForUser(ctx, teamIDs, userID)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.ListForUser memberships: %w", err)
+	}
+
+	membershipIDs := make([]string, 0, len(memberships))
+	for _, m := range memberships {
+		membershipIDs = append(membershipIDs, m.Id.String())
+	}
+	rolesByMembership, err := s.repo.GetRolesForMemberships(ctx, membershipIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.ListForUser roles: %w", err)
+	}
 
 	out := make([]gen.TeamForUser, 0, len(teams))
 	for _, t := range teams {
-		tfu, err := s.enrichTeamForUser(ctx, t, userID)
-		if err != nil {
-			return nil, err
+		m, ok := memberships[t.Id.String()]
+		if !ok {
+			return nil, fmt.Errorf("teams.Service.ListForUser: %w for team %s", pgx.ErrNoRows, t.Id)
 		}
-		out = append(out, *tfu)
+		roles := rolesByMembership[m.Id.String()]
+		out = append(out, *buildTeamForUser(t, m, counts[t.Id.String()], roles))
 	}
 	return out, nil
 }
@@ -266,6 +299,13 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 		return nil, fmt.Errorf("teams.Service.enrichTeamForUser roles: %w", err)
 	}
 
+	return buildTeamForUser(tr, *m, count, roles), nil
+}
+
+// buildTeamForUser assembles the API shape from already-fetched pieces, so
+// both the single-team path (enrichTeamForUser) and the batched list path
+// (ListForUser) share one assembly implementation.
+func buildTeamForUser(tr TeamRow, m MembershipRow, count int, roles []RoleRow) *gen.TeamForUser {
 	genRoles := make([]gen.Role, len(roles))
 	for i, r := range roles {
 		genRoles[i] = toGenRole(r)
@@ -297,7 +337,7 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 		tfu.ReasonVisibilityRoleIds = &uuids
 	}
 
-	return tfu, nil
+	return tfu
 }
 
 func toGenTeam(tr *TeamRow) *gen.Team {

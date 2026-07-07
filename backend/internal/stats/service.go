@@ -28,18 +28,32 @@ func NewService(repo statsRepo) *Service {
 	return &Service{repo: repo}
 }
 
-// defaultDateRange returns from = 90 days ago, to = today if not specified.
+// maxStatsRangeDays caps how far apart from/to may be. Generous for any
+// club's history view, while preventing a caller-supplied range (e.g.
+// from=0001-01-01) from forcing a full-table aggregation across every event
+// and attendance row the team has ever had, unlike GetMemberStats which
+// always uses a fixed 90-day window.
+const maxStatsRangeDays = 730
+
+// defaultDateRange returns from = 90 days ago, to = today if not specified,
+// clamping the effective range to at most maxStatsRangeDays wide.
 func defaultDateRange(from, to *openapi_types.Date) (fromStr, toStr string) {
 	now := time.Now()
-	toStr = now.Format("2006-01-02")
-	fromStr = now.AddDate(0, -3, 0).Format("2006-01-02")
-	if from != nil {
-		fromStr = from.Format("2006-01-02")
-	}
+	toTime := now
 	if to != nil {
-		toStr = to.Format("2006-01-02")
+		toTime = to.Time
 	}
-	return fromStr, toStr
+	fromTime := toTime.AddDate(0, -3, 0)
+	if from != nil {
+		fromTime = from.Time
+	}
+	if fromTime.After(toTime) {
+		fromTime = toTime
+	}
+	if toTime.Sub(fromTime) > maxStatsRangeDays*24*time.Hour {
+		fromTime = toTime.AddDate(0, 0, -maxStatsRangeDays)
+	}
+	return fromTime.Format("2006-01-02"), toTime.Format("2006-01-02")
 }
 
 // GetOverview builds the full StatsOverview for the given team and date range.

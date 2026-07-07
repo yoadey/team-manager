@@ -410,6 +410,95 @@ func (r *Repository) GetRolesForMembership(ctx context.Context, membershipID, te
 	return out, rows.Err()
 }
 
+// GetMemberCounts returns the member count for each of the given team IDs, in
+// one query rather than one round trip per team (used by ListTeamsForUser to
+// avoid an N+1 pattern when a user belongs to many teams).
+func (r *Repository) GetMemberCounts(ctx context.Context, teamIDs []string) (map[string]int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT team_id, COUNT(*)
+		FROM memberships
+		WHERE team_id = ANY($1)
+		GROUP BY team_id
+	`, teamIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.GetMemberCounts: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int, len(teamIDs))
+	for rows.Next() {
+		var teamID string
+		var count int
+		if err := rows.Scan(&teamID, &count); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetMemberCounts scan: %w", err)
+		}
+		out[teamID] = count
+	}
+	return out, rows.Err()
+}
+
+// GetMembershipsForUser returns the given user's membership row for each of
+// the given team IDs, keyed by team ID (see GetMemberCounts for why this is
+// batched rather than called once per team).
+func (r *Repository) GetMembershipsForUser(ctx context.Context, teamIDs []string, userID string) (map[string]MembershipRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, team_id, user_id, "group", joined_at
+		FROM memberships
+		WHERE team_id = ANY($1) AND user_id = $2
+	`, teamIDs, userID)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.GetMembershipsForUser: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]MembershipRow, len(teamIDs))
+	for rows.Next() {
+		var m MembershipRow
+		if err := rows.Scan(&m.Id, &m.TeamID, &m.UserID, &m.Group, &m.JoinedAt); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetMembershipsForUser scan: %w", err)
+		}
+		out[m.TeamID.String()] = m
+	}
+	return out, rows.Err()
+}
+
+// GetRolesForMemberships returns the roles assigned to each of the given
+// membership IDs, keyed by membership ID (see GetMemberCounts for why this is
+// batched rather than called once per membership).
+func (r *Repository) GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]RoleRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT mr.membership_id, r.id, r.team_id, r.name, r.system, r.color, r.permissions
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		WHERE mr.membership_id = ANY($1)
+	`, membershipIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.GetRolesForMemberships: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string][]RoleRow, len(membershipIDs))
+	for rows.Next() {
+		var membershipID string
+		rr := RoleRow{}
+		var permJSON []byte
+		if err := rows.Scan(&membershipID, &rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permJSON); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetRolesForMemberships scan: %w", err)
+		}
+		if err := json.Unmarshal(permJSON, &rr.Permissions); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetRolesForMemberships unmarshal permissions: %w", err)
+		}
+		out[membershipID] = append(out[membershipID], rr)
+	}
+	return out, rows.Err()
+}
+
 // MergePermissions computes the highest permission level across all roles per module.
 func MergePermissions(roles []RoleRow) gen.Permissions {
 	order := map[string]int{"none": 0, "read": 1, "write": 2}

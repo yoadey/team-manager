@@ -1,6 +1,7 @@
 package members_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -157,6 +158,58 @@ func TestMemberHandler_RemoveMember_LastSettingsAdmin_Returns409(t *testing.T) {
 	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
 	_, err := h.RemoveMember(ctx, gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
 	require.Error(t, err)
+}
+
+// Regression test: a rejected attempt to strip roles from or remove the last
+// settings-admin -- a security-relevant rejected privilege change -- used to
+// leave no audit trail at all, unlike every successful role/member change.
+func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		setRoles: func(context.Context, string, string, []string) (*gen.Member, error) {
+			return nil, members.ErrLastSettingsAdmin
+		},
+	}
+	var buf bytes.Buffer
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	body := &gen.SetMemberRolesJSONRequestBody{RoleIds: []uuid.UUID{}}
+	_, err := h.SetMemberRoles(ctx, gen.SetMemberRolesRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(), Body: body,
+	})
+	require.Error(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "member.roles_change", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "last_settings_admin", rec["reason"])
+}
+
+func TestMemberHandler_RemoveMember_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		removeMember: func(context.Context, string, string) error {
+			return members.ErrLastSettingsAdmin
+		},
+	}
+	var buf bytes.Buffer
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	_, err := h.RemoveMember(ctx, gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
+	require.Error(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "member.remove", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "last_settings_admin", rec["reason"])
 }
 
 func TestMemberHandler_SetMemberRoles_TooManyRoleIds_Returns400(t *testing.T) {

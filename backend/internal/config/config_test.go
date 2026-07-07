@@ -326,3 +326,14 @@ func TestLoad_DatabaseURLMissingHost(t *testing.T) {
 	_, err := config.Load()
 	require.ErrorIs(t, err, config.ErrInvalidDatabaseURL)
 }
+
+// Regression test: an unescaped space in the password makes url.Parse fail
+// with an error whose message embeds the full input string (including the
+// plaintext password) -- that raw parse error must never be wrapped into the
+// returned error, since it ultimately reaches the startup log line.
+func TestLoad_DatabaseURLParseFailure_DoesNotLeakDSN(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:S3cr3t!pass word@localhost/db")
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrInvalidDatabaseURL)
+	assert.NotContains(t, err.Error(), "S3cr3t")
+}
