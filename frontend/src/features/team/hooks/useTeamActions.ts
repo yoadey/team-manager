@@ -213,6 +213,9 @@ export function useTeamActions({
 
   const uploadMyPhoto = useCallback(
     async (dataUrl: string) => {
+      const key = 'myPhoto';
+      if (photoLogoInFlight.current.has(key)) return;
+      photoLogoInFlight.current.add(key);
       try {
         await api.auth.setPhoto(dataUrl);
         const user = await api.auth.currentUser();
@@ -221,6 +224,8 @@ export function useTeamActions({
         toastMsg(t('team.toastMyPhotoSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      } finally {
+        photoLogoInFlight.current.delete(key);
       }
     },
     [api, refreshTeams, refreshMembers, setState, toastMsg, logout],

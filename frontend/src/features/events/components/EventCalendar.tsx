@@ -35,7 +35,10 @@ export function EventCalendar() {
       while (d <= end) {
         const ds = formatDateOnly(d);
         (absByDate[ds] = absByDate[ds] || []).push(a);
-        d = new Date(d.getTime() + 86400000);
+        // Increment by calendar day, not a fixed 24h in ms -- across a DST
+        // transition the local day is 23 or 25 hours, so +86400000 either
+        // lands on the same date twice or skips a day entirely.
+        d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
       }
     });
   }

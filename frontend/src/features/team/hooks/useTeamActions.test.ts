@@ -455,4 +455,45 @@ describe('useTeamActions', () => {
     expect(refreshMembers).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Profilfoto aktualisiert');
   });
+
+  // Regression test: unlike its siblings saveTeamPhoto/removeTeamPhoto/
+  // saveTeamLogo, uploadMyPhoto had no in-flight guard -- a user reopening
+  // the file picker before the first upload resolved could fire two
+  // concurrent api.auth.setPhoto calls, and whichever response landed last
+  // silently determined the final avatar regardless of which photo the user
+  // picked last.
+  it('uploadMyPhoto ignores a second call while the first is still in flight', async () => {
+    let resolveSetPhoto: () => void;
+    api.auth.setPhoto.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveSetPhoto = () => resolve(undefined);
+      }),
+    );
+    const { result } = renderActions();
+
+    let firstCall: Promise<void>;
+    act(() => {
+      firstCall = result.current.uploadMyPhoto('data:image/png;base64,first');
+      void result.current.uploadMyPhoto('data:image/png;base64,second');
+    });
+
+    expect(api.auth.setPhoto).toHaveBeenCalledTimes(1);
+    expect(api.auth.setPhoto).toHaveBeenCalledWith('data:image/png;base64,first');
+
+    await act(async () => {
+      resolveSetPhoto();
+      await firstCall;
+    });
+  });
+
+  it('uploadMyPhoto allows a new call once the previous one has settled', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.uploadMyPhoto('data:image/png;base64,first');
+    });
+    await act(async () => {
+      await result.current.uploadMyPhoto('data:image/png;base64,second');
+    });
+    expect(api.auth.setPhoto).toHaveBeenCalledTimes(2);
+  });
 });
