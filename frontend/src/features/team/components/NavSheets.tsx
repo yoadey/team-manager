@@ -139,6 +139,7 @@ export function ProfileSheet({ app }: SheetProps) {
           <Box
             component="label"
             key="up"
+            aria-label={t('team.changeProfilePhoto')}
             sx={{
               position: 'absolute',
               right: '-4px',

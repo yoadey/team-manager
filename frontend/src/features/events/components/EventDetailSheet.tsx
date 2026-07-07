@@ -636,6 +636,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             if (ev.key === 'Enter') app.postEventComment(e.id);
           }}
           placeholder={t('events.commentWrite')}
+          maxLength={10000}
           style={{ ...inputSx, flex: 1 }}
         />
         <ButtonBase
