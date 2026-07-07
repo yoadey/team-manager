@@ -303,13 +303,13 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
         <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} onBlur={validateEmail_} />
       </Field>
       <Field label={t('members.fieldPhone')} error={!!errs.phone} errorText={errs.phone}>
-        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} />
+        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} maxLength={32} />
       </Field>
       <Field label={t('members.fieldBirthday')} error={!!errs.birthday} errorText={errs.birthday}>
         <TextInput name="birthday" type="date" onBlur={validateBirthday_} />
       </Field>
       <Field label={t('members.fieldAddress')}>
-        <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} />
+        <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} maxLength={500} />
       </Field>
       {contactNote}
       {roleChips}

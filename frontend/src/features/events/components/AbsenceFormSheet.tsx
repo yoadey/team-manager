@@ -35,7 +35,7 @@ export function AbsenceFormSheet({ app, sheet }: SheetProps) {
         </Field>
       </Box>
       <Field label={t('events.absenceReason')}>
-        <TextInput name="reason" placeholder={t('events.absenceReasonPlaceholder')} />
+        <TextInput name="reason" placeholder={t('events.absenceReasonPlaceholder')} maxLength={500} />
       </Field>
       <PrimaryButton
         label={sheet.mode === 'edit' ? t('events.absenceSaveEdit') : t('events.absenceSave')}

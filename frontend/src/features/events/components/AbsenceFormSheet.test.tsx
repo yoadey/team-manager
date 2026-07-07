@@ -61,6 +61,17 @@ describe('AbsenceFormSheet', () => {
     expect(inputs.length).toBeGreaterThanOrEqual(1);
   });
 
+  // Regression test: the reason field had no client-side maxLength, unlike
+  // every other create/edit form field, matching the backend's 500-char
+  // validate.MaxLen bound.
+  it('caps the reason input at 500 characters matching the backend limit', () => {
+    mockUseApp.mockReturnValue(makeApp() as never);
+    const app = mockUseApp();
+    render(<AbsenceFormSheet app={app as never} sheet={sheet} />);
+    const input = document.querySelector('input[type="text"]') as HTMLInputElement;
+    expect(input.maxLength).toBe(500);
+  });
+
   it('shows "Abwesenheit eintragen" label in create mode', () => {
     mockUseApp.mockReturnValue(makeApp() as never);
     const app = mockUseApp();

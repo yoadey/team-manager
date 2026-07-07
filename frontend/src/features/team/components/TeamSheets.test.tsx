@@ -335,6 +335,16 @@ describe('TeamSettingsSheet', () => {
     expect(screen.getByPlaceholderText(/Kurze Beschreibung/i)).toBeTruthy();
   });
 
+  // Regression test: the description textarea had no client-side maxLength,
+  // unlike the name field on the same form, matching the backend's
+  // 10,000-char validate.MaxLen bound.
+  it('caps the description textarea at 10000 characters matching the backend limit', () => {
+    const app = makeSettingsApp();
+    render(<TeamSettingsSheet app={app} sheet={sheet} />);
+    const textarea = screen.getByPlaceholderText(/Kurze Beschreibung/i) as HTMLTextAreaElement;
+    expect(textarea.maxLength).toBe(10000);
+  });
+
   it('renders the logo section heading', () => {
     const app = makeSettingsApp();
     render(<TeamSettingsSheet app={app} sheet={sheet} />);

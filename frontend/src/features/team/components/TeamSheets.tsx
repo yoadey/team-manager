@@ -404,7 +404,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
         <TextInput name="name" placeholder={t('team.settingsNamePlaceholder')} maxLength={60} />
       </Field>
       <Field label={t('team.settingsDescField')}>
-        <TextArea name="description" placeholder={t('team.settingsDescPlaceholder')} minHeight={80} />
+        <TextArea name="description" placeholder={t('team.settingsDescPlaceholder')} minHeight={80} maxLength={10000} />
       </Field>
       {logoSec}
       {photoSec}
