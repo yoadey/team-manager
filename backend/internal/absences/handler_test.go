@@ -136,3 +136,27 @@ func TestAbsenceHandler_CreateAbsence_InvalidDateRange_Returns400(t *testing.T) 
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "failed to create absence", "must map to the specific 400, not fall through to the generic 500")
 }
+
+// Regression test: from/to being correctly ordered wasn't enough -- a
+// multi-decade span (e.g. a typo'd year) was accepted with no bound at all.
+func TestAbsenceHandler_CreateAbsence_RejectsExcessiveSpan(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		create: func(context.Context, uuid.UUID, *gen.CreateAbsenceRequest) (gen.Absence, error) {
+			t.Fatal("service must not be called when the span exceeds the cap")
+			return gen.Absence{}, nil
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.CreateAbsenceRequest{
+		UserId: userID,
+		From:   openapi_types.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+		To:     openapi_types.Date{Time: time.Date(2226, 1, 1, 0, 0, 0, 0, time.UTC)},
+	}
+	_, err := h.CreateAbsence(ctx, gen.CreateAbsenceRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}

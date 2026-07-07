@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,15 @@ type Handler struct {
 func NewHandler(svc absenceService, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
+
+// maxAbsenceSpanDays caps how far apart from/to may be on creation. Generous
+// for any real absence (illness, injury, long-term leave), while preventing
+// an accidental or malicious multi-decade span (e.g. a typo'd year) from
+// distorting attendance reporting indefinitely. Only enforced on create --
+// UpdateAbsence's partial-field patch is applied via a single COALESCE UPDATE
+// with no prior read, so re-deriving the resulting span here would need an
+// extra query; the existing to>=from CHECK constraint still applies there.
+const maxAbsenceSpanDays = 1095 // ~3 years
 
 // ListAbsences returns paginated absences for a team.
 func (h *Handler) ListAbsences(ctx context.Context, req gen.ListAbsencesRequestObject) (gen.ListAbsencesResponseObject, error) {
@@ -85,6 +95,9 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	}
 	if req.Body.From.After(req.Body.To.Time) {
 		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	}
+	if req.Body.To.Sub(req.Body.From.Time) > maxAbsenceSpanDays*24*time.Hour {
+		return nil, apierror.BadRequest("absence span must not exceed 3 years")
 	}
 	if req.Body.Reason != nil {
 		if err := validate.MaxLen(*req.Body.Reason, 500, "reason"); err != nil {
