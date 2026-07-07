@@ -84,6 +84,15 @@ jobs:
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Build & push
+        # No platforms: key -> buildx defaults to the runner's native platform
+        # only (linux/amd64 on ubuntu-latest), even though both Dockerfiles
+        # pin multi-arch manifest-list base images. Every published GHCR tag
+        # is amd64-only today; deploying to an arm64 node pool (e.g. AWS
+        # Graviton) would fail to pull with "no matching manifest". This is a
+        # deliberate scope decision, not an oversight -- multi-arch builds
+        # roughly double this job's build time/GHA minutes for a platform
+        # this project doesn't currently target. Add
+        # `platforms: linux/amd64,linux/arm64` here if that changes.
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: ${{ matrix.context }}
