@@ -311,6 +311,24 @@ func TestEventHandler_SetAttendance_RejectsOversizedReason(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Regression test: reasonId had no length cap at all, unlike its sibling
+// reason field -- an unbounded TEXT column with no validation, reachable by
+// any self-service caller (attendance is self-service).
+func TestEventHandler_SetAttendance_RejectsOversizedReasonId(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	body := &gen.SetAttendanceJSONRequestBody{
+		UserId:   uuid.New(),
+		Status:   gen.No,
+		ReasonId: ptr(strings.Repeat("x", 501)),
+	}
+	_, err := h.SetAttendance(ctxWithUser(), gen.SetAttendanceRequestObject{
+		TeamId: uuid.New(), EventId: uuid.New(), Body: body,
+	})
+	require.Error(t, err)
+}
+
 func TestEventHandler_SetNomination_ForbiddenMapsTo403(t *testing.T) {
 	t.Parallel()
 	h := events.NewHandler(&mockEventService{

@@ -370,6 +370,16 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
+	// reasonId has no length cap in the OpenAPI schema, unlike its sibling
+	// reason -- an unbounded TEXT column with no validation at all. Capped
+	// to match reason's bound; it's stored per attendance row for every
+	// self-service caller (attendance is self-service), so leaving it
+	// unbounded is an unnecessary storage/DoS surface.
+	if request.Body.ReasonId != nil {
+		if err := validate.MaxLen(*request.Body.ReasonId, 500, "reasonId"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 
 	// Use user from body (manager setting attendance for others) or fall back to authed user.
 	userID := request.Body.UserId.String()

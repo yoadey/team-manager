@@ -160,3 +160,28 @@ func TestAbsenceHandler_CreateAbsence_RejectsExcessiveSpan(t *testing.T) {
 
 	require.Error(t, err)
 }
+
+// Regression test: maxAbsenceSpanDays was only enforced on Create -- when
+// UpdateAbsence received both from and to in the same PATCH, the span could
+// be computed with no extra query (exactly like Create does), but the check
+// was simply missing, so a self-service PATCH could stretch any existing
+// absence out to a multi-century span with no rejection.
+func TestAbsenceHandler_UpdateAbsence_RejectsExcessiveSpan(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		update: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *gen.UpdateAbsenceRequest) (gen.Absence, error) {
+			t.Fatal("service must not be called when the span exceeds the cap")
+			return gen.Absence{}, nil
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	from := openapi_types.Date{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	to := openapi_types.Date{Time: time.Date(2226, 1, 1, 0, 0, 0, 0, time.UTC)}
+	body := &gen.UpdateAbsenceRequest{From: &from, To: &to}
+	_, err := h.UpdateAbsence(ctx, gen.UpdateAbsenceRequestObject{TeamId: uuid.New(), AbsenceId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}

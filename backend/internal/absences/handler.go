@@ -37,13 +37,16 @@ func NewHandler(svc absenceService, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
-// maxAbsenceSpanDays caps how far apart from/to may be on creation. Generous
-// for any real absence (illness, injury, long-term leave), while preventing
-// an accidental or malicious multi-decade span (e.g. a typo'd year) from
-// distorting attendance reporting indefinitely. Only enforced on create --
-// UpdateAbsence's partial-field patch is applied via a single COALESCE UPDATE
-// with no prior read, so re-deriving the resulting span here would need an
-// extra query; the existing to>=from CHECK constraint still applies there.
+// maxAbsenceSpanDays caps how far apart from/to may be. Generous for any real
+// absence (illness, injury, long-term leave), while preventing an accidental
+// or malicious multi-decade span (e.g. a typo'd year) from distorting
+// attendance reporting indefinitely. Enforced on create, and on update
+// whenever both from/to are present in the same PATCH (the span is directly
+// computable then, no extra query needed) -- but NOT on a partial update
+// supplying only one of the two fields: UpdateAbsence's patch is applied via
+// a single COALESCE UPDATE with no prior read, so re-deriving the resulting
+// span there would need an extra query. The existing to>=from CHECK
+// constraint still applies to that case regardless.
 const maxAbsenceSpanDays = 1095 // ~3 years
 
 // ListAbsences returns paginated absences for a team.
@@ -166,8 +169,17 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if req.Body.From != nil && req.Body.To != nil && req.Body.From.After(req.Body.To.Time) {
-		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	if req.Body.From != nil && req.Body.To != nil {
+		if req.Body.From.After(req.Body.To.Time) {
+			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
+		// Unlike the ordering check above, maxAbsenceSpanDays is otherwise only
+		// enforced on create (see its doc comment) -- but when both fields are
+		// present in the same PATCH, as here, the resulting span is computable
+		// directly with no extra DB read, so there's no reason to skip it.
+		if req.Body.To.Sub(req.Body.From.Time) > maxAbsenceSpanDays*24*time.Hour {
+			return nil, apierror.BadRequest("absence span must not exceed 3 years")
+		}
 	}
 	if req.Body.Reason != nil {
 		if err := validate.MaxLen(*req.Body.Reason, 500, "reason"); err != nil {
