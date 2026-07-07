@@ -33,7 +33,7 @@ type mockTeamService struct {
 	getTeam          func(ctx context.Context, teamID string) (*gen.Team, error)
 	updateTeam       func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
 	createInvite     func(ctx context.Context, teamID string) (*gen.Invite, error)
-	acceptInvite     func(ctx context.Context, code, userID string) (*gen.TeamForUser, error)
+	acceptInvite     func(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
 	getTeamPhotoData func(ctx context.Context, teamID string) ([]byte, string, error)
 	updatePhoto      func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
 	deletePhoto      func(ctx context.Context, teamID string) error
@@ -62,7 +62,7 @@ func (m *mockTeamService) CreateInvite(ctx context.Context, teamID string) (*gen
 	return m.createInvite(ctx, teamID)
 }
 
-func (m *mockTeamService) AcceptInvite(ctx context.Context, code, userID string) (*gen.TeamForUser, error) {
+func (m *mockTeamService) AcceptInvite(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error) {
 	return m.acceptInvite(ctx, code, userID)
 }
 
@@ -479,7 +479,7 @@ func TestTeamHandler_AcceptInvite_RequiresAuthentication(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockTeamService{
-		acceptInvite: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+		acceptInvite: func(_ context.Context, _, _ string) (*gen.AcceptInviteResponse, error) {
 			t.Fatal("service must not be called when unauthenticated")
 			return nil, nil
 		},
@@ -498,9 +498,9 @@ func TestTeamHandler_AcceptInvite_ReturnsTeamAndEmitsAuditEvent(t *testing.T) {
 
 	teamID := uuid.New()
 	svc := &mockTeamService{
-		acceptInvite: func(_ context.Context, code, userID string) (*gen.TeamForUser, error) {
+		acceptInvite: func(_ context.Context, code, userID string) (*gen.AcceptInviteResponse, error) {
 			assert.Equal(t, "ABC123", code)
-			return &gen.TeamForUser{Id: teamID, Name: "Joined Team"}, nil
+			return &gen.AcceptInviteResponse{Id: teamID, Name: "Joined Team"}, nil
 		},
 	}
 	var buf bytes.Buffer
@@ -511,7 +511,7 @@ func TestTeamHandler_AcceptInvite_ReturnsTeamAndEmitsAuditEvent(t *testing.T) {
 	resp, err := h.AcceptInvite(ctx, gen.AcceptInviteRequestObject{Code: "ABC123"})
 	require.NoError(t, err)
 	require.IsType(t, gen.AcceptInvite200JSONResponse{}, resp)
-	assert.Equal(t, teamID, gen.TeamForUser(resp.(gen.AcceptInvite200JSONResponse)).Id)
+	assert.Equal(t, teamID, gen.AcceptInviteResponse(resp.(gen.AcceptInvite200JSONResponse)).Id)
 
 	var rec map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
@@ -521,11 +521,32 @@ func TestTeamHandler_AcceptInvite_ReturnsTeamAndEmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, teamID.String(), rec["teamId"])
 }
 
+// Regression test: the response used to have no way to signal "you were
+// already a member," so the frontend showed a misleading "joined" toast on
+// every repeat visit to an old invite link, not just the first.
+func TestTeamHandler_AcceptInvite_PropagatesAlreadyMemberFlag(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		acceptInvite: func(_ context.Context, _, _ string) (*gen.AcceptInviteResponse, error) {
+			return &gen.AcceptInviteResponse{Id: teamID, Name: "Existing Team", AlreadyMember: true}, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Joiner", Email: "j@x.c"})
+	resp, err := h.AcceptInvite(ctx, gen.AcceptInviteRequestObject{Code: "ABC123"})
+	require.NoError(t, err)
+	require.IsType(t, gen.AcceptInvite200JSONResponse{}, resp)
+	assert.True(t, gen.AcceptInviteResponse(resp.(gen.AcceptInvite200JSONResponse)).AlreadyMember)
+}
+
 func TestTeamHandler_AcceptInvite_RejectsOverlongCode(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockTeamService{
-		acceptInvite: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+		acceptInvite: func(_ context.Context, _, _ string) (*gen.AcceptInviteResponse, error) {
 			t.Fatal("service must not be called when the code fails validation")
 			return nil, nil
 		},
@@ -544,7 +565,7 @@ func TestTeamHandler_AcceptInvite_InviteNotFound_Returns404(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockTeamService{
-		acceptInvite: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+		acceptInvite: func(_ context.Context, _, _ string) (*gen.AcceptInviteResponse, error) {
 			return nil, teams.ErrInviteNotFound
 		},
 	}

@@ -1011,6 +1011,10 @@ export interface components {
             membershipId: string;
             memberCount: number;
         };
+        AcceptInviteResponse: components["schemas"]["TeamForUser"] & {
+            /** @description True when the caller was already a member of this team before redeeming the code (the request was a no-op join-wise). */
+            alreadyMember: boolean;
+        };
         CreateTeamRequest: {
             name: string;
             icon?: string;
@@ -2077,7 +2081,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeamForUser"];
+                    "application/json": components["schemas"]["AcceptInviteResponse"];
                 };
             };
             404: components["responses"]["NotFound"];

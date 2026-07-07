@@ -347,6 +347,28 @@ type Absence struct {
 	UserId            openapi_types.UUID `json:"userId"`
 }
 
+// AcceptInviteResponse defines model for AcceptInviteResponse.
+type AcceptInviteResponse struct {
+	// AlreadyMember True when the caller was already a member of this team before redeeming the code (the request was a no-op join-wise).
+	AlreadyMember bool               `json:"alreadyMember"`
+	Description   *string            `json:"description,omitempty"`
+	HasLogo       *bool              `json:"hasLogo,omitempty"`
+	HasPhoto      *bool              `json:"hasPhoto,omitempty"`
+	Icon          *string            `json:"icon,omitempty"`
+	IconBg        *string            `json:"iconBg,omitempty"`
+	IconFg        *string            `json:"iconFg,omitempty"`
+	Id            openapi_types.UUID `json:"id"`
+	MemberCount   int                `json:"memberCount"`
+	MembershipId  openapi_types.UUID `json:"membershipId"`
+
+	// MyPerms Per-module permission levels
+	MyPerms                 Permissions           `json:"myPerms"`
+	MyRoles                 []Role                `json:"myRoles"`
+	Name                    string                `json:"name"`
+	ReasonVisibilityRoleIds *[]openapi_types.UUID `json:"reasonVisibilityRoleIds,omitempty"`
+	Short                   *string               `json:"short,omitempty"`
+}
+
 // AddCommentRequest defines model for AddCommentRequest.
 type AddCommentRequest struct {
 	Text string `json:"text"`
@@ -5124,7 +5146,7 @@ type AcceptInviteResponseObject interface {
 	VisitAcceptInviteResponse(w http.ResponseWriter) error
 }
 
-type AcceptInvite200JSONResponse TeamForUser
+type AcceptInvite200JSONResponse AcceptInviteResponse
 
 func (response AcceptInvite200JSONResponse) VisitAcceptInviteResponse(w http.ResponseWriter) error {
 

@@ -78,7 +78,7 @@ type mockTeamRepo struct {
 	getMembershipsForUser  func(ctx context.Context, teamIDs []string, userID string) (map[string]teams.MembershipRow, error)
 	getRolesForMemberships func(ctx context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error)
 	createInvite           func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
-	acceptInvite           func(ctx context.Context, code, userID string) (*teams.TeamRow, error)
+	acceptInvite           func(ctx context.Context, code, userID string) (*teams.TeamRow, bool, error)
 	updateTeamPhoto        func(ctx context.Context, teamID string, data []byte, mime string) error
 	updateTeamLogo         func(ctx context.Context, teamID string, data []byte, mime string) error
 	deleteTeamPhoto        func(ctx context.Context, teamID string) error
@@ -129,7 +129,7 @@ func (m *mockTeamRepo) CreateInvite(ctx context.Context, teamID string, ttl time
 	return m.createInvite(ctx, teamID, ttl)
 }
 
-func (m *mockTeamRepo) AcceptInvite(ctx context.Context, code, userID string) (*teams.TeamRow, error) {
+func (m *mockTeamRepo) AcceptInvite(ctx context.Context, code, userID string) (*teams.TeamRow, bool, error) {
 	return m.acceptInvite(ctx, code, userID)
 }
 
@@ -311,10 +311,10 @@ func TestTeamService_AcceptInvite_ReturnsEnrichedTeam(t *testing.T) {
 	role := fixedAdminRole(teamID)
 
 	repo := &mockTeamRepo{
-		acceptInvite: func(_ context.Context, code, uid string) (*teams.TeamRow, error) {
+		acceptInvite: func(_ context.Context, code, uid string) (*teams.TeamRow, bool, error) {
 			assert.Equal(t, "ABC123", code)
 			assert.Equal(t, userID.String(), uid)
-			return &row, nil
+			return &row, false, nil
 		},
 		getMemberCount: func(_ context.Context, _ string) (int, error) { return 4, nil },
 		getMembership:  func(_ context.Context, _, _ string) (*teams.MembershipRow, error) { return membership, nil },
@@ -328,14 +328,43 @@ func TestTeamService_AcceptInvite_ReturnsEnrichedTeam(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, teamID, tfu.Id)
 	assert.Equal(t, 4, tfu.MemberCount)
+	assert.False(t, tfu.AlreadyMember)
+}
+
+func TestTeamService_AcceptInvite_PropagatesAlreadyMember(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	membershipID := uuid.New()
+	userID := uuid.New()
+
+	row := fixedTeamRow(teamID)
+	membership := fixedMembershipRow(membershipID, teamID, userID)
+	role := fixedAdminRole(teamID)
+
+	repo := &mockTeamRepo{
+		acceptInvite: func(_ context.Context, _, _ string) (*teams.TeamRow, bool, error) {
+			return &row, true, nil
+		},
+		getMemberCount: func(_ context.Context, _ string) (int, error) { return 4, nil },
+		getMembership:  func(_ context.Context, _, _ string) (*teams.MembershipRow, error) { return membership, nil },
+		getRolesForMembership: func(_ context.Context, _, _ string) ([]teams.RoleRow, error) {
+			return []teams.RoleRow{role}, nil
+		},
+	}
+
+	svc := teams.NewService(repo, "https://app.example.com")
+	tfu, err := svc.AcceptInvite(context.Background(), "ABC123", userID.String())
+	require.NoError(t, err)
+	assert.True(t, tfu.AlreadyMember)
 }
 
 func TestTeamService_AcceptInvite_PropagatesErrInviteNotFound(t *testing.T) {
 	t.Parallel()
 
 	repo := &mockTeamRepo{
-		acceptInvite: func(_ context.Context, _, _ string) (*teams.TeamRow, error) {
-			return nil, teams.ErrInviteNotFound
+		acceptInvite: func(_ context.Context, _, _ string) (*teams.TeamRow, bool, error) {
+			return nil, false, teams.ErrInviteNotFound
 		},
 	}
 

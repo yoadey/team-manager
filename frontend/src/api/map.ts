@@ -139,6 +139,10 @@ export function mapTeamForUser(t: S['TeamForUser']): TeamForUser {
   };
 }
 
+export function mapAcceptInviteResponse(r: S['AcceptInviteResponse']): TeamForUser & { alreadyMember: boolean } {
+  return { ...mapTeamForUser(r), alreadyMember: r.alreadyMember };
+}
+
 export function mapInvite(inv: S['Invite']): Invite {
   return {
     id: inv.id,

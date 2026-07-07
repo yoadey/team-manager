@@ -33,6 +33,7 @@ vi.mock('@/api/map', () => {
     mapRole: tag('role'),
     mapTeam: tag('team'),
     mapTeamForUser: tag('teamForUser'),
+    mapAcceptInviteResponse: tag('acceptInviteResponse'),
     mapInvite: tag('invite'),
     mapMember: tag('member'),
     mapTeamEvent: tag('teamEvent'),
@@ -350,7 +351,7 @@ describe('teams', () => {
     client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
     const res = await realApi.teams.acceptInvite('abc123');
     expect(client.POST).toHaveBeenCalledWith('/invites/{code}/accept', { params: { path: { code: 'abc123' } } });
-    expect(res).toMatchObject({ __mapped: 'teamForUser' });
+    expect(res).toMatchObject({ __mapped: 'acceptInviteResponse' });
   });
 });
 

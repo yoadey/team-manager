@@ -410,6 +410,16 @@ describe('AppProvider / invite-redemption join flow', () => {
   it('redeems a pending invite on login, joins the team, and lands on it', async () => {
     const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
       await freshModules();
+
+    // The seeded demo user (Lena Bergmann / u1) is already a member of t_a
+    // by default; remove that membership first so this test genuinely
+    // exercises a brand-new join rather than the idempotent already-member
+    // no-op path (which must not show the "joined" toast -- see the
+    // dedicated test below).
+    const members = await api.members.list('t_a');
+    const lena = members.find((m) => m.name === 'Lena Bergmann')!;
+    await api.members.remove(lena.membershipId, 't_a');
+
     const invite = await api.teams.createInvite('t_a');
     window.history.pushState({}, '', '/join/t_a/' + invite.code);
 
@@ -441,6 +451,47 @@ describe('AppProvider / invite-redemption join flow', () => {
     expect(screen.getByTestId('activeTeamId').textContent).toBe('t_a');
     expect(screen.getByTestId('toast').textContent).toContain('A-Team TSC Schwarz-Gelb Aachen');
     expect(window.location.pathname).toBe('/home');
+  });
+
+  // Regression test: redeeming an invite for a team the user is already in
+  // used to show the same "joined X" toast every time, misleadingly implying
+  // a state change that didn't happen (the redemption is intentionally
+  // idempotent both server-side and in the mock).
+  it('does not show a "joined" toast when redeeming an invite for a team already joined', async () => {
+    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
+      await freshModules();
+
+    // The seeded demo user (Lena Bergmann / u1) is already a member of t_b.
+    const invite = await api.teams.createInvite('t_b');
+    window.history.pushState({}, '', '/join/t_b/' + invite.code);
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
+          <div data-testid="toast">{state.toast?.message ?? ''}</div>
+        </div>
+      );
+    }
+
+    render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    expect(screen.getByTestId('activeTeamId').textContent).toBe('t_b');
+    expect(screen.getByTestId('toast').textContent).toBe('');
   });
 
   it('shows an error toast for an invalid invite code but still logs in normally', async () => {

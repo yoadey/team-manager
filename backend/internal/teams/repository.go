@@ -564,13 +564,17 @@ func (r *Repository) CreateInvite(ctx context.Context, teamID string, ttl time.D
 // gets the default system "Member" role -- an admin who has since stripped a
 // re-joining member's roles must not have that silently undone by the member
 // re-clicking their old invite link.
-func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, error) {
+// AcceptInvite's second return value reports whether the caller was already
+// a member of the team before this call (a no-op join-wise), so the caller
+// can distinguish that from an actual new join (e.g. to avoid showing a
+// misleading "joined" toast on a repeat visit to an old invite link).
+func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("teams.Repository.AcceptInvite: begin tx: %w", err)
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
@@ -580,16 +584,16 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 	`, code).Scan(&teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, ErrInviteNotFound
+			return nil, false, ErrInviteNotFound
 		}
-		return nil, fmt.Errorf("teams.Repository.AcceptInvite: lookup invite: %w", err)
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: lookup invite: %w", err)
 	}
 
 	// Same advisory lock key as every other team-mutating path (roles
 	// deletion, CreateEvent/UpdateEvent nominations, UpdateTeam), so a
 	// concurrent role deletion can't race the default-role assignment below.
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID.String()); err != nil {
-		return nil, fmt.Errorf("teams.Repository.AcceptInvite: advisory lock: %w", err)
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: advisory lock: %w", err)
 	}
 
 	var membershipID uuid.UUID
@@ -597,7 +601,7 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 		Scan(&membershipID)
 	isNewMembership := errors.Is(err, pgx.ErrNoRows)
 	if err != nil && !isNewMembership {
-		return nil, fmt.Errorf("teams.Repository.AcceptInvite: check membership: %w", err)
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: check membership: %w", err)
 	}
 
 	if isNewMembership {
@@ -605,7 +609,7 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 			INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id
 		`, teamID, userID).Scan(&membershipID)
 		if err != nil {
-			return nil, fmt.Errorf("teams.Repository.AcceptInvite: create membership: %w", err)
+			return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: create membership: %w", err)
 		}
 
 		var memberRoleID uuid.UUID
@@ -613,13 +617,13 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 			SELECT id FROM roles WHERE team_id = $1 AND system = true AND name = 'Member'
 		`, teamID).Scan(&memberRoleID)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("teams.Repository.AcceptInvite: find member role: %w", err)
+			return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: find member role: %w", err)
 		}
 		if err == nil {
 			if _, err = tx.Exec(ctx, `
 				INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)
 			`, membershipID, memberRoleID); err != nil {
-				return nil, fmt.Errorf("teams.Repository.AcceptInvite: assign member role: %w", err)
+				return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: assign member role: %w", err)
 			}
 		}
 	}
@@ -638,13 +642,13 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("teams.Repository.AcceptInvite: fetch team: %w", err)
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: fetch team: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("teams.Repository.AcceptInvite: commit: %w", err)
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: commit: %w", err)
 	}
-	return &tr, nil
+	return &tr, !isNewMembership, nil
 }
 
 // UpdateTeamPhoto stores raw photo bytes and MIME type for the given team.

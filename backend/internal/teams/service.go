@@ -49,7 +49,7 @@ type teamRepo interface {
 	GetMembershipsForUser(ctx context.Context, teamIDs []string, userID string) (map[string]MembershipRow, error)
 	GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
-	AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, error)
+	AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, bool, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
 	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
 	DeleteTeamPhoto(ctx context.Context, teamID string) error
@@ -133,16 +133,37 @@ func (s *Service) CreateTeam(ctx context.Context, userID, name string) (*gen.Tea
 }
 
 // AcceptInvite redeems a 7-day invite code, adding userID to the invite's
-// team, and returns that team enriched for the caller.
-func (s *Service) AcceptInvite(ctx context.Context, code, userID string) (*gen.TeamForUser, error) {
-	tr, err := s.repo.AcceptInvite(ctx, code, userID)
+// team, and returns that team enriched for the caller, plus whether the
+// caller was already a member (a no-op join-wise).
+func (s *Service) AcceptInvite(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error) {
+	tr, alreadyMember, err := s.repo.AcceptInvite(ctx, code, userID)
 	if err != nil {
 		if errors.Is(err, ErrInviteNotFound) {
 			return nil, ErrInviteNotFound
 		}
 		return nil, fmt.Errorf("teams.Service.AcceptInvite: %w", err)
 	}
-	return s.enrichTeamForUser(ctx, *tr, userID)
+	tfu, err := s.enrichTeamForUser(ctx, *tr, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.AcceptInviteResponse{
+		Id:                      tfu.Id,
+		Name:                    tfu.Name,
+		Short:                   tfu.Short,
+		Icon:                    tfu.Icon,
+		IconBg:                  tfu.IconBg,
+		IconFg:                  tfu.IconFg,
+		Description:             tfu.Description,
+		HasPhoto:                tfu.HasPhoto,
+		HasLogo:                 tfu.HasLogo,
+		MemberCount:             tfu.MemberCount,
+		MembershipId:            tfu.MembershipId,
+		MyRoles:                 tfu.MyRoles,
+		MyPerms:                 tfu.MyPerms,
+		ReasonVisibilityRoleIds: tfu.ReasonVisibilityRoleIds,
+		AlreadyMember:           alreadyMember,
+	}, nil
 }
 
 // GetTeam returns the gen.Team for the given ID.

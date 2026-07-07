@@ -9,6 +9,7 @@ import {
   mapRole,
   mapTeam,
   mapTeamForUser,
+  mapAcceptInviteResponse,
   mapInvite,
   mapMember,
   mapTeamEvent,
@@ -297,10 +298,10 @@ export const realApi = {
       return mapInvite(inv);
     },
 
-    async acceptInvite(code: string): Promise<TeamForUser> {
+    async acceptInvite(code: string): Promise<TeamForUser & { alreadyMember: boolean }> {
       const res = await apiClient.POST('/invites/{code}/accept', { params: { path: { code } } });
-      const tfu = await check(res);
-      return mapTeamForUser(tfu);
+      const body = await check(res);
+      return mapAcceptInviteResponse(body);
     },
   },
 

@@ -57,13 +57,15 @@ function nextWeekday(weekday: number, weeks = 0) {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   const diff = (weekday - d.getDay() + 7) % 7;
-  d.setTime(d.getTime() + (diff + weeks * 7) * DAY);
+  // setDate (calendar day) rather than adding raw milliseconds -- across a
+  // DST transition a fixed-ms offset can land a day early/late.
+  d.setDate(d.getDate() + diff + weeks * 7);
   return d;
 }
 function plusDays(n: number) {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
-  d.setTime(d.getTime() + n * DAY);
+  d.setDate(d.getDate() + n);
   return formatDateOnly(d);
 }
 
@@ -1074,7 +1076,7 @@ const _mockApi = {
       return clone(inv);
     },
 
-    async acceptInvite(code: string): Promise<TeamForUser> {
+    async acceptInvite(code: string): Promise<TeamForUser & { alreadyMember: boolean }> {
       await delay(180, 360);
       const inv = DB.invites.find((i) => i.code === code);
       if (!inv || new Date(inv.expiresAt).getTime() <= Date.now()) {
@@ -1082,6 +1084,7 @@ const _mockApi = {
       }
 
       const existing = DB.memberships.find((m) => m.teamId === inv.teamId && m.userId === session.userId);
+      const alreadyMember = !!existing;
       if (!existing) {
         const memberRole = DB.roles.find((r) => r.teamId === inv.teamId && r.name === 'Tänzer / Mitglied');
         DB.memberships.push({
@@ -1103,6 +1106,7 @@ const _mockApi = {
         myPerms: mergePerms(roles),
         membershipId: m.id,
         memberCount: DB.memberships.filter((x) => x.teamId === t.id).length,
+        alreadyMember,
       });
     },
   },

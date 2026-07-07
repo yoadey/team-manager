@@ -764,7 +764,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         try {
           const joined = await api.teams.acceptInvite(invite.code);
           joinedTeamId = joined.id;
-          toastMsg(t('team.toastJoined', { name: joined.name }));
+          // Idempotent redemption: a user re-visiting/re-clicking an old
+          // invite link for a team they're already in must not see a
+          // "joined" toast implying a state change that didn't happen.
+          if (!joined.alreadyMember) {
+            toastMsg(t('team.toastJoined', { name: joined.name }));
+          }
         } catch {
           toastMsg(t('team.toastInviteInvalid'));
         }

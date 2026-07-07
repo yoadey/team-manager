@@ -286,9 +286,10 @@ func TestTeamRepository_AcceptInvite_NewMember_JoinsAndGetsDefaultMemberRole(t *
 	require.NoError(t, err)
 
 	joinerID := insertUser(t, pool, "invite-accept-joiner@example.com")
-	joined, err := repo.AcceptInvite(ctx, inv.Code, joinerID)
+	joined, alreadyMember, err := repo.AcceptInvite(ctx, inv.Code, joinerID)
 	require.NoError(t, err)
 	assert.Equal(t, tr.Id, joined.Id)
+	assert.False(t, alreadyMember, "a brand-new join must not report alreadyMember")
 
 	var membershipID string
 	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, tr.Id, joinerID).
@@ -320,9 +321,10 @@ func TestTeamRepository_AcceptInvite_AlreadyMember_IsIdempotentAndKeepsRoles(t *
 	// Creator re-clicking the team's own invite link is already a member and
 	// already holds the (all-write) Admin role -- redeeming the code again
 	// must not touch that.
-	joined, err := repo.AcceptInvite(ctx, inv.Code, creatorID)
+	joined, alreadyMember, err := repo.AcceptInvite(ctx, inv.Code, creatorID)
 	require.NoError(t, err)
 	assert.Equal(t, tr.Id, joined.Id)
+	assert.True(t, alreadyMember, "re-accepting as an existing member must report alreadyMember")
 
 	var membershipID string
 	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, tr.Id, creatorID).
@@ -351,7 +353,7 @@ func TestTeamRepository_AcceptInvite_ExpiredCode_ReturnsErrInviteNotFound(t *tes
 	require.NoError(t, err)
 
 	joinerID := insertUser(t, pool, "invite-expired-joiner@example.com")
-	_, err = repo.AcceptInvite(ctx, inv.Code, joinerID)
+	_, _, err = repo.AcceptInvite(ctx, inv.Code, joinerID)
 	require.ErrorIs(t, err, teams.ErrInviteNotFound)
 }
 
@@ -360,6 +362,6 @@ func TestTeamRepository_AcceptInvite_UnknownCode_ReturnsErrInviteNotFound(t *tes
 	repo := teams.NewRepository(pool)
 
 	joinerID := insertUser(t, pool, "invite-unknown-joiner@example.com")
-	_, err := repo.AcceptInvite(context.Background(), "does-not-exist", joinerID)
+	_, _, err := repo.AcceptInvite(context.Background(), "does-not-exist", joinerID)
 	require.ErrorIs(t, err, teams.ErrInviteNotFound)
 }

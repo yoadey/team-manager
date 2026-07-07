@@ -27,7 +27,7 @@ type teamService interface {
 	GetTeam(ctx context.Context, teamID string) (*gen.Team, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*gen.Team, error)
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
-	AcceptInvite(ctx context.Context, code, userID string) (*gen.TeamForUser, error)
+	AcceptInvite(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
 	GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error)
 	UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
 	DeletePhoto(ctx context.Context, teamID string) error
