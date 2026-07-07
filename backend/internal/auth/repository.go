@@ -167,7 +167,7 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 	// snapshot and both commit, leaving the team with zero settings:write
 	// holders.
 	if _, err := tx.Exec(ctx, `
-		SELECT pg_advisory_xact_lock(hashtextextended(team_id, 0))
+		SELECT pg_advisory_xact_lock(hashtextextended(team_id::text, 0))
 		FROM (SELECT DISTINCT team_id FROM memberships WHERE user_id = $1 ORDER BY team_id) t
 	`, userID); err != nil {
 		return fmt.Errorf("auth.Repository.EraseUser: advisory lock: %w", err)
