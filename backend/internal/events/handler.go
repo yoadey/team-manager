@@ -148,7 +148,7 @@ func (h *Handler) GetEvent(ctx context.Context, request gen.GetEventRequestObjec
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
 
 // UpdateEvent updates an event or series.
-func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventRequestObject) (gen.UpdateEventResponseObject, error) {
+func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventRequestObject) (gen.UpdateEventResponseObject, error) { //nolint:gocognit,cyclop // sequential field validation + error-cause mapping, not nested branching
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
@@ -189,6 +189,9 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		}
 		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
 			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+		}
+		if errors.Is(err, ErrEndTimeBeforeStartTime) {
+			return nil, apierror.BadRequest(ErrEndTimeBeforeStartTime.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to update event")
@@ -423,10 +426,6 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 // is set to a value outside the ResponseMode enum.
 var errInvalidResponseMode = errors.New("responseMode: not a valid response mode")
 
-// errEndTimeBeforeStartTime is returned by validateEventFields when both
-// startTime and endTime are set and endTime does not come after startTime.
-var errEndTimeBeforeStartTime = errors.New("endTime: must be after startTime")
-
 // validateEventFields validates the optional free-text/time/enum fields shared
 // by CreateEvent and UpdateEvent. No request-schema validator is wired into
 // the router (see events/service.go), so these are the only enforcement point
@@ -477,7 +476,7 @@ func validateEventTimeFields(meetTime, startTime, endTime *string) error {
 		}
 	}
 	if startTime != nil && *startTime != "" && endTime != nil && *endTime != "" && *endTime <= *startTime {
-		return errEndTimeBeforeStartTime
+		return ErrEndTimeBeforeStartTime
 	}
 	return nil
 }

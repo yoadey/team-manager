@@ -149,7 +149,8 @@ func TestEventRepository_CreateEvent_RejectsForeignTeamNominatedRole(t *testing.
 	require.NoError(t, err)
 
 	var foreignRoleID uuid.UUID
-	err = pool.QueryRow(ctx,
+	err = pool.QueryRow(
+		ctx,
 		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Foreign Role', '{}') RETURNING id`,
 		otherTeamID,
 	).Scan(&foreignRoleID)
@@ -162,7 +163,8 @@ func TestEventRepository_CreateEvent_RejectsForeignTeamNominatedRole(t *testing.
 
 	// A role that genuinely belongs to the team is accepted.
 	var ownRoleID uuid.UUID
-	err = pool.QueryRow(ctx,
+	err = pool.QueryRow(
+		ctx,
 		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Own Role', '{}') RETURNING id`,
 		teamID,
 	).Scan(&ownRoleID)
@@ -226,6 +228,53 @@ func TestEventRepository_UpdateEvent_Series_DoesNotCollapseDates(t *testing.T) {
 		dates[e.Date.Format("2006-01-02")] = true
 	}
 	assert.Len(t, dates, 3, "each occurrence must keep its own distinct date, not collapse onto the updated event's date")
+}
+
+// Regression test: the handler's endTime>startTime check only runs when both
+// fields are present in the same PATCH request (see events.validateEventFields);
+// a partial update sending only one of the two fields skipped that check
+// entirely and could persist end_time <= start_time. The
+// events_end_after_start_time CHECK constraint (mirroring absences' identical
+// from_date/to_date pattern) must catch this at the DB layer regardless, and
+// UpdateEvent must map the violation to the same ErrEndTimeBeforeStartTime
+// the handler-level check returns.
+func TestEventRepository_UpdateEvent_PartialUpdate_RejectsEndBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "23232323-2323-2323-2323-232323232323"
+	teamID := "45454545-4545-4545-4545-454545454545"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Partial Update User', 'partial-update@example.com', '#123123')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Partial Update Team')`, teamID)
+	require.NoError(t, err)
+
+	startTime, endTime := "09:00", "10:00"
+	params := makeCreateParams("Training", time.Now().UTC().Truncate(24*time.Hour))
+	params.StartTime = &startTime
+	params.EndTime = &endTime
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+
+	// Partial update: only endTime, set before the stored startTime (09:00).
+	newEndTime := "08:00"
+	_, err = repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		EndTime: &newEndTime,
+	}, "single")
+	require.ErrorIs(t, err, events.ErrEndTimeBeforeStartTime)
+
+	// Partial update: only startTime, set after the stored endTime (10:00).
+	newStartTime := "11:00"
+	_, err = repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		StartTime: &newStartTime,
+	}, "single")
+	require.ErrorIs(t, err, events.ErrEndTimeBeforeStartTime)
 }
 
 // A series-scope update with ONLY Date set (no other field) — the primary
@@ -445,7 +494,8 @@ func TestEventRepository_GetReasonVisibilityContext(t *testing.T) {
 	require.NoError(t, err)
 
 	var membershipID uuid.UUID
-	err = pool.QueryRow(ctx,
+	err = pool.QueryRow(
+		ctx,
 		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, viewerID,
 	).Scan(&membershipID)
 	require.NoError(t, err)

@@ -8,8 +8,20 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
+const pgCheckViolation = "23514"
+
+// ErrEndTimeBeforeStartTime is returned when a partial UpdateEvent would
+// leave end_time <= start_time (violates the events_end_after_start_time
+// CHECK constraint). The handler validates this when both fields are present
+// in the same request, but a partial update (only one of startTime/endTime)
+// can only be caught here, since the merge happens inside the UPDATE
+// statement itself -- see absences' identical ErrInvalidDateRange pattern.
+var ErrEndTimeBeforeStartTime = errors.New("endTime: must be after startTime")
 
 // Repository handles all event-related DB operations.
 type Repository struct {
@@ -194,7 +206,8 @@ func validateNominatedRolesInTx(ctx context.Context, tx pgx.Tx, teamID string, r
 		seen[id] = struct{}{}
 	}
 	var count int
-	if err := tx.QueryRow(ctx,
+	if err := tx.QueryRow(
+		ctx,
 		`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
 		roleIDs, teamID,
 	).Scan(&count); err != nil {
@@ -387,6 +400,10 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			return nil, ErrEndTimeBeforeStartTime
+		}
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
 	}
 
@@ -425,6 +442,10 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 	args = append(args, seriesID)
 	_, err := tx.Exec(ctx, q, args...)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			return ErrEndTimeBeforeStartTime
+		}
 		return fmt.Errorf("events.Repository.updateSeriesEvents: %w", err)
 	}
 	return nil
@@ -775,7 +796,8 @@ func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, vie
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	if err := r.pool.QueryRow(ctx,
+	if err := r.pool.QueryRow(
+		ctx,
 		`SELECT reason_visibility_role_ids FROM teams WHERE id = $1`, teamID,
 	).Scan(&teamRoleIDs); err != nil {
 		return nil, nil, fmt.Errorf("events.Repository.GetReasonVisibilityContext team: %w", err)
