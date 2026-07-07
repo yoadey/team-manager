@@ -1,0 +1,10 @@
+bin
+coverage.out
+*.test
+__debug_bin*
+*.local
+.env
+.env.*
+.git
+Dockerfile
+.dockerignore

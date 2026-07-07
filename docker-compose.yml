@@ -1,3 +1,8 @@
+# Local development only -- not a production deployment manifest. Postgres
+# credentials default to a well-known value, the DB port is published to the
+# host, and COOKIE_SECURE is hardcoded to "false" (plaintext-HTTP session
+# cookies). Override POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB via .env for
+# anything beyond a throwaway local instance; see helm/ for production.
 services:
   postgres:
     # Pin to an immutable digest for reproducible local dev. Dependabot's
