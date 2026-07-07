@@ -280,6 +280,40 @@ func TestEventService_CreateEvent_Recurring_RejectsExcessiveRepeatWeeks(t *testi
 	require.ErrorIs(t, err, events.ErrRepeatWeeksTooLarge)
 }
 
+// Regression test: a non-positive repeatWeeks used to be silently coerced to
+// 1 instead of rejected, even though the OpenAPI spec declares minimum: 1 --
+// a client sending 0 or a negative value got a single non-recurring event
+// created with no error, instead of the 400 the spec promises.
+func TestEventService_CreateEvent_Recurring_RejectsNonPositiveRepeatWeeks(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockSvcRepo{
+		createSeriesFn: func(_ context.Context, _ string, _ *events.CreateEventParams) ([]events.EventRow, error) {
+			t.Fatal("CreateSeries must not be called when repeatWeeks is non-positive")
+			return nil, nil
+		},
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			t.Fatal("CreateEvent must not be called when repeatWeeks is non-positive")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil)
+	for _, invalid := range []int{0, -1} {
+		repeatWeeks := invalid
+		recurring := true
+		body := &gen.CreateEventRequest{
+			Type:        gen.Training,
+			Title:       "Invalid Repeat",
+			Date:        openapi_types.Date{Time: time.Now().UTC()},
+			Recurring:   &recurring,
+			RepeatWeeks: &repeatWeeks,
+		}
+		_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+		require.ErrorIs(t, err, events.ErrRepeatWeeksTooLarge, "repeatWeeks=%d must be rejected", invalid)
+	}
+}
+
 func TestEventService_SetAttendance(t *testing.T) {
 	t.Parallel()
 

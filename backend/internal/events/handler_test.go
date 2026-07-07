@@ -113,6 +113,26 @@ func TestEventHandler_CreateEvent_RejectsMalformedTime(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Regression test: startTime/endTime were only checked individually for
+// HH:MM format, never for endTime coming after startTime -- an event with
+// endTime before (or equal to) startTime used to be accepted silently.
+func TestEventHandler_CreateEvent_RejectsEndTimeNotAfterStartTime(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{}, slog.Default())
+
+	for _, endTime := range []string{"09:00", "08:59"} {
+		body := &gen.CreateEventJSONRequestBody{
+			Type:      gen.Training,
+			Title:     "Practice",
+			Date:      openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+			StartTime: ptr("09:00"),
+			EndTime:   ptr(endTime),
+		}
+		_, err := h.CreateEvent(ctxWithUser(), gen.CreateEventRequestObject{TeamId: uuid.New(), Body: body})
+		require.Error(t, err, "endTime=%s must be rejected", endTime)
+	}
+}
+
 func TestEventHandler_CreateEvent_RejectsTooManyNominatedRoleIds(t *testing.T) {
 	t.Parallel()
 	h := events.NewHandler(&mockEventService{}, slog.Default())

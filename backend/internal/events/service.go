@@ -195,10 +195,10 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 
 	recurring := body.Recurring != nil && *body.Recurring
 	repeatWeeks := 1
-	if body.RepeatWeeks != nil && *body.RepeatWeeks > 0 {
+	if body.RepeatWeeks != nil {
 		repeatWeeks = *body.RepeatWeeks
 	}
-	if repeatWeeks > maxRepeatWeeks {
+	if repeatWeeks < 1 || repeatWeeks > maxRepeatWeeks {
 		return nil, ErrRepeatWeeksTooLarge
 	}
 

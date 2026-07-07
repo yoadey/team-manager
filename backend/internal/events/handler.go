@@ -423,6 +423,10 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 // is set to a value outside the ResponseMode enum.
 var errInvalidResponseMode = errors.New("responseMode: not a valid response mode")
 
+// errEndTimeBeforeStartTime is returned by validateEventFields when both
+// startTime and endTime are set and endTime does not come after startTime.
+var errEndTimeBeforeStartTime = errors.New("endTime: must be after startTime")
+
 // validateEventFields validates the optional free-text/time/enum fields shared
 // by CreateEvent and UpdateEvent. No request-schema validator is wired into
 // the router (see events/service.go), so these are the only enforcement point
@@ -471,6 +475,9 @@ func validateEventTimeFields(meetTime, startTime, endTime *string) error {
 		if err := validate.TimeOfDay(*endTime, "endTime"); err != nil {
 			return fmt.Errorf("%w", err)
 		}
+	}
+	if startTime != nil && *startTime != "" && endTime != nil && *endTime != "" && *endTime <= *startTime {
+		return errEndTimeBeforeStartTime
 	}
 	return nil
 }
