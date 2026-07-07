@@ -203,10 +203,16 @@ export function useTeamActions({
   }, [api, S, setState, refreshTeams, afterLoginLoad, toastMsg, logout]);
 
   const openInvite = useCallback(async () => {
+    const teamId = S().activeTeamId!;
     setState({ sheet: { type: 'invite', invite: null } });
     try {
-      const invite = await api.teams.createInvite(S().activeTeamId!);
-      setState((s) => (s.sheet && s.sheet.type === 'invite' ? { sheet: { ...s.sheet, invite } } : {}));
+      const invite = await api.teams.createInvite(teamId);
+      // Must check the team too, not just the sheet type: if the user
+      // switched teams and opened a NEW invite sheet (also type 'invite')
+      // before this resolved, the type-only check would inject team A's
+      // invite link/code into what the user believes is team B's sheet --
+      // a cross-team invite-token leak, not just stale data.
+      setState((s) => (s.activeTeamId === teamId && s.sheet?.type === 'invite' ? { sheet: { ...s.sheet, invite } } : {}));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err);
     }

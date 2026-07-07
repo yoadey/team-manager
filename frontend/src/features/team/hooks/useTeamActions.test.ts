@@ -448,6 +448,35 @@ describe('useTeamActions', () => {
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'invite', invite: null } });
   });
 
+  // Regression test: the response handler used to check only
+  // `sheet.type === 'invite'`, never the team the invite was created for.
+  // A slow createInvite() for team1, if the user switched to a different
+  // team and opened ITS OWN invite sheet (also type 'invite') before it
+  // resolved, would inject team1's invite link/code into the sheet the user
+  // believes belongs to the new team -- a cross-team invite-token leak, not
+  // just stale data.
+  it('does not inject a stale invite into a different team\'s invite sheet opened afterward', async () => {
+    let resolveCreate!: (v: { link: string; code: string }) => void;
+    api.teams.createInvite = vi.fn(() => new Promise((resolve) => (resolveCreate = resolve)));
+    const { result } = renderActions();
+
+    let openPromise!: Promise<void>;
+    act(() => {
+      openPromise = result.current.openInvite();
+    });
+    expect(api.teams.createInvite).toHaveBeenCalledWith('team1');
+
+    // User switches teams and opens THAT team's own (also empty) invite sheet.
+    stateRef = { ...stateRef, activeTeamId: 'team2', sheet: { type: 'invite', invite: null } as never };
+
+    await act(async () => {
+      resolveCreate({ link: 'https://example.com/invite/team1-code', code: 'team1-code' });
+      await openPromise;
+    });
+
+    expect(stateRef.sheet).toEqual({ type: 'invite', invite: null });
+  });
+
   it('copyInvite does nothing when no invite in sheet', async () => {
     stateRef = makeState({ sheet: { type: 'invite', invite: null } as never });
     const { result } = renderActions();
