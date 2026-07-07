@@ -28,7 +28,9 @@ serviceAccount:
 
 podAnnotations:
   prometheus.io/scrape: "true"
-  prometheus.io/port: "8080"
+  # prometheus.io/port is deliberately not set here -- deployment.yaml
+  # templates it directly from .Values.service.targetPort so it can never
+  # drift from the port the container actually listens on.
   prometheus.io/path: "/metrics"
 
 podSecurityContext:

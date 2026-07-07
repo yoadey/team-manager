@@ -14,6 +14,15 @@ spec:
   template:
     metadata:
       annotations:
+        # prometheus.io/port always derives from .Values.service.targetPort,
+        # the same way the probes and NetworkPolicy do -- values.yaml itself
+        # can't reference .Values.service.targetPort (it's plain YAML, not
+        # templated), so a deployer who only overrode service.targetPort
+        # would otherwise silently keep scraping the stale default "8080"
+        # and get connection-refused with no alert. Don't set
+        # prometheus.io/port in .Values.podAnnotations too -- a duplicate key
+        # there is emitted after (and so wins over) this line.
+        prometheus.io/port: {{ .Values.service.targetPort | quote }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
