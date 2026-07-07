@@ -521,6 +521,25 @@ func TestTeamHandler_AcceptInvite_ReturnsTeamAndEmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, teamID.String(), rec["teamId"])
 }
 
+func TestTeamHandler_AcceptInvite_RejectsOverlongCode(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		acceptInvite: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+			t.Fatal("service must not be called when the code fails validation")
+			return nil, nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.New(slog.NewTextHandler(io.Discard, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Joiner", Email: "j@x.c"})
+	_, err := h.AcceptInvite(ctx, gen.AcceptInviteRequestObject{Code: strings.Repeat("a", 65)})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
 func TestTeamHandler_AcceptInvite_InviteNotFound_Returns404(t *testing.T) {
 	t.Parallel()
 

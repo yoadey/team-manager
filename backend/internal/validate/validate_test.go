@@ -54,6 +54,13 @@ func TestMaxLen(t *testing.T) {
 	assert.Error(t, validate.MaxLen("abc😀!", 4, "f"))
 }
 
+func TestMaxLen_RejectsNullByte(t *testing.T) {
+	t.Parallel()
+	err := validate.MaxLen("abc\x00def", 100, "f")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, validate.ErrFieldNullByte)
+}
+
 func TestName(t *testing.T) {
 	t.Parallel()
 	assert.NoError(t, validate.Name("Alice"))

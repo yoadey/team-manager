@@ -222,6 +222,9 @@ func (h *Handler) AcceptInvite(ctx context.Context, request gen.AcceptInviteRequ
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
+	if err := validate.MaxLen(request.Code, 64, "code"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
 
 	tfu, err := h.svc.AcceptInvite(ctx, request.Code, user.Id.String())
 	if err != nil {

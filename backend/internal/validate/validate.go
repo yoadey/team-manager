@@ -47,6 +47,7 @@ var (
 	ErrAmountTooLarge    = errors.New("exceeds the maximum allowed amount")
 	ErrTimeOfDayInvalid  = errors.New("must be a 24-hour HH:MM time")
 	ErrTooManyItems      = errors.New("has too many items")
+	ErrFieldNullByte     = errors.New("must not contain a null byte")
 )
 
 // timeOfDayRE matches a 24-hour "HH:MM" time-of-day string, the format the
@@ -82,8 +83,14 @@ func RequireNonEmpty(s, field string) error {
 	return nil
 }
 
-// MaxLen returns an error when s exceeds n UTF-8 characters.
+// MaxLen returns an error when s exceeds n UTF-8 characters or contains a
+// null byte. A null byte is valid UTF-8 but Postgres text/varchar columns
+// reject it outright, which would otherwise surface as an unhandled 500 at
+// the DB layer instead of a clean 400 here.
 func MaxLen(s string, n int, field string) error {
+	if strings.IndexByte(s, 0) != -1 {
+		return fmt.Errorf("%s %w", field, ErrFieldNullByte)
+	}
 	if utf8.RuneCountInString(s) > n {
 		return fmt.Errorf("%s %w", field, ErrFieldTooLong)
 	}

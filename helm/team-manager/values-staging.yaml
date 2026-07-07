@@ -22,6 +22,12 @@ ingress:
   className: nginx
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
+    # Match prod's ingress body-size limit: the backend accepts multipart
+    # uploads (team/profile photos) up to 2 MB, but nginx-ingress defaults to
+    # a 1m client-max-body-size when this annotation is absent, so staging
+    # would 413 uploads between 1-2 MB that prod (and the app itself) accept.
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
   hosts:
     - host: staging.team-manager.example.com
       paths:
