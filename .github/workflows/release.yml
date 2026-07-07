@@ -16,6 +16,14 @@ on:
 permissions:
   contents: read
 
+# Queue (never cancel) concurrent runs for the same ref: two parallel runs for
+# the same tag could race pushing the same image tag to GHCR. Unlike ci.yml,
+# this workflow must NOT set cancel-in-progress -- a release publish is a
+# deliberate, rare, one-off event, not a rapid-iteration PR push, and
+# cancelling one mid-push could leave a tag partially published.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
 env:
   REGISTRY: ghcr.io
 

@@ -140,6 +140,13 @@ spec:
             - |
               echo "WARNING: backup.s3.enabled is false — the dump in /backup is NOT persisted anywhere and is discarded when this Job's pod is removed. Set backup.s3.enabled=true with a bucket to actually retain backups." >&2
               exit 1
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 128Mi
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
