@@ -292,6 +292,80 @@ describe('AppProvider / actions (app phase)', () => {
   });
 });
 
+// Regression test: on-demand per-route loaders (loadFinances, loadStats,
+// loadNews, loadPolls, loadAbsences, refreshEvents/Members/Roles,
+// loadNotifications) used to apply their response unconditionally, with no
+// check that activeTeamId was still the same team when the response landed
+// -- unlike afterLoginLoad, which has always had this guard. A slow request
+// for the team the user just navigated away from could clobber the newly
+// selected team's state with the previous team's data.
+describe('AppProvider / team-switch race guards', () => {
+  it('loadFinances discards a stale response after the user has switched teams', async () => {
+    const svc = await import('@/services/serviceLayer');
+    type Overview = Awaited<ReturnType<typeof svc.api.finances.overview>>;
+    let resolveOverview!: (v: Overview) => void;
+    const overviewSpy = vi
+      .spyOn(svc.api.finances, 'overview')
+      .mockReturnValueOnce(new Promise<Overview>((resolve) => (resolveOverview = resolve)));
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return (
+        <div>
+          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
+          <div data-testid="finances">{state.finances ? JSON.stringify(state.finances) : 'null'}</div>
+        </div>
+      );
+    }
+
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'team1', teams: [] as never });
+    });
+
+    // Kick off loadFinances for team1; the mocked promise stays pending.
+    act(() => {
+      actions.loadFinances();
+    });
+    expect(overviewSpy).toHaveBeenCalledWith('team1');
+
+    // User switches to team2 before team1's response arrives. selectTeam
+    // resets finances to null via afterLoginLoad's initial reset.
+    await act(async () => {
+      await actions.selectTeam('team2');
+    });
+    expect(screen.getByTestId('activeTeamId').textContent).toBe('team2');
+    expect(screen.getByTestId('finances').textContent).toBe('null');
+
+    // team1's stale response now arrives -- it must NOT overwrite team2's state.
+    await act(async () => {
+      resolveOverview({
+        balance: 0,
+        income: 0,
+        expense: 0,
+        transactions: [],
+        penalties: [],
+        assignments: [],
+        openPenalties: [],
+        openPenaltySum: 0,
+        contributions: [],
+        contribOpen: 0,
+      });
+    });
+    expect(screen.getByTestId('activeTeamId').textContent).toBe('team2');
+    expect(screen.getByTestId('finances').textContent).toBe('null');
+
+    overviewSpy.mockRestore();
+  });
+});
+
 // The bootstrap sets: events=write, members=read, finances=none
 describe('AppProvider / can() permission checks', () => {
   let capturedCan!: ReturnType<typeof useApp>['can'];
