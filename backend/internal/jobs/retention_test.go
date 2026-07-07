@@ -99,3 +99,49 @@ func TestRetentionWorker_KeepsStillValidLongLivedSession(t *testing.T) {
 
 	assert.Equal(t, []string{"still-valid-long-lived"}, tokens, "only the still-valid session should survive retention")
 }
+
+// Regression test: invites accumulated unboundedly with no cleanup
+// mechanism at all -- CreateInvite is called every time the invite sheet is
+// opened, with no reuse of unexpired codes. An invite still within its
+// (fixed, 7-day) validity window must survive retention even if the row is
+// old-ish; only one that expired more than the retention grace period ago
+// should be purged.
+func TestRetentionWorker_DeletesLongExpiredInvites(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Invite Retention Team')`, teamID)
+	require.NoError(t, err)
+
+	// Still within its validity window -- must NOT be deleted.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO invites (team_id, code, expires_at)
+		VALUES ($1, 'still-valid-code', now() + interval '3 days')
+	`, teamID)
+	require.NoError(t, err)
+
+	// Expired 100 days ago -- must be deleted.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO invites (team_id, code, expires_at)
+		VALUES ($1, 'long-expired-code', now() - interval '100 days')
+	`, teamID)
+	require.NoError(t, err)
+
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	require.NoError(t, worker.Work(ctx, &river.Job[jobs.RetentionArgs]{}))
+
+	var codes []string
+	rows, err := pool.Query(ctx, `SELECT code FROM invites WHERE team_id = $1`, teamID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var code string
+		require.NoError(t, rows.Scan(&code))
+		codes = append(codes, code)
+	}
+	require.NoError(t, rows.Err())
+
+	assert.Equal(t, []string{"still-valid-code"}, codes, "only the still-valid invite should survive retention")
+}

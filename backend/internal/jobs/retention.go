@@ -17,9 +17,20 @@ type RetentionArgs struct{}
 
 func (RetentionArgs) Kind() string { return "retention" }
 
-// RetentionWorker deletes stale rows from notifications, sessions, and audit_log.
-// Thresholds are configured at construction time; sensible defaults
-// (90 / 30 / 365 days) are applied when zero values are passed.
+// inviteRetention is how long past its (fixed, 7-day) expiry an invite row
+// is kept before the retention job deletes it. Unlike notifications/
+// sessions/audit_log, this isn't independently configurable: expired invites
+// are inherently disposable (the code can never be redeemed again), so a
+// grace period matching sessions' default is generous enough without adding
+// another env var for a low-stakes cleanup. teams.Service.CreateInvite is
+// called every time the invite sheet is opened with no reuse of unexpired
+// codes, so this table grows unboundedly without this cleanup.
+const inviteRetention = 30 * 24 * time.Hour
+
+// RetentionWorker deletes stale rows from notifications, sessions, invites,
+// and audit_log. Thresholds for the first/second/fourth are configured at
+// construction time; sensible defaults (90 / 30 / 365 days) are applied when
+// zero values are passed.
 type RetentionWorker struct {
 	river.WorkerDefaults[RetentionArgs]
 	pool                  *pgxpool.Pool
@@ -117,6 +128,17 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 		metrics.RetentionJobRowsDeleted.WithLabelValues("sessions").Add(float64(sessionRows))
 		slog.Info("retention: deleted old sessions", "rows", sessionRows, "cutoff", sessionCutoff)
 	}
+
+	// Delete invites that expired more than inviteRetention ago. Keyed off
+	// expires_at, same reasoning as sessions above.
+	inviteCutoff := now.Add(-inviteRetention)
+	inviteRows, err := deleteBatched(ctx, w.pool, "invites", "expires_at", inviteCutoff)
+	if err != nil {
+		metrics.RetentionJobFailures.WithLabelValues("invites").Inc()
+		return fmt.Errorf("retention: delete invites: %w", err)
+	}
+	metrics.RetentionJobRowsDeleted.WithLabelValues("invites").Add(float64(inviteRows))
+	slog.Info("retention: deleted expired invites", "rows", inviteRows, "cutoff", inviteCutoff)
 
 	// Delete old audit_log entries. Compliance regulations typically require a
 	// minimum retention period (e.g. 1 year); RETENTION_AUDIT_LOG_DAYS defaults
