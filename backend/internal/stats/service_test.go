@@ -98,6 +98,35 @@ func TestService_GetOverview_DefaultsDateRangeWhenUnset(t *testing.T) {
 	assert.Less(t, capturedFrom, capturedTo, "default range should start before it ends")
 }
 
+// Pins the exact default window width so a future change to defaultDateRange
+// (or to how GetMemberStats/GetOverview call it) can't silently drift from
+// "3 months" without a test failing -- this is the only path GetMemberStats
+// exercises, since its request has no from/to params at all.
+func TestService_GetOverview_DefaultRangeIsExactlyThreeMonths(t *testing.T) {
+	t.Parallel()
+
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		memberStatsFn: func(_ context.Context, _ uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
+			capturedFrom, capturedTo = from, to
+			return nil, nil
+		},
+		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) { return nil, nil },
+	}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetOverview(context.Background(), uuid.New(), nil, nil)
+	require.NoError(t, err)
+
+	gotFrom, err := time.Parse("2006-01-02", capturedFrom)
+	require.NoError(t, err)
+	gotTo, err := time.Parse("2006-01-02", capturedTo)
+	require.NoError(t, err)
+
+	wantFrom := gotTo.AddDate(0, -3, 0)
+	assert.Equal(t, wantFrom.Format("2006-01-02"), gotFrom.Format("2006-01-02"))
+}
+
 func TestService_GetOverview_UsesExplicitDateRange(t *testing.T) {
 	t.Parallel()
 
@@ -184,6 +213,33 @@ func TestService_GetMemberStats(t *testing.T) {
 	assert.Equal(t, 4, result.Yes)
 	assert.Equal(t, 5, result.Counted)
 	assert.InDelta(t, 0.8, result.Quote, 0.001)
+}
+
+// Regression/documentation test: GetMemberStats's handler never has from/to
+// to pass through (its OpenAPI request has no such params), but the service
+// method itself still accepts them -- pin that even an explicit range is
+// used verbatim (defaultDateRange only falls back when nil), so a future
+// change can't silently start ignoring an explicitly-passed range instead.
+func TestService_GetMemberStats_UsesExplicitRangeWhenGiven(t *testing.T) {
+	t.Parallel()
+
+	teamID, userID := uuid.New(), uuid.New()
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		singleMemberStatsFn: func(_ context.Context, _, _ uuid.UUID, from, to string) (*stats.MemberStatRow, error) {
+			capturedFrom, capturedTo = from, to
+			return &stats.MemberStatRow{UserID: userID, Yes: 1, Counted: 1}, nil
+		},
+	}
+
+	from := openapi_types.Date{Time: mustParseDate(t, "2026-01-01")}
+	to := openapi_types.Date{Time: mustParseDate(t, "2026-01-31")}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetMemberStats(context.Background(), teamID, userID, &from, &to)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-01-01", capturedFrom)
+	assert.Equal(t, "2026-01-31", capturedTo)
 }
 
 func mustParseDate(t *testing.T, s string) time.Time {

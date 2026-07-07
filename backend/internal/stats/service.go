@@ -32,10 +32,11 @@ func NewService(repo statsRepo) *Service {
 // club's history view, while preventing a caller-supplied range (e.g.
 // from=0001-01-01) from forcing a full-table aggregation across every event
 // and attendance row the team has ever had, unlike GetMemberStats which
-// always uses a fixed 90-day window.
+// always uses the fixed 3-month default (its request has no from/to params
+// at all, so this function's from==nil, to==nil branch is its only path).
 const maxStatsRangeDays = 730
 
-// defaultDateRange returns from = 90 days ago, to = today if not specified,
+// defaultDateRange returns from = 3 months ago, to = today if not specified,
 // clamping the effective range to at most maxStatsRangeDays wide.
 func defaultDateRange(from, to *openapi_types.Date) (fromStr, toStr string) {
 	now := time.Now()
