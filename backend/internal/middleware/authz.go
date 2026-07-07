@@ -79,6 +79,11 @@ var routeModule = map[string]string{
 	"finances":      "finances",
 	"absences":      "", // self-service: no write check
 	"notifications": "", // self-service: no write check
+	// stats has no write routes of its own, but its GET responses (event
+	// titles/types/dates, per-member attendance breakdowns) are exactly the
+	// data the "events" module's "none" is meant to hide -- gate reads
+	// behind events:read, the same as the events module itself.
+	"stats": "events",
 	// settings-level segments handled explicitly below (photo, logo, invite)
 }
 

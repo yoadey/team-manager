@@ -271,7 +271,7 @@ func main() {
 	// ─── Notifications ────────────────────────────────────────────────────────
 
 	notifRepo := notifications.NewRepository(pool)
-	notifSvc := notifications.NewService(notifRepo)
+	notifSvc := notifications.NewService(notifRepo, membersRepo)
 	notifHandler := notifications.NewHandler(notifSvc, logger)
 
 	// ─── Finances ─────────────────────────────────────────────────────────────

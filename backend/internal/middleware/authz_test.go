@@ -139,7 +139,6 @@ func TestRequirePermission_GET_UnrestrictedPaths_AlwaysPass(t *testing.T) {
 	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
 	paths := []string{
 		"/api/v1/teams/" + testTeamID.String(), // team info itself
-		"/api/v1/teams/" + testTeamID.String() + "/stats",
 		"/api/v1/teams/" + testTeamID.String() + "/photo",
 		"/api/v1/teams/" + testTeamID.String() + "/logo",
 		"/api/v1/teams/" + testTeamID.String() + "/absences/mine",
@@ -149,6 +148,31 @@ func TestRequirePermission_GET_UnrestrictedPaths_AlwaysPass(t *testing.T) {
 		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
 		rec := applyPermMW(nonePerms, req)
 		assert.Equal(t, http.StatusOK, rec.Code, "GET %s should remain unrestricted", p)
+	}
+}
+
+// Regression test: /stats has no write routes of its own, but its GET
+// responses (event titles/types/dates, per-member attendance breakdowns) are
+// exactly the data the "events" module's "none" is meant to hide -- gate
+// reads behind events:read, the same as the events module itself.
+func TestRequirePermission_GET_Stats_RequiresEventsReadPermission(t *testing.T) {
+	paths := []string{
+		"/api/v1/teams/" + testTeamID.String() + "/stats",
+		"/api/v1/teams/" + testTeamID.String() + "/stats/members/" + uuid.New().String(),
+	}
+
+	readPerms := &mockPermissionChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(readPerms, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s with events:read should pass", p)
+	}
+
+	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(nonePerms, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "GET %s with events:none should be forbidden", p)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // notifRepo is the interface the Service relies on.
@@ -16,26 +17,77 @@ type notifRepo interface {
 	MarkSeen(ctx context.Context, teamID, userID uuid.UUID) error
 }
 
+// permChecker returns the effective per-module permissions for a (team,
+// user) pair -- satisfied by members.Repository.
+type permChecker interface {
+	GetPermissions(ctx context.Context, teamID, userID uuid.UUID) (teams.PermissionsJSON, error)
+}
+
 // Service implements notifications business logic.
 type Service struct {
-	repo notifRepo
+	repo  notifRepo
+	perms permChecker
 }
 
 // NewService creates a new Service.
-func NewService(repo notifRepo) *Service {
-	return &Service{repo: repo}
+func NewService(repo notifRepo, perms permChecker) *Service {
+	return &Service{repo: repo, perms: perms}
 }
 
-// List returns all notifications for the user in the given team.
+// notificationModule returns the RBAC module a notification type belongs to,
+// or "" if it's self-standing (not gated by any module permission). The
+// /notifications route itself carries no module-level RBAC check (it
+// aggregates across events, news, and polls), so without this, a member
+// with e.g. events:none would still see event/attendance notices -- exactly
+// the "none must hide the module" property enforced everywhere else.
+func notificationModule(notifType string) string {
+	switch notifType {
+	case "attendance", "event_created", "event_updated", "event_cancelled", "event_reactivated", "event_deleted":
+		return "events"
+	case "news":
+		return "news"
+	case "poll":
+		return "polls"
+	default:
+		return ""
+	}
+}
+
+// hasReadAccess reports whether p grants at least "read" on module. An empty
+// module (self-standing notification types, e.g. "absence") is always visible.
+func hasReadAccess(p teams.PermissionsJSON, module string) bool {
+	var level string
+	switch module {
+	case "events":
+		level = p.Events
+	case "news":
+		level = p.News
+	case "polls":
+		level = p.Polls
+	default:
+		return true
+	}
+	return level == "read" || level == "write"
+}
+
+// List returns all notifications for the user in the given team that
+// originate from a module the user has at least "read" on.
 func (s *Service) List(ctx context.Context, teamID, userID uuid.UUID) (gen.NotificationsResult, error) {
 	rows, err := s.repo.ListByTeamAndUser(ctx, teamID, userID)
 	if err != nil {
 		return gen.NotificationsResult{}, fmt.Errorf("notifications.Service.List: %w", err)
 	}
+	perms, err := s.perms.GetPermissions(ctx, teamID, userID)
+	if err != nil {
+		return gen.NotificationsResult{}, fmt.Errorf("notifications.Service.List: get permissions: %w", err)
+	}
 
 	items := make([]gen.AppNotification, 0, len(rows))
 	unreadCount := 0
 	for _, row := range rows {
+		if !hasReadAccess(perms, notificationModule(row.Type)) {
+			continue
+		}
 		n := toGenNotification(row)
 		items = append(items, n)
 		if row.Unread {
