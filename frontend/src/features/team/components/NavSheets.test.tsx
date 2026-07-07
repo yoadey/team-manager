@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TeamsSheet, ProfileSheet, MoreSheet } from './NavSheets';
 import { LocaleProvider } from '@/i18n/LocaleProvider';
+import { AuthError } from '@/utils/errors';
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
@@ -86,6 +87,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     deleteAccount: vi.fn().mockResolvedValue(undefined),
     exportMyData: vi.fn().mockResolvedValue(undefined),
     toastMsg: vi.fn(),
+    setState: vi.fn(),
     go: vi.fn(),
     onFormInput: vi.fn(),
     onFile: vi.fn(),
@@ -266,6 +268,48 @@ describe('ProfileSheet', () => {
     fireEvent.click(screen.getByText('Endgültig löschen'));
 
     expect(app.deleteAccount).toHaveBeenCalledWith('max@example.com');
+  });
+
+  it('exportMyData triggers logout on a 401 (expired session)', async () => {
+    const app = makeApp();
+    app.exportMyData.mockRejectedValue(new AuthError());
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    fireEvent.click(screen.getByText('Meine Daten exportieren'));
+
+    await waitFor(() => expect(app.logout).toHaveBeenCalledTimes(1));
+  });
+
+  it('account deletion triggers logout on a 401 instead of showing the wrong-email error', async () => {
+    const app = makeApp();
+    app.deleteAccount.mockRejectedValue(new AuthError());
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    fireEvent.click(screen.getByText('Konto löschen'));
+    fireEvent.change(screen.getByPlaceholderText('max@example.com'), {
+      target: { value: 'max@example.com' },
+    });
+    fireEvent.click(screen.getByText('Endgültig löschen'));
+
+    await waitFor(() => expect(app.logout).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('Konto konnte nicht gelöscht werden. Stimmt die E-Mail-Adresse?')).toBeNull();
+  });
+
+  it('account deletion shows the wrong-email error for a non-auth failure', async () => {
+    const app = makeApp();
+    app.deleteAccount.mockRejectedValue(new Error('email mismatch'));
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    fireEvent.click(screen.getByText('Konto löschen'));
+    fireEvent.change(screen.getByPlaceholderText('max@example.com'), {
+      target: { value: 'max@example.com' },
+    });
+    fireEvent.click(screen.getByText('Endgültig löschen'));
+
+    await waitFor(() =>
+      expect(screen.getByText('Konto konnte nicht gelöscht werden. Stimmt die E-Mail-Adresse?')).toBeTruthy(),
+    );
+    expect(app.logout).not.toHaveBeenCalled();
   });
 
   it('renders the team name in the roles section title', () => {

@@ -9,6 +9,7 @@ import { shortName } from '@/layouts/useCompact';
 import { t, type Locale } from '@/i18n';
 import { useLocale } from '@/i18n/LocaleProvider';
 import { captureException } from '@/monitoring';
+import { reportActionError, AuthError } from '@/utils/errors';
 
 /** Each language is shown in its own name (endonym), independent of UI locale. */
 const LANGUAGE_LABELS: Record<Locale, string> = { de: 'Deutsch', en: 'English' };
@@ -336,8 +337,7 @@ export function ProfileSheet({ app }: SheetProps) {
             try {
               await app.exportMyData();
             } catch (err) {
-              captureException(err);
-              app.toastMsg(t('team.exportDataError'));
+              reportActionError({ setState: app.setState, toastMsg: app.toastMsg, onAuthError: app.logout }, err, 'team.exportDataError');
             }
           }}
           sx={{
@@ -446,8 +446,12 @@ export function ProfileSheet({ app }: SheetProps) {
                     await app.deleteAccount(confirmEmail.trim());
                     // On success the app resets to the login screen and this sheet unmounts.
                   } catch (err) {
-                    captureException(err);
-                    setDeleteErr(true);
+                    if (err instanceof AuthError) {
+                      reportActionError({ setState: app.setState, toastMsg: app.toastMsg, onAuthError: app.logout }, err);
+                    } else {
+                      captureException(err);
+                      setDeleteErr(true);
+                    }
                     setDeleting(false);
                   }
                 }}
