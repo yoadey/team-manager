@@ -342,7 +342,11 @@ func roleSetHasSettingsWrite(ctx context.Context, tx pgx.Tx, teamID string, role
 }
 
 // teamHasOtherSettingsWriteMember reports whether any membership in teamID,
-// other than excludeMembershipID, holds settings:write via any assigned role.
+// other than excludeMembershipID, holds settings:write via any assigned
+// role AND belongs to a still-authenticatable (not GDPR-erased) account --
+// an erased user's membership_roles row survives EraseUser (only users is
+// anonymized), so without the deleted_at check this would still count a
+// permanently unloginable account as a usable settings admin.
 func teamHasOtherSettingsWriteMember(ctx context.Context, tx pgx.Tx, teamID, excludeMembershipID string) (bool, error) {
 	var has bool
 	err := tx.QueryRow(ctx, `
@@ -350,7 +354,9 @@ func teamHasOtherSettingsWriteMember(ctx context.Context, tx pgx.Tx, teamID, exc
 			SELECT 1 FROM memberships m
 			JOIN membership_roles mr ON mr.membership_id = m.id
 			JOIN roles r ON r.id = mr.role_id
+			JOIN users u ON u.id = m.user_id
 			WHERE m.team_id = $1 AND m.id != $2 AND r.permissions->>'settings' = 'write'
+			  AND u.deleted_at IS NULL
 		)`, teamID, excludeMembershipID,
 	).Scan(&has)
 	if err != nil {

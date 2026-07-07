@@ -152,13 +152,19 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 		return nil
 	}
 
+	// The users join (with deleted_at IS NULL) excludes GDPR-erased accounts:
+	// EraseUser only anonymizes users, leaving membership_roles intact, so an
+	// erased user's settings:write role would otherwise still count as a
+	// usable admin even though the account can never authenticate again.
 	var othersHaveSettingsWrite bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM memberships m
 			JOIN membership_roles mr ON mr.membership_id = m.id
 			JOIN roles r ON r.id = mr.role_id
+			JOIN users u ON u.id = m.user_id
 			WHERE m.team_id = $1 AND r.id != $2 AND r.permissions->>'settings' = 'write'
+			  AND u.deleted_at IS NULL
 		)`, teamID, roleID,
 	).Scan(&othersHaveSettingsWrite); err != nil {
 		return fmt.Errorf("roles.Repository.UpdateRole: check other settings admins: %w", err)
@@ -277,13 +283,17 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 		return ErrSystemRole
 	}
 
+	// The users join (with deleted_at IS NULL) excludes GDPR-erased accounts;
+	// see the identical comment in guardRoleUpdate above.
 	var othersHaveSettingsWrite bool
 	err = tx.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM memberships m
 			JOIN membership_roles mr ON mr.membership_id = m.id
 			JOIN roles r ON r.id = mr.role_id
+			JOIN users u ON u.id = m.user_id
 			WHERE m.team_id = $1 AND r.id != $2 AND r.permissions->>'settings' = 'write'
+			  AND u.deleted_at IS NULL
 		)`, teamID, roleID,
 	).Scan(&othersHaveSettingsWrite)
 	if err != nil {
