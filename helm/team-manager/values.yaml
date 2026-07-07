@@ -73,10 +73,12 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
+# httpGet.port is deliberately omitted here: the deployment template fills it
+# in from service.targetPort, so the probes always target the same port the
+# container actually listens on, even if targetPort is overridden.
 livenessProbe:
   httpGet:
     path: /healthz
-    port: 8080
   initialDelaySeconds: 10
   periodSeconds: 15
   failureThreshold: 3
@@ -84,7 +86,6 @@ livenessProbe:
 readinessProbe:
   httpGet:
     path: /readyz
-    port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10
   failureThreshold: 3

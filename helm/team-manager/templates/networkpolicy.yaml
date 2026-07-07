@@ -19,7 +19,7 @@ spec:
     # behavior; set it to scope this to your ingress controller and
     # Prometheus namespaces/pods.
     - ports:
-        - port: 8080
+        - port: {{ .Values.service.targetPort }}
           protocol: TCP
       {{- with .Values.networkPolicy.ingress.from }}
       from:

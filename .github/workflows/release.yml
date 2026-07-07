@@ -39,9 +39,16 @@ jobs:
 
       - name: Resolve version
         id: version
+        env:
+          # Passed via env rather than interpolated directly into the script
+          # below: workflow_dispatch inputs are attacker-controlled text, and
+          # templating them straight into a run: block is a shell-injection
+          # vector (a crafted "version" could execute arbitrary commands in a
+          # job that holds packages:write and a GHCR login).
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "value=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$VERSION_INPUT" ]; then
+            echo "value=$VERSION_INPUT" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref_type }}" = "tag" ]; then
             echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           else
