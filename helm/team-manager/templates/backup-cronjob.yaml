@@ -9,6 +9,12 @@ metadata:
     {{- include "team-manager.labels" . | nindent 4 }}
 spec:
   schedule: {{ .Values.backup.schedule | quote }}
+  # Bounds how late a missed run (e.g. the CronJob controller was down at the
+  # scheduled time) may still start. Without this, Kubernetes either starts
+  # an unboundedly-delayed catch-up run once the controller recovers, or --
+  # past its "100 missed schedules" internal heuristic -- silently gives up
+  # on the CronJob with no alert.
+  startingDeadlineSeconds: {{ .Values.backup.startingDeadlineSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1

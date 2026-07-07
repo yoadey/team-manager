@@ -13,6 +13,20 @@ updates:
           - minor
           - patch
 
+  # Root monorepo package.json (husky pre-commit hooks) -- has its own
+  # package-lock.json distinct from frontend's.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
   - package-ecosystem: gomod
     directory: /backend
     schedule:

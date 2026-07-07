@@ -415,8 +415,9 @@ jobs:
             exit 0
           fi
           if grep -qE '\b(GPL|AGPL)\b' licenses.csv 2>/dev/null; then
-            echo "WARNING: GPL/AGPL licensed dependencies found:"
+            echo "::error::GPL/AGPL licensed dependencies found:"
             grep -E '\b(GPL|AGPL)\b' licenses.csv
+            exit 1
           else
             echo "No GPL/AGPL licenses detected."
           fi

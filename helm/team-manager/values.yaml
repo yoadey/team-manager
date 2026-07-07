@@ -183,6 +183,7 @@ migrations:
 backup:
   enabled: false           # Enable daily PostgreSQL backup CronJob
   schedule: "0 2 * * *"   # Daily at 02:00 UTC
+  startingDeadlineSeconds: 900  # How late a missed run may still start before Kubernetes gives up on it
   postgresVersion: "17"
   retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
