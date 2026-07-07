@@ -35,9 +35,6 @@ linters:
       max-complexity: 15
     gocognit:
       min-complexity: 20
-    gosec:
-      excludes:
-        - G115
     gocritic:
       enabled-tags:
         - diagnostic
