@@ -105,6 +105,31 @@ func TestMemberHandler_UpdateMember_GroupTooLong_Returns400(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Regression test: unlike every other free-text/date field, birthday had no
+// server-side range validation at all -- a members:write holder could set an
+// arbitrary, nonsensical date (in the future, or centuries in the past) with
+// no rejection.
+func TestMemberHandler_UpdateMember_BirthdayOutOfRange_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := context.Background()
+
+	future := openapi_types.Date{Time: time.Now().AddDate(0, 0, 1)}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.UpdateMemberJSONRequestBody{Birthday: &future},
+	})
+	require.Error(t, err, "future birthday must be rejected")
+
+	tooOld := openapi_types.Date{Time: time.Date(1899, 12, 31, 0, 0, 0, 0, time.UTC)}
+	_, err = h.UpdateMember(ctx, gen.UpdateMemberRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.UpdateMemberJSONRequestBody{Birthday: &tooOld},
+	})
+	require.Error(t, err, "birthday before 1900 must be rejected")
+}
+
 // Regression test: unlike a plain wrapped error, UpdateMember's users.email
 // UNIQUE violation used to have no special handling at all, so changing a
 // member's email to one already used by a different account surfaced as a

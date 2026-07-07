@@ -99,6 +99,9 @@ func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, er
 	}
 	if body.Birthday != nil {
 		t := body.Birthday.Time
+		if err := validate.Birthday(t); err != nil {
+			return patch, fmt.Errorf("birthday %w", err)
+		}
 		patch.Birthday = &t
 	}
 	if body.Group != nil {

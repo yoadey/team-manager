@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,6 +67,14 @@ func TestName(t *testing.T) {
 	assert.NoError(t, validate.Name("Alice"))
 	assert.Error(t, validate.Name(""))
 	assert.Error(t, validate.Name(strings.Repeat("x", 256)))
+}
+
+func TestBirthday(t *testing.T) {
+	t.Parallel()
+	assert.NoError(t, validate.Birthday(time.Date(1990, 5, 1, 0, 0, 0, 0, time.UTC)))
+	assert.NoError(t, validate.Birthday(time.Now()))
+	assert.Error(t, validate.Birthday(time.Now().AddDate(0, 0, 1)), "future birthday must be rejected")
+	assert.Error(t, validate.Birthday(time.Date(1899, 12, 31, 0, 0, 0, 0, time.UTC)), "birthday before 1900 must be rejected")
 }
 
 func TestPasswordStrength(t *testing.T) {

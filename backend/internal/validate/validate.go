@@ -9,6 +9,7 @@ import (
 	"net/mail"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -37,17 +38,18 @@ const (
 
 // Sentinel errors for static analysis compliance.
 var (
-	ErrEmailRequired     = errors.New("email is required")
-	ErrEmailInvalid      = errors.New("email is not a valid address")
-	ErrPasswordTooShort  = errors.New("password must be at least 8 characters")
-	ErrPasswordTooLong   = errors.New("password must not exceed 128 characters")
-	ErrFieldRequired     = errors.New("is required")
-	ErrFieldTooLong      = errors.New("is too long")
-	ErrAmountNotPositive = errors.New("must be greater than zero")
-	ErrAmountTooLarge    = errors.New("exceeds the maximum allowed amount")
-	ErrTimeOfDayInvalid  = errors.New("must be a 24-hour HH:MM time")
-	ErrTooManyItems      = errors.New("has too many items")
-	ErrFieldNullByte     = errors.New("must not contain a null byte")
+	ErrEmailRequired      = errors.New("email is required")
+	ErrEmailInvalid       = errors.New("email is not a valid address")
+	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
+	ErrPasswordTooLong    = errors.New("password must not exceed 128 characters")
+	ErrFieldRequired      = errors.New("is required")
+	ErrFieldTooLong       = errors.New("is too long")
+	ErrAmountNotPositive  = errors.New("must be greater than zero")
+	ErrAmountTooLarge     = errors.New("exceeds the maximum allowed amount")
+	ErrTimeOfDayInvalid   = errors.New("must be a 24-hour HH:MM time")
+	ErrTooManyItems       = errors.New("has too many items")
+	ErrFieldNullByte      = errors.New("must not contain a null byte")
+	ErrBirthdayOutOfRange = errors.New("must be between 1900-01-01 and today")
 )
 
 // timeOfDayRE matches a 24-hour "HH:MM" time-of-day string, the format the
@@ -60,6 +62,22 @@ var timeOfDayRE = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 func TimeOfDay(s, field string) error {
 	if !timeOfDayRE.MatchString(s) {
 		return fmt.Errorf("%s %w", field, ErrTimeOfDayInvalid)
+	}
+	return nil
+}
+
+// minBirthday is the earliest accepted birthday -- generous enough for any
+// real club member while catching obviously-wrong input (e.g. an
+// off-by-a-century typo, or a client bug sending the Unix epoch).
+var minBirthday = time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// Birthday validates that t is not in the future and not before minBirthday.
+// Unlike every other free-text/date field in the codebase, birthday had no
+// range validation at all -- a members:write holder could set an arbitrary,
+// nonsensical date with no server-side rejection.
+func Birthday(t time.Time) error {
+	if t.Before(minBirthday) || t.After(time.Now()) {
+		return ErrBirthdayOutOfRange
 	}
 	return nil
 }
