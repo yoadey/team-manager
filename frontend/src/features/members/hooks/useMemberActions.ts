@@ -40,8 +40,12 @@ export function useMemberActions({
     async (membershipId: string) => {
       const m = (S().members ?? []).find((x) => x.membershipId === membershipId);
       setState({ sheet: { type: 'memberDetail', membershipId, member: m, stats: null } });
+      // m can genuinely be missing (a stale bookmarked/back-forward URL for
+      // a member who has since been removed) -- MemberDetailSheet renders a
+      // graceful empty state for that case; there's no stats to load.
+      if (!m) return;
       try {
-        const stats = await api.stats.attendanceFor(S().activeTeamId!, m!.userId);
+        const stats = await api.stats.attendanceFor(S().activeTeamId!, m.userId);
         setState((s) =>
           s.sheet?.type === 'memberDetail' && s.sheet.membershipId === membershipId
             ? { sheet: { ...s.sheet, stats } }

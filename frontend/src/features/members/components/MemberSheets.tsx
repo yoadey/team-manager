@@ -1,7 +1,7 @@
 import { NEUTRAL } from '@/styles/tokens';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
+import { Av, Chip, EmptyState, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { Member, MemberFormValues } from '../types';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
@@ -10,7 +10,13 @@ import { validateBirthday, validateEmail, validatePhone, validateRequiredText } 
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const m: Member = sheet.member!;
+  // member is looked up from the already-loaded local member list (not an
+  // async fetch), so it can genuinely be missing -- e.g. a stale bookmarked
+  // or browser-back/forward URL for a member who has since been removed.
+  // Render a graceful empty state instead of force-unwrapping into a
+  // render-time crash.
+  if (!sheet.member) return <EmptyState icon="person_off" text={t('members.detailNotFound')} />;
+  const m: Member = sheet.member;
   const st: { quote: number | null; counted: number; yes: number } | null = sheet.stats ?? null;
   const qcol =
     st && st.quote !== null

@@ -349,6 +349,7 @@ export const en: Messages = {
       'In the prototype only the file download is active; the subscription link will work with the future backend.',
   },
   members: {
+    detailNotFound: 'This member could not be found. They may have been removed.',
     count: '{n} members',
     count_one: '{n} member',
     count_other: '{n} members',
@@ -546,6 +547,7 @@ export const en: Messages = {
     settingsNamePlaceholder: 'Team name',
     settingsDescField: 'Team description',
     settingsDescPlaceholder: 'Short description of the team…',
+    changeProfilePhoto: 'Change profile photo',
     settingsLogoSection: 'Logo',
     settingsLogoChange: 'Change logo',
     settingsLogoUpload: 'Upload image logo',

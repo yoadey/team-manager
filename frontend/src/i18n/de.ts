@@ -352,6 +352,7 @@ export const de = {
     toastSeriesUpdated: 'Ganze Serie aktualisiert',
   },
   members: {
+    detailNotFound: 'Dieses Mitglied wurde nicht gefunden. Es könnte entfernt worden sein.',
     count: '{n} Mitglieder',
     count_one: '{n} Mitglied',
     count_other: '{n} Mitglieder',
@@ -553,6 +554,7 @@ export const de = {
     settingsNamePlaceholder: 'Team-Name',
     settingsDescField: 'Teambeschreibung',
     settingsDescPlaceholder: 'Kurze Beschreibung des Teams…',
+    changeProfilePhoto: 'Profilfoto ändern',
     settingsLogoSection: 'Logo',
     settingsLogoChange: 'Logo ändern',
     settingsLogoUpload: 'Bild-Logo hochladen',

@@ -117,6 +117,27 @@ describe('useMemberActions', () => {
     expect(api.stats.attendanceFor).toHaveBeenCalledWith('team1', 'u2');
   });
 
+  // Regression test: a membershipId not present in the local member list
+  // (e.g. a stale bookmarked/back-forward URL for a removed member) used to
+  // force-unwrap `m!.userId` when fetching stats, throwing before the API
+  // call was even made; the resulting sheet.member: undefined then crashed
+  // MemberDetailSheet on render too (fixed separately). The hook must not
+  // attempt the stats fetch, nor report a spurious error, for a member that
+  // genuinely doesn't exist.
+  it('openMemberDetail sets an undefined member and skips the stats fetch for an unknown membershipId', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openMemberDetail('does-not-exist');
+    });
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: expect.objectContaining({ type: 'memberDetail', membershipId: 'does-not-exist', member: undefined }),
+      }),
+    );
+    expect(api.stats.attendanceFor).not.toHaveBeenCalled();
+    expect(toastMsg).not.toHaveBeenCalled();
+  });
+
   it('openMemberDetail handles API errors gracefully', async () => {
     api.stats.attendanceFor = vi.fn().mockRejectedValue(new Error('Network error'));
     const { result } = renderActions();

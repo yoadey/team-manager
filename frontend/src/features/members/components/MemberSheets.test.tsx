@@ -121,6 +121,19 @@ describe('MemberDetailSheet', () => {
     expect(screen.getByText('Max Mustermann')).toBeTruthy();
   });
 
+  // Regression test: sheet.member is looked up from the already-loaded
+  // local member list (not an async fetch), so it can genuinely be
+  // undefined -- e.g. a stale bookmarked or browser-back/forward URL for a
+  // member who has since been removed. This used to force-unwrap into a
+  // render-time crash instead of a graceful empty state.
+  it('renders a not-found state instead of crashing when member is undefined', () => {
+    const app = makeApp();
+    expect(() =>
+      render(<MemberDetailSheet app={app} sheet={makeSheet({ member: undefined })} />),
+    ).not.toThrow();
+    expect(screen.getByText('Dieses Mitglied wurde nicht gefunden. Es könnte entfernt worden sein.')).toBeTruthy();
+  });
+
   it('renders the member email in contact section', () => {
     const app = makeApp();
     render(<MemberDetailSheet app={app} sheet={makeSheet()} />);
