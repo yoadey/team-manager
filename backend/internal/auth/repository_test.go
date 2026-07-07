@@ -111,11 +111,49 @@ func TestRepository_EraseUser_SoleSettingsAdmin_Blocked(t *testing.T) {
 
 	err = repo.EraseUser(ctx, userID)
 	require.ErrorIs(t, err, auth.ErrSoleSettingsAdmin)
+	var soleErr *auth.SoleSettingsAdminError
+	require.ErrorAs(t, err, &soleErr)
+	assert.Equal(t, []string{teamID}, soleErr.TeamIDs)
 
 	// Must not have been anonymized -- the erasure was fully rejected.
 	var deletedAt *time.Time
 	require.NoError(t, pool.QueryRow(ctx, `SELECT deleted_at FROM users WHERE id = $1`, userID).Scan(&deletedAt))
 	assert.Nil(t, deletedAt)
+}
+
+// Regression test: a user who is the sole settings:write holder of TWO
+// teams must have both surfaced -- the query aggregates across every
+// membership, not just the first one found.
+func TestRepository_EraseUser_SoleSettingsAdminOfMultipleTeams_ListsAllTeams(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "cccccccc-2222-2222-2222-222222222222"
+	_, err := pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Multi-Team Admin', 'multi-admin@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+
+	teamIDs := []string{"cccccccc-1111-1111-1111-111111111111", "cccccccc-3333-3333-3333-333333333333"}
+	for i, teamID := range teamIDs {
+		_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, $2)`, teamID, "Multi Team "+string(rune('A'+i)))
+		require.NoError(t, err)
+		var membershipID, roleID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, userID).Scan(&membershipID))
+		require.NoError(t, pool.QueryRow(ctx, `
+			INSERT INTO roles (team_id, name, permissions)
+			VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+			RETURNING id
+		`, teamID).Scan(&roleID))
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
+	}
+
+	err = repo.EraseUser(ctx, userID)
+	var soleErr *auth.SoleSettingsAdminError
+	require.ErrorAs(t, err, &soleErr)
+	assert.ElementsMatch(t, teamIDs, soleErr.TeamIDs)
 }
 
 func TestRepository_EraseUser_AnotherSettingsAdminExists_Succeeds(t *testing.T) {

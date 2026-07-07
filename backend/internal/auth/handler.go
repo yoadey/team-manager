@@ -115,10 +115,13 @@ func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurre
 
 	if err := h.svc.EraseAccount(ctx, user.Id.String(), string(request.Body.ConfirmEmail)); err != nil {
 		h.logger.WarnContext(ctx, "account erasure failed", "err", err)
-		h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String())
-		if errors.Is(err, ErrSoleSettingsAdmin) {
+		var soleErr *SoleSettingsAdminError
+		if errors.As(err, &soleErr) {
+			h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String(),
+				slog.Any("blockedByTeamIds", soleErr.TeamIDs))
 			return nil, apierror.Conflict(ErrSoleSettingsAdmin.Error())
 		}
+		h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String())
 		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
 		}, nil

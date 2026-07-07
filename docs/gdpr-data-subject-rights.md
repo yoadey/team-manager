@@ -1,7 +1,7 @@
 # GDPR Data-Subject Rights — Design & Implementation Plan
 
 Status: **implemented** (erasure by anonymization + data export) ·
-Last updated: 2026-06-27
+Last updated: 2026-07-07
 
 This document covers GDPR Articles 15 (right of access / export) and 17 (right
 to erasure) for the Teamverwaltung backend. Both are now live end to end.
@@ -87,11 +87,20 @@ it.
 
 ### Service
 
-`Service.EraseUser(ctx, userID)` runs in a single transaction:
-1. Blank PII columns on `users`, set `deleted_at = now()`.
-2. `NULL`/blank free-text PII in `event_comments`, `absences`.
-3. `DELETE FROM sessions WHERE user_id = $1`.
-4. Leave membership/attendance/finance foreign keys intact.
+`Repository.EraseUser(ctx, userID)` runs in a single transaction:
+1. **Guard:** if erasing this user would leave any team with no other living
+   (`deleted_at IS NULL`) settings:write member, reject with
+   `ErrSoleSettingsAdmin` (HTTP 409) instead of proceeding — erasure only
+   anonymizes `users`, it does not touch `memberships`/`membership_roles`, so
+   without this check the team would be left with a role assignment that
+   satisfies every "last settings admin" guard elsewhere but belongs to a
+   permanently unauthenticatable account, locking the team out of its own
+   role/member/settings management. The caller must reassign settings:write
+   to someone else (or have another admin already) before they can self-erase.
+2. Blank PII columns on `users`, set `deleted_at = now()`.
+3. `NULL`/blank free-text PII in `event_comments`, `absences`.
+4. `DELETE FROM sessions WHERE user_id = $1`.
+5. Leave membership/attendance/finance foreign keys intact.
 
 `auth.Login` and `ValidateToken` must reject accounts where `deleted_at IS NOT
 NULL` (add the predicate to `FindUserByEmail` / `FindUserByID`).
@@ -125,7 +134,10 @@ Erasure (Art. 17) — **done**:
 - [x] `auth.Repository.EraseUser` (transactional anonymization) + `auth.Service.EraseAccount`
       (email-confirmation re-auth) with unit tests.
 - [x] Exclude `deleted_at` accounts from login/validation lookups.
-- [x] Session cookie cleared on erasure; `auth.account_erase` audit event.
+- [x] Session cookie cleared on erasure; `auth.account_erase` audit event
+      (includes the blocking team IDs when rejected as a sole settings admin).
+- [x] Guard against self-erasing while the sole living settings:write member
+      of a team (`ErrSoleSettingsAdmin`, HTTP 409) — see "Service" above.
 - [x] Frontend `auth.deleteAccount` on both mock and real service layers (+ tests).
 - [x] Frontend UI: "Daten & Datenschutz" section in `ProfileSheet` with the
       retype-email confirm, wired via `AppContext` (+ tests).

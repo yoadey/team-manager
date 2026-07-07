@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -589,10 +590,11 @@ func TestHandler_DeleteCurrentUser_SoleSettingsAdmin_Returns409(t *testing.T) {
 
 	svc := &mockAuthService{
 		eraseAccount: func(context.Context, string, string) error {
-			return auth.ErrSoleSettingsAdmin
+			return &auth.SoleSettingsAdminError{TeamIDs: []string{"team-1", "team-2"}}
 		},
 	}
-	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+	var buf bytes.Buffer
+	h := auth.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil, nil)
 
 	ctx := auth.ContextWithUser(context.Background(), testUser())
 	email := openapi_types.Email("test@example.com")
@@ -605,6 +607,31 @@ func TestHandler_DeleteCurrentUser_SoleSettingsAdmin_Returns409(t *testing.T) {
 	w := httptest.NewRecorder()
 	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/auth/me", http.NoBody), err)
 	assert.Equal(t, http.StatusConflict, w.Code)
+
+	rec := findAuditLogLine(t, buf.Bytes())
+	assert.Equal(t, "auth.account_erase", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.ElementsMatch(t, []any{"team-1", "team-2"}, rec["blockedByTeamIds"])
+}
+
+// findAuditLogLine parses a multi-line JSON log buffer (a handler that logs
+// both an error and an audit record writes two separate JSON objects to the
+// same buffer, which json.Unmarshal can't parse as one value) and returns the
+// first line that is an audit record.
+func findAuditLogLine(t *testing.T, buf []byte) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(string(buf), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+		if rec["audit"] == true {
+			return rec
+		}
+	}
+	t.Fatal("no audit log line found")
+	return nil
 }
 
 func TestHandler_GetMyDataExport(t *testing.T) {

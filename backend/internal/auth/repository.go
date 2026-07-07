@@ -17,6 +17,17 @@ import (
 // requires settings:write held by an authenticatable account.
 var ErrSoleSettingsAdmin = errors.New("cannot erase the account: you are the only settings administrator of a team")
 
+// SoleSettingsAdminError wraps ErrSoleSettingsAdmin with the specific team
+// IDs that blocked the erasure, so callers (e.g. the audit log) can record
+// which team(s) need a second settings admin before the user can self-erase,
+// without support having to re-run the underlying query by hand.
+type SoleSettingsAdminError struct {
+	TeamIDs []string
+}
+
+func (e *SoleSettingsAdminError) Error() string { return ErrSoleSettingsAdmin.Error() }
+func (e *SoleSettingsAdminError) Unwrap() error { return ErrSoleSettingsAdmin }
+
 // Repository handles all auth-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -145,32 +156,30 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	var soleAdmin bool
+	var soleAdminTeamIDs []string
 	err = tx.QueryRow(ctx, `
-		SELECT EXISTS (
+		SELECT COALESCE(ARRAY_AGG(DISTINCT m.team_id), '{}')
+		FROM memberships m
+		JOIN membership_roles mr ON mr.membership_id = m.id
+		JOIN roles r ON r.id = mr.role_id
+		WHERE m.user_id = $1 AND r.permissions->>'settings' = 'write'
+		AND NOT EXISTS (
 			SELECT 1
-			FROM memberships m
-			JOIN membership_roles mr ON mr.membership_id = m.id
-			JOIN roles r ON r.id = mr.role_id
-			WHERE m.user_id = $1 AND r.permissions->>'settings' = 'write'
-			AND NOT EXISTS (
-				SELECT 1
-				FROM memberships m2
-				JOIN membership_roles mr2 ON mr2.membership_id = m2.id
-				JOIN roles r2 ON r2.id = mr2.role_id
-				JOIN users u2 ON u2.id = m2.user_id
-				WHERE m2.team_id = m.team_id
-				  AND m2.user_id != m.user_id
-				  AND r2.permissions->>'settings' = 'write'
-				  AND u2.deleted_at IS NULL
-			)
+			FROM memberships m2
+			JOIN membership_roles mr2 ON mr2.membership_id = m2.id
+			JOIN roles r2 ON r2.id = mr2.role_id
+			JOIN users u2 ON u2.id = m2.user_id
+			WHERE m2.team_id = m.team_id
+			  AND m2.user_id != m.user_id
+			  AND r2.permissions->>'settings' = 'write'
+			  AND u2.deleted_at IS NULL
 		)
-	`, userID).Scan(&soleAdmin)
+	`, userID).Scan(&soleAdminTeamIDs)
 	if err != nil {
 		return fmt.Errorf("auth.Repository.EraseUser: check settings admin: %w", err)
 	}
-	if soleAdmin {
-		return ErrSoleSettingsAdmin
+	if len(soleAdminTeamIDs) > 0 {
+		return &SoleSettingsAdminError{TeamIDs: soleAdminTeamIDs}
 	}
 
 	const anonName = "Gelöschtes Mitglied"
