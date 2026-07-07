@@ -169,4 +169,23 @@ describe('PollFormSheet', () => {
     fireEvent.blur(inputs[1]);
     expect(app.setFormErrors).toHaveBeenCalled();
   });
+
+  // Regression test: the question/option inputs had no maxLength, so a user
+  // could type far past the backend's limits (question: 1000, each option:
+  // 500) and only find out via a generic server-error toast after submit.
+  it('caps the question input at 1000 characters matching the backend limit', () => {
+    makeApp();
+    render(<PollFormSheet app={mockUseApp() as never} sheet={sheet} />);
+    const input = screen.getByPlaceholderText('Worüber soll abgestimmt werden?') as HTMLInputElement;
+    expect(input.maxLength).toBe(1000);
+  });
+
+  it('caps each option input at 500 characters matching the backend limit', () => {
+    makeApp();
+    render(<PollFormSheet app={mockUseApp() as never} sheet={sheet} />);
+    for (const placeholder of ['Option 1', 'Option 2', 'Option 3 (optional)', 'Option 4 (optional)']) {
+      const input = screen.getByPlaceholderText(placeholder) as HTMLInputElement;
+      expect(input.maxLength).toBe(500);
+    }
+  });
 });
