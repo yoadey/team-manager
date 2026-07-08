@@ -31,8 +31,10 @@ RUN npm run build && find dist -name '*.map' -delete
 # Pinned to the alpine3.23 variant (rather than the 1.27-alpine tag previously
 # here) for current, patched OS packages — 1.27-alpine's Alpine base carried
 # several HIGH/CRITICAL CVEs (openssl, libpng, libxml2, musl) that the newly
-# added Trivy frontend scan caught.
-FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:a8d5564c3354241473c1e152d5dd3281ab4224edb61b23c291e0bfd9854687a1 AS runtime
+# added Trivy frontend scan caught. Re-resolved 2026-07-08 (from
+# registry-1.docker.io) after the previous digest's frozen libexpat 2.8.1-r0
+# picked up 3 fresh HIGH CVEs disclosed since it was pinned.
+FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:592b23aa79a6e6c08ba4b20f1fff700e1328895705966722608e115d62e52d39 AS runtime
 
 # envsubst (gettext) ships in the base image for its own built-in
 # entrypoint.d templating feature; fail the build loudly here rather than
