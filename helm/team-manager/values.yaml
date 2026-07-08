@@ -96,6 +96,7 @@ startupProbe:
   httpGet:
     path: /healthz
   periodSeconds: 5
+  timeoutSeconds: 3
   failureThreshold: 60
 
 livenessProbe:
@@ -103,6 +104,7 @@ livenessProbe:
     path: /healthz
   initialDelaySeconds: 10
   periodSeconds: 15
+  timeoutSeconds: 3
   failureThreshold: 3
 
 readinessProbe:
@@ -110,6 +112,12 @@ readinessProbe:
     path: /readyz
   initialDelaySeconds: 5
   periodSeconds: 10
+  # /readyz does a live pool.Ping(ctx) against Postgres (cmd/server/main.go),
+  # unlike /healthz's static 200 -- without an explicit timeout here,
+  # Kubernetes' 1-second default is tight enough that transient DB latency
+  # (pool saturation, a brief network blip, replica failover) trips the
+  # probe and pulls an otherwise-healthy pod out of Service endpoints.
+  timeoutSeconds: 5
   failureThreshold: 3
 
 nodeSelector: {}
@@ -214,10 +222,28 @@ backup:
   schedule: "0 2 * * *"   # Daily at 02:00 UTC
   startingDeadlineSeconds: 900  # How late a missed run may still start before Kubernetes gives up on it
   postgresVersion: "17"
+  # Digest for postgresVersion "17", matching docker-compose.yml's local-dev
+  # pin (resolved 2026-07-01 from registry-1.docker.io, docker-library/postgres
+  # 17.10) so a tag-hijack of the mutable `postgres:17` tag can't silently
+  # reach this CronJob's initContainer, which holds the app's DATABASE_URL
+  # credential. Appended to the image reference when set. If you override
+  # postgresVersion to a different major version, set the matching digest
+  # yourself or clear this to fall back to the mutable tag -- Dependabot
+  # cannot keep this current automatically (its docker ecosystem updater only
+  # scans Dockerfiles and docker-compose.y*ml, not arbitrary keys in a Helm
+  # values.yaml).
+  postgresImageDigest: "sha256:5c855ad7b85e68e48a62f34662853f38b57c1c1d80f3a927ab58034fd6d31c5e"
   retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
     enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)
-    awsCliImage: "amazon/aws-cli:2.31.13"
+    # Digest-pinned (resolved 2026-07-08 from registry-1.docker.io for
+    # amazon/aws-cli:2.31.13) so a tag-hijack of a mutable upstream tag can't
+    # silently reach a CronJob holding S3 write credentials; unlike
+    # docker-compose.yml's equivalent pin, Dependabot cannot keep this current
+    # automatically (its docker ecosystem updater only scans Dockerfiles and
+    # docker-compose.y*ml, not arbitrary keys in a Helm values.yaml) -- bump
+    # both the tag and digest together by hand on a schedule.
+    awsCliImage: "amazon/aws-cli:2.31.13@sha256:e14216fb361cce909ce199616711ad103182d5937f851cda9bebf25867d7180a"
     bucket: ""
     prefix: "team-manager"
     region: "eu-central-1"
