@@ -269,4 +269,34 @@ describe('useCalExportActions', () => {
     });
     expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen');
   });
+
+  // Regression test: the sheet update used to check only sheet.type ===
+  // 'calExport', never the team. If the user switched teams and reopened
+  // the calExport sheet (also type 'calExport') for the new team before a
+  // slow clipboard write for the old team resolved, the stale resolution
+  // would show "Copied!" on the new team's sheet even though nothing was
+  // copied for it.
+  it('does not mark a different team\'s calExport sheet as copied after a slow clipboard write resolves', async () => {
+    let resolveWrite!: () => void;
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn(() => new Promise<void>((resolve) => (resolveWrite = resolve))) },
+    });
+    stateRef = makeState({ sheet: { type: 'calExport' } as never });
+    const { result } = renderActions();
+
+    let copyPromise!: Promise<void>;
+    act(() => {
+      copyPromise = result.current.copyCalUrl();
+    });
+
+    // User switches teams and opens THAT team's own (also empty) calExport sheet.
+    stateRef = { ...stateRef, activeTeamId: 'team2', sheet: { type: 'calExport' } as never };
+
+    await act(async () => {
+      resolveWrite();
+      await copyPromise;
+    });
+
+    expect(stateRef.sheet).toEqual({ type: 'calExport' });
+  });
 });

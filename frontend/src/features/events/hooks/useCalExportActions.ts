@@ -95,6 +95,7 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
   }, [activeTeam, buildIcs, toastMsg]);
 
   const copyCalUrl = useCallback(async () => {
+    const teamId = S().activeTeamId;
     const team = activeTeam();
     const url = 'webcal://teamverwaltung.app/cal/' + ((team && team.id) || 'team') + '.ics';
     try {
@@ -103,9 +104,16 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
       toastMsg(t('error.copy'));
       return;
     }
-    setState((s) => (s.sheet && s.sheet.type === 'calExport' ? { sheet: { ...s.sheet, copied: true } } : {}));
+    // Must check the team too, not just the sheet type: if the user switched
+    // teams and reopened the calExport sheet (also type 'calExport') for the
+    // new team before the clipboard write resolved, a type-only check would
+    // show "Copied!" on the new team's sheet even though nothing was copied
+    // for it.
+    setState((s) =>
+      s.activeTeamId === teamId && s.sheet && s.sheet.type === 'calExport' ? { sheet: { ...s.sheet, copied: true } } : {},
+    );
     toastMsg(t('events.toastCalLinkCopied'));
-  }, [activeTeam, setState, toastMsg]);
+  }, [S, activeTeam, setState, toastMsg]);
 
   return { openCalExport, downloadIcs, copyCalUrl };
 }
