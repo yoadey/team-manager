@@ -113,21 +113,15 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	// expires_at (not created_at) is required for correctness: a long-lived
 	// session (e.g. SESSION_TTL_HOURS raised above RETENTION_SESSIONS_DAYS*24)
 	// must never be purged while it's still valid, only once it has actually
-	// expired and the retention grace period has passed. The sessions table
-	// may not exist in all environments, so a failure here is logged as a
-	// warning only.
+	// expired and the retention grace period has passed.
 	sessionCutoff := now.Add(-w.sessionRetention)
 	sessionRows, err := deleteBatched(ctx, w.pool, "sessions", "expires_at", sessionCutoff)
 	if err != nil {
-		// Not counted in RetentionJobFailures: this is a soft warning (the
-		// table may legitimately not exist in some environments), not a
-		// failed job run — see the alerting note below on
-		// RetentionJobLastSuccessTimestamp.
-		slog.Warn("retention: delete sessions skipped (table may not exist)", "err", err)
-	} else {
-		metrics.RetentionJobRowsDeleted.WithLabelValues("sessions").Add(float64(sessionRows))
-		slog.Info("retention: deleted old sessions", "rows", sessionRows, "cutoff", sessionCutoff)
+		metrics.RetentionJobFailures.WithLabelValues("sessions").Inc()
+		return fmt.Errorf("retention: delete sessions: %w", err)
 	}
+	metrics.RetentionJobRowsDeleted.WithLabelValues("sessions").Add(float64(sessionRows))
+	slog.Info("retention: deleted old sessions", "rows", sessionRows, "cutoff", sessionCutoff)
 
 	// Delete invites that expired more than inviteRetention ago. Keyed off
 	// expires_at, same reasoning as sessions above.
