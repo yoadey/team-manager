@@ -111,15 +111,29 @@ jobs:
             VITE_BUILD_VERSION=${{ steps.version.outputs.value }}
             VITE_BUILD_COMMIT=${{ github.sha }}
 
+      # Neither the source-tree SBOM below nor the Trivy scan already in
+      # ci.yml cover the actual published image: that SBOM scans ./backend as
+      # a Go module tree, and ci.yml's Trivy target is a throwaway `:ci`
+      # image that's never pushed and unrelated to this digest. Without a
+      # scan here, a tag cut days or weeks after the corresponding commit
+      # merged to main -- a common release cadence -- could publish, sign,
+      # and attest an image carrying CVEs disclosed against its base image or
+      # dependencies in that window, with nothing in this workflow ever
+      # having looked for them.
+      - name: Scan published image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.component }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
       # Everything below signs and attests the exact digest just pushed, not
       # a tag (tags are mutable and could be repointed after the fact) --
       # `cosign verify`/`verify-attestation` against the digest is the only
       # way to answer "was this specific artifact built by this workflow and
-      # not tampered with since". Neither the source-tree SBOM nor the Trivy
-      # scan already in ci.yml cover the actual published image: that SBOM
-      # scans ./backend as a Go module tree, and Trivy's target is a
-      # throwaway `:ci` image that's never pushed and unrelated to this
-      # digest.
+      # not tampered with since".
       - name: Generate image SBOM (SPDX)
         uses: anchore/sbom-action@f325610c9f50a54015d37c8d16cb3b0e2c8f4de0 # v0.18.0
         with:
