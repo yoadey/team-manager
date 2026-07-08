@@ -925,3 +925,19 @@ jobs:
           # disabled) is never rendered by any of the invocations above.
           helm template team-manager helm/team-manager \
             --set backup.enabled=true --set backup.s3.enabled=false > /dev/null
+          # monitoring.metricsTokenSecretName (external-Secret reference,
+          # added to fix the existingSecret-only convention gap) is empty in
+          # every shipped values file and unset by the monitoring.enabled
+          # render above too, so its branch of servicemonitor.yaml's
+          # bearerTokenSecret block was never rendered anywhere.
+          helm template team-manager helm/team-manager \
+            --set monitoring.enabled=true --set monitoring.metricsTokenSecretName=dummy-secret > /dev/null
+          # backup.s3.credentialsSecretName (static AWS credentials, the one
+          # alternative to IRSA) is empty in every shipped values file,
+          # including values-prod.yaml's IRSA-based backup.enabled=true
+          # render above -- so backup-cronjob.yaml's credentialsSecretName
+          # branch (the AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secretKeyRefs)
+          # has no template-syntax coverage at all.
+          helm template team-manager helm/team-manager \
+            --set backup.enabled=true --set backup.s3.enabled=true \
+            --set backup.s3.bucket=x --set backup.s3.credentialsSecretName=dummy-creds > /dev/null
