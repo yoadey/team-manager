@@ -64,8 +64,7 @@ var (
 	}, []string{"table"})
 
 	// RetentionJobFailures counts failed retention job runs, by table (the
-	// table whose delete failed and aborted the run — sessions failures are
-	// non-fatal soft-warnings and are not counted here).
+	// table whose delete failed and aborted the run).
 	RetentionJobFailures = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "teammanager",
 		Name:      "retention_job_failures_total",
