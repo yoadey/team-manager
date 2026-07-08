@@ -151,6 +151,24 @@ layer and you accept it being unauthenticated. The Helm chart's
 `values.yaml`'s `existingSecret` doesn't create the Secret's contents for
 you.
 
+## Alerting & dashboards
+
+`helm/team-manager/files/prometheus-rules.yaml` defines the alert rules for
+this service (availability, error rate/latency, rate-limit spikes, login
+failure/bulk-deletion anomalies, DB pool exhaustion, retention job health,
+memory/disk pressure). When `monitoring.enabled: true` and Prometheus
+Operator is installed, the chart applies these automatically via a
+`PrometheusRule` (`templates/prometheusrule.yaml`) alongside the
+`ServiceMonitor` that sets up scraping — no extra step needed. If you run a
+standalone Prometheus without the Operator, load the same file directly via
+its `rule_files:` config instead.
+
+`helm/team-manager/files/grafana-dashboard.json` is a starter Grafana
+dashboard covering the same signals. Set `monitoring.grafanaDashboard.enabled:
+true` to have the chart render it as a `ConfigMap` labeled
+`grafana_dashboard: "1"` for the standard kube-prometheus-stack Grafana
+sidecar to auto-import; otherwise import the JSON file manually.
+
 ## Container images & releases
 
 Tagging a release (`vX.Y.Z`) triggers `.github/workflows/release.yml`, which

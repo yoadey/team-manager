@@ -1,0 +1,18 @@
+{{- if .Values.monitoring.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "team-manager.fullname" . }}
+  namespace: {{ .Values.monitoring.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "team-manager.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # .Files.Get returns the file's raw content without re-evaluating it as a
+  # Helm template, which matters here: the alert annotations below use
+  # Prometheus's own dollar-value/dollar-labels templating syntax, which
+  # would otherwise collide with Helm's own Go-template action delimiters.
+  {{- .Files.Get "files/prometheus-rules.yaml" | nindent 2 }}
+{{- end }}

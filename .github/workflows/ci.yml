@@ -825,3 +825,10 @@ jobs:
           helm template team-manager helm/team-manager > /dev/null
           helm template team-manager helm/team-manager -f helm/team-manager/values-staging.yaml > /dev/null
           helm template team-manager helm/team-manager -f helm/team-manager/values-prod.yaml > /dev/null
+          # monitoring.enabled/grafanaDashboard.enabled are false in every
+          # shipped values file, so without this the ServiceMonitor/
+          # PrometheusRule/Grafana-dashboard-ConfigMap templates would never
+          # actually render in CI and a syntax error in them would only
+          # surface the first time an operator opts in at deploy time.
+          helm template team-manager helm/team-manager \
+            --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true > /dev/null

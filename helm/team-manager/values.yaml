@@ -198,6 +198,13 @@ monitoring:
   # /metrics with no obvious link back to this setting.
   metricsToken: ""
   additionalLabels: {}  # Labels to help Prometheus Operator find this ServiceMonitor
+  grafanaDashboard:
+    # Renders a ConfigMap holding the bundled Grafana dashboard, labeled
+    # grafana_dashboard: "1" for the standard kube-prometheus-stack Grafana
+    # sidecar (grafana.sidecar.dashboards) to auto-discover. Off by default
+    # since not every cluster runs that sidecar/convention — the dashboard
+    # JSON is also available at files/grafana-dashboard.json for manual import.
+    enabled: false
 
 migrations:
   runAsInitContainer: true   # Run DB migrations as an initContainer before the app starts

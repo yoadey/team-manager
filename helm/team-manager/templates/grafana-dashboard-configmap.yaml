@@ -1,0 +1,13 @@
+{{- if .Values.monitoring.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "team-manager.fullname" . }}-grafana-dashboard
+  namespace: {{ .Values.monitoring.namespace | default .Release.Namespace }}
+  labels:
+    {{- include "team-manager.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+  team-manager.json: |
+    {{- .Files.Get "files/grafana-dashboard.json" | nindent 4 }}
+{{- end }}
