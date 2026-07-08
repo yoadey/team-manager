@@ -50,6 +50,8 @@ type teamRepo interface {
 	GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
 	AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, bool, error)
+	GetTeamPhotoBytes(ctx context.Context, teamID string) ([]byte, *string, error)
+	GetTeamLogoBytes(ctx context.Context, teamID string) ([]byte, *string, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
 	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
 	DeleteTeamPhoto(ctx context.Context, teamID string) error
@@ -212,21 +214,21 @@ func (s *Service) CreateInvite(ctx context.Context, teamID string) (*gen.Invite,
 
 // GetTeamPhotoData returns the raw photo bytes and MIME type for the given team.
 func (s *Service) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
-	tr, err := s.repo.GetTeam(ctx, teamID)
+	data, mimePtr, err := s.repo.GetTeamPhotoBytes(ctx, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", pgx.ErrNoRows
 		}
 		return nil, "", fmt.Errorf("teams.Service.GetTeamPhotoData: %w", err)
 	}
-	if len(tr.PhotoData) == 0 {
+	if len(data) == 0 {
 		return nil, "", pgx.ErrNoRows
 	}
 	mime = "image/jpeg"
-	if tr.PhotoMime != nil && *tr.PhotoMime != "" {
-		mime = *tr.PhotoMime
+	if mimePtr != nil && *mimePtr != "" {
+		mime = *mimePtr
 	}
-	return tr.PhotoData, mime, nil
+	return data, mime, nil
 }
 
 // UpdatePhoto resizes and stores the team photo, returning the updated gen.Team.
@@ -258,21 +260,21 @@ func (s *Service) DeletePhoto(ctx context.Context, teamID string) error {
 
 // GetTeamLogoData returns the raw logo bytes and MIME type for the given team.
 func (s *Service) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
-	tr, err := s.repo.GetTeam(ctx, teamID)
+	data, mimePtr, err := s.repo.GetTeamLogoBytes(ctx, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", pgx.ErrNoRows
 		}
 		return nil, "", fmt.Errorf("teams.Service.GetTeamLogoData: %w", err)
 	}
-	if len(tr.LogoData) == 0 {
+	if len(data) == 0 {
 		return nil, "", pgx.ErrNoRows
 	}
 	mime = "image/jpeg"
-	if tr.LogoMime != nil && *tr.LogoMime != "" {
-		mime = *tr.LogoMime
+	if mimePtr != nil && *mimePtr != "" {
+		mime = *mimePtr
 	}
-	return tr.LogoData, mime, nil
+	return data, mime, nil
 }
 
 // UpdateLogo resizes and stores the team logo, returning the updated gen.Team.
@@ -333,8 +335,8 @@ func buildTeamForUser(tr TeamRow, m MembershipRow, count int, roles []RoleRow) *
 	}
 
 	perms := MergePermissions(roles)
-	hasPhoto := len(tr.PhotoData) > 0
-	hasLogo := len(tr.LogoData) > 0
+	hasPhoto := tr.HasPhoto
+	hasLogo := tr.HasLogo
 
 	tfu := &gen.TeamForUser{
 		Id:           tr.Id,
@@ -362,8 +364,8 @@ func buildTeamForUser(tr TeamRow, m MembershipRow, count int, roles []RoleRow) *
 }
 
 func toGenTeam(tr *TeamRow) *gen.Team {
-	hasPhoto := len(tr.PhotoData) > 0
-	hasLogo := len(tr.LogoData) > 0
+	hasPhoto := tr.HasPhoto
+	hasLogo := tr.HasLogo
 	t := &gen.Team{
 		Id:          tr.Id,
 		Name:        tr.Name,

@@ -222,13 +222,19 @@ func TestTeamRepository_DeleteTeamPhoto_ClearsStoredPhoto(t *testing.T) {
 	require.NoError(t, repo.UpdateTeamPhoto(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
 	withPhoto, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
-	require.NotEmpty(t, withPhoto.PhotoData)
+	assert.True(t, withPhoto.HasPhoto)
+	photoData, photoMime, err := repo.GetTeamPhotoBytes(ctx, tr.Id.String())
+	require.NoError(t, err)
+	require.NotEmpty(t, photoData)
+	require.NotNil(t, photoMime)
 
 	require.NoError(t, repo.DeleteTeamPhoto(ctx, tr.Id.String()))
 	cleared, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
-	assert.Empty(t, cleared.PhotoData)
-	assert.Nil(t, cleared.PhotoMime)
+	assert.False(t, cleared.HasPhoto)
+	_, clearedMime, err := repo.GetTeamPhotoBytes(ctx, tr.Id.String())
+	require.NoError(t, err)
+	assert.Nil(t, clearedMime)
 }
 
 func TestTeamRepository_DeleteTeamPhoto_UnknownTeam_ReturnsNoRows(t *testing.T) {
@@ -257,13 +263,19 @@ func TestTeamRepository_DeleteTeamLogo_ClearsStoredLogo(t *testing.T) {
 	require.NoError(t, repo.UpdateTeamLogo(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
 	withLogo, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
-	require.NotEmpty(t, withLogo.LogoData)
+	assert.True(t, withLogo.HasLogo)
+	logoData, logoMime, err := repo.GetTeamLogoBytes(ctx, tr.Id.String())
+	require.NoError(t, err)
+	require.NotEmpty(t, logoData)
+	require.NotNil(t, logoMime)
 
 	require.NoError(t, repo.DeleteTeamLogo(ctx, tr.Id.String()))
 	cleared, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
-	assert.Empty(t, cleared.LogoData)
-	assert.Nil(t, cleared.LogoMime)
+	assert.False(t, cleared.HasLogo)
+	_, clearedMime, err := repo.GetTeamLogoBytes(ctx, tr.Id.String())
+	require.NoError(t, err)
+	assert.Nil(t, clearedMime)
 }
 
 func TestTeamRepository_DeleteTeamLogo_UnknownTeam_ReturnsNoRows(t *testing.T) {

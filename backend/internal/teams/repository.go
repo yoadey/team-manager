@@ -49,8 +49,8 @@ type TeamPatch struct {
 
 const selectTeamFields = `
 	t.id, t.name, t.short, t.icon, t.icon_bg, t.icon_fg,
-	COALESCE(t.photo_data, ''::bytea), t.photo_mime,
-	COALESCE(t.logo_data, ''::bytea), t.logo_mime,
+	(t.photo_data IS NOT NULL AND length(t.photo_data) > 0),
+	(t.logo_data IS NOT NULL AND length(t.logo_data) > 0),
 	t.description, t.reason_visibility_role_ids, t.created_at
 `
 
@@ -58,14 +58,46 @@ func scanTeam(row interface{ Scan(dest ...any) error }) (*TeamRow, error) {
 	tr := &TeamRow{}
 	err := row.Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
-		&tr.PhotoData, &tr.PhotoMime,
-		&tr.LogoData, &tr.LogoMime,
+		&tr.HasPhoto,
+		&tr.HasLogo,
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
 	return tr, nil
+}
+
+// GetTeamPhotoBytes returns the raw photo bytes and MIME type for teamID, or
+// pgx.ErrNoRows if the team has no photo set. Kept separate from GetTeam
+// (which only exposes a HasPhoto boolean) so byte-serving is the only path
+// that pays for transferring the blob out of Postgres.
+func (r *Repository) GetTeamPhotoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = r.pool.QueryRow(ctx, `SELECT photo_data, photo_mime FROM teams WHERE id = $1`, teamID).Scan(&data, &mime)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, pgx.ErrNoRows
+		}
+		return nil, nil, fmt.Errorf("teams.Repository.GetTeamPhotoBytes: %w", err)
+	}
+	return data, mime, nil
+}
+
+// GetTeamLogoBytes returns the raw logo bytes and MIME type for teamID, or
+// pgx.ErrNoRows if the team has no logo set.
+func (r *Repository) GetTeamLogoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = r.pool.QueryRow(ctx, `SELECT logo_data, logo_mime FROM teams WHERE id = $1`, teamID).Scan(&data, &mime)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, pgx.ErrNoRows
+		}
+		return nil, nil, fmt.Errorf("teams.Repository.GetTeamLogoBytes: %w", err)
+	}
+	return data, mime, nil
 }
 
 // ListTeamsForUser returns all teams the given user is a member of.
@@ -130,13 +162,13 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 		INSERT INTO teams (name)
 		VALUES ($1)
 		RETURNING id, name, short, icon, icon_bg, icon_fg,
-		          COALESCE(photo_data, ''::bytea), photo_mime,
-		          COALESCE(logo_data, ''::bytea), logo_mime,
+		          (photo_data IS NOT NULL AND length(photo_data) > 0),
+		          (logo_data IS NOT NULL AND length(logo_data) > 0),
 		          description, reason_visibility_role_ids, created_at
 	`, name).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
-		&tr.PhotoData, &tr.PhotoMime,
-		&tr.LogoData, &tr.LogoMime,
+		&tr.HasPhoto,
+		&tr.HasLogo,
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
@@ -327,16 +359,16 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 	q := fmt.Sprintf(`
 		UPDATE teams SET %s WHERE id = $%d
 		RETURNING id, name, short, icon, icon_bg, icon_fg,
-		          COALESCE(photo_data, ''::bytea), photo_mime,
-		          COALESCE(logo_data, ''::bytea), logo_mime,
+		          (photo_data IS NOT NULL AND length(photo_data) > 0),
+		          (logo_data IS NOT NULL AND length(logo_data) > 0),
 		          description, reason_visibility_role_ids, created_at
 	`, setSQL, argN)
 
 	var tr TeamRow
 	err = tx.QueryRow(ctx, q, args...).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
-		&tr.PhotoData, &tr.PhotoMime,
-		&tr.LogoData, &tr.LogoMime,
+		&tr.HasPhoto,
+		&tr.HasLogo,
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
@@ -631,14 +663,14 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 	var tr TeamRow
 	err = tx.QueryRow(ctx, `
 		SELECT id, name, short, icon, icon_bg, icon_fg,
-		       COALESCE(photo_data, ''::bytea), photo_mime,
-		       COALESCE(logo_data, ''::bytea), logo_mime,
+		       (photo_data IS NOT NULL AND length(photo_data) > 0),
+		       (logo_data IS NOT NULL AND length(logo_data) > 0),
 		       description, reason_visibility_role_ids, created_at
 		FROM teams WHERE id = $1
 	`, teamID).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
-		&tr.PhotoData, &tr.PhotoMime,
-		&tr.LogoData, &tr.LogoMime,
+		&tr.HasPhoto,
+		&tr.HasLogo,
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {

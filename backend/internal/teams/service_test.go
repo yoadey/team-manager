@@ -79,6 +79,8 @@ type mockTeamRepo struct {
 	getRolesForMemberships func(ctx context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error)
 	createInvite           func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
 	acceptInvite           func(ctx context.Context, code, userID string) (*teams.TeamRow, bool, error)
+	getTeamPhotoBytes      func(ctx context.Context, teamID string) ([]byte, *string, error)
+	getTeamLogoBytes       func(ctx context.Context, teamID string) ([]byte, *string, error)
 	updateTeamPhoto        func(ctx context.Context, teamID string, data []byte, mime string) error
 	updateTeamLogo         func(ctx context.Context, teamID string, data []byte, mime string) error
 	deleteTeamPhoto        func(ctx context.Context, teamID string) error
@@ -131,6 +133,14 @@ func (m *mockTeamRepo) CreateInvite(ctx context.Context, teamID string, ttl time
 
 func (m *mockTeamRepo) AcceptInvite(ctx context.Context, code, userID string) (*teams.TeamRow, bool, error) {
 	return m.acceptInvite(ctx, code, userID)
+}
+
+func (m *mockTeamRepo) GetTeamPhotoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+	return m.getTeamPhotoBytes(ctx, teamID)
+}
+
+func (m *mockTeamRepo) GetTeamLogoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+	return m.getTeamLogoBytes(ctx, teamID)
 }
 
 func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
@@ -376,7 +386,7 @@ func TestTeamService_AcceptInvite_PropagatesErrInviteNotFound(t *testing.T) {
 func TestTeamService_UpdateLogo_StoresResizedJPEGAndReturnsTeam(t *testing.T) {
 	teamID := uuid.New()
 	row := fixedTeamRow(teamID)
-	row.LogoData = []byte{0xFF, 0xD8, 0xFF} // stand-in for "stored" bytes on refresh
+	row.HasLogo = true // stand-in for "stored" bytes on refresh
 
 	var storedData []byte
 	var storedMime string
@@ -485,12 +495,11 @@ func TestTeamService_UpdatePhoto_RejectsOversizedImage(t *testing.T) {
 func TestTeamService_GetTeamLogoData_ReturnsStoredBytes(t *testing.T) {
 	teamID := uuid.New()
 	mime := "image/jpeg"
-	row := fixedTeamRow(teamID)
-	row.LogoData = []byte{1, 2, 3}
-	row.LogoMime = &mime
 
 	repo := &mockTeamRepo{
-		getTeam: func(_ context.Context, _ string) (*teams.TeamRow, error) { return &row, nil },
+		getTeamLogoBytes: func(_ context.Context, _ string) ([]byte, *string, error) {
+			return []byte{1, 2, 3}, &mime, nil
+		},
 	}
 
 	svc := teams.NewService(repo, "https://app.example.com")
@@ -502,10 +511,11 @@ func TestTeamService_GetTeamLogoData_ReturnsStoredBytes(t *testing.T) {
 
 func TestTeamService_GetTeamLogoData_NoLogoReturnsErrNoRows(t *testing.T) {
 	teamID := uuid.New()
-	row := fixedTeamRow(teamID)
 
 	repo := &mockTeamRepo{
-		getTeam: func(_ context.Context, _ string) (*teams.TeamRow, error) { return &row, nil },
+		getTeamLogoBytes: func(_ context.Context, _ string) ([]byte, *string, error) {
+			return nil, nil, nil
+		},
 	}
 
 	svc := teams.NewService(repo, "https://app.example.com")
