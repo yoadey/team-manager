@@ -326,7 +326,7 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 		JOIN penalties p ON p.id = pa.penalty_id
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1
-		ORDER BY pa.date DESC
+		ORDER BY pa.date DESC, pa.id DESC
 		LIMIT $2
 	`, teamID, maxOverviewRows)
 	if err != nil {

@@ -3,6 +3,7 @@ package finances_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -157,7 +158,7 @@ func TestService_GetOverview_ComputesBalanceAndOpenPenaltySum(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	overview, err := svc.GetOverview(context.Background(), teamID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(50000), overview.Income)
@@ -178,7 +179,7 @@ func TestService_GetOverview_PropagatesRepositoryError(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	_, err := svc.GetOverview(context.Background(), uuid.New())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -202,7 +203,7 @@ func TestService_CreateTransaction(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreateTransactionJSONRequestBody{
 		Type:     gen.Expense,
 		Title:    "Balls",
@@ -231,7 +232,7 @@ func TestService_UpdateTransaction_OnlySetsProvidedFields(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.UpdateTransactionJSONRequestBody{Title: &newTitle}
 	_, err := svc.UpdateTransaction(context.Background(), id, teamID, body)
 	require.NoError(t, err)
@@ -254,7 +255,7 @@ func TestService_DeleteTransaction(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	err := svc.DeleteTransaction(context.Background(), uuid.New(), uuid.New())
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -269,7 +270,7 @@ func TestService_CreateAssignment_RejectsPenaltyFromAnotherTeam(t *testing.T) {
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: uuid.New(), UserId: uuid.New()}
 	_, err := svc.CreateAssignment(context.Background(), uuid.New(), body)
 	require.ErrorIs(t, err, finances.ErrPenaltyNotInTeam)
@@ -283,7 +284,7 @@ func TestService_CreateAssignment_RejectsUserNotInTeam(t *testing.T) {
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: uuid.New(), UserId: uuid.New()}
 	_, err := svc.CreateAssignment(context.Background(), uuid.New(), body)
 	require.ErrorIs(t, err, finances.ErrUserNotInTeam)
@@ -310,7 +311,7 @@ func TestService_CreateAssignment_ReloadsEnrichedRowOnSuccess(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	result, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.NoError(t, err)
@@ -334,7 +335,7 @@ func TestService_CreateAssignment_FallsBackToUnenrichedRowWhenReloadFails(t *tes
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	result, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.NoError(t, err, "a reload failure after a successful create should not fail the request")
@@ -358,7 +359,7 @@ func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	result, err := svc.ToggleAssignmentPaid(context.Background(), teamID, id)
 	require.NoError(t, err)
 	assert.True(t, result.Paid)
@@ -380,7 +381,7 @@ func TestService_ToggleContribution(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	result, err := svc.ToggleContribution(context.Background(), id, teamID)
 	require.NoError(t, err)
 	assert.Equal(t, gen.ContributionStatus("paid"), result.Status)

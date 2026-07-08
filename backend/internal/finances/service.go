@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,12 +52,13 @@ type financeRepo interface {
 
 // Service implements finance business logic.
 type Service struct {
-	repo financeRepo
+	repo   financeRepo
+	logger *slog.Logger
 }
 
 // NewService creates a new Service.
-func NewService(repo financeRepo) *Service {
-	return &Service{repo: repo}
+func NewService(repo financeRepo, logger *slog.Logger) *Service {
+	return &Service{repo: repo, logger: logger}
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
@@ -277,6 +279,13 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 	// Reload the single row with joined member/penalty data.
 	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
+		// The write already succeeded; a reload failure here (e.g. a
+		// deadline hit right after the insert) must not fail the request,
+		// but silently returning the un-joined fallback (penalty
+		// label/amount/member name/photo all omitted) with no trace was a
+		// real observability gap -- an operator would never know it happened.
+		s.logger.Warn("finances: failed to reload assignment after create, returning partial result",
+			slog.String("assignmentId", a.ID.String()), slog.String("error", err.Error()))
 		result := toGenAssignment(*a)
 		return &result, nil
 	}
@@ -301,6 +310,8 @@ func (s *Service) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID
 	// Reload the single row with joined member/penalty data.
 	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
+		s.logger.Warn("finances: failed to reload assignment after toggle, returning partial result",
+			slog.String("assignmentId", a.ID.String()), slog.String("error", err.Error()))
 		result := toGenAssignment(*a)
 		return &result, nil
 	}
