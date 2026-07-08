@@ -255,16 +255,17 @@ backup:
   s3:
     enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)
     # Digest-pinned (resolved 2026-07-08 from registry-1.docker.io for
-    # amazon/aws-cli:2.35.17, the latest release at pin time -- CI's
-    # security-container-backup Trivy scan caught the previously-pinned
-    # 2.31.13 shipping several fixed-upstream Python/pip/wheel/urllib3 CVEs)
-    # so a tag-hijack of a mutable upstream tag can't silently reach a
-    # CronJob holding S3 write credentials; unlike docker-compose.yml's
-    # equivalent pin, Dependabot cannot keep this current automatically (its
-    # docker ecosystem updater only scans Dockerfiles and
-    # docker-compose.y*ml, not arbitrary keys in a Helm values.yaml) -- bump
-    # both the tag and digest together by hand on a schedule.
-    awsCliImage: "amazon/aws-cli:2.35.17@sha256:a1c94bdc95ce713930666d323b7b3033c592099d81a27395a36df4b9db895711"
+    # amazon/aws-cli:2.35.18, the latest release at pin time -- CI's
+    # security-container-backup Trivy scan caught fresh HIGH CVEs (expat,
+    # libblkid, python3, sqlite-libs) disclosed against the previously-pinned
+    # 2.35.17's Amazon Linux 2023 base layer since it was pinned) so a
+    # tag-hijack of a mutable upstream tag can't silently reach a CronJob
+    # holding S3 write credentials; unlike docker-compose.yml's equivalent
+    # pin, Dependabot cannot keep this current automatically (its docker
+    # ecosystem updater only scans Dockerfiles and docker-compose.y*ml, not
+    # arbitrary keys in a Helm values.yaml) -- bump both the tag and digest
+    # together by hand on a schedule.
+    awsCliImage: "amazon/aws-cli:2.35.18@sha256:5d6ba5056f48726a1f2d3447d0ad1ae2506f966f431d69649dc7da5cae8e4667"
     bucket: ""
     prefix: "team-manager"
     region: "eu-central-1"
