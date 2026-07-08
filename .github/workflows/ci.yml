@@ -293,7 +293,22 @@ jobs:
             echo "::error::golangci-lint version mismatch: backend/Makefile pins $lint_makefile, ci.yml pins $lint_ci"
             exit 1
           fi
-          echo "Tool-version pins are in sync (goose $goose_gomod, oapi-codegen $oapi_gomod, golangci-lint $lint_makefile)."
+
+          # backend/Dockerfile's builder stage isn't touched by Dependabot's
+          # gomod ecosystem entry, only its docker ecosystem entry (digest
+          # bumps within whatever version is already pinned) -- nothing ties
+          # its Go version to go.mod's `go` directive, so a go.mod bump (like
+          # the CVE-driven one that produced 1.25.12) can silently leave the
+          # shipped image built by a different toolchain than every Go job in
+          # this workflow (setup-go with go-version-file: backend/go.mod)
+          # actually tests/scans.
+          go_gomod=$(grep -oP '^go \K[\d.]+' backend/go.mod)
+          go_dockerfile=$(grep -oP 'FROM golang:\K[\d.]+(?=@)' backend/Dockerfile)
+          if [ "$go_gomod" != "$go_dockerfile" ]; then
+            echo "::error::Go version mismatch: go.mod has $go_gomod, backend/Dockerfile builds with golang:$go_dockerfile"
+            exit 1
+          fi
+          echo "Tool-version pins are in sync (goose $goose_gomod, oapi-codegen $oapi_gomod, golangci-lint $lint_makefile, go $go_gomod)."
       - name: Verify backup image digests stay in sync
         working-directory: .
         # postgres:17's digest is duplicated in docker-compose.yml (kept

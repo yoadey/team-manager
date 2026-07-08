@@ -1,4 +1,9 @@
-FROM golang:1.26@sha256:f96cc555eb8db430159a3aa6797cd5bae561945b7b0fe7d0e284c63a3b291609 AS builder
+# Pinned to match go.mod's `go` directive exactly -- CI's setup-go (every Go
+# job) installs that exact version via go-version-file: backend/go.mod, so
+# building the shipped image with a different toolchain would mean the
+# binary CI actually tests/scans (go test -race, govulncheck, CodeQL) is not
+# the one built into the container. Bump both together.
+FROM golang:1.25.12@sha256:d7912cedddfa15b2900a8dfb7187df0af5ec2cb424a371139b5b352fd3e6b740 AS builder
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
