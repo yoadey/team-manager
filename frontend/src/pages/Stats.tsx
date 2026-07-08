@@ -16,8 +16,14 @@ export function Stats() {
   const today = todayStr();
   const d = parseDateOnlyLocal(today);
   const ago = (months: number) => {
-    const x = new Date(d);
-    x.setMonth(x.getMonth() - months);
+    // Date.setMonth silently rolls over into the following month when the
+    // target month has fewer days than today's day-of-month (e.g. May 31
+    // minus 3 months would land on "Feb 31", which JS normalizes to Mar 3),
+    // silently narrowing the range the preset label promises. Build the
+    // target month directly and clamp the day instead.
+    const x = new Date(d.getFullYear(), d.getMonth() - months, 1);
+    const daysInTargetMonth = new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
+    x.setDate(Math.min(d.getDate(), daysInTargetMonth));
     return formatDateOnly(x);
   };
   const R: DateRange = state.statsRange || { from: null, to: null };

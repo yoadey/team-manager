@@ -78,6 +78,38 @@ describe('Stats', () => {
     expect(mockSetStatsRange).toHaveBeenCalledWith(expect.objectContaining({ to: expect.any(String) }));
   });
 
+  // Regression test: Date.setMonth silently rolls over into the following
+  // month when the target month has fewer days than today's day-of-month
+  // (e.g. May 31 minus 3 months lands on "Feb 31", which JS normalizes to
+  // Mar 3) -- narrowing the range by a few days without any indication to
+  // the user. The preset "N Monate" must always land on N calendar months
+  // back, clamped to the last day of that month rather than rolling over.
+  it('does not roll over into the next month when "today" has no equivalent day in the target month', async () => {
+    const realDate = globalThis.Date;
+    class FixedDate extends realDate {
+      constructor(...args: unknown[]) {
+        if (args.length === 0) {
+          super(2026, 4, 31); // "today" = May 31, 2026
+        } else {
+          // @ts-expect-error -- forwarding varargs to the real Date constructor
+          super(...args);
+        }
+      }
+      static override now() {
+        return new realDate(2026, 4, 31).getTime();
+      }
+    }
+    globalThis.Date = FixedDate as DateConstructor;
+    try {
+      mockUseApp.mockReturnValue(makeApp(null));
+      render(<Stats />);
+      await userEvent.click(screen.getByText('3 Monate'));
+      expect(mockSetStatsRange).toHaveBeenCalledWith({ from: '2026-02-28', to: '2026-05-31' });
+    } finally {
+      globalThis.Date = realDate;
+    }
+  });
+
   it('shows stats ring when stats loaded', () => {
     mockUseApp.mockReturnValue(makeApp(makeStats()));
     render(<Stats />);
