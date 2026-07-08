@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
@@ -274,6 +275,13 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 
 	a, err := s.repo.CreateAssignment(ctx, teamID, userID, penaltyID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The membership check above passed, but the atomic WHERE
+			// EXISTS re-check inside the INSERT itself failed -- the user
+			// was removed from the team in the narrow window between the
+			// two. Surface the same error the earlier check would have.
+			return nil, ErrUserNotInTeam
+		}
 		return nil, fmt.Errorf("finances.Service.CreateAssignment: %w", err)
 	}
 	// Reload the single row with joined member/penalty data.

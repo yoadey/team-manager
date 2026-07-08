@@ -328,3 +328,38 @@ func TestFinancesRepository_UserIsMemberOfTeam(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, isMember)
 }
+
+// TestFinancesRepository_CreateAssignment_RejectsNonMemberUser regression-tests
+// a TOCTOU gap where CreateAssignment's plain INSERT trusted the service
+// layer's earlier, separate UserIsMemberOfTeam check -- penalty_assignments.
+// user_id only references users(id), not memberships, so nothing at the DB
+// level stopped an assignment being created for a user who was removed from
+// the team in the narrow window between that check and this insert. The
+// INSERT now re-checks membership atomically via WHERE EXISTS.
+func TestFinancesRepository_CreateAssignment_RejectsNonMemberUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	penalty, err := repo.CreatePenalty(ctx, teamID, "Missed practice", 500)
+	require.NoError(t, err)
+
+	// uid was never given a membership row by seedFinanceFixtures.
+	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "CreateAssignment must reject a userID that is not a member of teamID")
+
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	a, err := repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	require.NoError(t, err, "CreateAssignment scoped to an actual team member must succeed")
+	assert.Equal(t, userID, a.UserID)
+}

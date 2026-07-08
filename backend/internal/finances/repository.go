@@ -379,16 +379,29 @@ func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID
 }
 
 // CreateAssignment inserts a penalty assignment for a user.
+// CreateAssignment inserts a penalty assignment. penalty_assignments.user_id
+// only references users(id), not memberships -- there's no FK enforcing team
+// membership -- so the INSERT re-checks membership atomically via WHERE
+// EXISTS (mirroring events.Repository.SetAttendance's pattern) rather than
+// relying solely on the service layer's earlier, separate
+// UserIsMemberOfTeam check, which leaves a narrow TOCTOU window where a
+// concurrent removal from the team between that check and this insert would
+// otherwise create an assignment for a non-member. Returns pgx.ErrNoRows if
+// userID is not (or no longer) a member of teamID.
 func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	err := r.db.QueryRow(ctx, `
 		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
-		VALUES ($1, $2, $3)
+		SELECT $1, $2, $3
+		WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)
 		RETURNING id, team_id, user_id, penalty_id, paid, date
 	`, teamID, userID, penaltyID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
 		return nil, fmt.Errorf("finances.Repository.CreateAssignment: %w", err)
 	}
 	return a, nil
