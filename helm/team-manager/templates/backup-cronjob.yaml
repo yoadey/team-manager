@@ -21,6 +21,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
       template:
         metadata:
           labels:

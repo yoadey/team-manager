@@ -221,6 +221,15 @@ backup:
   enabled: false           # Enable daily PostgreSQL backup CronJob
   schedule: "0 2 * * *"   # Daily at 02:00 UTC
   startingDeadlineSeconds: 900  # How late a missed run may still start before Kubernetes gives up on it
+  # Bounds how long a RUNNING backup may take before Kubernetes kills it.
+  # Without this, a hung pg_dump (lock contention) or aws s3 cp (network
+  # partition) never self-terminates, and concurrencyPolicy: Forbid means
+  # every subsequent scheduled run is silently skipped until it does --
+  # only the RPO/staleness alert (32h) would eventually catch this, a full
+  # day after the fact. 1h is comfortably above expected dump/upload
+  # duration for this app's data volume; raise it if your database is large
+  # enough that backups routinely take longer.
+  activeDeadlineSeconds: 3600
   postgresVersion: "17"
   # Digest for postgresVersion "17", matching docker-compose.yml's local-dev
   # pin (resolved 2026-07-08 from registry-1.docker.io, docker-library/postgres
