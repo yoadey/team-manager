@@ -756,3 +756,47 @@ func TestEventRepository_SetNomination_RejectsNonMemberUser(t *testing.T) {
 	err = repo.SetNomination(ctx, eventID, member.String(), teamID.String(), false)
 	require.NoError(t, err, "SetNomination(false) scoped to an actual team member must succeed")
 }
+
+// TestEventRepository_SetNomination_ClearsStaleReason regression-tests a bug
+// where SetNomination(false)'s ON CONFLICT branch only updated status/at,
+// leaving a prior "no" row's reason/reason_id/reason_visibility untouched.
+// ListAttendance's confidentiality redaction is gated strictly on
+// status=="no", so a stale reason surviving under status='not_nominated'
+// would leak a member's private decline reason to every team member.
+func TestEventRepository_SetNomination_ClearsStaleReason(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	member := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Nomination Reason Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Member', 'member-reason@example.com', '#abcdef')`, member)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Nomination Reason Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	status := "no"
+	reason := "private medical reason"
+	_, err = repo.SetAttendance(ctx, eventID, member.String(), teamID.String(), &status, &reason, nil, nil)
+	require.NoError(t, err)
+
+	err = repo.SetNomination(ctx, eventID, member.String(), teamID.String(), false)
+	require.NoError(t, err)
+
+	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	require.Len(t, attendanceList, 1)
+	assert.Equal(t, "not_nominated", attendanceList[0].Status)
+	assert.Nil(t, attendanceList[0].Reason, "reason must be cleared once nomination is revoked, not just left stale under a new status")
+}

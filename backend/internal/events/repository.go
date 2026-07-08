@@ -890,13 +890,18 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, userID, teamID 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if !nominated {
+		// Clears reason/reason_id/reason_visibility on the ON CONFLICT branch,
+		// not just status -- otherwise a prior "no" row's private decline
+		// reason survives under status='not_nominated', which ListAttendance's
+		// redaction only gates on status=="no", so it would leak to every
+		// team member on the next GET .../attendance.
 		q := `
 			INSERT INTO attendance (event_id, user_id, status, at)
 			SELECT $1, $2, 'not_nominated', now()
 			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $3)
 			  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $3 AND user_id = $2)
 			ON CONFLICT (event_id, user_id) DO UPDATE
-				SET status = 'not_nominated', at = now()
+				SET status = 'not_nominated', reason = NULL, reason_id = NULL, reason_visibility = NULL, at = now()
 		`
 		tag, err := r.pool.Exec(ctx, q, eventID, userID, teamID)
 		if err != nil {
