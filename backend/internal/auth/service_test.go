@@ -23,6 +23,7 @@ type mockRepo struct {
 	findSess       func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
 	deleteSess     func(ctx context.Context, tokenHash string) error
 	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) error
+	userPhotoByID  func(ctx context.Context, id string) ([]byte, error)
 	eraseUser      func(ctx context.Context, userID string) error
 	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
 }
@@ -49,6 +50,13 @@ func (m *mockRepo) DeleteSession(ctx context.Context, tokenHash string) error {
 
 func (m *mockRepo) UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error {
 	return m.updatePhoto(ctx, userID, data, mime)
+}
+
+func (m *mockRepo) FindUserPhotoByID(ctx context.Context, id string) ([]byte, error) {
+	if m.userPhotoByID != nil {
+		return m.userPhotoByID(ctx, id)
+	}
+	return nil, nil
 }
 
 func (m *mockRepo) EraseUser(ctx context.Context, userID string) error {

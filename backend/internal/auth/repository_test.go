@@ -56,6 +56,34 @@ func TestRepository_FindUserByID(t *testing.T) {
 	assert.Equal(t, "bob@example.com", user.Email)
 }
 
+// Regression test: FindUserByID is on the hot path (invoked on essentially
+// every authenticated request via AuthMiddleware), so it must only expose a
+// HasPhoto boolean rather than fetching the full photo_data BLOB every time;
+// FindUserPhotoByID is the dedicated method for the one path that actually
+// needs the raw bytes.
+func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	_, err := pool.Exec(
+		ctx,
+		`INSERT INTO users (id, name, email, avatar_color, photo_data, photo_mime)
+		 VALUES ('33333333-3333-3333-3333-333333333333', 'Carol', 'carol@example.com', '#0000ff', '\x89504e47', 'image/jpeg')`,
+	)
+	require.NoError(t, err)
+
+	user, err := repo.FindUserByID(ctx, "33333333-3333-3333-3333-333333333333")
+	require.NoError(t, err)
+	assert.True(t, user.HasPhoto)
+
+	data, err := repo.FindUserPhotoByID(ctx, "33333333-3333-3333-3333-333333333333")
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
+}
+
 func TestRepository_CreateAndFindSession(t *testing.T) {
 	t.Parallel()
 

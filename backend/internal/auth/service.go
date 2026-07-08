@@ -48,6 +48,7 @@ type authRepo interface {
 	CreateSession(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) (*SessionRow, error)
 	FindSession(ctx context.Context, tokenHash string) (*SessionRow, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
+	FindUserPhotoByID(ctx context.Context, id string) ([]byte, error)
 	UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error
 	EraseUser(ctx context.Context, userID string) error
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
@@ -259,6 +260,16 @@ func (s *Service) UpdatePhoto(ctx context.Context, userID string, data []byte, m
 		return nil, fmt.Errorf("auth.Service.UpdatePhoto: refresh user: %w", err)
 	}
 	return user, nil
+}
+
+// GetMyPhotoData returns the raw photo bytes for userID, or nil if the user
+// has no photo set.
+func (s *Service) GetMyPhotoData(ctx context.Context, userID string) ([]byte, error) {
+	data, err := s.repo.FindUserPhotoByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("auth.Service.GetMyPhotoData: %w", err)
+	}
+	return data, nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

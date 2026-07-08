@@ -14,8 +14,7 @@ type UserRow struct {
 	Email        string
 	Phone        *string
 	AvatarColor  string
-	PhotoData    []byte
-	PhotoMime    string
+	HasPhoto     bool
 	Birthday     *time.Time
 	Address      *string
 	PasswordHash string

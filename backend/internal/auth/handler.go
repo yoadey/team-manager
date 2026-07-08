@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -25,6 +26,7 @@ type authService interface {
 	ValidateToken(ctx context.Context, tokenString string) (*UserRow, error)
 	Logout(ctx context.Context, tokenHash string) error
 	UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error)
+	GetMyPhotoData(ctx context.Context, userID string) ([]byte, error)
 	EraseAccount(ctx context.Context, userID, password string) error
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
@@ -180,12 +182,19 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 // GetMyPhoto returns the authenticated user's profile photo.
 func (h *Handler) GetMyPhoto(ctx context.Context, _ gen.GetMyPhotoRequestObject) (gen.GetMyPhotoResponseObject, error) {
 	user, ok := UserFromContext(ctx)
-	if !ok || len(user.PhotoData) == 0 {
+	if !ok {
+		return nil, apierror.NotFound("no profile photo")
+	}
+	data, err := h.svc.GetMyPhotoData(ctx, user.Id.String())
+	if err != nil {
+		return nil, fmt.Errorf("auth.Handler.GetMyPhoto: %w", err)
+	}
+	if len(data) == 0 {
 		return nil, apierror.NotFound("no profile photo")
 	}
 	return gen.GetMyPhoto200ImagejpegResponse{
-		Body:          bytes.NewReader(user.PhotoData),
-		ContentLength: int64(len(user.PhotoData)),
+		Body:          bytes.NewReader(data),
+		ContentLength: int64(len(data)),
 	}, nil
 }
 
@@ -317,7 +326,7 @@ func ContextWithUser(ctx context.Context, user *UserRow) context.Context {
 
 // toGenUser maps an internal UserRow to the generated gen.User type.
 func toGenUser(u *UserRow) gen.User {
-	hasPhoto := len(u.PhotoData) > 0
+	hasPhoto := u.HasPhoto
 	gu := gen.User{
 		Id:          u.Id,
 		Name:        u.Name,

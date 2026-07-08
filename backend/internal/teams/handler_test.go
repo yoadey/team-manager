@@ -106,7 +106,9 @@ func (f *fakeAuthSvc) Logout(_ context.Context, _ string) error { return nil }
 func (f *fakeAuthSvc) UpdatePhoto(_ context.Context, _ string, _ []byte, _ string) (*auth.UserRow, error) {
 	return f.user, nil
 }
-func (f *fakeAuthSvc) EraseAccount(_ context.Context, _, _ string) error { return nil }
+
+func (f *fakeAuthSvc) GetMyPhotoData(_ context.Context, _ string) ([]byte, error) { return nil, nil }
+func (f *fakeAuthSvc) EraseAccount(_ context.Context, _, _ string) error          { return nil }
 func (f *fakeAuthSvc) ExportUserData(_ context.Context, _ string) (*auth.ExportData, error) {
 	return &auth.ExportData{}, nil
 }

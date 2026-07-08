@@ -40,8 +40,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 const selectUserFields = `
 	id, name, email, phone, avatar_color,
-	COALESCE(photo_data, ''::bytea) AS photo_data,
-	COALESCE(photo_mime, '') AS photo_mime,
+	(photo_data IS NOT NULL AND length(photo_data) > 0) AS has_photo,
 	birthday, address,
 	COALESCE(password_hash, '') AS password_hash,
 	created_at
@@ -56,7 +55,7 @@ func scanUser(row interface {
 	u := &UserRow{}
 	err := row.Scan(
 		&u.Id, &u.Name, &u.Email, &u.Phone, &u.AvatarColor,
-		&u.PhotoData, &u.PhotoMime,
+		&u.HasPhoto,
 		&u.Birthday, &u.Address, &u.PasswordHash, &u.CreatedAt,
 	)
 	if err != nil {
@@ -78,7 +77,11 @@ func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRo
 	return u, nil
 }
 
-// FindUserByID looks up a user by primary key.
+// FindUserByID looks up a user by primary key. This is on the hot path --
+// invoked on essentially every authenticated request via
+// Service.ValidateToken/Handler.AuthMiddleware -- so it only selects a
+// HasPhoto boolean rather than the full photo_data BLOB; use
+// FindUserPhotoByID for the one path that actually needs the raw bytes.
 func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -89,6 +92,19 @@ func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, err
 		return nil, fmt.Errorf("auth.Repository.FindUserByID: %w", err)
 	}
 	return u, nil
+}
+
+// FindUserPhotoByID returns the raw photo bytes for id, or nil if the user
+// has no photo set (or does not exist / is soft-deleted).
+func (r *Repository) FindUserPhotoByID(ctx context.Context, id string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var data []byte
+	err := r.pool.QueryRow(ctx, `SELECT photo_data FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&data)
+	if err != nil {
+		return nil, fmt.Errorf("auth.Repository.FindUserPhotoByID: %w", err)
+	}
+	return data, nil
 }
 
 // CreateSession inserts a new session row and returns it.

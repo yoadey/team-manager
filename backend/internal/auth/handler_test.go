@@ -31,6 +31,7 @@ type mockAuthService struct {
 	validateToken  func(ctx context.Context, token string) (*auth.UserRow, error)
 	logout         func(ctx context.Context, tokenHash string) error
 	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
+	getMyPhotoData func(ctx context.Context, userID string) ([]byte, error)
 	eraseAccount   func(ctx context.Context, userID, password string) error
 	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
 }
@@ -49,6 +50,13 @@ func (m *mockAuthService) Logout(ctx context.Context, tokenHash string) error {
 
 func (m *mockAuthService) UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error) {
 	return m.updatePhoto(ctx, userID, data, mime)
+}
+
+func (m *mockAuthService) GetMyPhotoData(ctx context.Context, userID string) ([]byte, error) {
+	if m.getMyPhotoData != nil {
+		return m.getMyPhotoData(ctx, userID)
+	}
+	return nil, nil
 }
 
 func (m *mockAuthService) EraseAccount(ctx context.Context, userID, password string) error {
@@ -419,8 +427,7 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 
 	user := testUser()
 	updatedUser := *user
-	updatedUser.PhotoData = []byte("fake-jpeg")
-	updatedUser.PhotoMime = "image/jpeg"
+	updatedUser.HasPhoto = true
 
 	svc := &mockAuthService{
 		validateToken: func(_ context.Context, _ string) (*auth.UserRow, error) {
