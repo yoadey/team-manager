@@ -363,3 +363,34 @@ func TestFinancesRepository_CreateAssignment_RejectsNonMemberUser(t *testing.T) 
 	require.NoError(t, err, "CreateAssignment scoped to an actual team member must succeed")
 	assert.Equal(t, userID, a.UserID)
 }
+
+// TestFinancesRepository_CreateAssignment_RejectsDeletedPenalty regression-tests
+// the sibling TOCTOU race on the penalty side: penalty_id does have a real FK
+// (unlike user_id), so a penalty deleted concurrently between the service
+// layer's PenaltyBelongsToTeam check and this insert surfaces as a Postgres
+// foreign-key violation (23503). CreateAssignment must map that to
+// ErrPenaltyNotInTeam so the handler returns 404/422 instead of a generic 500.
+func TestFinancesRepository_CreateAssignment_RejectsDeletedPenalty(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	penalty, err := repo.CreatePenalty(ctx, teamID, "Missed practice", 500)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.DeletePenalty(ctx, penalty.ID, teamID))
+
+	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	assert.ErrorIs(t, err, finances.ErrPenaltyNotInTeam, "CreateAssignment must map a penalty FK violation to ErrPenaltyNotInTeam")
+}

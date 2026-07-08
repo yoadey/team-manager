@@ -386,6 +386,9 @@ func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID
 	return a, nil
 }
 
+// pgForeignKeyViolation is the Postgres SQLSTATE for a violated FOREIGN KEY constraint.
+const pgForeignKeyViolation = "23503"
+
 // CreateAssignment inserts a penalty assignment for a user.
 // CreateAssignment inserts a penalty assignment. penalty_assignments.user_id
 // only references users(id), not memberships -- there's no FK enforcing team
@@ -395,7 +398,11 @@ func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID
 // UserIsMemberOfTeam check, which leaves a narrow TOCTOU window where a
 // concurrent removal from the team between that check and this insert would
 // otherwise create an assignment for a non-member. Returns pgx.ErrNoRows if
-// userID is not (or no longer) a member of teamID.
+// userID is not (or no longer) a member of teamID, or ErrPenaltyNotInTeam if
+// penaltyID was deleted concurrently between the service layer's
+// PenaltyBelongsToTeam check and this insert (penalty_id has a real FK, so
+// that race surfaces as a foreign-key violation here rather than a missing
+// row).
 func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -409,6 +416,10 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+			return nil, ErrPenaltyNotInTeam
 		}
 		return nil, fmt.Errorf("finances.Repository.CreateAssignment: %w", err)
 	}
