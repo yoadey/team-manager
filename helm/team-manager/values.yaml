@@ -204,7 +204,21 @@ monitoring:
   # `existingSecret` — the two are independent Secrets with no validation
   # tying them together; a mismatch causes Prometheus to get silent 401s from
   # /metrics with no obvious link back to this setting.
+  #
+  # This is the one place under `monitoring` that doesn't follow the
+  # existingSecret-only convention used everywhere else a credential appears
+  # in this chart (see the top-level existingSecret comment above) — the raw
+  # token has to be typed into a values override or passed via --set, which
+  # (unlike a real Secret reference) has no rotation story and can land in
+  # shell history or a committed overlay file. Prefer metricsTokenSecretName
+  # below for anything beyond local/dev.
   metricsToken: ""
+  # Name of an existing, externally-managed Secret holding the bearer token
+  # (keyed by metricsTokenSecretKey). Takes precedence over metricsToken
+  # above when set, and skips creating the chart-managed metrics-token
+  # Secret entirely.
+  metricsTokenSecretName: ""
+  metricsTokenSecretKey: "token"
   additionalLabels: {}  # Labels to help Prometheus Operator find this ServiceMonitor
   grafanaDashboard:
     # Renders a ConfigMap holding the bundled Grafana dashboard, labeled
