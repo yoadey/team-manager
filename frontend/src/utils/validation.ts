@@ -146,11 +146,16 @@ export function validatePhone(value: unknown, message: string): ValidationResult
   return PHONE_RE.test(v) ? { ok: true, value: v } : { ok: false, message };
 }
 
+// MIN_BIRTHDAY matches the backend's validate.Birthday lower bound
+// (backend/internal/validate/validate.go).
+const MIN_BIRTHDAY = '1900-01-01';
+
 export function validateBirthday(value: unknown, message: string): ValidationResult<string> {
   const v = text(value);
   if (!v) return { ok: true, value: '' };
   if (!DATE_RE.test(v)) return { ok: false, message };
   const d = new Date(v + 'T00:00:00');
   if (isNaN(d.getTime())) return { ok: false, message };
+  if (v < MIN_BIRTHDAY) return { ok: false, message };
   return d > new Date() ? { ok: false, message } : { ok: true, value: v };
 }

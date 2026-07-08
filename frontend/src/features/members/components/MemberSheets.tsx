@@ -337,7 +337,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
         <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} maxLength={32} />
       </Field>
       <Field label={t('members.fieldBirthday')} error={!!errs.birthday} errorText={errs.birthday}>
-        <TextInput name="birthday" type="date" onBlur={validateBirthday_} />
+        <TextInput name="birthday" type="date" min="1900-01-01" onBlur={validateBirthday_} />
       </Field>
       <Field label={t('members.fieldAddress')}>
         <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} maxLength={500} />

@@ -296,6 +296,13 @@ describe('MemberFormSheet', () => {
     expect(inputs.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('caps the birthday input at 1900-01-01 matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = document.querySelector('input[type="date"]') as HTMLInputElement;
+    expect(input.min).toBe('1900-01-01');
+  });
+
   it('renders the address input field', () => {
     const app = makeFormApp();
     render(<MemberFormSheet app={app} sheet={formSheet} />);

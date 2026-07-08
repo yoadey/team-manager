@@ -230,4 +230,16 @@ describe('validateBirthday', () => {
   it('rejects an invalid calendar date', () => {
     expect(validateBirthday('2023-13-45', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
   });
+
+  // Regression test: validateBirthday had no lower bound, unlike the
+  // backend's validate.Birthday (rejects anything before 1900-01-01), so a
+  // typo like 1091-05-06 instead of 1991-05-06 passed client-side validation
+  // and only failed at save time with a raw, unlocalized backend message.
+  it('rejects a date before 1900-01-01', () => {
+    expect(validateBirthday('1899-12-31', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
+  });
+
+  it('accepts a date exactly at the 1900-01-01 lower bound', () => {
+    expect(validateBirthday('1900-01-01', 'ungültig')).toEqual({ ok: true, value: '1900-01-01' });
+  });
 });
