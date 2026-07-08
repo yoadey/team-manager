@@ -722,7 +722,7 @@ jobs:
       - name: Scan aws-cli (backup s3-upload container)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: amazon/aws-cli:2.31.13@sha256:e14216fb361cce909ce199616711ad103182d5937f851cda9bebf25867d7180a
+          image-ref: amazon/aws-cli:2.35.17@sha256:a1c94bdc95ce713930666d323b7b3033c592099d81a27395a36df4b9db895711
           format: table
           exit-code: '1'
           severity: CRITICAL,HIGH
