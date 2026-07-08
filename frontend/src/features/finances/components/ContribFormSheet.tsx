@@ -3,6 +3,7 @@ import { Field, PrimaryButton, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
 import type { ContribFormValues } from '../types';
+import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { t } from '@/i18n';
 
 export function ContribFormSheet({ app }: SheetProps) {
@@ -16,28 +17,13 @@ export function ContribFormSheet({ app }: SheetProps) {
   };
 
   const validateAmount = () => {
-    const raw = String(F.amount ?? '')
-      .trim()
-      .replace(',', '.');
-    const n = Number(raw);
-    app.setFormErrors({
-      amount: !raw
-        ? t('finances.contribFieldAmountError')
-        : !Number.isFinite(n) || n <= 0
-          ? t('finances.contribFieldAmountErrorPositive')
-          : '',
-    });
+    const r = validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
+    app.setFormErrors({ amount: r.ok ? '' : r.message! });
   };
 
   const canSubmit =
     !!String(F.label ?? '').trim() &&
-    (() => {
-      const raw = String(F.amount ?? '')
-        .trim()
-        .replace(',', '.');
-      const n = Number(raw);
-      return raw && Number.isFinite(n) && n > 0;
-    })();
+    validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -45,7 +31,7 @@ export function ContribFormSheet({ app }: SheetProps) {
         <TextInput name="label" placeholder={t('finances.contribFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
       </Field>
       <Field label={t('finances.contribFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
-        <TextInput name="amount" type="number" onBlur={validateAmount} />
+        <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
       </Field>
       <PrimaryButton
         label={t('finances.contribSave')}

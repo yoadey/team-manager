@@ -17,6 +17,10 @@ type MoneyOptions = {
   max?: number;
 };
 
+// Matches the backend's `amount` maximum (100000000 cents, openapi.yaml) on
+// CreateTransactionRequest/CreatePenaltyRequest/UpdateContributionRequest.
+export const MAX_MONEY_AMOUNT_EUROS = 1000000;
+
 type EventForm = {
   title?: unknown;
   date?: unknown;

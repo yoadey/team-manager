@@ -11,15 +11,11 @@ import type {
   Transaction,
   TxFormValues,
 } from '../types';
-import { validateMoneyAmount, validateRequiredText } from '@/utils/validation';
+import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount, validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
-
-// Matches the backend's `amount` maximum (100000000 cents, openapi.yaml) on
-// CreateTransactionRequest/CreatePenaltyRequest/UpdateContributionRequest.
-const MAX_MONEY_AMOUNT_EUROS = 1000000;
 
 type FinanceFeatureDeps = {
   api: typeof defaultApi;

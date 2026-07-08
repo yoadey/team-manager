@@ -137,6 +137,28 @@ describe('TxFormSheet', () => {
     expect(app.setFormErrors).toHaveBeenCalledWith({ amount: '' });
   });
 
+  // Regression test: the inline blur validator and canSubmit only checked
+  // "positive number", unlike the backend's €1,000,000 amount cap enforced
+  // at submit time (useFinanceActions.ts's saveTx) -- so typing an over-cap
+  // amount showed no inline error and left Save enabled, only failing with a
+  // raw toast after clicking it.
+  it('shows amount error and disables submit when amount exceeds the €1,000,000 cap', () => {
+    const app = makeApp({ title: 'Test', amount: '5000000' });
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    const amountInput = screen.getByRole('spinbutton');
+    fireEvent.blur(amountInput);
+    expect(app.setFormErrors).toHaveBeenCalledWith({ amount: expect.stringMatching(/\S+/) });
+    expect(screen.getByText(/erfassen|speichern/i).closest('button')).toBeDisabled();
+  });
+
+  it('exposes a max attribute on the amount input matching the backend cap', () => {
+    const app = makeApp();
+    render(<TxFormSheet app={app as never} sheet={{ mode: 'create' } as never} />);
+    const amountInput = screen.getByRole('spinbutton') as HTMLInputElement;
+    expect(amountInput.max).toBe('1000000');
+  });
+
   it('submit button is disabled when form is empty', () => {
     const app = makeApp({ title: '', amount: '' });
     const sheet = { mode: 'create' } as never;
