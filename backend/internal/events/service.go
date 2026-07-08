@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -80,6 +81,7 @@ type Service struct {
 	pager       *pagination.Paginator
 	roleChecker teamRoleChecker
 	permChecker permissionChecker
+	logger      *slog.Logger
 }
 
 // NewService creates a new Service. pager may be nil (uses default Paginator).
@@ -88,11 +90,11 @@ type Service struct {
 // may be nil in tests that don't exercise SetAttendance; production callers
 // must supply it so that setting another member's attendance requires
 // events:write (see SetAttendance).
-func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker, permChecker permissionChecker) *Service {
+func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker, permChecker permissionChecker, logger *slog.Logger) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker, permChecker: permChecker}
+	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker, permChecker: permChecker, logger: logger}
 }
 
 // validateNominatedRoles checks that all provided role IDs belong to teamID.
@@ -256,14 +258,16 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 				evID := row.Id
 				evTitle := row.Title
 				evDate := row.Date
-				_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+				if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
 					TeamID:     teamUUID,
 					Type:       "event_created",
 					ActorID:    actorUUID,
 					EventID:    &evID,
 					EventTitle: &evTitle,
 					EventDate:  &evDate,
-				})
+				}); err != nil {
+					s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_created"), slog.String("error", err.Error()))
+				}
 			}
 		}
 	}
@@ -354,14 +358,16 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 			evID := row.Id
 			evTitle := row.Title
 			evDate := row.Date
-			_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+			if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
 				TeamID:     row.TeamId,
 				Type:       "event_cancelled",
 				ActorID:    actorUUID,
 				EventID:    &evID,
 				EventTitle: &evTitle,
 				EventDate:  &evDate,
-			})
+			}); err != nil {
+				s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_cancelled"), slog.String("error", err.Error()))
+			}
 		}
 	}
 

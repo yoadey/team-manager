@@ -247,7 +247,7 @@ func main() {
 	// ─── Events ──────────────────────────────────────────────────────────────
 
 	eventsRepo := events.NewRepository(pool)
-	eventsSvc := events.NewService(eventsRepo, jobsClient, pager, rolesRepo, membersRepo)
+	eventsSvc := events.NewService(eventsRepo, jobsClient, pager, rolesRepo, membersRepo, logger)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
 
 	// ─── Absences ────────────────────────────────────────────────────────────

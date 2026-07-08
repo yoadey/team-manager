@@ -2,6 +2,7 @@ package events_test
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -162,7 +163,7 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	result, next, err := svc.ListEvents(context.Background(), testTeamID, testUserID, "upcoming", "", 50)
 	require.NoError(t, err)
 	assert.Nil(t, next)
@@ -201,7 +202,7 @@ func TestEventService_CreateEvent_Recurring(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	repeatWeeks := 3
 	recurring := true
 	body := &gen.CreateEventRequest{
@@ -244,7 +245,7 @@ func TestEventService_UpdateEvent_ClearsNominatedRoleIdsWithExplicitEmptyArray(t
 		getAttendanceSummaryFn: zeroSummaryFn,
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 
 	emptyRoleIDs := []uuid.UUID{}
 	body := &gen.UpdateEventJSONRequestBody{NominatedRoleIds: &emptyRoleIDs}
@@ -265,7 +266,7 @@ func TestEventService_CreateEvent_Recurring_RejectsExcessiveRepeatWeeks(t *testi
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	repeatWeeks := 100000
 	recurring := true
 	body := &gen.CreateEventRequest{
@@ -298,7 +299,7 @@ func TestEventService_CreateEvent_Recurring_RejectsNonPositiveRepeatWeeks(t *tes
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	for _, invalid := range []int{0, -1} {
 		repeatWeeks := invalid
 		recurring := true
@@ -341,7 +342,7 @@ func TestEventService_SetAttendance(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	req := gen.SetAttendanceRequest{
 		UserId: userID,
 		Status: gen.Yes,
@@ -376,7 +377,7 @@ func TestEventService_SetAttendance_RejectsNotNominatedStatus(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.NotNominated}
 
 	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
@@ -409,7 +410,7 @@ func TestEventService_SetAttendance_ForOtherMember_RequiresEventsWrite(t *testin
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}})
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}}, slog.Default())
 	req := gen.SetAttendanceRequest{UserId: targetUserID, Status: gen.Yes}
 
 	_, err := svc.SetAttendance(context.Background(), eventID.String(), callerID.String(), targetUserID.String(), teamID.String(), req)
@@ -432,7 +433,7 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}})
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}}, slog.Default())
 	req := gen.SetAttendanceRequest{UserId: targetUserID, Status: gen.Yes}
 
 	result, err := svc.SetAttendance(context.Background(), eventID.String(), callerID.String(), targetUserID.String(), teamID.String(), req)
@@ -462,7 +463,7 @@ func TestEventService_SetNomination_RequiresEventsWrite(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}})
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}}, slog.Default())
 	req := gen.SetNominationRequest{UserId: targetUserID, Nominated: true}
 
 	err := svc.SetNomination(context.Background(), eventID.String(), callerID.String(), teamID.String(), req)
@@ -479,7 +480,7 @@ func TestEventService_SetNomination_NilPermChecker_Forbidden(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	req := gen.SetNominationRequest{UserId: uuid.New(), Nominated: true}
 
 	err := svc.SetNomination(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), req)
@@ -506,7 +507,7 @@ func TestEventService_SetNomination_AllowedWithEventsWrite(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}})
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}}, slog.Default())
 	req := gen.SetNominationRequest{UserId: targetUserID, Nominated: true}
 
 	err := svc.SetNomination(context.Background(), eventID.String(), callerID.String(), teamID.String(), req)
@@ -535,7 +536,7 @@ func TestEventService_SetStatus_PassesTeamIDThrough(t *testing.T) {
 		getMyAttendanceFn:      nilMyAttendanceFn,
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	_, err := svc.SetStatus(context.Background(), testUserID, eventID.String(), otherTeamID.String(), "cancelled", "single")
 	require.NoError(t, err)
 	assert.Equal(t, otherTeamID.String(), capturedTeamID, "teamID must be threaded through to the repository so cross-team status changes are rejected at the DB layer")
@@ -562,7 +563,7 @@ func TestEventService_ListAttendance_RedactsDeclineReasonWithoutRole(t *testing.
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -589,7 +590,7 @@ func TestEventService_ListAttendance_ShowsOwnDeclineReason(t *testing.T) {
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -617,7 +618,7 @@ func TestEventService_ListAttendance_ShowsDeclineReasonWithMatchingRole(t *testi
 		},
 	}
 
-	svc := events.NewService(repo, nil, nil, nil, nil)
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
 	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
