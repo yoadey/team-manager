@@ -2,6 +2,8 @@ package polls_test
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 	"github.com/yoadey/team-manager/backend/internal/polls"
 )
 
@@ -145,7 +148,7 @@ func TestService_ListByTeam(t *testing.T) {
 		listVotes: emptyVoteRepo(),
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	result, next, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
 
 	require.NoError(t, err)
@@ -201,7 +204,7 @@ func TestService_ListByTeam_BulkFetchesOptionsAndVotes(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	result, _, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
 
 	require.NoError(t, err)
@@ -238,7 +241,7 @@ func TestService_Create(t *testing.T) {
 		listVotes: emptyVoteRepo(),
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	body := &gen.CreatePollRequest{
 		Question: "Vote now?",
 		Options:  []string{"Yes", "No"},
@@ -248,6 +251,51 @@ func TestService_Create(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Vote now?", result.Question)
 	assert.Len(t, result.Options, 2)
+}
+
+// mockJobEnqueuer satisfies jobEnqueuer for tests exercising the
+// best-effort notification path.
+type mockJobEnqueuer struct {
+	err error
+}
+
+func (m *mockJobEnqueuer) EnqueueNotification(context.Context, jobs.NotificationArgs) error {
+	return m.err
+}
+
+// TestService_Create_NotificationEnqueueFailure_StillSucceeds regression-tests
+// that a failed best-effort notification enqueue doesn't fail the request
+// (the write already succeeded) -- this was already true before, but a
+// failure here used to be discarded with no trace at all; the logger
+// parameter added alongside this test makes it observable instead.
+func TestService_Create_NotificationEnqueueFailure_StillSucceeds(t *testing.T) {
+	t.Parallel()
+
+	newID := uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+	pr := &polls.PollRow{
+		Id: newID, TeamId: teamID, CreatorId: userID,
+		Question: "Vote now?", Multiple: false, Anonymous: false, CreatedAt: time.Now(),
+	}
+
+	repo := &mockRepo{
+		create: func(context.Context, uuid.UUID, uuid.UUID, string, bool, bool, []string) (uuid.UUID, error) {
+			return newID, nil
+		},
+		findByID: func(_ context.Context, _, _ uuid.UUID) (*polls.PollRow, error) {
+			return pr, nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{{Id: optionID, PollId: newID, Text: "Yes", SortOrder: 0}}, nil
+		},
+		listVotes: emptyVoteRepo(),
+	}
+
+	svc := polls.NewService(repo, &mockJobEnqueuer{err: errors.New("river unavailable")}, nil, slog.Default())
+	body := &gen.CreatePollRequest{Question: "Vote now?", Options: []string{"Yes"}}
+	result, err := svc.Create(context.Background(), teamID, userID, body)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Vote now?", result.Question)
 }
 
 func TestService_Vote(t *testing.T) {
@@ -281,7 +329,7 @@ func TestService_Vote(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	result, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID})
 
 	require.NoError(t, err)
@@ -307,7 +355,7 @@ func TestService_Vote_CrossTeamBlocked(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	_, err := svc.Vote(context.Background(), pollID, otherTeamID, userID, []uuid.UUID{optionID})
 
 	require.Error(t, err)
@@ -330,7 +378,7 @@ func TestService_Vote_SingleChoiceRejectsMultipleOptions(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	_, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID, otherOptionID})
 
 	require.Error(t, err)
@@ -360,7 +408,7 @@ func TestService_Vote_SingleChoiceDuplicateOptionID_NotRejected(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	// Same option submitted twice — a single-choice vote in substance, must
 	// not trip ErrSingleChoiceMultipleOptions (raw, undeduped length is 2).
 	_, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID, optionID})
@@ -382,7 +430,7 @@ func TestService_Delete(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	err := svc.Delete(context.Background(), pollID, teamID)
 
 	require.NoError(t, err)
@@ -401,7 +449,7 @@ func TestService_Delete_CrossTeamBlocked(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	err := svc.Delete(context.Background(), pollID, otherTeamID)
 
 	require.Error(t, err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -37,18 +38,19 @@ type jobEnqueuer interface {
 
 // Service implements polls business logic.
 type Service struct {
-	repo  pollRepo
-	jobs  jobEnqueuer
-	pager *pagination.Paginator
+	repo   pollRepo
+	jobs   jobEnqueuer
+	pager  *pagination.Paginator
+	logger *slog.Logger
 }
 
 // NewService creates a new Service. pager may be nil, in which case a default
 // (unsigned) Paginator is used.
-func NewService(repo pollRepo, enq jobEnqueuer, pager *pagination.Paginator) *Service {
+func NewService(repo pollRepo, enq jobEnqueuer, pager *pagination.Paginator, logger *slog.Logger) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, jobs: enq, pager: pager}
+	return &Service{repo: repo, jobs: enq, pager: pager, logger: logger}
 }
 
 // ListByTeam returns a keyset page of polls (with full vote data) plus the
@@ -120,12 +122,14 @@ func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body 
 	// Enqueue notification (best-effort; ignore error so it doesn't fail the request).
 	if s.jobs != nil {
 		question := body.Question
-		_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+		if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
 			TeamID:  teamID,
 			Type:    "poll",
 			ActorID: creatorID,
 			Title:   &question,
-		})
+		}); err != nil {
+			s.logger.Warn("polls: failed to enqueue notification", slog.String("pollId", pollID.String()), slog.String("error", err.Error()))
+		}
 	}
 	return s.buildPoll(ctx, pr, creatorID)
 }

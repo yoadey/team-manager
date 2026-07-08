@@ -2,6 +2,8 @@ package news_test
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 	"github.com/yoadey/team-manager/backend/internal/news"
 )
 
@@ -72,7 +75,7 @@ func TestService_ListByTeam(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil, nil)
+	svc := news.NewService(repo, nil, nil, slog.Default())
 	result, next, err := svc.ListByTeam(context.Background(), teamID, 50, "")
 
 	require.NoError(t, err)
@@ -98,7 +101,7 @@ func TestService_Create(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil, nil)
+	svc := news.NewService(repo, nil, nil, slog.Default())
 	body := &gen.CreateNewsRequest{
 		Title: "Team Update",
 		Body:  "We won the match!",
@@ -108,6 +111,44 @@ func TestService_Create(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, row.Id, result.Id)
 	assert.Equal(t, row.Title, result.Title)
+}
+
+// mockJobEnqueuer satisfies jobEnqueuer for tests exercising the
+// best-effort notification path.
+type mockJobEnqueuer struct {
+	err error
+}
+
+func (m *mockJobEnqueuer) EnqueueNotification(context.Context, jobs.NotificationArgs) error {
+	return m.err
+}
+
+// TestService_Create_NotificationEnqueueFailure_StillSucceeds regression-tests
+// that a failed best-effort notification enqueue doesn't fail the request
+// (the write already succeeded) -- this was already true before, but a
+// failure here used to be discarded with no trace at all; the logger
+// parameter added alongside this test makes it observable instead. There's
+// no assertion on log output itself (would require capturing the slog
+// handler), just that the documented best-effort semantics survived the change.
+func TestService_Create_NotificationEnqueueFailure_StillSucceeds(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	authorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	row := makeNewsRow()
+
+	repo := &mockRepo{
+		create: func(context.Context, uuid.UUID, uuid.UUID, string, string, bool) (*news.NewsRow, error) {
+			return row, nil
+		},
+	}
+
+	svc := news.NewService(repo, &mockJobEnqueuer{err: errors.New("river unavailable")}, nil, slog.Default())
+	body := &gen.CreateNewsRequest{Title: "Team Update", Body: "We won the match!"}
+	result, err := svc.Create(context.Background(), teamID, authorID, body)
+
+	require.NoError(t, err)
+	assert.Equal(t, row.Id, result.Id)
 }
 
 func TestService_Update(t *testing.T) {
@@ -127,7 +168,7 @@ func TestService_Update(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil, nil)
+	svc := news.NewService(repo, nil, nil, slog.Default())
 	result, err := svc.Update(context.Background(), id, teamID, &gen.UpdateNewsRequest{Title: &newTitle})
 
 	require.NoError(t, err)
@@ -147,7 +188,7 @@ func TestService_Update_WrongTeam_PropagatesNoRows(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil, nil)
+	svc := news.NewService(repo, nil, nil, slog.Default())
 	_, err := svc.Update(context.Background(), id, wrongTeamID, &gen.UpdateNewsRequest{Title: &newTitle})
 
 	require.Error(t, err)
@@ -170,7 +211,7 @@ func TestService_Delete(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil, nil)
+	svc := news.NewService(repo, nil, nil, slog.Default())
 	err := svc.Delete(context.Background(), id, teamID)
 
 	require.NoError(t, err)
@@ -189,7 +230,7 @@ func TestService_Delete_WrongTeam_PropagatesNoRows(t *testing.T) {
 		},
 	}
 
-	svc := news.NewService(repo, nil, nil)
+	svc := news.NewService(repo, nil, nil, slog.Default())
 	err := svc.Delete(context.Background(), id, wrongTeamID)
 
 	require.Error(t, err)

@@ -3,6 +3,7 @@ package news
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -26,18 +27,19 @@ type jobEnqueuer interface {
 
 // Service implements news business logic.
 type Service struct {
-	repo  newsRepo
-	jobs  jobEnqueuer
-	pager *pagination.Paginator
+	repo   newsRepo
+	jobs   jobEnqueuer
+	pager  *pagination.Paginator
+	logger *slog.Logger
 }
 
 // NewService creates a new Service. pager may be nil, in which case a default
 // (unsigned) Paginator is used.
-func NewService(repo newsRepo, enq jobEnqueuer, pager *pagination.Paginator) *Service {
+func NewService(repo newsRepo, enq jobEnqueuer, pager *pagination.Paginator, logger *slog.Logger) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, jobs: enq, pager: pager}
+	return &Service{repo: repo, jobs: enq, pager: pager, logger: logger}
 }
 
 // ListByTeam returns a keyset page of news items plus the cursor for the next
@@ -89,12 +91,14 @@ func (s *Service) Create(ctx context.Context, teamID, authorID uuid.UUID, body *
 	// Fire notification via River (best-effort; ignore error so it doesn't fail the request).
 	if s.jobs != nil {
 		title := body.Title
-		_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+		if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
 			TeamID:  teamID,
 			Type:    "news",
 			ActorID: authorID,
 			Title:   &title,
-		})
+		}); err != nil {
+			s.logger.Warn("news: failed to enqueue notification", slog.String("newsId", row.Id.String()), slog.String("error", err.Error()))
+		}
 	}
 	return toGenNewsItem(row), nil
 }

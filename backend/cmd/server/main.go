@@ -259,13 +259,13 @@ func main() {
 	// ─── News ────────────────────────────────────────────────────────────────
 
 	newsRepo := news.NewRepository(pool)
-	newsSvc := news.NewService(newsRepo, jobsClient, pager)
+	newsSvc := news.NewService(newsRepo, jobsClient, pager, logger)
 	newsHandler := news.NewHandler(newsSvc, logger)
 
 	// ─── Polls ───────────────────────────────────────────────────────────────
 
 	pollsRepo := polls.NewRepository(pool)
-	pollsSvc := polls.NewService(pollsRepo, jobsClient, pager)
+	pollsSvc := polls.NewService(pollsRepo, jobsClient, pager, logger)
 	pollsHandler := polls.NewHandler(pollsSvc, logger)
 
 	// ─── Notifications ────────────────────────────────────────────────────────
