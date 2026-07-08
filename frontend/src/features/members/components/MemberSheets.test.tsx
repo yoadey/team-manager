@@ -87,6 +87,7 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     removeMember: vi.fn(),
     setFormErrors: vi.fn(),
     setFormVal: vi.fn(),
+    setState: vi.fn(),
     onFormInput: vi.fn(),
     onFile: vi.fn(),
     toggleFormRole: vi.fn(),
@@ -425,6 +426,38 @@ describe('MemberFormSheet', () => {
     render(<MemberFormSheet app={app} sheet={otherSheet} />);
     expect(screen.queryByText(/Foto hochladen/i)).toBeNull();
     expect(screen.queryByText(/Foto ändern/i)).toBeNull();
+  });
+
+  // Regression test: the photo input's onChange used to call
+  // app.onFile(e, (d) => app.setFormVal({ photo: d })) unconditionally --
+  // setFormVal writes into the single shared, untyped form buffer regardless
+  // of which sheet is open. If the user closed this member form (or opened a
+  // different sheet reading the same form.photo field, e.g. team settings)
+  // before the FileReader read completed, the resolved callback would
+  // silently overwrite that other sheet's in-progress photo with this one.
+  it('does not apply the photo via setState if the member form is no longer open when the read completes', () => {
+    const app = makeFormApp({ photo: null });
+    app.state.sheet = formSheet;
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const fileInput = document.querySelector('input[type="file"]')!;
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
+
+    expect(app.onFile).toHaveBeenCalledTimes(1);
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+    onFileCb('data:image/png;base64,photodata');
+
+    expect(app.setState).toHaveBeenCalledTimes(1);
+    const updater = (app.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as (
+      s: AppState,
+    ) => Partial<AppState>;
+
+    // Sheet unchanged (still this memberForm): the update applies.
+    expect(updater({ ...app.state, sheet: formSheet } as never)).toEqual({
+      form: { ...app.state.form, photo: 'data:image/png;base64,photodata' },
+    });
+    // User has since closed the sheet (or opened a different one): no-op.
+    expect(updater({ ...app.state, sheet: null } as never)).toEqual({});
+    expect(updater({ ...app.state, sheet: { type: 'teamSettings' } } as never)).toEqual({});
   });
 
   it('shows busy state on save button when busy is "save"', () => {

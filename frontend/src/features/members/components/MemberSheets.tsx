@@ -242,7 +242,26 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
           key="f"
           type="file"
           accept="image/*"
-          onChange={(e) => app.onFile(e, (d) => app.setFormVal({ photo: d }))}
+          onChange={(e) => {
+            // setFormVal writes into the single shared, untyped form buffer
+            // regardless of which sheet is open. Snapshot the sheet type
+            // here, synchronously, before onFile's async FileReader read
+            // starts, and re-check it via setState's functional-update form
+            // once the read completes -- state/app.state are just this
+            // render's snapshot (React context value, not a live ref), so
+            // re-reading them here would just compare the closure to itself
+            // and never catch anything; the functional updater's `s`
+            // argument is guaranteed to be the actual live state at apply
+            // time. Without this, if the user closes this member form (or
+            // opens a different sheet that also reads form.photo, e.g. team
+            // settings or create-team) before the read completes, the
+            // resolved callback would overwrite that other sheet's
+            // in-progress data.
+            const sheetType = state.sheet?.type;
+            app.onFile(e, (d) => {
+              app.setState((s) => (s.sheet?.type === sheetType ? { form: { ...s.form, photo: d } } : {}));
+            });
+          }}
           hidden
         />
       </Box>
