@@ -77,6 +77,14 @@ func (r *Repository) WithReadTx(ctx context.Context, fn func(OverviewReader) err
 // history can't force an unbounded response. Aggregates (income/expense sums,
 // open-contribution count) are computed separately via dedicated queries that
 // scan the full table, so capping the display list never skews the totals.
+//
+// Known limitation: rows beyond the cap are simply unreachable — there is no
+// pagination (page/cursor param) on these three list endpoints today, so a
+// team that exceeds maxOverviewRows in a single list can no longer see its
+// oldest entries via the API. Adding real pagination here is a feature
+// addition (new OpenAPI params, handler wiring, and frontend "load more" UI
+// across all three list types), not a bug fix, so it's tracked as future
+// work rather than done as part of this cap.
 const maxOverviewRows = 1000
 
 // ListTransactions returns up to maxOverviewRows most recent transactions for
