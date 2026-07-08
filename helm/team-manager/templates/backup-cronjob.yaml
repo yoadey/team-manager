@@ -41,6 +41,12 @@ spec:
           volumes:
             - name: dump
               emptyDir: {}
+            # Scratch space for readOnlyRootFilesystem containers below --
+            # pg_dump and the AWS CLI both need a writable /tmp (and, for the
+            # AWS CLI, a writable $HOME for its own ~/.aws/cli/cache) even
+            # though neither writes anything outside that scratch dir.
+            - name: tmp
+              emptyDir: {}
           initContainers:
           - name: pg-dump
             image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}{{ if .Values.backup.postgresImageDigest }}@{{ .Values.backup.postgresImageDigest }}{{ end }}"
@@ -68,6 +74,8 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: DATABASE_URL
+            - name: TMPDIR
+              value: /tmp-scratch
             resources:
               requests:
                 cpu: 100m
@@ -77,7 +85,13 @@ spec:
                 memory: 512Mi
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: false
+              # pg_dump only ever writes to the explicit --file path under
+              # /backup (and libpq's own temp files under $TMPDIR); it never
+              # needs to write anywhere else in its own filesystem, so this
+              # confines a compromised/malicious postgres image (supply-chain
+              # issue, parsing bug) to those two mounted scratch volumes
+              # instead of being able to write/overwrite arbitrary files.
+              readOnlyRootFilesystem: true
               capabilities:
                 drop: ["ALL"]
               seccompProfile:
@@ -85,6 +99,8 @@ spec:
             volumeMounts:
               - name: dump
                 mountPath: /backup
+              - name: tmp
+                mountPath: /tmp-scratch
           containers:
           {{- if .Values.backup.s3.enabled }}
           - name: s3-upload
@@ -104,8 +120,16 @@ spec:
                   --region {{ .Values.backup.s3.region }}
               done
               echo "Upload complete"
-            {{- if .Values.backup.s3.credentialsSecretName }}
             env:
+            # The AWS CLI writes its own cache/config under $HOME/.aws/cli/
+            # and stages multipart-upload chunks under $TMPDIR -- both need
+            # to be writable even though readOnlyRootFilesystem below means
+            # nothing else in this container's filesystem is.
+            - name: HOME
+              value: /tmp-scratch
+            - name: TMPDIR
+              value: /tmp-scratch
+            {{- if .Values.backup.s3.credentialsSecretName }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -128,7 +152,16 @@ spec:
                 memory: 256Mi
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: false
+              # aws s3 cp only reads from /backup and writes its own
+              # cache/temp files under $HOME/$TMPDIR (both pointed at the
+              # tmp scratch volume above); it never needs to write anywhere
+              # else in its own filesystem, so this confines a
+              # compromised/malicious aws-cli image (supply-chain issue,
+              # parsing bug) to the two mounted scratch volumes instead of
+              # being able to write/overwrite arbitrary files -- notably
+              # relevant here since this container also holds S3 write
+              # credentials.
+              readOnlyRootFilesystem: true
               capabilities:
                 drop: ["ALL"]
               seccompProfile:
@@ -136,6 +169,8 @@ spec:
             volumeMounts:
               - name: dump
                 mountPath: /backup
+              - name: tmp
+                mountPath: /tmp-scratch
           {{- else }}
           - name: no-op-warning
             image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}{{ if .Values.backup.postgresImageDigest }}@{{ .Values.backup.postgresImageDigest }}{{ end }}"
