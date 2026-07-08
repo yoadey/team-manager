@@ -14,6 +14,7 @@ const MAX_REPEAT_WEEKS = 26;
 type MoneyOptions = {
   positive?: boolean;
   allowZero?: boolean;
+  max?: number;
 };
 
 type EventForm = {
@@ -61,6 +62,8 @@ export function validateMoneyAmount(value: unknown, options: MoneyOptions = {}):
     return { ok: false, message: t('validation.moneyNonNegative') };
   if (!options.positive && options.allowZero === false && rounded <= 0)
     return { ok: false, message: t('validation.moneyNonZero') };
+  if (options.max !== undefined && rounded > options.max)
+    return { ok: false, message: t('validation.moneyTooLarge') };
   return { ok: true, value: rounded };
 }
 

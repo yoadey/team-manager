@@ -53,6 +53,24 @@ describe('validateMoneyAmount', () => {
   it('rejects zero when allowZero is explicitly false', () => {
     expect(validateMoneyAmount('0', { allowZero: false }).ok).toBe(false);
   });
+
+  // Regression test: validateMoneyAmount had no upper bound, unlike the
+  // backend's amount cap (100000000 cents / €1,000,000) on
+  // CreateTransactionRequest/CreatePenaltyRequest/UpdateContributionRequest,
+  // so an accidental extra digit passed client-side validation and only
+  // failed with a raw, unlocalized backend error string.
+  it('rejects amounts above an explicit max', () => {
+    const result = validateMoneyAmount('1000000.01', { positive: true, max: 1000000 });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts an amount exactly at the max', () => {
+    expect(validateMoneyAmount('1000000', { positive: true, max: 1000000 })).toEqual({ ok: true, value: 1000000 });
+  });
+
+  it('has no upper bound when max is not specified', () => {
+    expect(validateMoneyAmount('99999999', { positive: true }).ok).toBe(true);
+  });
 });
 
 describe('validateDateRange', () => {

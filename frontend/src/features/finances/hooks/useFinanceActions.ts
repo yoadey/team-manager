@@ -17,6 +17,10 @@ import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
+// Matches the backend's `amount` maximum (100000000 cents, openapi.yaml) on
+// CreateTransactionRequest/CreatePenaltyRequest/UpdateContributionRequest.
+const MAX_MONEY_AMOUNT_EUROS = 1000000;
+
 type FinanceFeatureDeps = {
   api: typeof defaultApi;
   S: () => AppState;
@@ -57,7 +61,7 @@ export function useFinanceActions({
       toastMsg(title.message!);
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { positive: true });
+    const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
     if (!amount.ok) {
       toastMsg(amount.message!);
       return;
@@ -135,7 +139,7 @@ export function useFinanceActions({
       toastMsg(label.message!);
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { positive: true });
+    const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
     if (!amount.ok) {
       toastMsg(amount.message!);
       return;
@@ -241,7 +245,7 @@ export function useFinanceActions({
       toastMsg(label.message!);
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { positive: true });
+    const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
     if (!amount.ok) {
       toastMsg(amount.message!);
       return;
