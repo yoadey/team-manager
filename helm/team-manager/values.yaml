@@ -223,7 +223,7 @@ backup:
   startingDeadlineSeconds: 900  # How late a missed run may still start before Kubernetes gives up on it
   postgresVersion: "17"
   # Digest for postgresVersion "17", matching docker-compose.yml's local-dev
-  # pin (resolved 2026-07-01 from registry-1.docker.io, docker-library/postgres
+  # pin (resolved 2026-07-08 from registry-1.docker.io, docker-library/postgres
   # 17.10) so a tag-hijack of the mutable `postgres:17` tag can't silently
   # reach this CronJob's initContainer, which holds the app's DATABASE_URL
   # credential. Appended to the image reference when set. If you override
@@ -231,8 +231,10 @@ backup:
   # yourself or clear this to fall back to the mutable tag -- Dependabot
   # cannot keep this current automatically (its docker ecosystem updater only
   # scans Dockerfiles and docker-compose.y*ml, not arbitrary keys in a Helm
-  # values.yaml).
-  postgresImageDigest: "sha256:5c855ad7b85e68e48a62f34662853f38b57c1c1d80f3a927ab58034fd6d31c5e"
+  # values.yaml). Any point-in-time digest pin will eventually accrue newly-
+  # published CVEs against its frozen package versions (caught once already by
+  # CI's security-container-backup Trivy scan) -- re-resolve periodically.
+  postgresImageDigest: "sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397"
   retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
     enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)

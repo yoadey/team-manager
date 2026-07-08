@@ -695,14 +695,24 @@ jobs:
       # CVE published against either is caught the same way as the app's own
       # images, instead of silently reaching a CronJob that holds DB
       # credentials and, when backup.s3.enabled, S3 write access.
+      #
+      # scanners: vuln only (unlike the app's own two Trivy jobs, which use
+      # the default vuln+secret scan) -- Trivy's secret scanner otherwise
+      # flags postgres's bundled /etc/ssl/private/ssl-cert-snakeoil.key as an
+      # "AsymmetricPrivateKey": a well-known Debian ssl-cert package
+      # convention (a placeholder self-signed cert generated at image build
+      # time), not an actual leaked secret. That check is only meaningful for
+      # scanning images this project actually builds, where a real secret
+      # could get baked in by mistake -- not a third-party vendor base image.
       - name: Scan postgres (backup pg_dump initContainer)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: postgres:17@sha256:5c855ad7b85e68e48a62f34662853f38b57c1c1d80f3a927ab58034fd6d31c5e
+          image-ref: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
           format: table
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          scanners: vuln
       - name: Scan aws-cli (backup s3-upload container)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -711,6 +721,7 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          scanners: vuln
 
   security-container-frontend:
     name: Security · Container scan (Trivy, frontend)
