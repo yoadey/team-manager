@@ -10,31 +10,39 @@ groups:
           severity: critical
         annotations:
           summary: "Backend instance down"
-          description: "{{ $labels.instance }} has been unreachable for more than 1 minute."
+          description: "{{ $labels.namespace }}/{{ $labels.instance }} has been unreachable for more than 1 minute."
 
+      # Grouped by (namespace): job="team-manager-backend" is a fixed literal
+      # (see servicemonitor.yaml's relabelings comment -- kept stable across
+      # release names so these queries don't have to change per release), so
+      # if monitoring.namespace is used to centralize multiple environments'
+      # ServiceMonitors into one shared Prometheus, every environment
+      # produces identically job-labeled series. Without grouping, a quiet
+      # staging instance dilutes a real production spike below threshold (or
+      # vice versa) and the resulting alert can't say which environment fired.
       - alert: HighErrorRate
         expr: |
-          sum(rate(teammanager_http_requests_total{job="team-manager-backend", status=~"5.."}[5m]))
+          sum(rate(teammanager_http_requests_total{job="team-manager-backend", status=~"5.."}[5m])) by (namespace)
           /
-          sum(rate(teammanager_http_requests_total{job="team-manager-backend"}[5m])) > 0.05
+          sum(rate(teammanager_http_requests_total{job="team-manager-backend"}[5m])) by (namespace) > 0.05
         for: 2m
         labels:
           severity: critical
         annotations:
           summary: "High HTTP 5xx error rate"
-          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 5%) over the last 5 minutes."
+          description: "Error rate in {{ $labels.namespace }} is {{ $value | humanizePercentage }} (threshold: 5%) over the last 5 minutes."
 
       - alert: HighLatencyP99
         expr: |
           histogram_quantile(0.99,
-            sum(rate(teammanager_http_request_duration_seconds_bucket{job="team-manager-backend"}[5m])) by (le)
+            sum(rate(teammanager_http_request_duration_seconds_bucket{job="team-manager-backend"}[5m])) by (le, namespace)
           ) > 2
         for: 5m
         labels:
           severity: warning
         annotations:
           summary: "P99 latency above 2 s"
-          description: "P99 request latency is {{ $value | humanizeDuration }}."
+          description: "P99 request latency in {{ $labels.namespace }} is {{ $value | humanizeDuration }}."
 
   # ── Rate Limiting ─────────────────────────────────────────────────────────────
 
@@ -42,13 +50,13 @@ groups:
     rules:
       - alert: RateLimitSpike
         expr: |
-          sum(rate(teammanager_rate_limit_hits_total[5m])) by (context) > 10
+          sum(rate(teammanager_rate_limit_hits_total[5m])) by (context, namespace) > 10
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "Sustained rate-limit hits on {{ $labels.context }} limiter"
-          description: "{{ $value | humanize }} req/s are being rejected by the {{ $labels.context }} rate limiter. Possible brute-force or misconfigured client."
+          description: "{{ $value | humanize }} req/s are being rejected by the {{ $labels.context }} rate limiter in {{ $labels.namespace }}. Possible brute-force or misconfigured client."
 
   # ── Domain Events ─────────────────────────────────────────────────────────────
 
@@ -56,23 +64,23 @@ groups:
     rules:
       - alert: LoginFailureSpike
         expr: |
-          sum(rate(teammanager_login_attempts_total{outcome="failure"}[10m])) > 5
+          sum(rate(teammanager_login_attempts_total{outcome="failure"}[10m])) by (namespace) > 5
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "Login failure spike detected"
-          description: "{{ $value | humanize }} failed login attempts/s over the last 10 minutes."
+          description: "{{ $value | humanize }} failed login attempts/s in {{ $labels.namespace }} over the last 10 minutes."
 
       - alert: BulkMemberDeletion
         expr: |
-          sum(increase(teammanager_domain_events_total{module="member", operation="delete"}[5m])) > 10
+          sum(increase(teammanager_domain_events_total{module="member", operation="delete"}[5m])) by (namespace) > 10
         for: 0m
         labels:
           severity: warning
         annotations:
           summary: "Bulk member deletion detected"
-          description: "{{ $value }} member deletions in the last 5 minutes — may be accidental or malicious."
+          description: "{{ $value }} member deletions in {{ $labels.namespace }} in the last 5 minutes — may be accidental or malicious."
 
   # ── Database ──────────────────────────────────────────────────────────────────
 
@@ -87,7 +95,7 @@ groups:
           severity: critical
         annotations:
           summary: "Database connection pool near exhaustion"
-          description: "{{ $value | humanizePercentage }} of the pool's max connections are acquired — pool may be exhausted."
+          description: "{{ $labels.namespace }}/{{ $labels.instance }}: {{ $value | humanizePercentage }} of the pool's max connections are acquired — pool may be exhausted."
 
       - alert: SlowQueriesDetected
         expr: |
@@ -97,7 +105,7 @@ groups:
           severity: warning
         annotations:
           summary: "Elevated slow query count"
-          description: "{{ $value }} queries exceeded the slow-query threshold in the last 10 minutes."
+          description: "{{ $labels.namespace }}: {{ $value }} queries exceeded the slow-query threshold in the last 10 minutes."
 
   # ── Background Jobs ───────────────────────────────────────────────────────────
 
@@ -121,7 +129,7 @@ groups:
           severity: warning
         annotations:
           summary: "Retention job has not succeeded in over 36 hours"
-          description: "Last successful retention run was {{ $value | humanizeDuration }} ago; notifications/sessions/audit_log may be growing unbounded."
+          description: "{{ $labels.namespace }}: last successful retention run was {{ $value | humanizeDuration }} ago; notifications/sessions/audit_log may be growing unbounded."
 
       - alert: RetentionJobFailing
         expr: |
@@ -131,7 +139,7 @@ groups:
           severity: warning
         annotations:
           summary: "Retention job run failed"
-          description: "The retention job failed to delete from {{ $labels.table }} in the last hour."
+          description: "The retention job in {{ $labels.namespace }} failed to delete from {{ $labels.table }} in the last hour."
 
       # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
       # declares an explicit RTO of 4h / RPO of 24h in its own header comment,
@@ -153,7 +161,7 @@ groups:
           severity: critical
         annotations:
           summary: "Database backup job failed"
-          description: "{{ $labels.job_name }} failed -- the daily pg_dump/S3-upload run did not complete successfully."
+          description: "{{ $labels.namespace }}/{{ $labels.job_name }} failed -- the daily pg_dump/S3-upload run did not complete successfully."
 
       - alert: BackupCronJobStale
         # Requires kube-state-metrics >= 2.6.0 for kube_cronjob_status_last_successful_time.
@@ -167,7 +175,7 @@ groups:
           severity: critical
         annotations:
           summary: "Database backup has not succeeded in over 32 hours"
-          description: "{{ $labels.cronjob }}'s last successful run was {{ $value | humanizeDuration }} ago, exceeding its 24h RPO target."
+          description: "{{ $labels.namespace }}/{{ $labels.cronjob }}'s last successful run was {{ $value | humanizeDuration }} ago, exceeding its 24h RPO target."
 
   # ── Infrastructure ────────────────────────────────────────────────────────────
 
