@@ -294,6 +294,35 @@ jobs:
             exit 1
           fi
           echo "Tool-version pins are in sync (goose $goose_gomod, oapi-codegen $oapi_gomod, golangci-lint $lint_makefile)."
+      - name: Verify backup image digests stay in sync
+        working-directory: .
+        # postgres:17's digest is duplicated in docker-compose.yml (kept
+        # current automatically by Dependabot's docker ecosystem entry for
+        # directory /), helm/team-manager/values.yaml's
+        # backup.postgresImageDigest (explicitly NOT covered by Dependabot,
+        # per that key's own comment), and ci.yml's security-container-backup
+        # Trivy scan step -- with nothing tying them together, Dependabot
+        # bumping the first copy on its own schedule would silently desync
+        # it from the other two, and the CI scan or the actual backup
+        # CronJob could end up validating/running a stale digest. Same risk,
+        # weaker (no Dependabot coverage on either side) for aws-cli's pin.
+        run: |
+          set -euo pipefail
+          pg_compose=$(grep -oP 'postgres:17@\Ksha256:\S+' docker-compose.yml)
+          pg_values=$(grep -oP 'postgresImageDigest:\s*"\K[^"]+' helm/team-manager/values.yaml)
+          pg_ci=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml)
+          if [ "$pg_compose" != "$pg_values" ] || [ "$pg_compose" != "$pg_ci" ]; then
+            echo "::error::postgres:17 digest mismatch: docker-compose.yml=$pg_compose values.yaml=$pg_values ci.yml=$pg_ci"
+            exit 1
+          fi
+
+          aws_values=$(grep -oP 'awsCliImage:\s*"amazon/aws-cli:\K\S+(?=")' helm/team-manager/values.yaml)
+          aws_ci=$(grep -oP 'image-ref:\s*amazon/aws-cli:\K\S+' .github/workflows/ci.yml)
+          if [ "$aws_values" != "$aws_ci" ]; then
+            echo "::error::amazon/aws-cli digest mismatch: values.yaml=$aws_values ci.yml=$aws_ci"
+            exit 1
+          fi
+          echo "Backup image digests are in sync (postgres:17@$pg_compose, aws-cli:$aws_values)."
       - name: Forbid hardcoded RFC 9457 type-URI literals outside apierror
         # internal/apierror is the single source of truth for the Problem
         # Details `type` field (honors ERROR_TYPE_BASE_URI). Multiple rounds
