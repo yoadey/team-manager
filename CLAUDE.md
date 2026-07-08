@@ -53,6 +53,12 @@ team-manager/
 │   │   ├── db/            DB pool + migration runner
 │   │   ├── middleware/    HTTP middleware (auth, logging, CORS, rate-limit)
 │   │   ├── apierror/      RFC 9457 Problem Details
+│   │   ├── audit/         Audit log
+│   │   ├── jobs/          River-based background workers (retention, notifications)
+│   │   ├── metrics/       Prometheus metrics (business + retention job)
+│   │   ├── observability/ OpenTelemetry tracing + Sentry wiring
+│   │   ├── pagination/    Keyset pagination + HMAC-signed cursors
+│   │   ├── validate/      Shared input-validation helpers
 │   │   ├── config/        Environment config
 │   │   └── testutil/      Test helpers (testcontainers)
 │   ├── openapi/openapi.yaml  Source of truth for API contract
