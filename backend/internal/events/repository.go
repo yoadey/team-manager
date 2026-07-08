@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -315,38 +316,62 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		return nil, fmt.Errorf("events.Repository.CreateSeries: insert series: %w", err)
 	}
 
-	// Insert event instances.
+	// Insert all event instances in a single round-trip via UNNEST over the
+	// computed dates, rather than one INSERT...RETURNING per week. The
+	// previous sequential-loop version (up to maxRepeatWeeks=104 round-trips)
+	// ran inside this function's fixed 5s context timeout while holding the
+	// team-wide advisory lock acquired above -- at repository latencies above
+	// ~48ms/round-trip (routine for cloud Postgres across AZs, PgBouncer, or
+	// pool contention), a legitimate max-length series request would exceed
+	// the timeout and fail with a generic 500, while also serializing every
+	// other lock-guarded team mutation for the loop's full duration.
+	dates := make([]time.Time, repeatWeeks)
+	for i := 0; i < repeatWeeks; i++ {
+		dates[i] = params.Date.AddDate(0, 0, i*7)
+	}
 	eventQ := fmt.Sprintf(`
 		INSERT INTO events (
 			team_id, series_id, type, title, date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
 			response_mode, nominated_role_ids, status
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7,
+		)
+		SELECT $1, $2, $3, $4, d, $6, $7,
 			$8::time, $9::time, $10::time, $11,
 			$12, $13, 'active'
-		)
+		FROM unnest($5::date[]) AS d
 		RETURNING %s
 	`, selectEventFields)
 
+	rows, err := tx.Query(
+		ctx, eventQ,
+		teamID, seriesID, params.Type, params.Title, dates,
+		params.Location, params.Note,
+		nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
+		boolVal(params.MeetTimeMandatory),
+		strVal(params.ResponseMode, "opt_in"),
+		uuidSlice(params.NominatedRoleIds),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateSeries: insert events: %w", err)
+	}
+	defer rows.Close()
+
 	var events []EventRow
-	for i := 0; i < repeatWeeks; i++ {
-		eventDate := params.Date.AddDate(0, 0, i*7)
-		row := tx.QueryRow(
-			ctx, eventQ,
-			teamID, seriesID, params.Type, params.Title, eventDate,
-			params.Location, params.Note,
-			nullableTime(params.MeetTime), nullableTime(params.StartTime), nullableTime(params.EndTime),
-			boolVal(params.MeetTimeMandatory),
-			strVal(params.ResponseMode, "opt_in"),
-			uuidSlice(params.NominatedRoleIds),
-		)
-		e, err := scanEventRow(row)
+	for rows.Next() {
+		e, err := scanEventRow(rows)
 		if err != nil {
-			return nil, fmt.Errorf("events.Repository.CreateSeries: insert event %d: %w", i, err)
+			return nil, fmt.Errorf("events.Repository.CreateSeries: %w", err)
 		}
 		events = append(events, *e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.CreateSeries: %w", err)
+	}
+	// unnest() over a plain array does not guarantee row order matches the
+	// input array's order (though it does in every version tested); sort by
+	// date defensively so callers (CreateEvent reads rows[0]) always get the
+	// first occurrence, not whichever row Postgres happened to return first.
+	sort.Slice(events, func(i, j int) bool { return events[i].Date.Before(events[j].Date) })
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateSeries: commit: %w", err)
