@@ -40,13 +40,15 @@ func NewHandler(svc absenceService, logger *slog.Logger) *Handler {
 // maxAbsenceSpanDays caps how far apart from/to may be. Generous for any real
 // absence (illness, injury, long-term leave), while preventing an accidental
 // or malicious multi-decade span (e.g. a typo'd year) from distorting
-// attendance reporting indefinitely. Enforced on create, and on update
+// attendance reporting indefinitely. Checked here on create, and on update
 // whenever both from/to are present in the same PATCH (the span is directly
-// computable then, no extra query needed) -- but NOT on a partial update
-// supplying only one of the two fields: UpdateAbsence's patch is applied via
-// a single COALESCE UPDATE with no prior read, so re-deriving the resulting
-// span there would need an extra query. The existing to>=from CHECK
-// constraint still applies to that case regardless.
+// computable then, no extra query needed) for an immediate, specific 400.
+// A partial update supplying only one of the two fields skips this
+// in-handler check (UpdateAbsence's patch is applied via a single COALESCE
+// UPDATE with no prior read, so re-deriving the resulting span here would
+// need an extra query) -- that case is instead caught by the
+// absences_span_within_limit DB CHECK constraint (migration 00016), mapped
+// to ErrSpanTooLong in the repository.
 const maxAbsenceSpanDays = 1095 // ~3 years
 
 // ListAbsences returns paginated absences for a team.
@@ -111,6 +113,9 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	if err != nil {
 		if errors.Is(err, ErrInvalidDateRange) {
 			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
+		if errors.Is(err, ErrSpanTooLong) {
+			return nil, apierror.BadRequest("absence span must not exceed 3 years")
 		}
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to create absence")
@@ -193,6 +198,9 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 		}
 		if errors.Is(err, ErrInvalidDateRange) {
 			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
+		if errors.Is(err, ErrSpanTooLong) {
+			return nil, apierror.BadRequest("absence span must not exceed 3 years")
 		}
 		h.logger.ErrorContext(ctx, "UpdateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to update absence")

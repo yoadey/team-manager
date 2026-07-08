@@ -97,6 +97,46 @@ func TestAbsenceRepository_Update(t *testing.T) {
 	assert.Equal(t, &newReason, updated.Reason)
 }
 
+// TestAbsenceRepository_Update_PartialPatch_RejectsExcessiveSpan regression-tests
+// a gap where UpdateAbsence's maxAbsenceSpanDays check only ran when a PATCH
+// supplied both from/to in the same request -- a PATCH supplying only `to`
+// (or only `from`) skipped it entirely, since the resulting span isn't
+// computable without an extra read. The absences_span_within_limit DB CHECK
+// constraint (migration 00016) now catches this at the repository layer
+// regardless of which fields a given PATCH happens to touch.
+func TestAbsenceRepository_Update_PartialPatch_RejectsExcessiveSpan(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Span User', 'span@example.com', '#aaaaaa')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Span Team')`,
+		tid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	from := "2025-03-01"
+	to := "2025-03-07"
+	ab, err := repo.Create(ctx, teamID, userID, from, to, nil)
+	require.NoError(t, err)
+
+	// Patching only `to` to a date thousands of days past `from` bypasses the
+	// handler's in-memory span check (which requires both fields present).
+	farFuture := "9999-12-31"
+	_, err = repo.Update(ctx, ab.Id, teamID, userID, nil, &farFuture, nil)
+	require.ErrorIs(t, err, absences.ErrSpanTooLong)
+}
+
 func TestAbsenceRepository_Update_WrongTeam_ReturnsNoRows(t *testing.T) {
 	t.Parallel()
 

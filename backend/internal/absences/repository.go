@@ -23,6 +23,18 @@ const pgCheckViolation = "23514"
 // the merge happens inside the UPDATE statement itself.
 var ErrInvalidDateRange = errors.New("to date must not be before from date")
 
+// ErrSpanTooLong is returned when a partial update would leave an absence
+// spanning more than maxAbsenceSpanDays (violates the
+// absences_span_within_limit CHECK constraint, migration 00016). Same
+// partial-PATCH gap as ErrInvalidDateRange: the handler only checks the span
+// when both from/to are present in the same request.
+var ErrSpanTooLong = errors.New("absence span must not exceed 3 years")
+
+// absencesSpanConstraint is the CHECK constraint name added by migration
+// 00016, used to distinguish an over-long span from an inverted date range
+// (both surface as the same SQLSTATE 23514).
+const absencesSpanConstraint = "absences_span_within_limit"
+
 // Repository handles all absence-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -175,6 +187,9 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			if pgErr.ConstraintName == absencesSpanConstraint {
+				return nil, ErrSpanTooLong
+			}
 			return nil, ErrInvalidDateRange
 		}
 		return nil, fmt.Errorf("absences.Repository.Create: %w", err)
@@ -200,6 +215,9 @@ func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, f
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			if pgErr.ConstraintName == absencesSpanConstraint {
+				return nil, ErrSpanTooLong
+			}
 			return nil, ErrInvalidDateRange
 		}
 		return nil, fmt.Errorf("absences.Repository.Update: %w", err)
