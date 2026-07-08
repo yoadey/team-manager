@@ -364,6 +364,50 @@ describe('AppProvider / team-switch race guards', () => {
 
     overviewSpy.mockRestore();
   });
+
+  // Regression test: afterLoginLoad used to await all five initial-load
+  // calls via Promise.all, so a single 403 (e.g. a member whose role lacks
+  // members:read) discarded every other successfully-loaded module too --
+  // the whole dashboard was left blank. It must now degrade gracefully:
+  // modules that succeeded still populate state even when a sibling module
+  // fails.
+  it('afterLoginLoad still populates modules that succeeded when a sibling module 403s', async () => {
+    const svc = await import('@/services/serviceLayer');
+    const { ForbiddenError } = await import('@/utils/errors');
+    const membersSpy = vi.spyOn(svc.api.members, 'list').mockRejectedValue(new ForbiddenError());
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return (
+        <div>
+          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
+          <div data-testid="events">{state.events ? 'loaded' : 'null'}</div>
+          <div data-testid="members">{state.members ? 'loaded' : 'null'}</div>
+        </div>
+      );
+    }
+
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    expect(screen.getByTestId('events').textContent).toBe('loaded');
+    expect(screen.getByTestId('members').textContent).toBe('null');
+
+    membersSpy.mockRestore();
+  });
 });
 
 // The bootstrap sets: events=write, members=read, finances=none

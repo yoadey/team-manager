@@ -632,31 +632,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         notifications: null,
         eventsOnlyPending: false,
       });
-      try {
-        // Retry on transient network failures — this is the initial-load
-        // read path for the whole app, so a single dropped connection
-        // shouldn't fail the entire team switch/login when a retry would
-        // likely succeed. All five calls are idempotent reads.
-        const [events, members, roles, news, notif] = await Promise.all([
-          retryable(() => api.events.list(teamId, 'all')),
-          retryable(() => api.members.list(teamId)),
-          retryable(() => api.roles.list(teamId)),
-          retryable(() => api.news.list(teamId)),
-          retryable(() => api.notifications.list(teamId)),
-        ]);
-        // Discard results if the user switched to a different team while loading,
-        // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
-        // team) has since been invoked.
-        setState((s) => {
-          if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
-          return { events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount };
-        });
-      } catch (err) {
-        if (afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) reportLoad(err);
-        setState((s) =>
-          s.activeTeamId === teamId && afterLoginLoadSeq.current === seq ? { error: t('error.load') } : {},
-        );
+      // Retry on transient network failures — this is the initial-load read
+      // path for the whole app, so a single dropped connection shouldn't
+      // fail the entire team switch/login when a retry would likely
+      // succeed. All five calls are idempotent reads.
+      //
+      // allSettled (not all): a member whose role permits some but not all
+      // of these modules (e.g. finances:none is the default) must still see
+      // everything they DO have access to — one 403 shouldn't blank out
+      // events/news/notifications that already loaded successfully. Each
+      // slot keeps its previous value on failure rather than being forced
+      // to null, so a permission-denied module just doesn't overwrite
+      // whatever was already there (typically null on first load).
+      const [events, members, roles, news, notif] = await Promise.allSettled([
+        retryable(() => api.events.list(teamId, 'all')),
+        retryable(() => api.members.list(teamId)),
+        retryable(() => api.roles.list(teamId)),
+        retryable(() => api.news.list(teamId)),
+        retryable(() => api.notifications.list(teamId)),
+      ]);
+      const failures = [events, members, roles, news, notif].filter((r) => r.status === 'rejected');
+      if (failures.length && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
+        reportLoad(failures[0].reason);
       }
+      // Discard results if the user switched to a different team while loading,
+      // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
+      // team) has since been invoked.
+      setState((s) => {
+        if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
+        const patch: Partial<AppState> = {};
+        if (events.status === 'fulfilled') patch.events = events.value;
+        if (members.status === 'fulfilled') patch.members = members.value;
+        if (roles.status === 'fulfilled') patch.roles = roles.value;
+        if (news.status === 'fulfilled') patch.news = news.value;
+        if (notif.status === 'fulfilled') {
+          patch.notifications = notif.value.items;
+          patch.notifUnread = notif.value.unreadCount;
+        }
+        return patch;
+      });
     },
     [api, S, setState, reportLoad],
   );
