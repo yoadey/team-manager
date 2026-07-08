@@ -133,6 +133,42 @@ groups:
           summary: "Retention job run failed"
           description: "The retention job failed to delete from {{ $labels.table }} in the last hour."
 
+      # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
+      # declares an explicit RTO of 4h / RPO of 24h in its own header comment,
+      # but -- unlike the retention job above, which has app-level metrics --
+      # nothing was watching it: concurrencyPolicy: Forbid means a single
+      # hung run (DB lock contention, network partition) silently blocks
+      # every subsequent scheduled run too, and a failure (credential
+      # rotation breaking DATABASE_URL, S3 permission drift, image pull
+      # failure) had no paging signal at all. Both rules key off
+      # kube-state-metrics, matched by job/cronjob name suffix rather than
+      # the chart's templated fullname, since this file is embedded into the
+      # PrometheusRule verbatim via .Files.Get (not Helm-templated) -- if
+      # you set fullnameOverride/nameOverride, adjust these regexes to match.
+      - alert: BackupCronJobFailed
+        expr: |
+          kube_job_failed{job_name=~".+-backup-.+"} > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database backup job failed"
+          description: "{{ $labels.job_name }} failed -- the daily pg_dump/S3-upload run did not complete successfully."
+
+      - alert: BackupCronJobStale
+        # Requires kube-state-metrics >= 2.6.0 for kube_cronjob_status_last_successful_time.
+        # 32h = 24h RPO target + one missed run of grace, matching
+        # RetentionJobStale's grace-period reasoning above.
+        expr: |
+          kube_cronjob_status_last_successful_time{cronjob=~".+-backup"} > 0
+          and (time() - kube_cronjob_status_last_successful_time{cronjob=~".+-backup"} > 32 * 3600)
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database backup has not succeeded in over 32 hours"
+          description: "{{ $labels.cronjob }}'s last successful run was {{ $value | humanizeDuration }} ago, exceeding its 24h RPO target."
+
   # ── Infrastructure ────────────────────────────────────────────────────────────
 
   - name: infrastructure
