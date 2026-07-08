@@ -72,6 +72,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     myRoles,
     refreshEvents,
     setFormVal,
+    askConfirm,
     toastMsg,
     logout,
   });

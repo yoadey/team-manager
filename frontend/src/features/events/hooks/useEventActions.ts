@@ -18,6 +18,13 @@ type EventFeatureDeps = {
   myRoles: () => Role[];
   refreshEvents: () => Promise<void>;
   setFormVal: (patch: Record<string, unknown>) => void;
+  askConfirm: (cfg: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void | Promise<void>;
+  }) => void;
   toastMsg: (m: string) => void;
   logout: () => void;
 };
@@ -30,6 +37,7 @@ export function useEventDetailActions({
   myRoles,
   refreshEvents,
   setFormVal,
+  askConfirm,
   toastMsg,
   logout,
 }: EventFeatureDeps) {
@@ -192,15 +200,23 @@ export function useEventDetailActions({
   );
 
   const removeEventComment = useCallback(
-    async (eventId: string, cid: string) => {
-      try {
-        await api.events.removeComment(cid, eventId, S().activeTeamId!);
-        await reloadDetail(eventId);
-      } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
-      }
-    },
-    [api, S, reloadDetail, setState, toastMsg, logout],
+    (eventId: string, cid: string) =>
+      askConfirm({
+        title: t('events.deleteCommentTitle'),
+        message: t('events.deleteCommentMsg'),
+        confirmLabel: t('common.delete'),
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await api.events.removeComment(cid, eventId, S().activeTeamId!);
+            await reloadDetail(eventId);
+            toastMsg(t('events.toastCommentDeleted'));
+          } catch (err) {
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
+          }
+        },
+      }),
+    [api, S, askConfirm, reloadDetail, setState, toastMsg, logout],
   );
 
   const toggleNomination = useCallback(

@@ -53,6 +53,7 @@ describe('useEventDetailActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let refreshEvents: ReturnType<typeof vi.fn>;
   let setFormVal: ReturnType<typeof vi.fn>;
+  let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
@@ -70,6 +71,7 @@ describe('useEventDetailActions', () => {
     toastMsg = vi.fn();
     refreshEvents = vi.fn().mockResolvedValue(undefined);
     setFormVal = vi.fn();
+    askConfirm = vi.fn();
     logout = vi.fn();
     api = makeApi();
   });
@@ -84,6 +86,7 @@ describe('useEventDetailActions', () => {
         myRoles: () => [],
         refreshEvents: refreshEvents as never,
         setFormVal: setFormVal as never,
+        askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
         logout: logout as never,
       }),
@@ -190,10 +193,26 @@ describe('useEventDetailActions', () => {
     expect(api.events.addComment).not.toHaveBeenCalled();
   });
 
-  it('removeEventComment calls removeComment API', async () => {
+  // Regression test: removeEventComment used to call the API directly with
+  // no confirmation, unlike the app's otherwise-universal confirm-before-
+  // destroy convention (deleteEvent, removeMember, removeAbsence, etc.).
+  it('removeEventComment asks for confirmation before calling the API', () => {
     const { result } = renderActions();
+    act(() => {
+      result.current.removeEventComment('ev1', 'c1');
+    });
+    expect(askConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
+    expect(api.events.removeComment).not.toHaveBeenCalled();
+  });
+
+  it('removeEventComment calls the API once confirmed', async () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.removeEventComment('ev1', 'c1');
+    });
+    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
     await act(async () => {
-      await result.current.removeEventComment('ev1', 'c1');
+      await onConfirm();
     });
     expect(api.events.removeComment).toHaveBeenCalledWith('c1', 'ev1', 'team1');
   });
