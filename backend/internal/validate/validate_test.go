@@ -39,6 +39,20 @@ func TestEmail(t *testing.T) {
 	}
 }
 
+// TestEmail_RejectsExcessiveLength regression-tests a gap where Email had no
+// length bound at all, unlike every other free-text field in the codebase --
+// users.email is a bare TEXT column with no DB-level constraint either, so a
+// members:write holder could otherwise persist an arbitrarily long string.
+func TestEmail_RejectsExcessiveLength(t *testing.T) {
+	t.Parallel()
+	local := strings.Repeat("a", 250)
+	tooLong := local + "@example.com" // well past the 254-char maxEmailLen bound
+	require.Error(t, validate.Email(tooLong))
+
+	// A realistic, valid address must still be well under the bound.
+	require.NoError(t, validate.Email("user@example.com"))
+}
+
 func TestRequireNonEmpty(t *testing.T) {
 	t.Parallel()
 	assert.NoError(t, validate.RequireNonEmpty("hello", "field"))

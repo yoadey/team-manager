@@ -82,10 +82,26 @@ func Birthday(t time.Time) error {
 	return nil
 }
 
-// Email checks that s is a valid RFC 5322 e-mail address.
+// maxEmailLen is RFC 5321's practical maximum (the sum of its 64-char local
+// part and 255-char domain limits, minus the separating '@', is 320, but 254
+// is the widely-used, tighter bound many mail systems actually enforce end
+// to end -- matching the value used elsewhere for e.g. HTML5's <input
+// type="email"> maxlength guidance).
+const maxEmailLen = 254
+
+// Email checks that s is a valid RFC 5322 e-mail address, unlike every other
+// free-text field in the codebase (name/phone/address/group all have an
+// explicit MaxLen call in members/handler.go), email had no length bound at
+// all -- users.email is a bare TEXT column with no DB-level constraint
+// either, so a members:write holder could persist an arbitrarily long string
+// (bounded only by the global request body-size limit) that then gets
+// echoed back on every subsequent member list/detail read.
 func Email(s string) error {
 	if strings.TrimSpace(s) == "" {
 		return ErrEmailRequired
+	}
+	if utf8.RuneCountInString(s) > maxEmailLen {
+		return ErrEmailInvalid
 	}
 	if _, err := mail.ParseAddress(s); err != nil {
 		return ErrEmailInvalid
