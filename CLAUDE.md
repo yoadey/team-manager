@@ -35,6 +35,7 @@ team-manager/
 │   └── vite.config.ts
 ├── backend/               Go REST API
 │   ├── cmd/server/main.go Entry point
+│   ├── cmd/healthcheck/   Docker HEALTHCHECK binary (no HTTP client at runtime)
 │   ├── internal/
 │   │   ├── auth/          Auth module (password login, JWT, OIDC-ready)
 │   │   ├── teams/         Teams, invites
