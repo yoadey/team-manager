@@ -138,21 +138,6 @@ func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 	return nil
 }
 
-// InsertNotification creates a notification for the news item creation.
-func (r *Repository) InsertNotification(ctx context.Context, teamID, actorID uuid.UUID, title string) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	_, err := r.pool.Exec(
-		ctx,
-		`INSERT INTO notifications (team_id, type, actor_id, status, title) VALUES ($1, 'news', $2, 'info', $3)`,
-		teamID, actorID, title,
-	)
-	if err != nil {
-		return fmt.Errorf("news.Repository.InsertNotification: %w", err)
-	}
-	return nil
-}
-
 func (r *Repository) findByID(ctx context.Context, id uuid.UUID) (*NewsRow, error) {
 	q := fmt.Sprintf(`
 		SELECT %s
