@@ -301,11 +301,12 @@ jobs:
         # directory /), helm/team-manager/values.yaml's
         # backup.postgresImageDigest (explicitly NOT covered by Dependabot,
         # per that key's own comment), and ci.yml's security-container-backup
-        # Trivy scan step -- with nothing tying them together, Dependabot
+        # Trivy scan step, backend-migration-rollback's and dast's postgres
+        # service containers -- with nothing tying them together, Dependabot
         # bumping the first copy on its own schedule would silently desync
-        # it from the other two, and the CI scan or the actual backup
-        # CronJob could end up validating/running a stale digest. Same risk,
-        # weaker (no Dependabot coverage on either side) for aws-cli's pin.
+        # it from the rest, and the CI scan/service containers or the actual
+        # backup CronJob could end up validating/running a stale digest. Same
+        # risk, weaker (no Dependabot coverage on either side) for aws-cli's pin.
         run: |
           set -euo pipefail
           pg_compose=$(grep -oP 'postgres:17@\Ksha256:\S+' docker-compose.yml)
@@ -313,6 +314,11 @@ jobs:
           pg_ci=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml)
           if [ "$pg_compose" != "$pg_values" ] || [ "$pg_compose" != "$pg_ci" ]; then
             echo "::error::postgres:17 digest mismatch: docker-compose.yml=$pg_compose values.yaml=$pg_values ci.yml=$pg_ci"
+            exit 1
+          fi
+          pg_services=$(grep -oP '^\s*image:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml | sort -u)
+          if [ "$(echo "$pg_services" | wc -l)" != "1" ] || [ "$pg_services" != "$pg_compose" ]; then
+            echo "::error::postgres:17 service-container digest(s) out of sync: expected $pg_compose, found: $pg_services"
             exit 1
           fi
 
@@ -574,7 +580,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
@@ -809,7 +815,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
         env:
           POSTGRES_PASSWORD: testpassword
           POSTGRES_DB: testdb
