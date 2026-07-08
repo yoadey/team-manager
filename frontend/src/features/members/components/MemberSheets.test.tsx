@@ -326,6 +326,13 @@ describe('MemberFormSheet', () => {
     expect(input.maxLength).toBe(500);
   });
 
+  it('caps the email input at 254 characters matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = screen.getByPlaceholderText('name@example.de') as HTMLInputElement;
+    expect(input.maxLength).toBe(254);
+  });
+
   it('renders the save button', () => {
     const app = makeFormApp();
     render(<MemberFormSheet app={app} sheet={formSheet} />);

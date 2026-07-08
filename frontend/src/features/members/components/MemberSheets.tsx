@@ -325,7 +325,13 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
         <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} onBlur={validateName} maxLength={255} />
       </Field>
       <Field label={t('members.fieldEmail')} error={!!errs.email} errorText={errs.email}>
-        <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} onBlur={validateEmail_} />
+        <TextInput
+          name="email"
+          type="email"
+          placeholder={t('members.fieldEmailPlaceholder')}
+          onBlur={validateEmail_}
+          maxLength={254}
+        />
       </Field>
       <Field label={t('members.fieldPhone')} error={!!errs.phone} errorText={errs.phone}>
         <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} maxLength={32} />
