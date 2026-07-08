@@ -121,7 +121,7 @@ func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID string)
 // ─── mapper ──────────────────────────────────────────────────────────────────
 
 func toGenMember(mr MemberRow) gen.Member {
-	hasPhoto := len(mr.PhotoData) > 0
+	hasPhoto := mr.HasPhoto
 
 	genRoles := make([]gen.Role, len(mr.Roles))
 	for i, r := range mr.Roles {

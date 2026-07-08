@@ -18,7 +18,7 @@ type MemberRow struct {
 	Birthday     *time.Time
 	Address      *string
 	AvatarColor  string
-	PhotoData    []byte
+	HasPhoto     bool
 	Group        *string
 	JoinedAt     time.Time
 	Roles        []teams.RoleRow

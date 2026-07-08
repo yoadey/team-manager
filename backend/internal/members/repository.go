@@ -87,7 +87,7 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
-		       COALESCE(u.photo_data, ''::bytea),
+		       (u.photo_data IS NOT NULL AND length(u.photo_data) > 0),
 		       m."group", m.joined_at
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
@@ -501,7 +501,7 @@ func (r *Repository) getMemberByMembershipID(ctx context.Context, membershipID s
 	row := r.pool.QueryRow(ctx, `
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
-		       COALESCE(u.photo_data, ''::bytea),
+		       (u.photo_data IS NOT NULL AND length(u.photo_data) > 0),
 		       m."group", m.joined_at
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
@@ -589,7 +589,7 @@ func scanMemberRow(row interface{ Scan(dest ...any) error }) (*MemberRow, error)
 	err := row.Scan(
 		&mr.MembershipID, &mr.UserID, &mr.Name, &mr.Email, &mr.Phone,
 		&mr.Birthday, &mr.Address, &mr.AvatarColor,
-		&mr.PhotoData,
+		&mr.HasPhoto,
 		&mr.Group, &mr.JoinedAt,
 	)
 	if err != nil {

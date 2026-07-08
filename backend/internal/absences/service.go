@@ -134,7 +134,7 @@ func (s *Service) Delete(ctx context.Context, id, teamID, userID uuid.UUID) erro
 
 // toGenAbsence maps an AbsenceRow to the generated gen.Absence type.
 func toGenAbsence(row *AbsenceRow) gen.Absence {
-	hasPhoto := len(row.PhotoData) > 0
+	hasPhoto := row.HasPhoto
 	a := gen.Absence{
 		Id:        row.Id,
 		UserId:    row.UserId,

@@ -48,7 +48,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 const selectAbsenceFields = `
 	a.id, a.user_id, a.team_id, a.from_date, a.to_date, a.reason, a.created_at,
 	u.name AS member_name, u.avatar_color AS member_avatar_color,
-	COALESCE(u.photo_data, ''::bytea) AS photo_data,
+	(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo,
 	r.name AS role_name, r.color AS role_color
 `
 
@@ -70,7 +70,7 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 	ab := &AbsenceRow{}
 	err := row.Scan(
 		&ab.Id, &ab.UserId, &ab.TeamId, &ab.FromDate, &ab.ToDate, &ab.Reason, &ab.CreatedAt,
-		&ab.MemberName, &ab.MemberAvatarColor, &ab.PhotoData,
+		&ab.MemberName, &ab.MemberAvatarColor, &ab.HasPhoto,
 		&ab.RoleName, &ab.RoleColor,
 	)
 	if err != nil {
