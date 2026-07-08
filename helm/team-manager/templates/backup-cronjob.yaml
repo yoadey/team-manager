@@ -43,7 +43,7 @@ spec:
               emptyDir: {}
           initContainers:
           - name: pg-dump
-            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}"
+            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}{{ if .Values.backup.postgresImageDigest }}@{{ .Values.backup.postgresImageDigest }}{{ end }}"
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh
@@ -138,7 +138,7 @@ spec:
                 mountPath: /backup
           {{- else }}
           - name: no-op-warning
-            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}"
+            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}{{ if .Values.backup.postgresImageDigest }}@{{ .Values.backup.postgresImageDigest }}{{ end }}"
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh

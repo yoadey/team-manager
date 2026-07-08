@@ -681,6 +681,37 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
+  security-container-backup:
+    name: Security · Container scan (Trivy, backup CronJob images)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
+      # pulls postgres and amazon/aws-cli directly from Docker Hub at runtime
+      # -- unlike the app's own two images, these were never scanned anywhere
+      # in CI. Scan the exact digest-pinned references shipped in
+      # values.yaml's backup.postgresImageDigest/backup.s3.awsCliImage so a
+      # CVE published against either is caught the same way as the app's own
+      # images, instead of silently reaching a CronJob that holds DB
+      # credentials and, when backup.s3.enabled, S3 write access.
+      - name: Scan postgres (backup pg_dump initContainer)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: postgres:17@sha256:5c855ad7b85e68e48a62f34662853f38b57c1c1d80f3a927ab58034fd6d31c5e
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+      - name: Scan aws-cli (backup s3-upload container)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: amazon/aws-cli:2.31.13@sha256:e14216fb361cce909ce199616711ad103182d5937f851cda9bebf25867d7180a
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
   security-container-frontend:
     name: Security · Container scan (Trivy, frontend)
     runs-on: ubuntu-latest
