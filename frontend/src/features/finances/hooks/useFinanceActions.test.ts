@@ -255,10 +255,27 @@ describe('useFinanceActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Strafe erfasst');
   });
 
-  it('deleteAssignment calls deleteAssignment API', async () => {
+  // Regression test: deleteAssignment used to call the API directly with no
+  // confirmation, unlike every other destructive action in this file
+  // (deletePenaltyDef etc.), so a single misclick permanently deleted a
+  // penalty-assignment record with no "are you sure."
+  it('deleteAssignment asks for confirmation before calling the API', () => {
     const { result } = renderActions();
+    act(() => {
+      result.current.deleteAssignment('a1');
+    });
+    expect(askConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
+    expect(api.finances.deleteAssignment).not.toHaveBeenCalled();
+  });
+
+  it('deleteAssignment calls the API once confirmed', async () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.deleteAssignment('a1');
+    });
+    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
     await act(async () => {
-      await result.current.deleteAssignment('a1');
+      await onConfirm();
     });
     expect(api.finances.deleteAssignment).toHaveBeenCalledWith('a1', 'team1');
   });

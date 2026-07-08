@@ -218,16 +218,23 @@ export function useFinanceActions({
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 
   const deleteAssignment = useCallback(
-    async (id: string) => {
-      try {
-        await api.finances.deleteAssignment(id, S().activeTeamId!);
-        await loadFinances();
-        toastMsg(t('finances.toastPenaltyAssignDeleted'));
-      } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
-      }
-    },
-    [api, S, loadFinances, setState, toastMsg, logout],
+    (id: string) =>
+      askConfirm({
+        title: t('finances.assignmentDeleteTitle'),
+        message: t('finances.assignmentDeleteMsg'),
+        confirmLabel: t('finances.assignmentDeleteConfirm'),
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await api.finances.deleteAssignment(id, S().activeTeamId!);
+            await loadFinances();
+            toastMsg(t('finances.toastPenaltyAssignDeleted'));
+          } catch (err) {
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
+          }
+        },
+      }),
+    [api, S, askConfirm, loadFinances, setState, toastMsg, logout],
   );
 
   const openContribForm = useCallback(
