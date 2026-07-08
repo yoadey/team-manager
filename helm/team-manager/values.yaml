@@ -235,6 +235,13 @@ backup:
   # published CVEs against its frozen package versions (caught once already by
   # CI's security-container-backup Trivy scan) -- re-resolve periodically.
   postgresImageDigest: "sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397"
+  # Caps on the CronJob's two emptyDir volumes (dump output, scratch space
+  # for pg_dump/aws-cli temp files) -- otherwise unbounded, so a runaway
+  # dump or temp-file leak is limited only by the node's actual free disk,
+  # triggering node-level DiskPressure and evicting arbitrary unrelated
+  # pods on that node instead of being contained within this Job.
+  dumpSizeLimit: 2Gi
+  tmpSizeLimit: 256Mi
   retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
     enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)

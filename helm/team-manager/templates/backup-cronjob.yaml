@@ -40,13 +40,15 @@ spec:
               type: RuntimeDefault
           volumes:
             - name: dump
-              emptyDir: {}
+              emptyDir:
+                sizeLimit: {{ .Values.backup.dumpSizeLimit }}
             # Scratch space for readOnlyRootFilesystem containers below --
             # pg_dump and the AWS CLI both need a writable /tmp (and, for the
             # AWS CLI, a writable $HOME for its own ~/.aws/cli/cache) even
             # though neither writes anything outside that scratch dir.
             - name: tmp
-              emptyDir: {}
+              emptyDir:
+                sizeLimit: {{ .Values.backup.tmpSizeLimit }}
           initContainers:
           - name: pg-dump
             image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}{{ if .Values.backup.postgresImageDigest }}@{{ .Values.backup.postgresImageDigest }}{{ end }}"
