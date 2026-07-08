@@ -531,6 +531,37 @@ describe('useTeamActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen');
   });
 
+  // Regression test: the sheet update used to splice `copied: true` onto
+  // whatever `s.sheet` happened to be at resolution time with no team/type
+  // check. If the user closed the invite sheet (activeTeamId/sheet both
+  // reset) while the clipboard write was still pending, `{ ...null, copied:
+  // true }` produced a typeless `{ copied: true }` object that still passed
+  // SheetHost's truthy check -- an empty untitled modal popping up out of
+  // nowhere over whatever screen the user has since navigated to.
+  it('does not resurrect a closed sheet after a slow clipboard write resolves', async () => {
+    stateRef = makeState({ sheet: { type: 'invite', invite: { link: 'https://example.com/abc' } } as never });
+    let resolveWrite!: () => void;
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn(() => new Promise<void>((resolve) => (resolveWrite = resolve))) },
+    });
+    const { result } = renderActions();
+
+    let copyPromise!: Promise<void>;
+    act(() => {
+      copyPromise = result.current.copyInvite();
+    });
+
+    // User closes the sheet (e.g. navigates away) before the write resolves.
+    stateRef = { ...stateRef, sheet: null };
+
+    await act(async () => {
+      resolveWrite();
+      await copyPromise;
+    });
+
+    expect(stateRef.sheet).toBeNull();
+  });
+
   it('uploadMyPhoto updates user photo and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {

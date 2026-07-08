@@ -220,6 +220,7 @@ export function useTeamActions({
   }, [api, S, setState, toastMsg, logout]);
 
   const copyInvite = useCallback(async () => {
+    const teamId = S().activeTeamId;
     const inv: Invite | null | undefined = S().sheet?.invite;
     if (!inv) return;
     try {
@@ -228,7 +229,13 @@ export function useTeamActions({
       toastMsg(t('error.copy'));
       return;
     }
-    setState((s) => ({ sheet: { ...s.sheet!, copied: true } }));
+    // Must check the team and sheet type too, not just splice onto whatever
+    // sheet is current at resolution time -- if the user closed the sheet
+    // (or switched teams, which clears it) while the clipboard write was
+    // pending, `{ ...s.sheet!, copied: true }` on a null sheet produces a
+    // typeless `{ copied: true }` object that still passes SheetHost's
+    // truthy check, popping up an empty untitled modal out of nowhere.
+    setState((s) => (s.activeTeamId === teamId && s.sheet?.type === 'invite' ? { sheet: { ...s.sheet, copied: true } } : {}));
     toastMsg(t('team.toastLinkCopied'));
   }, [S, setState, toastMsg]);
 
