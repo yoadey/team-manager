@@ -71,6 +71,8 @@ export function FinancesPage() {
           return (
             <ButtonBase
               key={k}
+              role="tab"
+              aria-selected={sel}
               onClick={() => app.setState({ finTab: k })}
               sx={{
                 flex: 1,

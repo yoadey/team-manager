@@ -184,6 +184,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
           return (
             <ButtonBase
               key={v}
+              aria-pressed={sel}
               onClick={() => app.setRolePerm(mod, v)}
               sx={{
                 p: '6px 11px',

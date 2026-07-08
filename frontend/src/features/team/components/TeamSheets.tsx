@@ -312,6 +312,9 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
         {TEAM_ICONS.map((em) => (
           <ButtonBase
             key={em}
+            role="radio"
+            aria-checked={!F.logo && F.icon === em}
+            aria-label={em}
             onClick={() => app.setTeamIcon(em)}
             sx={{
               width: '44px',
