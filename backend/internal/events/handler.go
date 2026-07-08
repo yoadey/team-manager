@@ -350,7 +350,7 @@ func (h *Handler) ListAttendance(ctx context.Context, request gen.ListAttendance
 // ─── SetAttendance ───────────────────────────────────────────────────────────
 
 // SetAttendance upserts an attendance record.
-func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) {
+func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) { //nolint:cyclop // sequential field validation + error-cause mapping, not nested branching
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
@@ -394,6 +394,9 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		}
 		if errors.Is(err, ErrSetAttendanceForbidden) {
 			return nil, apierror.Forbidden("not allowed to set attendance for another member")
+		}
+		if errors.Is(err, ErrAttendanceStatusNotNominated) {
+			return nil, apierror.BadRequest("status 'not_nominated' may only be set via the nominations endpoint")
 		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")

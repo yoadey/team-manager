@@ -17,13 +17,14 @@ import (
 
 // Sentinel errors for the events package.
 var (
-	ErrCreateEventNilBody      = errors.New("events.Service.CreateEvent: nil body")
-	ErrCreateEventNoRow        = errors.New("events.Service.CreateEvent: no row returned")
-	ErrUpdateEventNilBody      = errors.New("events.Service.UpdateEvent: nil body")
-	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
-	ErrSetAttendanceForbidden  = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
-	ErrSetNominationForbidden  = errors.New("events.Service.SetNomination: caller lacks events:write")
-	ErrRepeatWeeksTooLarge     = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
+	ErrCreateEventNilBody           = errors.New("events.Service.CreateEvent: nil body")
+	ErrCreateEventNoRow             = errors.New("events.Service.CreateEvent: no row returned")
+	ErrUpdateEventNilBody           = errors.New("events.Service.UpdateEvent: nil body")
+	ErrInvalidNominatedRoleIDs      = errors.New("nominated_role_ids contain roles not belonging to this team")
+	ErrSetAttendanceForbidden       = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
+	ErrSetNominationForbidden       = errors.New("events.Service.SetNomination: caller lacks events:write")
+	ErrAttendanceStatusNotNominated = errors.New("events.Service.SetAttendance: status 'not_nominated' may only be set via SetNomination")
+	ErrRepeatWeeksTooLarge          = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -469,6 +470,16 @@ func roleSetsIntersect(a, b []string) bool {
 // attendance requires events:write — self-service callers may only set their
 // own. Returns ErrSetAttendanceForbidden if the caller lacks that permission.
 func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
+	// status="not_nominated" is exclusively SetNomination's domain (an
+	// events:write-gated organizer action, never self-service). Without this,
+	// a member with only events:read could PUT their own attendance with
+	// status="not_nominated" via this self-service endpoint, achieving the
+	// same DB state SetNomination's permission gate exists to control --
+	// AttendanceStatus's OpenAPI enum has no separate "settable by clients"
+	// subset, so the handler-level Valid() check alone doesn't catch this.
+	if req.Status == gen.NotNominated {
+		return nil, ErrAttendanceStatusNotNominated
+	}
 	if callerID != userID {
 		if s.permChecker == nil {
 			return nil, ErrSetAttendanceForbidden

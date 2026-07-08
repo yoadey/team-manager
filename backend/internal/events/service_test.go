@@ -354,6 +354,35 @@ func TestEventService_SetAttendance(t *testing.T) {
 	assert.Equal(t, gen.Yes, result.Status)
 }
 
+// TestEventService_SetAttendance_RejectsNotNominatedStatus regression-tests a
+// gap where status="not_nominated" -- exclusively SetNomination's domain, an
+// events:write-gated organizer action -- could be set via the self-service
+// SetAttendance endpoint with no permission check at all when callerID ==
+// userID, since AttendanceStatus's OpenAPI enum has no separate "settable by
+// clients" subset and the handler's Valid() check accepts any enum member.
+// A member with only events:read could otherwise unilaterally achieve the
+// same DB state SetNomination's events:write gate exists to control.
+func TestEventService_SetAttendance_RejectsNotNominatedStatus(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+
+	repo := &mockSvcRepo{
+		setAttendanceFn: func(_ context.Context, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			t.Fatal("repository must not be called for status=not_nominated")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil)
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.NotNominated}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrAttendanceStatusNotNominated)
+}
+
 // mockPermChecker satisfies the unexported permissionChecker interface via
 // structural typing.
 type mockPermChecker struct {
