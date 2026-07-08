@@ -188,6 +188,9 @@ export function ProfileSheet({ app }: SheetProps) {
             return (
               <ButtonBase
                 key={r.id}
+                role="checkbox"
+                aria-checked={sel}
+                aria-label={r.name}
                 disabled={!canEditMyRoles}
                 onClick={canEditMyRoles ? () => app.toggleMyRole(r.id) : undefined}
                 sx={{
