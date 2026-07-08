@@ -497,13 +497,14 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	}
 
 	args = append(args, id, teamID)
+	// Exec (unlike QueryRow(...).Scan(...)) never itself returns
+	// pgx.ErrNoRows -- "not found" is only detectable via RowsAffected()
+	// below, which is what actually maps a missing/wrong-team id to
+	// pgx.ErrNoRows here.
 	tag, err := r.db.Exec(ctx, fmt.Sprintf(`
 		UPDATE contributions SET %s WHERE id = $%d AND team_id = $%d
 	`, strings.Join(setClauses, ", "), n, n+1), args...)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, pgx.ErrNoRows
-		}
 		return nil, fmt.Errorf("finances.Repository.UpdateContribution: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
