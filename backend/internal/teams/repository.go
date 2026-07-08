@@ -201,10 +201,18 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 		return nil, fmt.Errorf("teams.Repository.CreateTeam insert admin role: %w", err)
 	}
 
-	// Insert Member role (events/news/polls read).
+	// Insert Member role (events/news/polls read). Members and Settings are
+	// also "read" (not "none") -- RequirePermission gates GET requests too,
+	// and a module set to "none" hides reads entirely (see authz.go), so
+	// "none" here would 403 every ordinary member's own dashboard load:
+	// AppContext.afterLoginLoad unconditionally fetches both the member
+	// roster (GET .../members) and the role catalog (GET .../roles, gated by
+	// "settings") for every team member on every login/team switch, not just
+	// for admins. Finances stays "none" -- financial data is legitimately
+	// admin-only by default.
 	memberPerms, _ := json.Marshal(PermissionsJSON{
-		Events: "read", Members: "none", Finances: "none",
-		News: "read", Polls: "read", Settings: "none",
+		Events: "read", Members: "read", Finances: "none",
+		News: "read", Polls: "read", Settings: "read",
 	})
 	var memberRoleID uuid.UUID
 	err = tx.QueryRow(ctx, `

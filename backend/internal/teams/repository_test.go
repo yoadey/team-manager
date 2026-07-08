@@ -2,6 +2,7 @@ package teams_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -47,6 +48,48 @@ func TestTeamRepository_CreateTeam(t *testing.T) {
 	assert.NotEmpty(t, tr.Id.String())
 	assert.Equal(t, "My Team", tr.Name)
 	assert.False(t, tr.CreatedAt.IsZero())
+}
+
+// Regression test: the seeded default "Member" role (auto-assigned to every
+// user who joins via AcceptInvite) used to set members/settings to "none".
+// RequirePermission gates GET requests too -- a module set to "none" hides
+// reads entirely, not just writes -- and AppContext.afterLoginLoad
+// unconditionally fetches both the member roster (members:read) and the
+// role catalog (settings:read) for every team member on every login/team
+// switch, not just for admins. That combination 403'd both calls for every
+// ordinary member, and since afterLoginLoad awaits all five loads via
+// Promise.all, the whole dashboard load failed for anyone without the
+// Admin role -- i.e. everyone except the team's creator.
+func TestTeamRepository_CreateTeam_DefaultMemberRoleCanReadRosterAndRoleCatalog(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	var userID string
+	err := pool.QueryRow(ctx, `
+		INSERT INTO users (name, email, avatar_color)
+		VALUES ('Default Role User', 'defaultrole@example.com', '#334455')
+		RETURNING id
+	`).Scan(&userID)
+	require.NoError(t, err)
+
+	repo := teams.NewRepository(pool)
+	tr, err := repo.CreateTeam(ctx, "Default Role Team", userID)
+	require.NoError(t, err)
+
+	var permsJSON []byte
+	err = pool.QueryRow(ctx, `
+		SELECT permissions FROM roles WHERE team_id = $1 AND system = true AND name = 'Member'
+	`, tr.Id).Scan(&permsJSON)
+	require.NoError(t, err)
+
+	var perms teams.PermissionsJSON
+	require.NoError(t, json.Unmarshal(permsJSON, &perms))
+	assert.Equal(t, "read", perms.Members, "ordinary members must be able to see the member roster")
+	assert.Equal(t, "read", perms.Settings, "ordinary members must be able to see the role catalog")
+	assert.Equal(t, "read", perms.Events)
+	assert.Equal(t, "read", perms.News)
+	assert.Equal(t, "read", perms.Polls)
+	assert.Equal(t, "none", perms.Finances, "financial data stays admin-only by default")
 }
 
 func TestTeamRepository_ListForUser(t *testing.T) {
