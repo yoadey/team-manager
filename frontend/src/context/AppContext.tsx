@@ -280,9 +280,9 @@ export interface AppContextValue {
   openProfile: () => void;
   openMore: () => void;
   openTeamSettings: () => void;
-  saveTeamPhoto: (dataUrl: string) => Promise<void>;
+  saveTeamPhoto: (dataUrl: string, teamId: string) => Promise<void>;
   removeTeamPhoto: () => Promise<void>;
-  saveTeamLogo: (dataUrl: string) => Promise<void>;
+  saveTeamLogo: (dataUrl: string, teamId: string) => Promise<void>;
   setTeamIcon: (em: string) => void;
   toggleReasonRole: (roleId: string) => void;
   saveTeamSettings: () => Promise<void>;

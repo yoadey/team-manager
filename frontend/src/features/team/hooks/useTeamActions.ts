@@ -74,12 +74,19 @@ export function useTeamActions({
     [S],
   );
 
+  // teamId is passed in by the caller rather than read from S() here --
+  // saveTeamPhoto/saveTeamLogo are invoked from a FileReader.onload callback
+  // (see TeamSheets.tsx), so by the time this function runs, an arbitrary
+  // amount of time (and possibly a team switch) may have passed since the
+  // user picked the file. Reading S().activeTeamId! at THIS point would
+  // capture whatever team is active when the read finishes, not the team
+  // the upload was actually for -- the caller must snapshot it synchronously
+  // when the file was selected, before the async read even starts.
   const saveTeamPhoto = useCallback(
-    async (dataUrl: string) => {
+    async (dataUrl: string, teamId: string) => {
       const key = 'photo';
       if (photoLogoInFlight.current.has(key)) return;
       photoLogoInFlight.current.add(key);
-      const teamId = S().activeTeamId!;
       try {
         await api.teams.updateSettings(teamId, { photo: dataUrl });
         await refreshTeams();
@@ -91,7 +98,7 @@ export function useTeamActions({
         photoLogoInFlight.current.delete(key);
       }
     },
-    [api, S, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout],
+    [api, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout],
   );
 
   const removeTeamPhoto = useCallback(async () => {
@@ -112,11 +119,10 @@ export function useTeamActions({
   }, [api, S, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout]);
 
   const saveTeamLogo = useCallback(
-    async (dataUrl: string) => {
+    async (dataUrl: string, teamId: string) => {
       const key = 'logo';
       if (photoLogoInFlight.current.has(key)) return;
       photoLogoInFlight.current.add(key);
-      const teamId = S().activeTeamId!;
       try {
         await api.teams.updateSettings(teamId, { logo: dataUrl });
         await refreshTeams();
@@ -128,7 +134,7 @@ export function useTeamActions({
         photoLogoInFlight.current.delete(key);
       }
     },
-    [api, S, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout],
+    [api, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout],
   );
 
   const setTeamIcon = useCallback(

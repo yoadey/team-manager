@@ -92,6 +92,7 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     activeTeam: vi.fn().mockReturnValue(makeTeam()),
     can: vi.fn().mockReturnValue(true),
     setFormVal: vi.fn(),
+    setState: vi.fn(),
     onFormInput: vi.fn(),
     onFile: vi.fn(),
     createTeam: vi.fn(),
@@ -190,6 +191,37 @@ describe('CreateTeamSheet', () => {
     const fileInput = document.querySelector('input[type="file"]');
     expect(fileInput).toBeTruthy();
     expect((fileInput as HTMLInputElement).accept).toBe('image/*');
+  });
+
+  // Regression test: the photo input's onChange used to call
+  // app.onFile(e, (d) => app.setFormVal({ photo: d })) unconditionally --
+  // setFormVal writes into the single shared, untyped form buffer regardless
+  // of which sheet is open. If the user closed the create-team sheet (or
+  // opened a different one reading the same form.photo field) before the
+  // FileReader read completed, the resolved callback would silently
+  // overwrite that other sheet's in-progress photo with this stale one.
+  it('does not apply the photo via setState if the create-team sheet is no longer open when the read completes', () => {
+    const app = makeApp({ sheet: { type: 'createTeam' } as never });
+    render(<CreateTeamSheet app={app} sheet={sheet} />);
+    const fileInput = document.querySelector('input[type="file"]')!;
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
+
+    expect(app.onFile).toHaveBeenCalledTimes(1);
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+    onFileCb('data:image/png;base64,photodata');
+
+    expect(app.setState).toHaveBeenCalledTimes(1);
+    const updater = (app.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as (
+      s: AppState,
+    ) => Partial<AppState>;
+
+    // Sheet unchanged (still createTeam): the update applies.
+    expect(updater({ ...app.state, sheet: { type: 'createTeam' } } as never)).toEqual({
+      form: { ...app.state.form, photo: 'data:image/png;base64,photodata' },
+    });
+    // User has since closed the sheet (or opened a different one): no-op.
+    expect(updater({ ...app.state, sheet: null } as never)).toEqual({});
+    expect(updater({ ...app.state, sheet: { type: 'teamSettings' } } as never)).toEqual({});
   });
 });
 
@@ -509,5 +541,37 @@ describe('TeamSettingsSheet', () => {
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     // t('team.settingsVisHint') → 'Welche Rollen dürfen die Kommentare ...'
     expect(document.body.textContent).toContain('Kommentare');
+  });
+
+  // Regression test: the logo/photo file input's onChange used to call
+  // app.onFile(e, cb) with cb reading app.state.activeTeamId itself only
+  // once the FileReader read completed. Since onFile's read is async, a
+  // team switch between file selection and the read completing meant the
+  // upload silently landed on whichever team was active when the read
+  // finished, not the team it was actually picked for -- a cross-team data
+  // write, not just stale UI. The fix snapshots activeTeamId synchronously
+  // in onChange, before onFile/FileReader ever starts, and threads it
+  // through explicitly.
+  it('saves a logo upload to the team it was picked for, even if the team changed before the read completed', () => {
+    const app = makeApp({
+      form: { name: '', icon: '🏆', logo: null, description: '', reasonRoles: [] },
+      activeTeamId: 'team1',
+    });
+    render(<TeamSettingsSheet app={app} sheet={sheet} />);
+    const [logoInput] = document.querySelectorAll('input[type="file"]');
+    fireEvent.change(logoInput, { target: { files: [new File(['x'], 'logo.png', { type: 'image/png' })] } });
+
+    expect(app.onFile).toHaveBeenCalledTimes(1);
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+
+    // Simulate the user switching teams while the FileReader read is still
+    // in flight -- app.state is mutated in place, same object useApp() keeps
+    // returning, mirroring how the real AppContext state updates.
+    app.state.activeTeamId = 'team2';
+
+    // FileReader.onload fires now, after the switch.
+    onFileCb('data:image/png;base64,logodata');
+
+    expect(app.saveTeamLogo).toHaveBeenCalledWith('data:image/png;base64,logodata', 'team1');
   });
 });

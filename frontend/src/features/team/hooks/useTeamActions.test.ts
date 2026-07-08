@@ -177,7 +177,7 @@ describe('useTeamActions', () => {
   it('saveTeamPhoto calls updateSettings and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTeamPhoto('data:image/png;base64,abc');
+      await result.current.saveTeamPhoto('data:image/png;base64,abc', 'team1');
     });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { photo: 'data:image/png;base64,abc' });
     expect(toastMsg).toHaveBeenCalledWith('Gruppenbild aktualisiert');
@@ -210,7 +210,7 @@ describe('useTeamActions', () => {
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveTeamPhoto('data:image/png;base64,fromTeam1');
+      savePromise = result.current.saveTeamPhoto('data:image/png;base64,fromTeam1', 'team1');
     });
     expect(api.teams.updateSettings).toHaveBeenCalled();
 
@@ -259,7 +259,7 @@ describe('useTeamActions', () => {
 
     let firstCall: Promise<void>;
     act(() => {
-      firstCall = result.current.saveTeamPhoto('data:image/png;base64,first');
+      firstCall = result.current.saveTeamPhoto('data:image/png;base64,first', 'team1');
       void result.current.removeTeamPhoto();
     });
 
@@ -274,7 +274,7 @@ describe('useTeamActions', () => {
   it('saveTeamLogo calls updateSettings and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTeamLogo('data:image/png;base64,logo');
+      await result.current.saveTeamLogo('data:image/png;base64,logo', 'team1');
     });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { logo: 'data:image/png;base64,logo' });
     expect(toastMsg).toHaveBeenCalledWith('Logo aktualisiert');
@@ -291,8 +291,8 @@ describe('useTeamActions', () => {
 
     let firstCall: Promise<void>;
     act(() => {
-      firstCall = result.current.saveTeamPhoto('data:image/png;base64,first');
-      void result.current.saveTeamPhoto('data:image/png;base64,second');
+      firstCall = result.current.saveTeamPhoto('data:image/png;base64,first', 'team1');
+      void result.current.saveTeamPhoto('data:image/png;base64,second', 'team1');
     });
 
     expect(api.teams.updateSettings).toHaveBeenCalledTimes(1);
@@ -307,10 +307,10 @@ describe('useTeamActions', () => {
   it('saveTeamPhoto allows a new call once the previous one has settled', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTeamPhoto('data:image/png;base64,first');
+      await result.current.saveTeamPhoto('data:image/png;base64,first', 'team1');
     });
     await act(async () => {
-      await result.current.saveTeamPhoto('data:image/png;base64,second');
+      await result.current.saveTeamPhoto('data:image/png;base64,second', 'team1');
     });
     expect(api.teams.updateSettings).toHaveBeenCalledTimes(2);
   });
@@ -319,10 +319,10 @@ describe('useTeamActions', () => {
     api.teams.updateSettings.mockRejectedValueOnce(new Error('boom'));
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTeamPhoto('data:image/png;base64,first');
+      await result.current.saveTeamPhoto('data:image/png;base64,first', 'team1');
     });
     await act(async () => {
-      await result.current.saveTeamPhoto('data:image/png;base64,second');
+      await result.current.saveTeamPhoto('data:image/png;base64,second', 'team1');
     });
     expect(api.teams.updateSettings).toHaveBeenCalledTimes(2);
   });
@@ -338,8 +338,8 @@ describe('useTeamActions', () => {
 
     let firstCall: Promise<void>;
     act(() => {
-      firstCall = result.current.saveTeamLogo('data:image/png;base64,first');
-      void result.current.saveTeamLogo('data:image/png;base64,second');
+      firstCall = result.current.saveTeamLogo('data:image/png;base64,first', 'team1');
+      void result.current.saveTeamLogo('data:image/png;base64,second', 'team1');
     });
 
     expect(api.teams.updateSettings).toHaveBeenCalledTimes(1);
@@ -362,8 +362,8 @@ describe('useTeamActions', () => {
 
     let firstCall: Promise<void>;
     act(() => {
-      firstCall = result.current.saveTeamPhoto('data:image/png;base64,photo');
-      void result.current.saveTeamLogo('data:image/png;base64,logo');
+      firstCall = result.current.saveTeamPhoto('data:image/png;base64,photo', 'team1');
+      void result.current.saveTeamLogo('data:image/png;base64,logo', 'team1');
     });
 
     expect(api.teams.updateSettings).toHaveBeenCalledTimes(2);
