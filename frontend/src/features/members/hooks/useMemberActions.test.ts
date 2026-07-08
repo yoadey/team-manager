@@ -181,13 +181,19 @@ describe('useMemberActions', () => {
     expect(stateRef.form.roleIds).toContain('r1');
   });
 
-  it('toggleFormRole does not remove last role', () => {
+  // Regression test: removing a member's last role chip used to silently
+  // no-op (fall back to the unchanged list with no feedback), leaving the
+  // admin thinking the click did nothing. It must now surface the same
+  // "at least one role required" toast that toggleMyRole already shows for
+  // the equivalent self-service case.
+  it('toggleFormRole does not remove last role and shows a toast', () => {
     stateRef = makeState({ form: { roleIds: ['r1'] } });
     const { result } = renderActions();
     act(() => {
       result.current.toggleFormRole('r1');
     });
     expect(stateRef.form.roleIds).toContain('r1');
+    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.');
   });
 
   it('saveMember shows toast when name is empty', async () => {

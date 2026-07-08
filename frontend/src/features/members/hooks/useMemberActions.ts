@@ -85,13 +85,16 @@ export function useMemberActions({
   );
 
   const toggleFormRole = useCallback(
-    (roleId: string) =>
-      setState((s) => {
-        const cur = formValues<MemberFormValues>(s).roleIds ?? [];
-        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-        return { form: { ...s.form, roleIds: next.length ? next : cur } };
-      }),
-    [setState],
+    (roleId: string) => {
+      const cur = formValues<MemberFormValues>(S()).roleIds ?? [];
+      const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
+      if (!next.length) {
+        toastMsg(t('team.roleAtLeastOne'));
+        return;
+      }
+      setState((s) => ({ form: { ...s.form, roleIds: next } }));
+    },
+    [S, setState, toastMsg],
   );
 
   const saveMember = useCallback(async () => {
