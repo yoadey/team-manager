@@ -181,6 +181,7 @@ export const de = {
     moneyPositive: 'Betrag muss größer als 0 € sein.',
     moneyNonNegative: 'Betrag darf nicht negativ sein.',
     moneyNonZero: 'Betrag muss größer als 0 € sein.',
+    moneyTooLarge: 'Betrag darf höchstens 1.000.000 € betragen.',
     dateRangeStartMissing: 'Startdatum fehlt.',
     dateRangeEndMissing: 'Enddatum fehlt.',
     dateRangeStartInvalid: 'Startdatum ist ungültig.',
@@ -329,6 +330,8 @@ export const de = {
     exportFailed: 'Export nicht möglich',
     toastCalLinkCopied: 'Abo-Link kopiert',
     toastCalExported: '{n} Termine als .ics exportiert',
+    editAbsenceLabel: 'Abwesenheit bearbeiten',
+    deleteAbsenceLabel: 'Abwesenheit löschen',
     absenceDeleteTitle: 'Abwesenheit löschen?',
     absenceDeleteMsg:
       'Der Zeitraum wird entfernt. Automatisch gesetzte Absagen in diesem Zeitraum werden zurückgenommen.',

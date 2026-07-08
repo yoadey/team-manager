@@ -48,6 +48,7 @@ export function EventAbsences() {
         {isMe ? (
           <ButtonBase
             onClick={() => app.openAbsenceForm(a)}
+            aria-label={t('events.editAbsenceLabel')}
             sx={{
               width: '34px',
               height: '34px',
@@ -64,6 +65,7 @@ export function EventAbsences() {
         {isMe ? (
           <ButtonBase
             onClick={() => app.removeAbsence(a.id)}
+            aria-label={t('events.deleteAbsenceLabel')}
             sx={{
               width: '34px',
               height: '34px',
