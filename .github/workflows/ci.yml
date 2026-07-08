@@ -907,5 +907,15 @@ jobs:
           # PrometheusRule/Grafana-dashboard-ConfigMap templates would never
           # actually render in CI and a syntax error in them would only
           # surface the first time an operator opts in at deploy time.
+          # monitoring.metricsToken is also empty everywhere (including
+          # above), so the metrics-token-secret.yaml Secret and
+          # servicemonitor.yaml's bearerTokenSecret block are exercised here too.
           helm template team-manager helm/team-manager \
-            --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true > /dev/null
+            --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true \
+            --set monitoring.metricsToken=dummy > /dev/null
+          # backup.enabled is only true in values-prod.yaml, which also sets
+          # backup.s3.enabled=true -- so backup-cronjob.yaml's `{{- else }}`
+          # branch (the no-op-warning container, taken when S3 upload is
+          # disabled) is never rendered by any of the invocations above.
+          helm template team-manager helm/team-manager \
+            --set backup.enabled=true --set backup.s3.enabled=false > /dev/null
