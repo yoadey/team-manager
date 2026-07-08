@@ -238,7 +238,7 @@ export interface AppContextValue {
   openComment: (e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => void;
   submitComment: () => Promise<void>;
   postEventComment: (eventId: string) => Promise<void>;
-  removeEventComment: (eventId: string, cid: string) => Promise<void>;
+  removeEventComment: (eventId: string, cid: string) => void;
   toggleNomination: (eventId: string, userId: string, currentlyNominated: boolean) => Promise<void>;
   // confirm
   askConfirm: (cfg: {
@@ -313,7 +313,7 @@ export interface AppContextValue {
   deletePenaltyDef: (id: string) => void;
   openPenaltyAssign: () => void;
   savePenaltyAssign: () => Promise<void>;
-  deleteAssignment: (id: string) => Promise<void>;
+  deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
   saveContrib: () => Promise<void>;
   togglePenalty: (id: string) => Promise<void>;
