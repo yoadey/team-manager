@@ -306,4 +306,16 @@ backup:
     prefix: "team-manager"
     region: "eu-central-1"
     endpoint: ""            # Override for S3-compatible storage (MinIO, etc.)
-    credentialsSecretName: "" # Secret with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; leave empty to use the pod's IAM role (e.g. IRSA via serviceAccount.annotations)
+    credentialsSecretName: "" # Secret with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; leave empty to use the pod's IAM role (e.g. IRSA via backup.serviceAccount.annotations below)
+  # The backup CronJob shares the main serviceAccount (above) by default, so
+  # by default this section has no effect. Set create: true to give the
+  # backup Job its own ServiceAccount instead -- otherwise an IRSA role ARN
+  # annotation added for S3 backup access would also be injected into every
+  # replica of the main app Deployment via the shared account, widening the
+  # app's own blast radius (e.g. for RCE/SSRF) to include S3 write access it
+  # has no other reason to hold.
+  serviceAccount:
+    create: false
+    annotations: {}
+    # Defaults to "<fullname>-backup" when create is true and this is empty.
+    name: ""

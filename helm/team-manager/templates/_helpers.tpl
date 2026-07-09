@@ -58,3 +58,23 @@ ServiceAccount name.
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Backup CronJob ServiceAccount name. Falls back to the main ServiceAccount
+(team-manager.serviceAccountName) when backup.serviceAccount.create is false
+and no name override is given, preserving prior behavior. Set
+backup.serviceAccount.create=true (with its own annotations, e.g. an
+IRSA role ARN scoped to only the backup bucket) to give the backup CronJob
+its own identity instead of sharing the main Deployment's ServiceAccount --
+without this, any IRSA annotation added to the shared account for S3 backup
+access is also injected into every app pod.
+*/}}
+{{- define "team-manager.backupServiceAccountName" -}}
+{{- if .Values.backup.serviceAccount.create }}
+{{- default (printf "%s-backup" (include "team-manager.fullname" .)) .Values.backup.serviceAccount.name }}
+{{- else if .Values.backup.serviceAccount.name }}
+{{- .Values.backup.serviceAccount.name }}
+{{- else }}
+{{- include "team-manager.serviceAccountName" . }}
+{{- end }}
+{{- end }}

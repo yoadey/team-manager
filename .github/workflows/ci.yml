@@ -964,3 +964,18 @@ jobs:
           # backward-incompatible migration deploy.
           helm template team-manager helm/team-manager \
             --set deploymentStrategy.type=Recreate > /dev/null
+          # monitoring.namespace combined with the chart-managed
+          # monitoring.metricsToken Secret is never exercised above -- this
+          # is the combination that caught metrics-token-secret.yaml
+          # rendering into .Release.Namespace while servicemonitor.yaml
+          # rendered into monitoring.namespace, so the bearerTokenSecret
+          # reference silently failed to resolve.
+          helm template team-manager helm/team-manager \
+            --set monitoring.enabled=true --set monitoring.namespace=monitoring \
+            --set monitoring.metricsToken=dummy > /dev/null
+          # backup.serviceAccount.create (a dedicated ServiceAccount for the
+          # backup CronJob, so an IRSA annotation for S3 access doesn't also
+          # get injected into the main app Deployment's pods) has no
+          # coverage in any render above.
+          helm template team-manager helm/team-manager \
+            --set backup.enabled=true --set backup.serviceAccount.create=true > /dev/null
