@@ -70,4 +70,29 @@ var (
 		Name:      "retention_job_failures_total",
 		Help:      "Total retention job run failures, by table whose delete failed.",
 	}, []string{"table"})
+
+	// NotificationEnqueueFailures counts failures to enqueue a notification
+	// job (internal/jobs.Client.EnqueueNotification). Callers treat this as
+	// best-effort and only log a warning so a transient enqueue failure
+	// doesn't fail the request that triggered it (e.g. creating a poll/news
+	// item) -- without a counter, that failure mode was otherwise invisible
+	// to dashboards/alerts, unlike every other domain mutation which is
+	// tracked via TeamEvents.
+	NotificationEnqueueFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "notification_enqueue_failures_total",
+		Help:      "Total failures to enqueue a notification job.",
+	})
+
+	// NotificationJobFailures counts internal/jobs.NotificationWorker.Work
+	// failures (the INSERT into the notifications table). River retries with
+	// backoff and eventually discards the job after max attempts; without
+	// this counter (mirroring RetentionJobFailures for the same "silent
+	// background failure" risk), a persistent failure here would leave users
+	// silently not receiving notifications with no operational signal.
+	NotificationJobFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "notification_job_failures_total",
+		Help:      "Total internal/jobs.NotificationWorker.Work failures.",
+	})
 )

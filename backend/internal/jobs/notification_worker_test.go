@@ -5,14 +5,49 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/jobs"
+	"github.com/yoadey/team-manager/backend/internal/metrics"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
 )
+
+// Regression test: a persistent NotificationWorker.Work failure (River
+// retries with backoff and eventually discards the job) used to be
+// completely invisible to Prometheus -- the triggering request (e.g.
+// creating a poll/news item) still shows as a successful domain event via
+// TeamEvents, so a dashboard would look entirely healthy while users
+// silently stopped receiving notifications. Forces a real failure (a
+// team_id with no matching row in teams, violating the NOT NULL FK) and
+// asserts metrics.NotificationJobFailures increments.
+func TestNotificationWorker_Work_IncrementsFailureMetricOnError(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	before := promtestutil.ToFloat64(metrics.NotificationJobFailures)
+
+	worker := jobs.NewNotificationWorker(pool)
+	job := &river.Job[jobs.NotificationArgs]{
+		JobRow: &rivertype.JobRow{ID: 999999},
+		Args: jobs.NotificationArgs{
+			TeamID:  uuid.New(), // no such team -- violates notifications.team_id's FK
+			Type:    "news",
+			ActorID: uuid.New(),
+		},
+	}
+
+	err := worker.Work(ctx, job)
+	require.Error(t, err)
+
+	after := promtestutil.ToFloat64(metrics.NotificationJobFailures)
+	assert.Equal(t, before+1, after, "a Work() failure must increment metrics.NotificationJobFailures")
+}
 
 // TestNotificationWorker_InsertsNotificationRow verifies that Work() persists
 // a notification row with the fields carried on the job args.

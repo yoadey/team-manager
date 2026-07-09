@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"go.opentelemetry.io/otel/codes"
 
 	"github.com/yoadey/team-manager/backend/internal/metrics"
 )
@@ -102,7 +103,16 @@ const retentionPhaseTimeout = 30 * time.Second
 
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
-func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs]) error {
+func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs]) (err error) {
+	ctx, span := tracer.Start(ctx, "retention.work")
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	now := time.Now()
 
 	// Delete old notifications.
