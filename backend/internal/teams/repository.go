@@ -146,7 +146,7 @@ func (r *Repository) GetTeam(ctx context.Context, teamID string) (*TeamRow, erro
 }
 
 // CreateTeam inserts a new team, a membership for the creator, and two default roles
-// (Admin with all-write, Member with events/news/polls read).
+// (Admin with all-write, Member with events/members/news/polls/settings read).
 func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string) (*TeamRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

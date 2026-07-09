@@ -137,10 +137,11 @@ var selfServiceWritePathsWithTrailingID = map[string]bool{
 // GET/HEAD/OPTIONS additionally require at least "read" (i.e. not "none") on
 // the six core RBAC modules (events, members, finances, news, polls, settings
 // via /roles) — a module permission of "none" must also hide read access, not
-// just block writes. Routes with no natural module mapping (team info itself,
-// photo, logo, invite, stats) remain gated by membership only, exactly as
-// before; they carry no module-level sensitivity or don't correspond to one of
-// the six modules.
+// just block writes. stats piggybacks on events:read (see routeModule above),
+// since its GET responses expose the same event/attendance data. Routes with
+// no natural module mapping (team info itself, photo, logo, invite) remain
+// gated by membership only, exactly as before; they carry no module-level
+// sensitivity.
 //
 // Path parsing: given a URL like /api/v1/teams/{teamId}/events/123/attendance,
 // the segment right after the teamId UUID is used to look up the module.
@@ -243,10 +244,10 @@ func RequirePermission(checker PermissionChecker) func(http.Handler) http.Handle
 }
 
 // readModuleForPath returns the RBAC module that governs GET-visibility for a
-// sub-path, and whether that module should be enforced at all. Only the six
-// core RBAC modules (via routeModule, excluding the "" self-service entries)
-// are read-restricted; team info, photo/logo, invite, and stats have no
-// module-level sensitivity and remain visible to any team member.
+// sub-path, and whether that module should be enforced at all. Every non-empty
+// routeModule entry is read-restricted, including "stats" (piggybacks on
+// "events"); only team info, photo/logo, and invite have no module-level
+// sensitivity and remain visible to any team member.
 func readModuleForPath(subPath string) (module string, restrict bool) {
 	first := strings.SplitN(subPath, "/", 2)[0]
 	m, ok := routeModule[first]
