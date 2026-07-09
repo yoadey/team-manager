@@ -52,7 +52,11 @@ var (
 // returns a single cleanup that shuts both down. Both are no-ops when their
 // env (OTEL_EXPORTER_OTLP_ENDPOINT / SENTRY_DSN) is unset.
 func initObservability(ctx context.Context, cfg *config.Config) (func(context.Context), error) {
-	shutdownTracer, err := observability.InitTracer(ctx, serviceName, version)
+	tracedServiceName := serviceName
+	if v := os.Getenv("OTEL_SERVICE_NAME"); v != "" {
+		tracedServiceName = v
+	}
+	shutdownTracer, err := observability.InitTracer(ctx, tracedServiceName, version)
 	if err != nil {
 		return nil, fmt.Errorf("initObservability: %w", err)
 	}
