@@ -58,12 +58,13 @@ Logical dumps remain the simplest portable baseline.
 
 ### Rolling upgrades & schema-changing migrations
 
-The Helm chart's Deployment has no explicit `strategy:`, so it uses
-Kubernetes' default `RollingUpdate`: with `replicaCount > 1` (the default and
-prod values), old- and new-version pods run concurrently for the whole
-rollout window, each applying migrations via their own `initContainer` (the
-migration runner itself is safe under this — concurrent execution across
-replicas is serialized via a Postgres session-level advisory lock). CI's
+The Helm chart's Deployment leaves `strategy:` unset by default
+(`deploymentStrategy: {}` in values.yaml), so it uses Kubernetes' own default
+`RollingUpdate`: with `replicaCount > 1` (the default and prod values), old-
+and new-version pods run concurrently for the whole rollout window, each
+applying migrations via their own `initContainer` (the migration runner
+itself is safe under this — concurrent execution across replicas is
+serialized via a Postgres session-level advisory lock). CI's
 `backend-migration-safety` job only checks *lock-duration* safety
 (unindexed `CREATE INDEX`, `ALTER COLUMN ... TYPE`, unvalidated `CHECK`
 constraints) — it does not, and cannot, check whether a migration is
@@ -77,9 +78,13 @@ expecting the old type for the duration of the rollout. For any future
 migration that changes a column's *meaning* (not just its lock duration),
 either use the standard expand/contract pattern (add the new column, dual-write
 from both binary versions, backfill, then drop the old column in a later
-release) or scale to a single replica / use `Recreate` strategy for that one
-deploy so no two binary versions serve traffic against the changed schema
-simultaneously.
+release) or, for that one deploy, scale to a single replica (`--set
+replicaCount=1`) *and* switch to `Recreate`
+(`--set deploymentStrategy.type=Recreate`) so the old pod is fully terminated
+before the new one starts — a `RollingUpdate` surge pod (default `maxSurge:
+25%`) would otherwise still briefly run the new binary alongside the
+still-terminating old one even at `replicaCount=1`, which is the exact
+concurrent-old/new-binary condition this mitigation exists to avoid.
 
 ## JWT key rotation
 

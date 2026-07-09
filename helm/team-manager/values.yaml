@@ -3,6 +3,16 @@
 
 replicaCount: 2
 
+# Left empty by default (Kubernetes' own default: RollingUpdate,
+# maxSurge/maxUnavailable 25%). docs/operations.md's migration-safety runbook
+# recommends switching to Recreate for a single deploy when a migration
+# changes a column's meaning (not just its lock duration) rather than
+# following the expand/contract pattern -- Recreate guarantees no old-version
+# pod keeps serving traffic against the new schema, which surging a
+# RollingUpdate pod alongside a still-terminating old one does not. Override
+# per-deploy, e.g. `--set deploymentStrategy.type=Recreate`.
+deploymentStrategy: {}
+
 image:
   repository: ghcr.io/yoadey/team-manager-backend
   pullPolicy: IfNotPresent
@@ -189,6 +199,18 @@ networkPolicy:
       #   - ipBlock:
       #       cidr: 10.0.1.0/24
     https:
+      to: []
+    # Only rendered when backup.enabled and backup.s3.enabled are both true.
+    # The https rule above hardcodes port 443, which is fine for real AWS S3
+    # but not for a self-hosted S3-compatible endpoint (backup.s3.endpoint,
+    # e.g. MinIO) that conventionally listens on a different port such as
+    # 9000 — without this, the backup CronJob's s3-upload container (which
+    # carries the same pod selector labels as the main Deployment and is
+    # therefore subject to this NetworkPolicy too) has its egress silently
+    # dropped, and `aws s3 cp` hangs until backup.activeDeadlineSeconds kills
+    # the Job. Override the port to match backup.s3.endpoint's actual port.
+    s3:
+      port: 443
       to: []
 
 podDisruptionBudget:

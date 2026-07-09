@@ -956,3 +956,11 @@ jobs:
           helm template team-manager helm/team-manager \
             --set backup.enabled=true --set backup.s3.enabled=true \
             --set backup.s3.bucket=x --set backup.s3.credentialsSecretName=dummy-creds > /dev/null
+          # deploymentStrategy is `{}` (empty map, so Deployment.spec.strategy
+          # is omitted entirely) in every shipped values file, so the
+          # `{{- with .Values.deploymentStrategy }}` branch in deployment.yaml
+          # otherwise has no template-syntax coverage -- this is the
+          # docs/operations.md-recommended `Recreate` override for a
+          # backward-incompatible migration deploy.
+          helm template team-manager helm/team-manager \
+            --set deploymentStrategy.type=Recreate > /dev/null
