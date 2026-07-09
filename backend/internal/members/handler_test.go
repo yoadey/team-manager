@@ -16,9 +16,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/members"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // ─── mock service ─────────────────────────────────────────────────────────────
@@ -133,8 +135,17 @@ func TestMemberHandler_UpdateMember_BirthdayOutOfRange_Returns400(t *testing.T) 
 // Regression test: unlike a plain wrapped error, UpdateMember's users.email
 // UNIQUE violation used to have no special handling at all, so changing a
 // member's email to one already used by a different account surfaced as a
-// raw wrapped error -> generic 500, instead of a clean 409.
-func TestMemberHandler_UpdateMember_EmailTaken_Returns409(t *testing.T) {
+// raw wrapped error -> generic 500, instead of a clean, mapped error.
+//
+// The mapped response deliberately reuses validate.Email's exact
+// status/message rather than a distinct 409 with revealing text: users.email
+// is a global (not per-team) UNIQUE constraint, and members:write on ANY
+// team is trivially obtainable (create one), so a distinguishable response
+// here would let a caller probe whether an arbitrary, unrelated email
+// address belongs to a registered account anywhere on the platform. Making
+// a well-formed-but-taken address respond identically to a malformed one
+// closes that oracle.
+func TestMemberHandler_UpdateMember_EmailTaken_MapsToGenericInvalidEmailResponse(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockMemberService{
@@ -149,7 +160,11 @@ func TestMemberHandler_UpdateMember_EmailTaken_Returns409(t *testing.T) {
 	_, err := h.UpdateMember(context.Background(), gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
 
 	require.Error(t, err)
-	require.NotContains(t, err.Error(), "members.Handler.UpdateMember", "must map to the specific 409, not fall through to the generic wrapped error")
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T (%v) — must not fall through to the generic 500", err, err)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	assert.Equal(t, validate.ErrEmailInvalid.Error(), apiErr.Detail,
+		"must be byte-for-byte identical to a malformed-email response, not a distinguishable 'taken' message")
 }
 
 func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_Returns409(t *testing.T) {

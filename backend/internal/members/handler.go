@@ -130,7 +130,18 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 			return nil, apierror.NotFound("member not found")
 		}
 		if errors.Is(err, ErrEmailTaken) {
-			return nil, apierror.Conflict("email is already used by another account")
+			// users.email is a global (not per-team) UNIQUE constraint. A
+			// caller only needs members:write on ANY team (trivially
+			// obtained by creating one) to submit this patch, so a
+			// distinguishable response here -- even with generic wording --
+			// would let them probe whether an arbitrary, unrelated email
+			// address belongs to a registered account anywhere on the
+			// platform, independent of any relationship to that account.
+			// Reusing validate.Email's exact status/message makes a
+			// well-formed-but-taken address structurally indistinguishable
+			// from a malformed one from the client's perspective, closing
+			// that oracle rather than just softening its wording.
+			return nil, apierror.BadRequest(validate.ErrEmailInvalid.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.UpdateMember: %w", err)
