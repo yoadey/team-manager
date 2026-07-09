@@ -16,6 +16,7 @@ type statsRepo interface {
 	MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]MemberStatRow, error)
 	EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error)
 	SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*MemberStatRow, error)
+	WithReadTx(ctx context.Context, fn func(OverviewReader) error) error
 }
 
 // Service implements stats business logic.
@@ -61,14 +62,30 @@ func defaultDateRange(from, to *openapi_types.Date) (fromStr, toStr string) {
 func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error) {
 	fromStr, toStr := defaultDateRange(from, to)
 
-	members, err := s.repo.MemberStats(ctx, teamID, fromStr, toStr)
+	var (
+		members []MemberStatRow
+		events  []EventStatRow
+	)
+	// Run both reads inside one read-only transaction so Members[].Quote/Avg
+	// (from MemberStats) and Events/PastCount (from EventStats) reflect the
+	// same underlying event/attendance snapshot, instead of possibly
+	// drifting if an event is created/cancelled or attendance is recorded
+	// between the two queries -- mirrors finances.GetOverview's identical
+	// WithReadTx guard.
+	err := s.repo.WithReadTx(ctx, func(repo OverviewReader) error {
+		var err error
+		members, err = repo.MemberStats(ctx, teamID, fromStr, toStr)
+		if err != nil {
+			return fmt.Errorf("members: %w", err)
+		}
+		events, err = repo.EventStats(ctx, teamID, fromStr, toStr)
+		if err != nil {
+			return fmt.Errorf("events: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("stats.Service.GetOverview members: %w", err)
-	}
-
-	events, err := s.repo.EventStats(ctx, teamID, fromStr, toStr)
-	if err != nil {
-		return nil, fmt.Errorf("stats.Service.GetOverview events: %w", err)
+		return nil, fmt.Errorf("stats.Service.GetOverview: %w", err)
 	}
 
 	genMembers := make([]gen.MemberStat, 0, len(members))

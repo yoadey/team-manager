@@ -21,6 +21,7 @@ type mockRepo struct {
 	memberStatsFn       func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MemberStatRow, error)
 	eventStatsFn        func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.EventStatRow, error)
 	singleMemberStatsFn func(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error)
+	withReadTxFn        func(ctx context.Context, fn func(stats.OverviewReader) error) error
 }
 
 func (m *mockRepo) MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
@@ -33,6 +34,16 @@ func (m *mockRepo) EventStats(ctx context.Context, teamID uuid.UUID, from, to st
 
 func (m *mockRepo) SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error) {
 	return m.singleMemberStatsFn(ctx, teamID, userID, from, to)
+}
+
+// WithReadTx runs fn directly against the mock itself (which already
+// implements stats.OverviewReader), since unit tests have no live
+// transaction to hand out.
+func (m *mockRepo) WithReadTx(ctx context.Context, fn func(stats.OverviewReader) error) error {
+	if m.withReadTxFn != nil {
+		return m.withReadTxFn(ctx, fn)
+	}
+	return fn(m)
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
