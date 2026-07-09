@@ -317,18 +317,22 @@ jobs:
         # backup.postgresImageDigest (explicitly NOT covered by Dependabot,
         # per that key's own comment), and ci.yml's security-container-backup
         # Trivy scan step, backend-migration-rollback's and dast's postgres
-        # service containers -- with nothing tying them together, Dependabot
-        # bumping the first copy on its own schedule would silently desync
-        # it from the rest, and the CI scan/service containers or the actual
-        # backup CronJob could end up validating/running a stale digest. Same
-        # risk, weaker (no Dependabot coverage on either side) for aws-cli's pin.
+        # service containers, plus scheduled-security-scan.yml's own copy of
+        # the same Trivy scan (duplicated there so its weekly re-scan doesn't
+        # depend on ci.yml's push/pull_request-only triggers) -- with nothing
+        # tying them together, Dependabot bumping the first copy on its own
+        # schedule would silently desync it from the rest, and the CI scan/
+        # service containers or the actual backup CronJob could end up
+        # validating/running a stale digest. Same risk, weaker (no Dependabot
+        # coverage on either side) for aws-cli's pin.
         run: |
           set -euo pipefail
           pg_compose=$(grep -oP 'postgres:17@\Ksha256:\S+' docker-compose.yml)
           pg_values=$(grep -oP 'postgresImageDigest:\s*"\K[^"]+' helm/team-manager/values.yaml)
           pg_ci=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml)
-          if [ "$pg_compose" != "$pg_values" ] || [ "$pg_compose" != "$pg_ci" ]; then
-            echo "::error::postgres:17 digest mismatch: docker-compose.yml=$pg_compose values.yaml=$pg_values ci.yml=$pg_ci"
+          pg_scheduled=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/scheduled-security-scan.yml)
+          if [ "$pg_compose" != "$pg_values" ] || [ "$pg_compose" != "$pg_ci" ] || [ "$pg_compose" != "$pg_scheduled" ]; then
+            echo "::error::postgres:17 digest mismatch: docker-compose.yml=$pg_compose values.yaml=$pg_values ci.yml=$pg_ci scheduled-security-scan.yml=$pg_scheduled"
             exit 1
           fi
           pg_services=$(grep -oP '^\s*image:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml | sort -u)
@@ -339,8 +343,9 @@ jobs:
 
           aws_values=$(grep -oP 'awsCliImage:\s*"amazon/aws-cli:\K\S+(?=")' helm/team-manager/values.yaml)
           aws_ci=$(grep -oP 'image-ref:\s*amazon/aws-cli:\K\S+' .github/workflows/ci.yml)
-          if [ "$aws_values" != "$aws_ci" ]; then
-            echo "::error::amazon/aws-cli digest mismatch: values.yaml=$aws_values ci.yml=$aws_ci"
+          aws_scheduled=$(grep -oP 'image-ref:\s*amazon/aws-cli:\K\S+' .github/workflows/scheduled-security-scan.yml)
+          if [ "$aws_values" != "$aws_ci" ] || [ "$aws_values" != "$aws_scheduled" ]; then
+            echo "::error::amazon/aws-cli digest mismatch: values.yaml=$aws_values ci.yml=$aws_ci scheduled-security-scan.yml=$aws_scheduled"
             exit 1
           fi
           echo "Backup image digests are in sync (postgres:17@$pg_compose, aws-cli:$aws_values)."

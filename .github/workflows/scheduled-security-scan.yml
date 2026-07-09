@@ -1,0 +1,113 @@
+name: Scheduled security re-scan
+
+# ci.yml's govulncheck and Trivy container-scan jobs only run when code
+# changes (push to main/master, or a PR) -- a CVE newly disclosed against an
+# already-pinned, already-merged dependency (a Go module, an npm package, a
+# base-image digest already sitting in a published GHCR tag) goes undetected
+# until the next unrelated commit happens to trigger CI. Dependabot's own
+# weekly schedule (.github/dependabot.yml) only opens PRs when a *newer
+# version exists* upstream, not on a vulnerability disclosure against the
+# current pin with no fix released yet, so it doesn't close this gap either.
+#
+# This workflow re-runs the same scans against the current main/master HEAD
+# on a weekly schedule (plus workflow_dispatch for an on-demand check),
+# independent of whether anything actually changed. It intentionally
+# duplicates rather than reuses ci.yml's job definitions -- see individual
+# steps for what each mirrors -- to avoid entangling this schedule with
+# ci.yml's push/pull_request-specific triggers and conditions (e.g. the
+# secret-scanning job's base/head diff range, which is undefined on a
+# schedule event).
+on:
+  schedule:
+    # Monday 06:00 UTC. Cron minimum granularity is minutes; weekly is
+    # frequent enough to catch a freshly-disclosed CVE within days without
+    # burning runner minutes on a repo that may go a while between commits.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  # Mirrors ci.yml's backend-security job.
+  govulncheck:
+    name: Backend · Security (govulncheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+      - run: govulncheck ./...
+
+  # Mirrors ci.yml's security-container job.
+  container-backend:
+    name: Security · Container scan (Trivy, backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Build backend image
+        run: docker build -t team-manager-backend:ci backend/
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: team-manager-backend:ci
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+  # Mirrors ci.yml's security-container-frontend job.
+  container-frontend:
+    name: Security · Container scan (Trivy, frontend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Build frontend image
+        run: docker build -t team-manager-frontend:ci frontend/
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: team-manager-frontend:ci
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+  # Mirrors ci.yml's security-container-backup job. Keep the two scanned
+  # image-refs in sync with helm/team-manager/values.yaml's
+  # backup.postgresImageDigest/backup.s3.awsCliImage by hand -- same
+  # constraint noted on ci.yml's "Verify backup image digests stay in sync"
+  # step (Dependabot's docker ecosystem updater doesn't cover either key).
+  container-backup:
+    name: Security · Container scan (Trivy, backup CronJob images)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Scan postgres (backup pg_dump initContainer)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          scanners: vuln
+          trivyignores: .github/trivyignore-postgres-backup.txt
+      - name: Scan aws-cli (backup s3-upload container)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: amazon/aws-cli:2.35.18@sha256:5d6ba5056f48726a1f2d3447d0ad1ae2506f966f431d69649dc7da5cae8e4667
+          format: table
+          exit-code: "1"
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          scanners: vuln

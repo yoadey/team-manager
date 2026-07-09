@@ -86,6 +86,35 @@ before the new one starts — a `RollingUpdate` surge pod (default `maxSurge:
 still-terminating old one even at `replicaCount=1`, which is the exact
 concurrent-old/new-binary condition this mitigation exists to avoid.
 
+### Recovering from a migration killed mid-flight
+
+Every migration but one uses `CREATE TABLE IF NOT EXISTS`/`CREATE INDEX
+CONCURRENTLY IF NOT EXISTS`, so re-running `db.RunMigrations` after an
+interrupted `migrate` initContainer (OOM, node eviction, `kubectl delete
+pod`, a deploy timeout) is safe: goose only marks a migration as applied
+after it returns cleanly, so a partial run just gets retried from the top
+and the `IF NOT EXISTS` guards make that a no-op for whatever already
+landed. `00004_audit_log.sql` is the one exception — its `CREATE TABLE
+audit_log` and three `CREATE INDEX CONCURRENTLY` statements predate that
+convention and can't be changed retroactively (goose validates every
+*already-applied* migration's checksum against its file content, so
+editing this file would break every environment that has already run it).
+
+This only matters for a **brand-new deployment that has never successfully
+applied any migrations yet** — every existing deployment already has 00004
+recorded as applied and will never re-run it. If a fresh deployment's
+`migrate` initContainer is killed partway through 00004 specifically, the
+pod crash-loops on retry with `pq: relation "audit_log" already exists`
+(SQLSTATE `42P07`). To recover:
+
+1. Confirm this is actually 00004 stuck (`kubectl logs -c migrate <pod>`
+   shows the `42P07` error, and `SELECT * FROM goose_db_version ORDER BY id
+   DESC LIMIT 1` in the target database is still below version 4).
+2. Manually drop whatever 00004 partially created:
+   `DROP TABLE IF EXISTS audit_log;` (cascades its three indexes).
+3. Delete the crash-looping pod so the initContainer retries cleanly against
+   the now-empty state.
+
 ## JWT key rotation
 
 Sessions are signed with `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` (RS256). Unlike
@@ -94,9 +123,26 @@ rotating them invalidates every existing session immediately (all holders
 must re-authenticate). To rotate:
 
 1. Generate a new RSA-2048 key pair.
-2. Deploy the new `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` during a maintenance
-   window (accept that all active sessions are invalidated).
-3. Communicate the forced re-login to users ahead of time if possible.
+2. Update the `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` keys in your `existingSecret`
+   during a maintenance window (accept that all active sessions are
+   invalidated).
+3. **Restart every backend pod**: `kubectl rollout restart deployment/<fullname>
+   -n <namespace>`. This step is not optional and easy to miss — editing a
+   Kubernetes Secret does not restart pods that reference it via
+   `secretKeyRef`, and `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` are only read once,
+   at process start (`loadJWTKeys`). Since `existingSecret` is a Secret you
+   manage yourself (the chart only references it, per the existingSecret-only
+   convention — see the top-level `existingSecret` comment in values.yaml),
+   there is no `checksum/secret` pod-annotation to trigger this
+   automatically the way an in-chart-templated Secret would. Skipping this
+   step doesn't do nothing — it's worse than that: already-running replicas
+   keep validating/issuing tokens with the *old* keypair indefinitely, while
+   any replica that happens to restart on its own for an unrelated reason
+   (HPA scale-out, node reschedule) silently picks up the new key and starts
+   rejecting old-key sessions — producing confusing, non-deterministic
+   session invalidation split across replicas instead of the clean "everyone
+   re-authenticates now" step 2 sets up.
+4. Communicate the forced re-login to users ahead of time if possible.
 
 Rotate on a suspected key compromise, or on a routine schedule aligned with
 your organization's key-management policy.
