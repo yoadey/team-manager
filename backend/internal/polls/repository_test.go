@@ -199,6 +199,51 @@ func TestPollRepository_ReplaceVotes_RejectsOptionFromOtherPoll(t *testing.T) {
 	assert.Empty(t, votes, "no vote row should have been created for the cross-poll option")
 }
 
+// TestPollRepository_ReplaceVotes_PollDeleted_ReturnsErrNoRows regression-tests
+// a race where a poll deleted between Service.Vote's FindByID (poll still
+// exists) and ReplaceVotes committing (DeletePoll cascades poll_options/
+// poll_votes away) used to be misreported as ErrOptionNotInPoll (422 "option
+// does not belong to poll") -- the WHERE EXISTS guard can't tell "this
+// option isn't in that poll" apart from "that poll doesn't exist anymore"
+// on its own. The voter must see 404 "poll not found" (via pgx.ErrNoRows,
+// already wired up in VotePoll's handler), not a misleading 422.
+func TestPollRepository_ReplaceVotes_PollDeleted_ReturnsErrNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := polls.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Voter3', 'voter3@example.com', '#ccddee')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Vote Team 3')`,
+		tid)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	pollID, err := repo.Create(ctx, teamID, userID, "Poll C?", false, false, []string{"Yes", "No"})
+	require.NoError(t, err)
+	opts, err := repo.ListOptions(ctx, pollID)
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
+
+	// Simulate the poll being deleted concurrently, after Service.Vote's
+	// FindByID already confirmed it existed but before ReplaceVotes commits.
+	require.NoError(t, repo.Delete(ctx, pollID, teamID))
+
+	err = repo.ReplaceVotes(ctx, pollID, userID, []uuid.UUID{opts[0].Id}, false)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+	require.NotErrorIs(t, err, polls.ErrOptionNotInPoll)
+}
+
 // TestPollRepository_ReplaceVotes_ConcurrentSingleChoice_NoDoubleVote is a
 // regression test for a race where two concurrent ReplaceVotes calls for the
 // same user on a single-choice poll could each observe an empty poll_votes

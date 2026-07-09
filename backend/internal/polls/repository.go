@@ -313,9 +313,22 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 			return fmt.Errorf("polls.Repository.ReplaceVotes insert: %w", err)
 		}
 		// Rows were just cleared for (pollID, userID) above, so a duplicate-key
-		// conflict is impossible here — zero rows affected can only mean the
-		// WHERE EXISTS guard rejected an optionID that doesn't belong to pollID.
+		// conflict is impossible here — zero rows affected means the WHERE
+		// EXISTS guard rejected optID. That's normally because optID doesn't
+		// belong to pollID, but it's also what a poll deleted concurrently
+		// with this vote looks like: DeletePoll cascades poll_options (and
+		// poll_votes) away, so the guard finds nothing either way. Without
+		// distinguishing the two, a mid-flight poll deletion surfaced as the
+		// wrong error (422 "option does not belong to poll" instead of 404
+		// "poll not found") to the voter.
 		if tag.RowsAffected() == 0 {
+			var pollExists bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM polls WHERE id = $1)`, pollID).Scan(&pollExists); err != nil {
+				return fmt.Errorf("polls.Repository.ReplaceVotes poll exists check: %w", err)
+			}
+			if !pollExists {
+				return pgx.ErrNoRows
+			}
 			return ErrOptionNotInPoll
 		}
 	}
