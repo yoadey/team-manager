@@ -79,6 +79,7 @@ export function useMemberActions({
           back: st.sheet && st.sheet.type === 'memberDetail' ? st.sheet : null,
         },
         form: f,
+        formErrors: {},
       }));
     },
     [setState],

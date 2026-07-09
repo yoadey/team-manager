@@ -193,6 +193,20 @@ describe('useFinanceActions', () => {
     expect(setState).toHaveBeenCalled();
   });
 
+  // Regression test: openPenaltyForm/openPenaltyAssign/openContribForm used
+  // to leave a prior sheet's formErrors in place, unlike openTxForm/
+  // openEventForm/openNewsForm/openPollForm, which all reset it -- reopening
+  // any of these three after a validation error on a *different* record
+  // showed that stale error under a freshly-loaded, valid form.
+  it('openPenaltyForm clears a stale formErrors from a previous sheet', () => {
+    stateRef = makeState({ formErrors: { label: 'Bezeichnung fehlt.' } });
+    const { result } = renderActions();
+    act(() => {
+      result.current.openPenaltyForm();
+    });
+    expect(stateRef.formErrors).toEqual({});
+  });
+
   it('savePenalty shows toast when label is empty', async () => {
     stateRef = makeState({
       form: { label: '', amount: '10' },
@@ -343,6 +357,16 @@ describe('useFinanceActions', () => {
     );
   });
 
+  it('openContribForm clears a stale formErrors from a previous sheet', () => {
+    stateRef = makeState({ formErrors: { label: 'Bezeichnung fehlt.' } });
+    const c = { id: 'c1', label: 'Beitrag', amount: 20 } as never;
+    const { result } = renderActions();
+    act(() => {
+      result.current.openContribForm(c);
+    });
+    expect(stateRef.formErrors).toEqual({});
+  });
+
   it('openPenaltyAssign triggers refreshMembers when members empty', () => {
     stateRef = makeState({ members: [], finances: { penalties: [{ id: 'p1' }] } as never });
     const { result } = renderActions();
@@ -350,5 +374,18 @@ describe('useFinanceActions', () => {
       result.current.openPenaltyAssign();
     });
     expect(refreshMembers).toHaveBeenCalled();
+  });
+
+  it('openPenaltyAssign clears a stale formErrors from a previous sheet', () => {
+    stateRef = makeState({
+      members: [{ userId: 'u2' }] as never,
+      finances: { penalties: [{ id: 'p1' }] } as never,
+      formErrors: { userId: 'Person erforderlich.' },
+    });
+    const { result } = renderActions();
+    act(() => {
+      result.current.openPenaltyAssign();
+    });
+    expect(stateRef.formErrors).toEqual({});
   });
 });

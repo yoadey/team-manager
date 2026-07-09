@@ -160,6 +160,20 @@ describe('useMemberActions', () => {
     expect(patch.form).toMatchObject({ name: 'Alice', email: 'alice@test.com' });
   });
 
+  // Regression test: openMemberForm used to leave a prior sheet's
+  // formErrors in place -- editing Member A with an invalid phone number,
+  // closing, then editing Member B showed Member B's valid, freshly-loaded
+  // phone field with Member A's stale error underneath it.
+  it('openMemberForm clears a stale formErrors from a previous sheet', () => {
+    stateRef = makeState({ formErrors: { phone: 'Ungültige Telefonnummer.' } });
+    const member = stateRef.members![0];
+    const { result } = renderActions();
+    act(() => {
+      result.current.openMemberForm(member as never);
+    });
+    expect(stateRef.formErrors).toEqual({});
+  });
+
   it('toggleFormRole adds role to form', () => {
     stateRef = makeState({ form: { roleIds: ['r1'] } });
     const { result } = renderActions();

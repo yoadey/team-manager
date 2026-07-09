@@ -124,6 +124,7 @@ export function useFinanceActions({
         form: (p
           ? { id: p.id, label: p.label, amount: String(p.amount) }
           : { label: '', amount: '' }) satisfies PenaltyFormValues,
+        formErrors: {},
       })),
     [setState],
   );
@@ -187,7 +188,7 @@ export function useFinanceActions({
     const f = S().finances;
     const first = f && f.penalties[0] ? f.penalties[0].id : null;
     const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };
-    setState({ sheet: { type: 'penaltyAssign' }, form });
+    setState({ sheet: { type: 'penaltyAssign' }, form, formErrors: {} });
   }, [S, refreshMembers, setState]);
 
   const savePenaltyAssign = useCallback(async () => {
@@ -236,7 +237,7 @@ export function useFinanceActions({
   const openContribForm = useCallback(
     (c: Contribution) => {
       const form: ContribFormValues = { id: c.id, label: c.label, amount: String(c.amount) };
-      setState({ sheet: { type: 'contribForm' }, form });
+      setState({ sheet: { type: 'contribForm' }, form, formErrors: {} });
     },
     [setState],
   );
