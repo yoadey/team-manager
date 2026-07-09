@@ -149,11 +149,24 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `ENVIRONMENT`     | _(empty)_                   | Environment label attached to Sentry events |
 | `ERROR_TYPE_BASE_URI` | _(empty)_               | Base URI prefix for the `type` field of RFC 9457 problem+json error responses (e.g. `https://docs.example.com/errors`); left as relative paths when unset. |
 
-> **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation. Set
-> the new key first, then append the old key(s): `COOKIE_ENCRYPTION_KEYS=<new>,<old>`.
-> Encryption always uses the first key; decryption tries all keys in order. Old keys can
-> be removed once all sessions using them have expired (after `SESSION_TTL_HOURS`).
-> Generate a new key with `openssl rand -base64 32`.
+> **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation.
+> Encryption always uses the *first* key; decryption tries all keys in order. Like
+> `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` (see docs/operations.md's JWT key rotation runbook),
+> this env var is only read once at process start — updating the Secret alone does
+> nothing until pods are restarted, and a *single* rolling restart straight to
+> `<new>,<old>` is not actually zero-downtime: mid-rollout, already-restarted pods
+> encrypt new cookies with `<new>` while not-yet-restarted pods have never loaded
+> `<new>` and reject them, forcing re-login for any user whose requests land on both
+> pod generations. The genuinely zero-downtime sequence is **two** rolling restarts:
+> 1. Set `COOKIE_ENCRYPTION_KEYS=<old>,<new>` (new key appended, not prepended) and
+>    restart every pod — every replica can now decrypt both, but all still encrypt
+>    with `<old>`, so nothing changes for existing/new cookies yet.
+> 2. Once step 1 has fully rolled out, flip to `COOKIE_ENCRYPTION_KEYS=<new>,<old>`
+>    and restart every pod again — this is the actual cutover to encrypting with
+>    `<new>`; every replica already knows `<new>` from step 1, so no pod ever rejects
+>    a cookie encrypted by another.
+> Old keys can be removed once all sessions using them have expired (after
+> `SESSION_TTL_HOURS`). Generate a new key with `openssl rand -base64 32`.
 
 ## Testing
 

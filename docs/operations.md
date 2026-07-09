@@ -115,6 +115,19 @@ pod crash-loops on retry with `pq: relation "audit_log" already exists`
 3. Delete the crash-looping pod so the initContainer retries cleanly against
    the now-empty state.
 
+## Cookie encryption key rotation
+
+`COOKIE_ENCRYPTION_KEYS` supports zero-downtime rotation, but — same
+one-read-at-process-start caveat as `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` below —
+updating the Secret alone does nothing until pods restart, and a *single*
+rolling restart straight to `<new>,<old>` is not actually zero-downtime
+(mid-rollout, already-restarted pods encrypt with `<new>` while
+not-yet-restarted pods have never loaded it and reject those cookies,
+forcing re-login for anyone whose requests land on both pod generations).
+The safe sequence needs **two** rolling restarts — see CLAUDE.md's
+`COOKIE_ENCRYPTION_KEYS` entry in the backend env var table for the full
+step-by-step.
+
 ## JWT key rotation
 
 Sessions are signed with `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` (RS256). Unlike

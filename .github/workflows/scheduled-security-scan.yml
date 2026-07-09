@@ -111,3 +111,38 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           scanners: vuln
+
+  # A scheduled run has no PR/push to surface a red X on, and the only
+  # built-in signal is GitHub's per-actor failure email -- sent to whoever
+  # last edited this workflow file's cron, easily filtered/muted, and no
+  # substitute for something that shows up where the team actually looks
+  # (the Issues tab). Files a tracking issue so a newly-disclosed CVE this
+  # workflow catches can't go unnoticed the same way the gap it was built to
+  # close did. Uses only the built-in GITHUB_TOKEN via curl -- no new
+  # third-party action to pin.
+  notify-on-failure:
+    name: File an issue if any scan failed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [govulncheck, container-backend, container-frontend, container-backup]
+    if: failure()
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open a tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          body=$(jq -n --arg url "$RUN_URL" \
+            '"The weekly scheduled security re-scan (govulncheck / Trivy) failed.\n\nRun: " + $url + "\n\nCheck the run for which specific scan(s) failed and whether a newly-disclosed CVE needs a re-pin or an upstream fix."')
+          payload=$(jq -n --arg title "Scheduled security scan failed ($(date -u +%Y-%m-%d))" --argjson body "$body" \
+            '{title: $title, body: $body, labels: ["security"]}')
+          curl -sS --fail-with-body -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${{ github.repository }}/issues" \
+            -d "$payload"
