@@ -369,6 +369,37 @@ func TestTeamHandler_UpdateTeam_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, teamID.String(), rec["teamId"])
 }
 
+// Regression test: CreateTeam mints a new Admin role with full write
+// permissions and assigns it to the caller -- more privilege than
+// UpdateTeam/CreateInvite/AcceptInvite grant, all three of which already
+// emit an audit record. CreateTeam used to be the one team-mutating handler
+// with no audit trail at all.
+func TestTeamHandler_CreateTeam_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		createTeam: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+			return &gen.TeamForUser{Id: teamID, Name: "New Team"}, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
+	body := &gen.CreateTeamJSONRequestBody{Name: "New Team"}
+	_, err := h.CreateTeam(ctx, gen.CreateTeamRequestObject{Body: body})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.create", rec["event"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
 func TestTeamHandler_CreateTeam_RejectsEmptyName_Returns400(t *testing.T) {
 	t.Parallel()
 

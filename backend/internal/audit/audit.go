@@ -46,6 +46,7 @@ const (
 	// action is carried in an "operation" attribute (e.g. transaction.create).
 	EventFinanceMutation = "finance.mutation"
 
+	EventTeamCreate       = "team.create"
 	EventTeamUpdate       = "team.update"
 	EventTeamInvite       = "team.invite_create"
 	EventTeamInviteAccept = "team.invite_accept"

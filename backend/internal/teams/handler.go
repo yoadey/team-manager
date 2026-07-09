@@ -95,6 +95,11 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
 	}
 
+	// CreateTeam mints a new Admin role with full write permissions and
+	// assigns it to the caller -- more privilege than UpdateTeam/CreateInvite/
+	// AcceptInvite grant, all three of which are already audited below.
+	h.audit.Record(ctx, audit.EventTeamCreate, audit.Success, actor(ctx),
+		slog.String("teamId", tfu.Id.String()))
 	metrics.TeamEvents.WithLabelValues("team", "create").Inc()
 	return gen.CreateTeam201JSONResponse(*tfu), nil
 }
