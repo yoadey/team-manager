@@ -78,6 +78,10 @@ func TestPollRepository_Vote(t *testing.T) {
 		`INSERT INTO teams (id, name) VALUES ($1, 'Vote Team')`,
 		tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
@@ -142,6 +146,8 @@ func TestPollRepository_ReplaceVotes_DuplicateOptionIDs_DoesNotError(t *testing.
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Dup Vote Team')`, tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
@@ -177,6 +183,10 @@ func TestPollRepository_ReplaceVotes_RejectsOptionFromOtherPoll(t *testing.T) {
 	_, err = pool.Exec(ctx,
 		`INSERT INTO teams (id, name) VALUES ($1, 'Vote Team 2')`,
 		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
 	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
@@ -225,6 +235,10 @@ func TestPollRepository_ReplaceVotes_PollDeleted_ReturnsErrNoRows(t *testing.T) 
 		`INSERT INTO teams (id, name) VALUES ($1, 'Vote Team 3')`,
 		tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
@@ -242,6 +256,59 @@ func TestPollRepository_ReplaceVotes_PollDeleted_ReturnsErrNoRows(t *testing.T) 
 	err = repo.ReplaceVotes(ctx, pollID, userID, []uuid.UUID{opts[0].Id}, false)
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 	require.NotErrorIs(t, err, polls.ErrOptionNotInPoll)
+}
+
+// TestPollRepository_ReplaceVotes_RejectsNonMemberUser regression-tests a bug
+// where ReplaceVotes checked that the option belonged to the poll but never
+// checked that userID was currently a member of the poll's team.
+// polls/vote is self-service (see authz.go), so RequireMembership only
+// checks membership once at the start of the request -- a membership
+// removal racing this call could otherwise still commit a vote for a
+// non-member, and for a non-anonymous poll that ex-member's name/avatar/
+// photo would then be displayed alongside their vote to every remaining
+// team member indefinitely.
+func TestPollRepository_ReplaceVotes_RejectsNonMemberUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := polls.NewRepository(pool)
+	ctx := context.Background()
+
+	memberID := uuid.New().String()
+	outsiderID := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES
+			($1, 'Member', 'poll-member@example.com', '#aabbcc'),
+			($2, 'Outsider', 'poll-outsider@example.com', '#ccddee')`,
+		memberID, outsiderID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Non-Member Vote Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, memberID)
+	require.NoError(t, err)
+
+	teamID := uuid.MustParse(tid)
+	member := uuid.MustParse(memberID)
+	outsider := uuid.MustParse(outsiderID)
+
+	pollID, err := repo.Create(ctx, teamID, member, "Non-member poll?", false, false, []string{"Yes", "No"})
+	require.NoError(t, err)
+	opts, err := repo.ListOptions(ctx, pollID)
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
+
+	err = repo.ReplaceVotes(ctx, pollID, outsider, []uuid.UUID{opts[0].Id}, false)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "ReplaceVotes must reject a userID that is not a member of the poll's team")
+
+	votes, err := repo.ListVotes(ctx, pollID)
+	require.NoError(t, err)
+	assert.Empty(t, votes, "no vote row should have been created for the non-member user")
+
+	// A real member of the team is unaffected.
+	err = repo.ReplaceVotes(ctx, pollID, member, []uuid.UUID{opts[0].Id}, false)
+	require.NoError(t, err, "ReplaceVotes scoped to an actual team member must succeed")
 }
 
 // TestPollRepository_ReplaceVotes_ConcurrentSingleChoice_NoDoubleVote is a
@@ -268,6 +335,10 @@ func TestPollRepository_ReplaceVotes_ConcurrentSingleChoice_NoDoubleVote(t *test
 	_, err = pool.Exec(ctx,
 		`INSERT INTO teams (id, name) VALUES ($1, 'Race Team')`,
 		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
 	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)

@@ -339,6 +339,43 @@ func TestService_Vote(t *testing.T) {
 	assert.Len(t, *result.MyVote, 1)
 }
 
+// Regression test: Vote used to reuse the pre-write poll row (pr) to build
+// the response instead of re-fetching after ReplaceVotes commits. A poll
+// deleted concurrently between the write and buildPoll's reads (ListOptions/
+// ListVotes silently return empty results for a gone poll_id, not an error)
+// used to assemble a nonsensical empty 200 OK from stale data instead of the
+// accurate 404 "poll not found".
+func TestService_Vote_PollDeletedBeforeRefetch_ReturnsErrNoRows(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow()
+	findByIDCalls := 0
+
+	repo := &mockRepo{
+		findByID: func(_ context.Context, id, tid uuid.UUID) (*polls.PollRow, error) {
+			findByIDCalls++
+			if findByIDCalls == 1 {
+				return pr, nil
+			}
+			return nil, pgx.ErrNoRows
+		},
+		replaceVotes: func(_ context.Context, _, _ uuid.UUID, _ []uuid.UUID, _ bool) error {
+			return nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			t.Fatal("buildPoll must not run against the stale pre-write poll row once the re-fetch reports it gone")
+			return nil, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	_, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+	assert.Equal(t, 2, findByIDCalls, "must re-fetch after ReplaceVotes, not reuse the pre-write poll row")
+}
+
 func TestService_Vote_CrossTeamBlocked(t *testing.T) {
 	t.Parallel()
 

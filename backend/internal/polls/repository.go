@@ -301,11 +301,23 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 	optionIDs = dedupeUUIDs(optionIDs)
 
 	for _, optID := range optionIDs {
+		// The membership EXISTS guard re-checks that userID currently
+		// belongs to the poll's team -- polls/vote is self-service (see
+		// authz.go), so RequireMembership only checks membership once at
+		// the start of the request. Without this, a membership removal
+		// racing this call could still commit a vote for a non-member, and
+		// for a non-anonymous poll that ex-member's name/avatar/photo would
+		// then be displayed alongside their vote to every remaining team
+		// member indefinitely (assemblePoll has no other filter on voters).
 		tag, err := tx.Exec(
 			ctx,
 			`INSERT INTO poll_votes (poll_id, option_id, user_id)
 			 SELECT $1, $2, $3
 			 WHERE EXISTS (SELECT 1 FROM poll_options WHERE id = $2 AND poll_id = $1)
+			   AND EXISTS (
+			     SELECT 1 FROM memberships m JOIN polls p ON p.team_id = m.team_id
+			     WHERE p.id = $1 AND m.user_id = $3
+			   )
 			 ON CONFLICT DO NOTHING`,
 			pollID, optID, userID,
 		)
@@ -313,23 +325,11 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 			return fmt.Errorf("polls.Repository.ReplaceVotes insert: %w", err)
 		}
 		// Rows were just cleared for (pollID, userID) above, so a duplicate-key
-		// conflict is impossible here — zero rows affected means the WHERE
-		// EXISTS guard rejected optID. That's normally because optID doesn't
-		// belong to pollID, but it's also what a poll deleted concurrently
-		// with this vote looks like: DeletePoll cascades poll_options (and
-		// poll_votes) away, so the guard finds nothing either way. Without
-		// distinguishing the two, a mid-flight poll deletion surfaced as the
-		// wrong error (422 "option does not belong to poll" instead of 404
-		// "poll not found") to the voter.
+		// conflict is impossible here — zero rows affected means one of the
+		// two WHERE EXISTS guards rejected the insert. See
+		// diagnoseReplaceVotesRejection for what that can mean.
 		if tag.RowsAffected() == 0 {
-			var pollExists bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM polls WHERE id = $1)`, pollID).Scan(&pollExists); err != nil {
-				return fmt.Errorf("polls.Repository.ReplaceVotes poll exists check: %w", err)
-			}
-			if !pollExists {
-				return pgx.ErrNoRows
-			}
-			return ErrOptionNotInPoll
+			return diagnoseReplaceVotesRejection(ctx, tx, pollID, userID)
 		}
 	}
 
@@ -337,6 +337,41 @@ func (r *Repository) ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID,
 		return fmt.Errorf("polls.Repository.ReplaceVotes: commit: %w", err)
 	}
 	return nil
+}
+
+// diagnoseReplaceVotesRejection determines why a poll_votes INSERT's WHERE
+// EXISTS guards rejected a row (RowsAffected == 0), distinguishing three
+// cases that otherwise look identical from the caller's side:
+//   - the poll was deleted concurrently (DeletePoll cascades poll_options/
+//     poll_votes away, so the option guard finds nothing) -> pgx.ErrNoRows,
+//     the same "not found" a real GetByID miss would report.
+//   - userID is not (or is no longer) a member of the poll's team (a
+//     membership removal racing this self-service write) -> pgx.ErrNoRows
+//     too, matching RequireMembership's own "not found, not forbidden"
+//     convention for a non-member so as not to confirm a team's existence
+//     to someone with no relationship to it.
+//   - neither of the above: the option genuinely doesn't belong to this
+//     poll -> ErrOptionNotInPoll (422).
+func diagnoseReplaceVotesRejection(ctx context.Context, tx pgx.Tx, pollID, userID uuid.UUID) error {
+	var pollExists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM polls WHERE id = $1)`, pollID).Scan(&pollExists); err != nil {
+		return fmt.Errorf("polls.Repository.ReplaceVotes poll exists check: %w", err)
+	}
+	if !pollExists {
+		return pgx.ErrNoRows
+	}
+	var isMember bool
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT EXISTS (SELECT 1 FROM memberships m JOIN polls p ON p.team_id = m.team_id WHERE p.id = $1 AND m.user_id = $2)`,
+		pollID, userID,
+	).Scan(&isMember); err != nil {
+		return fmt.Errorf("polls.Repository.ReplaceVotes membership check: %w", err)
+	}
+	if !isMember {
+		return pgx.ErrNoRows
+	}
+	return ErrOptionNotInPoll
 }
 
 // dedupeUUIDs returns ids with duplicates removed, preserving first-seen order.

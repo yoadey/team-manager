@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
@@ -151,9 +152,24 @@ func (s *Service) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, op
 		if errors.Is(err, ErrOptionNotInPoll) {
 			return gen.Poll{}, ErrOptionNotInPoll
 		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return gen.Poll{}, pgx.ErrNoRows
+		}
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote ReplaceVotes: %w", err)
 	}
-	return s.buildPoll(ctx, pr, userID)
+	// Re-fetch rather than reuse the pre-write pr: a concurrent DeletePoll
+	// could cascade this poll away between ReplaceVotes committing and this
+	// point. buildPoll's ListOptions/ListVotes would then silently return
+	// empty results (a poll_id matching zero rows is a valid, error-free
+	// query result, not pgx.ErrNoRows), assembling a nonsensical empty 200 OK
+	// from the stale pre-delete pr instead of the accurate 404 -- and the
+	// vote the caller just successfully cast would already be gone too,
+	// cascaded away along with the poll.
+	fresh, err := s.repo.FindByID(ctx, pollID, teamID)
+	if err != nil {
+		return gen.Poll{}, fmt.Errorf("polls.Service.Vote refetch: %w", err)
+	}
+	return s.buildPoll(ctx, fresh, userID)
 }
 
 // Delete removes a poll by ID, scoped to teamID.
