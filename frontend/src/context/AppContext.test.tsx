@@ -897,4 +897,59 @@ describe('AppProvider / session-restore resilience', () => {
     // have fetched it, or this would be stuck on a skeleton loader forever.
     await waitFor(() => expect(screen.getByTestId('finances').textContent).toBe('loaded'));
   });
+
+  // Regression test: the fix above only restored route/eventScope/eventsView/
+  // eventsOnlyPending/finTab, not a deep-linked detail sheet -- a reload
+  // while /events/<id> was open used to leave state.sheet at null AND
+  // rewrite the URL down to /events (dropping the id), destroying the deep
+  // link outright rather than just failing to render it.
+  it('restores a deep-linked event detail sheet when a session is restored from a reload', async () => {
+    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
+      await freshModules();
+
+    const events = await api.events.list('t_a', 'all');
+    const eventId = events[0].id;
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="route">{state.route}</div>
+          <div data-testid="sheetType">{state.sheet?.type ?? ''}</div>
+          <div data-testid="sheetEventId">{state.sheet?.eventId ?? ''}</div>
+        </div>
+      );
+    }
+
+    const first = render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    first.unmount();
+
+    // Simulate the browser being reloaded while /events/<id> was open.
+    window.history.pushState({}, '', '/events/' + eventId);
+
+    render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    expect(screen.getByTestId('route').textContent).toBe('events');
+    await waitFor(() => expect(screen.getByTestId('sheetType').textContent).toBe('eventDetail'));
+    expect(screen.getByTestId('sheetEventId').textContent).toBe(eventId);
+    // The state->URL sync effect must restore the id segment once the
+    // sheet opens, not leave it stripped from the earlier history.replaceState.
+    await waitFor(() => expect(window.location.pathname).toBe('/events/' + eventId));
+  });
 });

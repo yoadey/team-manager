@@ -818,7 +818,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (!teams.length) {
         if (invite) history.replaceState({}, '', '/');
         setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
-        return;
+        return null;
       }
       const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0].id;
       if (opts?.restoreLocation) {
@@ -832,7 +832,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // this a deep link into finances/stats/polls would render the right
         // route with no data, ever (the same "permanent skeleton loader"
         // class fixed for refreshEvents/refreshMembers in round 46, but for
-        // the bootstrap path).
+        // the bootstrap path). Left as `detail: null` here deliberately --
+        // the caller opens the detail sheet (see the bootstrap effect
+        // below), and the state->URL sync effect restores the id segment
+        // once state.sheet is set, so there's no need to duplicate that
+        // logic here.
         const restored = parseLocation(window.location.pathname, window.location.search);
         history.replaceState(
           { route: restored.route },
@@ -860,11 +864,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
         await afterLoginLoad(activeTeamId);
         ensureRouteData(restored.route);
-      } else {
-        history.replaceState({ route: 'home' }, '', '/home');
-        setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-        await afterLoginLoad(activeTeamId);
+        return restored;
       }
+      history.replaceState({ route: 'home' }, '', '/home');
+      setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+      await afterLoginLoad(activeTeamId);
+      return null;
     },
     [api, setState, afterLoginLoad, toastMsg, ensureRouteData],
   );
@@ -1146,7 +1151,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // the user stays logged in across reloads without seeing the login screen.
         const user = await api.auth.currentUser();
         if (user) {
-          await establishSession(user, { restoreLocation: true });
+          const restored = await establishSession(user, { restoreLocation: true });
+          // Mirrors the popstate handler below: a deep link into a specific
+          // event/member detail sheet (e.g. /events/ev1) must survive a
+          // page reload too, not just the route/list-filter portion of the
+          // URL restoreLocation already restores above.
+          if (restored?.detailId && restored.route === 'events') void openEventDetail(restored.detailId);
+          else if (restored?.detailId && restored.route === 'members') void openMemberDetail(restored.detailId);
           return;
         }
         const providers = await api.auth.providers();
@@ -1166,7 +1177,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
     })();
-  }, [api, setState, establishSession]);
+  }, [api, setState, establishSession, openEventDetail, openMemberDetail]);
 
   // All actions/helpers are stable (useCallback), so the actions object is built
   // once and never changes identity — this is what lets useAppActions consumers
