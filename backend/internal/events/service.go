@@ -272,11 +272,7 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID, teamID)
-	if err != nil {
-		return nil, err
-	}
-	return &ev, nil
+	return s.enrichEventOrFallback(ctx, row, userID, teamID), nil
 }
 
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
@@ -326,11 +322,7 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		return nil, fmt.Errorf("events.Service.UpdateEvent: %w", err)
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID, teamID)
-	if err != nil {
-		return nil, err
-	}
-	return &ev, nil
+	return s.enrichEventOrFallback(ctx, row, userID, teamID), nil
 }
 
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
@@ -371,11 +363,7 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID, teamID)
-	if err != nil {
-		return nil, err
-	}
-	return &ev, nil
+	return s.enrichEventOrFallback(ctx, row, userID, teamID), nil
 }
 
 // ─── Comments ───────────────────────────────────────────────────────────────
@@ -578,6 +566,27 @@ func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID, teamID
 		}
 	}
 	return ev, nil
+}
+
+// enrichEventOrFallback wraps enrichEvent for write-path callers whose
+// underlying mutation has already committed: an enrichment failure (e.g. a
+// transient timeout on the read-only summary/attendance queries) must not be
+// reported as a request failure, since the caller would see a false error
+// for an already-successful write and could retry it -- for CreateEvent that
+// means minting a duplicate event/series. Falls back to the row's own data
+// with a zero-value summary and no MyStatus; the next list/detail fetch
+// picks up the real numbers. GetEvent (a plain read, no prior write) calls
+// enrichEvent directly instead, since there a genuine failure should be
+// reported as one.
+func (s *Service) enrichEventOrFallback(ctx context.Context, row *EventRow, userID, teamID string) *gen.TeamEvent {
+	ev, err := s.enrichEvent(ctx, row, userID, teamID)
+	if err != nil {
+		s.logger.Warn("events: failed to enrich event after write, returning partial result",
+			slog.String("eventId", row.Id.String()), slog.String("error", err.Error()))
+		fallback := toGenEvent(row, EventSummaryData{})
+		return &fallback
+	}
+	return &ev
 }
 
 // toGenEvent maps an EventRow + summary to gen.TeamEvent.

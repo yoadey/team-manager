@@ -2,6 +2,7 @@ package events_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -220,6 +221,41 @@ func TestEventService_CreateEvent_Recurring(t *testing.T) {
 	assert.False(t, createCalled, "CreateEvent should NOT be called for recurring events")
 	assert.True(t, result.Recurring, "resulting event should have Recurring=true")
 	assert.NotNil(t, result.SeriesId)
+}
+
+// Regression test: CreateEvent/CreateSeries commits the write before
+// enrichEvent's read-only summary/attendance queries run. A transient
+// failure in those reads (e.g. a deadline hit right after the write) used to
+// propagate as an error from CreateEvent itself, reporting an already
+// -successful (and, for a recurring series, already fully committed) write
+// as a failure -- inviting a client retry that would mint a duplicate
+// series. It must instead fall back to the row's own data with a zero-value
+// summary rather than fail the request.
+func TestEventService_CreateEvent_EnrichmentFailureDoesNotFailAlreadyCommittedWrite(t *testing.T) {
+	t.Parallel()
+
+	row := svcMakeEventRow("Weekly Training")
+	repo := &mockSvcRepo{
+		createEventFn: func(_ context.Context, _ string, _ *events.CreateEventParams) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: func(_ context.Context, _, _ string) (events.EventSummaryData, error) {
+			return events.EventSummaryData{}, errors.New("transient deadline exceeded")
+		},
+		getMyAttendanceFn: nilMyAttendanceFn,
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	body := &gen.CreateEventRequest{
+		Type:  gen.Training,
+		Title: "Weekly Training",
+		Date:  openapi_types.Date{Time: time.Now().UTC()},
+	}
+	result, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err, "an enrichment failure after a committed write must not fail the request")
+	require.NotNil(t, result)
+	assert.Equal(t, row.Id, result.Id)
+	assert.Equal(t, 0, result.Summary.Total, "falls back to a zero-value summary rather than propagating the enrichment error")
 }
 
 // Regression test: UpdateEventJSONRequestBody.NominatedRoleIds is a
