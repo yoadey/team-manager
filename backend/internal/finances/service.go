@@ -287,7 +287,18 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 	// Reload the single row with joined member/penalty data.
 	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
-		// The write already succeeded; a reload failure here (e.g. a
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The row we just created is already gone -- a concurrent
+			// DeletePenalty cascaded it away in the narrow window between
+			// the insert and this reload. This is materially different
+			// from a transient reload failure below: returning the
+			// un-joined fallback here would be a 200 OK for an assignment
+			// that no longer exists in the database, with blank
+			// label/amount/member fields. Propagate ErrNoRows so the
+			// handler's existing "not found" mapping applies instead.
+			return nil, pgx.ErrNoRows
+		}
+		// The write already succeeded; any other reload failure (e.g. a
 		// deadline hit right after the insert) must not fail the request,
 		// but silently returning the un-joined fallback (penalty
 		// label/amount/member name/photo all omitted) with no trace was a
@@ -318,6 +329,12 @@ func (s *Service) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID
 	// Reload the single row with joined member/penalty data.
 	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Same reasoning as CreateAssignment above: a concurrent
+			// DeletePenalty cascaded this row away between the toggle and
+			// this reload, so it must not be reported as a 200 OK success.
+			return nil, pgx.ErrNoRows
+		}
 		s.logger.Warn("finances: failed to reload assignment after toggle, returning partial result",
 			slog.String("assignmentId", a.ID.String()), slog.String("error", err.Error()))
 		result := toGenAssignment(*a)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -343,6 +344,35 @@ func TestService_CreateAssignment_FallsBackToUnenrichedRowWhenReloadFails(t *tes
 	assert.Nil(t, result.Label, "unenriched fallback row has no penalty label")
 }
 
+// Regression test: a concurrent DeletePenalty that cascades the just-created
+// assignment away between the insert and the reload used to be
+// indistinguishable from a merely transient reload failure -- both fell
+// through to the same "return the bare, unenriched row with a 200 OK"
+// fallback, silently reporting success for a row that no longer exists in
+// the database. pgx.ErrNoRows specifically must propagate instead, so the
+// handler's existing "not found" mapping applies.
+func TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t *testing.T) {
+	t.Parallel()
+
+	teamID, penaltyID, userID := uuid.New(), uuid.New(), uuid.New()
+	createdID := uuid.New()
+	repo := &mockRepo{
+		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: penaltyID}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
+	_, err := svc.CreateAssignment(context.Background(), teamID, body)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
+}
+
 func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
 	t.Parallel()
 
@@ -365,6 +395,27 @@ func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
 	assert.True(t, result.Paid)
 	require.NotNil(t, result.Label)
 	assert.Equal(t, label, *result.Label)
+}
+
+// Regression test: same class as
+// TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload,
+// for the toggle-paid path.
+func TestService_ToggleAssignmentPaid_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t *testing.T) {
+	t.Parallel()
+
+	teamID, id := uuid.New(), uuid.New()
+	repo := &mockRepo{
+		toggleAssignmentPaidFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, Paid: true}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	_, err := svc.ToggleAssignmentPaid(context.Background(), teamID, id)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
 
 // ─── Contributions ───────────────────────────────────────────────────────────
