@@ -791,7 +791,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // active team and transitions into the app. Shared by the login flows and the
   // startup session-restore effect.
   const establishSession = useCallback(
-    async (user: User | null) => {
+    async (user: User | null, opts?: { restoreLocation?: boolean }) => {
       // An invite link (/join/<teamId>/<code>) may have brought the user here,
       // whether they already had a session (redirected straight back in) or
       // just logged in for the first time. Redeem it before loading the team
@@ -821,11 +821,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0].id;
-      history.replaceState({ route: 'home' }, '', '/home');
-      setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
-      await afterLoginLoad(activeTeamId);
+      if (opts?.restoreLocation) {
+        // Session restore (a page reload, or a bookmarked/shared deep link
+        // like /finances or /events?view=absences) must not silently bounce
+        // the user to /home. Re-parse the URL fresh here (same pattern as
+        // parsePendingInvite above) rather than trust the module-load-time
+        // initialLocation/initialState snapshot, then fetch that route's
+        // data the same way the popstate handler below does -- afterLoginLoad
+        // only covers events/members/roles/news/notifications, so without
+        // this a deep link into finances/stats/polls would render the right
+        // route with no data, ever (the same "permanent skeleton loader"
+        // class fixed for refreshEvents/refreshMembers in round 46, but for
+        // the bootstrap path).
+        const restored = parseLocation(window.location.pathname, window.location.search);
+        history.replaceState(
+          { route: restored.route },
+          '',
+          buildPath({
+            route: restored.route,
+            eventScope: restored.eventScope,
+            eventsView: restored.eventsView,
+            eventsOnlyPending: restored.eventsOnlyPending,
+            finTab: restored.finTab,
+            detail: null,
+          }),
+        );
+        setState({
+          user,
+          teams,
+          activeTeamId,
+          phase: 'app',
+          busy: null,
+          route: restored.route,
+          eventScope: restored.eventScope,
+          eventsView: restored.eventsView,
+          eventsOnlyPending: restored.eventsOnlyPending,
+          finTab: restored.finTab,
+        });
+        await afterLoginLoad(activeTeamId);
+        ensureRouteData(restored.route);
+      } else {
+        history.replaceState({ route: 'home' }, '', '/home');
+        setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
+        await afterLoginLoad(activeTeamId);
+      }
     },
-    [api, setState, afterLoginLoad, toastMsg],
+    [api, setState, afterLoginLoad, toastMsg, ensureRouteData],
   );
 
   const doLogin = useCallback(
@@ -1105,7 +1146,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // the user stays logged in across reloads without seeing the login screen.
         const user = await api.auth.currentUser();
         if (user) {
-          await establishSession(user);
+          await establishSession(user, { restoreLocation: true });
           return;
         }
         const providers = await api.auth.providers();

@@ -841,4 +841,60 @@ describe('AppProvider / session-restore resilience', () => {
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
     expect(spy).toHaveBeenCalledTimes(1);
   });
+
+  // Regression test: establishSession's session-restore path used to
+  // unconditionally hardcode route: 'home' and rewrite the URL to /home,
+  // silently discarding a bookmarked/shared deep link or the page the user
+  // was on before a reload -- restoreLocation now re-parses the current URL
+  // instead, mirroring the popstate handler.
+  it('restores the deep-linked route (not /home) when a session is restored from a reload', async () => {
+    const { AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
+      await freshModules();
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="route">{state.route}</div>
+          <div data-testid="finTab">{state.finTab}</div>
+          <div data-testid="finances">{state.finances ? 'loaded' : 'null'}</div>
+        </div>
+      );
+    }
+
+    const first = render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    // A normal login establishes a real session (session.userId in the
+    // mock), which persists across remounts within this module instance --
+    // same technique the test above uses to simulate a reload.
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    first.unmount();
+
+    // Simulate the browser being reloaded (or a bookmark/shared link being
+    // opened) while pointed at /finances?tab=strafen.
+    window.history.pushState({}, '', '/finances?tab=strafen');
+
+    render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    expect(screen.getByTestId('route').textContent).toBe('finances');
+    expect(screen.getByTestId('finTab').textContent).toBe('strafen');
+    expect(window.location.pathname).toBe('/finances');
+    // afterLoginLoad alone doesn't cover finances -- ensureRouteData must
+    // have fetched it, or this would be stuck on a skeleton loader forever.
+    await waitFor(() => expect(screen.getByTestId('finances').textContent).toBe('loaded'));
+  });
 });
