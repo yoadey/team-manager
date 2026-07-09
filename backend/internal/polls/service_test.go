@@ -33,6 +33,10 @@ type mockRepo struct {
 	// ID so existing single-poll test setups keep working unchanged.
 	listOptionsByPollIDs func(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*polls.PollOptionRow, error)
 	listVotesByPollIDs   func(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*polls.PollVoteRow, error)
+
+	// withReadTxCalledPtr, when set, is flipped to true inside WithReadTx --
+	// lets a test assert its reads were actually routed through it.
+	withReadTxCalledPtr *bool
 }
 
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *polls.ListCursor) ([]*polls.PollRow, error) {
@@ -91,6 +95,16 @@ func (m *mockRepo) ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID) 
 		result[id] = votes
 	}
 	return result, nil
+}
+
+// WithReadTx runs fn directly against the mock itself (which already
+// implements polls.PollListReader), since unit tests have no live
+// transaction to hand out.
+func (m *mockRepo) WithReadTx(ctx context.Context, fn func(polls.PollListReader) error) error {
+	if m.withReadTxCalledPtr != nil {
+		*m.withReadTxCalledPtr = true
+	}
+	return fn(m)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -158,6 +172,43 @@ func TestService_ListByTeam(t *testing.T) {
 	assert.Equal(t, "Best player?", result[0].Question)
 	require.Len(t, result[0].Options, 1)
 	assert.Equal(t, "Alice", result[0].Options[0].Text)
+}
+
+// Regression test: ListByTeam used to issue three independent, unprotected
+// queries (poll rows, then options, then votes) directly against the pool.
+// A concurrent Delete landing between them could leave a "ghost" poll in the
+// response -- a real question/options row with empty options/votes for a
+// poll that no longer exists. The fix routes all three reads through
+// WithReadTx so they observe one consistent snapshot; this test guards
+// against a regression back to calling the repo's plain methods directly,
+// which would silently reintroduce the race without any test failing to
+// notice (the mock's plain methods return the same data either way).
+func TestService_ListByTeam_RunsInsideReadTx(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow()
+	opt := makeOptionRow()
+
+	withReadTxCalled := false
+	repo := &mockRepo{
+		listByTeam: func(_ context.Context, tid uuid.UUID, _ int, _ *polls.ListCursor) ([]*polls.PollRow, error) {
+			assert.True(t, withReadTxCalled, "ListByTeam must be called from within the WithReadTx callback")
+			assert.Equal(t, teamID, tid)
+			return []*polls.PollRow{pr}, nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{opt}, nil
+		},
+		listVotes: emptyVoteRepo(),
+	}
+	repo.withReadTxCalledPtr = &withReadTxCalled
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	result, _, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
+
+	require.NoError(t, err)
+	assert.True(t, withReadTxCalled, "ListByTeam must route its reads through WithReadTx")
+	require.Len(t, result, 1)
 }
 
 // TestService_ListByTeam_BulkFetchesOptionsAndVotes guards against a

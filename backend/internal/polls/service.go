@@ -30,6 +30,7 @@ type pollRepo interface {
 	ListOptionsByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollOptionRow, error)
 	ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollVoteRow, error)
 	ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error
+	WithReadTx(ctx context.Context, fn func(PollListReader) error) error
 }
 
 // jobEnqueuer is satisfied by *jobs.Client.
@@ -66,31 +67,46 @@ func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUI
 		cur = &decoded
 	}
 
-	pollRows, err := s.repo.ListByTeam(ctx, teamID, limit+1, cur)
-	if err != nil {
-		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
-	}
-
+	var pollRows []*PollRow
+	var optionsByPoll map[uuid.UUID][]*PollOptionRow
+	var votesByPoll map[uuid.UUID][]*PollVoteRow
 	var next *string
-	if len(pollRows) > limit {
-		pollRows = pollRows[:limit]
-		last := pollRows[len(pollRows)-1]
-		token, err := s.pager.Encode(ListCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+	// Run all three reads inside one read-only transaction so the poll list
+	// and its options/votes observe a single consistent snapshot, instead of
+	// possibly drifting under a concurrent Delete (which would otherwise
+	// leave a "ghost" poll in the response -- a real question/options row
+	// with empty options/votes for a poll that no longer exists).
+	err := s.repo.WithReadTx(ctx, func(r PollListReader) error {
+		var err error
+		pollRows, err = r.ListByTeam(ctx, teamID, limit+1, cur)
 		if err != nil {
-			return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+			return fmt.Errorf("list: %w", err)
 		}
-		next = &token
-	}
 
-	pollIDs := make([]uuid.UUID, len(pollRows))
-	for i, pr := range pollRows {
-		pollIDs[i] = pr.Id
-	}
-	optionsByPoll, err := s.repo.ListOptionsByPollIDs(ctx, pollIDs)
-	if err != nil {
-		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
-	}
-	votesByPoll, err := s.repo.ListVotesByPollIDs(ctx, pollIDs)
+		if len(pollRows) > limit {
+			pollRows = pollRows[:limit]
+			last := pollRows[len(pollRows)-1]
+			token, err := s.pager.Encode(ListCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+			if err != nil {
+				return fmt.Errorf("cursor: %w", err)
+			}
+			next = &token
+		}
+
+		pollIDs := make([]uuid.UUID, len(pollRows))
+		for i, pr := range pollRows {
+			pollIDs[i] = pr.Id
+		}
+		optionsByPoll, err = r.ListOptionsByPollIDs(ctx, pollIDs)
+		if err != nil {
+			return fmt.Errorf("options: %w", err)
+		}
+		votesByPoll, err = r.ListVotesByPollIDs(ctx, pollIDs)
+		if err != nil {
+			return fmt.Errorf("votes: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
 	}

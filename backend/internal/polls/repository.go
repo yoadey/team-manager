@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -15,14 +16,62 @@ import (
 // does not belong to the poll being voted on.
 var ErrOptionNotInPoll = errors.New("option does not belong to poll")
 
+// pgxIface is satisfied by both *pgxpool.Pool and pgx.Tx, letting Repository
+// run its queries either directly against the pool or inside a transaction
+// (see WithReadTx).
+type pgxIface interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
 // Repository handles all polls-related DB operations.
 type Repository struct {
+	// pool is only set on the top-level Repository returned by NewRepository;
+	// it is nil on a tx-scoped Repository created by WithReadTx (which has no
+	// need to start a nested transaction), and is also used directly by
+	// Create/ReplaceVotes, which need real multi-statement transactions rather
+	// than the narrower pgxIface.
 	pool *pgxpool.Pool
+	db   pgxIface
 }
 
 // NewRepository creates a new Repository.
 func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+	return &Repository{pool: pool, db: pool}
+}
+
+// PollListReader is the subset of read operations ListByTeam needs. WithReadTx
+// hands its callback this narrower view (rather than *Repository) so a caller
+// can substitute a mock in unit tests without a live transaction.
+type PollListReader interface {
+	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*PollRow, error)
+	ListOptionsByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollOptionRow, error)
+	ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollVoteRow, error)
+}
+
+// WithReadTx runs fn with a Repository view backed by a single read-only,
+// repeatable-read transaction, so all reads inside fn observe one consistent
+// snapshot instead of drifting under concurrent writes (see
+// Service.ListByTeam, which issues three independent queries -- polls, their
+// options, and their votes -- that a concurrent Delete could otherwise
+// interleave with, producing a "ghost" poll with empty options/votes for one
+// that no longer exists).
+func (r *Repository) WithReadTx(ctx context.Context, fn func(PollListReader) error) error {
+	if r.pool == nil {
+		// Already running inside a transaction (nested call) -- reuse it.
+		return fn(r)
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return fmt.Errorf("polls.Repository.WithReadTx: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := fn(&Repository{db: tx}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ListByTeam returns all polls for a team.
@@ -42,7 +91,7 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int
 		predicate = "AND (created_at, id) < ($3, $4)"
 		args = append(args, cur.CreatedAt, cur.ID)
 	}
-	rows, err := r.pool.Query(
+	rows, err := r.db.Query(
 		ctx,
 		fmt.Sprintf(`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at
 		 FROM polls WHERE team_id = $1 %s ORDER BY created_at DESC, id DESC LIMIT $2`, predicate),
@@ -69,7 +118,7 @@ func (r *Repository) FindByID(ctx context.Context, id, teamID uuid.UUID) (*PollR
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	p := &PollRow{}
-	err := r.pool.QueryRow(
+	err := r.db.QueryRow(
 		ctx,
 		`SELECT id, team_id, creator_id, question, multiple, anonymous, created_at FROM polls WHERE id = $1 AND team_id = $2`,
 		id, teamID,
@@ -124,7 +173,7 @@ func (r *Repository) Create(ctx context.Context, teamID, creatorID uuid.UUID, qu
 func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM polls WHERE id = $1 AND team_id = $2`, id, teamID)
+	tag, err := r.db.Exec(ctx, `DELETE FROM polls WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
 		return fmt.Errorf("polls.Repository.Delete: %w", err)
 	}
@@ -138,7 +187,7 @@ func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 func (r *Repository) ListOptions(ctx context.Context, pollID uuid.UUID) ([]*PollOptionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(
+	rows, err := r.db.Query(
 		ctx,
 		`SELECT id, poll_id, text, sort_order FROM poll_options WHERE poll_id = $1 ORDER BY sort_order`,
 		pollID,
@@ -169,7 +218,7 @@ func (r *Repository) ListOptionsByPollIDs(ctx context.Context, pollIDs []uuid.UU
 	if len(pollIDs) == 0 {
 		return result, nil
 	}
-	rows, err := r.pool.Query(
+	rows, err := r.db.Query(
 		ctx,
 		`SELECT id, poll_id, text, sort_order FROM poll_options WHERE poll_id = ANY($1) ORDER BY poll_id, sort_order`,
 		pollIDs,
@@ -198,7 +247,7 @@ func (r *Repository) ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID
 	if len(pollIDs) == 0 {
 		return result, nil
 	}
-	rows, err := r.pool.Query(
+	rows, err := r.db.Query(
 		ctx,
 		`SELECT pv.poll_id, pv.option_id, pv.user_id,
 		        u.name, u.avatar_color, (u.photo_data IS NOT NULL)
@@ -226,7 +275,7 @@ func (r *Repository) ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID
 func (r *Repository) ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVoteRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(
+	rows, err := r.db.Query(
 		ctx,
 		`SELECT pv.poll_id, pv.option_id, pv.user_id,
 		        u.name, u.avatar_color, (u.photo_data IS NOT NULL)
