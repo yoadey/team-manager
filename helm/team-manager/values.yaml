@@ -13,6 +13,18 @@ replicaCount: 2
 # per-deploy, e.g. `--set deploymentStrategy.type=Recreate`.
 deploymentStrategy: {}
 
+# Kubernetes' own default is 30s. cmd/server/main.go's SIGTERM handler runs
+# three sequential phases -- HTTP drain, then River job-worker stop, then
+# OTEL shutdown -- each with its own fresh 10s budget (so one slow phase
+# can't silently eat another's deadline), followed by pool.Close(). Worst
+# case that's already ~30s before the pool even starts closing, with no
+# margin for signal-delivery latency -- the default grace period would let
+# Kubernetes SIGKILL the process mid-River-stop (abandoning an in-flight job
+# claimed-but-not-completed) or mid/pre-pool.Close() (an unclean Postgres
+# disconnect) on any rolling deploy or node drain where a phase takes more
+# than an instant. 60s leaves real margin over that measured worst case.
+terminationGracePeriodSeconds: 60
+
 image:
   repository: ghcr.io/yoadey/team-manager-backend
   pullPolicy: IfNotPresent
