@@ -55,6 +55,14 @@ describe('TxFormSheet', () => {
     expect(screen.getByText('Ausgabe')).toBeTruthy();
   });
 
+  it('exposes the selected type via aria-pressed for screen-reader users', () => {
+    const app = makeApp({ type: 'income' });
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    expect(screen.getByText('Einnahme').closest('button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Ausgabe').closest('button')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('clicking income type button calls setFormVal with type income', () => {
     const app = makeApp({ type: 'expense' });
     const sheet = { mode: 'create' } as never;

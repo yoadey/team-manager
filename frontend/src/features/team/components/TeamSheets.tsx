@@ -22,6 +22,9 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
   const icons = TEAM_ICONS.map((em) => (
     <ButtonBase
       key={em}
+      role="radio"
+      aria-checked={F.icon === em}
+      aria-label={em}
       onClick={() => app.setFormVal({ icon: em })}
       sx={{
         width: '48px',
@@ -118,7 +121,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         <Box key="l" sx={labelSx}>
           {t('team.iconLabel')}
         </Box>
-        <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        <Box key="b" role="radiogroup" aria-label={t('team.iconLabel')} sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {icons}
         </Box>
       </Box>

@@ -25,6 +25,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       <ButtonBase
         key={v}
         onClick={() => app.setFormVal({ type: v })}
+        aria-pressed={sel}
         sx={{
           flex: 1,
           display: 'flex',

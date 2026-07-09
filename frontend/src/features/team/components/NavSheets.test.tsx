@@ -447,4 +447,13 @@ describe('ProfileSheet — color scheme', () => {
     fireEvent.click(screen.getByText('Dunkel'));
     expect(app.setColorScheme).toHaveBeenCalledWith('dark');
   });
+
+  it('exposes the selected scheme via aria-pressed for screen-reader users', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    // makeApp defaults state.colorScheme to 'system'.
+    expect(screen.getByText('Automatisch').closest('button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Hell').closest('button')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('Dunkel').closest('button')).toHaveAttribute('aria-pressed', 'false');
+  });
 });

@@ -254,6 +254,7 @@ export function ProfileSheet({ app }: SheetProps) {
               <ButtonBase
                 key={scheme}
                 onClick={() => app.setColorScheme(scheme)}
+                aria-pressed={active}
                 sx={{
                   flex: 1,
                   display: 'flex',

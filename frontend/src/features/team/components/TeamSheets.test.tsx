@@ -164,6 +164,17 @@ describe('CreateTeamSheet', () => {
     expect(app.setFormVal).toHaveBeenCalledWith({ icon: '⭐' });
   });
 
+  it('exposes icon selection as a radiogroup with aria-checked for screen-reader users', () => {
+    const app = makeApp(); // form.icon defaults to '🏆'
+    render(<CreateTeamSheet app={app} sheet={sheet} />);
+    const selected = screen.getByText('🏆').closest('button');
+    const unselected = screen.getByText('⭐').closest('button');
+    expect(selected).toHaveAttribute('role', 'radio');
+    expect(selected).toHaveAttribute('aria-checked', 'true');
+    expect(selected).toHaveAttribute('aria-label', '🏆');
+    expect(unselected).toHaveAttribute('aria-checked', 'false');
+  });
+
   it('shows photo upload label when no photo is selected', () => {
     const app = makeApp();
     render(<CreateTeamSheet app={app} sheet={sheet} />);
