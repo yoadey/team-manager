@@ -769,12 +769,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(
     (route: Route) => {
+      // events/members are normally populated by afterLoginLoad, but that
+      // Promise.allSettled leaves a slot at its previous value (null, right
+      // after login) if its fetch fails and every retry is exhausted -- with
+      // no re-fetch trigger, EventsPage/MembersPage would show a permanent
+      // skeleton loader for the rest of the session, since navigating to
+      // either route was previously a no-op here.
+      if (route === 'events' && !S().events) refreshEvents();
+      if (route === 'members' && !S().members) refreshMembers();
       if (route === 'finances' && !S().finances) loadFinances();
       if (route === 'stats' && !S().stats) loadStats();
       if (route === 'news' && !S().news) loadNews();
       if (route === 'polls' && !S().polls) loadPolls();
     },
-    [S, loadFinances, loadStats, loadNews, loadPolls],
+    [S, refreshEvents, refreshMembers, loadFinances, loadStats, loadNews, loadPolls],
   );
 
   // ---------- auth ----------

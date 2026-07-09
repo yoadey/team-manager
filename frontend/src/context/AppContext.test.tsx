@@ -408,6 +408,53 @@ describe('AppProvider / team-switch race guards', () => {
 
     membersSpy.mockRestore();
   });
+
+  // Regression test: ensureRouteData (invoked by `go`) covered finances/
+  // stats/news/polls but not events/members, even though afterLoginLoad can
+  // leave either at null after a failed initial load (see the test above).
+  // Navigating to the Events or Members tab was previously a no-op in that
+  // case, leaving a permanent skeleton loader for the rest of the session.
+  it('go("members") retries the load when members is still null from a failed afterLoginLoad', async () => {
+    const svc = await import('@/services/serviceLayer');
+    const { ForbiddenError } = await import('@/utils/errors');
+    const membersSpy = vi
+      .spyOn(svc.api.members, 'list')
+      .mockRejectedValueOnce(new ForbiddenError())
+      .mockResolvedValueOnce([]);
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return (
+        <div>
+          <div data-testid="members">{state.members ? 'loaded' : 'null'}</div>
+        </div>
+      );
+    }
+
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+    expect(screen.getByTestId('members').textContent).toBe('null');
+
+    await act(async () => {
+      actions.go('members');
+    });
+    expect(screen.getByTestId('members').textContent).toBe('loaded');
+    expect(membersSpy).toHaveBeenCalledTimes(2);
+
+    membersSpy.mockRestore();
+  });
 });
 
 // The bootstrap sets: events=write, members=read, finances=none
