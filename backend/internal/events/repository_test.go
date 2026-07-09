@@ -757,6 +757,52 @@ func TestEventRepository_SetNomination_RejectsNonMemberUser(t *testing.T) {
 	require.NoError(t, err, "SetNomination(false) scoped to an actual team member must succeed")
 }
 
+// TestEventRepository_AddComment_RejectsNonMemberUser regression-tests a bug
+// where AddComment checked that eventID belonged to teamID but never checked
+// that userID was actually a member of that team, unlike SetAttendance/
+// SetNomination's equivalent self-service writes. events/comments is
+// self-service (see authz.go), so RequireMembership only checks membership
+// once at the start of the request -- a membership removal racing a
+// concurrent AddComment call could otherwise attach a permanently visible
+// comment to an event from someone no longer on the team.
+func TestEventRepository_AddComment_RejectsNonMemberUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	member := uuid.New()
+	outsider := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Comment Membership Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Member', 'comment-member@example.com', '#abcdef'),
+		($2, 'Outsider', 'comment-outsider@example.com', '#123456')`, member, outsider)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Comment Membership Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	_, err = repo.AddComment(ctx, eventID, outsider.String(), teamID.String(), "should be rejected")
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "AddComment must reject a userID that is not a member of teamID")
+
+	comments, err := repo.ListComments(ctx, eventID, teamID.String(), 50, 0)
+	require.NoError(t, err)
+	assert.Empty(t, comments, "no comment should have been created for the non-member user")
+
+	// A real member of the team is unaffected.
+	comment, err := repo.AddComment(ctx, eventID, member.String(), teamID.String(), "from an actual member")
+	require.NoError(t, err, "AddComment scoped to an actual team member must succeed")
+	assert.Equal(t, "from an actual member", comment.Text)
+}
+
 // TestEventRepository_SetNomination_ClearsStaleReason regression-tests a bug
 // where SetNomination(false)'s ON CONFLICT branch only updated status/at,
 // leaving a prior "no" row's reason/reason_id/reason_visibility untouched.

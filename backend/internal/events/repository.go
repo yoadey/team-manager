@@ -1012,7 +1012,13 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 }
 
 // AddComment inserts a new event comment scoped to teamID and returns it
-// enriched. Returns pgx.ErrNoRows if eventID does not belong to teamID.
+// enriched. Returns pgx.ErrNoRows if eventID does not belong to teamID, or if
+// userID is not (or is no longer) a member of teamID -- events/comments is a
+// self-service write (see authz.go), so RequireMembership only checks
+// membership once at the start of the request; without this re-check here, a
+// membership removal racing this call could still attach a permanently
+// visible comment to an event from someone no longer on the team, the same
+// gap events.SetAttendance/SetNomination already guard against.
 func (r *Repository) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1021,6 +1027,7 @@ func (r *Repository) AddComment(ctx context.Context, eventID, userID, teamID, te
 			INSERT INTO event_comments (event_id, user_id, text)
 			SELECT $1, $2, $3
 			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $4)
+			  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $4 AND user_id = $2)
 			RETURNING id, event_id, user_id, text, created_at
 		)
 		SELECT
