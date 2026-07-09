@@ -23,6 +23,7 @@ export const en: Messages = {
     unknown: 'Unknown error',
     copy: 'Copy failed',
     forbidden: "You don't have permission to do that",
+    fileRead: 'Could not read the selected file',
   },
   relTime: {
     now: 'just now',

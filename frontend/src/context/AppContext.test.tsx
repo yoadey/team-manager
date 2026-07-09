@@ -25,6 +25,7 @@ function PhaseAndSheet({
       <div data-testid="phase">{state.phase}</div>
       <div data-testid="sheet">{state.sheet?.type || 'none'}</div>
       <div data-testid="form">{JSON.stringify(state.form)}</div>
+      <div data-testid="toast">{state.toast?.message ?? ''}</div>
     </div>
   );
 }
@@ -289,6 +290,43 @@ describe('AppProvider / actions (app phase)', () => {
       capturedActions.toastMsg('Hello!');
     });
     // No crash — toast was set (auto-clears after 2600ms via setTimeout)
+  });
+
+  // Regression test: onFile's FileReader had no onerror handler -- a failed
+  // read (corrupted file, cloud-backed picker file needing a network fetch
+  // that fails, permission/hardware error) left onload never firing and the
+  // caller's callback never called, so a photo/logo upload click silently
+  // did nothing with zero feedback.
+  it('onFile shows an error toast when the FileReader fails to read the file', async () => {
+    await renderAndBootstrap();
+
+    const OriginalFileReader = window.FileReader;
+    class FailingFileReader {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      result: string | null = null;
+      readAsDataURL() {
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+    // @ts-expect-error -- stubbing FileReader to force the error path
+    window.FileReader = FailingFileReader;
+
+    const file = new File(['data'], 'photo.png', { type: 'image/png' });
+    const input = document.createElement('input');
+    input.type = 'file';
+    Object.defineProperty(input, 'files', { value: [file] });
+    const cb = vi.fn();
+
+    await act(async () => {
+      capturedActions.onFile({ target: input } as unknown as Parameters<typeof capturedActions.onFile>[0], cb);
+      await Promise.resolve();
+    });
+
+    window.FileReader = OriginalFileReader;
+
+    expect(cb).not.toHaveBeenCalled();
+    expect(screen.getByTestId('toast').textContent).not.toBe('');
   });
 });
 

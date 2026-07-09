@@ -544,13 +544,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (patch: Record<string, string>) => setState((s) => ({ formErrors: { ...s.formErrors, ...patch } })),
     [setState],
   );
-  const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = () => cb(r.result as string);
-    r.readAsDataURL(f);
-  }, []);
+  const onFile = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => cb(r.result as string);
+      // Without this, a failed read (a corrupted file, a cloud-backed
+      // picker file needing a network fetch that fails, a permission/
+      // hardware error) leaves onload never firing and cb never called --
+      // the user's "upload photo" click silently does nothing, with no
+      // toast and no way to tell it failed at all.
+      r.onerror = () => toastMsg(t('error.fileRead'));
+      r.readAsDataURL(f);
+    },
+    [toastMsg],
+  );
 
   // ---------- idle session timeout ----------
   // After IDLE_MS of no pointer/keyboard activity the user gets a toast warning,

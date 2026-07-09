@@ -24,6 +24,7 @@ export const de = {
     unknown: 'Unbekannter Fehler',
     copy: 'Kopieren fehlgeschlagen',
     forbidden: 'Dafür fehlt dir die Berechtigung',
+    fileRead: 'Die ausgewählte Datei konnte nicht gelesen werden',
   },
   relTime: {
     now: 'gerade eben',
