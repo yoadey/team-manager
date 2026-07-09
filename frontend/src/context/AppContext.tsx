@@ -219,6 +219,7 @@ export interface AppContextValue {
   // nav
   go: (route: Route) => void;
   goEventsPending: () => void;
+  goEventsAbsences: () => void;
   closeSheet: () => void;
   activePageSheet: () => SheetState | null;
   selectTeam: (id: string) => Promise<void>;
@@ -874,6 +875,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState({ route: 'events', sheet: null, eventsView: 'list', eventScope: 'upcoming', eventsOnlyPending: true });
     ensureRouteData('events');
   }, [setState, ensureRouteData]);
+  // Dedicated nav action (rather than a raw setState) so an absence
+  // notification's "jump to the Events > Absences tab" click goes through
+  // ensureRouteData like every other route change -- without it, a null
+  // state.events left over from a failed afterLoginLoad (see round 46's
+  // ensureRouteData fix) would never retry, leaving EventsPage stuck on a
+  // skeleton loader forever, since it gates on state.events before it ever
+  // reaches the eventsView === 'absences' branch.
+  const goEventsAbsences = useCallback(() => {
+    setState({ route: 'events', sheet: null, eventsView: 'absences' });
+    ensureRouteData('events');
+    loadAbsences();
+  }, [setState, ensureRouteData, loadAbsences]);
   const activePageSheet = useCallback(() => {
     let s = S().sheet;
     while (s) {
@@ -1140,6 +1153,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       exportMyData,
       go,
       goEventsPending,
+      goEventsAbsences,
       closeSheet,
       activePageSheet,
       selectTeam,
@@ -1245,6 +1259,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doPasswordLogin,
       go,
       goEventsPending,
+      goEventsAbsences,
       closeSheet,
       activePageSheet,
       selectTeam,

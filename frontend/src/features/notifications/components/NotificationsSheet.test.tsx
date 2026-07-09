@@ -48,6 +48,7 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     go: vi.fn(),
     setState: vi.fn(),
     loadAbsences: vi.fn(),
+    goEventsAbsences: vi.fn(),
     ...methods,
   } as unknown as AppContextValue;
   // SpinnerBox calls useApp() directly, so we need to mock its return value too
@@ -272,7 +273,15 @@ describe('NotificationsSheet', () => {
     expect(screen.getByText(/keine/i)).toBeTruthy();
   });
 
-  it('clicking absence notification calls setState and loadAbsences', () => {
+  // Regression test: this used to call app.setState/app.loadAbsences
+  // directly, bypassing ensureRouteData -- unlike every other notification
+  // type's onClick, which goes through app.go(...). A null state.events
+  // left over from a failed afterLoginLoad would then never retry, leaving
+  // EventsPage stuck on a skeleton loader forever (it gates on
+  // state.events before reaching the eventsView === 'absences' branch).
+  // goEventsAbsences (AppContext.tsx) fixes this by routing through
+  // ensureRouteData like go()/goEventsPending() do.
+  it('clicking absence notification calls goEventsAbsences', () => {
     const n = makeNotification({ id: 'n-ab', type: 'absence', actorName: 'Peter Pan', title: 'Urlaub' });
     const app = makeApp({ notifications: [n] });
     render(<NotificationsSheet app={app} sheet={{ type: 'notifications' }} />);
@@ -280,8 +289,7 @@ describe('NotificationsSheet', () => {
     const notifButton = buttons.find((b) => b.textContent?.includes('Peter Pan'));
     if (notifButton) {
       fireEvent.click(notifButton);
-      expect(app.setState).toHaveBeenCalledWith({ route: 'events', sheet: null, eventsView: 'absences' });
-      expect(app.loadAbsences).toHaveBeenCalled();
+      expect(app.goEventsAbsences).toHaveBeenCalled();
     }
   });
 

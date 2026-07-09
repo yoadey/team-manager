@@ -455,6 +455,55 @@ describe('AppProvider / team-switch race guards', () => {
 
     membersSpy.mockRestore();
   });
+
+  // Regression test: the absence-notification click handler
+  // (NotificationsSheet.tsx) used to call app.setState/app.loadAbsences
+  // directly instead of going through ensureRouteData like every other nav
+  // action -- so a null state.events left over from a failed afterLoginLoad
+  // never retried when the user navigated to Events > Absences this way.
+  it('goEventsAbsences retries the events load when events is still null from a failed afterLoginLoad', async () => {
+    const svc = await import('@/services/serviceLayer');
+    const { ForbiddenError } = await import('@/utils/errors');
+    const eventsSpy = vi
+      .spyOn(svc.api.events, 'list')
+      .mockRejectedValueOnce(new ForbiddenError())
+      .mockResolvedValueOnce([]);
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return (
+        <div>
+          <div data-testid="events">{state.events ? 'loaded' : 'null'}</div>
+          <div data-testid="eventsView">{state.eventsView}</div>
+        </div>
+      );
+    }
+
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+    expect(screen.getByTestId('events').textContent).toBe('null');
+
+    await act(async () => {
+      actions.goEventsAbsences();
+    });
+    expect(screen.getByTestId('events').textContent).toBe('loaded');
+    expect(screen.getByTestId('eventsView').textContent).toBe('absences');
+    expect(eventsSpy).toHaveBeenCalledTimes(2);
+
+    eventsSpy.mockRestore();
+  });
 });
 
 // The bootstrap sets: events=write, members=read, finances=none

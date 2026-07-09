@@ -103,10 +103,7 @@ export function NotificationsSheet({ app }: SheetProps) {
         bg: '#FFE5B8',
         line1: n.actorName + ' ' + t('notifications.absenceLogged'),
         line2: n.title || '',
-        onClick: () => {
-          app.setState({ route: 'events', sheet: null, eventsView: 'absences' });
-          app.loadAbsences();
-        },
+        onClick: () => app.goEventsAbsences(),
         group: 'other',
         avatar: true,
       };
