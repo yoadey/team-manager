@@ -3,6 +3,10 @@ package teams_test
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +94,86 @@ func TestTeamRepository_CreateTeam_DefaultMemberRoleCanReadRosterAndRoleCatalog(
 	assert.Equal(t, "read", perms.News)
 	assert.Equal(t, "read", perms.Polls)
 	assert.Equal(t, "none", perms.Finances, "financial data stays admin-only by default")
+}
+
+// TestBackfillMemberRolePermissionsMigration exercises migration 00023's data
+// backfill directly. testutil.NewTestDB already runs every migration
+// (including 00023) before a test starts, and goose migrations are one-time,
+// so a row inserted by CreateTeam after that point never resembles the
+// pre-round-44 broken default in the first place -- the only way to test the
+// backfill's WHERE-clause logic is to simulate a pre-existing broken row (and
+// a deliberately-customized one) and re-run the migration's own Up SQL
+// against them directly, rather than through goose's already-applied-once
+// tracking.
+func TestBackfillMemberRolePermissionsMigration(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := insertUser(t, pool, "backfill-migration@example.com")
+	repo := teams.NewRepository(pool)
+
+	brokenTeam, err := repo.CreateTeam(ctx, "Pre-Fix Team", userID)
+	require.NoError(t, err)
+	customizedTeam, err := repo.CreateTeam(ctx, "Customized Team", userID)
+	require.NoError(t, err)
+
+	// Simulate a team whose Member role still has the pre-round-44 broken
+	// defaults (members/settings: "none").
+	_, err = pool.Exec(ctx, `
+		UPDATE roles SET permissions = $2
+		WHERE team_id = $1 AND system = true AND name = 'Member'
+	`, brokenTeam.Id, `{"events":"read","members":"none","finances":"none","news":"read","polls":"read","settings":"none"}`)
+	require.NoError(t, err)
+
+	// Simulate a team where an admin has since deliberately customized the
+	// Member role to something that isn't the old broken default and isn't
+	// the new default either -- the backfill must leave this alone.
+	_, err = pool.Exec(ctx, `
+		UPDATE roles SET permissions = $2
+		WHERE team_id = $1 AND system = true AND name = 'Member'
+	`, customizedTeam.Id, `{"events":"write","members":"none","finances":"read","news":"none","polls":"read","settings":"none"}`)
+	require.NoError(t, err)
+
+	runMigration00023Up(t, ctx, pool)
+
+	var brokenPerms, customizedPerms teams.PermissionsJSON
+	requirePermissions(t, ctx, pool, brokenTeam.Id.String(), &brokenPerms)
+	requirePermissions(t, ctx, pool, customizedTeam.Id.String(), &customizedPerms)
+
+	assert.Equal(t, "read", brokenPerms.Members, "the pre-fix broken default must be backfilled to read")
+	assert.Equal(t, "read", brokenPerms.Settings, "the pre-fix broken default must be backfilled to read")
+
+	assert.Equal(t, "none", customizedPerms.Members, "an admin's deliberate customization must not be clobbered")
+	assert.Equal(t, "none", customizedPerms.Settings, "an admin's deliberate customization must not be clobbered")
+	assert.Equal(t, "write", customizedPerms.Events, "an admin's deliberate customization must not be clobbered")
+}
+
+// runMigration00023Up reads migration 00023's own Up SQL straight off disk
+// and executes it, so this test can never drift from what the migration
+// file actually says.
+func runMigration00023Up(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	migrationPath := filepath.Join(filepath.Dir(thisFile), "..", "db", "migrations", "00023_backfill_member_role_permissions.sql")
+	contents, err := os.ReadFile(migrationPath)
+	require.NoError(t, err)
+
+	upSQL, _, found := strings.Cut(string(contents), "-- +goose Down")
+	require.True(t, found, "migration file must contain a -- +goose Down marker")
+
+	_, err = pool.Exec(ctx, upSQL)
+	require.NoError(t, err)
+}
+
+func requirePermissions(t *testing.T, ctx context.Context, pool *pgxpool.Pool, teamID string, out *teams.PermissionsJSON) {
+	t.Helper()
+	var permsJSON []byte
+	err := pool.QueryRow(ctx, `
+		SELECT permissions FROM roles WHERE team_id = $1 AND system = true AND name = 'Member'
+	`, teamID).Scan(&permsJSON)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(permsJSON, out))
 }
 
 func TestTeamRepository_ListForUser(t *testing.T) {
