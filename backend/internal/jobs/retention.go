@@ -91,17 +91,25 @@ func deleteBatched(ctx context.Context, pool *pgxpool.Pool, table, dateColumn st
 	}
 }
 
+// retentionPhaseTimeout bounds each of the four delete phases in Work
+// independently. A single shared timeout for the whole run would let an
+// unusually large backlog in one table (e.g. notifications, always deleted
+// first) exhaust the entire budget and starve the phases after it -- since
+// the ordering is fixed, that would silently and repeatedly block
+// audit_log's compliance-mandated cleanup on every run until an operator
+// intervenes.
+const retentionPhaseTimeout = 30 * time.Second
+
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
 func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs]) error {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
 	now := time.Now()
 
 	// Delete old notifications.
+	notifCtx, notifCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	notifCutoff := now.Add(-w.notificationRetention)
-	notifRows, err := deleteBatched(ctx, w.pool, "notifications", "created_at", notifCutoff)
+	notifRows, err := deleteBatched(notifCtx, w.pool, "notifications", "created_at", notifCutoff)
+	notifCancel()
 	if err != nil {
 		metrics.RetentionJobFailures.WithLabelValues("notifications").Inc()
 		return fmt.Errorf("retention: delete notifications: %w", err)
@@ -114,8 +122,10 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	// session (e.g. SESSION_TTL_HOURS raised above RETENTION_SESSIONS_DAYS*24)
 	// must never be purged while it's still valid, only once it has actually
 	// expired and the retention grace period has passed.
+	sessionCtx, sessionCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	sessionCutoff := now.Add(-w.sessionRetention)
-	sessionRows, err := deleteBatched(ctx, w.pool, "sessions", "expires_at", sessionCutoff)
+	sessionRows, err := deleteBatched(sessionCtx, w.pool, "sessions", "expires_at", sessionCutoff)
+	sessionCancel()
 	if err != nil {
 		metrics.RetentionJobFailures.WithLabelValues("sessions").Inc()
 		return fmt.Errorf("retention: delete sessions: %w", err)
@@ -125,8 +135,10 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 
 	// Delete invites that expired more than inviteRetention ago. Keyed off
 	// expires_at, same reasoning as sessions above.
+	inviteCtx, inviteCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	inviteCutoff := now.Add(-inviteRetention)
-	inviteRows, err := deleteBatched(ctx, w.pool, "invites", "expires_at", inviteCutoff)
+	inviteRows, err := deleteBatched(inviteCtx, w.pool, "invites", "expires_at", inviteCutoff)
+	inviteCancel()
 	if err != nil {
 		metrics.RetentionJobFailures.WithLabelValues("invites").Inc()
 		return fmt.Errorf("retention: delete invites: %w", err)
@@ -148,8 +160,10 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	// break this job every day going forward). Left as-is rather than editing
 	// the historical migration file, since goose validates applied
 	// migrations' checksums against their file content.
+	auditCtx, auditCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	auditCutoff := now.Add(-w.auditLogRetention)
-	auditRows, err := deleteBatched(ctx, w.pool, "audit_log", "occurred_at", auditCutoff)
+	auditRows, err := deleteBatched(auditCtx, w.pool, "audit_log", "occurred_at", auditCutoff)
+	auditCancel()
 	if err != nil {
 		metrics.RetentionJobFailures.WithLabelValues("audit_log").Inc()
 		return fmt.Errorf("retention: delete audit_log: %w", err)
