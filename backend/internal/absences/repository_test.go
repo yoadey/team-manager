@@ -35,6 +35,10 @@ func TestAbsenceRepository_CreateAndList(t *testing.T) {
 		`INSERT INTO teams (id, name) VALUES ($1, 'Absence Team')`,
 		repoTestTeamID)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		repoTestTeamID, repoTestUserID)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(repoTestTeamID)
 	userID := uuid.MustParse(repoTestUserID)
@@ -80,6 +84,10 @@ func TestAbsenceRepository_Update(t *testing.T) {
 		`INSERT INTO teams (id, name) VALUES ($1, 'Upd Team')`,
 		tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
@@ -122,6 +130,10 @@ func TestAbsenceRepository_Update_PartialPatch_RejectsExcessiveSpan(t *testing.T
 		`INSERT INTO teams (id, name) VALUES ($1, 'Span Team')`,
 		tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
@@ -160,6 +172,10 @@ func TestAbsenceRepository_Update_WrongTeam_ReturnsNoRows(t *testing.T) {
 		`INSERT INTO teams (id, name) VALUES ($1, 'Attacker Team')`,
 		otherTid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	otherTeamID := uuid.MustParse(otherTid)
@@ -195,6 +211,10 @@ func TestAbsenceRepository_Update_WrongUser_ReturnsNoRows(t *testing.T) {
 		`INSERT INTO teams (id, name) VALUES ($1, 'Shared Team')`,
 		tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
@@ -225,6 +245,10 @@ func TestAbsenceRepository_Delete(t *testing.T) {
 	_, err = pool.Exec(ctx,
 		`INSERT INTO teams (id, name) VALUES ($1, 'Del Team')`,
 		tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
 	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
@@ -262,6 +286,10 @@ func TestAbsenceRepository_Delete_WrongTeam_ReturnsNoRows(t *testing.T) {
 	_, err = pool.Exec(ctx,
 		`INSERT INTO teams (id, name) VALUES ($1, 'Del Attacker Team')`,
 		otherTid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
 	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
@@ -302,6 +330,10 @@ func TestAbsenceRepository_Delete_WrongUser_ReturnsNoRows(t *testing.T) {
 		`INSERT INTO teams (id, name) VALUES ($1, 'Del Shared Team')`,
 		tid)
 	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`,
+		tid, uid)
+	require.NoError(t, err)
 
 	teamID := uuid.MustParse(tid)
 	userID := uuid.MustParse(uid)
@@ -316,4 +348,42 @@ func TestAbsenceRepository_Delete_WrongUser_ReturnsNoRows(t *testing.T) {
 	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Len(t, all, 1)
+}
+
+// TestAbsenceRepository_Create_NotMember_ReturnsErrNotMember regression-tests
+// a gap where Create had no membership check at all, unlike
+// events.SetAttendance/SetNomination's identical self-service writes --
+// RequirePermission/RequireMembership only check membership once at the
+// start of the request, so a membership removal racing a concurrent
+// CreateAbsence call (e.g. an admin's RemoveMember) could otherwise still
+// leave an orphaned absence row attached to a team the user no longer
+// belongs to.
+func TestAbsenceRepository_Create_NotMember_ReturnsErrNotMember(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Not A Member', 'notamember@example.com', '#999999')`,
+		uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO teams (id, name) VALUES ($1, 'Membership Team')`,
+		tid)
+	require.NoError(t, err)
+	// Deliberately no memberships row for uid/tid.
+
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	_, err = repo.Create(ctx, teamID, userID, "2025-05-01", "2025-05-05", nil)
+	require.ErrorIs(t, err, absences.ErrNotMember)
+
+	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	assert.Empty(t, all, "no orphaned absence row must be created for a non-member")
 }

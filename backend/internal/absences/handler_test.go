@@ -8,9 +8,11 @@ import (
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/absences"
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 )
@@ -184,4 +186,33 @@ func TestAbsenceHandler_UpdateAbsence_RejectsExcessiveSpan(t *testing.T) {
 	_, err := h.UpdateAbsence(ctx, gen.UpdateAbsenceRequestObject{TeamId: uuid.New(), AbsenceId: uuid.New(), Body: body})
 
 	require.Error(t, err)
+}
+
+// Regression test: Create had no membership re-check at all -- a membership
+// removal racing a concurrent CreateAbsence call could otherwise silently
+// leave an orphaned absence row for a non-member. ErrNotMember must surface
+// as 404, matching RequireMembership's own "not found" (not "forbidden")
+// convention for a non-member, rather than falling through to a generic 500.
+func TestAbsenceHandler_CreateAbsence_NotMember_Returns404(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		create: func(context.Context, uuid.UUID, *gen.CreateAbsenceRequest) (gen.Absence, error) {
+			return gen.Absence{}, absences.ErrNotMember
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.CreateAbsenceRequest{
+		UserId: userID,
+		From:   openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+		To:     openapi_types.Date{Time: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)},
+	}
+	_, err := h.CreateAbsence(ctx, gen.CreateAbsenceRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
+	assert.Equal(t, 404, apiErr.Status)
 }

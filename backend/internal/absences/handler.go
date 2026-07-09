@@ -117,6 +117,12 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 		if errors.Is(err, ErrSpanTooLong) {
 			return nil, apierror.BadRequest("absence span must not exceed 3 years")
 		}
+		if errors.Is(err, ErrNotMember) {
+			// Same "not found" (not "forbidden") convention RequireMembership
+			// uses for a non-member, so a stale membership doesn't leak team
+			// existence any differently than the normal denial path would.
+			return nil, apierror.NotFound("not found")
+		}
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to create absence")
 	}

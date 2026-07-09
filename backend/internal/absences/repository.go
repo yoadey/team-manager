@@ -30,6 +30,17 @@ var ErrInvalidDateRange = errors.New("to date must not be before from date")
 // when both from/to are present in the same request.
 var ErrSpanTooLong = errors.New("absence span must not exceed 3 years")
 
+// ErrNotMember is returned by Create when userID is not (or is no longer) a
+// member of teamID. RequireMembership checks this once at the start of the
+// request, but absences is self-service with no module-level write gate
+// (see authz.go's routeModule), so nothing re-checks it here -- without this,
+// a membership removal racing this request (e.g. an admin's concurrent
+// RemoveMember) could still leave an orphaned absence row (with a private
+// `reason` text) attached to a team the user no longer belongs to, since
+// events.SetAttendance/SetNomination already guard the identical race for
+// their own self-service writes.
+var ErrNotMember = errors.New("user is not a member of this team")
+
 // absencesSpanConstraint is the CHECK constraint name added by migration
 // 00016, used to distinguish an over-long span from an inverted date range
 // (both surface as the same SQLSTATE 23514).
@@ -174,17 +185,26 @@ func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, l
 	return scanAbsenceRows(rows, "ListByUser")
 }
 
-// Create inserts a new absence and returns the enriched row.
+// Create inserts a new absence and returns the enriched row. Returns
+// ErrNotMember if userID is not a member of teamID (see ErrNotMember's doc
+// comment for why this re-check is needed despite RequireMembership already
+// having run once at the start of the request).
 func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var id uuid.UUID
 	err := r.pool.QueryRow(
 		ctx,
-		`INSERT INTO absences (user_id, team_id, from_date, to_date, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+		`INSERT INTO absences (user_id, team_id, from_date, to_date, reason)
+		SELECT $1, $2, $3, $4, $5
+		WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $2 AND user_id = $1)
+		RETURNING id`,
 		userID, teamID, fromDate, toDate, reason,
 	).Scan(&id)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotMember
+		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
 			if pgErr.ConstraintName == absencesSpanConstraint {
