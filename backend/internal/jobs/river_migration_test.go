@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
@@ -26,7 +27,12 @@ func TestMigrateRiver_ConcurrentCallsAllSucceed(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
-	ctx := context.Background()
+	// Bounded so a genuine regression (e.g. the lock connection competing
+	// with the migrator for the pool's own capacity, which previously
+	// deadlocked every goroutine permanently) fails in seconds instead of
+	// exhausting `go test`'s full default 10-minute timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	const concurrency = 8
 	var wg sync.WaitGroup

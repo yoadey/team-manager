@@ -162,23 +162,32 @@ const riverMigrationLockKey int64 = 720481920
 // and holding a session-level pg_advisory_lock for the duration mirrors
 // goose's own approach and closes that race the same way.
 func MigrateRiver(ctx context.Context, pool *pgxpool.Pool) error {
-	conn, err := pool.Acquire(ctx)
+	// The lock connection is dialed directly (pgx.ConnectConfig), NOT drawn
+	// via pool.Acquire, so it sits outside the shared pool's tracked
+	// capacity entirely. migrator.Migrate below needs its own connection(s)
+	// from that same pool to actually run -- if the lock instead held one
+	// of the pool's own connections, N concurrent replicas each holding a
+	// pool connection just to wait on the lock can exhaust the pool's
+	// capacity before the lock's current holder ever gets a connection to
+	// do the migration work itself, deadlocking all of them permanently
+	// (caught by a concurrency regression test timing out in CI).
+	connConfig := pool.Config().ConnConfig.Copy()
+	lockConn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
-		return fmt.Errorf("jobs.MigrateRiver: acquire lock connection: %w", err)
+		return fmt.Errorf("jobs.MigrateRiver: dial lock connection: %w", err)
 	}
-	defer conn.Release()
+	defer func() { _ = lockConn.Close(context.WithoutCancel(ctx)) }()
 
-	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, riverMigrationLockKey); err != nil {
+	if _, err := lockConn.Exec(ctx, `SELECT pg_advisory_lock($1)`, riverMigrationLockKey); err != nil {
 		return fmt.Errorf("jobs.MigrateRiver: acquire advisory lock: %w", err)
 	}
 	// Unlock must still run even if ctx was cancelled/timed out by the time
-	// Migrate returns -- otherwise the lock stays held on this connection
-	// for as long as it remains checked into the pool, blocking every other
-	// replica's MigrateRiver indefinitely instead of just for this call's
-	// duration. context.WithoutCancel keeps the same value lineage while
-	// dropping ctx's cancellation/deadline.
+	// Migrate returns -- otherwise the lock stays held until this dedicated
+	// connection is closed (see the Close above), which happens regardless,
+	// but releasing it explicitly first lets a waiting replica proceed
+	// immediately rather than waiting on this connection's teardown too.
 	defer func() {
-		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, riverMigrationLockKey)
+		_, _ = lockConn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, riverMigrationLockKey)
 	}()
 
 	migrator, err := rivermigrate.New(riverpgxv5.New(pool), nil)
