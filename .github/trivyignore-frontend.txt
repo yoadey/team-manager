@@ -1,0 +1,21 @@
+# Scoped ignore list for the security-container-frontend CI job's scan
+# ONLY (passed explicitly via trivy-action's `trivyignores` input on that
+# one step) -- NOT a repo-root .trivyignore, so it can't accidentally
+# suppress a real finding in the backend/backup image scans.
+#
+# CVE-2026-33630 is a use-after-free/double-free in c-ares's DNS
+# query-completion handling, present in nginxinc/nginx-unprivileged's
+# pinned 1-alpine3.23 base image (Alpine 3.23.5, c-ares 1.34.6-r0). As of
+# 2026-07-10 the upstream nginx-unprivileged image has not yet published a
+# rebuild with a patched c-ares (the 1-alpine3.23 tag still resolves to the
+# exact digest already pinned in frontend/Dockerfile) -- there is no
+# available fix to re-pin to yet.
+#
+# It is also unreachable in this deployment: this image only serves static
+# built assets (frontend/nginx.conf has no `resolver` directive and no
+# `proxy_pass`, i.e. no dynamic upstream hostname resolution at runtime),
+# so the DNS-response-parsing code path c-ares's vulnerability requires is
+# never exercised regardless. Re-check when nginxinc publishes a rebuilt
+# 1-alpine3.23 (or 1-alpine) digest and re-pin frontend/Dockerfile then;
+# remove this entry once that happens.
+CVE-2026-33630

@@ -80,6 +80,7 @@ jobs:
           exit-code: "1"
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .github/trivyignore-frontend.txt
 
   # Mirrors ci.yml's security-container-backup job. Keep the two scanned
   # image-refs in sync with helm/team-manager/values.yaml's

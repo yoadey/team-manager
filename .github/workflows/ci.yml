@@ -801,6 +801,7 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .github/trivyignore-frontend.txt
 
       # `docker build` only proves the image compiles; it never runs
       # docker-entrypoint-runtime-config.sh (frontend/docker/), which
