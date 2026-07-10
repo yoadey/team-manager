@@ -26,10 +26,20 @@ least 7 daily + 4 weekly copies; encrypt at rest and verify restores regularly
 `backup.enabled=true`), uploaded to S3-compatible object storage when
 `backup.s3.enabled=true` (otherwise the job intentionally fails with a
 warning, since an unpersisted dump discarded with the pod isn't a backup).
-Whichever mechanism is used, wire up a periodic *restore* test (e.g. restore
-the latest dump into a scratch database and run a trivial query) — a backup
-pipeline that only ever writes and never restores can silently produce
-unusable dumps for months.
+Before uploading, the pg-dump container runs `pg_restore --list` against the
+dump and fails the Job if it has fewer than `backup.minDumpEntries` (default
+10) table-of-contents entries — this catches the case where `pg_dump` exits
+0 but produced a near-empty/corrupt dump (e.g. `DATABASE_URL` momentarily
+pointing at the wrong database) *before* it reaches S3 looking legitimate.
+It is not a substitute for an actual restore test, though: wire up a
+periodic *restore* test too (e.g. restore the latest dump into a scratch
+database and run a trivial query) — a backup pipeline that only ever writes
+and never restores can silently produce unusable dumps for months even when
+every individual dump passes the TOC-entry-count check above.
+
+`backup.retentionDays` is **informational only** — the chart does not
+enforce it. Configure a matching S3 (or S3-compatible) bucket lifecycle rule
+separately, or backups accumulate in `backup.s3.bucket` indefinitely.
 
 ### Restore
 

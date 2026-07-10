@@ -299,6 +299,15 @@ backup:
   # pods on that node instead of being contained within this Job.
   dumpSizeLimit: 2Gi
   tmpSizeLimit: 256Mi
+  # Sanity floor on the dump's pg_restore --list table-of-contents entry
+  # count -- pg_dump exiting 0 doesn't guarantee a *usable* dump (e.g.
+  # DATABASE_URL pointing at an unexpectedly empty database still "succeeds"
+  # with a tiny but well-formed file). This app's schema has 20+ tables,
+  # each contributing multiple TOC entries (data + definition + indexes/
+  # constraints), so a real dump is comfortably in the hundreds; 10 is a
+  # generous floor that only trips on a near-empty/corrupt dump, not on
+  # legitimate schema variation.
+  minDumpEntries: 10
   retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
     enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)

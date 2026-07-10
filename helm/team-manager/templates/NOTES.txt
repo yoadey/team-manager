@@ -57,3 +57,16 @@ haven't set one, either add a METRICS_TOKEN key to that Secret, or set
 env.METRICS_ALLOW_OPEN=true if /metrics is already restricted at the
 network layer and you accept it being unauthenticated.
 {{- end }}
+
+{{- if and .Values.backup.enabled .Values.backup.s3.enabled }}
+
+REMINDER: backup.retentionDays ({{ .Values.backup.retentionDays }}) is
+informational only -- nothing in this chart enforces it. The backup
+CronJob uploads one dump per successful run to
+s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/ and
+never deletes old objects itself. Without a matching S3 (or S3-compatible)
+bucket lifecycle rule configured separately, backups accumulate in that
+bucket indefinitely -- unbounded storage cost, and a data-minimization/
+compliance risk for backups containing personal data retained far longer
+than any documented policy.
+{{- end }}

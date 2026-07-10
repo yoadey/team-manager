@@ -70,7 +70,22 @@ spec:
               # silently producing a corrupt/empty backup.
               pg_dump --format=custom --no-owner --dbname="$DATABASE_URL" \
                 --file="/backup/teammanager-${TIMESTAMP}.dump"
-              echo "Dump complete: teammanager-${TIMESTAMP}.dump"
+              # pg_dump exiting 0 doesn't guarantee a *usable* dump -- e.g.
+              # DATABASE_URL momentarily/permanently pointing at the wrong
+              # (empty) database due to a Secret misconfiguration still
+              # "succeeds" and produces a tiny but well-formed file. Without
+              # this, that dump gets uploaded to S3 looking legitimate --
+              # every "did a run complete" alert stays green -- and the gap
+              # only surfaces when someone actually tries to restore it
+              # during a real incident. pg_restore --list parses the dump's
+              # table of contents without touching any database, so this
+              # fails the Job loudly instead.
+              ENTRY_COUNT=$(pg_restore --list "/backup/teammanager-${TIMESTAMP}.dump" | grep -c '^[0-9]')
+              if [ "$ENTRY_COUNT" -lt {{ .Values.backup.minDumpEntries }} ]; then
+                echo "ERROR: dump has only $ENTRY_COUNT TOC entries (expected at least {{ .Values.backup.minDumpEntries }}) -- refusing to upload a possibly empty/corrupt backup" >&2
+                exit 1
+              fi
+              echo "Dump complete: teammanager-${TIMESTAMP}.dump ($ENTRY_COUNT TOC entries)"
             env:
             - name: DATABASE_URL
               valueFrom:
