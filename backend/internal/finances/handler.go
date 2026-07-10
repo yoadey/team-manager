@@ -109,6 +109,10 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	}
 	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyTransactions) {
+			h.recordFinanceFailure(ctx, "transaction.create", err.Error())
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
 		h.recordFinanceFailure(ctx, "transaction.create", "internal error")
 		return nil, apierror.Internal("failed to create transaction")
@@ -276,7 +280,7 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 	}
 	a, err := h.svc.CreateAssignment(ctx, req.TeamId, req.Body)
 	if err != nil {
-		if errors.Is(err, ErrPenaltyNotInTeam) || errors.Is(err, ErrUserNotInTeam) {
+		if errors.Is(err, ErrPenaltyNotInTeam) || errors.Is(err, ErrUserNotInTeam) || errors.Is(err, ErrTooManyAssignments) {
 			h.recordFinanceFailure(ctx, "assignment.create", err.Error())
 			return nil, apierror.UnprocessableEntity(err.Error())
 		}

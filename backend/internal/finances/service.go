@@ -20,10 +20,34 @@ var (
 	ErrUserNotInTeam    = errors.New("user is not a member of this team")
 )
 
+// ErrTooManyTransactions / ErrTooManyAssignments are returned once a team
+// hits maxTransactionsPerTeam / maxAssignmentsPerTeam.
+var (
+	ErrTooManyTransactions = fmt.Errorf("team has reached the maximum of %d transactions", maxTransactionsPerTeam)
+	ErrTooManyAssignments  = fmt.Errorf("team has reached the maximum of %d penalty assignments", maxAssignmentsPerTeam)
+)
+
+// maxTransactionsPerTeam / maxAssignmentsPerTeam cap how many rows a single
+// team can accumulate in these tables. Both are read on every finance
+// overview via unbounded aggregate queries (SumTransactions,
+// ListOpenPenaltiesByUser) under a fixed 5s query timeout -- with no cap, a
+// team member holding only finances:write (not necessarily an owner/admin)
+// could flood either table well past what those aggregates can scan within
+// that timeout, degrading or hard-failing the finance overview for every
+// member of the team, not just the one flooding it. Both limits are
+// generous enough that no legitimate club's multi-year financial history
+// should ever approach them -- this exists to stop runaway/malicious
+// creation, not to constrain real usage.
+const (
+	maxTransactionsPerTeam = 100_000
+	maxAssignmentsPerTeam  = 100_000
+)
+
 // financeRepo is the interface the Service relies on.
 type financeRepo interface {
 	ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error)
 	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
+	CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
@@ -36,6 +60,7 @@ type financeRepo interface {
 
 	ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error)
 	GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
+	CountAssignments(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
 	ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
@@ -179,6 +204,14 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.Finan
 
 // CreateTransaction creates a new transaction (date defaults to today).
 func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+	count, err := s.repo.CountTransactions(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
+	}
+	if count >= maxTransactionsPerTeam {
+		return nil, ErrTooManyTransactions
+	}
+
 	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, time.Now(), body.Category)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
@@ -271,6 +304,14 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 	}
 	if !isMember {
 		return nil, ErrUserNotInTeam
+	}
+
+	count, err := s.repo.CountAssignments(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreateAssignment: %w", err)
+	}
+	if count >= maxAssignmentsPerTeam {
+		return nil, ErrTooManyAssignments
 	}
 
 	a, err := s.repo.CreateAssignment(ctx, teamID, userID, penaltyID)

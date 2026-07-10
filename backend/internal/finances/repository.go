@@ -135,6 +135,19 @@ func (r *Repository) SumTransactions(ctx context.Context, teamID uuid.UUID) (inc
 	return income, expense, nil
 }
 
+// CountTransactions returns the number of transactions the team has, used to
+// enforce maxTransactionsPerTeam before an insert.
+func (r *Repository) CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM transactions WHERE team_id = $1`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("finances.Repository.CountTransactions: %w", err)
+	}
+	return count, nil
+}
+
 // CreateTransaction inserts a new transaction.
 func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -388,6 +401,19 @@ func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID
 
 // pgForeignKeyViolation is the Postgres SQLSTATE for a violated FOREIGN KEY constraint.
 const pgForeignKeyViolation = "23503"
+
+// CountAssignments returns the number of penalty assignments the team has,
+// used to enforce maxAssignmentsPerTeam before an insert.
+func (r *Repository) CountAssignments(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM penalty_assignments WHERE team_id = $1`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("finances.Repository.CountAssignments: %w", err)
+	}
+	return count, nil
+}
 
 // CreateAssignment inserts a penalty assignment for a user.
 // CreateAssignment inserts a penalty assignment. penalty_assignments.user_id
