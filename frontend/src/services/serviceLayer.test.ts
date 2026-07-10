@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ALL_TIME_FROM_DATE, todayLocalDate } from '@/utils/date';
+import { config } from '@/config';
 
 /**
  * The service layer keeps an in-memory `DB` singleton that is seeded once at
@@ -495,6 +496,49 @@ describe('absences', () => {
     const list = await settle(api.absences.listForTeam('t_a'));
     expect(list.length).toBeGreaterThan(0);
     expect(list[0].name).toBeTruthy();
+  });
+});
+
+describe('cross-tab sync', () => {
+  // Regression: the in-memory DB singleton was seeded once at module-load
+  // time and every persist() unconditionally overwrote the whole localStorage
+  // blob with that tab's own in-memory snapshot. With two tabs open, a stale
+  // tab's next mutation -- however unrelated to what the other tab wrote --
+  // would silently clobber/resurrect data, since the two never otherwise
+  // communicated. A `storage` event listener now resyncs the in-memory DB
+  // from a fresh cross-tab write before this tab's own next mutation, closing
+  // that window.
+  it('picks up a write made by another tab before its own next mutation', async () => {
+    const key = config.storageKeyPrefix + 'v7_' + todayLocalDate();
+    const raw = localStorage.getItem(key);
+    expect(raw).toBeTruthy();
+    const otherTabDb = JSON.parse(raw!);
+    otherTabDb.news.push({
+      id: 'news_from_other_tab',
+      teamId: 't_a',
+      title: 'Written by another tab',
+      body: '',
+      authorId: otherTabDb.users[0].id,
+      pinned: false,
+      createdAt: new Date().toISOString(),
+    });
+    const newValue = JSON.stringify(otherTabDb);
+    localStorage.setItem(key, newValue);
+    window.dispatchEvent(new StorageEvent('storage', { key, newValue }));
+
+    const list = await settle(api.news.list('t_a'));
+    expect(list.some((n) => n.id === 'news_from_other_tab')).toBe(true);
+  });
+
+  it('ignores storage events for unrelated keys', async () => {
+    const before = await settle(api.news.list('t_a'));
+
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'some_other_apps_key', newValue: JSON.stringify({ news: [] }) }),
+    );
+
+    const after = await settle(api.news.list('t_a'));
+    expect(after.map((n) => n.id)).toEqual(before.map((n) => n.id));
   });
 });
 

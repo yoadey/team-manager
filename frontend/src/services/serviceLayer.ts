@@ -729,9 +729,26 @@ function save(db: DB) {
     /* ignore */
   }
 }
-const DB = loadDb();
+let DB = loadDb();
 function persist() {
   save(DB);
+}
+// persist() always overwrites the whole stored blob with this tab's
+// in-memory snapshot -- without this listener, a stale tab's next mutation
+// (however unrelated) would silently clobber/resurrect data written by
+// another tab in the meantime, since the two never otherwise communicate.
+// Reloading DB in-place from the fresh value on every cross-tab write closes
+// that window for all but genuinely simultaneous edits in both tabs, which
+// this mock backend (unlike the real API) has no way to serialize anyway.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== todayKey()) return;
+    try {
+      DB = e.newValue ? JSON.parse(e.newValue) : seed();
+    } catch {
+      /* ignore a malformed write from another tab */
+    }
+  });
 }
 function pushNotif(o: Partial<AppNotification>) {
   DB.notifications.push(Object.assign({ id: rid('ntf'), createdAt: iso(new Date()) }, o) as AppNotification);
