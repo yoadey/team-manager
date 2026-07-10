@@ -148,6 +148,24 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
+            # Without GOMEMLIMIT, the Go GC only targets ~2x live heap and has
+            # no awareness of the container's cgroup memory limit -- under a
+            # load spike it can keep growing right up to (and past) that
+            # limit before the pacer would otherwise have intervened, getting
+            # OOMKilled instead of collecting proactively. Sourced from the
+            # downward API (not hardcoded) so it always tracks whatever
+            # resources.limits.memory actually is, including per-environment
+            # overrides in values-staging.yaml/values-prod.yaml. Deliberately
+            # not tuning GOMAXPROCS alongside it here -- doing that correctly
+            # under a fractional CPU limit needs cgroup-aware rounding
+            # (e.g. go.uber.org/automaxprocs), not just the integer-only
+            # downward API divisor, which is a large enough change to be its
+            # own follow-up rather than bundled into this one.
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  containerName: {{ .Chart.Name }}
+                  resource: limits.memory
             - name: ALLOWED_ORIGINS
               value: {{ .Values.allowedOrigins | quote }}
             {{- range $key, $val := .Values.env }}

@@ -230,7 +230,8 @@ you.
 `helm/team-manager/files/prometheus-rules.yaml` defines the alert rules for
 this service (availability, error rate/latency, rate-limit spikes, login
 failure/bulk-deletion anomalies, DB pool exhaustion, retention job health,
-backup job health, memory/disk pressure). The backup CronJob's two rules
+notification job health, backup job health, memory/disk pressure). The
+backup CronJob's two rules
 (`BackupCronJobFailed`, `BackupCronJobStale`) rely on kube-state-metrics
 (`>= 2.6.0` for `kube_cronjob_status_last_successful_time`) and match job
 names by suffix (`.+-backup.*`) rather than the chart's templated fullname,

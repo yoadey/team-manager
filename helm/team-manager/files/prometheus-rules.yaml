@@ -141,6 +141,24 @@ groups:
           summary: "Retention job run failed"
           description: "The retention job in {{ $labels.namespace }} failed to delete from {{ $labels.table }} in the last hour."
 
+      - alert: NotificationJobsFailing
+        # notification_enqueue_failures_total (a mutation's best-effort
+        # jobs.Client.EnqueueNotification call failing) and
+        # notification_job_failures_total (internal/jobs.NotificationWorker.Work
+        # itself failing, e.g. its INSERT into notifications) both represent
+        # the same user-facing outcome -- someone silently not receiving a
+        # notification -- with no signal otherwise, since both failure paths
+        # are deliberately non-fatal to the request/job that triggered them.
+        expr: |
+          increase(teammanager_notification_enqueue_failures_total[1h]) > 0
+          or increase(teammanager_notification_job_failures_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification delivery is failing"
+          description: "{{ $labels.namespace }}: notification enqueue and/or worker failures occurred in the last hour -- users may be silently missing notifications."
+
       # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
       # declares an explicit RTO of 4h / RPO of 24h in its own header comment,
       # but -- unlike the retention job above, which has app-level metrics --
