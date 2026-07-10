@@ -84,6 +84,19 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int
 	return result, rows.Err()
 }
 
+// CountByTeam returns the number of news items the team has, used to enforce
+// maxNewsPerTeam before an insert.
+func (r *Repository) CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM news WHERE team_id = $1`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("news.Repository.CountByTeam: %w", err)
+	}
+	return count, nil
+}
+
 // Create inserts a new news item and returns the enriched row.
 func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

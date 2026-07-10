@@ -19,9 +19,19 @@ import (
 // option for a poll that does not allow multiple selections.
 var ErrSingleChoiceMultipleOptions = errors.New("cannot select multiple options on a single-choice poll")
 
+// ErrTooManyPolls is returned once a team hits maxPollsPerTeam. Unlike
+// finances' per-team caps, ListByTeam here is already properly
+// keyset-paginated (O(limit), not O(table size)), so this isn't closing an
+// availability bug -- it's a cheap defense-in-depth cap against unbounded
+// storage growth from a scripted or careless polls:write caller.
+var ErrTooManyPolls = fmt.Errorf("team has reached the maximum of %d polls", maxPollsPerTeam)
+
+const maxPollsPerTeam = 50_000
+
 // pollRepo is the interface the Service relies on.
 type pollRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*PollRow, error)
+	CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error)
 	FindByID(ctx context.Context, id, teamID uuid.UUID) (*PollRow, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
 	Delete(ctx context.Context, id, teamID uuid.UUID) error
@@ -120,6 +130,14 @@ func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUI
 
 // Create adds a new poll and returns it fully assembled.
 func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error) {
+	count, err := s.repo.CountByTeam(ctx, teamID)
+	if err != nil {
+		return gen.Poll{}, fmt.Errorf("polls.Service.Create: %w", err)
+	}
+	if count >= maxPollsPerTeam {
+		return gen.Poll{}, ErrTooManyPolls
+	}
+
 	multiple := false
 	if body.Multiple != nil {
 		multiple = *body.Multiple

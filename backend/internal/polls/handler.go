@@ -94,6 +94,9 @@ func (h *Handler) CreatePoll(ctx context.Context, req gen.CreatePollRequestObjec
 	}
 	poll, err := h.svc.Create(ctx, req.TeamId, user.Id, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyPolls) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreatePoll failed", "err", err)
 		return nil, apierror.Internal("failed to create poll")
 	}

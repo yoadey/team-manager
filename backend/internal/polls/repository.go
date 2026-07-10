@@ -129,6 +129,19 @@ func (r *Repository) FindByID(ctx context.Context, id, teamID uuid.UUID) (*PollR
 	return p, nil
 }
 
+// CountByTeam returns the number of polls the team has, used to enforce
+// maxPollsPerTeam before an insert.
+func (r *Repository) CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM polls WHERE team_id = $1`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("polls.Repository.CountByTeam: %w", err)
+	}
+	return count, nil
+}
+
 // Create inserts a new poll and its options. Returns the new poll ID.
 // The poll row and all option rows are inserted within a single transaction
 // so that a failure partway through the options loop cannot leave an

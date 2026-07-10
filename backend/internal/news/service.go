@@ -15,10 +15,20 @@ import (
 // newsRepo is the interface the Service relies on.
 type newsRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*NewsRow, error)
+	CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error)
 	Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error)
 	Update(ctx context.Context, id, teamID uuid.UUID, title, body *string, pinned *bool) (*NewsRow, error)
 	Delete(ctx context.Context, id, teamID uuid.UUID) error
 }
+
+// ErrTooManyNewsItems is returned once a team hits maxNewsPerTeam. Unlike
+// finances' per-team caps, ListByTeam here is already properly
+// keyset-paginated (O(limit), not O(table size)), so this isn't closing an
+// availability bug -- it's a cheap defense-in-depth cap against unbounded
+// storage growth from a scripted or careless news:write caller.
+var ErrTooManyNewsItems = fmt.Errorf("team has reached the maximum of %d news items", maxNewsPerTeam)
+
+const maxNewsPerTeam = 50_000
 
 // jobEnqueuer is satisfied by *jobs.Client.
 type jobEnqueuer interface {
@@ -80,6 +90,14 @@ func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, c
 
 // Create adds a new news item and enqueues a notification job.
 func (s *Service) Create(ctx context.Context, teamID, authorID uuid.UUID, body *gen.CreateNewsRequest) (gen.NewsItem, error) {
+	count, err := s.repo.CountByTeam(ctx, teamID)
+	if err != nil {
+		return gen.NewsItem{}, fmt.Errorf("news.Service.Create: %w", err)
+	}
+	if count >= maxNewsPerTeam {
+		return gen.NewsItem{}, ErrTooManyNewsItems
+	}
+
 	pinned := false
 	if body.Pinned != nil {
 		pinned = *body.Pinned

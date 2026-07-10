@@ -21,6 +21,7 @@ import (
 
 type mockRepo struct {
 	listByTeam   func(ctx context.Context, teamID uuid.UUID, limit int, cur *polls.ListCursor) ([]*polls.PollRow, error)
+	countByTeam  func(ctx context.Context, teamID uuid.UUID) (int, error)
 	findByID     func(ctx context.Context, id, teamID uuid.UUID) (*polls.PollRow, error)
 	create       func(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
 	delete       func(ctx context.Context, id, teamID uuid.UUID) error
@@ -41,6 +42,16 @@ type mockRepo struct {
 
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *polls.ListCursor) ([]*polls.PollRow, error) {
 	return m.listByTeam(ctx, teamID, limit, cur)
+}
+
+// CountByTeam is optional; when unset, existing tests exercising Create get a
+// default of 0 (well under maxPollsPerTeam) so they don't all need updating
+// just to set this new field.
+func (m *mockRepo) CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error) {
+	if m.countByTeam != nil {
+		return m.countByTeam(ctx, teamID)
+	}
+	return 0, nil
 }
 
 func (m *mockRepo) FindByID(ctx context.Context, id, teamID uuid.UUID) (*polls.PollRow, error) {
@@ -302,6 +313,27 @@ func TestService_Create(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Vote now?", result.Question)
 	assert.Len(t, result.Options, 2)
+}
+
+// Regression test: with no per-team cap, a member holding only polls:write
+// could script unbounded Create calls, growing the polls table without
+// limit. Create must refuse once the team is at maxPollsPerTeam, without
+// ever reaching the repo's insert.
+func TestService_Create_RejectsAtCap(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		countByTeam: func(context.Context, uuid.UUID) (int, error) { return 50_000, nil },
+		create: func(context.Context, uuid.UUID, uuid.UUID, string, bool, bool, []string) (uuid.UUID, error) {
+			t.Fatal("Create must not be called once the team is at the polls cap")
+			return uuid.Nil, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	body := &gen.CreatePollRequest{Question: "Vote now?", Options: []string{"Yes", "No"}}
+	_, err := svc.Create(context.Background(), teamID, userID, body)
+	require.ErrorIs(t, err, polls.ErrTooManyPolls)
 }
 
 // mockJobEnqueuer satisfies jobEnqueuer for tests exercising the

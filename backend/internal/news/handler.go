@@ -73,6 +73,9 @@ func (h *Handler) CreateNews(ctx context.Context, req gen.CreateNewsRequestObjec
 	}
 	item, err := h.svc.Create(ctx, req.TeamId, user.Id, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyNewsItems) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateNews failed", "err", err)
 		return nil, apierror.Internal("failed to create news item")
 	}
