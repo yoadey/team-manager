@@ -106,6 +106,28 @@ describe('useEventDetailActions', () => {
     );
   });
 
+  // Regression test: reloadDetail used to set `event: null` on a confirmed
+  // 404 with no other signal, indistinguishable from the initial "still
+  // loading" null -- EventDetailSheet rendered an infinite spinner either
+  // way. reloadDetail must now flag eventNotFound so the component can tell
+  // the two apart.
+  it('openEventDetail sets eventNotFound when the event is confirmed missing', async () => {
+    api.events.get = vi.fn().mockResolvedValue(null);
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openEventDetail('ev1');
+    });
+    expect(stateRef.sheet).toMatchObject({ event: null, eventNotFound: true });
+  });
+
+  it('openEventDetail does not set eventNotFound when the event loads successfully', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openEventDetail('ev1');
+    });
+    expect(stateRef.sheet).toMatchObject({ eventNotFound: false });
+  });
+
   it('setMyStatus calls attendance API and shows toast', async () => {
     stateRef = makeState({ sheet: { type: 'eventDetail', eventId: 'ev1', event: null, rows: [] } as never });
     const { result } = renderActions();

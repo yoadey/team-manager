@@ -52,7 +52,7 @@ export function useEventDetailActions({
         ]);
         setState((s) =>
           s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId
-            ? { sheet: { ...s.sheet, event, rows, comments } }
+            ? { sheet: { ...s.sheet, event, eventNotFound: event === null, rows, comments } }
             : {},
         );
       } catch (err) {

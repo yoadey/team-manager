@@ -93,6 +93,10 @@ export interface SheetState {
   self?: boolean;
   action?: 'cancel' | 'delete' | 'reactivate';
   event?: TeamEvent | null;
+  /** True once a reload has resolved with a confirmed-missing event (deleted
+   * or inaccessible) -- distinguishes that from `event` still being null
+   * because the initial load hasn't resolved yet. */
+  eventNotFound?: boolean;
   eventId?: string;
   rows?: AttendanceRow[];
   comments?: import('@/features/events').EventComment[];

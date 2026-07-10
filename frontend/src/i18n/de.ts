@@ -213,6 +213,7 @@ export const de = {
       upcoming: 'Anstehend',
       past: 'Archiv',
     },
+    detailNotFound: 'Dieser Termin wurde nicht gefunden. Er könnte gelöscht worden sein.',
     viewTabsLabel: 'Ansicht wählen',
     scopeTabsLabel: 'Zeitraum wählen',
     calPrevMonth: 'Vorheriger Monat',

@@ -213,6 +213,7 @@ export const en: Messages = {
       upcoming: 'Upcoming',
       past: 'Archive',
     },
+    detailNotFound: 'This event could not be found. It may have been deleted.',
     viewTabsLabel: 'Choose view',
     scopeTabsLabel: 'Choose time range',
     calPrevMonth: 'Previous month',

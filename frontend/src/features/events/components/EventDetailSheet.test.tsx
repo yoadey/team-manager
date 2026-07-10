@@ -103,7 +103,7 @@ describe('EventDetailSheet', () => {
     vi.clearAllMocks();
   });
 
-  it('renders SpinnerBox when event is null', () => {
+  it('renders SpinnerBox when event is null and still loading', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
     const { container } = render(
@@ -111,6 +111,26 @@ describe('EventDetailSheet', () => {
     );
     // SpinnerBox renders without the event details
     expect(container.firstChild).toBeTruthy();
+    expect(screen.queryByText('events.detailNotFound')).toBeNull();
+  });
+
+  // Regression test: EventDetailSheet used to render SpinnerBox forever for a
+  // confirmed-missing event (deleted, or inaccessible) -- `sheet.event` is
+  // null both while still loading AND once a reload resolves with a
+  // confirmed 404, with no way to distinguish the two, so a stale
+  // bookmarked/deep-linked URL, or an event deleted in another tab, left the
+  // user staring at an infinite spinner with no explanation and no way out
+  // except manually closing the sheet.
+  it('renders a not-found empty state when the event is confirmed missing', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(
+      <EventDetailSheet
+        app={app as never}
+        sheet={{ type: 'eventDetail', event: null, eventNotFound: true } as never}
+      />,
+    );
+    expect(screen.getByText('events.detailNotFound')).toBeTruthy();
   });
 
   it('renders event title in the document', () => {
