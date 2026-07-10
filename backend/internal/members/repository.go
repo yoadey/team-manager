@@ -135,21 +135,39 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error) { //nolint:gocognit,cyclop // complexity inherent in dynamic SQL builder
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// Get user_id from membership first, scoped to the team.
-	var userID string
-	err := r.pool.QueryRow(ctx, `SELECT user_id FROM memberships WHERE id = $1 AND team_id = $2`, membershipID, teamID).Scan(&userID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, pgx.ErrNoRows
-		}
-		return nil, fmt.Errorf("members.Repository.UpdateMember: get user_id: %w", err)
-	}
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.UpdateMember: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize against a concurrent RemoveMember/SetRoles for the same team
+	// (same lock key both already use) so the membership-existence check
+	// below can't be invalidated between here and the UPDATE users
+	// statement, which is scoped only by the userID resolved from it -- not
+	// by membershipID/teamID -- and so has no way to notice on its own that
+	// the caller's authority over that user has since been revoked. Without
+	// this, a concurrent RemoveMember could delete the membership after this
+	// check but before the write commits: the write still succeeds (email/
+	// name/phone/etc. permanently changed on the departed user's global
+	// account) while the caller sees a 404 from the reload below, actively
+	// suggesting nothing happened.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return nil, fmt.Errorf("members.Repository.UpdateMember: advisory lock: %w", err)
+	}
+
+	// Get user_id from membership, scoped to the team, inside the same
+	// transaction and after the lock so this can't race a concurrent
+	// membership removal.
+	var userID string
+	err = tx.QueryRow(ctx, `SELECT user_id FROM memberships WHERE id = $1 AND team_id = $2`, membershipID, teamID).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("members.Repository.UpdateMember: get user_id: %w", err)
+	}
 
 	// Update user fields.
 	userCols := []string{}

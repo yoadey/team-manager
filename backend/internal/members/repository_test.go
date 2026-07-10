@@ -2,6 +2,9 @@ package members_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -208,6 +211,65 @@ func TestMembersRepository_UpdateMember_WrongTeam_ReturnsNoRows(t *testing.T) {
 		Name: &newName,
 	})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// Regression test: UpdateMember used to resolve the membership's userID via
+// a bare r.pool.QueryRow BEFORE starting its transaction, then unconditionally
+// UPDATE users on that already-resolved userID inside the tx -- never
+// re-checking that the membership (and hence the caller's authority) still
+// existed. A concurrent RemoveMember could delete the membership in the
+// window between that outside-tx check and the UPDATE users statement: the
+// write would still commit (permanently changing the departed user's global
+// account fields) while UpdateMember's own final reload returned
+// pgx.ErrNoRows, reporting what looked like a clean no-op failure to the
+// caller. The fix moves the check inside the tx, behind the same per-team
+// advisory lock RemoveMember already takes, so the two fully serialize.
+//
+// This fires UpdateMember and RemoveMember concurrently against a freshly
+// seeded membership across many rounds and asserts the invariant the bug
+// violated: whenever UpdateMember reports pgx.ErrNoRows, the user's name in
+// the database must still be the pre-update value -- i.e. a reported
+// failure must never carry a silent side effect.
+func TestMembersRepository_UpdateMember_ConcurrentRemoveMember_NoSilentSideEffect(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+
+	const rounds = 20
+	for i := 0; i < rounds; i++ {
+		originalName := fmt.Sprintf("Original %d", i)
+		newName := fmt.Sprintf("Updated %d", i)
+		m := seedMember(t, pool, teamID, originalName, fmt.Sprintf("racer%d@example.com", i))
+
+		var wg sync.WaitGroup
+		var updateErr, removeErr error
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, updateErr = repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{Name: &newName})
+		}()
+		go func() {
+			defer wg.Done()
+			removeErr = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
+		}()
+		wg.Wait()
+
+		require.True(t, removeErr == nil || errors.Is(removeErr, pgx.ErrNoRows),
+			"round %d: RemoveMember returned an unexpected error: %v", i, removeErr)
+
+		if errors.Is(updateErr, pgx.ErrNoRows) {
+			var gotName string
+			require.NoError(t, pool.QueryRow(ctx, `SELECT name FROM users WHERE id = $1`, m.UserID).Scan(&gotName))
+			assert.Equal(t, originalName, gotName,
+				"round %d: UpdateMember reported ErrNoRows but silently changed the user's name anyway", i)
+		} else {
+			require.NoError(t, updateErr, "round %d: UpdateMember failed with an unexpected error", i)
+		}
+	}
 }
 
 func TestMembersRepository_UpdateMember_PartialPatch(t *testing.T) {
