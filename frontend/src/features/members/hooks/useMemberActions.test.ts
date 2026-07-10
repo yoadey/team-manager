@@ -469,4 +469,35 @@ describe('useMemberActions', () => {
     expect(api.members.remove).toHaveBeenCalledWith('ms1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Mitglied entfernt');
   });
+
+  // Regression: onConfirm used to close the sheet unconditionally (once the
+  // team still matched), so a slow removeMember could clobber whatever
+  // DIFFERENT sheet the user had since opened while the delete was in
+  // flight (e.g. a real askConfirm flow clears the sheet immediately on
+  // confirm, then the user opens something else before the delete
+  // resolves).
+  it('removeMember onConfirm does not touch the sheet if the user opened something else while the delete was in flight', async () => {
+    let resolveRemove!: () => void;
+    api.members.remove = vi.fn(() => new Promise<void>((resolve) => (resolveRemove = resolve)));
+    const { result } = renderActions();
+    act(() => {
+      result.current.removeMember('ms1');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+
+    let confirmPromise!: Promise<void>;
+    act(() => {
+      confirmPromise = cfg.onConfirm();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveRemove();
+      await confirmPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+  });
 });

@@ -278,12 +278,15 @@ export function useEventActionFeatures({
           confirmLabel: t('common.delete'),
           danger: true,
           onConfirm: async () => {
+            const sh = S().sheet;
             try {
               await api.events.remove(event.id, scope, event.teamId);
               await refreshEvents();
               // Don't close a sheet the user has since opened for a
-              // different team after switching away mid-request.
-              if (S().activeTeamId === event.teamId) setState({ sheet: null });
+              // different team after switching away mid-request, or one
+              // they've since opened for a different event (same team)
+              // while this delete was in flight.
+              if (S().activeTeamId === event.teamId && S().sheet === sh) setState({ sheet: null });
               toastMsg(scope === 'series' ? t('events.toastSeriesDeleted') : t('events.toastEventDeleted'));
             } catch (err) {
               reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
@@ -292,13 +295,16 @@ export function useEventActionFeatures({
         });
         return;
       }
+      const sh = S().sheet;
       const status = action === 'cancel' ? 'cancelled' : 'active';
       try {
         await api.events.setStatus(event.id, status, scope, event.teamId);
         await refreshEvents();
         // Don't close/reopen a sheet the user has since opened for a
-        // different team after switching away mid-request.
-        if (S().activeTeamId === event.teamId) {
+        // different team after switching away mid-request, or one they've
+        // since opened for a different event (same team) while this
+        // cancel/reactivate was in flight.
+        if (S().activeTeamId === event.teamId && S().sheet === sh) {
           setState({ sheet: null });
           openEventDetail(event.id);
         }

@@ -387,4 +387,61 @@ describe('useEventActionFeatures', () => {
     expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Termin aktiviert');
   });
+
+  // Regression: onConfirm used to close the sheet unconditionally (once the
+  // team still matched), so a slow delete for one event could clobber
+  // whatever DIFFERENT sheet the user had since opened while it was in
+  // flight.
+  it('runEventAction delete does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveRemove!: () => void;
+    api.events.remove = vi.fn(() => new Promise<void>((resolve) => (resolveRemove = resolve)));
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
+    const { result } = renderActions();
+
+    act(() => {
+      result.current.runEventAction('delete', event, 'single');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+
+    let confirmPromise!: Promise<void>;
+    act(() => {
+      confirmPromise = cfg.onConfirm();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveRemove();
+      await confirmPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+  });
+
+  // Same race for the cancel/reactivate branch, which (for a non-series
+  // event) runs directly rather than through askConfirm.
+  it('runEventAction reactivate does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveStatus!: () => void;
+    api.events.setStatus = vi.fn(() => new Promise<void>((resolve) => (resolveStatus = resolve)));
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
+    stateRef = { ...stateRef, sheet: { type: 'eventDetail', eventId: 'ev1' } as never };
+    const { result } = renderActions();
+
+    let actionPromise!: Promise<void>;
+    act(() => {
+      actionPromise = result.current.runEventAction('reactivate', event, 'single');
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveStatus();
+      await actionPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+    expect(openEventDetail).not.toHaveBeenCalled();
+  });
 });
