@@ -18,6 +18,14 @@ import (
 // pgUniqueViolation is the Postgres SQLSTATE for a violated UNIQUE constraint.
 const pgUniqueViolation = "23505"
 
+// querier is satisfied by both *pgxpool.Pool and pgx.Tx, letting the read
+// helpers below run either as a standalone query or inside a caller's
+// transaction.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
 // ErrRoleNotInTeam is returned when one or more role IDs passed to SetRoles do
 // not belong to the membership's team.
 var ErrRoleNotInTeam = errors.New("role does not belong to team")
@@ -225,11 +233,21 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID stri
 		}
 	}
 
+	// Read the final row back inside the same transaction, still holding the
+	// advisory lock, so this can't race a concurrent RemoveMember the way a
+	// reload after commit (once the lock is released) could -- that window
+	// let a legitimate write get reported back to the caller as
+	// pgx.ErrNoRows, since the reload alone would find the membership gone.
+	mr, err := getMemberByMembershipIDQ(ctx, tx, membershipID)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("members.Repository.UpdateMember: commit: %w", err)
 	}
 
-	return r.getMemberByMembershipID(ctx, membershipID)
+	return mr, nil
 }
 
 // SetRoles replaces the role assignments for the given membership. The
@@ -280,11 +298,19 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 		}
 	}
 
+	// Read the final row back inside the same transaction, before it's
+	// committed and the advisory lock released -- see the identical comment
+	// in UpdateMember for why a post-commit reload on r.pool isn't safe here.
+	mr, err := getMemberByMembershipIDQ(ctx, tx, membershipID)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("members.Repository.SetRoles: commit: %w", err)
 	}
 
-	return r.getMemberByMembershipID(ctx, membershipID)
+	return mr, nil
 }
 
 // validateSetRolesInputs checks that membershipID belongs to teamID and every
@@ -515,8 +541,14 @@ func (r *Repository) GetPermissions(ctx context.Context, teamID, userID uuid.UUI
 
 // ─── internal helpers ─────────────────────────────────────────────────────────
 
-func (r *Repository) getMemberByMembershipID(ctx context.Context, membershipID string) (*MemberRow, error) {
-	row := r.pool.QueryRow(ctx, `
+// getMemberByMembershipIDQ takes a querier rather than always using r.pool
+// so callers that need to read back a row they just wrote can do so inside
+// their own transaction -- e.g. UpdateMember and SetRoles read the final row
+// before committing, while still holding the per-team advisory lock, so the
+// read can't race a concurrent RemoveMember the way a post-commit reload on
+// r.pool could.
+func getMemberByMembershipIDQ(ctx context.Context, q querier, membershipID string) (*MemberRow, error) {
+	row := q.QueryRow(ctx, `
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
 		       (u.photo_data IS NOT NULL AND length(u.photo_data) > 0),
@@ -534,7 +566,7 @@ func (r *Repository) getMemberByMembershipID(ctx context.Context, membershipID s
 		return nil, fmt.Errorf("members.Repository.getMemberByMembershipID: %w", err)
 	}
 
-	roles, err := r.getRolesForMembership(ctx, membershipID)
+	roles, err := getRolesForMembershipQ(ctx, q, membershipID)
 	if err != nil {
 		return nil, err
 	}
@@ -574,8 +606,8 @@ func (r *Repository) batchGetRoles(ctx context.Context, membershipIDs []string) 
 	return result, rows.Err()
 }
 
-func (r *Repository) getRolesForMembership(ctx context.Context, membershipID string) ([]teams.RoleRow, error) {
-	rows, err := r.pool.Query(ctx, `
+func getRolesForMembershipQ(ctx context.Context, q querier, membershipID string) ([]teams.RoleRow, error) {
+	rows, err := q.Query(ctx, `
 		SELECT r.id, r.team_id, r.name, r.system, r.color, r.permissions
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
