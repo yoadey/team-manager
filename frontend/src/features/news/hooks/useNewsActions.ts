@@ -46,6 +46,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
       toastMsg(titleResult.message!);
       return;
     }
+    const sh = S().sheet;
     const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
@@ -54,14 +55,16 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
         await loadNews();
         setState({ busy: null });
         // Don't close a sheet the user has since opened for a different
-        // team after switching away mid-request.
-        if (S().activeTeamId === teamId) setState({ sheet: null });
+        // team after switching away mid-request, or one they've since
+        // opened for a different entity (same team) while this save was in
+        // flight.
+        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('news.toastUpdated'));
       } else {
         await api.news.create(teamId, { title: titleResult.value!, body: f.body, pinned: f.pinned });
         await loadNews();
         setState({ busy: null });
-        if (S().activeTeamId === teamId) setState({ sheet: null });
+        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('news.toastPublished'));
       }
     } catch (err) {

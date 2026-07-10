@@ -168,6 +168,37 @@ describe('useFinanceActions', () => {
     );
   });
 
+  // Regression: a slow saveTx used to unconditionally close the sheet once
+  // it resolved, as long as the team hadn't changed -- so closing this
+  // transaction's edit form and opening a different sheet (e.g. a different
+  // transaction, same team) while the save was still in flight would get
+  // silently clobbered by the stale save once it finally resolved.
+  it('saveTx does not touch the sheet if the user opened something else while the save was in flight', async () => {
+    let resolveUpdate!: () => void;
+    api.finances.updateTransaction = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
+    stateRef = makeState({
+      sheet: { type: 'txForm', mode: 'edit' } as never,
+      form: { id: 'tx1', title: 'Updated', amount: '75', type: 'expense', category: 'Ausrüstung' },
+    });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveTx();
+    });
+    expect(api.finances.updateTransaction).toHaveBeenCalled();
+
+    const otherTxForm = { type: 'txForm', mode: 'edit' } as never;
+    stateRef = { ...stateRef, sheet: otherTxForm };
+
+    await act(async () => {
+      resolveUpdate();
+      await savePromise;
+    });
+
+    expect(stateRef.sheet).toBe(otherTxForm);
+  });
+
   it('deleteTx calls deleteTransaction and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {

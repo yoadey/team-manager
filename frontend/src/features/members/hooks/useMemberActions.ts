@@ -174,8 +174,12 @@ export function useMemberActions({
       // they've since opened for the team they switched to, and
       // openMemberDetail would look up f.membershipId in the NEW team's
       // (already-refreshed) member list, finding nothing and rendering a
-      // broken detail sheet.
-      if (S().activeTeamId === teamId) {
+      // broken detail sheet. Also skip it if the user has since closed this
+      // form and opened a different one (same team) while the save was in
+      // flight -- otherwise a slow save for one member would silently close
+      // and replace whatever the user is now looking at with this member's
+      // detail view.
+      if (S().activeTeamId === teamId && S().sheet === sh) {
         setState({ sheet: null });
         if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId);
       }

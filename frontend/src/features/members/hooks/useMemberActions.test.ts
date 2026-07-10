@@ -408,6 +408,40 @@ describe('useMemberActions', () => {
     expect(stateRef.sheet).toEqual({ type: 'teams' });
   });
 
+  // Regression: a slow saveMember for one member used to unconditionally
+  // close/reopen the sheet once it resolved, as long as the team hadn't
+  // changed -- so closing this member's edit form and opening a DIFFERENT
+  // member's form (same team) while the save was still in flight would get
+  // silently clobbered by the stale save once it finally resolved, discarding
+  // whatever the user was now doing.
+  it('saveMember does not touch the sheet if the user opened a different member\'s form while the save was in flight', async () => {
+    let resolveUpdate!: () => void;
+    api.members.update = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
+    stateRef = makeState({
+      form: { name: 'Alice Updated', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveMember();
+    });
+    expect(api.members.update).toHaveBeenCalled();
+
+    // User closes Alice's form and opens a different member's form (same
+    // team) before Alice's save resolves.
+    const otherMembersForm = { type: 'memberForm', mode: 'edit', self: false, back: null } as never;
+    stateRef = { ...stateRef, sheet: otherMembersForm };
+
+    await act(async () => {
+      resolveUpdate();
+      await savePromise;
+    });
+
+    expect(stateRef.sheet).toBe(otherMembersForm);
+  });
+
   it('removeMember calls askConfirm with member name', () => {
     const { result } = renderActions();
     act(() => {

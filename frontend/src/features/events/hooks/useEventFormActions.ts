@@ -117,7 +117,12 @@ export function useEventFormActions({
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail
         // would look up f.id in the new team's event list and find nothing.
-        if (S().activeTeamId === teamId) {
+        // Also don't touch it if the user has since closed this form and
+        // opened a DIFFERENT one (same team) while this save was in flight --
+        // otherwise a slow save for event A would silently close and replace
+        // whatever the user is now looking at (e.g. an edit form for event B)
+        // with A's detail view, discarding B's unsaved edits without warning.
+        if (S().activeTeamId === teamId && S().sheet === sh) {
           setState({ sheet: null });
           if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
         }
