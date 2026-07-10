@@ -102,6 +102,16 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 
 // ListCursor is the keyset position for event pagination. The comparison
 // direction depends on scope (past is DESC, upcoming/all are ASC).
+//
+// Known, accepted limitation: date is mutable (UpdateEvent lets an admin
+// reschedule). If an event's date changes to fall on the other side of an
+// in-progress pagination's cursor while a caller is mid-page, that event can
+// be skipped or, less likely, duplicated across pages -- the same tradeoff
+// any keyset pagination scheme accepts when sorting by an editable column.
+// The window is self-healing (a fresh list call is always fully correct)
+// and low-impact (rescheduling mid-pagination is rarer than the equivalent
+// window in members/absences), so this is deliberately not being
+// architected around.
 type ListCursor struct {
 	Date time.Time `json:"d"`
 	ID   uuid.UUID `json:"i"`

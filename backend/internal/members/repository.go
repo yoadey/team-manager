@@ -74,6 +74,18 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 // ListCursor is the keyset position for member pagination
 // (ORDER BY name ASC, membership id ASC).
+//
+// Known, accepted limitation: name is mutable (UpdateMember, and GDPR
+// erasure rewriting it to a fixed placeholder). If a row's name changes to
+// fall on the other side of an in-progress pagination's cursor while a
+// caller is mid-page, that row can be skipped or, less likely, duplicated
+// across pages -- the same tradeoff any keyset pagination scheme accepts
+// when sorting by an editable column. The window is self-healing (a fresh
+// list call is always fully correct) and low-impact (an admin viewing the
+// team roster, not a security or data-integrity issue), so this is
+// deliberately not being architected around -- doing so would mean either
+// sorting by an immutable column (changing the roster's user-visible
+// alphabetical order) or a materially larger pagination redesign.
 type ListCursor struct {
 	Name string    `json:"n"`
 	ID   uuid.UUID `json:"i"`

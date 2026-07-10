@@ -92,6 +92,16 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 
 // ListCursor is the keyset position for absence pagination
 // (ORDER BY from_date DESC, id DESC).
+//
+// Known, accepted limitation: from_date is mutable (self-service Update lets
+// a user change their own absence's start date). If a row's from_date
+// changes to fall on the other side of an in-progress pagination's cursor
+// while a caller is mid-page, that row can be skipped or, less likely,
+// duplicated across pages -- the same tradeoff any keyset pagination scheme
+// accepts when sorting by an editable column. The window is self-healing
+// (a fresh list call is always fully correct) and low-impact (an admin
+// viewing the team's absence list, not a security or data-integrity issue),
+// so this is deliberately not being architected around.
 type ListCursor struct {
 	FromDate time.Time `json:"f"`
 	ID       uuid.UUID `json:"i"`
