@@ -28,7 +28,7 @@ import (
 type mockMemberService struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	updateMember func(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*gen.Member, error)
-	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error)
+	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	removeMember func(ctx context.Context, membershipID, teamID string) error
 }
 
@@ -40,8 +40,8 @@ func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, team
 	return m.updateMember(ctx, membershipID, teamID, patch)
 }
 
-func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error) {
-	return m.setRoles(ctx, membershipID, teamID, roleIDs)
+func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error) {
+	return m.setRoles(ctx, membershipID, teamID, roleIDs, callerUserID)
 }
 
 func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID, teamID string) error {
@@ -171,7 +171,7 @@ func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_Returns409(t *testing.T)
 	t.Parallel()
 
 	svc := &mockMemberService{
-		setRoles: func(context.Context, string, string, []string) (*gen.Member, error) {
+		setRoles: func(context.Context, string, string, []string, string) (*gen.Member, error) {
 			return nil, members.ErrLastSettingsAdmin
 		},
 	}
@@ -207,7 +207,7 @@ func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_RecordsAuditFailure(t *t
 	t.Parallel()
 
 	svc := &mockMemberService{
-		setRoles: func(context.Context, string, string, []string) (*gen.Member, error) {
+		setRoles: func(context.Context, string, string, []string, string) (*gen.Member, error) {
 			return nil, members.ErrLastSettingsAdmin
 		},
 	}
@@ -260,8 +260,9 @@ func TestMemberHandler_SetMemberRoles_TooManyRoleIds_Returns400(t *testing.T) {
 		roleIDs[i] = uuid.New()
 	}
 	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
 	body := &gen.SetMemberRolesJSONRequestBody{RoleIds: roleIDs}
-	_, err := h.SetMemberRoles(context.Background(), gen.SetMemberRolesRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+	_, err := h.SetMemberRoles(ctx, gen.SetMemberRolesRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
 
 	require.Error(t, err)
 }

@@ -19,7 +19,7 @@ import (
 type mockMemberRepo struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
 	updateMember func(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*members.MemberRow, error)
-	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string) (*members.MemberRow, error)
+	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error)
 	removeMember func(ctx context.Context, membershipID, teamID string) error
 }
 
@@ -31,8 +31,8 @@ func (m *mockMemberRepo) UpdateMember(ctx context.Context, membershipID, teamID 
 	return m.updateMember(ctx, membershipID, teamID, patch)
 }
 
-func (m *mockMemberRepo) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*members.MemberRow, error) {
-	return m.setRoles(ctx, membershipID, teamID, roleIDs)
+func (m *mockMemberRepo) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error) {
+	return m.setRoles(ctx, membershipID, teamID, roleIDs, callerUserID)
 }
 
 func (m *mockMemberRepo) RemoveMember(ctx context.Context, membershipID, teamID string) error {
@@ -131,20 +131,22 @@ func TestMemberService_SetRoles_PassesTeamID(t *testing.T) {
 
 	teamID := uuid.New()
 	membershipID := uuid.New()
+	callerUserID := uuid.New()
 	roleIDs := []string{uuid.New().String()}
 	row := fixedMemberRow()
 
 	repo := &mockMemberRepo{
-		setRoles: func(_ context.Context, mid, tid string, gotRoleIDs []string) (*members.MemberRow, error) {
+		setRoles: func(_ context.Context, mid, tid string, gotRoleIDs []string, gotCaller string) (*members.MemberRow, error) {
 			assert.Equal(t, membershipID.String(), mid)
 			assert.Equal(t, teamID.String(), tid)
 			assert.Equal(t, roleIDs, gotRoleIDs)
+			assert.Equal(t, callerUserID.String(), gotCaller)
 			return &row, nil
 		},
 	}
 
 	svc := members.NewService(repo, nil)
-	_, err := svc.SetRoles(context.Background(), membershipID.String(), teamID.String(), roleIDs)
+	_, err := svc.SetRoles(context.Background(), membershipID.String(), teamID.String(), roleIDs, callerUserID.String())
 	require.NoError(t, err)
 }
 
@@ -152,13 +154,13 @@ func TestMemberService_SetRoles_RoleNotInTeam_Propagates(t *testing.T) {
 	t.Parallel()
 
 	repo := &mockMemberRepo{
-		setRoles: func(context.Context, string, string, []string) (*members.MemberRow, error) {
+		setRoles: func(context.Context, string, string, []string, string) (*members.MemberRow, error) {
 			return nil, members.ErrRoleNotInTeam
 		},
 	}
 
 	svc := members.NewService(repo, nil)
-	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{uuid.New().String()})
+	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{uuid.New().String()}, uuid.New().String())
 	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
 }
 
@@ -166,14 +168,28 @@ func TestMemberService_SetRoles_LastSettingsAdmin_Propagates(t *testing.T) {
 	t.Parallel()
 
 	repo := &mockMemberRepo{
-		setRoles: func(context.Context, string, string, []string) (*members.MemberRow, error) {
+		setRoles: func(context.Context, string, string, []string, string) (*members.MemberRow, error) {
 			return nil, members.ErrLastSettingsAdmin
 		},
 	}
 
 	svc := members.NewService(repo, nil)
-	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{})
+	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{}, uuid.New().String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
+}
+
+func TestMemberService_SetRoles_InsufficientPermissionToGrant_Propagates(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockMemberRepo{
+		setRoles: func(context.Context, string, string, []string, string) (*members.MemberRow, error) {
+			return nil, members.ErrInsufficientPermissionToGrant
+		},
+	}
+
+	svc := members.NewService(repo, nil)
+	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{uuid.New().String()}, uuid.New().String())
+	require.ErrorIs(t, err, members.ErrInsufficientPermissionToGrant)
 }
 
 func TestMemberService_RemoveMember_LastSettingsAdmin_Propagates(t *testing.T) {

@@ -22,7 +22,7 @@ import (
 type memberService interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*gen.Member, error)
-	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error)
+	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	RemoveMember(ctx context.Context, membershipID, teamID string) error
 }
 
@@ -154,6 +154,10 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 
 // SetMemberRoles replaces the member's role assignments.
 func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRolesRequestObject) (gen.SetMemberRolesResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
@@ -166,7 +170,7 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 		roleIDs[i] = u.String()
 	}
 
-	m, err := h.svc.SetRoles(ctx, request.MembershipId.String(), request.TeamId.String(), roleIDs)
+	m, err := h.svc.SetRoles(ctx, request.MembershipId.String(), request.TeamId.String(), roleIDs, user.Id.String())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("member not found")
@@ -179,6 +183,12 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
 				slog.String("reason", "last_settings_admin"))
 			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
+		}
+		if errors.Is(err, ErrInsufficientPermissionToGrant) {
+			h.audit.Record(ctx, audit.EventMemberRolesChange, audit.Failure, actor(ctx),
+				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+				slog.String("reason", "insufficient_permission_to_grant"))
+			return nil, apierror.Forbidden(ErrInsufficientPermissionToGrant.Error())
 		}
 		h.logger.ErrorContext(ctx, "SetMemberRoles failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.SetMemberRoles: %w", err)

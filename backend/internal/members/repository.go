@@ -62,6 +62,11 @@ var ErrEmailTaken = errors.New("email is already used by another account")
 // invites, or settings).
 var ErrLastSettingsAdmin = errors.New("cannot remove the last member with settings management permission")
 
+// ErrInsufficientPermissionToGrant is returned when SetRoles would give the
+// target membership a higher effective permission on some module than the
+// caller is allowed to grant -- see enforceNoPermissionEscalation.
+var ErrInsufficientPermissionToGrant = errors.New("cannot grant a permission level you do not hold yourself")
+
 // Repository handles member-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -265,7 +270,7 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID stri
 // SetRoles replaces the role assignments for the given membership. The
 // membership must belong to teamID, and every role in roleIDs must also
 // belong to teamID — otherwise pgx.ErrNoRows / ErrRoleNotInTeam is returned.
-func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*MemberRow, error) {
+func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*MemberRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	roleIDs = dedupeStrings(roleIDs)
@@ -289,6 +294,10 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 	}
 
 	if err := validateSetRolesInputs(ctx, tx, membershipID, teamID, roleIDs); err != nil {
+		return nil, err
+	}
+
+	if err := enforceNoPermissionEscalation(ctx, tx, teamID, callerUserID, membershipID, roleIDs); err != nil {
 		return nil, err
 	}
 
@@ -357,6 +366,126 @@ func validateSetRolesInputs(ctx context.Context, tx pgx.Tx, membershipID, teamID
 		}
 	}
 	return nil
+}
+
+// enforceNoPermissionEscalation returns ErrInsufficientPermissionToGrant if
+// replacing membershipID's roles with roleIDs would give it, on any module,
+// a higher effective permission than the greater of (a) the caller's own
+// current effective permission for that module, or (b) the module's
+// effective permission the target already held before this call.
+//
+// (b) matters because SetRoles fully replaces a membership's role set: a
+// caller reorganizing/consolidating a member's EXISTING roles, or demoting
+// them, never counts as "granting" anything new even if the target's
+// resulting permission still exceeds the caller's own -- only an actual
+// INCREASE beyond what the target already had is a grant. Without this
+// distinction, a settings:write-only caller could never touch the role
+// assignment of a member who (legitimately, via someone else) already holds
+// e.g. finances:write, even just to remove an unrelated role from them.
+//
+// This is the fix for a privilege-escalation path: middleware gates both
+// role definition (POST/PATCH .../roles) and role assignment (PUT
+// .../members/{id}/roles) on nothing more than settings:write -- with no
+// check here, a member holding only settings:write could create a role
+// granting arbitrary module permissions and assign it to themselves (or to
+// a second, colluding membership), ending up with de facto full admin
+// despite never having been granted anything beyond settings:write.
+func enforceNoPermissionEscalation(ctx context.Context, tx pgx.Tx, teamID, callerUserID, membershipID string, roleIDs []string) error {
+	callerPerms, err := getEffectivePermissionsByUserQ(ctx, tx, teamID, callerUserID)
+	if err != nil {
+		return fmt.Errorf("members.Repository.SetRoles: caller permissions: %w", err)
+	}
+	targetPermsBefore, err := getMembershipEffectivePermissionsQ(ctx, tx, membershipID)
+	if err != nil {
+		return fmt.Errorf("members.Repository.SetRoles: target permissions: %w", err)
+	}
+	newPerms, err := roleSetEffectivePermissions(ctx, tx, teamID, roleIDs)
+	if err != nil {
+		return fmt.Errorf("members.Repository.SetRoles: %w", err)
+	}
+
+	ceilings := []string{
+		foldMax(callerPerms.Events, targetPermsBefore.Events),
+		foldMax(callerPerms.Members, targetPermsBefore.Members),
+		foldMax(callerPerms.Finances, targetPermsBefore.Finances),
+		foldMax(callerPerms.News, targetPermsBefore.News),
+		foldMax(callerPerms.Polls, targetPermsBefore.Polls),
+		foldMax(callerPerms.Settings, targetPermsBefore.Settings),
+	}
+	granted := []string{newPerms.Events, newPerms.Members, newPerms.Finances, newPerms.News, newPerms.Polls, newPerms.Settings}
+	for i, level := range granted {
+		if permLevelRank(level) > permLevelRank(ceilings[i]) {
+			return ErrInsufficientPermissionToGrant
+		}
+	}
+	return nil
+}
+
+// roleSetEffectivePermissions returns the per-module maximum permission
+// across every role in roleIDs (which must already be validated as
+// belonging to teamID by validateSetRolesInputs).
+func roleSetEffectivePermissions(ctx context.Context, tx pgx.Tx, teamID string, roleIDs []string) (teams.PermissionsJSON, error) {
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	if len(roleIDs) == 0 {
+		return eff, nil
+	}
+	rows, err := tx.Query(ctx, `SELECT permissions FROM roles WHERE id = ANY($1) AND team_id = $2`, roleIDs, teamID)
+	if err != nil {
+		return eff, fmt.Errorf("roleSetEffectivePermissions: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var permJSON []byte
+		if err := rows.Scan(&permJSON); err != nil {
+			return eff, fmt.Errorf("roleSetEffectivePermissions scan: %w", err)
+		}
+		var p teams.PermissionsJSON
+		if err := json.Unmarshal(permJSON, &p); err != nil {
+			return eff, fmt.Errorf("roleSetEffectivePermissions unmarshal: %w", err)
+		}
+		eff = foldPermissions(eff, p)
+	}
+	return eff, rows.Err()
+}
+
+// getMembershipEffectivePermissionsQ returns the per-module maximum
+// permission across membershipID's CURRENTLY assigned roles.
+func getMembershipEffectivePermissionsQ(ctx context.Context, q querier, membershipID string) (teams.PermissionsJSON, error) {
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	rows, err := q.Query(ctx, `
+		SELECT r.permissions
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		WHERE mr.membership_id = $1
+	`, membershipID)
+	if err != nil {
+		return eff, fmt.Errorf("getMembershipEffectivePermissionsQ: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var permJSON []byte
+		if err := rows.Scan(&permJSON); err != nil {
+			return eff, fmt.Errorf("getMembershipEffectivePermissionsQ scan: %w", err)
+		}
+		var p teams.PermissionsJSON
+		if err := json.Unmarshal(permJSON, &p); err != nil {
+			return eff, fmt.Errorf("getMembershipEffectivePermissionsQ unmarshal: %w", err)
+		}
+		eff = foldPermissions(eff, p)
+	}
+	return eff, rows.Err()
+}
+
+// foldPermissions folds b into a, taking the per-module maximum.
+func foldPermissions(a, b teams.PermissionsJSON) teams.PermissionsJSON {
+	return teams.PermissionsJSON{
+		Events:   foldMax(a.Events, b.Events),
+		Members:  foldMax(a.Members, b.Members),
+		Finances: foldMax(a.Finances, b.Finances),
+		News:     foldMax(a.News, b.News),
+		Polls:    foldMax(a.Polls, b.Polls),
+		Settings: foldMax(a.Settings, b.Settings),
+	}
 }
 
 // enforceSettingsAdminGuard returns ErrLastSettingsAdmin if replacing
@@ -516,7 +645,16 @@ func foldMax(cur, next string) string {
 func (r *Repository) GetPermissions(ctx context.Context, teamID, userID uuid.UUID) (teams.PermissionsJSON, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	return getEffectivePermissionsByUserQ(ctx, r.pool, teamID.String(), userID.String())
+}
+
+// getEffectivePermissionsByUserQ is the shared implementation behind
+// GetPermissions. It takes a querier rather than always using r.pool so
+// enforceNoPermissionEscalation can compute the caller's effective
+// permissions inside its own transaction, behind the per-team advisory lock.
+func getEffectivePermissionsByUserQ(ctx context.Context, q querier, teamID, userID string) (teams.PermissionsJSON, error) {
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	rows, err := q.Query(ctx, `
 		SELECT r.permissions
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
@@ -524,29 +662,19 @@ func (r *Repository) GetPermissions(ctx context.Context, teamID, userID uuid.UUI
 		WHERE m.team_id = $1 AND m.user_id = $2 AND r.team_id = $1
 	`, teamID, userID)
 	if err != nil {
-		return teams.PermissionsJSON{}, fmt.Errorf("members.Repository.GetPermissions: %w", err)
+		return eff, fmt.Errorf("getEffectivePermissionsByUserQ: %w", err)
 	}
 	defer rows.Close()
-
-	eff := teams.PermissionsJSON{
-		Events: "none", Members: "none", Finances: "none",
-		News: "none", Polls: "none", Settings: "none",
-	}
 	for rows.Next() {
 		var permJSON []byte
 		if err := rows.Scan(&permJSON); err != nil {
-			return teams.PermissionsJSON{}, fmt.Errorf("members.Repository.GetPermissions scan: %w", err)
+			return eff, fmt.Errorf("getEffectivePermissionsByUserQ scan: %w", err)
 		}
 		var p teams.PermissionsJSON
 		if err := json.Unmarshal(permJSON, &p); err != nil {
-			return teams.PermissionsJSON{}, fmt.Errorf("members.Repository.GetPermissions unmarshal: %w", err)
+			return eff, fmt.Errorf("getEffectivePermissionsByUserQ unmarshal: %w", err)
 		}
-		eff.Events = foldMax(eff.Events, p.Events)
-		eff.Members = foldMax(eff.Members, p.Members)
-		eff.Finances = foldMax(eff.Finances, p.Finances)
-		eff.News = foldMax(eff.News, p.News)
-		eff.Polls = foldMax(eff.Polls, p.Polls)
-		eff.Settings = foldMax(eff.Settings, p.Settings)
+		eff = foldPermissions(eff, p)
 	}
 	return eff, rows.Err()
 }

@@ -48,6 +48,19 @@ func seedRole(t *testing.T, pool *pgxpool.Pool, teamID uuid.UUID, name, perms st
 	return roleID
 }
 
+// seedAdminCaller seeds a member holding full write on every module and
+// returns their userID, for use as SetRoles' callerUserID in tests that
+// aren't specifically exercising enforceNoPermissionEscalation -- mirrors
+// how teams.Repository.CreateTeam grants the team creator this same "Admin"
+// role directly (bypassing SetRoles) as the real bootstrap path.
+func seedAdminCaller(t *testing.T, pool *pgxpool.Pool, teamID uuid.UUID) uuid.UUID {
+	t.Helper()
+	adminRole := seedRole(t, pool, teamID, "Full Admin Caller",
+		`{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+	m := seedMember(t, pool, teamID, "Full Admin Caller", fmt.Sprintf("admin-caller-%s@example.com", uuid.New()), adminRole)
+	return m.UserID
+}
+
 // seedMember inserts a user and a membership (optionally with roles) directly
 // via SQL. Test-only fixture setup, standing in for the removed AddMember
 // repository method (deleted along with the unreachable direct-add-member API
@@ -303,6 +316,7 @@ func TestMembersRepository_SetRoles(t *testing.T) {
 	teamID := seedMemberFixtures(t, pool)
 	roleA := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 	roleB := seedRole(t, pool, teamID, "Member", `{"events":"read","members":"none","finances":"none","news":"read","polls":"read","settings":"none"}`)
+	caller := seedAdminCaller(t, pool, teamID)
 
 	m := seedMember(t, pool, teamID, "Frank Castle", "frank@example.com")
 
@@ -310,28 +324,28 @@ func TestMembersRepository_SetRoles(t *testing.T) {
 	// last-settings-admin guard — this test is about role-replacement
 	// mechanics, not the admin-guard (covered separately).
 	other := seedMember(t, pool, teamID, "Other Admin", "other-admin@example.com")
-	_, err := repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{roleA.String()})
+	_, err := repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{roleA.String()}, caller.String())
 	require.NoError(t, err)
 
 	// Assign roleA.
-	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String()})
+	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String()}, caller.String())
 	require.NoError(t, err)
 	require.Len(t, updated.Roles, 1)
 	assert.Equal(t, roleA, updated.Roles[0].Id)
 
 	// Replace with roleB.
-	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleB.String()})
+	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleB.String()}, caller.String())
 	require.NoError(t, err)
 	require.Len(t, updated.Roles, 1)
 	assert.Equal(t, roleB, updated.Roles[0].Id)
 
 	// Assign both roles.
-	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleB.String()})
+	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleB.String()}, caller.String())
 	require.NoError(t, err)
 	assert.Len(t, updated.Roles, 2)
 
 	// Clear all roles.
-	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{})
+	updated, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{}, caller.String())
 	require.NoError(t, err)
 	assert.Empty(t, updated.Roles)
 }
@@ -348,10 +362,11 @@ func TestMembersRepository_SetRoles_WrongTeam_ReturnsNoRows(t *testing.T) {
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'SetRoles Other Team')`, otherTeamID)
 	require.NoError(t, err)
 	roleA := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+	caller := seedAdminCaller(t, pool, teamID)
 
 	m := seedMember(t, pool, teamID, "Membership Owner", "membership-owner@example.com")
 
-	_, err = repo.SetRoles(ctx, m.MembershipID.String(), otherTeamID.String(), []string{roleA.String()})
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), otherTeamID.String(), []string{roleA.String()}, caller.String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
@@ -367,10 +382,11 @@ func TestMembersRepository_SetRoles_RoleFromOtherTeam_ReturnsErrRoleNotInTeam(t 
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Foreign Role Team')`, otherTeamID)
 	require.NoError(t, err)
 	foreignRole := seedRole(t, pool, otherTeamID, "Foreign Role", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+	caller := seedAdminCaller(t, pool, teamID)
 
 	m := seedMember(t, pool, teamID, "Legit Member", "legit-member@example.com")
 
-	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{foreignRole.String()})
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{foreignRole.String()}, caller.String())
 	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
 }
 
@@ -390,17 +406,18 @@ func TestMembersRepository_SetRoles_DuplicateValidRoleID_Succeeds(t *testing.T) 
 	teamID := seedMemberFixtures(t, pool)
 	roleA := seedRole(t, pool, teamID, "Player", `{"events":"read","members":"none","finances":"none","news":"none","polls":"read","settings":"none"}`)
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+	caller := seedAdminCaller(t, pool, teamID)
 
 	// A settings:write admin so assigning Grace a non-admin role below never
 	// trips the last-settings-admin guard — this test is about duplicate role
 	// ID handling, not the admin-guard (covered separately).
 	other := seedMember(t, pool, teamID, "Other Admin", "other-admin-dup-test@example.com")
-	_, err := repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{adminRole.String()})
+	_, err := repo.SetRoles(ctx, other.MembershipID.String(), teamID.String(), []string{adminRole.String()}, caller.String())
 	require.NoError(t, err)
 
 	m := seedMember(t, pool, teamID, "Grace Hopper", "grace@example.com")
 
-	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleA.String()})
+	updated, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleA.String()}, caller.String())
 	require.NoError(t, err)
 	require.Len(t, updated.Roles, 1)
 	assert.Equal(t, roleA, updated.Roles[0].Id)
@@ -457,11 +474,13 @@ func TestMembersRepository_RemoveMember_LastSettingsAdmin_Blocked(t *testing.T) 
 	teamID := seedMemberFixtures(t, pool)
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
-	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin@example.com")
-	_, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
-	require.NoError(t, err)
+	// adminRole assigned directly via seedMember (not repo.SetRoles) so this
+	// stays the team's ONLY settings:write holder -- a caller seeded via
+	// seedAdminCaller would itself be a second one, defeating the "sole
+	// admin" premise this test exists to check.
+	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin@example.com", adminRole)
 
-	err = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
+	err := repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
 
 	// Still present.
@@ -480,16 +499,11 @@ func TestMembersRepository_RemoveMember_NotLastSettingsAdmin_Allowed(t *testing.
 	teamID := seedMemberFixtures(t, pool)
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
-	m1 := seedMember(t, pool, teamID, "Admin One", "admin1@example.com")
-	_, err := repo.SetRoles(ctx, m1.MembershipID.String(), teamID.String(), []string{adminRole.String()})
-	require.NoError(t, err)
+	m1 := seedMember(t, pool, teamID, "Admin One", "admin1@example.com", adminRole)
+	seedMember(t, pool, teamID, "Admin Two", "admin2@example.com", adminRole)
 
-	m2 := seedMember(t, pool, teamID, "Admin Two", "admin2@example.com")
-	_, err = repo.SetRoles(ctx, m2.MembershipID.String(), teamID.String(), []string{adminRole.String()})
-	require.NoError(t, err)
-
-	// Removing m1 is fine — m2 still holds settings:write.
-	err = repo.RemoveMember(ctx, m1.MembershipID.String(), teamID.String())
+	// Removing m1 is fine — Admin Two still holds settings:write.
+	err := repo.RemoveMember(ctx, m1.MembershipID.String(), teamID.String())
 	require.NoError(t, err)
 }
 
@@ -504,17 +518,114 @@ func TestMembersRepository_SetRoles_LastSettingsAdmin_Blocked(t *testing.T) {
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 	memberRole := seedRole(t, pool, teamID, "Member", `{"events":"read","members":"none","finances":"none","news":"read","polls":"read","settings":"none"}`)
 
-	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin-2@example.com")
-	_, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{adminRole.String()})
-	require.NoError(t, err)
+	// adminRole assigned directly via seedMember so m stays the team's ONLY
+	// settings:write holder. m then acts as its own caller below (the sole
+	// admin attempting to demote themselves) -- their own effective
+	// permissions already cover both target role sets, so the calls below
+	// reach (and are correctly rejected by) the last-settings-admin guard
+	// rather than the unrelated escalation check.
+	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin-2@example.com", adminRole)
 
 	// Demoting the sole admin to a non-settings role must be blocked.
-	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{memberRole.String()})
+	_, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{memberRole.String()}, m.UserID.String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
 
 	// Clearing all roles from the sole admin must also be blocked.
-	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{})
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{}, m.UserID.String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
+}
+
+// Regression test for a privilege-escalation path: middleware gates both role
+// definition (POST/PATCH .../roles) and role assignment (PUT
+// .../members/{id}/roles) on nothing more than settings:write. Without a
+// caller-side check, a member holding only settings:write could create a
+// role granting arbitrary module permissions and assign it to themselves,
+// ending up with de facto full admin despite never having been granted
+// anything beyond settings:write. SetRoles must refuse to let a caller grant
+// a module permission level higher than their own effective permission.
+func TestMembersRepository_SetRoles_InsufficientPermissionToGrant_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	// A settings-only role -- deliberately no other module write, so the
+	// caller below has authority to manage role assignments but nothing
+	// else.
+	settingsOnlyRole := seedRole(t, pool, teamID, "Settings Only",
+		`{"events":"none","members":"none","finances":"none","news":"none","polls":"none","settings":"write"}`)
+	// A second, pre-existing settings:write holder so none of the calls
+	// below can be confused with the (unrelated) last-settings-admin guard.
+	seedAdminCaller(t, pool, teamID)
+
+	financeAdminRole := seedRole(t, pool, teamID, "Finance Admin",
+		`{"events":"none","members":"none","finances":"write","news":"none","polls":"none","settings":"none"}`)
+
+	attacker := seedMember(t, pool, teamID, "Attacker", "attacker@example.com", settingsOnlyRole)
+
+	// The attacker tries to grant themselves finances:write, which they do
+	// not themselves hold.
+	_, err := repo.SetRoles(ctx, attacker.MembershipID.String(), teamID.String(), []string{financeAdminRole.String()}, attacker.UserID.String())
+	require.ErrorIs(t, err, members.ErrInsufficientPermissionToGrant)
+
+	// Same result granting it to a DIFFERENT membership (e.g. a colluding
+	// second account) rather than themselves -- the check isn't merely a
+	// self-assignment guard.
+	victim := seedMember(t, pool, teamID, "Second Account", "second-account@example.com")
+	_, err = repo.SetRoles(ctx, victim.MembershipID.String(), teamID.String(), []string{financeAdminRole.String()}, attacker.UserID.String())
+	require.ErrorIs(t, err, members.ErrInsufficientPermissionToGrant)
+
+	// The attacker's own role assignment must be untouched by the rejected
+	// attempt.
+	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	for _, mr := range list {
+		if mr.MembershipID == attacker.MembershipID {
+			require.Len(t, mr.Roles, 1)
+			assert.Equal(t, settingsOnlyRole, mr.Roles[0].Id)
+		}
+	}
+}
+
+// Companion test: SetRoles fully replaces a membership's role set, so a
+// caller reorganizing/demoting an EXISTING permission holder's roles must
+// stay allowed even if the result still exceeds the caller's own permission
+// ceiling -- only an actual INCREASE beyond what the target already had
+// counts as a grant. Otherwise a settings:write-only caller could never
+// touch the role assignment of a member who legitimately holds e.g.
+// finances:write via someone else's earlier grant, even just to demote or
+// reorganize them.
+func TestMembersRepository_SetRoles_ReorganizingExistingHigherPermission_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	settingsOnlyRole := seedRole(t, pool, teamID, "Settings Only",
+		`{"events":"none","members":"none","finances":"none","news":"none","polls":"none","settings":"write"}`)
+	financeAdminRole := seedRole(t, pool, teamID, "Finance Admin",
+		`{"events":"none","members":"none","finances":"write","news":"none","polls":"none","settings":"none"}`)
+	financeReadRole := seedRole(t, pool, teamID, "Finance Reader",
+		`{"events":"none","members":"none","finances":"read","news":"none","polls":"none","settings":"none"}`)
+	seedAdminCaller(t, pool, teamID)
+
+	caller := seedMember(t, pool, teamID, "Settings Admin", "settings-admin@example.com", settingsOnlyRole)
+	// treasurer already holds finances:write, granted by someone else
+	// (direct SQL, standing in for a prior legitimate grant) -- caller
+	// themselves never held finances:write.
+	treasurer := seedMember(t, pool, teamID, "Treasurer", "treasurer@example.com", financeAdminRole)
+
+	// Demoting the treasurer from finances:write to finances:read is a
+	// REDUCTION relative to what they already had, so it must be allowed
+	// even though the caller's own finances permission is "none".
+	updated, err := repo.SetRoles(ctx, treasurer.MembershipID.String(), teamID.String(), []string{financeReadRole.String()}, caller.UserID.String())
+	require.NoError(t, err)
+	require.Len(t, updated.Roles, 1)
+	assert.Equal(t, financeReadRole, updated.Roles[0].Id)
 }
 
 func TestMembersRepository_IsMember(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
 	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error)
-	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*MemberRow, error)
+	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*MemberRow, error)
 	RemoveMember(ctx context.Context, membershipID, teamID string) error
 }
 
@@ -85,9 +85,11 @@ func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID string,
 	return &m, nil
 }
 
-// SetRoles replaces the member's role assignments.
-func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error) {
-	mr, err := s.repo.SetRoles(ctx, membershipID, teamID, roleIDs)
+// SetRoles replaces the member's role assignments. callerUserID is the
+// acting user, used to enforce that they cannot grant a permission level
+// they do not themselves hold (see enforceNoPermissionEscalation).
+func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error) {
+	mr, err := s.repo.SetRoles(ctx, membershipID, teamID, roleIDs, callerUserID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -97,6 +99,9 @@ func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, rol
 		}
 		if errors.Is(err, ErrLastSettingsAdmin) {
 			return nil, ErrLastSettingsAdmin
+		}
+		if errors.Is(err, ErrInsufficientPermissionToGrant) {
+			return nil, ErrInsufficientPermissionToGrant
 		}
 		return nil, fmt.Errorf("members.Service.SetRoles: %w", err)
 	}
