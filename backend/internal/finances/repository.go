@@ -437,31 +437,61 @@ func (r *Repository) CountAssignments(ctx context.Context, teamID uuid.UUID) (in
 // that race surfaces as a foreign-key violation here rather than a missing
 // row).
 //
-// amount/label are snapshotted from the penalty definition via a subquery in
-// the same statement as the FK-enforced penalty_id insert, so they observe
-// the same MVCC snapshot -- if the penalty was concurrently deleted, the FK
-// violation fires before the NOT NULL constraint on amount/label would ever
-// see a null from a missing row. This snapshot is what makes the assignment
-// immune to a later UpdatePenalty on the same penalty (see migration 00025).
+// amount/label are snapshotted from the penalty definition, read inside the
+// same transaction as the insert so a concurrent UpdatePenalty can't be
+// observed half-applied. This snapshot is what makes the assignment immune
+// to a later UpdatePenalty on the same penalty (see migration 00025).
+//
+// The read-then-insert is deliberately two statements, not one INSERT...SELECT
+// sourcing amount/label via a correlated subquery on penalties: a scalar
+// subquery against a deleted penalty evaluates to NULL rather than failing,
+// which hit amount/label's NOT NULL constraint (an immediate, per-row check)
+// before the penalty_id FK violation (a constraint trigger, checked after
+// the row is built) ever got a chance to fire -- silently turning the
+// intended ErrPenaltyNotInTeam into an unmapped "null value ... violates
+// not-null constraint" error. Passing real, non-null amount/label values
+// into the INSERT keeps the FK check as the one that fires on a race.
 func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Repository.CreateAssignment: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var amount int64
+	var label string
+	if err := tx.QueryRow(ctx, `SELECT amount, label FROM penalties WHERE id = $1`, penaltyID).Scan(&amount, &label); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrPenaltyNotInTeam
+		}
+		return nil, fmt.Errorf("finances.Repository.CreateAssignment: load penalty: %w", err)
+	}
+
 	a := &PenaltyAssignmentRow{}
-	err := r.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO penalty_assignments (team_id, user_id, penalty_id, amount, label)
-		SELECT $1, $2, $3, (SELECT amount FROM penalties WHERE id = $3), (SELECT label FROM penalties WHERE id = $3)
+		SELECT $1, $2, $3, $4, $5
 		WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)
 		RETURNING id, team_id, user_id, penalty_id, paid, date, label, amount
-	`, teamID, userID, penaltyID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
+	`, teamID, userID, penaltyID, amount, label).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+			// The penalty was deleted in the narrow window between the
+			// SELECT above and this INSERT.
 			return nil, ErrPenaltyNotInTeam
 		}
 		return nil, fmt.Errorf("finances.Repository.CreateAssignment: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("finances.Repository.CreateAssignment: commit: %w", err)
 	}
 	return a, nil
 }

@@ -12,7 +12,12 @@
 -- assignment row at creation time makes each assignment an immutable record
 -- of what was actually assigned, matching how contributions already store
 -- their own per-row amount instead of joining a shared definition.
-ALTER TABLE penalty_assignments ADD COLUMN amount NUMERIC(10,2);
+-- BIGINT (integer cents), matching every other amount column since 00008
+-- converted them off NUMERIC(10,2) precisely to avoid float/decimal
+-- boundary issues -- not NUMERIC(10,2), which can't even hold
+-- maxAmountCents (100_000_000, i.e. the app-allowed $1,000,000.00 penalty)
+-- without a numeric field overflow, since NUMERIC(10,2) caps out just under 10^8.
+ALTER TABLE penalty_assignments ADD COLUMN amount BIGINT;
 ALTER TABLE penalty_assignments ADD COLUMN label TEXT;
 
 -- Backfill: existing assignments have no historical amount to recover, so

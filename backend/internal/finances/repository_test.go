@@ -211,6 +211,38 @@ func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *
 	assert.Equal(t, int64(5500), openPens[0].TotalAmount)
 }
 
+// Regression test: penalty_assignments.amount must be BIGINT (integer
+// cents), matching penalties.amount, not the legacy NUMERIC(10,2) every
+// other amount column moved off in migration 00008. NUMERIC(10,2) can't
+// hold 100_000_000 cents (the app-allowed maxAmountCents, i.e. $1,000,000.00)
+// without a numeric field overflow, so a penalty at the top of the allowed
+// range could never actually be assigned to anyone.
+func TestFinancesRepository_CreateAssignment_MaxAmountPenalty_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	const maxAmountCents = 100_000_000
+	pen, err := repo.CreatePenalty(ctx, teamID, "Max Fine", maxAmountCents)
+	require.NoError(t, err)
+
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	require.NotNil(t, assign.PenaltyAmount)
+	assert.Equal(t, int64(maxAmountCents), *assign.PenaltyAmount)
+}
+
 func TestFinancesRepository_Contributions(t *testing.T) {
 	t.Parallel()
 

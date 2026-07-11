@@ -526,7 +526,8 @@ func TestRolesRepository_UpdateRole_EscalationBeyondCallersOwnPermissions_Blocke
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, callerUID).Scan(&callerMid))
 
 	// Caller holds only settings:write, granted via a role assigned to them.
-	settingsOnlyRole, err := repo.CreateRole(ctx, tid, "Settings Only", nil, teams.PermissionsJSON{Settings: "write"})
+	settingsOnlyPerms := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "write"}
+	settingsOnlyRole, err := repo.CreateRole(ctx, tid, "Settings Only", nil, settingsOnlyPerms)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMid, settingsOnlyRole.Id.String())
 	require.NoError(t, err)
@@ -534,7 +535,7 @@ func TestRolesRepository_UpdateRole_EscalationBeyondCallersOwnPermissions_Blocke
 	// The role the caller wants to patch upward: currently grants nothing
 	// beyond what the caller already holds (settings:write), so ceiling (b)
 	// doesn't cover the escalation attempt either.
-	targetRole, err := repo.CreateRole(ctx, tid, "Target", nil, teams.PermissionsJSON{Settings: "write"})
+	targetRole, err := repo.CreateRole(ctx, tid, "Target", nil, settingsOnlyPerms)
 	require.NoError(t, err)
 
 	escalated := teams.PermissionsJSON{Finances: "write", Settings: "write"}
