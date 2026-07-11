@@ -889,32 +889,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const doLogin = useCallback(
     async (pid: string) => {
-      setState({ busy: 'login:' + pid, error: null });
+      const owner = 'login:' + pid;
+      setState({ busy: owner, error: null });
       try {
         await api.auth.login(pid);
         const user = await api.auth.currentUser();
         await establishSession(user);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
-        setState({ busy: null, error: msg });
+        // Guard against a different, still-in-flight login (Login.tsx
+        // normally prevents this by disabling every control while any login
+        // is busy, but a defensive owner-check here costs nothing and keeps
+        // this consistent with every other busy-setting flow in the app).
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
       }
     },
-    [api, setState, establishSession],
+    [api, S, setState, establishSession],
   );
 
   const doPasswordLogin = useCallback(
     async (email: string, password: string) => {
-      setState({ busy: 'login:password', error: null });
+      const owner = 'login:password';
+      setState({ busy: owner, error: null });
       try {
         await api.auth.login(email, password);
         const user = await api.auth.currentUser();
         await establishSession(user);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
-        setState({ busy: null, error: msg });
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
       }
     },
-    [api, setState, establishSession],
+    [api, S, setState, establishSession],
   );
 
   // ---------- nav ----------

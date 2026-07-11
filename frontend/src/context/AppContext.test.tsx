@@ -780,6 +780,76 @@ describe('AppProvider / invite-redemption join flow', () => {
   });
 });
 
+// Regression test: doLogin/doPasswordLogin used to clear `busy` (and set
+// `error`) unconditionally in their catch blocks, the same class of bug
+// round 63 fixed for every other save/delete flow via reportActionError's
+// S+busyOwner guard. `busy` is one shared field, so a login that fails AFTER
+// a different, still-in-flight login has taken it over must not clear it out
+// from under that second login (Login.tsx also disables every control while
+// any login is busy, closing the UI-level half of this, but the state guard
+// is the actual fix -- this test exercises it directly, bypassing the UI).
+describe('AppProvider / overlapping login does not clobber a different in-flight login', () => {
+  async function freshModules() {
+    vi.resetModules();
+    localStorage.clear();
+    const svc = await import('@/services/serviceLayer');
+    const ctx = await import('./AppContext');
+    return { api: svc.api, AppProvider: ctx.AppProvider, useApp: ctx.useApp, useAppActions: ctx.useAppActions };
+  }
+
+  it('a late-failing login only reports its own error, without clearing a different login\'s busy state', async () => {
+    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
+      await freshModules();
+
+    let rejectGoogle!: (err: Error) => void;
+    const googleLoginPromise = new Promise<never>((_resolve, reject) => {
+      rejectGoogle = reject;
+    });
+    const originalLogin = api.auth.login.bind(api.auth);
+    vi.spyOn(api.auth, 'login').mockImplementation((providerId: string, password?: string) =>
+      providerId === 'google' ? googleLoginPromise : originalLogin(providerId, password),
+    );
+
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="busy">{state.busy ?? ''}</div>
+          <div data-testid="error">{state.error ?? ''}</div>
+        </div>
+      );
+    }
+    render(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    await waitFor(() => expect(actions).toBeTruthy());
+
+    act(() => {
+      void actions!.doLogin('google');
+    });
+    await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:google'));
+
+    act(() => {
+      void actions!.doLogin('apple');
+    });
+    await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:apple'));
+
+    await act(async () => {
+      rejectGoogle(new Error('google unreachable'));
+      await googleLoginPromise.catch(() => {});
+    });
+
+    // apple's login is still in flight -- google's failure must not clear it.
+    expect(screen.getByTestId('busy').textContent).toBe('login:apple');
+    // The error message still surfaces regardless of busy ownership.
+    expect(screen.getByTestId('error').textContent).toContain('google unreachable');
+  });
+});
+
 // Regression test: a valid session (cookie/currentUser succeeds) whose
 // establishSession then failed to load the team list used to strand the user
 // on a login screen with providers: [] -- no SSO buttons, no way to reach the

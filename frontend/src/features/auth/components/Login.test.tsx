@@ -95,11 +95,25 @@ describe('Login', () => {
     expect(googleBtn).toBeDisabled();
   });
 
-  it('provider button is enabled when a different provider is busy', () => {
+  // Regression test: every login control used to only disable itself while
+  // ITS OWN busy value was set, so clicking a second provider (or the
+  // password form) while the first was still in flight started a second,
+  // overlapping login -- the shared busy field got silently clobbered, and a
+  // late-failing first login could clear it out from under the second,
+  // still-pending one. Every control must disable while ANY login is busy.
+  it('provider button is disabled when a DIFFERENT provider is busy', () => {
     makeApp({ providers: [googleProvider, appleProvider], busy: 'login:apple' });
     render(<Login />);
     const googleBtn = screen.getByText('Google').closest('button');
-    expect(googleBtn).not.toBeDisabled();
+    expect(googleBtn).toBeDisabled();
+  });
+
+  it('clicking a provider button while a different login is in flight does not call doLogin', () => {
+    const app = makeApp({ providers: [googleProvider, appleProvider], busy: 'login:apple' });
+    render(<Login />);
+    const googleBtn = screen.getByText('Google').closest('button');
+    fireEvent.click(googleBtn!);
+    expect(app.doLogin).not.toHaveBeenCalled();
   });
 
   it('shows no error banner when state.error is null', () => {
