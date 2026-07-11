@@ -404,12 +404,16 @@ func (s *Service) DeleteComment(ctx context.Context, commentID, userID, teamID s
 
 // ListAttendance returns all attendance rows for an event scoped to teamID.
 // A declined ("no") attendance reason is only included for the viewer's own
-// row or for viewers holding one of the team's reason-visibility roles —
-// mirroring the frontend's canSeeReason gate, but enforced here so a member
-// can't read a teammate's private decline reason by calling the API
-// directly. Matches the RequirePermission middleware, which treats
-// events/attendance as self-service (any member may read it), so this
-// redaction is the only enforcement point for reason confidentiality.
+// row, for rows the declining member explicitly marked
+// reasonVisibility="team", or for viewers holding one of the team's
+// reason-visibility roles — mirroring the frontend's canSeeReason gate, but
+// enforced here so a member can't read a teammate's private decline reason
+// by calling the API directly. Matches the RequirePermission middleware,
+// which treats events/attendance as self-service (any member may read it),
+// so this redaction is the only enforcement point for reason
+// confidentiality. A nil/unset ReasonVisibility (e.g. rows written before
+// the field existed) is treated the same as "trainers" -- the more
+// restrictive default -- not as an implicit "team".
 func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error) {
 	attendanceRows, err := s.repo.ListAttendance(ctx, eventID, teamID)
 	if err != nil {
@@ -418,7 +422,7 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 
 	needsRedactionCheck := false
 	for _, a := range attendanceRows {
-		if a.Status == "no" && a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) {
+		if a.Status == "no" && a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) && !reasonSharedWithTeam(a.ReasonVisibility) {
 			needsRedactionCheck = true
 			break
 		}
@@ -435,13 +439,20 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 
 	out := make([]gen.AttendanceRow, 0, len(attendanceRows))
 	for _, a := range attendanceRows {
-		if a.Status == "no" && a.UserId.String() != viewerID && !canSeeReasons {
+		if a.Status == "no" && a.UserId.String() != viewerID && !canSeeReasons && !reasonSharedWithTeam(a.ReasonVisibility) {
 			a.Reason = nil
 			a.ReasonId = nil
 		}
 		out = append(out, toGenAttendanceRow(&a))
 	}
 	return out, nil
+}
+
+// reasonSharedWithTeam reports whether the declining member explicitly opted
+// their decline reason into team-wide visibility, bypassing the
+// reason-visibility-role check entirely for that row.
+func reasonSharedWithTeam(reasonVisibility *string) bool {
+	return reasonVisibility != nil && *reasonVisibility == "team"
 }
 
 // roleSetsIntersect reports whether any ID in a is also present in b.

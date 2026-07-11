@@ -661,3 +661,68 @@ func TestEventService_ListAttendance_ShowsDeclineReasonWithMatchingRole(t *testi
 	require.NotNil(t, rows[0].Reason)
 	assert.Equal(t, reason, *rows[0].Reason)
 }
+
+// Regression test: a declining member choosing reasonVisibility="team" was
+// silently ignored -- the redaction logic never read the per-row field at
+// all, so their reason was redacted for any viewer outside the reason-
+// visibility roles exactly as if they'd chosen "trainers", making the
+// documented "team" option a no-op.
+func TestEventService_ListAttendance_ShowsDeclineReasonWithTeamVisibility(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	otherUserID := uuid.New()
+	reason := "shared with everyone"
+	visibility := "team"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(_ context.Context, _, _ string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: otherUserID, Status: "no", Reason: &reason, ReasonVisibility: &visibility, Name: "Other"},
+			}, nil
+		},
+		getReasonVisibilityCtxFn: func(_ context.Context, _, _ string) ([]string, []string, error) {
+			t.Fatal("reason-visibility role context must not be fetched for a row explicitly shared with the team")
+			return nil, nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].Reason, "reasonVisibility=team must be visible to any teammate regardless of reason-visibility roles")
+	assert.Equal(t, reason, *rows[0].Reason)
+}
+
+// A nil/unset ReasonVisibility (e.g. rows predating the field) must keep the
+// more restrictive "trainers"-equivalent behavior, not be treated as an
+// implicit "team".
+func TestEventService_ListAttendance_NilReasonVisibility_StillRedacted(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	otherUserID := uuid.New()
+	reason := "private medical reason"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(_ context.Context, _, _ string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: otherUserID, Status: "no", Reason: &reason, ReasonVisibility: nil, Name: "Other"},
+			}, nil
+		},
+		getReasonVisibilityCtxFn: func(_ context.Context, _, _ string) ([]string, []string, error) {
+			return []string{"trainer-role"}, nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].Reason)
+}
