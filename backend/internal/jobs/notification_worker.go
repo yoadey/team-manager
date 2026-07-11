@@ -118,9 +118,10 @@ func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker) (client *Cl
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
 		},
-		Workers:      workers,
-		PeriodicJobs: periodicJobs,
-		Logger:       slog.Default(),
+		Workers:         workers,
+		PeriodicJobs:    periodicJobs,
+		Logger:          slog.Default(),
+		SoftStopTimeout: SoftStopTimeout,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("jobs.NewClient: %w", err)
@@ -138,6 +139,18 @@ func (c *Client) EnqueueNotification(ctx context.Context, args NotificationArgs)
 	}
 	return nil
 }
+
+// SoftStopTimeout bounds how long river.Client.Stop waits for in-flight jobs
+// to finish on their own before automatically escalating to a hard stop
+// (cancelling their contexts) -- see river.Config.SoftStopTimeout's doc
+// comment. Without it, Stop's own ctx timing out just makes Stop return an
+// error early; it does NOT cancel the still-running job, which keeps
+// executing (and holding a pool connection) for up to its own Timeout()
+// budget -- RetentionWorker's is 150s. cmd/server/main.go's SIGTERM handler
+// budgets its riverStopCtx around this constant with margin so Stop()
+// reliably returns near this bound instead of racing pool.Close() against
+// whichever job happened to be mid-run.
+const SoftStopTimeout = 8 * time.Second
 
 // riverMigrationLockKey is an arbitrary, fixed advisory-lock key used only to
 // serialize MigrateRiver across processes -- distinct from any other

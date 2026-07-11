@@ -416,9 +416,12 @@ func main() {
 
 	slog.Info("shutting down server")
 	// Each phase gets its own fresh timeout budget rather than sharing one
-	// deadline: river.Client.Stop returns as soon as its context is done,
-	// without waiting for in-flight jobs, so a slow HTTP drain eating into a
-	// shared deadline would silently skip job draining before pool.Close().
+	// deadline: without jobs.SoftStopTimeout configured, river.Client.Stop
+	// would return as soon as its own context is done WITHOUT cancelling a
+	// still-running job (it just keeps executing, holding a pool connection,
+	// for up to its own Timeout() budget -- RetentionWorker's is 150s), so a
+	// slow HTTP drain eating into a shared deadline would silently skip job
+	// draining before pool.Close() ever got a chance to matter.
 	httpShutdownCtx, httpCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer httpCancel()
 	if err := httpSrv.Shutdown(httpShutdownCtx); err != nil {
@@ -427,7 +430,13 @@ func main() {
 	// Stop the job worker (draining in-flight jobs) before closing the pool it
 	// depends on — must happen in this order, not as an unbounded defer
 	// registered near Start, which would otherwise run after pool.Close().
-	riverStopCtx, riverCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// jobs.SoftStopTimeout (configured on the river.Client in jobs.NewClient)
+	// gives running jobs a chance to finish on their own, then automatically
+	// cancels their contexts if that timeout elapses -- so Stop() reliably
+	// returns within roughly jobs.SoftStopTimeout, not the much larger
+	// worst-case job Timeout(). The margin here just covers Stop() actually
+	// observing that cancellation and returning.
+	riverStopCtx, riverCancel := context.WithTimeout(context.Background(), jobs.SoftStopTimeout+7*time.Second)
 	defer riverCancel()
 	if err := riverClient.Stop(riverStopCtx); err != nil {
 		slog.Error("river worker stop failed", "err", err)

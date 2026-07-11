@@ -14,15 +14,23 @@ replicaCount: 2
 deploymentStrategy: {}
 
 # Kubernetes' own default is 30s. cmd/server/main.go's SIGTERM handler runs
-# three sequential phases -- HTTP drain, then River job-worker stop, then
-# OTEL shutdown -- each with its own fresh 10s budget (so one slow phase
-# can't silently eat another's deadline), followed by pool.Close(). Worst
-# case that's already ~30s before the pool even starts closing, with no
-# margin for signal-delivery latency -- the default grace period would let
-# Kubernetes SIGKILL the process mid-River-stop (abandoning an in-flight job
-# claimed-but-not-completed) or mid/pre-pool.Close() (an unclean Postgres
-# disconnect) on any rolling deploy or node drain where a phase takes more
-# than an instant. 60s leaves real margin over that measured worst case.
+# three sequential phases -- HTTP drain (10s budget), then River job-worker
+# stop, then OTEL shutdown (10s budget) -- followed by pool.Close(). The River
+# phase is bounded by jobs.SoftStopTimeout (8s): river.Client.Stop gives
+# running jobs up to that long to finish on their own, then automatically
+# cancels their contexts, so Stop() reliably returns within roughly
+# jobs.SoftStopTimeout + a few seconds' margin for the cancellation to be
+# observed (main.go budgets 15s) rather than blocking for as long as the
+# slowest job's own internal Timeout() (RetentionWorker's is 150s) -- without
+# SoftStopTimeout configured, a timed-out Stop() doesn't cancel the job, it
+# just returns early while the job keeps running and holding a pool
+# connection, racing pool.Close() below it. Worst case is now ~35s before the
+# pool even starts closing, with no margin for signal-delivery latency -- the
+# default grace period would let Kubernetes SIGKILL the process mid-River-stop
+# (abandoning an in-flight job claimed-but-not-completed) or mid/pre-
+# pool.Close() (an unclean Postgres disconnect) on any rolling deploy or node
+# drain where a phase takes more than an instant. 60s leaves real margin over
+# that measured worst case.
 terminationGracePeriodSeconds: 60
 
 image:
