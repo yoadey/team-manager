@@ -43,8 +43,16 @@ jobs:
         include:
           - component: backend
             context: backend
+            trivyignores: ''
           - component: frontend
             context: frontend
+            # Mirrors ci.yml's security-container-frontend job and
+            # scheduled-security-scan.yml's container-frontend job: without
+            # this, CVE-2026-33630 (c-ares use-after-free in the pinned
+            # nginx-unprivileged base, not yet fixed upstream as of
+            # 2026-07-10 -- see the file itself) fails this scan on every
+            # release cut, since ignore-unfixed alone does not filter it out.
+            trivyignores: .github/trivyignore-frontend.txt
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -128,6 +136,7 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: ${{ matrix.trivyignores }}
 
       # Everything below signs and attests the exact digest just pushed, not
       # a tag (tags are mutable and could be repointed after the fact) --

@@ -853,10 +853,10 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           scanners: vuln
-          # 14 CVEs, all in the bundled gosu privilege-drop helper (never
+          # 15 CVEs, all in the bundled gosu privilege-drop helper (never
           # processes network input, exits immediately after exec at
           # container startup) with no fixed upstream image build available
-          # yet across any current postgres:17.x tag as of 2026-07-08 --
+          # yet across any current postgres:17.x tag as of 2026-07-11 --
           # see the file for full justification and a re-check reminder.
           trivyignores: .github/trivyignore-postgres-backup.txt
       - name: Scan aws-cli (backup s3-upload container)

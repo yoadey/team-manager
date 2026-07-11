@@ -14,7 +14,7 @@
 # filesystem API). They are unreachable in this deployment context.
 #
 # Every current postgres:17.x tag (17, 17.5, 17.6, 17-bookworm as of
-# 2026-07-08) resolves to a different image digest but the same gosu build
+# 2026-07-11) resolves to a different image digest but the same gosu build
 # (Go 1.24.6) -- there is no available upstream fix to pin to yet. Re-check
 # when docker-library/postgres publishes a rebuild with an updated gosu.
 CVE-2025-68121
