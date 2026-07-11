@@ -50,6 +50,11 @@ const (
 	EventTeamUpdate       = "team.update"
 	EventTeamInvite       = "team.invite_create"
 	EventTeamInviteAccept = "team.invite_accept"
+
+	// EventTeamBrandingUpdate covers photo/logo upload and delete; the
+	// specific action is carried in an "operation" attribute (e.g.
+	// photo.upload), mirroring EventFinanceMutation's shape.
+	EventTeamBrandingUpdate = "team.branding_update"
 )
 
 // Logger emits audit records to the application log and, when a DB pool is

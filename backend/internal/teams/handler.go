@@ -305,6 +305,14 @@ func (h *Handler) readMultipartImage(ctx context.Context, body *multipart.Reader
 	return data, ct, nil
 }
 
+// recordBrandingUpdate emits the audit record and metric shared by every
+// successful photo/logo mutation (upload or delete).
+func (h *Handler) recordBrandingUpdate(ctx context.Context, teamID, operation string) {
+	h.audit.Record(ctx, audit.EventTeamBrandingUpdate, audit.Success, actor(ctx),
+		slog.String("teamId", teamID), slog.String("operation", operation))
+	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+}
+
 // UploadTeamPhoto handles a multipart upload, stores the photo, and returns the updated team.
 func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPhotoRequestObject) (gen.UploadTeamPhotoResponseObject, error) {
 	data, ct, err := h.readMultipartImage(ctx, request.Body, "UploadTeamPhoto")
@@ -320,7 +328,7 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 		h.logger.ErrorContext(ctx, "UploadTeamPhoto failed", "err", err)
 		return nil, apierror.Internal("photo update failed")
 	}
-	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "photo.upload")
 	return gen.UploadTeamPhoto200JSONResponse(*t), nil
 }
 
@@ -355,7 +363,7 @@ func (h *Handler) UploadTeamLogo(ctx context.Context, request gen.UploadTeamLogo
 		h.logger.ErrorContext(ctx, "UploadTeamLogo failed", "err", err)
 		return nil, apierror.Internal("logo update failed")
 	}
-	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "logo.upload")
 	return gen.UploadTeamLogo200JSONResponse(*t), nil
 }
 
@@ -368,7 +376,7 @@ func (h *Handler) DeleteTeamPhoto(ctx context.Context, request gen.DeleteTeamPho
 		h.logger.ErrorContext(ctx, "DeleteTeamPhoto failed", "err", err)
 		return nil, apierror.Internal("photo removal failed")
 	}
-	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "photo.delete")
 	return gen.DeleteTeamPhoto204Response{}, nil
 }
 
@@ -381,7 +389,7 @@ func (h *Handler) DeleteTeamLogo(ctx context.Context, request gen.DeleteTeamLogo
 		h.logger.ErrorContext(ctx, "DeleteTeamLogo failed", "err", err)
 		return nil, apierror.Internal("logo removal failed")
 	}
-	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "logo.delete")
 	return gen.DeleteTeamLogo204Response{}, nil
 }
 

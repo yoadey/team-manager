@@ -134,9 +134,11 @@ var testCodec = func() *auth.SessionCookieCodec {
 	return c
 }()
 
-// sessionCookie builds an encrypted session cookie carrying jwt.
-func sessionCookie(jwt string) *http.Cookie {
-	value, err := testCodec.Encrypt(jwt)
+// sessionCookie builds an encrypted session cookie carrying a fixed test JWT
+// (fakeAuthSvc.ValidateToken ignores the token value, so every caller in this
+// file passes the same placeholder).
+func sessionCookie() *http.Cookie {
+	value, err := testCodec.Encrypt("test-token")
 	if err != nil {
 		panic(err)
 	}
@@ -194,7 +196,7 @@ func TestTeamHandler_ListTeams(t *testing.T) {
 	handler := withAuthUser(inner, testAuthUser())
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/teams", http.NoBody)
-	req.AddCookie(sessionCookie("test-token"))
+	req.AddCookie(sessionCookie())
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
@@ -280,7 +282,7 @@ func TestTeamHandler_UploadTeamLogo_StoresAndReturnsTeam(t *testing.T) {
 	require.NoError(t, mw.Close())
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/teams/"+teamID.String()+"/logo", &buf)
-	req.AddCookie(sessionCookie("test-token"))
+	req.AddCookie(sessionCookie())
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -334,7 +336,7 @@ func TestTeamHandler_UploadTeamLogo_RejectsOversizedFile(t *testing.T) {
 	require.NoError(t, mw.Close())
 
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/teams/"+teamID.String()+"/logo", &buf)
-	req.AddCookie(sessionCookie("test-token"))
+	req.AddCookie(sessionCookie())
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -365,6 +367,155 @@ func TestTeamHandler_UpdateTeam_EmitsAuditEvent(t *testing.T) {
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
 	assert.Equal(t, true, rec["audit"])
 	assert.Equal(t, "team.update", rec["event"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+// Regression test: UploadTeamPhoto/UploadTeamLogo/DeleteTeamPhoto/
+// DeleteTeamLogo used to be the only settings-gated team mutations with no
+// audit trail at all, unlike UpdateTeam/CreateTeam/CreateInvite/AcceptInvite
+// which all emit one. A settings:write holder could silently replace or
+// remove a team's public-facing branding with no compliance-log trace.
+func TestTeamHandler_UploadTeamPhoto_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	hasPhoto := true
+	svc := &mockTeamService{
+		updatePhoto: func(_ context.Context, tid string, _ []byte, _ string) (*gen.Team, error) {
+			return &gen.Team{Id: teamID, Name: "Test Team", HasPhoto: &hasPhoto}, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		require.NoError(t, err)
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		resp, err := h.UploadTeamPhoto(r.Context(), gen.UploadTeamPhotoRequestObject{TeamId: teamID, Body: mr})
+		require.NoError(t, err)
+		_ = resp.VisitUploadTeamPhotoResponse(w)
+	})
+	handler := withAuthUser(inner, testAuthUser())
+
+	jpegData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("photo", "photo.jpg")
+	require.NoError(t, err)
+	_, err = fw.Write(jpegData)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/teams/"+teamID.String()+"/photo", &body)
+	req.AddCookie(sessionCookie())
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.branding_update", rec["event"])
+	assert.Equal(t, "photo.upload", rec["operation"])
+	assert.Equal(t, testAuthUser().Id.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+func TestTeamHandler_UploadTeamLogo_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	hasLogo := true
+	svc := &mockTeamService{
+		updateLogo: func(_ context.Context, tid string, _ []byte, _ string) (*gen.Team, error) {
+			return &gen.Team{Id: teamID, Name: "Test Team", HasLogo: &hasLogo}, nil
+		},
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		require.NoError(t, err)
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		resp, err := h.UploadTeamLogo(r.Context(), gen.UploadTeamLogoRequestObject{TeamId: teamID, Body: mr})
+		require.NoError(t, err)
+		_ = resp.VisitUploadTeamLogoResponse(w)
+	})
+	handler := withAuthUser(inner, testAuthUser())
+
+	jpegData := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F', 0x00}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, err := mw.CreateFormFile("logo", "logo.jpg")
+	require.NoError(t, err)
+	_, err = fw.Write(jpegData)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/teams/"+teamID.String()+"/logo", &body)
+	req.AddCookie(sessionCookie())
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.branding_update", rec["event"])
+	assert.Equal(t, "logo.upload", rec["operation"])
+	assert.Equal(t, testAuthUser().Id.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+func TestTeamHandler_DeleteTeamPhoto_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		deletePhoto: func(_ context.Context, _ string) error { return nil },
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
+	_, err := h.DeleteTeamPhoto(ctx, gen.DeleteTeamPhotoRequestObject{TeamId: teamID})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.branding_update", rec["event"])
+	assert.Equal(t, "photo.delete", rec["operation"])
+	assert.Equal(t, actorID.String(), rec["actor"])
+	assert.Equal(t, teamID.String(), rec["teamId"])
+}
+
+func TestTeamHandler_DeleteTeamLogo_EmitsAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	svc := &mockTeamService{
+		deleteLogo: func(_ context.Context, _ string) error { return nil },
+	}
+	var buf bytes.Buffer
+	h := teams.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
+	_, err := h.DeleteTeamLogo(ctx, gen.DeleteTeamLogoRequestObject{TeamId: teamID})
+	require.NoError(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "team.branding_update", rec["event"])
+	assert.Equal(t, "logo.delete", rec["operation"])
 	assert.Equal(t, actorID.String(), rec["actor"])
 	assert.Equal(t, teamID.String(), rec["teamId"])
 }
