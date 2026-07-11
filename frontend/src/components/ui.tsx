@@ -373,6 +373,11 @@ export function TextInput({ name, type = 'text', placeholder, min, max, style: s
   );
 }
 
+type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  name: string;
+  minHeight?: number;
+};
+
 export function TextArea({
   name,
   placeholder,
@@ -380,14 +385,8 @@ export function TextArea({
   onBlur,
   maxLength,
   style: styleProp,
-}: {
-  name: string;
-  placeholder?: string;
-  minHeight?: number;
-  onBlur?: React.FocusEventHandler<HTMLTextAreaElement>;
-  maxLength?: number;
-  style?: React.CSSProperties;
-}) {
+  ...rest
+}: TextAreaProps) {
   const onFormInput = useAppActions().onFormInput;
   const v = useAppSelector((s) => s.form[name]);
   return (
@@ -403,6 +402,7 @@ export function TextArea({
           ? { ...inputSx, minHeight, resize: 'vertical', ...styleProp }
           : { ...inputSx, minHeight, resize: 'vertical' }
       }
+      {...rest}
     />
   );
 }

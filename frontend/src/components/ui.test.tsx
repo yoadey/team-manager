@@ -175,6 +175,24 @@ describe('TextArea', () => {
     expect(ta).toBeTruthy();
     expect(ta!.value).toBe('Hello');
   });
+
+  // Regression: TextArea didn't forward extra props (no ...rest), so
+  // Field's cloneElement-injected aria-invalid/aria-required/aria-describedby
+  // were silently dropped -- the red-border style still applied (it's
+  // explicitly destructured), so the field visually looked broken to
+  // sighted users while screen readers got no indication anything was wrong.
+  it('forwards aria attributes injected by a wrapping Field', () => {
+    const { container } = render(
+      <Field label="Beschreibung" required error errorText="Pflichtfeld">
+        <TextArea name="title" />
+      </Field>,
+    );
+    const ta = container.querySelector('textarea');
+    expect(ta).toBeTruthy();
+    expect(ta!.getAttribute('aria-required')).toBe('true');
+    expect(ta!.getAttribute('aria-invalid')).toBe('true');
+    expect(ta!.getAttribute('aria-describedby')).toBeTruthy();
+  });
 });
 
 describe('IconBtn', () => {
