@@ -278,7 +278,11 @@ func (r *Repository) CreatePenalty(ctx context.Context, teamID uuid.UUID, label 
 	return p, nil
 }
 
-// UpdatePenalty applies a partial update to a penalty definition that belongs to teamID.
+// UpdatePenalty applies a partial update to a penalty definition that
+// belongs to teamID. Existing assignments referencing this penalty keep
+// their own amount/label snapshot taken at CreateAssignment time (see
+// migration 00025) and are unaffected -- only assignments created after
+// this edit will see the new amount/label.
 func (r *Repository) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -334,17 +338,20 @@ func (r *Repository) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) er
 // ─── Penalty Assignments ──────────────────────────────────────────────────────
 
 // ListAssignments returns up to maxOverviewRows most recent penalty assignments
-// for the team with member/penalty info joined.
+// for the team with member info joined. label/amount come from the
+// assignment's own snapshot columns (taken at CreateAssignment time), not a
+// live join to penalties -- so a later edit to the penalty definition
+// (UpdatePenalty) never retroactively rewrites what an existing, possibly
+// already-paid assignment shows.
 func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
 		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
-		       p.label, p.amount,
+		       pa.label, pa.amount,
 		       u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo
 		FROM penalty_assignments pa
-		JOIN penalties p ON p.id = pa.penalty_id
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1
 		ORDER BY pa.date DESC, pa.id DESC
@@ -370,19 +377,19 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 	return out, rows.Err()
 }
 
-// GetAssignmentByID returns a single penalty assignment with joined member/penalty
-// data, scoped to teamID.
+// GetAssignmentByID returns a single penalty assignment with joined member
+// data, scoped to teamID. label/amount are the assignment's own snapshot
+// (see ListAssignments), not read live from penalties.
 func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	err := r.db.QueryRow(ctx, `
 		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
-		       p.label, p.amount,
+		       pa.label, pa.amount,
 		       u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo
 		FROM penalty_assignments pa
-		JOIN penalties p ON p.id = pa.penalty_id
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.id = $1 AND pa.team_id = $2
 	`, id, teamID).Scan(
@@ -429,16 +436,23 @@ func (r *Repository) CountAssignments(ctx context.Context, teamID uuid.UUID) (in
 // PenaltyBelongsToTeam check and this insert (penalty_id has a real FK, so
 // that race surfaces as a foreign-key violation here rather than a missing
 // row).
+//
+// amount/label are snapshotted from the penalty definition via a subquery in
+// the same statement as the FK-enforced penalty_id insert, so they observe
+// the same MVCC snapshot -- if the penalty was concurrently deleted, the FK
+// violation fires before the NOT NULL constraint on amount/label would ever
+// see a null from a missing row. This snapshot is what makes the assignment
+// immune to a later UpdatePenalty on the same penalty (see migration 00025).
 func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
-		SELECT $1, $2, $3
+		INSERT INTO penalty_assignments (team_id, user_id, penalty_id, amount, label)
+		SELECT $1, $2, $3, (SELECT amount FROM penalties WHERE id = $3), (SELECT label FROM penalties WHERE id = $3)
 		WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)
-		RETURNING id, team_id, user_id, penalty_id, paid, date
-	`, teamID, userID, penaltyID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date)
+		RETURNING id, team_id, user_id, penalty_id, paid, date, label, amount
+	`, teamID, userID, penaltyID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -653,16 +667,17 @@ type OpenPenaltyAggregate struct {
 	TotalAmount int64
 }
 
-// ListOpenPenaltiesByUser returns unpaid penalty amounts aggregated per user for the team.
+// ListOpenPenaltiesByUser returns unpaid penalty amounts aggregated per user
+// for the team, summed from each assignment's own amount snapshot (see
+// ListAssignments) rather than the current penalty definition.
 func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
 		SELECT pa.user_id, u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo,
-		       SUM(p.amount)::BIGINT AS total_amount
+		       SUM(pa.amount)::BIGINT AS total_amount
 		FROM penalty_assignments pa
-		JOIN penalties p ON p.id = pa.penalty_id
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1 AND pa.paid = false
 		GROUP BY pa.user_id, u.name, u.avatar_color, (u.photo_data IS NOT NULL)

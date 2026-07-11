@@ -160,6 +160,57 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	assert.Empty(t, pens)
 }
 
+func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 500)
+	require.NoError(t, err)
+
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	require.NotNil(t, assign.PenaltyAmount)
+	assert.Equal(t, int64(500), *assign.PenaltyAmount)
+
+	// Editing the penalty definition after the assignment was created must
+	// not retroactively change what the assignment shows -- it's a
+	// historical record of what was actually assigned, not a live view.
+	newLabel := "Very late"
+	newAmount := int64(5000)
+	_, err = repo.UpdatePenalty(ctx, pen.ID, teamID, finances.PenaltyPatch{Label: &newLabel, Amount: &newAmount})
+	require.NoError(t, err)
+
+	fetched, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.PenaltyLabel)
+	require.NotNil(t, fetched.PenaltyAmount)
+	assert.Equal(t, "Late arrival", *fetched.PenaltyLabel)
+	assert.Equal(t, int64(500), *fetched.PenaltyAmount)
+
+	// A new assignment created after the edit does pick up the new amount.
+	assign2, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	require.NotNil(t, assign2.PenaltyAmount)
+	assert.Equal(t, int64(5000), *assign2.PenaltyAmount)
+
+	openPens, err := repo.ListOpenPenaltiesByUser(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, openPens, 1)
+	assert.Equal(t, int64(5500), openPens[0].TotalAmount)
+}
+
 func TestFinancesRepository_Contributions(t *testing.T) {
 	t.Parallel()
 
