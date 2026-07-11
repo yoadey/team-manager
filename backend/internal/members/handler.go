@@ -23,7 +23,7 @@ type memberService interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
-	RemoveMember(ctx context.Context, membershipID, teamID string) error
+	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 // Handler implements the member-related methods of gen.StrictServerInterface.
@@ -212,7 +212,11 @@ func (h *Handler) SetMemberRoles(ctx context.Context, request gen.SetMemberRoles
 
 // RemoveMember removes a member from the team.
 func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequestObject) (gen.RemoveMemberResponseObject, error) {
-	if err := h.svc.RemoveMember(ctx, request.MembershipId.String(), request.TeamId.String()); err != nil {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if err := h.svc.RemoveMember(ctx, request.MembershipId.String(), request.TeamId.String(), user.Id.String()); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("member not found")
 		}
@@ -221,6 +225,12 @@ func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequ
 				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
 				slog.String("reason", "last_settings_admin"))
 			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
+		}
+		if errors.Is(err, ErrCannotRemoveSettingsAdmin) {
+			h.audit.Record(ctx, audit.EventMemberRemove, audit.Failure, actor(ctx),
+				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+				slog.String("reason", "cannot_remove_settings_admin"))
+			return nil, apierror.Forbidden(ErrCannotRemoveSettingsAdmin.Error())
 		}
 		h.logger.ErrorContext(ctx, "RemoveMember failed", "err", err)
 		return nil, fmt.Errorf("members.Handler.RemoveMember: %w", err)

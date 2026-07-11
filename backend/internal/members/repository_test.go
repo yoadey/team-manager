@@ -267,7 +267,7 @@ func TestMembersRepository_UpdateMember_ConcurrentRemoveMember_NoSilentSideEffec
 		}()
 		go func() {
 			defer wg.Done()
-			removeErr = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
+			removeErr = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String())
 		}()
 		wg.Wait()
 
@@ -518,7 +518,7 @@ func TestMembersRepository_RemoveMember(t *testing.T) {
 
 	m := seedMember(t, pool, teamID, "Grace Hopper", "grace@example.com")
 
-	err := repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
+	err := repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String())
 	require.NoError(t, err)
 
 	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
@@ -540,7 +540,7 @@ func TestMembersRepository_RemoveMember_WrongTeam_ReturnsNoRows(t *testing.T) {
 
 	m := seedMember(t, pool, teamID, "Should Survive", "should-survive@example.com")
 
-	err = repo.RemoveMember(ctx, m.MembershipID.String(), otherTeamID.String())
+	err = repo.RemoveMember(ctx, m.MembershipID.String(), otherTeamID.String(), m.UserID.String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 
 	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
@@ -564,7 +564,10 @@ func TestMembersRepository_RemoveMember_LastSettingsAdmin_Blocked(t *testing.T) 
 	// admin" premise this test exists to check.
 	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin@example.com", adminRole)
 
-	err := repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String())
+	// The sole admin is removing themselves -- callerUserID also holds
+	// settings:write, so ErrCannotRemoveSettingsAdmin's new caller check
+	// passes and this isolates the last-admin guard this test targets.
+	err := repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
 
 	// Still present.
@@ -584,10 +587,64 @@ func TestMembersRepository_RemoveMember_NotLastSettingsAdmin_Allowed(t *testing.
 	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
 
 	m1 := seedMember(t, pool, teamID, "Admin One", "admin1@example.com", adminRole)
-	seedMember(t, pool, teamID, "Admin Two", "admin2@example.com", adminRole)
+	m2 := seedMember(t, pool, teamID, "Admin Two", "admin2@example.com", adminRole)
 
-	// Removing m1 is fine — Admin Two still holds settings:write.
-	err := repo.RemoveMember(ctx, m1.MembershipID.String(), teamID.String())
+	// Admin Two (also settings:write) removes Admin One -- fine, Admin Two
+	// still holds settings:write both as caller and as the remaining admin.
+	err := repo.RemoveMember(ctx, m1.MembershipID.String(), teamID.String(), m2.UserID.String())
+	require.NoError(t, err)
+}
+
+// Regression test: RemoveMember used to have no ceiling check at all -- a
+// members:write-only "roster manager" (explicitly denied settings:write,
+// already blocked from touching roles by enforceNoPermissionEscalation and
+// from changing an admin's email by ErrCannotChangeOthersEmail) could still
+// forcibly remove a settings:write admin's membership outright, as long as
+// another admin remained (so ErrLastSettingsAdmin never triggered) -- a
+// strictly more severe action than either of those already-blocked ones.
+func TestMembersRepository_RemoveMember_CallerLacksSettingsWrite_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+	rosterManagerRole := seedRole(t, pool, teamID, "Roster Manager", `{"events":"none","members":"write","finances":"none","news":"none","polls":"none","settings":"none"}`)
+
+	// A second admin exists, so ErrLastSettingsAdmin alone would not block
+	// this -- isolating the caller-ceiling check this test targets.
+	admin := seedMember(t, pool, teamID, "Admin One", "admin1@example.com", adminRole)
+	seedMember(t, pool, teamID, "Admin Two", "admin2@example.com", adminRole)
+	rosterManager := seedMember(t, pool, teamID, "Roster Manager", "roster@example.com", rosterManagerRole)
+
+	err := repo.RemoveMember(ctx, admin.MembershipID.String(), teamID.String(), rosterManager.UserID.String())
+	require.ErrorIs(t, err, members.ErrCannotRemoveSettingsAdmin)
+
+	// Still present.
+	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	assert.Len(t, list, 3)
+}
+
+// A members:write-only caller removing an ordinary (non-settings:write)
+// member is unaffected by the new ceiling check -- most removals are mundane
+// roster management, not privilege-relevant.
+func TestMembersRepository_RemoveMember_CallerLacksSettingsWrite_OrdinaryMemberAllowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	rosterManagerRole := seedRole(t, pool, teamID, "Roster Manager", `{"events":"none","members":"write","finances":"none","news":"none","polls":"none","settings":"none"}`)
+
+	ordinary := seedMember(t, pool, teamID, "Ordinary Member", "ordinary@example.com")
+	rosterManager := seedMember(t, pool, teamID, "Roster Manager", "roster@example.com", rosterManagerRole)
+
+	err := repo.RemoveMember(ctx, ordinary.MembershipID.String(), teamID.String(), rosterManager.UserID.String())
 	require.NoError(t, err)
 }
 

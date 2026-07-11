@@ -81,6 +81,21 @@ var ErrInsufficientPermissionToGrant = errors.New("cannot grant a permission lev
 // to -- with no notification and no audit trail of the old value.
 var ErrCannotChangeOthersEmail = errors.New("changing another member's email requires settings permission")
 
+// ErrCannotRemoveSettingsAdmin is returned by RemoveMember when the caller
+// tries to remove a member who currently holds settings:write while the
+// caller does not hold settings:write themselves. DELETE .../members/{id} is
+// gated on nothing more than members:write -- unlike role assignment
+// (isMemberRolesPath, authz.go), which the middleware deliberately upgrades
+// to require settings:write specifically because it's privilege-relevant.
+// Without this check, a members:write-only "roster manager" (explicitly
+// denied settings:write, and blocked from touching roles by
+// enforceNoPermissionEscalation, or another admin's email by
+// ErrCannotChangeOthersEmail) could still forcibly remove an admin's
+// membership outright -- a strictly more severe action than either of those
+// -- as long as at least one other settings:write holder remained (so
+// ErrLastSettingsAdmin alone never triggered).
+var ErrCannotRemoveSettingsAdmin = errors.New("removing a member with settings management permission requires settings permission yourself")
+
 // Repository handles member-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -579,9 +594,10 @@ func teamHasOtherSettingsWriteMember(ctx context.Context, tx pgx.Tx, teamID, exc
 
 // RemoveMember deletes a membership (cascades membership_roles) that belongs
 // to teamID. Returns pgx.ErrNoRows if no membership with id exists within
-// teamID, or ErrLastSettingsAdmin if the membership is the team's last
-// settings:write holder.
-func (r *Repository) RemoveMember(ctx context.Context, membershipID, teamID string) error {
+// teamID, ErrLastSettingsAdmin if the membership is the team's last
+// settings:write holder, or ErrCannotRemoveSettingsAdmin if the membership
+// holds settings:write and callerUserID does not.
+func (r *Repository) RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -607,6 +623,13 @@ func (r *Repository) RemoveMember(ctx context.Context, membershipID, teamID stri
 		return fmt.Errorf("members.Repository.RemoveMember: check settings write: %w", err)
 	}
 	if isSettingsWriter {
+		callerPerms, err := getEffectivePermissionsByUserQ(ctx, tx, teamID, callerUserID)
+		if err != nil {
+			return fmt.Errorf("members.Repository.RemoveMember: caller permissions: %w", err)
+		}
+		if callerPerms.Settings != "write" {
+			return ErrCannotRemoveSettingsAdmin
+		}
 		othersHaveSettingsWrite, err := teamHasOtherSettingsWriteMember(ctx, tx, teamID, membershipID)
 		if err != nil {
 			return fmt.Errorf("members.Repository.RemoveMember: %w", err)

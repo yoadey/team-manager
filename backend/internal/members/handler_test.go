@@ -29,7 +29,7 @@ type mockMemberService struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
 	updateMember func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
 	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
-	removeMember func(ctx context.Context, membershipID, teamID string) error
+	removeMember func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
@@ -44,8 +44,8 @@ func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID s
 	return m.setRoles(ctx, membershipID, teamID, roleIDs, callerUserID)
 }
 
-func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID, teamID string) error {
-	return m.removeMember(ctx, membershipID, teamID)
+func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error {
+	return m.removeMember(ctx, membershipID, teamID, callerUserID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ func TestMemberHandler_RemoveMember_LastSettingsAdmin_Returns409(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockMemberService{
-		removeMember: func(context.Context, string, string) error {
+		removeMember: func(context.Context, string, string, string) error {
 			return members.ErrLastSettingsAdmin
 		},
 	}
@@ -255,7 +255,7 @@ func TestMemberHandler_RemoveMember_LastSettingsAdmin_RecordsAuditFailure(t *tes
 	t.Parallel()
 
 	svc := &mockMemberService{
-		removeMember: func(context.Context, string, string) error {
+		removeMember: func(context.Context, string, string, string) error {
 			return members.ErrLastSettingsAdmin
 		},
 	}
@@ -272,6 +272,59 @@ func TestMemberHandler_RemoveMember_LastSettingsAdmin_RecordsAuditFailure(t *tes
 	assert.Equal(t, "member.remove", rec["event"])
 	assert.Equal(t, "failure", rec["outcome"])
 	assert.Equal(t, "last_settings_admin", rec["reason"])
+}
+
+// Regression test: DELETE .../members/{id} used to be gated only on
+// members:write, with no ceiling check analogous to SetRoles'
+// enforceNoPermissionEscalation -- a members:write-only "roster manager"
+// could forcibly remove a settings:write admin's membership outright (as
+// long as another admin remained, so ErrLastSettingsAdmin never triggered),
+// a strictly more severe action than the role-assignment/email-change
+// escalations already blocked elsewhere. The service now returns
+// ErrCannotRemoveSettingsAdmin, mapped to a 403 with an audit-failure
+// record.
+func TestMemberHandler_RemoveMember_CannotRemoveSettingsAdmin_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		removeMember: func(context.Context, string, string, string) error {
+			return members.ErrCannotRemoveSettingsAdmin
+		},
+	}
+	var buf bytes.Buffer
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Roster Manager", Email: "r@x.c"})
+	_, err := h.RemoveMember(ctx, gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "member.remove", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "cannot_remove_settings_admin", rec["reason"])
+}
+
+func TestMemberHandler_RemoveMember_RequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		removeMember: func(context.Context, string, string, string) error {
+			t.Fatal("service must not be called when unauthenticated")
+			return nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	_, err := h.RemoveMember(context.Background(), gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
 }
 
 func TestMemberHandler_SetMemberRoles_TooManyRoleIds_Returns400(t *testing.T) {

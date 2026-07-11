@@ -19,7 +19,7 @@ type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
 	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*MemberRow, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*MemberRow, error)
-	RemoveMember(ctx context.Context, membershipID, teamID string) error
+	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 // Service implements member business logic.
@@ -112,13 +112,16 @@ func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, rol
 }
 
 // RemoveMember removes a member from the team.
-func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID string) error {
-	if err := s.repo.RemoveMember(ctx, membershipID, teamID); err != nil {
+func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error {
+	if err := s.repo.RemoveMember(ctx, membershipID, teamID, callerUserID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
 		}
 		if errors.Is(err, ErrLastSettingsAdmin) {
 			return ErrLastSettingsAdmin
+		}
+		if errors.Is(err, ErrCannotRemoveSettingsAdmin) {
+			return ErrCannotRemoveSettingsAdmin
 		}
 		return fmt.Errorf("members.Service.RemoveMember: %w", err)
 	}

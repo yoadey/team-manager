@@ -20,7 +20,7 @@ type mockMemberRepo struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
 	updateMember func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error)
 	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error)
-	removeMember func(ctx context.Context, membershipID, teamID string) error
+	removeMember func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 func (m *mockMemberRepo) ListMembers(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error) {
@@ -35,8 +35,8 @@ func (m *mockMemberRepo) SetRoles(ctx context.Context, membershipID, teamID stri
 	return m.setRoles(ctx, membershipID, teamID, roleIDs, callerUserID)
 }
 
-func (m *mockMemberRepo) RemoveMember(ctx context.Context, membershipID, teamID string) error {
-	return m.removeMember(ctx, membershipID, teamID)
+func (m *mockMemberRepo) RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error {
+	return m.removeMember(ctx, membershipID, teamID, callerUserID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -197,13 +197,13 @@ func TestMemberService_RemoveMember_LastSettingsAdmin_Propagates(t *testing.T) {
 	t.Parallel()
 
 	repo := &mockMemberRepo{
-		removeMember: func(context.Context, string, string) error {
+		removeMember: func(context.Context, string, string, string) error {
 			return members.ErrLastSettingsAdmin
 		},
 	}
 
 	svc := members.NewService(repo, nil)
-	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String())
+	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
 }
 
@@ -212,19 +212,21 @@ func TestMemberService_RemoveMember_PassesTeamID(t *testing.T) {
 
 	teamID := uuid.New()
 	membershipID := uuid.New()
+	callerUserID := uuid.New()
 	called := false
 
 	repo := &mockMemberRepo{
-		removeMember: func(_ context.Context, mid, tid string) error {
+		removeMember: func(_ context.Context, mid, tid, caller string) error {
 			assert.Equal(t, membershipID.String(), mid)
 			assert.Equal(t, teamID.String(), tid)
+			assert.Equal(t, callerUserID.String(), caller)
 			called = true
 			return nil
 		},
 	}
 
 	svc := members.NewService(repo, nil)
-	err := svc.RemoveMember(context.Background(), membershipID.String(), teamID.String())
+	err := svc.RemoveMember(context.Background(), membershipID.String(), teamID.String(), callerUserID.String())
 	require.NoError(t, err)
 	assert.True(t, called)
 }
@@ -233,12 +235,29 @@ func TestMemberService_RemoveMember_WrongTeam_PropagatesNoRows(t *testing.T) {
 	t.Parallel()
 
 	repo := &mockMemberRepo{
-		removeMember: func(context.Context, string, string) error {
+		removeMember: func(context.Context, string, string, string) error {
 			return pgx.ErrNoRows
 		},
 	}
 
 	svc := members.NewService(repo, nil)
-	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String())
+	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// Regression test: RemoveMember used to have no ceiling check at all --
+// unlike SetRoles' enforceNoPermissionEscalation -- so the service must
+// propagate ErrCannotRemoveSettingsAdmin from the repository unchanged.
+func TestMemberService_RemoveMember_CannotRemoveSettingsAdmin_Propagates(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockMemberRepo{
+		removeMember: func(context.Context, string, string, string) error {
+			return members.ErrCannotRemoveSettingsAdmin
+		},
+	}
+
+	svc := members.NewService(repo, nil)
+	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String())
+	require.ErrorIs(t, err, members.ErrCannotRemoveSettingsAdmin)
 }
