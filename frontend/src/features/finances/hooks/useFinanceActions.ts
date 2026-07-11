@@ -93,7 +93,7 @@ export function useFinanceActions({
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(t('finances.toastTxSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 
@@ -109,7 +109,7 @@ export function useFinanceActions({
         if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastTxDeleted'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
+        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'delete' }, err, 'error.delete');
       }
     },
     [api, S, loadFinances, setState, toastMsg, logout],
@@ -162,7 +162,7 @@ export function useFinanceActions({
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: back });
       toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 
@@ -218,7 +218,7 @@ export function useFinanceActions({
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(t('finances.toastPenaltyAssigned'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 
@@ -272,7 +272,7 @@ export function useFinanceActions({
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(t('finances.toastContribSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 

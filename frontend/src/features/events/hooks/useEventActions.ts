@@ -3,7 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { AttendanceRow, AttendanceCommentFormValues, EventCommentFormValues, TeamEvent } from '../types';
 import type { AttendanceStatus, Role, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
+import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { canSeeReason } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -165,7 +165,7 @@ export function useEventDetailActions({
       );
       await refreshEvents();
       const eid = s.eventId!;
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       // Don't close/reopen a sheet the user has since opened for a
       // different team after switching away mid-request, or one they've
       // since opened while this save was in flight.
@@ -175,7 +175,7 @@ export function useEventDetailActions({
       }
       toastMsg(t('events.toastCommentSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout]);
 

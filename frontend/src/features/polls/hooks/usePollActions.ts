@@ -89,7 +89,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(t('polls.toastCreated'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, loadPolls, toastMsg, logout]);
 

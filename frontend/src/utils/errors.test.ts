@@ -18,13 +18,41 @@ describe('getErrorMessage', () => {
 });
 
 describe('reportActionError', () => {
-  it('clears busy and surfaces a toast with the message', () => {
+  it('surfaces a toast with the message', () => {
     const setState = vi.fn();
     const toastMsg = vi.fn();
     reportActionError({ setState, toastMsg }, new Error('kaputt'), 'error.save');
-    expect(setState).toHaveBeenCalledWith({ busy: null });
     expect(toastMsg).toHaveBeenCalledTimes(1);
     expect(toastMsg.mock.calls[0][0]).toContain('kaputt');
+  });
+
+  // Regression test: reportActionError used to clear `busy` unconditionally
+  // on every error path, the same class of bug round 62's clearBusyIfOwned
+  // fixed on the success path. `busy` is one shared string across the whole
+  // app, so an unrelated, still-in-flight action (using a different busy
+  // value) could have its spinner/disabled state incorrectly cleared by
+  // this one's failure.
+  it('clears busy when S/busyOwner are passed and busy still matches', () => {
+    const setState = vi.fn();
+    const toastMsg = vi.fn();
+    const S = () => ({ busy: 'save' });
+    reportActionError({ setState, toastMsg, S, busyOwner: 'save' }, new Error('kaputt'));
+    expect(setState).toHaveBeenCalledWith({ busy: null });
+  });
+
+  it('does not clear busy when a different action has since taken it over', () => {
+    const setState = vi.fn();
+    const toastMsg = vi.fn();
+    const S = () => ({ busy: 'save' }); // a save started after this delete began
+    reportActionError({ setState, toastMsg, S, busyOwner: 'delete' }, new Error('kaputt'));
+    expect(setState).not.toHaveBeenCalled();
+  });
+
+  it('does not touch busy when the action never set it (no S/busyOwner passed)', () => {
+    const setState = vi.fn();
+    const toastMsg = vi.fn();
+    reportActionError({ setState, toastMsg }, new Error('kaputt'));
+    expect(setState).not.toHaveBeenCalled();
   });
 
   it('defaults the fallback context', () => {

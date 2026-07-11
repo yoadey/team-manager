@@ -85,7 +85,7 @@ export function useRoleActions({
         toastMsg(t('team.toastRoleCreated'));
       }
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, refreshRoles, toastMsg, logout]);
 

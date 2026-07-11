@@ -175,7 +175,7 @@ export function useTeamActions({
       clearBusyIfOwned(S, setState, 'save');
       toastMsg(t('team.toastSettingsSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, refreshTeams, toastMsg, logout]);
 
@@ -213,7 +213,7 @@ export function useTeamActions({
       }
       toastMsg(t('team.toastTeamCreated'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, refreshTeams, afterLoginLoad, toastMsg, logout]);
 

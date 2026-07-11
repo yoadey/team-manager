@@ -134,7 +134,7 @@ export function useEventFormActions({
             : t('events.toastEventCreated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
       }
     },
     [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout],

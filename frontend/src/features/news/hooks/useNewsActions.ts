@@ -69,7 +69,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
         toastMsg(t('news.toastPublished'));
       }
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, loadNews, toastMsg, logout]);
 

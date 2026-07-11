@@ -77,7 +77,7 @@ export function useAbsenceActions({
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, refreshEvents, loadAbsences, toastMsg, logout]);
 

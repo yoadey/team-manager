@@ -185,7 +185,7 @@ export function useMemberActions({
       }
       toastMsg(t('members.toastProfileSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
   }, [api, S, setState, refreshMembers, refreshTeams, openMemberDetail, toastMsg, logout]);
 
