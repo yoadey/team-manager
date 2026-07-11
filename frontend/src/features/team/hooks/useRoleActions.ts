@@ -65,6 +65,7 @@ export function useRoleActions({
       return;
     }
     const teamId = S().activeTeamId!;
+    const sh = S().sheet;
     setState({ busy: 'save' });
     try {
       if (f.id) {
@@ -72,14 +73,15 @@ export function useRoleActions({
         await refreshRoles();
         setState({ busy: null });
         // Don't navigate to the roles sheet for a different team than the
-        // one the user has since switched to.
-        if (S().activeTeamId === teamId) setState({ sheet: { type: 'roles' } });
+        // one the user has since switched to, or clobber a different sheet
+        // the user has since opened while this save was in flight.
+        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
         toastMsg(t('team.toastRoleUpdated'));
       } else {
         await api.roles.create(teamId, { name: nameResult.value!, permissions: f.perms });
         await refreshRoles();
         setState({ busy: null });
-        if (S().activeTeamId === teamId) setState({ sheet: { type: 'roles' } });
+        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
         toastMsg(t('team.toastRoleCreated'));
       }
     } catch (err) {

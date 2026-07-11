@@ -195,6 +195,34 @@ describe('useRoleActions', () => {
     expect(api.roles.create).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Trainer' }));
   });
 
+  // Regression: saveRole used to navigate to the roles sheet unconditionally
+  // (once the team still matched), so a slow save could clobber whatever
+  // DIFFERENT sheet the user had since opened while it was in flight.
+  it('saveRole does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveUpdate!: (v: { id: string }) => void;
+    api.roles.update = vi.fn(() => new Promise((resolve) => (resolveUpdate = resolve)));
+    stateRef = makeState({
+      form: { id: 'r1', name: 'Renamed', perms: { events: 'write', finances: 'none' } },
+      sheet: { type: 'roleForm', mode: 'edit' } as never,
+    });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveRole();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveUpdate({ id: 'r1' });
+      await savePromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+  });
+
   it('removeRole asks for confirmation, then removes the role and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {
