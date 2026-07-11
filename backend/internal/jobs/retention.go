@@ -101,6 +101,22 @@ func deleteBatched(ctx context.Context, pool *pgxpool.Pool, table, dateColumn st
 // intervenes.
 const retentionPhaseTimeout = 30 * time.Second
 
+// Timeout overrides river.WorkerDefaults' zero-value Timeout(), which would
+// otherwise fall back to River's own JobTimeoutDefault (1 minute, see
+// jobs.NewClient -- river.Config.JobTimeout is left unset). That outer
+// per-job context deadline caps every phase's own context.WithTimeout below
+// it (a context's deadline can only be tightened, never loosened), so four
+// sequential retentionPhaseTimeout budgets would be squeezed into a shared
+// ~60s window, starving whichever phases run last -- including audit_log's
+// compliance-mandated cleanup -- exactly the failure mode
+// retentionPhaseTimeout's own comment describes, just via the outer River
+// timeout instead of one phase hogging its own inner one. Budgeting for all
+// four phases' full timeout plus margin ensures the outer deadline is never
+// the binding constraint.
+func (w *RetentionWorker) Timeout(*river.Job[RetentionArgs]) time.Duration {
+	return 4*retentionPhaseTimeout + 30*time.Second
+}
+
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
 func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs]) (err error) {

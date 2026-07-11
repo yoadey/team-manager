@@ -50,6 +50,25 @@ func TestRetentionWorker_DeletesInBatches(t *testing.T) {
 	assert.Equal(t, 1, remaining, "only the recent notification should survive retention")
 }
 
+// TestRetentionWorker_TimeoutExceedsRiverDefault is a regression test for a
+// bug where RetentionWorker relied on WorkerDefaults' zero-value Timeout(),
+// so River applied its own JobTimeoutDefault (1 minute) to the job's outer
+// context. That outer deadline caps every phase's own context.WithTimeout
+// (contexts can only get an earlier deadline, never a later one), so with
+// four sequential 30s phase budgets the last phase(s) -- including
+// audit_log's compliance-mandated cleanup -- could be starved or cancelled
+// mid-batch on a run with a large backlog, silently defeating the whole
+// point of giving each phase an independent budget (see
+// retentionPhaseTimeout's doc comment).
+func TestRetentionWorker_TimeoutExceedsRiverDefault(t *testing.T) {
+	t.Parallel()
+
+	worker := jobs.NewRetentionWorker(nil, 90, 30, 365)
+	timeout := worker.Timeout(&river.Job[jobs.RetentionArgs]{})
+	assert.Greater(t, timeout, river.JobTimeoutDefault,
+		"RetentionWorker.Timeout must exceed River's default JobTimeout, or the outer job context caps all four phase timeouts to a shared budget shorter than their sum")
+}
+
 // TestRetentionWorker_KeepsStillValidLongLivedSession is a regression test
 // for a bug where session retention deleted rows based on created_at instead
 // of expires_at: a session created long ago but with a long TTL (still

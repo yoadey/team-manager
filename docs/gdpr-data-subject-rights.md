@@ -106,9 +106,12 @@ it.
    role/member/settings management. The caller must reassign settings:write
    to someone else (or have another admin already) before they can self-erase.
 3. Blank PII columns on `users`, set `deleted_at = now()`.
-4. `NULL`/blank free-text PII in `event_comments`, `absences`.
+4. `NULL`/blank free-text PII in `event_comments`, `attendance`, `absences`
+   (attendance's free-text `reason` is personal data too — self-reported
+   absence reasons like "Grippe" — and is included verbatim in the Art. 15
+   export, so it is anonymized here rather than merely left FK-intact).
 5. `DELETE FROM sessions WHERE user_id = $1`.
-5. Leave membership/attendance/finance foreign keys intact.
+6. Leave membership/finance foreign keys intact.
 
 `auth.Login` and `ValidateToken` must reject accounts where `deleted_at IS NOT
 NULL` (add the predicate to `FindUserByEmail` / `FindUserByID`).
