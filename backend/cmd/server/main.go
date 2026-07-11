@@ -48,6 +48,26 @@ var (
 	serviceName = "team-manager-backend"
 )
 
+// requestTimeout bounds how long chimiddleware.Timeout lets a request's
+// context stay alive before it's considered timed out.
+//
+// httpWriteTimeout must exceed it with real margin, not equal it: chi's
+// Timeout doesn't preemptively abort a running handler -- it derives a
+// context deadline, calls next.ServeHTTP synchronously, and only in a defer
+// AFTER that returns checks ctx.Err() and writes 504. net/http's
+// WriteTimeout is reset when the request's headers are read, so with both
+// set to the same value they'd expire within microseconds of each other on
+// a legitimately slow request (DB contention, a long sequential chain like
+// GetFinanceOverview's queries) -- chi's deferred 504 write can lose that
+// race against the connection's write deadline already having elapsed,
+// silently dropping the well-formed RFC 9457 error body in favor of a bare
+// connection reset. The margin gives that deferred write room to actually
+// flush.
+const (
+	requestTimeout   = 30 * time.Second
+	httpWriteTimeout = requestTimeout + 10*time.Second
+)
+
 // initObservability wires optional OTel tracing and Sentry error tracking and
 // returns a single cleanup that shuts both down. Both are no-ops when their
 // env (OTEL_EXPORTER_OTLP_ENDPOINT / SENTRY_DSN) is unset.
@@ -342,7 +362,7 @@ func main() {
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.Metrics)
-	r.Use(chimiddleware.Timeout(30 * time.Second))
+	r.Use(chimiddleware.Timeout(requestTimeout))
 	// RateLimit runs before CORS so that OPTIONS preflight requests are also
 	// counted against the global limit — CORS answers OPTIONS itself and
 	// never calls next, which would otherwise let preflight traffic bypass
@@ -402,7 +422,7 @@ func main() {
 		Addr:         ":" + cfg.Port,
 		Handler:      otelhttp.NewHandler(r, "http.server"),
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: httpWriteTimeout,
 		IdleTimeout:  60 * time.Second,
 	}
 

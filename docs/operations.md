@@ -288,6 +288,19 @@ true` to have the chart render it as a `ConfigMap` labeled
 `grafana_dashboard: "1"` for the standard kube-prometheus-stack Grafana
 sidecar to auto-import; otherwise import the JSON file manually.
 
+**`RetentionJobFailing` around deploys:** the daily retention job (runs once
+every 24h via a River periodic job) is allowed up to ~150s to complete
+(`RetentionWorker.Timeout()`, 4 phases × 30s + margin), but a SIGTERM during
+that window — a rolling deploy, node drain, or HPA scale-down landing on the
+replica currently running it — cancels the job after only `jobs.SoftStopTimeout`
+(8s), not its own full budget; see `cmd/server/main.go`'s graceful-shutdown
+sequence. The cancelled phase increments `retention_job_failures_total` and
+can trip `RetentionJobFailing`. River automatically retries on the next
+scheduled run, so a single occurrence coinciding with a deploy is expected and
+self-healing, not a persistent failure — cross-check `RetentionJobStale`
+(fires only after 36h with no successful run) before treating this as a real
+incident.
+
 ## Container images & releases
 
 Tagging a release (`vX.Y.Z`) triggers `.github/workflows/release.yml`, which
