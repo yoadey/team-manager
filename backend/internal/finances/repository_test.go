@@ -146,6 +146,15 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	toggled, err := repo.ToggleAssignmentPaid(ctx, assign.ID, teamID)
 	require.NoError(t, err)
 	assert.True(t, toggled.Paid)
+	// Regression: ToggleAssignmentPaid's RETURNING used to omit label/amount,
+	// so a's snapshot fields stayed nil -- fine when Service.ToggleAssignmentPaid's
+	// post-toggle reload succeeds (its enriched result is used instead), but
+	// silently incomplete if that reload ever hits the ErrNoRows fallback,
+	// unlike CreateAssignment's equivalent fallback which keeps them.
+	require.NotNil(t, toggled.PenaltyLabel)
+	assert.Equal(t, "Very late", *toggled.PenaltyLabel)
+	require.NotNil(t, toggled.PenaltyAmount)
+	assert.Equal(t, int64(500), *toggled.PenaltyAmount)
 
 	require.NoError(t, repo.DeleteAssignment(ctx, assign.ID, teamID))
 

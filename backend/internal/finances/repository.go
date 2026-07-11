@@ -531,10 +531,16 @@ func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.U
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
+	// RETURNING includes the label/amount snapshot columns (see
+	// CreateAssignment's equivalent RETURNING) so a's fields are already
+	// complete if Service.ToggleAssignmentPaid's post-toggle reload fails and
+	// falls back to toGenAssignment(*a) -- without them, that degraded
+	// response would omit which penalty was toggled and for how much, not
+	// just the member name/avatar CreateAssignment's own fallback omits.
 	err := r.db.QueryRow(ctx, `
 		UPDATE penalty_assignments SET paid = NOT paid WHERE id = $1 AND team_id = $2
-		RETURNING id, team_id, user_id, penalty_id, paid, date
-	`, id, teamID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date)
+		RETURNING id, team_id, user_id, penalty_id, paid, date, label, amount
+	`, id, teamID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
