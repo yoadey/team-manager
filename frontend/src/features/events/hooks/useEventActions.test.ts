@@ -299,6 +299,47 @@ describe('useEventDetailActions', () => {
     expect(stateRef.sheet).toMatchObject({ type: 'eventDetail', eventId: 'ev2' });
     expect((stateRef.sheet as { event?: { id: string } } | null)?.event?.id).toBe('ev2');
   });
+
+  it('submitComment sets attendance and reopens event detail', async () => {
+    stateRef = makeState({
+      sheet: { type: 'comment', eventId: 'ev1', userId: 'u2', status: 'no' } as never,
+      form: { commentText: 'injured' },
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.submitComment();
+    });
+    expect(api.attendance.set).toHaveBeenCalledWith('ev1', 'u2', { status: 'no', reason: 'injured' }, 'team1');
+    expect(stateRef.sheet).toMatchObject({ type: 'eventDetail', eventId: 'ev1' });
+  });
+
+  // Regression: the sheet-identity check used to only verify activeTeamId,
+  // so a slow submitComment could clobber whatever DIFFERENT sheet the user
+  // had since opened while it was in flight.
+  it('submitComment does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveSet!: () => void;
+    api.attendance.set = vi.fn(() => new Promise<void>((resolve) => (resolveSet = resolve)));
+    stateRef = makeState({
+      sheet: { type: 'comment', eventId: 'ev1', userId: 'u2', status: 'no' } as never,
+      form: { commentText: 'injured' },
+    });
+    const { result } = renderActions();
+
+    let submitPromise!: Promise<void>;
+    act(() => {
+      submitPromise = result.current.submitComment();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveSet();
+      await submitPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+  });
 });
 
 describe('useEventActionFeatures', () => {

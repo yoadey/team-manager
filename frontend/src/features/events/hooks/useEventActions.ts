@@ -167,8 +167,9 @@ export function useEventDetailActions({
       const eid = s.eventId!;
       setState({ busy: null });
       // Don't close/reopen a sheet the user has since opened for a
-      // different team after switching away mid-request.
-      if (S().activeTeamId === teamId) {
+      // different team after switching away mid-request, or one they've
+      // since opened while this save was in flight.
+      if (S().activeTeamId === teamId && S().sheet === s) {
         setState({ sheet: null });
         openEventDetail(eid);
       }

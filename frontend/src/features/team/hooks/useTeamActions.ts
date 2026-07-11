@@ -191,6 +191,7 @@ export function useTeamActions({
       toastMsg(name.message!);
       return;
     }
+    const sh = S().sheet;
     setState({ busy: 'save' });
     try {
       const team = await api.teams.create({
@@ -201,8 +202,15 @@ export function useTeamActions({
         photo: f.photo,
       });
       await refreshTeams();
-      setState({ busy: null, sheet: null, activeTeamId: team.id, route: 'home', eventScope: 'upcoming', phase: 'app' });
-      await afterLoginLoad(team.id);
+      setState({ busy: null });
+      // Don't navigate the user into the new team, or clobber whatever
+      // sheet they've since opened, if they closed the create-team sheet
+      // (or opened something else) while this request was in flight -- the
+      // new team still exists and is now in their team list either way.
+      if (S().sheet === sh) {
+        setState({ sheet: null, activeTeamId: team.id, route: 'home', eventScope: 'upcoming', phase: 'app' });
+        await afterLoginLoad(team.id);
+      }
       toastMsg(t('team.toastTeamCreated'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');

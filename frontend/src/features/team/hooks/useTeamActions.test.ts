@@ -464,6 +464,39 @@ describe('useTeamActions', () => {
     expect(afterLoginLoad).toHaveBeenCalledWith('new-team');
   });
 
+  // Regression: createTeam used to navigate into the new team and close the
+  // sheet unconditionally, so a slow create could clobber whatever DIFFERENT
+  // sheet the user had since opened (or switch them away from where they
+  // navigated to) while the request was in flight. The team still gets
+  // created either way (refreshTeams already ran) -- only the forced
+  // navigation/sheet-close is skipped.
+  it('createTeam does not touch the sheet or navigate if the user opened something else while in flight', async () => {
+    let resolveCreate!: (v: { id: string; name: string }) => void;
+    api.teams.create = vi.fn(() => new Promise((resolve) => (resolveCreate = resolve)));
+    stateRef = makeState({
+      form: { name: 'My New Team', icon: '⭐', photo: null },
+      sheet: { type: 'createTeam' } as never,
+    });
+    const { result } = renderActions();
+
+    let createPromise!: Promise<void>;
+    act(() => {
+      createPromise = result.current.createTeam();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveCreate({ id: 'new-team', name: 'New Team' });
+      await createPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+    expect(stateRef.activeTeamId).not.toBe('new-team');
+    expect(afterLoginLoad).not.toHaveBeenCalled();
+  });
+
   it('openInvite sets invite sheet and loads invite link', async () => {
     const { result } = renderActions();
     await act(async () => {
