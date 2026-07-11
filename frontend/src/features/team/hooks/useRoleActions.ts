@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { ModuleKey, PermLevel, Role, TeamForUser } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
@@ -109,22 +109,35 @@ export function useRoleActions({
     [api, S, askConfirm, refreshRoles, setState, toastMsg, logout],
   );
 
+  // Chains toggleMyRole calls so each one reads activeTeam().myRoles only
+  // once the previous toggle's refreshTeams() has applied -- reading it at
+  // click time instead let two rapid toggles of different roles both start
+  // from the same stale role list, so the second request's PUT silently
+  // overwrote the first's change instead of building on it.
+  const toggleChain = useRef<Promise<void>>(Promise.resolve());
+
   const toggleMyRole = useCallback(
-    async (roleId: string) => {
-      const team = activeTeam()!;
-      const cur = team.myRoles.map((r) => r.id);
-      const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-      if (!next.length) {
-        toastMsg(t('team.roleAtLeastOne'));
-        return;
-      }
-      try {
-        await api.members.setRoles(team.membershipId, next, team.id);
-        await refreshTeams();
-        toastMsg(t('team.toastRolesSaved'));
-      } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
-      }
+    (roleId: string) => {
+      const run = async () => {
+        const team = activeTeam();
+        if (!team) return;
+        const cur = team.myRoles.map((r) => r.id);
+        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
+        if (!next.length) {
+          toastMsg(t('team.roleAtLeastOne'));
+          return;
+        }
+        try {
+          await api.members.setRoles(team.membershipId, next, team.id);
+          await refreshTeams();
+          toastMsg(t('team.toastRolesSaved'));
+        } catch (err) {
+          reportActionError({ setState, toastMsg, onAuthError: logout }, err);
+        }
+      };
+      const step = toggleChain.current.then(run);
+      toggleChain.current = step;
+      return step;
     },
     [api, activeTeam, refreshTeams, setState, toastMsg, logout],
   );
