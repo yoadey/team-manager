@@ -91,6 +91,19 @@ describe('TxFormSheet', () => {
     expect(categoryInput.maxLength).toBe(255);
   });
 
+  // Regression test: the category field's <Field> used to wrap a <Box> that
+  // in turn wrapped the real <input> (plus the datalist/quick-pick chips/hint
+  // text), so Field's cloneElement-injected aria-required/aria-invalid/
+  // aria-describedby landed on that wrapper Box, not the input a screen
+  // reader actually focuses. Field must clone the <input> directly.
+  it('renders the category input as Field\'s direct cloned child, not wrapped in an intermediate element', () => {
+    const app = makeApp();
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    const categoryInput = document.querySelector('input[name="category"]') as HTMLInputElement;
+    expect(categoryInput.parentElement?.tagName).toBe('LABEL');
+  });
+
   it('shows title error when title is blank on blur', () => {
     const app = makeApp({ title: '' });
     const sheet = { mode: 'create' } as never;

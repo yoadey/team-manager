@@ -53,8 +53,8 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   ].sort((a, b) => a.localeCompare(b, 'de'));
 
   const catField = (
-    <Field label={t('finances.txFieldCategory')}>
-      <Box>
+    <Box>
+      <Field label={t('finances.txFieldCategory')}>
         <input
           key="i"
           name="category"
@@ -66,41 +66,41 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
           placeholder={t('finances.txCategoryPlaceholder')}
           style={inputSx}
         />
-        <datalist key="dl" id="tvCatList">
-          {cats.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
-        {cats.length ? (
-          <Box key="qp" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px', mt: '8px' }}>
-            {cats.map((c) => {
-              const sel = F.category === c;
-              return (
-                <ButtonBase
-                  key={c}
-                  onClick={() => app.setFormVal({ category: c })}
-                  sx={{
-                    p: '5px 11px',
-                    borderRadius: '999px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    border: '1px solid ' + (sel ? tk.primary : NEUTRAL.inputBorder),
-                    background: sel ? tk.primaryContainer : NEUTRAL.card,
-                    color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
-                  }}
-                >
-                  {c}
-                </ButtonBase>
-              );
-            })}
-          </Box>
-        ) : null}
-        <Box key="hint" sx={{ fontSize: '11px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
-          {t('finances.txCategoryHint')}
+      </Field>
+      <datalist key="dl" id="tvCatList">
+        {cats.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      {cats.length ? (
+        <Box key="qp" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px', mt: '8px' }}>
+          {cats.map((c) => {
+            const sel = F.category === c;
+            return (
+              <ButtonBase
+                key={c}
+                onClick={() => app.setFormVal({ category: c })}
+                sx={{
+                  p: '5px 11px',
+                  borderRadius: '999px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: '1px solid ' + (sel ? tk.primary : NEUTRAL.inputBorder),
+                  background: sel ? tk.primaryContainer : NEUTRAL.card,
+                  color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+                }}
+              >
+                {c}
+              </ButtonBase>
+            );
+          })}
         </Box>
+      ) : null}
+      <Box key="hint" sx={{ fontSize: '11px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
+        {t('finances.txCategoryHint')}
       </Box>
-    </Field>
+    </Box>
   );
 
   const del = edit ? (
