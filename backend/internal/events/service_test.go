@@ -726,3 +726,35 @@ func TestEventService_ListAttendance_NilReasonVisibility_StillRedacted(t *testin
 	require.Len(t, rows, 1)
 	assert.Nil(t, rows[0].Reason)
 }
+
+// Regression test: SetAttendance places no restriction on which status a
+// reason may accompany (e.g. "yes, but running late"), but redaction used to
+// only fire for status=="no" -- a private reason attached to "yes" or
+// "maybe" leaked to every team member unredacted, regardless of
+// reasonVisibility or the caller's reason-visibility role.
+func TestEventService_ListAttendance_RedactsReasonOnNonDeclineStatus(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	otherUserID := uuid.New()
+	reason := "running late, medical appointment"
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(_ context.Context, _, _ string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: otherUserID, Status: "yes", Reason: &reason, Name: "Other"},
+			}, nil
+		},
+		getReasonVisibilityCtxFn: func(_ context.Context, _, _ string) ([]string, []string, error) {
+			return []string{"trainer-role"}, nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].Reason, "a reason attached to a non-'no' status must still be redacted from a viewer without a matching role")
+}

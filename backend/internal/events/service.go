@@ -403,17 +403,24 @@ func (s *Service) DeleteComment(ctx context.Context, commentID, userID, teamID s
 // ─── Attendance ─────────────────────────────────────────────────────────────
 
 // ListAttendance returns all attendance rows for an event scoped to teamID.
-// A declined ("no") attendance reason is only included for the viewer's own
-// row, for rows the declining member explicitly marked
-// reasonVisibility="team", or for viewers holding one of the team's
-// reason-visibility roles — mirroring the frontend's canSeeReason gate, but
-// enforced here so a member can't read a teammate's private decline reason
-// by calling the API directly. Matches the RequirePermission middleware,
-// which treats events/attendance as self-service (any member may read it),
-// so this redaction is the only enforcement point for reason
-// confidentiality. A nil/unset ReasonVisibility (e.g. rows written before
-// the field existed) is treated the same as "trainers" -- the more
-// restrictive default -- not as an implicit "team".
+// An attendance reason is only included for the viewer's own row, for rows
+// the member explicitly marked reasonVisibility="team", or for viewers
+// holding one of the team's reason-visibility roles — mirroring the
+// frontend's canSeeReason gate, but enforced here so a member can't read a
+// teammate's private reason by calling the API directly. Matches the
+// RequirePermission middleware, which treats events/attendance as
+// self-service (any member may read it), so this redaction is the only
+// enforcement point for reason confidentiality. A nil/unset ReasonVisibility
+// (e.g. rows written before the field existed) is treated the same as
+// "trainers" -- the more restrictive default -- not as an implicit "team".
+//
+// This applies regardless of attendance status: SetAttendance places no
+// restriction on which status a reason/reasonId/reasonVisibility may
+// accompany (a "yes, but running late" reason is a legitimate use case), so
+// gating redaction on status=="no" would let a private reason attached to
+// any other status leak to every team member unredacted -- reason
+// confidentiality has to be a property of the reason itself, not of the
+// status it happens to be attached to.
 func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error) {
 	attendanceRows, err := s.repo.ListAttendance(ctx, eventID, teamID)
 	if err != nil {
@@ -422,7 +429,7 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 
 	needsRedactionCheck := false
 	for _, a := range attendanceRows {
-		if a.Status == "no" && a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) && !reasonSharedWithTeam(a.ReasonVisibility) {
+		if a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) && !reasonSharedWithTeam(a.ReasonVisibility) {
 			needsRedactionCheck = true
 			break
 		}
@@ -439,7 +446,7 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 
 	out := make([]gen.AttendanceRow, 0, len(attendanceRows))
 	for _, a := range attendanceRows {
-		if a.Status == "no" && a.UserId.String() != viewerID && !canSeeReasons && !reasonSharedWithTeam(a.ReasonVisibility) {
+		if a.UserId.String() != viewerID && !canSeeReasons && !reasonSharedWithTeam(a.ReasonVisibility) {
 			a.Reason = nil
 			a.ReasonId = nil
 		}
