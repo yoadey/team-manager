@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -13,6 +14,28 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/teams"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
 )
+
+// seedRoleAdminCaller creates a user with a full-permission role in tid,
+// suitable as UpdateRole's callerUserID in tests that aren't specifically
+// exercising the permission-escalation ceiling (enforceNoRoleEscalation).
+func seedRoleAdminCaller(t *testing.T, pool *pgxpool.Pool, tid string) string {
+	t.Helper()
+	ctx := context.Background()
+	uid := uuid.New().String()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Role Admin Caller', $2, '#abcdef')`,
+		uid, uid+"@example.com")
+	require.NoError(t, err)
+	var mid string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid).Scan(&mid))
+	adminRole, err := roles.NewRepository(pool).CreateRole(ctx, tid, "Caller Admin Role", nil, teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write",
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid, adminRole.Id.String())
+	require.NoError(t, err)
+	return uid
+}
 
 func TestRolesRepository_CreateAndList(t *testing.T) {
 	t.Parallel()
@@ -59,11 +82,12 @@ func TestRolesRepository_Update(t *testing.T) {
 
 	role, err := repo.CreateRole(ctx, tid, "Player", nil, teams.PermissionsJSON{})
 	require.NoError(t, err)
+	callerUserID := seedRoleAdminCaller(t, pool, tid)
 
 	newName := "Captain"
 	newColor := "#0000ff"
 	newPerms := teams.PermissionsJSON{Events: "write", Members: "write"}
-	updated, err := repo.UpdateRole(ctx, role.Id.String(), tid, roles.RolePatch{
+	updated, err := repo.UpdateRole(ctx, role.Id.String(), tid, callerUserID, roles.RolePatch{
 		Name: &newName, Color: &newColor, Permissions: &newPerms,
 	})
 	require.NoError(t, err)
@@ -92,7 +116,7 @@ func TestRolesRepository_Update_WrongTeam_ReturnsNoRows(t *testing.T) {
 	require.NoError(t, err)
 
 	newName := "Attacker Renamed"
-	_, err = repo.UpdateRole(ctx, role.Id.String(), otherTid, roles.RolePatch{Name: &newName})
+	_, err = repo.UpdateRole(ctx, role.Id.String(), otherTid, uuid.New().String(), roles.RolePatch{Name: &newName})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
@@ -311,7 +335,7 @@ func TestRolesRepository_UpdateRole_RevokingLastSettingsWrite_Blocked(t *testing
 	downgraded := teams.PermissionsJSON{
 		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "read",
 	}
-	_, err = repo.UpdateRole(ctx, adminRole.Id.String(), tid, roles.RolePatch{Permissions: &downgraded})
+	_, err = repo.UpdateRole(ctx, adminRole.Id.String(), tid, uid, roles.RolePatch{Permissions: &downgraded})
 	require.ErrorIs(t, err, roles.ErrLastSettingsAdmin)
 
 	// The role's permissions must be untouched by the rejected update.
@@ -356,7 +380,7 @@ func TestRolesRepository_UpdateRole_NotLastSettingsAdmin_Allowed(t *testing.T) {
 	require.NoError(t, err)
 
 	downgraded := teams.PermissionsJSON{Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "read"}
-	updated, err := repo.UpdateRole(ctx, roleA.Id.String(), tid, roles.RolePatch{Permissions: &downgraded})
+	updated, err := repo.UpdateRole(ctx, roleA.Id.String(), tid, uid1, roles.RolePatch{Permissions: &downgraded})
 	require.NoError(t, err)
 	assert.Equal(t, "read", updated.Permissions.Settings)
 }
@@ -433,12 +457,12 @@ func TestRolesRepository_UpdateSystemRole_NameOrPermissions_Fails(t *testing.T) 
 
 	// A settings:write holder must not be able to rename a system role...
 	newName := "Renamed Admin"
-	_, err = repo.UpdateRole(ctx, roleID, tid, roles.RolePatch{Name: &newName})
+	_, err = repo.UpdateRole(ctx, roleID, tid, uuid.New().String(), roles.RolePatch{Name: &newName})
 	require.ErrorIs(t, err, roles.ErrSystemRole)
 
 	// ...nor rewrite its permissions (the actual privilege-escalation vector).
 	newPerms := teams.PermissionsJSON{Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write"}
-	_, err = repo.UpdateRole(ctx, roleID, tid, roles.RolePatch{Permissions: &newPerms})
+	_, err = repo.UpdateRole(ctx, roleID, tid, uuid.New().String(), roles.RolePatch{Permissions: &newPerms})
 	require.ErrorIs(t, err, roles.ErrSystemRole)
 
 	// Verify nothing was actually changed by the rejected attempts.
@@ -470,8 +494,123 @@ func TestRolesRepository_UpdateSystemRole_ColorOnly_Succeeds(t *testing.T) {
 
 	// Color is cosmetic-only and must remain editable even for system roles.
 	newColor := "#123456"
-	updated, err := repo.UpdateRole(ctx, roleID, tid, roles.RolePatch{Color: &newColor})
+	updated, err := repo.UpdateRole(ctx, roleID, tid, uuid.New().String(), roles.RolePatch{Color: &newColor})
 	require.NoError(t, err)
 	assert.Equal(t, &newColor, updated.Color)
 	assert.Equal(t, "Admin", updated.Name)
+}
+
+// Regression test for the privilege-escalation path this fix closes:
+// UpdateRole previously had no ceiling check at all, so a settings:write-only
+// caller (able to reach both POST/PATCH .../roles under RequirePermission)
+// could create a role granting only what they already hold, assign it to
+// themselves -- passing SetRoles's ceiling trivially, since it grants
+// nothing beyond what they have -- and then PATCH that same role's
+// permissions upward afterward, escalating their own effective permissions
+// with no assignment step left to catch it.
+func TestRolesRepository_UpdateRole_EscalationBeyondCallersOwnPermissions_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	callerUID := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Escalation Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Settings Only Caller', 'settings-only@example.com', '#333333')`, callerUID)
+	require.NoError(t, err)
+	var callerMid string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, callerUID).Scan(&callerMid))
+
+	// Caller holds only settings:write, granted via a role assigned to them.
+	settingsOnlyRole, err := repo.CreateRole(ctx, tid, "Settings Only", nil, teams.PermissionsJSON{Settings: "write"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMid, settingsOnlyRole.Id.String())
+	require.NoError(t, err)
+
+	// The role the caller wants to patch upward: currently grants nothing
+	// beyond what the caller already holds (settings:write), so ceiling (b)
+	// doesn't cover the escalation attempt either.
+	targetRole, err := repo.CreateRole(ctx, tid, "Target", nil, teams.PermissionsJSON{Settings: "write"})
+	require.NoError(t, err)
+
+	escalated := teams.PermissionsJSON{Finances: "write", Settings: "write"}
+	_, err = repo.UpdateRole(ctx, targetRole.Id.String(), tid, callerUID, roles.RolePatch{Permissions: &escalated})
+	require.ErrorIs(t, err, roles.ErrInsufficientPermissionToGrant)
+
+	// The role's permissions must be untouched by the rejected update.
+	got, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	for _, rr := range got {
+		if rr.Id == targetRole.Id {
+			assert.Equal(t, "none", rr.Permissions.Finances)
+		}
+	}
+}
+
+// A caller may grant a role a permission level they hold themselves.
+func TestRolesRepository_UpdateRole_WithinCallersOwnPermissions_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Within Ceiling Team')`, tid)
+	require.NoError(t, err)
+	callerUID := seedRoleAdminCaller(t, pool, tid)
+
+	targetRole, err := repo.CreateRole(ctx, tid, "Target", nil, teams.PermissionsJSON{})
+	require.NoError(t, err)
+
+	newPerms := teams.PermissionsJSON{Finances: "write"}
+	updated, err := repo.UpdateRole(ctx, targetRole.Id.String(), tid, callerUID, roles.RolePatch{Permissions: &newPerms})
+	require.NoError(t, err)
+	assert.Equal(t, "write", updated.Permissions.Finances)
+}
+
+// A caller with only settings:write may still reorganize/demote a role that
+// ALREADY grants more than they hold -- ceiling (b) exists precisely so a
+// settings:write-only caller isn't locked out of managing role assignments
+// for permissions someone else legitimately granted, as long as the result
+// doesn't exceed what the role already granted.
+func TestRolesRepository_UpdateRole_DemotingRoleAboveCallersOwnPermissions_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	callerUID := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Demote Above Ceiling Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Settings Only Caller 2', 'settings-only-2@example.com', '#444444')`, callerUID)
+	require.NoError(t, err)
+	var callerMid string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, callerUID).Scan(&callerMid))
+	settingsOnlyRole, err := repo.CreateRole(ctx, tid, "Settings Only", nil, teams.PermissionsJSON{Settings: "write"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMid, settingsOnlyRole.Id.String())
+	require.NoError(t, err)
+
+	// A role that already grants finances:write -- legitimately created by
+	// someone else with that permission -- before this caller touches it.
+	financeRole, err := repo.CreateRole(ctx, tid, "Finance Role", nil, teams.PermissionsJSON{Finances: "write", Settings: "write"})
+	require.NoError(t, err)
+
+	// The caller renames it and demotes finances from write to read -- never
+	// exceeding what the role already granted, so this must be allowed even
+	// though the caller has no finances permission themselves.
+	newName := "Finance Role (Read Only)"
+	demoted := teams.PermissionsJSON{Finances: "read", Settings: "write"}
+	updated, err := repo.UpdateRole(ctx, financeRole.Id.String(), tid, callerUID, roles.RolePatch{Name: &newName, Permissions: &demoted})
+	require.NoError(t, err)
+	assert.Equal(t, "Finance Role (Read Only)", updated.Name)
+	assert.Equal(t, "read", updated.Permissions.Finances)
 }

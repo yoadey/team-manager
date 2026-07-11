@@ -15,7 +15,7 @@ import (
 type roleRepo interface {
 	ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error)
 	CreateRole(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error)
-	UpdateRole(ctx context.Context, roleID, teamID string, patch RolePatch) (*teams.RoleRow, error)
+	UpdateRole(ctx context.Context, roleID, teamID, callerUserID string, patch RolePatch) (*teams.RoleRow, error)
 	DeleteRole(ctx context.Context, roleID, teamID string) error
 }
 
@@ -53,14 +53,17 @@ func (s *Service) CreateRole(ctx context.Context, teamID uuid.UUID, body *gen.Cr
 	return &result, nil
 }
 
-// UpdateRole applies a patch to a role that belongs to teamID.
-func (s *Service) UpdateRole(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+// UpdateRole applies a patch to a role that belongs to teamID. callerUserID
+// is the authenticated caller, used to enforce that a permissions patch
+// can't grant more than the caller's own ceiling allows (see
+// enforceNoRoleEscalation).
+func (s *Service) UpdateRole(ctx context.Context, roleID, teamID, callerUserID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
 	patch := RolePatch{Name: body.Name, Color: body.Color}
 	if body.Permissions != nil {
 		p := toInternalPermissions(*body.Permissions)
 		patch.Permissions = &p
 	}
-	row, err := s.repo.UpdateRole(ctx, roleID.String(), teamID.String(), patch)
+	row, err := s.repo.UpdateRole(ctx, roleID.String(), teamID.String(), callerUserID.String(), patch)
 	if err != nil {
 		return nil, fmt.Errorf("roles.Service.UpdateRole: %w", err)
 	}

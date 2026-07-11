@@ -27,7 +27,7 @@ import (
 type mockRoleService struct {
 	listRoles  func(ctx context.Context, teamID uuid.UUID) ([]gen.Role, error)
 	createRole func(ctx context.Context, teamID uuid.UUID, body *gen.CreateRoleJSONRequestBody) (*gen.Role, error)
-	updateRole func(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
+	updateRole func(ctx context.Context, roleID, teamID, callerUserID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
 	deleteRole func(ctx context.Context, roleID, teamID uuid.UUID) error
 }
 
@@ -39,8 +39,8 @@ func (m *mockRoleService) CreateRole(ctx context.Context, teamID uuid.UUID, body
 	return m.createRole(ctx, teamID, body)
 }
 
-func (m *mockRoleService) UpdateRole(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
-	return m.updateRole(ctx, roleID, teamID, body)
+func (m *mockRoleService) UpdateRole(ctx context.Context, roleID, teamID, callerUserID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+	return m.updateRole(ctx, roleID, teamID, callerUserID, body)
 }
 
 func (m *mockRoleService) DeleteRole(ctx context.Context, roleID, teamID uuid.UUID) error {
@@ -309,7 +309,7 @@ func TestHandler_DeleteRole_SystemRole_RecordsAuditFailure(t *testing.T) {
 func TestHandler_UpdateRole_LastSettingsAdmin_Returns409(t *testing.T) {
 	t.Parallel()
 	svc := &mockRoleService{
-		updateRole: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+		updateRole: func(_ context.Context, _, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
 			return nil, roles.ErrLastSettingsAdmin
 		},
 	}
@@ -332,7 +332,7 @@ func TestHandler_UpdateRole_LastSettingsAdmin_Returns409(t *testing.T) {
 func TestHandler_UpdateRole_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) {
 	t.Parallel()
 	svc := &mockRoleService{
-		updateRole: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+		updateRole: func(_ context.Context, _, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
 			return nil, roles.ErrLastSettingsAdmin
 		},
 	}
@@ -360,7 +360,7 @@ func TestHandler_UpdateRole_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) 
 func TestHandler_UpdateRole_SystemRole_Forbidden(t *testing.T) {
 	t.Parallel()
 	svc := &mockRoleService{
-		updateRole: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+		updateRole: func(_ context.Context, _, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
 			return nil, roles.ErrSystemRole
 		},
 	}
@@ -376,4 +376,50 @@ func TestHandler_UpdateRole_SystemRole_Forbidden(t *testing.T) {
 	apiErr, ok := err.(*apierror.APIError)
 	require.True(t, ok, "expected *apierror.APIError, got %T", err)
 	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestHandler_UpdateRole_InsufficientPermissionToGrant_Forbidden(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		updateRole: func(_ context.Context, _, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+			return nil, roles.ErrInsufficientPermissionToGrant
+		},
+	}
+	h := roles.NewHandler(svc, slog.Default(), nil)
+
+	perms := gen.Permissions{Events: "none", Members: "none", Finances: "write", News: "none", Polls: "none", Settings: "write"}
+	_, err := h.UpdateRole(rolesAuthedCtx(), gen.UpdateRoleRequestObject{
+		TeamId: rolesTeamID,
+		RoleId: testRoleID,
+		Body:   &gen.UpdateRoleJSONRequestBody{Permissions: &perms},
+	})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestHandler_UpdateRole_InsufficientPermissionToGrant_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockRoleService{
+		updateRole: func(_ context.Context, _, _, _ uuid.UUID, _ *gen.UpdateRoleJSONRequestBody) (*gen.Role, error) {
+			return nil, roles.ErrInsufficientPermissionToGrant
+		},
+	}
+	var buf bytes.Buffer
+	h := roles.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	perms := gen.Permissions{Events: "none", Members: "none", Finances: "write", News: "none", Polls: "none", Settings: "write"}
+	_, err := h.UpdateRole(rolesAuthedCtx(), gen.UpdateRoleRequestObject{
+		TeamId: rolesTeamID,
+		RoleId: testRoleID,
+		Body:   &gen.UpdateRoleJSONRequestBody{Permissions: &perms},
+	})
+	require.Error(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, "role.update", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "insufficient_permission_to_grant", rec["reason"])
 }

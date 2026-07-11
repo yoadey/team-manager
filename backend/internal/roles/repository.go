@@ -31,6 +31,24 @@ var ErrSystemRole = errors.New("cannot modify system role")
 // RemoveMember already guard against for individual membership changes.
 var ErrLastSettingsAdmin = errors.New("cannot remove the last role granting settings management permission")
 
+// ErrInsufficientPermissionToGrant is returned by UpdateRole when the patch
+// would give the role, on any module, a higher permission than the greater
+// of (a) the caller's own current effective permission for that module in
+// this team, or (b) the level the role itself already granted before this
+// edit. Mirrors members.enforceNoPermissionEscalation's ceiling, applied to
+// editing a role definition rather than assigning one -- see
+// enforceNoRoleEscalation for why this is needed even though SetRoles
+// already closed the equivalent path for role *assignment*: middleware
+// gates both role definition (POST/PATCH .../roles) and role assignment
+// (PUT .../members/{id}/roles) on nothing more than settings:write, so
+// without this check a settings:write-only caller could create (or reuse)
+// a role granting only what they already hold, assign it to themselves --
+// passing SetRoles's ceiling trivially, since it grants nothing beyond what
+// they already have -- and then PATCH that same role's permissions upward
+// afterward, silently escalating their own effective permissions with no
+// assignment step left to catch it.
+var ErrInsufficientPermissionToGrant = errors.New("cannot grant a permission level you do not hold yourself")
+
 // Repository handles role-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -125,11 +143,13 @@ func buildRoleUpdateSets(patch RolePatch) (setSQL string, args []any, err error)
 }
 
 // guardRoleUpdate rejects renaming/re-permissioning a system role
-// (ErrSystemRole), and rejects revoking settings:write from a role's
-// permissions when no other role held by any member would still grant it
-// (ErrLastSettingsAdmin) — the same invariant DeleteRole enforces for
-// deleting a role outright, applied here to editing one.
-func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, teamID string, patch RolePatch) error {
+// (ErrSystemRole); rejects a permissions patch that would grant, on any
+// module, more than the caller's own ceiling allows (ErrInsufficientPermissionToGrant,
+// see enforceNoRoleEscalation); and rejects revoking settings:write from a
+// role's permissions when no other role held by any member would still
+// grant it (ErrLastSettingsAdmin) — the same invariant DeleteRole enforces
+// for deleting a role outright, applied here to editing one.
+func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, teamID, callerUserID string, patch RolePatch) error {
 	// Same advisory lock key as DeleteRole/members.SetRoles/RemoveMember,
 	// serializing this against concurrent role/assignment changes guarding
 	// the same invariant.
@@ -138,7 +158,9 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 	}
 
 	var isSystem bool
-	if err := tx.QueryRow(ctx, `SELECT system FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID).Scan(&isSystem); err != nil {
+	var currentPermBytes []byte
+	if err := tx.QueryRow(ctx, `SELECT system, permissions FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID).
+		Scan(&isSystem, &currentPermBytes); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
 		}
@@ -148,7 +170,19 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 		return ErrSystemRole
 	}
 
-	if patch.Permissions == nil || patch.Permissions.Settings == "write" {
+	if patch.Permissions == nil {
+		return nil
+	}
+
+	var currentPerms teams.PermissionsJSON
+	if err := json.Unmarshal(currentPermBytes, &currentPerms); err != nil {
+		return fmt.Errorf("roles.Repository.UpdateRole: unmarshal current permissions: %w", err)
+	}
+	if err := enforceNoRoleEscalation(ctx, tx, teamID, callerUserID, currentPerms, *patch.Permissions); err != nil {
+		return err
+	}
+
+	if patch.Permissions.Settings == "write" {
 		return nil
 	}
 
@@ -173,17 +207,105 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 		return nil
 	}
 
-	var currentlyHasSettingsWrite bool
-	if err := tx.QueryRow(ctx,
-		`SELECT permissions->>'settings' = 'write' FROM roles WHERE id = $1 AND team_id = $2`,
-		roleID, teamID,
-	).Scan(&currentlyHasSettingsWrite); err != nil {
-		return fmt.Errorf("roles.Repository.UpdateRole: check own settings write: %w", err)
-	}
-	if currentlyHasSettingsWrite {
+	if currentPerms.Settings == "write" {
 		return ErrLastSettingsAdmin
 	}
 	return nil
+}
+
+// enforceNoRoleEscalation returns ErrInsufficientPermissionToGrant if
+// newPerms would grant, on any module, a higher permission than the greater
+// of (a) callerUserID's own current effective permission for that module in
+// teamID, or (b) the level currentPerms (the role's permissions before this
+// edit) already granted. (b) mirrors members.enforceNoPermissionEscalation's
+// identical allowance: reorganizing/demoting what a role already grants is
+// never treated as "granting" something new, even if the result still
+// exceeds the caller's own permissions, since nothing actually increased.
+func enforceNoRoleEscalation(ctx context.Context, tx pgx.Tx, teamID, callerUserID string, currentPerms, newPerms teams.PermissionsJSON) error {
+	callerPerms, err := getEffectivePermissionsByUserQ(ctx, tx, teamID, callerUserID)
+	if err != nil {
+		return fmt.Errorf("roles.Repository.UpdateRole: caller permissions: %w", err)
+	}
+
+	ceilings := []string{
+		foldMax(callerPerms.Events, currentPerms.Events),
+		foldMax(callerPerms.Members, currentPerms.Members),
+		foldMax(callerPerms.Finances, currentPerms.Finances),
+		foldMax(callerPerms.News, currentPerms.News),
+		foldMax(callerPerms.Polls, currentPerms.Polls),
+		foldMax(callerPerms.Settings, currentPerms.Settings),
+	}
+	granted := []string{newPerms.Events, newPerms.Members, newPerms.Finances, newPerms.News, newPerms.Polls, newPerms.Settings}
+	for i, level := range granted {
+		if permLevelRank(level) > permLevelRank(ceilings[i]) {
+			return ErrInsufficientPermissionToGrant
+		}
+	}
+	return nil
+}
+
+// getEffectivePermissionsByUserQ returns the per-module maximum permission
+// across all of userID's currently-assigned roles in teamID. Mirrors
+// members.getEffectivePermissionsByUserQ, duplicated here (rather than
+// exported cross-package) since it's a small, self-contained query and the
+// two packages otherwise have no dependency on each other.
+func getEffectivePermissionsByUserQ(ctx context.Context, tx pgx.Tx, teamID, userID string) (teams.PermissionsJSON, error) {
+	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
+	rows, err := tx.Query(ctx, `
+		SELECT r.permissions
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE m.team_id = $1 AND m.user_id = $2 AND r.team_id = $1
+	`, teamID, userID)
+	if err != nil {
+		return eff, fmt.Errorf("getEffectivePermissionsByUserQ: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var permJSON []byte
+		if err := rows.Scan(&permJSON); err != nil {
+			return eff, fmt.Errorf("getEffectivePermissionsByUserQ scan: %w", err)
+		}
+		var p teams.PermissionsJSON
+		if err := json.Unmarshal(permJSON, &p); err != nil {
+			return eff, fmt.Errorf("getEffectivePermissionsByUserQ unmarshal: %w", err)
+		}
+		eff = foldPermissions(eff, p)
+	}
+	return eff, rows.Err()
+}
+
+// foldPermissions folds b into a, taking the per-module maximum.
+func foldPermissions(a, b teams.PermissionsJSON) teams.PermissionsJSON {
+	return teams.PermissionsJSON{
+		Events:   foldMax(a.Events, b.Events),
+		Members:  foldMax(a.Members, b.Members),
+		Finances: foldMax(a.Finances, b.Finances),
+		News:     foldMax(a.News, b.News),
+		Polls:    foldMax(a.Polls, b.Polls),
+		Settings: foldMax(a.Settings, b.Settings),
+	}
+}
+
+// permLevelRank maps permission levels to a comparable rank (none < read < write).
+func permLevelRank(level string) int {
+	switch level {
+	case "write":
+		return 2
+	case "read":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// foldMax returns the higher-ranked of two permission levels.
+func foldMax(cur, next string) string {
+	if permLevelRank(next) > permLevelRank(cur) {
+		return next
+	}
+	return cur
 }
 
 // UpdateRole applies a partial update to a role that belongs to teamID.
@@ -199,7 +321,11 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 // ErrLastSettingsAdmin — otherwise editing (rather than deleting) the last
 // settings-admin role would lock the team out of settings/role management
 // just the same.
-func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID string, patch RolePatch) (*teams.RoleRow, error) {
+//
+// A permissions patch is also rejected with ErrInsufficientPermissionToGrant
+// if it would grant, on any module, more than callerUserID's own ceiling
+// allows -- see enforceNoRoleEscalation.
+func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID, callerUserID string, patch RolePatch) (*teams.RoleRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -218,7 +344,7 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID string, patc
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if patch.Name != nil || patch.Permissions != nil {
-		if err := r.guardRoleUpdate(ctx, tx, roleID, teamID, patch); err != nil {
+		if err := r.guardRoleUpdate(ctx, tx, roleID, teamID, callerUserID, patch); err != nil {
 			return nil, err
 		}
 	}
