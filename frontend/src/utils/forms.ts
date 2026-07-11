@@ -39,4 +39,4 @@ export function clearBusyIfOwned(S: () => Pick<AppState, 'busy'>, setState: SetB
   if (S().busy === owner) setState({ busy: null });
 }
 
-type SetBusy = (patch: Partial<AppState>) => void;
+type SetBusy = (patch: { busy: null }) => void;
