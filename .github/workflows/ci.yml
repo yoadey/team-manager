@@ -472,7 +472,10 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # No docker/setup-buildx-action here -- this job's only Docker usage is
+      # testcontainers-go pulling the pre-built postgres:17 image (see
+      # internal/testutil/postgres.go), never `docker build`, so there's
+      # nothing for a Buildx builder to do.
       - run: go test ./... -race -count=1 -coverprofile=coverage.out -timeout=300s
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"

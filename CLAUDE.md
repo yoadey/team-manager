@@ -151,6 +151,7 @@ The TypeScript client is also generated from this spec via `openapi-typescript` 
 | `ENVIRONMENT`     | _(empty)_                   | Environment label attached to Sentry events |
 | `ERROR_TYPE_BASE_URI` | _(empty)_               | Base URI prefix for the `type` field of RFC 9457 problem+json error responses (e.g. `https://docs.example.com/errors`); left as relative paths when unset. |
 | `LOG_LEVEL`       | `info`                      | Minimum level the JSON structured logger emits (`debug`\|`info`\|`warn`\|`error`, case-insensitive). An unrecognized value falls back to `info` rather than failing startup. |
+| `API_DEPRECATION_DATE` | _(empty)_              | When set, emitted as both the RFC 8594 `Deprecation` and `Sunset` response headers on every request, so API clients can programmatically detect a pending deprecation window. Any string is passed through verbatim (e.g. `@1735689600` or an HTTP-date) — no format validation. |
 
 > **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation.
 > Encryption always uses the *first* key; decryption tries all keys in order. Like
