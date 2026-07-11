@@ -420,6 +420,31 @@ func TestHandler_TogglePenaltyPaid_NotFoundReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, apiErr.Status)
 }
 
+// Regression test: Service.CreateAssignment returns bare pgx.ErrNoRows when
+// the just-created row is gone by the time it's reloaded (a concurrent
+// DeletePenalty cascaded it away) -- unlike every other write handler in
+// this file, CreatePenaltyAssignment had no pgx.ErrNoRows branch at all, so
+// this benign race fell through to a generic 500 instead of the intended 404.
+func TestHandler_CreatePenaltyAssignment_ReloadRaceReturns404(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createAssignment: func(_ context.Context, _ uuid.UUID, _ *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: testTxID, UserId: testTxID}
+	_, err := h.CreatePenaltyAssignment(authedCtx(), gen.CreatePenaltyAssignmentRequestObject{
+		TeamId: testTeamID,
+		Body:   body,
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+}
+
 func TestHandler_TogglePenaltyPaid_ServiceErrorReturns500(t *testing.T) {
 	t.Parallel()
 	svc := &mockFinanceService{

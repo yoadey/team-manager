@@ -284,6 +284,15 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 			h.recordFinanceFailure(ctx, "assignment.create", err.Error())
 			return nil, apierror.UnprocessableEntity(err.Error())
 		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Service.CreateAssignment returns bare pgx.ErrNoRows when the
+			// just-created row is already gone by the time it's reloaded --
+			// a concurrent DeletePenalty cascaded it away. The write itself
+			// never failed, but the row genuinely doesn't exist anymore, so
+			// this maps to 404 rather than the generic 500 below.
+			h.recordFinanceFailure(ctx, "assignment.create", "not found")
+			return nil, apierror.NotFound("penalty assignment not found")
+		}
 		h.recordFinanceFailure(ctx, "assignment.create", "internal error")
 		h.logger.ErrorContext(ctx, "CreatePenaltyAssignment failed", "err", err)
 		return nil, apierror.Internal("failed to create penalty assignment")
