@@ -88,10 +88,18 @@ frontend/src/
 
 ## Qualität & CI
 
-`.github/workflows/ci.yml` führt bei jedem PR aus: Lint → Typecheck → Test (Coverage) →
-Build (inkl. Bundle-Size-Budget + SBOM) → Playwright-E2E → Lighthouse CI. Zusätzlich läuft
-`npm audit` (High/Critical in Prod-Deps blockierend). Dependabot aktualisiert Dependencies
-und GitHub-Actions wöchentlich. Siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+`.github/workflows/ci.yml` führt bei jedem PR ~24 Jobs aus (siehe
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) für die vollständige Liste):
+
+- **Frontend**: Lint → Typecheck → Test (Coverage) → `npm audit` (High/Critical in
+  Prod-Deps blockierend) → Lizenzprüfung (GPL/AGPL) → Build (inkl. Bundle-Size-Budget +
+  SBOM) → Playwright-E2E → Lighthouse CI.
+- **Backend**: OpenAPI-Codegen-Drift-Check → Lint → Test → Build → Lizenzprüfung
+  (GPL/AGPL) → `govulncheck` → Migrations-Rollback- und Unsafe-DDL-Checks.
+- **Security/Compliance** (ebenfalls blockierend): CodeQL SAST (Go + TypeScript),
+  TruffleHog Secret-Scanning, Trivy Container-Scans, OWASP ZAP (DAST), Helm-Chart-Lint.
+
+Dependabot aktualisiert Dependencies und GitHub-Actions wöchentlich.
 
 ## Vom Mock zum echten Backend
 

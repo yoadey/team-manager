@@ -44,8 +44,16 @@ A Husky pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files).
 
 ## Quality bar (enforced in CI)
 
-CI runs lint → typecheck → test (coverage) → build (bundle-size budget + SBOM)
-→ Playwright E2E → Lighthouse. PRs must be green to merge.
+`.github/workflows/ci.yml` runs ~24 jobs gating every PR. PRs must be green to merge:
+
+- **Frontend**: lint → typecheck → test (coverage) → security audit (`npm audit`)
+  → license check (GPL/AGPL) → build (bundle-size budget + SBOM) → Playwright E2E
+  → Lighthouse.
+- **Backend**: OpenAPI codegen drift check → lint → test → build → license check
+  (GPL/AGPL) → `govulncheck` → migration rollback + unsafe-DDL-pattern checks.
+- **Security/compliance** (also block merges): CodeQL SAST (Go + TypeScript),
+  TruffleHog secret scanning, Trivy container image scans, OWASP ZAP (DAST),
+  Helm chart lint.
 
 - **Tests** live next to source as `*.test.ts(x)`. Add tests for new logic; the
   coverage floors (`frontend/vitest.config.ts`) must hold.
