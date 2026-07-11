@@ -97,6 +97,71 @@ jobs:
       - run: npm ci
       - run: npm run audit:ci
 
+  frontend-licenses:
+    name: Frontend · License check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # backend-licenses (below) enforces a GPL/AGPL ban on Go modules; the
+    # much larger npm dependency tree had no equivalent check at all. No
+    # needs: -- this only inspects installed package metadata, so it can run
+    # in parallel with lint/test/build like backend-licenses does.
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Report production dependency licenses
+        id: licenses
+        # --production scopes this to what's actually shipped in the built
+        # bundle, not devDependencies (eslint, vitest, playwright, ...),
+        # matching backend-licenses' scope of "what's compiled in". Doesn't
+        # hard-fail the job on a tool crash (npx resolution failure, network
+        # blip) for the same reason backend-licenses doesn't: an
+        # empty/partial licenses.csv would make the next step's grep look
+        # identical to a real clean scan.
+        run: |
+          set +e
+          npx --yes license-checker@25.0.1 --production --csv --out licenses.csv 2>license-checker.stderr
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::license-checker failed (exit $status) — the GPL/AGPL check below is skipped and cannot be trusted this run. See the uploaded license-checker.stderr artifact."
+            cat license-checker.stderr
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check for GPL/AGPL licenses
+        run: |
+          if [ "${{ steps.licenses.outputs.failed }}" = "true" ]; then
+            echo "::warning::Skipping GPL/AGPL check — license report generation failed above."
+            exit 0
+          fi
+          # \b(GPL|AGPL)\b (not a bare "GPL") so LGPL -- a materially
+          # different, commonly-allowed license -- isn't caught as a
+          # substring match.
+          if grep -qE '\b(GPL|AGPL)\b' licenses.csv 2>/dev/null; then
+            echo "::error::GPL/AGPL licensed dependencies found:"
+            grep -E '\b(GPL|AGPL)\b' licenses.csv
+            exit 1
+          else
+            echo "No GPL/AGPL licenses detected."
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: frontend-licenses
+          path: |
+            frontend/licenses.csv
+            frontend/license-checker.stderr
+          retention-days: 30
+
   frontend-build:
     name: Frontend · Build
     runs-on: ubuntu-latest
@@ -165,8 +230,25 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browser binaries
+        id: playwright-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      # A cache hit skips the browser download but not the OS-level apt
+      # dependencies (--with-deps installs both; the runner image itself
+      # isn't cached, only ~/.cache/ms-playwright), so install-deps alone
+      # still has to run every time.
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+      - name: Install Playwright OS dependencies (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm run build
       - name: Run Playwright E2E tests
         run: npx playwright test --reporter=html
