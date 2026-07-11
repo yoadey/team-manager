@@ -391,7 +391,7 @@ jobs:
             exit 1
           fi
           echo "Tool-version pins are in sync (goose $goose_gomod, oapi-codegen $oapi_gomod, golangci-lint $lint_makefile, go $go_gomod)."
-      - name: Verify backup image digests stay in sync
+      - name: Verify pinned base image digests stay in sync
         working-directory: .
         # postgres:17's digest is duplicated in docker-compose.yml (kept
         # current automatically by Dependabot's docker ecosystem entry for
@@ -407,6 +407,12 @@ jobs:
         # service containers or the actual backup CronJob could end up
         # validating/running a stale digest. Same risk, weaker (no Dependabot
         # coverage on either side) for aws-cli's pin.
+        #
+        # node:22-alpine's digest is separately duplicated in docker-compose.yml
+        # (Dependabot docker ecosystem entry for directory /) and
+        # frontend/Dockerfile (separate entry for directory /frontend) -- the
+        # same split-directory drift risk as postgres/aws-cli above, since each
+        # entry can open and merge its own digest-bump PR independently.
         run: |
           set -euo pipefail
           pg_compose=$(grep -oP 'postgres:17@\Ksha256:\S+' docker-compose.yml)
@@ -431,6 +437,14 @@ jobs:
             exit 1
           fi
           echo "Backup image digests are in sync (postgres:17@$pg_compose, aws-cli:$aws_values)."
+
+          node_compose=$(grep -oP 'node:22-alpine@\Ksha256:\S+' docker-compose.yml)
+          node_dockerfile=$(grep -oP 'FROM node:22-alpine@\Ksha256:\S+' frontend/Dockerfile)
+          if [ "$node_compose" != "$node_dockerfile" ]; then
+            echo "::error::node:22-alpine digest mismatch: docker-compose.yml=$node_compose frontend/Dockerfile=$node_dockerfile"
+            exit 1
+          fi
+          echo "node:22-alpine digest is in sync ($node_compose)."
       - name: Forbid hardcoded RFC 9457 type-URI literals outside apierror
         # internal/apierror is the single source of truth for the Problem
         # Details `type` field (honors ERROR_TYPE_BASE_URI). Multiple rounds
