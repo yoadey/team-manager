@@ -128,7 +128,15 @@ func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUI
 	return result, next, nil
 }
 
-// Create adds a new poll and returns it fully assembled.
+// Create adds a new poll (and its options) and returns it fully assembled.
+//
+// Known, accepted tradeoff: same as news.Repository.Create -- if s.repo.Create
+// commits but the FindByID reload right after it fails on a transient
+// DB/network blip, the caller sees a generic error even though the poll now
+// exists, and a client retry with no idempotency key would create a
+// duplicate poll+options. Left unfixed for the same reason: a narrow
+// failure window on a second query immediately after a successful write,
+// not a real deployment issue observed so far.
 func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error) {
 	count, err := s.repo.CountByTeam(ctx, teamID)
 	if err != nil {

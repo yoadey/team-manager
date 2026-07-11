@@ -98,6 +98,16 @@ func (r *Repository) CountByTeam(ctx context.Context, teamID uuid.UUID) (int, er
 }
 
 // Create inserts a new news item and returns the enriched row.
+//
+// Known, accepted tradeoff: if the INSERT commits but the findByID reload
+// right after it fails (a transient DB/network blip -- there's no
+// concurrent-delete race to guard against here, unlike the finances package's
+// otherwise-similar reload-after-write pattern), that error surfaces as a
+// generic 500 even though the news item now exists. A client that retries
+// after seeing that 500 will create a duplicate -- there's no idempotency
+// key or client-supplied ID to detect it. Left unfixed since the failure
+// window (a second query on the same pool right after a successful insert)
+// is narrow and this hasn't been a real deployment issue.
 func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
