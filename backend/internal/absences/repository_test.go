@@ -390,6 +390,60 @@ func TestAbsenceRepository_Create_NotMember_ReturnsErrNotMember(t *testing.T) {
 	assert.Empty(t, all, "no orphaned absence row must be created for a non-member")
 }
 
+// TestAbsenceRepository_Update_NotMember_ReturnsNoRows and
+// TestAbsenceRepository_Delete_NotMember_ReturnsNoRows regression-test the
+// same TOCTOU gap Create's ErrNotMember guard closes, applied to Update and
+// Delete: without a membership re-check inside the write itself, a
+// membership removal racing a concurrent self-service Update/Delete could
+// still let a just-departed member mutate or delete an absence row tied to
+// a team they no longer belong to.
+func TestAbsenceRepository_Update_NotMember_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID, userID := seedAbsenceUser(t, pool)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-06-01", "2025-06-05", nil)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `DELETE FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, userID)
+	require.NoError(t, err)
+
+	newReason := "attacker-controlled edit"
+	_, err = repo.Update(ctx, ab.Id, teamID, userID, nil, nil, &newReason)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+
+	// The row must be untouched by the rejected update.
+	remaining, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, remaining, 1)
+	assert.Nil(t, remaining[0].Reason)
+}
+
+func TestAbsenceRepository_Delete_NotMember_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID, userID := seedAbsenceUser(t, pool)
+	ab, err := repo.Create(ctx, teamID, userID, "2025-06-01", "2025-06-05", nil)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `DELETE FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, userID)
+	require.NoError(t, err)
+
+	err = repo.Delete(ctx, ab.Id, teamID, userID)
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+
+	remaining, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, remaining, 1, "the row must not have been deleted by a non-member")
+}
+
 // seedAbsenceUser inserts a user + team + membership and returns their IDs,
 // for the overlap regression tests below.
 func seedAbsenceUser(t *testing.T, pool *pgxpool.Pool) (teamID, userID uuid.UUID) {

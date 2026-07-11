@@ -313,7 +313,14 @@ func resolveFinalRange(ctx context.Context, tx pgx.Tx, id, teamID, userID uuid.U
 
 // Update modifies an absence that belongs to teamID and userID (self-service:
 // a member may only update their own absence entries) and returns the
-// enriched row. Returns pgx.ErrNoRows if no matching absence exists.
+// enriched row. Returns pgx.ErrNoRows if no matching absence exists OR if
+// userID is no longer a member of teamID -- like Create, the write re-checks
+// membership atomically inside the UPDATE itself (behind the same advisory
+// lock RemoveMember takes), closing the same TOCTOU race Create's ErrNotMember
+// guards against: without it, a concurrent RemoveMember could complete after
+// RequireMembership's request-start check but before this write commits,
+// still letting a just-departed member mutate an absence row tied to a team
+// they no longer belong to.
 func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -351,7 +358,8 @@ func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, f
 			from_date = COALESCE($4::date, from_date),
 			to_date   = COALESCE($5::date, to_date),
 			reason    = COALESCE($6, reason)
-		 WHERE id = $1 AND team_id = $2 AND user_id = $3`,
+		 WHERE id = $1 AND team_id = $2 AND user_id = $3
+		   AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $2 AND user_id = $3)`,
 		id, teamID, userID, fromDate, toDate, reason,
 	)
 	if err != nil {
@@ -381,11 +389,17 @@ func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, f
 
 // Delete removes an absence by ID that belongs to teamID and userID
 // (self-service: a member may only delete their own absence entries).
-// Returns pgx.ErrNoRows if no matching absence exists.
+// Returns pgx.ErrNoRows if no matching absence exists OR if userID is no
+// longer a member of teamID -- same TOCTOU guard as Update/Create (see
+// Update's doc comment); a single DELETE statement is already atomic, so no
+// explicit transaction/advisory lock is needed here.
 func (r *Repository) Delete(ctx context.Context, id, teamID, userID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM absences WHERE id = $1 AND team_id = $2 AND user_id = $3`, id, teamID, userID)
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM absences WHERE id = $1 AND team_id = $2 AND user_id = $3
+		  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $2 AND user_id = $3)`,
+		id, teamID, userID)
 	if err != nil {
 		return fmt.Errorf("absences.Repository.Delete: %w", err)
 	}
