@@ -46,6 +46,15 @@ var ErrNotMember = errors.New("user is not a member of this team")
 // (both surface as the same SQLSTATE 23514).
 const absencesSpanConstraint = "absences_span_within_limit"
 
+// ErrOverlappingAbsence is returned by Create/Update when the resulting date
+// range would overlap another absence entry already recorded for the same
+// user in the same team. Enforced in Go (behind the per-team advisory lock),
+// not a DB constraint -- an EXCLUDE constraint would need to validate
+// against any pre-existing overlapping rows at migration time, which isn't
+// safe to assume clean without a data audit; this closes the same gap for
+// every write going forward without touching existing rows.
+var ErrOverlappingAbsence = errors.New("absence dates overlap an existing entry")
+
 // Repository handles all absence-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -202,8 +211,30 @@ func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, l
 func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.Create: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize against a concurrent Create/Update for the same team so the
+	// overlap check below can't be invalidated by a second request
+	// inserting between the check and this INSERT.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Create: advisory lock: %w", err)
+	}
+
+	overlaps, err := userHasOverlappingAbsence(ctx, tx, teamID, userID, uuid.Nil, fromDate, toDate)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.Create: %w", err)
+	}
+	if overlaps {
+		return nil, ErrOverlappingAbsence
+	}
+
 	var id uuid.UUID
-	err := r.pool.QueryRow(
+	err = tx.QueryRow(
 		ctx,
 		`INSERT INTO absences (user_id, team_id, from_date, to_date, reason)
 		SELECT $1, $2, $3, $4, $5
@@ -224,7 +255,60 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 		}
 		return nil, fmt.Errorf("absences.Repository.Create: %w", err)
 	}
-	return r.findByID(ctx, id)
+
+	ab, err := findByIDQ(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Create: commit: %w", err)
+	}
+	return ab, nil
+}
+
+// userHasOverlappingAbsence reports whether userID already has an absence
+// entry in teamID whose [from_date, to_date] range overlaps [fromDate,
+// toDate], other than excludeID (pass uuid.Nil for a new entry with nothing
+// to exclude).
+func userHasOverlappingAbsence(ctx context.Context, tx pgx.Tx, teamID, userID, excludeID uuid.UUID, fromDate, toDate string) (bool, error) {
+	var overlaps bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM absences
+			WHERE team_id = $1 AND user_id = $2 AND id != $3
+			  AND from_date <= $5::date AND to_date >= $4::date
+		)
+	`, teamID, userID, excludeID, fromDate, toDate).Scan(&overlaps)
+	if err != nil {
+		return false, fmt.Errorf("check overlapping absence: %w", err)
+	}
+	return overlaps, nil
+}
+
+// resolveFinalRange loads id's current [from_date, to_date] and merges in
+// whichever of fromDate/toDate a partial PATCH actually supplied, returning
+// the range Update's write would result in. Returns pgx.ErrNoRows if no
+// matching absence exists.
+func resolveFinalRange(ctx context.Context, tx pgx.Tx, id, teamID, userID uuid.UUID, fromDate, toDate *string) (finalFrom, finalTo string, err error) {
+	err = tx.QueryRow(
+		ctx,
+		`SELECT from_date::text, to_date::text FROM absences WHERE id = $1 AND team_id = $2 AND user_id = $3`,
+		id, teamID, userID,
+	).Scan(&finalFrom, &finalTo)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", pgx.ErrNoRows
+		}
+		return "", "", fmt.Errorf("absences.Repository.Update: load current range: %w", err)
+	}
+	if fromDate != nil {
+		finalFrom = *fromDate
+	}
+	if toDate != nil {
+		finalTo = *toDate
+	}
+	return finalFrom, finalTo, nil
 }
 
 // Update modifies an absence that belongs to teamID and userID (self-service:
@@ -233,7 +317,35 @@ func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromD
 func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: advisory lock: %w", err)
+	}
+
+	// A partial PATCH (only from or only to) needs the *resulting* range to
+	// check for overlap against, not just whichever field was supplied --
+	// same reason the span/date-range CHECK constraints alone aren't enough
+	// (see ErrInvalidDateRange/ErrSpanTooLong above).
+	finalFrom, finalTo, err := resolveFinalRange(ctx, tx, id, teamID, userID, fromDate, toDate)
+	if err != nil {
+		return nil, err
+	}
+
+	overlaps, err := userHasOverlappingAbsence(ctx, tx, teamID, userID, id, finalFrom, finalTo)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: %w", err)
+	}
+	if overlaps {
+		return nil, ErrOverlappingAbsence
+	}
+
+	tag, err := tx.Exec(
 		ctx,
 		`UPDATE absences SET
 			from_date = COALESCE($4::date, from_date),
@@ -255,7 +367,16 @@ func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, f
 	if tag.RowsAffected() == 0 {
 		return nil, pgx.ErrNoRows
 	}
-	return r.findByID(ctx, id)
+
+	ab, err := findByIDQ(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: commit: %w", err)
+	}
+	return ab, nil
 }
 
 // Delete removes an absence by ID that belongs to teamID and userID
@@ -274,10 +395,22 @@ func (r *Repository) Delete(ctx context.Context, id, teamID, userID uuid.UUID) e
 	return nil
 }
 
-// findByID looks up a single absence with enrichment.
-func (r *Repository) findByID(ctx context.Context, id uuid.UUID) (*AbsenceRow, error) {
-	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.id = $1 ORDER BY a.id`, selectAbsenceFields, absenceJoins)
-	row := r.pool.QueryRow(ctx, q, id)
+// querier is satisfied by both *pgxpool.Pool and pgx.Tx, letting findByIDQ
+// run either as a standalone query or inside a caller's transaction.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// findByIDQ looks up a single absence with enrichment. Takes a querier
+// rather than always using r.pool so Create/Update can read the row back
+// inside their own transaction, before committing -- still holding the
+// per-team advisory lock. Delete doesn't take that lock, so a post-commit
+// reload on r.pool could otherwise race a concurrent self-service delete of
+// the very row just written, turning a genuinely successful write into a
+// reported error.
+func findByIDQ(ctx context.Context, q querier, id uuid.UUID) (*AbsenceRow, error) {
+	sql := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.id = $1 ORDER BY a.id`, selectAbsenceFields, absenceJoins)
+	row := q.QueryRow(ctx, sql, id)
 	ab, err := scanAbsence(row)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.findByID: %w", err)

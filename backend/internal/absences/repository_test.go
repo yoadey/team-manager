@@ -2,11 +2,13 @@ package absences_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -386,4 +388,126 @@ func TestAbsenceRepository_Create_NotMember_ReturnsErrNotMember(t *testing.T) {
 	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, all, "no orphaned absence row must be created for a non-member")
+}
+
+// seedAbsenceUser inserts a user + team + membership and returns their IDs,
+// for the overlap regression tests below.
+func seedAbsenceUser(t *testing.T, pool *pgxpool.Pool) (teamID, userID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	teamID, userID = uuid.New(), uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Overlap User', $2, '#333333')`,
+		userID, fmt.Sprintf("overlap-%s@example.com", userID))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Overlap Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
+	require.NoError(t, err)
+	return teamID, userID
+}
+
+// Regression test: nothing prevented a user from recording two overlapping
+// absence entries for the same date range, whether via a genuine race
+// between concurrent requests or simply two sequential creates -- the
+// team's absence calendar and any downstream "days absent" aggregate would
+// then double-count the overlapping days.
+func TestAbsenceRepository_Create_OverlappingRange_Rejected(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+	teamID, userID := seedAbsenceUser(t, pool)
+
+	_, err := repo.Create(ctx, teamID, userID, "2025-06-01", "2025-06-10", nil)
+	require.NoError(t, err)
+
+	// Fully contained within the existing range.
+	_, err = repo.Create(ctx, teamID, userID, "2025-06-03", "2025-06-05", nil)
+	require.ErrorIs(t, err, absences.ErrOverlappingAbsence)
+
+	// Partial overlap at the tail end.
+	_, err = repo.Create(ctx, teamID, userID, "2025-06-08", "2025-06-15", nil)
+	require.ErrorIs(t, err, absences.ErrOverlappingAbsence)
+
+	all, err := repo.ListByUser(ctx, teamID, userID, 50, nil)
+	require.NoError(t, err)
+	assert.Len(t, all, 1, "no rejected overlapping entry should have been created")
+}
+
+// A different user's overlapping range is unaffected (overlap is scoped per
+// user), and a range that starts the day after an existing one ends is not
+// an overlap.
+func TestAbsenceRepository_Create_NonOverlappingRanges_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+	teamID, userID := seedAbsenceUser(t, pool)
+
+	otherUserID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Overlap User', $2, '#444444')`,
+		otherUserID, fmt.Sprintf("other-overlap-%s@example.com", otherUserID))
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, otherUserID)
+	require.NoError(t, err)
+
+	_, err = repo.Create(ctx, teamID, userID, "2025-06-01", "2025-06-10", nil)
+	require.NoError(t, err)
+
+	// Adjacent, non-overlapping (starts the day after the first ends).
+	_, err = repo.Create(ctx, teamID, userID, "2025-06-11", "2025-06-15", nil)
+	require.NoError(t, err)
+
+	// Same dates, but a different user -- must not be blocked by userID's range.
+	_, err = repo.Create(ctx, teamID, otherUserID, "2025-06-01", "2025-06-10", nil)
+	require.NoError(t, err)
+
+	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	assert.Len(t, all, 3)
+}
+
+// Regression test: Update must check the resulting range after merging a
+// partial patch (only `to` supplied here) against the current row, not just
+// whatever field the request happened to include -- same class of gap
+// ErrSpanTooLong/ErrInvalidDateRange already guard for partial PATCHes.
+func TestAbsenceRepository_Update_OverlappingRange_Rejected(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+	teamID, userID := seedAbsenceUser(t, pool)
+
+	_, err := repo.Create(ctx, teamID, userID, "2025-07-01", "2025-07-05", nil)
+	require.NoError(t, err)
+	second, err := repo.Create(ctx, teamID, userID, "2025-07-10", "2025-07-15", nil)
+	require.NoError(t, err)
+
+	// Extending the second entry's `to` alone now reaches back far enough
+	// (only `from` stays as-is) to overlap the first -- the merged range,
+	// not just the patched field, must be checked.
+	newFrom := "2025-07-04"
+	_, err = repo.Update(ctx, second.Id, teamID, userID, &newFrom, nil, nil)
+	require.ErrorIs(t, err, absences.ErrOverlappingAbsence)
+
+	// The second entry's dates must remain unchanged after the rejected update.
+	mine, err := repo.ListByUser(ctx, teamID, userID, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, mine, 2)
+	for _, ab := range mine {
+		if ab.Id == second.Id {
+			assert.Equal(t, "2025-07-10", ab.FromDate.Format("2006-01-02"))
+		}
+	}
+
+	// Updating it to legitimately not overlap (e.g. just its reason) still works.
+	reason := "still fine"
+	updated, err := repo.Update(ctx, second.Id, teamID, userID, nil, nil, &reason)
+	require.NoError(t, err)
+	assert.Equal(t, &reason, updated.Reason)
 }

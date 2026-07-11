@@ -123,6 +123,9 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 			// existence any differently than the normal denial path would.
 			return nil, apierror.NotFound("not found")
 		}
+		if errors.Is(err, ErrOverlappingAbsence) {
+			return nil, apierror.UnprocessableEntity(ErrOverlappingAbsence.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to create absence")
 	}
@@ -207,6 +210,9 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 		}
 		if errors.Is(err, ErrSpanTooLong) {
 			return nil, apierror.BadRequest("absence span must not exceed 3 years")
+		}
+		if errors.Is(err, ErrOverlappingAbsence) {
+			return nil, apierror.UnprocessableEntity(ErrOverlappingAbsence.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to update absence")

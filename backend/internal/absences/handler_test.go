@@ -216,3 +216,51 @@ func TestAbsenceHandler_CreateAbsence_NotMember_Returns404(t *testing.T) {
 	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
 	assert.Equal(t, 404, apiErr.Status)
 }
+
+// Regression test: nothing prevented two overlapping absence entries for the
+// same user; ErrOverlappingAbsence must surface as 422, not the generic 500
+// a bare repository error would produce.
+func TestAbsenceHandler_CreateAbsence_OverlappingRange_Returns422(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		create: func(context.Context, uuid.UUID, *gen.CreateAbsenceRequest) (gen.Absence, error) {
+			return gen.Absence{}, absences.ErrOverlappingAbsence
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	body := &gen.CreateAbsenceRequest{
+		UserId: userID,
+		From:   openapi_types.Date{Time: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+		To:     openapi_types.Date{Time: time.Date(2026, 8, 2, 0, 0, 0, 0, time.UTC)},
+	}
+	_, err := h.CreateAbsence(ctx, gen.CreateAbsenceRequestObject{TeamId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
+	assert.Equal(t, 422, apiErr.Status)
+}
+
+func TestAbsenceHandler_UpdateAbsence_OverlappingRange_Returns422(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	svc := &mockAbsenceService{
+		update: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *gen.UpdateAbsenceRequest) (gen.Absence, error) {
+			return gen.Absence{}, absences.ErrOverlappingAbsence
+		},
+	}
+	h := absences.NewHandler(svc, slog.Default())
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: userID, Name: "Alice", Email: "a@x.c"})
+	to := openapi_types.Date{Time: time.Date(2026, 8, 10, 0, 0, 0, 0, time.UTC)}
+	body := &gen.UpdateAbsenceRequest{To: &to}
+	_, err := h.UpdateAbsence(ctx, gen.UpdateAbsenceRequestObject{TeamId: uuid.New(), AbsenceId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "must map to an APIError, not fall through to the generic 500")
+	assert.Equal(t, 422, apiErr.Status)
+}
