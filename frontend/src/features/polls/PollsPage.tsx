@@ -108,6 +108,15 @@ export function PollsPage() {
                 </ButtonBase>
               ) : null}
             </Box>
+            {/* Known, accepted a11y gap: role="radiogroup"/"radio" here don't
+                come with the WAI-ARIA APG's required roving-tabindex +
+                Arrow-key navigation between options -- each option is its
+                own independent tab stop instead. The exposed role promises
+                keyboard behavior the implementation doesn't provide.
+                Left as a plain toggle-button pattern (matching how
+                EventFormSheet's type/mode buttons correctly use
+                aria-pressed instead of radio) rather than implementing full
+                roving-tabindex behavior here. */}
             <Box
               role={p.multiple ? 'group' : 'radiogroup'}
               aria-label={p.question}
