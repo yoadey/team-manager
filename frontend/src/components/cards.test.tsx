@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import { EventCard } from './cards';
 import { NewsCard } from './cards';
+import { setLocale } from '@/i18n';
 
 const { mockOpenEventDetail } = vi.hoisted(() => ({ mockOpenEventDetail: vi.fn() }));
 
@@ -76,6 +77,27 @@ describe('EventCard', () => {
   it('renders cancelled event without status chip', () => {
     render(<EventCard e={makeEvent({ status: 'cancelled' })} />);
     expect(screen.getByText('Jahresabschluss')).toBeTruthy();
+  });
+
+  // Regression: EventCard is memo()-wrapped on the `e` prop alone, but its
+  // translated labels come from t()/getIntlLocale(), which read module-level
+  // i18n state rather than a prop. Without subscribing to locale changes, an
+  // already-mounted card kept showing the old language until `e` happened to
+  // change for an unrelated reason.
+  it('re-renders with the new language when the locale changes, without a prop change', async () => {
+    render(<EventCard e={makeEvent({ status: 'cancelled' })} />);
+    expect(screen.getByText('Abgesagt')).toBeTruthy();
+
+    await act(async () => {
+      setLocale('en');
+    });
+
+    expect(screen.queryByText('Abgesagt')).toBeNull();
+    expect(screen.getByText('Cancelled')).toBeTruthy();
+
+    await act(async () => {
+      setLocale('de');
+    });
   });
 });
 

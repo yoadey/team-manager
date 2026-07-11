@@ -1,20 +1,35 @@
-import { memo } from 'react';
+import { memo, useSyncExternalStore } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useAppActions } from '@/context/AppContext';
 import { useCompact } from '@/layouts/AppShell';
 import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '@/styles/tokens';
 import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
-import { getIntlLocale, t } from '@/i18n';
+import { getIntlLocale, getLocale, subscribeLocale, t } from '@/i18n';
 import type { TeamEvent } from '@/features/events';
 import type { NewsItem } from '@/features/news';
 import { Av, Chip, Sym, metaItem } from './ui';
 
+/**
+ * Subscribes to the module-level i18n store directly (rather than the
+ * useLocale() context hook, which throws outside a LocaleProvider) so
+ * EventCard/NewsCard re-render on a locale switch without depending on
+ * being mounted inside any particular provider tree.
+ */
+function useLocaleSubscription(): void {
+  useSyncExternalStore(subscribeLocale, getLocale);
+}
+
 /** Event list card (used on Home and Events). Mirrors prototype eventCard().
  *  Memoised + actions-only so it skips re-renders when unrelated state changes
  *  (e.g. typing in a form, incoming notifications) — only `e`/layout changes
- *  re-render a row. */
+ *  re-render a row. `t()`/`getIntlLocale()` read module-level i18n state, not
+ *  props, so without useLocaleSubscription() a locale switch wouldn't
+ *  re-render an already-mounted card until its `e` prop happened to change
+ *  for an unrelated reason -- leaving cancelled/meet-time labels and the
+ *  month abbreviation stuck in the old language. */
 export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
+  useLocaleSubscription();
   const { openEventDetail } = useAppActions();
   const compact = useCompact();
   const today = todayLocalDate();
@@ -137,7 +152,10 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
 });
 
 /** News card. compact=true clamps body to 2 lines. Mirrors prototype newsCard().
- *  Memoised + state-free so it skips re-renders when unrelated state changes. */
+ *  Memoised + state-free so it skips re-renders when unrelated state changes
+ *  -- except locale, since fmtDate() reads module-level i18n state rather
+ *  than a prop; see the identical useLocaleSubscription() note on EventCard
+ *  above. */
 export const NewsCard = memo(function NewsCard({
   n,
   compact = false,
@@ -147,6 +165,7 @@ export const NewsCard = memo(function NewsCard({
   compact?: boolean;
   primaryColor: string;
 }) {
+  useLocaleSubscription();
   const t = buildTokens(primaryColor);
   return (
     <Box sx={{ background: NEUTRAL.card, border: `1px solid ${NEUTRAL.line}`, borderRadius: '16px', p: '15px 16px' }}>
