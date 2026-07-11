@@ -27,7 +27,7 @@ import (
 
 type mockMemberService struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
-	updateMember func(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*gen.Member, error)
+	updateMember func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
 	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	removeMember func(ctx context.Context, membershipID, teamID string) error
 }
@@ -36,8 +36,8 @@ func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limi
 	return m.listMembers(ctx, teamID, limit, cursor)
 }
 
-func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*gen.Member, error) {
-	return m.updateMember(ctx, membershipID, teamID, patch)
+func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error) {
+	return m.updateMember(ctx, membershipID, teamID, callerUserID, patch)
 }
 
 func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error) {
@@ -75,7 +75,7 @@ func TestMemberHandler_UpdateMember_PhoneTooLong_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
-	ctx := context.Background()
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
 	longPhone := strings.Repeat("1", 33)
 	body := &gen.UpdateMemberJSONRequestBody{Phone: &longPhone}
 	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
@@ -87,7 +87,7 @@ func TestMemberHandler_UpdateMember_AddressTooLong_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
-	ctx := context.Background()
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
 	longAddress := strings.Repeat("a", 501)
 	body := &gen.UpdateMemberJSONRequestBody{Address: &longAddress}
 	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
@@ -99,7 +99,7 @@ func TestMemberHandler_UpdateMember_GroupTooLong_Returns400(t *testing.T) {
 	t.Parallel()
 
 	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
-	ctx := context.Background()
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
 	longGroup := strings.Repeat("g", 101)
 	body := &gen.UpdateMemberJSONRequestBody{Group: &longGroup}
 	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
@@ -115,7 +115,7 @@ func TestMemberHandler_UpdateMember_BirthdayOutOfRange_Returns400(t *testing.T) 
 	t.Parallel()
 
 	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
-	ctx := context.Background()
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
 
 	future := openapi_types.Date{Time: time.Now().AddDate(0, 0, 1)}
 	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{
@@ -149,15 +149,16 @@ func TestMemberHandler_UpdateMember_EmailTaken_MapsToGenericInvalidEmailResponse
 	t.Parallel()
 
 	svc := &mockMemberService{
-		updateMember: func(context.Context, string, string, members.MemberPatch) (*gen.Member, error) {
+		updateMember: func(context.Context, string, string, string, members.MemberPatch) (*gen.Member, error) {
 			return nil, members.ErrEmailTaken
 		},
 	}
 	h := members.NewHandler(svc, slog.Default(), nil)
 
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
 	email := openapi_types.Email("taken@example.com")
 	body := &gen.UpdateMemberJSONRequestBody{Email: &email}
-	_, err := h.UpdateMember(context.Background(), gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
 
 	require.Error(t, err)
 	apiErr, ok := err.(*apierror.APIError)
@@ -165,6 +166,27 @@ func TestMemberHandler_UpdateMember_EmailTaken_MapsToGenericInvalidEmailResponse
 	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	assert.Equal(t, validate.ErrEmailInvalid.Error(), apiErr.Detail,
 		"must be byte-for-byte identical to a malformed-email response, not a distinguishable 'taken' message")
+}
+
+func TestMemberHandler_UpdateMember_CannotChangeOthersEmail_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		updateMember: func(context.Context, string, string, string, members.MemberPatch) (*gen.Member, error) {
+			return nil, members.ErrCannotChangeOthersEmail
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Roster Manager", Email: "rm@x.c"})
+	email := openapi_types.Email("new@example.com")
+	body := &gen.UpdateMemberJSONRequestBody{Email: &email}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
 }
 
 func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_Returns409(t *testing.T) {

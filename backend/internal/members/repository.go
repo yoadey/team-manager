@@ -67,6 +67,20 @@ var ErrLastSettingsAdmin = errors.New("cannot remove the last member with settin
 // caller is allowed to grant -- see enforceNoPermissionEscalation.
 var ErrInsufficientPermissionToGrant = errors.New("cannot grant a permission level you do not hold yourself")
 
+// ErrCannotChangeOthersEmail is returned by UpdateMember when the caller
+// tries to change another member's email without settings:write. email is
+// the account's login-lookup key (auth.Service.Login resolves by email), not
+// a cosmetic profile field, and PATCH .../members/{id} is otherwise gated on
+// nothing more than members:write -- unlike role assignment
+// (isMemberRolesPath, authz.go), which the middleware deliberately upgrades
+// to require settings:write specifically because it's privilege-relevant.
+// Without this check, a members:write-only "roster manager" (explicitly
+// denied settings:write, and blocked from touching roles by
+// enforceNoPermissionEscalation) could silently overwrite a settings:write
+// admin's login email -- account-wide, across every team that admin belongs
+// to -- with no notification and no audit trail of the old value.
+var ErrCannotChangeOthersEmail = errors.New("changing another member's email requires settings permission")
+
 // Repository handles member-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
@@ -157,7 +171,7 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 
 // UpdateMember applies a partial update to the user fields and optionally the
 // group, scoped to a membership that belongs to teamID.
-func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error) { //nolint:gocognit,cyclop // complexity inherent in dynamic SQL builder
+func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*MemberRow, error) { //nolint:gocognit,cyclop // complexity inherent in dynamic SQL builder
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -192,6 +206,19 @@ func (r *Repository) UpdateMember(ctx context.Context, membershipID, teamID stri
 			return nil, pgx.ErrNoRows
 		}
 		return nil, fmt.Errorf("members.Repository.UpdateMember: get user_id: %w", err)
+	}
+
+	// Changing another member's email requires settings:write -- see
+	// ErrCannotChangeOthersEmail. A member editing their OWN email needs
+	// nothing beyond being authenticated as themselves.
+	if patch.Email != nil && callerUserID != userID {
+		callerPerms, permErr := getEffectivePermissionsByUserQ(ctx, tx, teamID, callerUserID)
+		if permErr != nil {
+			return nil, fmt.Errorf("members.Repository.UpdateMember: caller permissions: %w", permErr)
+		}
+		if callerPerms.Settings != "write" {
+			return nil, ErrCannotChangeOthersEmail
+		}
 	}
 
 	// Update user fields.

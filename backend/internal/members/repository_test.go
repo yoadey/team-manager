@@ -163,7 +163,7 @@ func TestMembersRepository_UpdateMember(t *testing.T) {
 	bday := time.Date(1990, 5, 15, 0, 0, 0, 0, time.UTC)
 	grp := "seniors"
 
-	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
+	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), members.MemberPatch{
 		Name:     &newName,
 		Email:    &newEmail,
 		Phone:    &newPhone,
@@ -199,7 +199,7 @@ func TestMembersRepository_UpdateMember_EmailTaken_ReturnsErrEmailTaken(t *testi
 	m := seedMember(t, pool, teamID, "Other Member", "other-email-taken@example.com")
 
 	collidingEmail := "existing-email-taken@example.com"
-	_, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
+	_, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), members.MemberPatch{
 		Email: &collidingEmail,
 	})
 	require.ErrorIs(t, err, members.ErrEmailTaken)
@@ -220,7 +220,7 @@ func TestMembersRepository_UpdateMember_WrongTeam_ReturnsNoRows(t *testing.T) {
 	m := seedMember(t, pool, teamID, "Cross Team Target", "crossteam-member@example.com")
 
 	newName := "Attacker Renamed"
-	_, err = repo.UpdateMember(ctx, m.MembershipID.String(), otherTeamID.String(), members.MemberPatch{
+	_, err = repo.UpdateMember(ctx, m.MembershipID.String(), otherTeamID.String(), uuid.New().String(), members.MemberPatch{
 		Name: &newName,
 	})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
@@ -263,7 +263,7 @@ func TestMembersRepository_UpdateMember_ConcurrentRemoveMember_NoSilentSideEffec
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			_, updateErr = repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{Name: &newName})
+			_, updateErr = repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), members.MemberPatch{Name: &newName})
 		}()
 		go func() {
 			defer wg.Done()
@@ -297,13 +297,97 @@ func TestMembersRepository_UpdateMember_PartialPatch(t *testing.T) {
 	m := seedMember(t, pool, teamID, "Eve Original", "eve@example.com")
 
 	newName := "Eve Renamed"
-	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), members.MemberPatch{
+	updated, err := repo.UpdateMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String(), members.MemberPatch{
 		Name: &newName,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Eve Renamed", updated.Name)
 	// Email must remain unchanged.
 	assert.Equal(t, "eve@example.com", updated.Email)
+}
+
+// seedMembersOnlyCaller seeds a member holding members:write only (no
+// settings:write) and returns their userID, for tests exercising
+// ErrCannotChangeOthersEmail's ceiling.
+func seedMembersOnlyCaller(t *testing.T, pool *pgxpool.Pool, teamID uuid.UUID) uuid.UUID {
+	t.Helper()
+	membersOnlyRole := seedRole(t, pool, teamID, "Roster Manager",
+		`{"events":"none","members":"write","finances":"none","news":"none","polls":"none","settings":"none"}`)
+	m := seedMember(t, pool, teamID, "Roster Manager", fmt.Sprintf("roster-manager-%s@example.com", uuid.New()), membersOnlyRole)
+	return m.UserID
+}
+
+// Regression test: PATCH .../members/{id} was gated on nothing but
+// members:write, unlike role assignment (isMemberRolesPath, authz.go),
+// which the middleware deliberately upgrades to require settings:write.
+// email is the account's login-lookup key (auth.Service.Login resolves by
+// email), not a cosmetic profile field, so a members:write-only "roster
+// manager" -- explicitly denied settings:write -- must not be able to
+// silently overwrite a DIFFERENT member's email.
+func TestMembersRepository_UpdateMember_ChangeOthersEmail_RequiresSettingsWrite_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	callerUserID := seedMembersOnlyCaller(t, pool, teamID)
+	target := seedMember(t, pool, teamID, "Target Member", "target-blocked@example.com")
+
+	newEmail := "attacker-controlled@example.com"
+	_, err := repo.UpdateMember(ctx, target.MembershipID.String(), teamID.String(), callerUserID.String(), members.MemberPatch{
+		Email: &newEmail,
+	})
+	require.ErrorIs(t, err, members.ErrCannotChangeOthersEmail)
+
+	// The target's email must be untouched by the rejected update.
+	var gotEmail string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT email FROM users WHERE id = $1`, target.UserID).Scan(&gotEmail))
+	assert.Equal(t, "target-blocked@example.com", gotEmail)
+}
+
+// A caller with settings:write can change another member's email.
+func TestMembersRepository_UpdateMember_ChangeOthersEmail_WithSettingsWrite_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	callerUserID := seedAdminCaller(t, pool, teamID)
+	target := seedMember(t, pool, teamID, "Target Member", "target-allowed@example.com")
+
+	newEmail := "admin-changed@example.com"
+	updated, err := repo.UpdateMember(ctx, target.MembershipID.String(), teamID.String(), callerUserID.String(), members.MemberPatch{
+		Email: &newEmail,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "admin-changed@example.com", updated.Email)
+}
+
+// A member changing their OWN email needs nothing beyond being
+// authenticated as themselves -- the ceiling only applies to changing
+// SOMEONE ELSE's email.
+func TestMembersRepository_UpdateMember_ChangeOwnEmail_Allowed(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	membersOnlyRole := seedRole(t, pool, teamID, "Roster Manager Self",
+		`{"events":"none","members":"write","finances":"none","news":"none","polls":"none","settings":"none"}`)
+	self := seedMember(t, pool, teamID, "Self Editor", "self-editor@example.com", membersOnlyRole)
+
+	newEmail := "self-editor-new@example.com"
+	updated, err := repo.UpdateMember(ctx, self.MembershipID.String(), teamID.String(), self.UserID.String(), members.MemberPatch{
+		Email: &newEmail,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "self-editor-new@example.com", updated.Email)
 }
 
 func TestMembersRepository_SetRoles(t *testing.T) {

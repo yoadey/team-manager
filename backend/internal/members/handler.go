@@ -21,7 +21,7 @@ import (
 // memberService is the interface the Handler relies on.
 type memberService interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
-	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*gen.Member, error)
+	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	RemoveMember(ctx context.Context, membershipID, teamID string) error
 }
@@ -115,6 +115,10 @@ func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, er
 
 // UpdateMember updates member profile fields.
 func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequestObject) (gen.UpdateMemberResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
@@ -124,10 +128,16 @@ func (h *Handler) UpdateMember(ctx context.Context, request gen.UpdateMemberRequ
 		return nil, apierror.BadRequest(err.Error())
 	}
 
-	m, err := h.svc.UpdateMember(ctx, request.MembershipId.String(), request.TeamId.String(), patch)
+	m, err := h.svc.UpdateMember(ctx, request.MembershipId.String(), request.TeamId.String(), user.Id.String(), patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("member not found")
+		}
+		if errors.Is(err, ErrCannotChangeOthersEmail) {
+			h.audit.Record(ctx, audit.EventMemberUpdate, audit.Failure, actor(ctx),
+				slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()),
+				slog.String("reason", "cannot_change_others_email"))
+			return nil, apierror.Forbidden(ErrCannotChangeOthersEmail.Error())
 		}
 		if errors.Is(err, ErrEmailTaken) {
 			// users.email is a global (not per-team) UNIQUE constraint. A

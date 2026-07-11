@@ -18,7 +18,7 @@ import (
 
 type mockMemberRepo struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
-	updateMember func(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*members.MemberRow, error)
+	updateMember func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error)
 	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error)
 	removeMember func(ctx context.Context, membershipID, teamID string) error
 }
@@ -27,8 +27,8 @@ func (m *mockMemberRepo) ListMembers(ctx context.Context, teamID string, limit i
 	return m.listMembers(ctx, teamID, limit, cur)
 }
 
-func (m *mockMemberRepo) UpdateMember(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*members.MemberRow, error) {
-	return m.updateMember(ctx, membershipID, teamID, patch)
+func (m *mockMemberRepo) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error) {
+	return m.updateMember(ctx, membershipID, teamID, callerUserID, patch)
 }
 
 func (m *mockMemberRepo) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error) {
@@ -97,10 +97,11 @@ func TestMemberService_UpdateMember_PassesTeamID(t *testing.T) {
 
 	teamID := uuid.New()
 	membershipID := uuid.New()
+	callerUserID := uuid.New()
 	row := fixedMemberRow()
 
 	repo := &mockMemberRepo{
-		updateMember: func(_ context.Context, mid, tid string, _ members.MemberPatch) (*members.MemberRow, error) {
+		updateMember: func(_ context.Context, mid, tid, _ string, _ members.MemberPatch) (*members.MemberRow, error) {
 			assert.Equal(t, membershipID.String(), mid)
 			assert.Equal(t, teamID.String(), tid)
 			return &row, nil
@@ -108,7 +109,7 @@ func TestMemberService_UpdateMember_PassesTeamID(t *testing.T) {
 	}
 
 	svc := members.NewService(repo, nil)
-	_, err := svc.UpdateMember(context.Background(), membershipID.String(), teamID.String(), members.MemberPatch{})
+	_, err := svc.UpdateMember(context.Background(), membershipID.String(), teamID.String(), callerUserID.String(), members.MemberPatch{})
 	require.NoError(t, err)
 }
 
@@ -116,13 +117,13 @@ func TestMemberService_UpdateMember_WrongTeam_PropagatesNoRows(t *testing.T) {
 	t.Parallel()
 
 	repo := &mockMemberRepo{
-		updateMember: func(context.Context, string, string, members.MemberPatch) (*members.MemberRow, error) {
+		updateMember: func(context.Context, string, string, string, members.MemberPatch) (*members.MemberRow, error) {
 			return nil, pgx.ErrNoRows
 		},
 	}
 
 	svc := members.NewService(repo, nil)
-	_, err := svc.UpdateMember(context.Background(), uuid.New().String(), uuid.New().String(), members.MemberPatch{})
+	_, err := svc.UpdateMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), members.MemberPatch{})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 

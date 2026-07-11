@@ -17,7 +17,7 @@ import (
 // memberRepo is the interface the Service relies on.
 type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
-	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error)
+	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*MemberRow, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*MemberRow, error)
 	RemoveMember(ctx context.Context, membershipID, teamID string) error
 }
@@ -73,8 +73,10 @@ func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cur
 }
 
 // UpdateMember updates member profile and returns the updated gen.Member.
-func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*gen.Member, error) {
-	mr, err := s.repo.UpdateMember(ctx, membershipID, teamID, patch)
+// callerUserID is the authenticated caller, used to require settings:write
+// when the patch changes another member's email (see ErrCannotChangeOthersEmail).
+func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*gen.Member, error) {
+	mr, err := s.repo.UpdateMember(ctx, membershipID, teamID, callerUserID, patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
