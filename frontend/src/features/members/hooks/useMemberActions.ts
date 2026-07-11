@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Member, MemberFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
+import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { validateEmail, validatePhone, validateBirthday, validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
@@ -168,7 +168,7 @@ export function useMemberActions({
         await refreshTeams();
         setState({ user: u });
       }
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       // Only touch the sheet if the user is still on the team this save was
       // for -- otherwise closing/reopening it would clobber whatever sheet
       // they've since opened for the team they switched to, and

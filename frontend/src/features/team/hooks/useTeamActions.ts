@@ -3,7 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Invite, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import type { CreateTeamFormValues, TeamSettingsFormValues } from '../types';
-import { formValues } from '@/utils/forms';
+import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -172,7 +172,7 @@ export function useTeamActions({
         reasonVisibilityRoles: f.reasonRoles || [],
       });
       await refreshTeams();
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       toastMsg(t('team.toastSettingsSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
@@ -202,7 +202,7 @@ export function useTeamActions({
         photo: f.photo,
       });
       await refreshTeams();
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       // Don't navigate the user into the new team, or clobber whatever
       // sheet they've since opened, if they closed the create-team sheet
       // (or opened something else) while this request was in flight -- the

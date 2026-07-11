@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { EventFormValues, TeamEvent } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
+import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
 import { validateEventForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
@@ -113,7 +113,7 @@ export function useEventFormActions({
             nominatedRoleIds: f.nominatedRoleIds,
           });
         await refreshEvents();
-        setState({ busy: null });
+        clearBusyIfOwned(S, setState, 'save');
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail
         // would look up f.id in the new team's event list and find nothing.

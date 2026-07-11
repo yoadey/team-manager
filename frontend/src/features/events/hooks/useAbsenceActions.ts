@@ -5,6 +5,7 @@ import type { AbsenceFormValues } from '../types';
 import { validateDateRange } from '@/utils/validation';
 import { todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
+import { clearBusyIfOwned } from '@/utils/forms';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -69,7 +70,7 @@ export function useAbsenceActions({
           reason: f.reason,
         });
       await Promise.all([refreshEvents(), loadAbsences()]);
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       // Don't close a sheet the user has since opened for a different team
       // after switching away mid-request, or one they've since opened while
       // this save was in flight.

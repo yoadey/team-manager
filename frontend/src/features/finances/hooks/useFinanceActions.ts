@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount, validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
+import { clearBusyIfOwned } from '@/utils/forms';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -85,7 +86,7 @@ export function useFinanceActions({
           category: f.category,
         });
       await loadFinances();
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       // Don't close a sheet the user has since opened for a different team
       // after switching away mid-request, or one they've since opened for a
       // different entity (same team) while this save was in flight.
@@ -104,7 +105,7 @@ export function useFinanceActions({
       try {
         await api.finances.deleteTransaction(id, teamId);
         await loadFinances();
-        setState({ busy: null });
+        clearBusyIfOwned(S, setState, 'delete');
         if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastTxDeleted'));
       } catch (err) {
@@ -153,7 +154,7 @@ export function useFinanceActions({
       if (create) await api.finances.createPenalty(teamId, { label: label.value!, amount: amount.value! });
       else await api.finances.updatePenalty(f.id!, { label: label.value!, amount: amount.value! }, teamId);
       await loadFinances();
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       // Don't navigate away from a sheet the user has since opened for a
       // different team after switching away mid-request, or one they've
       // since opened for a different entity (same team) while this save was
@@ -213,7 +214,7 @@ export function useFinanceActions({
     try {
       await api.finances.assignPenalty(teamId, { userId: f.userId, penaltyId: f.penaltyId });
       await loadFinances();
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(t('finances.toastPenaltyAssigned'));
     } catch (err) {
@@ -267,7 +268,7 @@ export function useFinanceActions({
     try {
       await api.finances.updateContribution(f.id, { label: label.value!, amount: amount.value! }, teamId);
       await loadFinances();
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(t('finances.toastContribSaved'));
     } catch (err) {

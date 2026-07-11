@@ -3,7 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { ModuleKey, PermLevel, Role, TeamForUser } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
 import type { RoleFormValues } from '../types';
-import { formValues } from '@/utils/forms';
+import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
@@ -71,7 +71,7 @@ export function useRoleActions({
       if (f.id) {
         await api.roles.update(f.id, { name: nameResult.value!, permissions: f.perms }, teamId);
         await refreshRoles();
-        setState({ busy: null });
+        clearBusyIfOwned(S, setState, 'save');
         // Don't navigate to the roles sheet for a different team than the
         // one the user has since switched to, or clobber a different sheet
         // the user has since opened while this save was in flight.
@@ -80,7 +80,7 @@ export function useRoleActions({
       } else {
         await api.roles.create(teamId, { name: nameResult.value!, permissions: f.perms });
         await refreshRoles();
-        setState({ busy: null });
+        clearBusyIfOwned(S, setState, 'save');
         if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
         toastMsg(t('team.toastRoleCreated'));
       }

@@ -4,6 +4,7 @@ import type { Poll, PollFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { validatePollForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
+import { clearBusyIfOwned } from '@/utils/forms';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -81,7 +82,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
         anonymous: f.anonymous,
       });
       await loadPolls();
-      setState({ busy: null });
+      clearBusyIfOwned(S, setState, 'save');
       // Don't close a sheet the user has since opened for a different team
       // after switching away mid-request, or one they've since opened for a
       // different entity (same team) while this save was in flight.

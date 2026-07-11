@@ -3,6 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { NewsItem, NewsFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
+import { clearBusyIfOwned } from '@/utils/forms';
 import { validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
 
@@ -53,7 +54,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
       if (f.id) {
         await api.news.update(f.id, { title: titleResult.value!, body: f.body, pinned: f.pinned }, teamId);
         await loadNews();
-        setState({ busy: null });
+        clearBusyIfOwned(S, setState, 'save');
         // Don't close a sheet the user has since opened for a different
         // team after switching away mid-request, or one they've since
         // opened for a different entity (same team) while this save was in
@@ -63,7 +64,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
       } else {
         await api.news.create(teamId, { title: titleResult.value!, body: f.body, pinned: f.pinned });
         await loadNews();
-        setState({ busy: null });
+        clearBusyIfOwned(S, setState, 'save');
         if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('news.toastPublished'));
       }
