@@ -83,6 +83,21 @@ type AttendanceEnriched struct {
 }
 
 // EventSummaryData holds aggregated attendance counts for an event.
+// EventSummaryData holds aggregated attendance counts for an event.
+//
+// Known, accepted limitation: these counts reflect each attendance row's
+// stored status at the time it was recorded, not a live re-evaluation
+// against the event's current NominatedRoleIds. UpdateEvent validates a new
+// nominated-role set but never reconciles existing attendance rows against
+// it, so if an organizer changes which roles are nominated after members
+// have already responded, Nominated/Yes/No/Maybe keep counting those
+// now-irrelevant responses, and newly-eligible members aren't reflected
+// until they individually respond. Reconciling on every nomination change
+// would mean either bulk-flipping other members' already-recorded answers
+// (silently destroying real user input) or a larger read-path change to
+// compute eligibility live rather than trusting the stored status -- judged
+// disproportionate to how rarely nominated roles change after responses
+// have started coming in.
 type EventSummaryData struct {
 	Yes          int
 	No           int

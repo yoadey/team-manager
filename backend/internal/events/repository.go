@@ -652,6 +652,13 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID, teamID string) (EventSummaryData, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// Inner-joined against memberships (not just events/users) so a
+	// departed member's attendance row -- which RemoveMember intentionally
+	// leaves in place as history, since attendance/absences are keyed by
+	// user_id/team_id rather than membership_id -- stops counting toward
+	// the team's current headcount the moment they leave, instead of
+	// forever inflating Yes/No/Maybe/Total for a team an admin might be
+	// planning logistics (catering, transport) around.
 	q := `
 		SELECT
 			COUNT(*) FILTER (WHERE a.status = 'yes')           AS yes,
@@ -663,6 +670,7 @@ func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID, teamID s
 			COUNT(*)                                            AS total
 		FROM attendance a
 		JOIN events e ON e.id = a.event_id
+		JOIN memberships m ON m.user_id = a.user_id AND m.team_id = e.team_id
 		WHERE a.event_id = $1 AND e.team_id = $2
 	`
 	var s EventSummaryData
@@ -714,19 +722,25 @@ func (r *Repository) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid
 	if len(eventIDs) == 0 {
 		return out, nil
 	}
+	// Same departed-member exclusion as GetAttendanceSummary -- joined
+	// through events to reach team_id, since this batch query (unlike the
+	// single-event version) isn't itself team-scoped by a caller-supplied
+	// teamID.
 	q := `
 		SELECT
-			event_id,
-			COUNT(*) FILTER (WHERE status = 'yes')            AS yes,
-			COUNT(*) FILTER (WHERE status = 'no')             AS no,
-			COUNT(*) FILTER (WHERE status = 'maybe')          AS maybe,
-			COUNT(*) FILTER (WHERE status = 'pending')        AS pending,
-			COUNT(*) FILTER (WHERE status = 'not_nominated')  AS not_nominated,
-			COUNT(*) FILTER (WHERE status != 'not_nominated') AS nominated,
-			COUNT(*)                                          AS total
-		FROM attendance
-		WHERE event_id = ANY($1)
-		GROUP BY event_id
+			a.event_id,
+			COUNT(*) FILTER (WHERE a.status = 'yes')            AS yes,
+			COUNT(*) FILTER (WHERE a.status = 'no')             AS no,
+			COUNT(*) FILTER (WHERE a.status = 'maybe')          AS maybe,
+			COUNT(*) FILTER (WHERE a.status = 'pending')        AS pending,
+			COUNT(*) FILTER (WHERE a.status = 'not_nominated')  AS not_nominated,
+			COUNT(*) FILTER (WHERE a.status != 'not_nominated') AS nominated,
+			COUNT(*)                                            AS total
+		FROM attendance a
+		JOIN events e ON e.id = a.event_id
+		JOIN memberships m ON m.user_id = a.user_id AND m.team_id = e.team_id
+		WHERE a.event_id = ANY($1)
+		GROUP BY a.event_id
 	`
 	rows, err := r.pool.Query(ctx, q, eventIDs)
 	if err != nil {
@@ -798,6 +812,9 @@ const maxAttendanceRows = 5000
 func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	// Inner-joined against memberships for the same reason as
+	// GetAttendanceSummary -- a departed member shouldn't keep appearing by
+	// name in the attendee list.
 	q := `
 		SELECT
 			a.user_id,
@@ -812,6 +829,7 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 		FROM attendance a
 		JOIN users u ON u.id = a.user_id
 		JOIN events e ON e.id = a.event_id
+		JOIN memberships m ON m.user_id = a.user_id AND m.team_id = e.team_id
 		WHERE a.event_id = $1 AND e.team_id = $2
 		ORDER BY u.name ASC
 		LIMIT $3

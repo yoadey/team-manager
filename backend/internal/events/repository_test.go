@@ -587,6 +587,78 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 	assert.Empty(t, emptySummaries)
 }
 
+// Regression test: members.Repository.RemoveMember only deletes the
+// memberships row -- attendance is keyed by user_id/team_id, not
+// membership_id, so it's deliberately left in place as history. Without a
+// membership join, GetAttendanceSummary/GetAttendanceSummaries/ListAttendance
+// kept counting and naming a departed member forever, silently inflating an
+// event's headcount with no way for an admin to detect the discrepancy from
+// the API response alone.
+func TestEventRepository_AttendanceExcludesDepartedMembers(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	stayingUserID := uuid.New()
+	departedUserID := uuid.New()
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Staying Member', 'staying@example.com', '#111111'),
+		($2, 'Departed Member', 'departed@example.com', '#222222')
+	`, stayingUserID, departedUserID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Departure Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3)
+	`, teamID, stayingUserID, departedUserID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Departure Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	yes := "yes"
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), stayingUserID.String(), teamID.String(), &yes, nil, nil, nil)
+	require.NoError(t, err)
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), departedUserID.String(), teamID.String(), &yes, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Sanity check: both count before the departure.
+	before, err := repo.GetAttendanceSummary(ctx, ev.Id.String(), teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, 2, before.Total)
+	assert.Equal(t, 2, before.Yes)
+
+	attendeesBefore, err := repo.ListAttendance(ctx, ev.Id.String(), teamID.String())
+	require.NoError(t, err)
+	assert.Len(t, attendeesBefore, 2)
+
+	// Departure: only the memberships row is removed, mirroring
+	// members.Repository.RemoveMember -- the attendance row for
+	// departedUserID is deliberately left in place as history.
+	_, err = pool.Exec(ctx, `DELETE FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, departedUserID)
+	require.NoError(t, err)
+
+	after, err := repo.GetAttendanceSummary(ctx, ev.Id.String(), teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, 1, after.Total, "departed member must not count toward the event's total")
+	assert.Equal(t, 1, after.Yes)
+
+	attendeesAfter, err := repo.ListAttendance(ctx, ev.Id.String(), teamID.String())
+	require.NoError(t, err)
+	require.Len(t, attendeesAfter, 1)
+	assert.Equal(t, stayingUserID, attendeesAfter[0].UserId)
+
+	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id})
+	require.NoError(t, err)
+	assert.Equal(t, 1, summaries[ev.Id].Total, "batched summary must also exclude the departed member")
+}
+
 func TestEventRepository_SetStatus_CrossTeamBlocked(t *testing.T) {
 	t.Parallel()
 
