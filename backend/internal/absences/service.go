@@ -37,6 +37,19 @@ func NewService(repo absenceRepo, pager *pagination.Paginator) *Service {
 
 // ListByTeam returns a keyset page of team absences plus the next-page cursor
 // (nil on the last page). cursor is the opaque token from a prior page.
+//
+// Known, accepted asymmetry: absences maps to no RBAC module at all
+// (middleware/authz.go's routeModule["absences"] == ""), so any team member
+// -- even one with every module permission set to "none" -- can read every
+// other member's free-text absence reason via this endpoint, with no
+// redaction or per-entry visibility choice comparable to events'
+// reasonVisibility ("team"/"trainers", events.Service.ListAttendance). That
+// design was deliberate (a team-wide "who's out and why" view was judged
+// more useful open than gated), but it means an absence reason -- unlike a
+// declined-attendance reason -- gets zero privacy protection even from a
+// member the team has otherwise fully locked out. Revisiting this would mean
+// adding a reasonVisibility-equivalent system to absences; left as a known
+// gap rather than implemented speculatively here.
 func (s *Service) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Absence, *string, error) {
 	cur, err := s.decodeAbsenceCursor(cursor)
 	if err != nil {
