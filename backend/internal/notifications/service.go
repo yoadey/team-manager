@@ -101,6 +101,16 @@ func (s *Service) List(ctx context.Context, teamID, userID uuid.UUID) (gen.Notif
 }
 
 // MarkSeen records that the user has seen all notifications.
+//
+// Known, accepted limitation: seen_at is a single team-wide timestamp, not
+// per-module. If a member with e.g. events:none marks notifications seen
+// (advancing seen_at to now, covering only the news/poll items List actually
+// showed them), then later gains events:read, event notifications created
+// before that seen_at render as already-read even though List's
+// hasReadAccess filter hid them at the time. No data is exposed either way
+// -- List always re-filters by current permissions -- so this is a minor
+// unread-count/UX inconsistency, not a security gap, and not worth a
+// per-module seen_at for how rarely a member's module permissions change.
 func (s *Service) MarkSeen(ctx context.Context, teamID, userID uuid.UUID) error {
 	if err := s.repo.MarkSeen(ctx, teamID, userID); err != nil {
 		return fmt.Errorf("notifications.Service.MarkSeen: %w", err)
