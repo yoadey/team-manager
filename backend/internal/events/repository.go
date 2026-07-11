@@ -206,11 +206,11 @@ func (r *Repository) GetEvent(ctx context.Context, eventID, teamID string) (*Eve
 // injected roleChecker) still runs first as a fast UX rejection; this is the
 // authoritative, race-free check.
 func validateNominatedRolesInTx(ctx context.Context, tx pgx.Tx, teamID string, roleIDs []uuid.UUID) error {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
-		return fmt.Errorf("events.Repository: advisory lock: %w", err)
-	}
 	if len(roleIDs) == 0 {
 		return nil
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return fmt.Errorf("events.Repository: advisory lock: %w", err)
 	}
 	seen := make(map[uuid.UUID]struct{}, len(roleIDs))
 	for _, id := range roleIDs {

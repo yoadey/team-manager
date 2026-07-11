@@ -175,6 +175,55 @@ func TestEventRepository_CreateEvent_RejectsForeignTeamNominatedRole(t *testing.
 	require.NotNil(t, ev)
 }
 
+// Regression test: CreateEvent must not take the team's
+// pg_advisory_xact_lock(hashtextextended(teamID, 0)) at all when the event has
+// no nominated roles to validate -- otherwise it needlessly serializes against
+// every other privilege-relevant mutation on the team (role deletion, role
+// assignment, team updates), even though there's nothing here that could race
+// with them.
+func TestEventRepository_CreateEvent_NoNominatedRoles_DoesNotBlockOnAdvisoryLock(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Lock Team')`, teamID)
+	require.NoError(t, err)
+
+	lockHeld := make(chan struct{})
+	lockReleased := make(chan struct{})
+	go func() {
+		defer close(lockReleased)
+		conn, err := pool.Acquire(ctx)
+		require.NoError(t, err)
+		defer conn.Release()
+		tx, err := conn.Begin(ctx)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID)
+		require.NoError(t, err)
+		close(lockHeld)
+		time.Sleep(2 * time.Second)
+		_ = tx.Rollback(ctx)
+	}()
+
+	<-lockHeld
+
+	params := makeCreateParams("No Roles Event", time.Now().UTC())
+	// params.NominatedRoleIds left nil -- nothing to validate.
+
+	start := time.Now()
+	ev, err := repo.CreateEvent(ctx, teamID, &params)
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	require.NotNil(t, ev)
+	assert.Less(t, elapsed, 500*time.Millisecond,
+		"CreateEvent with no nominated roles should not block on the team's advisory lock; took %v", elapsed)
+
+	<-lockReleased
+}
+
 // A series-scope update with a new title AND a new date must apply the title
 // to every occurrence but NOT collapse every occurrence onto the same date —
 // date is what makes each occurrence distinct; only the specific event the
