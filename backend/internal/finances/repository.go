@@ -239,13 +239,16 @@ func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUI
 
 // ─── Penalties ────────────────────────────────────────────────────────────────
 
-// ListPenalties returns all penalty definitions for the team.
+// ListPenalties returns up to maxOverviewRows penalty definitions for the
+// team, alphabetically. See maxOverviewRows's doc comment: GetOverview reads
+// this list unconditionally inside the same 5s query timeout as every other
+// (already-capped) overview list.
 func (r *Repository) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]PenaltyRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, label, amount FROM penalties WHERE team_id = $1 ORDER BY label
-	`, teamID)
+		SELECT id, team_id, label, amount FROM penalties WHERE team_id = $1 ORDER BY label LIMIT $2
+	`, teamID, maxOverviewRows)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.ListPenalties: %w", err)
 	}
@@ -260,6 +263,19 @@ func (r *Repository) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]Pen
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// CountPenalties returns the number of penalty definitions the team has,
+// used to enforce maxPenaltiesPerTeam before an insert.
+func (r *Repository) CountPenalties(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM penalties WHERE team_id = $1`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("finances.Repository.CountPenalties: %w", err)
+	}
+	return count, nil
 }
 
 // CreatePenalty inserts a new penalty definition.

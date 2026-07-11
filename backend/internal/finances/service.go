@@ -25,6 +25,7 @@ var (
 var (
 	ErrTooManyTransactions = fmt.Errorf("team has reached the maximum of %d transactions", maxTransactionsPerTeam)
 	ErrTooManyAssignments  = fmt.Errorf("team has reached the maximum of %d penalty assignments", maxAssignmentsPerTeam)
+	ErrTooManyPenalties    = fmt.Errorf("team has reached the maximum of %d penalty definitions", maxPenaltiesPerTeam)
 )
 
 // maxTransactionsPerTeam / maxAssignmentsPerTeam cap how many rows a single
@@ -38,9 +39,18 @@ var (
 // generous enough that no legitimate club's multi-year financial history
 // should ever approach them -- this exists to stop runaway/malicious
 // creation, not to constrain real usage.
+//
+// maxPenaltiesPerTeam is much smaller: unlike transactions/assignments,
+// which are naturally bounded by real financial activity, penalty
+// definitions are just a small, hand-curated catalog of fine types (e.g.
+// "Zu spät", "Fehltraining") -- a legitimate club needs at most a few dozen.
+// GetOverview reads ListPenalties unconditionally too (see ListPenalties'
+// doc comment), so it needs the same flood protection as the other lists,
+// just at a scale matching what this table is actually for.
 const (
 	maxTransactionsPerTeam = 100_000
 	maxAssignmentsPerTeam  = 100_000
+	maxPenaltiesPerTeam    = 500
 )
 
 // financeRepo is the interface the Service relies on.
@@ -53,6 +63,7 @@ type financeRepo interface {
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 
 	ListPenalties(ctx context.Context, teamID uuid.UUID) ([]PenaltyRow, error)
+	CountPenalties(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*PenaltyRow, error)
 	UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error)
 	DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error
@@ -256,6 +267,14 @@ func (s *Service) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) e
 
 // CreatePenalty creates a new penalty definition.
 func (s *Service) CreatePenalty(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+	count, err := s.repo.CountPenalties(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreatePenalty: %w", err)
+	}
+	if count >= maxPenaltiesPerTeam {
+		return nil, ErrTooManyPenalties
+	}
+
 	p, err := s.repo.CreatePenalty(ctx, teamID, body.Label, body.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreatePenalty: %w", err)

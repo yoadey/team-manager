@@ -205,6 +205,10 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	}
 	p, err := h.svc.CreatePenalty(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyPenalties) {
+			h.recordFinanceFailure(ctx, "penalty.create", err.Error())
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
 		h.recordFinanceFailure(ctx, "penalty.create", "internal error")
 		return nil, apierror.Internal("failed to create penalty")

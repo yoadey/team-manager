@@ -26,6 +26,7 @@ type mockRepo struct {
 	updateTransactionFn      func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
 	deleteTransactionFn      func(ctx context.Context, id, teamID uuid.UUID) error
 	listPenaltiesFn          func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error)
+	countPenaltiesFn         func(ctx context.Context, teamID uuid.UUID) (int, error)
 	createPenaltyFn          func(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error)
 	updatePenaltyFn          func(ctx context.Context, id, teamID uuid.UUID, patch finances.PenaltyPatch) (*finances.PenaltyRow, error)
 	deletePenaltyFn          func(ctx context.Context, id, teamID uuid.UUID) error
@@ -78,6 +79,16 @@ func (m *mockRepo) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) 
 
 func (m *mockRepo) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error) {
 	return m.listPenaltiesFn(ctx, teamID)
+}
+
+// CountPenalties is optional; when unset, existing tests exercising
+// CreatePenalty get a default of 0 (well under maxPenaltiesPerTeam) so they
+// don't all need updating just to set this new field.
+func (m *mockRepo) CountPenalties(ctx context.Context, teamID uuid.UUID) (int, error) {
+	if m.countPenaltiesFn != nil {
+		return m.countPenaltiesFn(ctx, teamID)
+	}
+	return 0, nil
 }
 
 func (m *mockRepo) CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error) {
@@ -262,6 +273,30 @@ func TestService_CreateTransaction_RejectsAtCap(t *testing.T) {
 	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Expense, Title: "Balls", Amount: 100}
 	_, err := svc.CreateTransaction(context.Background(), teamID, body)
 	require.ErrorIs(t, err, finances.ErrTooManyTransactions)
+}
+
+// Regression test: unlike CreateTransaction/CreateAssignment, CreatePenalty
+// used to have no CountPenalties check at all -- a team member with
+// finances:write could flood the penalties table without bound, and
+// GetOverview reads ListPenalties unconditionally inside the same 5s query
+// timeout as every other overview list. CreatePenalty must refuse once the
+// team is at maxPenaltiesPerTeam, without ever reaching the repo's insert.
+func TestService_CreatePenalty_RejectsAtCap(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	repo := &mockRepo{
+		countPenaltiesFn: func(context.Context, uuid.UUID) (int, error) { return 500, nil },
+		createPenaltyFn: func(context.Context, uuid.UUID, string, int64) (*finances.PenaltyRow, error) {
+			t.Fatal("CreatePenalty must not be called once the team is at the penalty cap")
+			return nil, nil
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	body := &gen.CreatePenaltyJSONRequestBody{Label: "Zu spät", Amount: 500}
+	_, err := svc.CreatePenalty(context.Background(), teamID, body)
+	require.ErrorIs(t, err, finances.ErrTooManyPenalties)
 }
 
 func TestService_UpdateTransaction_OnlySetsProvidedFields(t *testing.T) {
