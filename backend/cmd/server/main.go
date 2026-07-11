@@ -145,16 +145,21 @@ func main() {
 	migrateOnly := flag.Bool("migrate-only", false, "run database migrations and exit")
 	flag.Parse()
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	// ─── Config ──────────────────────────────────────────────────────────────
+	// Loaded before the logger so its level can be configured by LOG_LEVEL;
+	// config.Load() never logs internally, only returns an error, and the
+	// stdlib's own default slog logger (text-format to stderr) is usable
+	// even before SetDefault runs, so this ordering doesn't lose the
+	// failure message below.
 
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config error", "err", err)
 		os.Exit(1)
 	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+	slog.SetDefault(logger)
 
 	failIfMetricsOpen(cfg)
 	warnIfPaginationKeyOpen(cfg)

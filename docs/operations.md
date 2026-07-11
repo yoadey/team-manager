@@ -54,6 +54,45 @@ pg_restore --no-owner --clean --if-exists \
 Application migrations are idempotent (goose); after restore, the backend runs
 any pending migrations automatically on startup.
 
+### Disaster recovery: restoring into production
+
+The steps above verify a dump is restorable into a scratch database — the
+actual DR cutover, if the primary database is lost or corrupted, needs more
+care:
+
+1. **Stop writes first.** Scale the backend Deployment to 0
+   (`kubectl scale deploy/<release> --replicas=0`) before restoring. A
+   restore racing concurrent application writes can corrupt the target or
+   have the app fail mid-request against a half-restored schema.
+2. **Restore into the real target**, not a scratch DB this time —
+   `pg_restore --no-owner --clean --if-exists --dbname=<production DSN>
+   <dump>`. If the target host/database name is changing (e.g. failing over
+   to a new Postgres instance), update `DATABASE_URL` in the
+   `existingSecret` Secret *before* the next step.
+3. **Restart every pod**, not just scale back up — `DATABASE_URL` (like
+   `JWT_PRIVATE_KEY`/`COOKIE_ENCRYPTION_KEY(S)` elsewhere in this doc) is
+   read once via `config.Load()` at process start
+   (`backend/internal/config/config.go`), so an already-running pod (if any
+   survived) won't pick up a changed Secret without a restart.
+4. **Mind the schema-version gap.** The restored dump reflects whatever
+   goose migration state existed at backup time, which may be *behind* the
+   currently-deployed app version (if migrations shipped between the backup
+   and the incident) — the migrate initContainer applies anything pending
+   automatically on the next pod start, same as a normal deploy, so this is
+   usually transparent. It can matter in reverse too, if you're
+   deliberately rolling back the app alongside the restore: see "Rolling
+   upgrades & schema-changing migrations" below for why an old binary
+   against a newer schema can be the more dangerous direction.
+5. **Verify before scaling back up.** Check `SELECT version_id, is_applied
+   FROM goose_db_version ORDER BY id DESC LIMIT 5;` looks sane, and
+   spot-check a couple of core tables (`teams`, `memberships`) for
+   plausible row counts before serving traffic again.
+6. **Scale the backend back up** once the above checks pass.
+
+Practice this end-to-end against a real (non-production) cluster at least
+once — a restore procedure that's only ever been read, never run, is not a
+tested procedure.
+
 ### Point-in-time recovery (PITR)
 
 For tighter RPO than nightly dumps, enable WAL archiving (`archive_mode=on` +

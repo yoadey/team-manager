@@ -48,6 +48,7 @@ env:
   SESSION_TTL_HOURS: "720"
   OTEL_SERVICE_NAME: "team-manager-backend-staging"
   ENVIRONMENT: "staging"
+  LOG_LEVEL: "debug"
   # See the same note in values-prod.yaml: ingress is enabled above, so set
   # this to your cluster's ingress-controller pod CIDR or rate limiting
   # silently keys on the ingress controller's own IP for every client.

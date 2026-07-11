@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -33,6 +34,30 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, []string{"http://localhost:5173"}, cfg.AllowedOrigins)
 	// PublicBaseURL defaults to the first allowed origin.
 	assert.Equal(t, "http://localhost:5173", cfg.PublicBaseURL)
+	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
+}
+
+func TestLoad_LogLevel(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	cases := []struct {
+		env  string
+		want slog.Level
+	}{
+		{"", slog.LevelInfo},
+		{"debug", slog.LevelDebug},
+		{"DEBUG", slog.LevelDebug},
+		{"warn", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"not-a-level", slog.LevelInfo},
+	}
+	for _, c := range cases {
+		t.Setenv("LOG_LEVEL", c.env)
+		cfg, err := config.Load()
+		require.NoError(t, err)
+		assert.Equal(t, c.want, cfg.LogLevel, "LOG_LEVEL=%q", c.env)
+	}
 }
 
 func TestLoad_PublicBaseURL(t *testing.T) {

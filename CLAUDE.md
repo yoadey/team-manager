@@ -148,6 +148,7 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `SENTRY_DSN`      | _(empty)_                   | Sentry DSN for backend error tracking; disabled when empty |
 | `ENVIRONMENT`     | _(empty)_                   | Environment label attached to Sentry events |
 | `ERROR_TYPE_BASE_URI` | _(empty)_               | Base URI prefix for the `type` field of RFC 9457 problem+json error responses (e.g. `https://docs.example.com/errors`); left as relative paths when unset. |
+| `LOG_LEVEL`       | `info`                      | Minimum level the JSON structured logger emits (`debug`\|`info`\|`warn`\|`error`, case-insensitive). An unrecognized value falls back to `info` rather than failing startup. |
 
 > **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation.
 > Encryption always uses the *first* key; decryption tries all keys in order. Like
