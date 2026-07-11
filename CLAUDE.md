@@ -29,7 +29,7 @@ docker compose up          # Postgres + Backend + Frontend
 team-manager/
 ├── frontend/              React 19 + TypeScript SPA
 │   ├── src/               Application source
-│   │   ├── services/serviceLayer.ts   Mock backend (replace with real API)
+│   │   ├── services/serviceLayer.ts   Mock/real backend switch (see "Connecting the Real Backend")
 │   │   └── ...
 │   ├── package.json
 │   └── vite.config.ts
@@ -79,7 +79,8 @@ team-manager/
 - **State-based routing** (no router dependency; navigation driven by `state.route`)
 - **i18n** via lightweight in-house layer (`src/i18n`)
 - All state in `src/context/AppContext.tsx`; access via `useApp()`
-- Mock backend at `src/services/serviceLayer.ts` — replace bodies with `fetch()` to connect real API
+- `src/services/serviceLayer.ts` exports `api`, switching between the in-memory mock and the real
+  backend based on `VITE_API_BASE_URL` (see "Connecting the Real Backend" below)
 
 ### Backend
 
@@ -104,7 +105,8 @@ Enforcement (`internal/middleware/authz.go`, `RequirePermission`): mutating requ
 cd backend && make generate  # regenerates internal/gen/api.gen.go
 ```
 
-The TypeScript client is also generated from this spec (future: `openapi-typescript` + `openapi-fetch`).
+The TypeScript client is also generated from this spec via `openapi-typescript` + `openapi-fetch`
+(`make generate-ts` at the repo root; see "Connecting the Real Backend" below).
 
 ## Environment Variables
 
@@ -211,8 +213,13 @@ The real backend integration is already implemented, not a future step:
 - `frontend/src/services/serviceContract.test.ts` cross-tests both implementations
   against the same contract to keep them from drifting apart.
 
-When the OpenAPI spec changes, regenerate `frontend/src/api/types.gen.ts` (via
-`openapi-typescript`, consumed by the `openapi-fetch` client in
-`frontend/src/api/client.ts`) after running `make generate` in `backend/`. There is no
-wired npm script for this yet — run `openapi-typescript` directly against
-`backend/openapi/openapi.yaml`.
+When the OpenAPI spec changes, regenerate both clients from the repo root:
+
+```bash
+make generate     # internal/gen/api.gen.go
+make generate-ts  # frontend/src/api/types.gen.ts (via openapi-typescript)
+```
+
+`frontend/src/api/types.gen.ts` is consumed by the `openapi-fetch` client in
+`frontend/src/api/client.ts`. CI's `backend-openapi-drift` job runs both generators and fails the
+build if the checked-in output doesn't match `backend/openapi/openapi.yaml`.
