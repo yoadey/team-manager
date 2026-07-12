@@ -128,6 +128,22 @@ describe('useEventDetailActions', () => {
     expect(stateRef.sheet).toMatchObject({ eventNotFound: false });
   });
 
+  // Regression test: a thrown fetch (e.g. events:none after a permission
+  // downgrade, reached via a deep link/bookmark/back-forward into
+  // /events/<id> -- ensureRouteData's own permission pre-check doesn't cover
+  // this path) never reached the success branch that sets eventNotFound, so
+  // EventDetailSheet's `if (!e) { ... return <SpinnerBox /> }` spun forever.
+  // reloadDetail must close the sheet on any failure instead.
+  it('openEventDetail closes the sheet instead of spinning forever when the fetch throws', async () => {
+    api.events.get = vi.fn().mockRejectedValue(new Error('boom'));
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openEventDetail('ev1');
+    });
+    expect(stateRef.sheet).toBeNull();
+    expect(toastMsg).toHaveBeenCalled();
+  });
+
   it('setMyStatus calls attendance API and shows toast', async () => {
     stateRef = makeState({ sheet: { type: 'eventDetail', eventId: 'ev1', event: null, rows: [] } as never });
     const { result } = renderActions();

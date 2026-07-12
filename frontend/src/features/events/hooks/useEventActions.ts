@@ -25,7 +25,7 @@ type EventFeatureDeps = {
     danger?: boolean;
     onConfirm: () => void | Promise<void>;
   }) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -57,6 +57,16 @@ export function useEventDetailActions({
         );
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load');
+        // openEventDetail opens the sheet optimistically with event: null
+        // (EventDetailSheet shows a spinner until eventNotFound flips true).
+        // A thrown fetch -- e.g. events:none after a permission downgrade, or
+        // a genuine network failure -- never reaches the success branch
+        // above that would set eventNotFound, so without this the sheet was
+        // stuck spinning forever; the toast above already explains what went
+        // wrong, so just close the sheet instead of showing a misleading
+        // "this event was deleted" empty state for what may just be a
+        // transient failure.
+        setState((s) => (s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId ? { sheet: null } : {}));
       }
     },
     [api, S, setState, toastMsg, logout],
