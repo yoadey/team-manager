@@ -34,7 +34,7 @@ type FeatureActionDeps = {
   loadPolls: () => Promise<void>;
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   setFormVal: (patch: Record<string, unknown>) => void;
   askConfirm: (cfg: ConfirmConfig) => void;
   logout: () => void;

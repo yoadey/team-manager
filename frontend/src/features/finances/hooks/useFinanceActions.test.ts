@@ -125,7 +125,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.saveTx();
     });
-    expect(toastMsg).toHaveBeenCalledWith(expect.stringContaining('fehlt'));
+    expect(toastMsg).toHaveBeenCalledWith(expect.stringContaining('fehlt'), undefined, 'error');
     expect(api.finances.addTransaction).not.toHaveBeenCalled();
   });
 
@@ -278,7 +278,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.savePenaltyAssign();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Person wählen.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Person wählen.', undefined, 'error');
   });
 
   it('savePenaltyAssign shows toast when penaltyId is missing', async () => {
@@ -287,7 +287,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.savePenaltyAssign();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Strafe wählen.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Strafe wählen.', undefined, 'error');
   });
 
   it('savePenaltyAssign assigns penalty when valid', async () => {

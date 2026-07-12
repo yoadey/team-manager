@@ -19,7 +19,7 @@ type TeamDeps = {
   refreshMembers: () => Promise<void>;
   setFormVal: (patch: Record<string, unknown>) => void;
   afterLoginLoad: (teamId: string) => Promise<void>;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -161,7 +161,7 @@ export function useTeamActions({
   const saveTeamSettings = useCallback(async () => {
     const f = S().form as TeamSettingsFormValues;
     if (!f.name || !f.name.trim()) {
-      toastMsg(t('team.nameRequired'));
+      toastMsg(t('team.nameRequired'), undefined, 'error');
       return;
     }
     setState({ busy: 'save' });
@@ -188,7 +188,7 @@ export function useTeamActions({
     const f = S().form as CreateTeamFormValues;
     const name = validateRequiredText(f.name, t('team.nameRequired'));
     if (!name.ok) {
-      toastMsg(name.message!);
+      toastMsg(name.message!, undefined, 'error');
       return;
     }
     const sh = S().sheet;
@@ -240,7 +240,7 @@ export function useTeamActions({
     try {
       await navigator.clipboard.writeText(inv.link);
     } catch {
-      toastMsg(t('error.copy'));
+      toastMsg(t('error.copy'), undefined, 'error');
       return;
     }
     // Must check the team and sheet type too, not just splice onto whatever

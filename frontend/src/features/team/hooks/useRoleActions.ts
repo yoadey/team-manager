@@ -18,7 +18,7 @@ type RoleDeps = {
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
   askConfirm: (cfg: ConfirmConfig) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -61,7 +61,7 @@ export function useRoleActions({
     const f = S().form as RoleFormValues;
     const nameResult = validateRequiredText(f.name, t('team.roleNameRequired'));
     if (!nameResult.ok) {
-      toastMsg(nameResult.message!);
+      toastMsg(nameResult.message!, undefined, 'error');
       return;
     }
     const teamId = S().activeTeamId!;
@@ -124,7 +124,7 @@ export function useRoleActions({
         const cur = team.myRoles.map((r) => r.id);
         const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
         if (!next.length) {
-          toastMsg(t('team.roleAtLeastOne'));
+          toastMsg(t('team.roleAtLeastOne'), undefined, 'error');
           return;
         }
         try {

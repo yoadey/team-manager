@@ -26,7 +26,7 @@ type FinanceFeatureDeps = {
   loadStats: (range?: DateRange | null) => Promise<void>;
   refreshMembers: () => Promise<void>;
   askConfirm: (cfg: ConfirmConfig) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -55,12 +55,12 @@ export function useFinanceActions({
     const f = S().form as TxFormValues;
     const title = validateRequiredText(f.title, t('finances.txFieldTitleError'));
     if (!title.ok) {
-      toastMsg(title.message!);
+      toastMsg(title.message!, undefined, 'error');
       return;
     }
     const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
     if (!amount.ok) {
-      toastMsg(amount.message!);
+      toastMsg(amount.message!, undefined, 'error');
       return;
     }
     const sh = S().sheet;
@@ -137,12 +137,12 @@ export function useFinanceActions({
     const f = S().form as PenaltyFormValues;
     const label = validateRequiredText(f.label, t('finances.penaltyFieldLabelError'));
     if (!label.ok) {
-      toastMsg(label.message!);
+      toastMsg(label.message!, undefined, 'error');
       return;
     }
     const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
     if (!amount.ok) {
-      toastMsg(amount.message!);
+      toastMsg(amount.message!, undefined, 'error');
       return;
     }
     const sh = S().sheet!;
@@ -201,11 +201,11 @@ export function useFinanceActions({
   const savePenaltyAssign = useCallback(async () => {
     const f = S().form as PenaltyAssignFormValues;
     if (!f.userId) {
-      toastMsg(t('finances.assignPersonError'));
+      toastMsg(t('finances.assignPersonError'), undefined, 'error');
       return;
     }
     if (!f.penaltyId) {
-      toastMsg(t('finances.assignPenaltyError'));
+      toastMsg(t('finances.assignPenaltyError'), undefined, 'error');
       return;
     }
     const sh = S().sheet;
@@ -254,12 +254,12 @@ export function useFinanceActions({
     const f = S().form as ContribFormValues;
     const label = validateRequiredText(f.label, t('finances.contribFieldLabelError'));
     if (!label.ok) {
-      toastMsg(label.message!);
+      toastMsg(label.message!, undefined, 'error');
       return;
     }
     const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
     if (!amount.ok) {
-      toastMsg(amount.message!);
+      toastMsg(amount.message!, undefined, 'error');
       return;
     }
     const sh = S().sheet;

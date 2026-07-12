@@ -572,7 +572,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // hardware error) leaves onload never firing and cb never called --
       // the user's "upload photo" click silently does nothing, with no
       // toast and no way to tell it failed at all.
-      r.onerror = () => toastMsg(t('error.fileRead'));
+      r.onerror = () => toastMsg(t('error.fileRead'), undefined, 'error');
       r.readAsDataURL(f);
     },
     [toastMsg],
@@ -849,7 +849,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             toastMsg(t('team.toastJoined', { name: joined.name }));
           }
         } catch {
-          toastMsg(t('team.toastInviteInvalid'));
+          toastMsg(t('team.toastInviteInvalid'), undefined, 'error');
         }
       }
 

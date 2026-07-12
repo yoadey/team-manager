@@ -267,7 +267,7 @@ describe('useCalExportActions', () => {
     await act(async () => {
       await result.current.copyCalUrl();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen');
+    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen', undefined, 'error');
   });
 
   // Regression test: the sheet update used to check only sheet.type ===

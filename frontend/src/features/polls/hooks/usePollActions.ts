@@ -14,7 +14,7 @@ type PollFeatureDeps = {
   S: () => AppState;
   setState: SetState;
   loadPolls: () => Promise<void>;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   askConfirm: (cfg: {
     title: string;
     message: string;
@@ -68,7 +68,7 @@ export function usePollActions({ api, S, setState, loadPolls, toastMsg, askConfi
     const f = S().form as PollFormValues;
     const poll = validatePollForm(f);
     if (!poll.ok) {
-      toastMsg(poll.message!);
+      toastMsg(poll.message!, undefined, 'error');
       return;
     }
     const sh = S().sheet;

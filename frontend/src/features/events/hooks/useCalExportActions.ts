@@ -11,7 +11,7 @@ type CalExportDeps = {
   S: () => AppState;
   setState: SetState;
   activeTeam: () => TeamForUser | null;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
 };
 
 export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalExportDeps) {
@@ -90,7 +90,7 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
       }, 1500);
       toastMsg(t('events.toastCalExported', { n: ics.count }));
     } catch {
-      toastMsg(t('events.exportFailed'));
+      toastMsg(t('events.exportFailed'), undefined, 'error');
     }
   }, [activeTeam, buildIcs, toastMsg]);
 
@@ -101,7 +101,7 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
     try {
       await navigator.clipboard.writeText(url.replace('webcal://', 'https://'));
     } catch {
-      toastMsg(t('error.copy'));
+      toastMsg(t('error.copy'), undefined, 'error');
       return;
     }
     // Must check the team too, not just the sheet type: if the user switched

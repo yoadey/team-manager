@@ -22,7 +22,7 @@ type MemberDeps = {
     danger?: boolean;
     onConfirm: () => void | Promise<void>;
   }) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -90,7 +90,7 @@ export function useMemberActions({
       const cur = formValues<MemberFormValues>(S()).roleIds ?? [];
       const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
       if (!next.length) {
-        toastMsg(t('team.roleAtLeastOne'));
+        toastMsg(t('team.roleAtLeastOne'), undefined, 'error');
         return;
       }
       setState((s) => ({ form: { ...s.form, roleIds: next } }));
@@ -102,22 +102,22 @@ export function useMemberActions({
     const f = S().form as MemberFormValues;
     const nameResult = validateRequiredText(f.name, t('members.fieldNameError'));
     if (!nameResult.ok) {
-      toastMsg(nameResult.message!);
+      toastMsg(nameResult.message!, undefined, 'error');
       return;
     }
     const emailResult = validateEmail(f.email, t('validation.emailInvalid'));
     if (!emailResult.ok) {
-      toastMsg(emailResult.message!);
+      toastMsg(emailResult.message!, undefined, 'error');
       return;
     }
     const phoneResult = validatePhone(f.phone, t('validation.phoneInvalid'));
     if (!phoneResult.ok) {
-      toastMsg(phoneResult.message!);
+      toastMsg(phoneResult.message!, undefined, 'error');
       return;
     }
     const birthdayResult = validateBirthday(f.birthday, t('validation.birthdayInvalid'));
     if (!birthdayResult.ok) {
-      toastMsg(birthdayResult.message!);
+      toastMsg(birthdayResult.message!, undefined, 'error');
       return;
     }
     const sh = S().sheet!;

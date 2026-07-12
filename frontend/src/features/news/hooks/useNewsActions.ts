@@ -21,7 +21,7 @@ type NewsDeps = {
     danger?: boolean;
     onConfirm: () => void | Promise<void>;
   }) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -44,7 +44,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
     const f = S().form as NewsFormValues;
     const titleResult = validateRequiredText(f.title, t('news.titleRequired'));
     if (!titleResult.ok) {
-      toastMsg(titleResult.message!);
+      toastMsg(titleResult.message!, undefined, 'error');
       return;
     }
     const sh = S().sheet;

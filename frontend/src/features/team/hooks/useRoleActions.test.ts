@@ -147,7 +147,7 @@ describe('useRoleActions', () => {
     await act(async () => {
       await result.current.saveRole();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.', undefined, 'error');
     expect(api.roles.create).not.toHaveBeenCalled();
   });
 
@@ -182,7 +182,7 @@ describe('useRoleActions', () => {
     await act(async () => {
       await result.current.saveRole();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.', undefined, 'error');
     expect(api.roles.create).not.toHaveBeenCalled();
   });
 
@@ -270,7 +270,7 @@ describe('useRoleActions', () => {
     await act(async () => {
       await result.current.toggleMyRole('r1');
     });
-    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.');
+    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.', undefined, 'error');
     expect(api.members.setRoles).not.toHaveBeenCalled();
   });
 

@@ -23,7 +23,7 @@ type AbsenceDeps = {
     danger?: boolean;
     onConfirm: () => void | Promise<void>;
   }) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -51,7 +51,7 @@ export function useAbsenceActions({
     const f = S().form as AbsenceFormValues;
     const range = validateDateRange(f.from, f.to);
     if (!range.ok) {
-      toastMsg(range.message!);
+      toastMsg(range.message!, undefined, 'error');
       return;
     }
     const mode = S().sheet!.mode;

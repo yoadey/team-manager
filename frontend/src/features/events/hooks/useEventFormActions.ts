@@ -16,7 +16,7 @@ type EventFormDeps = {
   setState: SetState;
   refreshEvents: () => Promise<void>;
   openEventDetail: (eventId: string) => Promise<void>;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
@@ -84,7 +84,7 @@ export function useEventFormActions({
       const mode = sh.mode;
       const validation = validateEventForm(f, mode);
       if (!validation.ok) {
-        toastMsg(validation.message!);
+        toastMsg(validation.message!, undefined, 'error');
         return;
       }
       const back = sh.back;

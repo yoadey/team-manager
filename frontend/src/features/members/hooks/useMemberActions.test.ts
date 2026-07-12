@@ -207,7 +207,7 @@ describe('useMemberActions', () => {
       result.current.toggleFormRole('r1');
     });
     expect(stateRef.form.roleIds).toContain('r1');
-    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.');
+    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.', undefined, 'error');
   });
 
   it('saveMember shows toast when name is empty', async () => {
@@ -219,7 +219,7 @@ describe('useMemberActions', () => {
     await act(async () => {
       await result.current.saveMember();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.');
+    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.', undefined, 'error');
     expect(api.members.update).not.toHaveBeenCalled();
   });
 
@@ -232,7 +232,7 @@ describe('useMemberActions', () => {
     await act(async () => {
       await result.current.saveMember();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.');
+    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.', undefined, 'error');
     expect(api.members.update).not.toHaveBeenCalled();
   });
 

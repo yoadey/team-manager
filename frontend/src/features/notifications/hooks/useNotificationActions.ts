@@ -10,7 +10,7 @@ type NotifDeps = {
   S: () => AppState;
   setState: SetState;
   loadNotifications: () => Promise<void>;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 

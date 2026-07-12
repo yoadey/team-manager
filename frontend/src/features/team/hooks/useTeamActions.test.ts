@@ -408,7 +408,7 @@ describe('useTeamActions', () => {
     await act(async () => {
       await result.current.saveTeamSettings();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.', undefined, 'error');
     expect(api.teams.updateSettings).not.toHaveBeenCalled();
   });
 
@@ -449,7 +449,7 @@ describe('useTeamActions', () => {
     await act(async () => {
       await result.current.createTeam();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.', undefined, 'error');
     expect(api.teams.create).not.toHaveBeenCalled();
   });
 
@@ -561,7 +561,7 @@ describe('useTeamActions', () => {
     await act(async () => {
       await result.current.copyInvite();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen');
+    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen', undefined, 'error');
   });
 
   // Regression test: the sheet update used to splice `copied: true` onto

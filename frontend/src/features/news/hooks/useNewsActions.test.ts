@@ -111,7 +111,7 @@ describe('useNewsActions', () => {
     await act(async () => {
       await result.current.saveNews();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Titel angeben.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Titel angeben.', undefined, 'error');
     expect(api.news.create).not.toHaveBeenCalled();
   });
 
