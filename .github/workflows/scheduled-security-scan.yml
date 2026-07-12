@@ -106,8 +106,8 @@ jobs:
   # Mirrors ci.yml's security-container-backup job. Keep the two scanned
   # image-refs in sync with helm/team-manager/values.yaml's
   # backup.postgresImageDigest/backup.s3.awsCliImage by hand -- same
-  # constraint noted on ci.yml's "Verify backup image digests stay in sync"
-  # step (Dependabot's docker ecosystem updater doesn't cover either key).
+  # constraint noted on ci.yml's "Verify pinned base image digests stay in
+  # sync" step (Dependabot's docker ecosystem updater doesn't cover either key).
   container-backup:
     name: Security · Container scan (Trivy, backup CronJob images)
     runs-on: ubuntu-latest
