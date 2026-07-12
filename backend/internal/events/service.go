@@ -50,7 +50,7 @@ type eventRepo interface {
 	GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]AttendanceDBRow, error)
 	ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error)
 	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
-	SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
+	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
 	SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error
 	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error)
@@ -520,7 +520,7 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 		reasonVisStr = &rv
 	}
 
-	a, err := s.repo.SetAttendance(ctx, eventID, userID, teamID, &statusStr, req.Reason, req.ReasonId, reasonVisStr)
+	a, err := s.repo.SetAttendance(ctx, eventID, callerID, userID, teamID, &statusStr, req.Reason, req.ReasonId, reasonVisStr)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.SetAttendance: %w", err)
 	}

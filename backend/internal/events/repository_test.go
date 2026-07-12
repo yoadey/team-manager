@@ -468,7 +468,7 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 
 	// First upsert: yes.
 	status := "yes"
-	rec, err := repo.SetAttendance(ctx, eventID, userID, teamID, &status, nil, nil, nil)
+	rec, err := repo.SetAttendance(ctx, eventID, userID, userID, teamID, &status, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 	assert.Equal(t, "yes", rec.Status)
@@ -477,7 +477,7 @@ func TestEventRepository_SetAttendance(t *testing.T) {
 	// Second upsert: change to no — should update, not insert.
 	status = "no"
 	reason := "sick"
-	rec2, err := repo.SetAttendance(ctx, eventID, userID, teamID, &status, &reason, nil, nil)
+	rec2, err := repo.SetAttendance(ctx, eventID, userID, userID, teamID, &status, &reason, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, rec2)
 	assert.Equal(t, "no", rec2.Status)
@@ -514,8 +514,115 @@ func TestEventRepository_SetAttendance_RejectsNonMember(t *testing.T) {
 	require.NoError(t, err)
 
 	status := "yes"
-	_, err = repo.SetAttendance(ctx, ev.Id.String(), nonMemberID.String(), teamID.String(), &status, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), nonMemberID.String(), nonMemberID.String(), teamID.String(), &status, nil, nil, nil)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetAttendance must reject a userID that is not a member of teamID")
+}
+
+// Regression test: SetAttendance's cross-member write path used to trust the
+// service layer's earlier, unlocked permChecker.GetPermissions read as the
+// SOLE enforcement of events:write -- a concurrent SetRoles/DeleteRole/
+// UpdateRole revoking the caller's events:write between that check and this
+// write could still let the write through. The write itself must now
+// re-verify callerID currently holds events:write via its own WHERE clause,
+// so even calling this repository method directly (bypassing the service
+// layer's permission check entirely, as this test does) rejects a caller
+// with no events:write role.
+func TestEventRepository_SetAttendance_RejectsCallerWithoutEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	callerID := uuid.New()
+	targetID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'No Write Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+			($1, 'Caller', 'caller-nowrite@example.com', '#111111'),
+			($2, 'Target', 'target-nowrite@example.com', '#222222')
+	`, callerID, targetID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3)`, teamID, callerID, targetID)
+	require.NoError(t, err)
+
+	// Caller has a role, but it grants events:read, not events:write.
+	var readOnlyRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Read Only', '{"events":"read"}') RETURNING id`,
+		teamID,
+	).Scan(&readOnlyRoleID)
+	require.NoError(t, err)
+	var callerMembershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, callerID).Scan(&callerMembershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMembershipID, readOnlyRoleID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("No Write Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	status := "yes"
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), callerID.String(), targetID.String(), teamID.String(), &status, nil, nil, nil)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetAttendance must reject a cross-member write from a caller without events:write, even called directly")
+
+	// The rejected write must not have created a row at all.
+	rec, err := repo.GetMyAttendance(ctx, ev.Id.String(), targetID.String(), teamID.String())
+	require.NoError(t, err)
+	assert.Nil(t, rec, "no attendance row should exist after the rejected cross-member write")
+}
+
+// Companion positive test: a caller WITH events:write can set another
+// member's attendance, confirming the new WHERE-clause predicate isn't
+// overly restrictive.
+func TestEventRepository_SetAttendance_AllowsCallerWithEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	callerID := uuid.New()
+	targetID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Write Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+			($1, 'Organizer', 'caller-write@example.com', '#111111'),
+			($2, 'Target', 'target-write@example.com', '#222222')
+	`, callerID, targetID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3)`, teamID, callerID, targetID)
+	require.NoError(t, err)
+
+	var writeRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Organizer', '{"events":"write"}') RETURNING id`,
+		teamID,
+	).Scan(&writeRoleID)
+	require.NoError(t, err)
+	var callerMembershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, callerID).Scan(&callerMembershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMembershipID, writeRoleID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Write Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	status := "yes"
+	rec, err := repo.SetAttendance(ctx, ev.Id.String(), callerID.String(), targetID.String(), teamID.String(), &status, nil, nil, nil)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+	assert.Equal(t, "yes", rec.Status)
+	assert.Equal(t, targetID.String(), rec.UserId.String())
 }
 
 func TestEventRepository_GetReasonVisibilityContext(t *testing.T) {
@@ -596,11 +703,11 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 
 	yes := "yes"
 	no := "no"
-	_, err = repo.SetAttendance(ctx, e1.Id.String(), userID.String(), teamID.String(), &yes, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, e1.Id.String(), userID.String(), userID.String(), teamID.String(), &yes, nil, nil, nil)
 	require.NoError(t, err)
-	_, err = repo.SetAttendance(ctx, e1.Id.String(), otherUserID.String(), teamID.String(), &no, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, e1.Id.String(), otherUserID.String(), otherUserID.String(), teamID.String(), &no, nil, nil, nil)
 	require.NoError(t, err)
-	_, err = repo.SetAttendance(ctx, e2.Id.String(), userID.String(), teamID.String(), &no, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, e2.Id.String(), userID.String(), userID.String(), teamID.String(), &no, nil, nil, nil)
 	require.NoError(t, err)
 
 	eventIDs := []uuid.UUID{e1.Id, e2.Id, e3.Id}
@@ -672,9 +779,9 @@ func TestEventRepository_AttendanceExcludesDepartedMembers(t *testing.T) {
 	require.NoError(t, err)
 
 	yes := "yes"
-	_, err = repo.SetAttendance(ctx, ev.Id.String(), stayingUserID.String(), teamID.String(), &yes, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), stayingUserID.String(), stayingUserID.String(), teamID.String(), &yes, nil, nil, nil)
 	require.NoError(t, err)
-	_, err = repo.SetAttendance(ctx, ev.Id.String(), departedUserID.String(), teamID.String(), &yes, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), departedUserID.String(), departedUserID.String(), teamID.String(), &yes, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Sanity check: both count before the departure.
@@ -795,7 +902,7 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 
 	// A member of Team B must not be able to write to Team A's event either.
 	status := "yes"
-	_, err = repo.SetAttendance(ctx, eventID, user.String(), teamB.String(), &status, nil, nil, nil)
+	_, err = repo.SetAttendance(ctx, eventID, user.String(), user.String(), teamB.String(), &status, nil, nil, nil)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetAttendance must reject cross-team eventID")
 
 	err = repo.SetNomination(ctx, eventID, user.String(), teamB.String(), false)
@@ -817,7 +924,7 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	assert.Empty(t, comments, "no comment should have been created by the rejected cross-team AddComment call")
 
 	// Scoped to the correct team, all the same operations succeed.
-	rec, err := repo.SetAttendance(ctx, eventID, user.String(), teamA.String(), &status, nil, nil, nil)
+	rec, err := repo.SetAttendance(ctx, eventID, user.String(), user.String(), teamA.String(), &status, nil, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "yes", rec.Status)
 
@@ -955,7 +1062,7 @@ func TestEventRepository_SetNomination_ClearsStaleReason(t *testing.T) {
 
 	status := "no"
 	reason := "private medical reason"
-	_, err = repo.SetAttendance(ctx, eventID, member.String(), teamID.String(), &status, &reason, nil, nil)
+	_, err = repo.SetAttendance(ctx, eventID, member.String(), member.String(), teamID.String(), &status, &reason, nil, nil)
 	require.NoError(t, err)
 
 	err = repo.SetNomination(ctx, eventID, member.String(), teamID.String(), false)

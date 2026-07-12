@@ -34,7 +34,7 @@ type mockSvcRepo struct {
 	getMyAttendancesFn       func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.AttendanceDBRow, error)
 	listAttendanceFn         func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
 	getReasonVisibilityCtxFn func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
-	setAttendanceFn          func(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
+	setAttendanceFn          func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
 	setNominationFn          func(ctx context.Context, eventID, userID, teamID string, nominated bool) error
 	listCommentsFn           func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
 	addCommentFn             func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
@@ -102,8 +102,8 @@ func (m *mockSvcRepo) GetReasonVisibilityContext(ctx context.Context, teamID, vi
 	return nil, nil, nil
 }
 
-func (m *mockSvcRepo) SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error) {
-	return m.setAttendanceFn(ctx, eventID, userID, teamID, status, reason, reasonID, reasonVisibility)
+func (m *mockSvcRepo) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error) {
+	return m.setAttendanceFn(ctx, eventID, callerID, userID, teamID, status, reason, reasonID, reasonVisibility)
 }
 
 func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error {
@@ -367,7 +367,7 @@ func TestEventService_SetAttendance(t *testing.T) {
 	}
 
 	repo := &mockSvcRepo{
-		setAttendanceFn: func(_ context.Context, evID, uID, tID string, status, _, _, _ *string) (*events.AttendanceDBRow, error) {
+		setAttendanceFn: func(_ context.Context, evID, _, uID, tID string, status, _, _, _ *string) (*events.AttendanceDBRow, error) {
 			assert.Equal(t, eventID.String(), evID)
 			assert.Equal(t, userID.String(), uID)
 			assert.Equal(t, teamID.String(), tID)
@@ -407,7 +407,7 @@ func TestEventService_SetAttendance_RejectsNotNominatedStatus(t *testing.T) {
 	teamID := uuid.New()
 
 	repo := &mockSvcRepo{
-		setAttendanceFn: func(_ context.Context, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
 			t.Fatal("repository must not be called for status=not_nominated")
 			return nil, nil
 		},
@@ -440,7 +440,7 @@ func TestEventService_SetAttendance_ForOtherMember_RequiresEventsWrite(t *testin
 	teamID := uuid.New()
 
 	repo := &mockSvcRepo{
-		setAttendanceFn: func(_ context.Context, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
 			t.Fatal("repository must not be called when caller lacks events:write")
 			return nil, nil
 		},
@@ -463,7 +463,7 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 
 	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: targetUserID, Status: "yes"}
 	repo := &mockSvcRepo{
-		setAttendanceFn: func(_ context.Context, _, uID, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+		setAttendanceFn: func(_ context.Context, _, _, uID, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
 			assert.Equal(t, targetUserID.String(), uID)
 			return rec, nil
 		},

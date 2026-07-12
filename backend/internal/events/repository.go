@@ -901,10 +901,21 @@ func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, vie
 // ─── SetAttendance ──────────────────────────────────────────────────────────
 
 // SetAttendance upserts an attendance record for an event scoped to teamID.
-// Returns pgx.ErrNoRows if eventID does not belong to teamID, or if userID is
-// not a member of teamID (prevents forging attendance rows for arbitrary
-// users outside the team).
-func (r *Repository) SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
+// callerID is the authenticated caller; when it differs from userID (setting
+// another member's attendance), the write itself re-verifies callerID
+// currently holds events:write via the WHERE clause below -- not just the
+// service layer's earlier, unlocked permChecker.GetPermissions read. Without
+// this, a concurrent SetRoles/DeleteRole/UpdateRole revoking the caller's
+// events:write between that check and this write could still let the write
+// through; folding the check into this statement's own atomic snapshot
+// closes that window without needing a shared transaction or advisory lock
+// on this very hot path. Returns pgx.ErrNoRows if eventID does not belong to
+// teamID, if userID is not a member of teamID (prevents forging attendance
+// rows for arbitrary users outside the team), OR -- in that narrow race --
+// if callerID no longer holds events:write; these are deliberately not
+// distinguished here, matching how every other reason this returns
+// pgx.ErrNoRows is already ambiguous by design.
+func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
@@ -912,6 +923,13 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, userID, teamID 
 		SELECT $1, $2, $3, $4, $5, $6, now()
 		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7)
 		  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $7 AND user_id = $2)
+		  AND ($8 = $2 OR EXISTS (
+		        SELECT 1 FROM roles r
+		        JOIN membership_roles mr ON mr.role_id = r.id
+		        JOIN memberships m ON m.id = mr.membership_id
+		        WHERE m.team_id = $7 AND m.user_id = $8 AND r.team_id = $7
+		          AND r.permissions->>'events' = 'write'
+		      ))
 		ON CONFLICT (event_id, user_id) DO UPDATE
 			SET status = EXCLUDED.status,
 			    reason = EXCLUDED.reason,
@@ -921,7 +939,7 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, userID, teamID 
 		RETURNING id, event_id, user_id, status, reason, reason_id, reason_visibility, at
 	`
 	a := &AttendanceDBRow{}
-	err := r.pool.QueryRow(ctx, q, eventID, userID, status, reason, reasonID, reasonVisibility, teamID).Scan(
+	err := r.pool.QueryRow(ctx, q, eventID, userID, status, reason, reasonID, reasonVisibility, teamID, callerID).Scan(
 		&a.Id, &a.EventId, &a.UserId, &a.Status, &a.Reason, &a.ReasonId, &a.ReasonVisibility, &a.At,
 	)
 	if err != nil {
