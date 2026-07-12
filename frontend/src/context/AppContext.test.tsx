@@ -635,6 +635,57 @@ describe('AppProvider / team-switch race guards', () => {
 
     eventsSpy.mockRestore();
   });
+
+  // Regression test: goEventsAbsences called loadAbsences() unconditionally,
+  // with no permission check -- unlike ensureRouteData('events'), which
+  // already skips its own fetches when the caller can't read events. The one
+  // way this route is reachable without events:read is a stale absence
+  // notification (cached from before a permission downgrade); clicking it
+  // fired two now-forbidden absences requests in the background, producing
+  // exactly the spurious "no permission" toast ensureRouteData's own
+  // permission pre-check exists to prevent.
+  it('goEventsAbsences does not call loadAbsences when the caller lacks events:read', async () => {
+    const svc = await import('@/services/serviceLayer');
+    const listForTeamSpy = vi.spyOn(svc.api.absences, 'listForTeam');
+    const listMineSpy = vi.spyOn(svc.api.absences, 'listMine');
+
+    let actions!: ReturnType<typeof useAppActions>;
+    function Probe() {
+      actions = useAppActions();
+      return null;
+    }
+
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({
+        phase: 'app',
+        activeTeamId: 'other-team',
+        teams: [
+          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { events: 'none' } },
+        ] as never,
+      });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    listForTeamSpy.mockClear();
+    listMineSpy.mockClear();
+
+    await act(async () => {
+      actions.goEventsAbsences();
+    });
+
+    expect(listForTeamSpy).not.toHaveBeenCalled();
+    expect(listMineSpy).not.toHaveBeenCalled();
+
+    listForTeamSpy.mockRestore();
+    listMineSpy.mockRestore();
+  });
 });
 
 // The bootstrap sets: events=write, members=read, finances=none

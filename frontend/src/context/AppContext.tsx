@@ -994,8 +994,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const goEventsAbsences = useCallback(() => {
     setState({ route: 'events', sheet: null, eventsView: 'absences' });
     ensureRouteData('events');
-    loadAbsences();
-  }, [setState, ensureRouteData, loadAbsences]);
+    // ensureRouteData already skips its own fetches when the caller can't
+    // read events (a stale absence notification, cached from before a
+    // permission downgrade, is the one way this route is reachable without
+    // events:read -- RouteScreen bounces the resulting navigation to Home
+    // either way). loadAbsences has no such built-in guard, so without this
+    // check it would still fire two now-forbidden requests in the
+    // background, producing exactly the spurious "no permission" toast
+    // ensureRouteData's own permission pre-check exists to prevent.
+    if (can('events', 'read')) loadAbsences();
+  }, [setState, ensureRouteData, loadAbsences, can]);
   const activePageSheet = useCallback(() => {
     let s = S().sheet;
     while (s) {
