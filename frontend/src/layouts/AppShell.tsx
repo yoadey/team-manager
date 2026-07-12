@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp, sheetErrorBoundaryKey, type Route } from '@/context/AppContext';
@@ -8,7 +9,7 @@ import { Sym } from '@/components/ui';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
-import { t as tl } from '@/i18n';
+import { t as tl, getLocale, subscribeLocale } from '@/i18n';
 import { pageMeta } from './pageMeta';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { captureError } from '@/monitoring';
@@ -22,7 +23,18 @@ interface NavDef {
   gate?: () => boolean;
 }
 
+// Subscribes to the module-level i18n store directly (see the identical
+// helper in components/cards.tsx) so Shell re-renders on a locale switch.
+// pageMeta()/tl() read module-level i18n state, not AppContext, so without
+// this the page title/subtitle and nav labels stayed in the old language
+// until some UNRELATED AppContext change (navigation, a toast) happened to
+// force a re-render.
+function useLocaleSubscription(): void {
+  useSyncExternalStore(subscribeLocale, getLocale);
+}
+
 export function Shell() {
+  useLocaleSubscription();
   const app = useApp();
   const { state } = app;
   const compact = useCompact();
