@@ -209,6 +209,21 @@ const initialState: AppState = {
 const PAGE_SHEETS = ['eventDetail', 'eventForm', 'memberDetail', 'memberForm', 'teamSettings', 'roles', 'roleForm'];
 export const isPageSheet = (type?: string | null) => !!type && PAGE_SHEETS.includes(type);
 
+/**
+ * Key for the ErrorBoundary wrapping a rendered sheet (AppShell/SheetHost).
+ * React only resets an error boundary's caught-error state on remount (key
+ * change) or an explicit reset -- keying on `sheet.type` alone means
+ * switching between two DIFFERENT entities of the SAME sheet type (e.g. the
+ * popstate handler going straight from eventDetail(evA) to eventDetail(evB)
+ * without an intervening close, which React's automatic batching can collapse
+ * into a single commit with no unmount in between) never remounts the
+ * boundary, so a crash while rendering evA leaves evB stuck behind evA's
+ * stale fallback. Including the entity id closes that gap.
+ */
+export function sheetErrorBoundaryKey(sheet: SheetState): string {
+  return sheet.type + ':' + (sheet.eventId || sheet.membershipId || sheet.userId || '');
+}
+
 export interface AppContextValue {
   state: AppState;
   api: typeof defaultApi;

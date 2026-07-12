@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp, type Route } from '@/context/AppContext';
+import { useApp, sheetErrorBoundaryKey, type Route } from '@/context/AppContext';
 import { ROUTE_MODULE } from '@/context/urlState';
 import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
@@ -88,7 +88,7 @@ export function Shell() {
 
   const content = pageSheet ? (
     <Box sx={{ maxWidth: '860px' }}>
-      <ErrorBoundary key={pageSheet.type} onError={captureError}>
+      <ErrorBoundary key={sheetErrorBoundaryKey(pageSheet)} onError={captureError}>
         {renderSheet(app, pageSheet)}
       </ErrorBoundary>
     </Box>
@@ -211,7 +211,7 @@ export function Shell() {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {pageSheet ? pm.title : pm.title}
+                {pm.title}
               </Box>
             </Box>
             <Sym name="unfold_more" size={20} sx={{ opacity: 0.8 }} />

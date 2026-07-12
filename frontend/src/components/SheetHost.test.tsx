@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/context/AppContext', () => ({
   useApp: mocks.useApp,
   isPageSheet: mocks.isPageSheet,
+  sheetErrorBoundaryKey: (sheet: { type: string; eventId?: string; membershipId?: string; userId?: string }) =>
+    sheet.type + ':' + (sheet.eventId || sheet.membershipId || sheet.userId || ''),
 }));
 
 vi.mock('@/sheets', () => ({

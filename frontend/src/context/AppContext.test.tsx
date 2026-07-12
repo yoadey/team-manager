@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
-import { AppProvider, useApp, useAppActions, useAppSelector } from './AppContext';
+import { AppProvider, useApp, useAppActions, useAppSelector, sheetErrorBoundaryKey } from './AppContext';
 
 beforeEach(() => localStorage.clear());
 
@@ -29,6 +29,38 @@ function PhaseAndSheet({
     </div>
   );
 }
+
+// Regression test: AppShell/SheetHost's ErrorBoundary used to key solely on
+// sheet.type -- React only resets a caught error on remount (key change), so
+// navigating from eventDetail(evA) straight to eventDetail(evB) (e.g. via
+// popstate, which can collapse both setState calls into one commit with no
+// intermediate unmount) never remounted the boundary, leaving evB stuck
+// behind evA's stale crash fallback. The key must include entity identity.
+describe('sheetErrorBoundaryKey', () => {
+  it('produces different keys for the same sheet type with different eventIds', () => {
+    const a = sheetErrorBoundaryKey({ type: 'eventDetail', eventId: 'evA', event: null, rows: [] } as never);
+    const b = sheetErrorBoundaryKey({ type: 'eventDetail', eventId: 'evB', event: null, rows: [] } as never);
+    expect(a).not.toBe(b);
+  });
+
+  it('produces different keys for the same sheet type with different membershipIds', () => {
+    const a = sheetErrorBoundaryKey({ type: 'memberDetail', membershipId: 'ms1', stats: null } as never);
+    const b = sheetErrorBoundaryKey({ type: 'memberDetail', membershipId: 'ms2', stats: null } as never);
+    expect(a).not.toBe(b);
+  });
+
+  it('produces the same key for the same sheet type and entity id', () => {
+    const a = sheetErrorBoundaryKey({ type: 'eventDetail', eventId: 'evA', event: null, rows: [] } as never);
+    const b = sheetErrorBoundaryKey({ type: 'eventDetail', eventId: 'evA', event: null, rows: [] } as never);
+    expect(a).toBe(b);
+  });
+
+  it('produces different keys for different sheet types with no entity id', () => {
+    const a = sheetErrorBoundaryKey({ type: 'teams' } as never);
+    const b = sheetErrorBoundaryKey({ type: 'profile' } as never);
+    expect(a).not.toBe(b);
+  });
+});
 
 describe('AppProvider / context split', () => {
   it('boots through the mock service layer to the login phase', async () => {

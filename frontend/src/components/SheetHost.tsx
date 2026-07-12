@@ -3,7 +3,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import Modal from '@mui/material/Modal';
 import { useEffect, useRef } from 'react';
 import { useApp } from '@/context/AppContext';
-import { isPageSheet } from '@/context/AppContext';
+import { isPageSheet, sheetErrorBoundaryKey } from '@/context/AppContext';
 import { NEUTRAL } from '@/styles/tokens';
 import { Sym } from './ui';
 import { renderSheet, sheetMeta } from '@/sheets';
@@ -120,7 +120,7 @@ export function SheetHost() {
             </ButtonBase>
           </Box>
           <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '4px 20px 22px' }}>
-            <ErrorBoundary key={modalSheet.type} onError={captureError}>
+            <ErrorBoundary key={sheetErrorBoundaryKey(modalSheet)} onError={captureError}>
               {renderSheet(app, modalSheet)}
             </ErrorBoundary>
           </Box>

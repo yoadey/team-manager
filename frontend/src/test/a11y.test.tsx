@@ -15,6 +15,8 @@ function assertNoViolations(results: Awaited<ReturnType<typeof axe>>) {
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
   isPageSheet: vi.fn().mockReturnValue(false),
+  sheetErrorBoundaryKey: (sheet: { type: string; eventId?: string; membershipId?: string; userId?: string }) =>
+    sheet.type + ':' + (sheet.eventId || sheet.membershipId || sheet.userId || ''),
 }));
 
 vi.mock('@/sheets', () => ({
