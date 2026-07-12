@@ -219,15 +219,19 @@ export function useTeamActions({
 
   const openInvite = useCallback(async () => {
     const teamId = S().activeTeamId!;
-    setState({ sheet: { type: 'invite', invite: null } });
+    // Captured by reference, not just sheet.type/activeTeamId -- openInvite
+    // has no busy flag, so it can be invoked twice in a row for the same
+    // team (open, close, reopen before the first request resolves). A
+    // type+team check alone can't tell those two invite sheets apart: the
+    // first request's success/failure handler would silently overwrite or
+    // close the SECOND (still in-flight, possibly about-to-succeed) sheet.
+    // Reference equality also subsumes the original team-switch guard, since
+    // selectTeam clears sheet to null (!== sh) on any team change.
+    const sh = { type: 'invite' as const, invite: null };
+    setState({ sheet: sh });
     try {
       const invite = await api.teams.createInvite(teamId);
-      // Must check the team too, not just the sheet type: if the user
-      // switched teams and opened a NEW invite sheet (also type 'invite')
-      // before this resolved, the type-only check would inject team A's
-      // invite link/code into what the user believes is team B's sheet --
-      // a cross-team invite-token leak, not just stale data.
-      setState((s) => (s.activeTeamId === teamId && s.sheet?.type === 'invite' ? { sheet: { ...s.sheet, invite } } : {}));
+      setState((s) => (s.sheet === sh ? { sheet: { ...sh, invite } } : {}));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       // InviteSheet shows an eternal "wird generiert..." placeholder while
@@ -235,7 +239,7 @@ export function useTeamActions({
       // a failed fetch (permission downgrade mid-flight, network blip) left
       // it stuck forever. The toast above already explains what went wrong;
       // just close the sheet instead, mirroring reloadDetail's same fix.
-      setState((s) => (s.activeTeamId === teamId && s.sheet?.type === 'invite' && !s.sheet.invite ? { sheet: null } : {}));
+      setState((s) => (s.sheet === sh ? { sheet: null } : {}));
     }
   }, [api, S, setState, toastMsg, logout]);
 

@@ -535,6 +535,48 @@ describe('useTeamActions', () => {
     expect(stateRef.sheet).toEqual({ type: 'invite', invite: null });
   });
 
+  // Regression test: openInvite has no busy flag, so it can be invoked twice
+  // in a row for the SAME team (open, close, reopen before the first request
+  // resolves) -- the old type+activeTeamId check couldn't tell the two
+  // invite sheets apart, so the first (now-stale) request's late
+  // success/failure handler would clobber the second (still in-flight)
+  // sheet. Must key on the exact sheet object reference instead.
+  it('a late-failing first openInvite call does not close a second, still-pending invite sheet', async () => {
+    let rejectFirst!: (err: Error) => void;
+    let resolveSecond!: (v: { link: string; code: string }) => void;
+    api.teams.createInvite = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise((_, reject) => (rejectFirst = reject)))
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveSecond = resolve)));
+    const { result } = renderActions();
+
+    let firstPromise!: Promise<void>;
+    act(() => {
+      firstPromise = result.current.openInvite();
+    });
+    let secondPromise!: Promise<void>;
+    act(() => {
+      secondPromise = result.current.openInvite();
+    });
+
+    await act(async () => {
+      rejectFirst(new Error('boom'));
+      await firstPromise;
+    });
+
+    // The first call's failure must not have closed the second's sheet.
+    expect(stateRef.sheet).toEqual({ type: 'invite', invite: null });
+
+    await act(async () => {
+      resolveSecond({ link: 'https://example.com/invite/team1-code', code: 'team1-code' });
+      await secondPromise;
+    });
+    expect(stateRef.sheet).toEqual({
+      type: 'invite',
+      invite: { link: 'https://example.com/invite/team1-code', code: 'team1-code' },
+    });
+  });
+
   // Regression test: InviteSheet shows an eternal "wird generiert..."
   // placeholder while sheet.invite is null, with no error state to fall
   // back to -- a failed createInvite() (permission downgrade mid-flight,
