@@ -87,11 +87,13 @@ spec:
               fi
               echo "Dump complete: teammanager-${TIMESTAMP}.dump ($ENTRY_COUNT TOC entries)"
             env:
+            {{- if .Values.existingSecret }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: DATABASE_URL
+            {{- end }}
             - name: TMPDIR
               value: /tmp-scratch
             resources:
