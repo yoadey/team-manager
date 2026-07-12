@@ -230,6 +230,12 @@ export function useTeamActions({
       setState((s) => (s.activeTeamId === teamId && s.sheet?.type === 'invite' ? { sheet: { ...s.sheet, invite } } : {}));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout }, err);
+      // InviteSheet shows an eternal "wird generiert..." placeholder while
+      // sheet.invite is null -- there's no error state to fall back to, so
+      // a failed fetch (permission downgrade mid-flight, network blip) left
+      // it stuck forever. The toast above already explains what went wrong;
+      // just close the sheet instead, mirroring reloadDetail's same fix.
+      setState((s) => (s.activeTeamId === teamId && s.sheet?.type === 'invite' && !s.sheet.invite ? { sheet: null } : {}));
     }
   }, [api, S, setState, toastMsg, logout]);
 

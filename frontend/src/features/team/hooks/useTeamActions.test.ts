@@ -535,6 +535,21 @@ describe('useTeamActions', () => {
     expect(stateRef.sheet).toEqual({ type: 'invite', invite: null });
   });
 
+  // Regression test: InviteSheet shows an eternal "wird generiert..."
+  // placeholder while sheet.invite is null, with no error state to fall
+  // back to -- a failed createInvite() (permission downgrade mid-flight,
+  // network blip) left the sheet stuck showing that forever, since the
+  // catch block only toasted and never touched sheet state.
+  it('openInvite closes the sheet instead of spinning forever when createInvite throws', async () => {
+    api.teams.createInvite = vi.fn().mockRejectedValue(new Error('boom'));
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openInvite();
+    });
+    expect(stateRef.sheet).toBeNull();
+    expect(toastMsg).toHaveBeenCalled();
+  });
+
   it('copyInvite does nothing when no invite in sheet', async () => {
     stateRef = makeState({ sheet: { type: 'invite', invite: null } as never });
     const { result } = renderActions();
