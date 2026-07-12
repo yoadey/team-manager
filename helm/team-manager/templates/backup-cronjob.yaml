@@ -1,5 +1,9 @@
 {{- if .Values.backup.enabled }}
-# RTO target: 4 hours (restore from latest backup + WAL replay)
+# RTO target: 4 hours (restore from latest nightly pg_dump; this chart does
+# not implement WAL archiving/PITR -- see docs/operations.md's "Point-in-time
+# recovery (PITR)" section for that as a separately-enabled, not-yet-wired-in
+# option, so actual data loss on a DR event is bounded by the full RPO below,
+# not narrowed by any WAL replay step).
 # RPO target: 24 hours (daily backup schedule, adjust via backup.schedule)
 apiVersion: batch/v1
 kind: CronJob
