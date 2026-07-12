@@ -29,7 +29,7 @@ import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
-import { reportActionError, retryable } from '@/utils/errors';
+import { ForbiddenError, reportActionError, retryable } from '@/utils/errors';
 import { captureException, setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
@@ -37,7 +37,15 @@ import { useFeatureActions } from './useFeatureActions';
 export type Phase = 'loading' | 'login' | 'noTeam' | 'app';
 export { ALL_ROUTES, routeFromPath } from './urlState';
 export type { Route } from './urlState';
-import { parseLocation, buildPath, currentPath, parsePendingInvite, type Route, type UrlState } from './urlState';
+import {
+  parseLocation,
+  buildPath,
+  currentPath,
+  parsePendingInvite,
+  ROUTE_MODULE,
+  type Route,
+  type UrlState,
+} from './urlState';
 
 /** Map the active detail sheet (walking the back-stack) to a URL detail ref. */
 function detailOfSheet(sheet: SheetState | null): UrlState['detail'] {
@@ -666,8 +674,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         retryable(() => api.notifications.list(teamId)),
       ]);
       const failures = [events, members, roles, news, notif].filter((r) => r.status === 'rejected');
-      if (failures.length && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
-        reportLoad(failures[0].reason);
+      // A ForbiddenError here just means the caller's role has that module set
+      // to 'none' -- an entirely ordinary, expected state (e.g. news:none),
+      // not a real failure. Surfacing it as a toast on every single login/team
+      // switch for such a role would be a false alarm; only report a genuine
+      // (non-permission) failure.
+      const reportable = failures.find((r) => !(r.reason instanceof ForbiddenError));
+      if (reportable && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
+        reportLoad(reportable.reason);
       }
       // Discard results if the user switched to a different team while loading,
       // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
@@ -789,6 +803,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // no re-fetch trigger, EventsPage/MembersPage would show a permanent
       // skeleton loader for the rest of the session, since navigating to
       // either route was previously a no-op here.
+      //
+      // Skip entirely for a module the caller can't read (nav already hides
+      // these routes, but a stale bookmark/URL or browser back/forward can
+      // still land here) -- RouteScreen renders Home instead of the real
+      // page for that case anyway, so fetching would just be a wasted 403
+      // that reportLoad would then surface as a spurious forbidden toast.
+      const module = ROUTE_MODULE[route];
+      if (module && !can(module, 'read')) return;
       if (route === 'events' && !S().events) refreshEvents();
       if (route === 'members' && !S().members) refreshMembers();
       if (route === 'finances' && !S().finances) loadFinances();
@@ -796,7 +818,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (route === 'news' && !S().news) loadNews();
       if (route === 'polls' && !S().polls) loadPolls();
     },
-    [S, refreshEvents, refreshMembers, loadFinances, loadStats, loadNews, loadPolls],
+    [S, can, refreshEvents, refreshMembers, loadFinances, loadStats, loadNews, loadPolls],
   );
 
   // ---------- auth ----------

@@ -381,6 +381,39 @@ describe('MoreSheet', () => {
     expect(screen.queryByText('Finanzen')).toBeNull();
   });
 
+  // Regression test: previously only 'finances' called app.can() here --
+  // stats/news/polls/team were hardcoded `true`, so a role with e.g.
+  // news:none still saw and could tap a "Neuigkeiten" entry that bounced it
+  // straight back to Home with a spurious forbidden toast.
+  it('hides News when the caller lacks news:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'news');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Neuigkeiten')).toBeNull();
+    expect(screen.getByText('Statistik')).toBeTruthy();
+  });
+
+  it('hides Umfragen when the caller lacks polls:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'polls');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Umfragen')).toBeNull();
+  });
+
+  it('hides Team when the caller lacks members:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'members');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Team')).toBeNull();
+  });
+
+  it('hides Statistik when the caller lacks events:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'events');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Statistik')).toBeNull();
+  });
+
   it('clicking stats navigates to stats route', () => {
     const app = makeApp();
     render(<MoreSheet app={app as never} sheet={SHEET} />);

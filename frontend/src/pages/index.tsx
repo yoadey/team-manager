@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useApp } from '@/context/AppContext';
+import { ROUTE_MODULE } from '@/context/urlState';
 import { Home } from './Home';
 import { EventsPage } from '@/features/events';
 import { MembersPage } from '@/features/members';
@@ -19,24 +20,26 @@ const TeamPage = lazy(() => import('@/features/team').then((m) => ({ default: m.
 export function RouteScreen() {
   const app = useApp();
 
+  const module = ROUTE_MODULE[app.state.route];
+
   const page = (() => {
+    if (module && !app.can(module, 'read')) return <Home />;
     switch (app.state.route) {
-      case 'home':
-        return <Home />;
       case 'events':
-        return app.can('events', 'read') ? <EventsPage /> : <Home />;
+        return <EventsPage />;
       case 'members':
-        return app.can('members', 'read') ? <MembersPage /> : <Home />;
+        return <MembersPage />;
       case 'finances':
-        return app.can('finances', 'read') ? <FinancesPage /> : <Home />;
+        return <FinancesPage />;
       case 'stats':
-        return app.can('events', 'read') ? <Stats /> : <Home />;
+        return <Stats />;
       case 'news':
-        return app.can('news', 'read') ? <NewsPage /> : <Home />;
+        return <NewsPage />;
       case 'polls':
-        return app.can('polls', 'read') ? <PollsPage /> : <Home />;
+        return <PollsPage />;
       case 'team':
-        return app.can('members', 'read') ? <TeamPage /> : <Home />;
+        return <TeamPage />;
+      case 'home':
       default:
         return <Home />;
     }

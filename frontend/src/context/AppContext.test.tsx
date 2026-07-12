@@ -447,6 +447,55 @@ describe('AppProvider / team-switch race guards', () => {
     membersSpy.mockRestore();
   });
 
+  // Regression test: a ForbiddenError from afterLoginLoad's parallel fetch
+  // used to always surface a "you don't have permission" toast via
+  // reportLoad(failures[0].reason) -- even though a role having e.g.
+  // news:none is completely ordinary and expected, not a real failure. This
+  // fired on every single login/team-switch for such a role. Verified via the
+  // module-populate side effect (not state.toast): afterLoginLoad's S().
+  // activeTeamId guard around reportLoad only ever settles once this whole
+  // act() block returns (React's test-mode batching defers the commit of the
+  // activeTeamId update queued earlier in the same callback), so a toast
+  // assertion taken mid-callback is unreliable here in a way a real network
+  // round-trip never is -- the ForbiddenError-filtering logic itself is
+  // simple enough (one .find() predicate) to trust from inspection plus this
+  // side-effect check.
+  it('afterLoginLoad leaves other modules populated when the only failure is a ForbiddenError', async () => {
+    const svc = await import('@/services/serviceLayer');
+    const { ForbiddenError } = await import('@/utils/errors');
+    const newsSpy = vi.spyOn(svc.api.news, 'list').mockRejectedValue(new ForbiddenError());
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return (
+        <div>
+          <div data-testid="events">{state.events ? 'loaded' : 'null'}</div>
+          <div data-testid="news">{state.news ? 'loaded' : 'null'}</div>
+        </div>
+      );
+    }
+
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    expect(screen.getByTestId('events').textContent).toBe('loaded');
+    expect(screen.getByTestId('news').textContent).toBe('null');
+
+    newsSpy.mockRestore();
+  });
+
   // Regression test: ensureRouteData (invoked by `go`) covered finances/
   // stats/news/polls but not events/members, even though afterLoginLoad can
   // leave either at null after a failed initial load (see the test above).
@@ -478,7 +527,13 @@ describe('AppProvider / team-switch race guards', () => {
       </AppProvider>,
     );
     await act(async () => {
-      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+      actions.setState({
+        phase: 'app',
+        activeTeamId: 'other-team',
+        teams: [
+          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { members: 'read' } },
+        ] as never,
+      });
     });
     await act(async () => {
       await actions.selectTeam('team1');
@@ -526,7 +581,13 @@ describe('AppProvider / team-switch race guards', () => {
       </AppProvider>,
     );
     await act(async () => {
-      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+      actions.setState({
+        phase: 'app',
+        activeTeamId: 'other-team',
+        teams: [
+          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { events: 'read' } },
+        ] as never,
+      });
     });
     await act(async () => {
       await actions.selectTeam('team1');

@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
 import type { Route } from '@/context/AppContext';
+import { ROUTE_MODULE } from '@/context/urlState';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, Av, SectionTitle } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
@@ -488,12 +489,22 @@ export function ProfileSheet({ app }: SheetProps) {
 }
 
 export function MoreSheet({ app }: SheetProps) {
+  // Derived from the shared ROUTE_MODULE map (same one RouteScreen's content
+  // gate and AppShell's rail/bottom nav use) so a restricted role can't reach
+  // a route from here that it can't actually see -- previously only
+  // 'finances' checked app.can(), so a role with e.g. news:none still saw and
+  // could tap a "News" entry that bounced it straight back to Home with a
+  // spurious forbidden toast.
+  const canSee = (route: Route) => {
+    const module = ROUTE_MODULE[route];
+    return !module || app.can(module, 'read');
+  };
   const items: Array<[Route, string, string, boolean]> = [
-    ['finances', t('nav.finances'), 'payments', app.can('finances', 'read')],
-    ['stats', t('nav.stats'), 'insights', true],
-    ['news', t('nav.news'), 'campaign', true],
-    ['polls', t('nav.polls'), 'how_to_vote', true],
-    ['team', t('nav.team'), 'shield', true],
+    ['finances', t('nav.finances'), 'payments', canSee('finances')],
+    ['stats', t('nav.stats'), 'insights', canSee('stats')],
+    ['news', t('nav.news'), 'campaign', canSee('news')],
+    ['polls', t('nav.polls'), 'how_to_vote', canSee('polls')],
+    ['team', t('nav.team'), 'shield', canSee('team')],
   ];
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>

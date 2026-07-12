@@ -20,6 +20,15 @@ export function Home() {
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
+  // A role can have events/members/news set to 'none' -- cross-links and
+  // stats for a module the caller can't read must not be shown, mirroring
+  // RouteScreen's/AppShell's ROUTE_MODULE-driven gating (see urlState.ts).
+  // Without this, tapping through would just bounce back to Home with a
+  // spurious forbidden toast.
+  const canSeeEvents = app.can('events', 'read');
+  const canSeeMembers = app.can('members', 'read');
+  const canSeeNews = app.can('news', 'read');
+
   const quickStat = (label: string, val: React.ReactNode, icon: string, col: string, onClick: () => void) => (
     <ButtonBase
       key={label}
@@ -80,54 +89,64 @@ export function Home() {
       </Box>
 
       <Box sx={{ display: 'flex', gap: '10px', flexWrap: 'wrap', mb: '20px' }}>
-        {quickStat(
-          tr('home.statUpcoming'),
-          (state.events ?? []).filter((e) => e.date >= today && e.status !== 'cancelled').length,
-          'event',
-          t.primary,
-          () => app.go('events'),
-        )}
-        {quickStat(tr('home.statPending'), myPending, 'pending_actions', NEUTRAL.warn, () => app.goEventsPending())}
-        {quickStat(tr('home.statMembers'), team.memberCount, 'group', NEUTRAL.success, () => app.go('members'))}
+        {canSeeEvents &&
+          quickStat(
+            tr('home.statUpcoming'),
+            (state.events ?? []).filter((e) => e.date >= today && e.status !== 'cancelled').length,
+            'event',
+            t.primary,
+            () => app.go('events'),
+          )}
+        {canSeeEvents &&
+          quickStat(tr('home.statPending'), myPending, 'pending_actions', NEUTRAL.warn, () => app.goEventsPending())}
+        {canSeeMembers &&
+          quickStat(tr('home.statMembers'), team.memberCount, 'group', NEUTRAL.success, () => app.go('members'))}
       </Box>
 
-      <Box sx={{ mb: '22px' }}>
-        <SectionTitle
-          right={
-            <ButtonBase onClick={() => app.go('events')} sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}>
-              {tr('home.viewAll')}
-            </ButtonBase>
-          }
-        >
-          {tr('home.nextEvents')}
-        </SectionTitle>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {next.length ? (
-            next.map((e) => <EventCard key={e.id} e={e} />)
-          ) : (
-            <EmptyState icon="event_available" text={tr('home.emptyEvents')} />
-          )}
+      {canSeeEvents && (
+        <Box sx={{ mb: '22px' }}>
+          <SectionTitle
+            right={
+              <ButtonBase
+                onClick={() => app.go('events')}
+                sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}
+              >
+                {tr('home.viewAll')}
+              </ButtonBase>
+            }
+          >
+            {tr('home.nextEvents')}
+          </SectionTitle>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {next.length ? (
+              next.map((e) => <EventCard key={e.id} e={e} />)
+            ) : (
+              <EmptyState icon="event_available" text={tr('home.emptyEvents')} />
+            )}
+          </Box>
         </Box>
-      </Box>
+      )}
 
-      <Box>
-        <SectionTitle
-          right={
-            <ButtonBase onClick={() => app.go('news')} sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}>
-              {tr('home.viewAll')}
-            </ButtonBase>
-          }
-        >
-          {tr('home.news')}
-        </SectionTitle>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {news.length ? (
-            news.map((n) => <NewsCard key={n.id} n={n} compact primaryColor={state.primaryColor} />)
-          ) : (
-            <EmptyState icon="campaign" text={tr('home.emptyNews')} />
-          )}
+      {canSeeNews && (
+        <Box>
+          <SectionTitle
+            right={
+              <ButtonBase onClick={() => app.go('news')} sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}>
+                {tr('home.viewAll')}
+              </ButtonBase>
+            }
+          >
+            {tr('home.news')}
+          </SectionTitle>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {news.length ? (
+              news.map((n) => <NewsCard key={n.id} n={n} compact primaryColor={state.primaryColor} />)
+            ) : (
+              <EmptyState icon="campaign" text={tr('home.emptyNews')} />
+            )}
+          </Box>
         </Box>
-      </Box>
+      )}
     </Box>
   );
 }

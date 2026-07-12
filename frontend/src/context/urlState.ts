@@ -19,6 +19,27 @@ export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news
 
 export const ALL_ROUTES: Route[] = ['home', 'events', 'members', 'finances', 'stats', 'news', 'polls', 'team'];
 
+/**
+ * Which RBAC module (see types.ModuleKey) gates read access to each route.
+ * `null` means the route has no module of its own (home) or is never gated
+ * (nothing currently falls in that bucket besides home). `stats` piggybacks
+ * on `events:read` and `team` on `members:read`, matching pages/index.tsx's
+ * RouteScreen and CLAUDE.md's documented RBAC module mapping. Single source
+ * of truth for both RouteScreen's per-route content gate and the nav chrome
+ * (AppShell's rail/bottom nav, NavSheets' MoreSheet, Home's cross-links) so
+ * the two can't drift apart the way they did before this map existed.
+ */
+export const ROUTE_MODULE: Record<Route, 'events' | 'members' | 'finances' | 'news' | 'polls' | null> = {
+  home: null,
+  events: 'events',
+  members: 'members',
+  finances: 'finances',
+  stats: 'events',
+  news: 'news',
+  polls: 'polls',
+  team: 'members',
+};
+
 export function routeFromPath(path: string): Route {
   const seg = path.replace(/^\//, '').split('/')[0] as Route;
   return ALL_ROUTES.includes(seg) ? seg : 'home';
