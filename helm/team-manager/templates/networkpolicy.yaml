@@ -32,11 +32,13 @@ spec:
           protocol: UDP
         - port: 53
           protocol: TCP
-    # Allow outbound to PostgreSQL (default 5432). Restrict the destination
-    # via networkPolicy.egress.postgres.to (see values.yaml) — left
-    # unrestricted by default.
+    # Allow outbound to PostgreSQL (default 5432; override
+    # networkPolicy.egress.postgres.port for a connection pooler or proxy on
+    # a non-standard port). Restrict the destination via
+    # networkPolicy.egress.postgres.to (see values.yaml) — left unrestricted
+    # by default.
     - ports:
-        - port: 5432
+        - port: {{ .Values.networkPolicy.egress.postgres.port }}
           protocol: TCP
       {{- with .Values.networkPolicy.egress.postgres.to }}
       to:

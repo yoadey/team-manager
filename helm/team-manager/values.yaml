@@ -214,6 +214,14 @@ networkPolicy:
     # an external/managed database). Left empty by default so egress is only
     # port-restricted, matching prior behavior.
     postgres:
+      # DATABASE_URL is an opaque Secret value this chart never inspects, so
+      # if it points at a connection pooler (e.g. PgBouncer, commonly 6432)
+      # or any proxy fronting a managed Postgres instance instead of a direct
+      # 5432 connection, override this to match -- otherwise egress is
+      # silently dropped once networkPolicy.enabled is true, surfacing only
+      # as connection timeouts with no obvious link back to this policy. Same
+      # rationale as networkPolicy.egress.s3.port below.
+      port: 5432
       to: []
       # to:
       #   - ipBlock:
