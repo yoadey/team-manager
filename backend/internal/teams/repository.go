@@ -325,13 +325,16 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if patch.ReasonVisibilityRoleIDs != nil {
+	if len(patch.ReasonVisibilityRoleIDs) > 0 {
 		// Uses the same advisory lock key as members.SetRoles/roles.DeleteRole
 		// (hashtextextended(teamID, 0)) so validating these role IDs can't
 		// race with a concurrent DeleteRole -- otherwise a role could be
 		// deleted (and scrubbed from this same array) between the check
 		// below and this UPDATE's commit, re-introducing a dangling
-		// reference right after DeleteRole just removed it.
+		// reference right after DeleteRole just removed it. Skipped when the
+		// caller is clearing the list (a non-nil but empty slice) -- an empty
+		// array has nothing to validate against a concurrent role deletion,
+		// mirroring events.validateNominatedRolesInTx's same short-circuit.
 		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
 			return nil, fmt.Errorf("teams.Repository.UpdateTeam: advisory lock: %w", err)
 		}

@@ -504,3 +504,51 @@ func TestTeamRepository_AcceptInvite_UnknownCode_ReturnsErrInviteNotFound(t *tes
 	_, _, err := repo.AcceptInvite(context.Background(), "does-not-exist", joinerID)
 	require.ErrorIs(t, err, teams.ErrInviteNotFound)
 }
+
+// Regression test: UpdateTeam must not take the team's
+// pg_advisory_xact_lock(hashtextextended(teamID, 0)) when
+// ReasonVisibilityRoleIDs is a non-nil but EMPTY slice (the caller clearing
+// the list) -- otherwise clearing the list needlessly serializes against
+// every other privilege-relevant mutation on the team, even though there's
+// nothing here that could race with them. Mirrors the same fix already
+// applied to events.Repository.validateNominatedRolesInTx.
+func TestTeamRepository_UpdateTeam_ClearingReasonVisibilityRoles_DoesNotBlockOnAdvisoryLock(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := teams.NewRepository(pool)
+	ctx := context.Background()
+
+	creatorID := insertUser(t, pool, "clear-roles-creator@example.com")
+	tr, err := repo.CreateTeam(ctx, "Clear Roles Team", creatorID)
+	require.NoError(t, err)
+	teamID := tr.Id.String()
+
+	lockHeld := make(chan struct{})
+	lockReleased := make(chan struct{})
+	go func() {
+		defer close(lockReleased)
+		conn, err := pool.Acquire(ctx)
+		require.NoError(t, err)
+		defer conn.Release()
+		tx, err := conn.Begin(ctx)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID)
+		require.NoError(t, err)
+		close(lockHeld)
+		time.Sleep(2 * time.Second)
+		_ = tx.Rollback(ctx)
+	}()
+
+	<-lockHeld
+
+	emptyRoleIDs := []string{}
+	start := time.Now()
+	_, err = repo.UpdateTeam(ctx, teamID, teams.TeamPatch{ReasonVisibilityRoleIDs: emptyRoleIDs})
+	elapsed := time.Since(start)
+	require.NoError(t, err)
+	assert.Less(t, elapsed, 500*time.Millisecond,
+		"UpdateTeam clearing ReasonVisibilityRoleIDs should not block on the team's advisory lock; took %v", elapsed)
+
+	<-lockReleased
+}
