@@ -1057,10 +1057,15 @@ jobs:
           # including values-prod.yaml's IRSA-based backup.enabled=true
           # render above -- so backup-cronjob.yaml's credentialsSecretName
           # branch (the AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secretKeyRefs)
-          # has no template-syntax coverage at all.
+          # has no template-syntax coverage at all. backup.s3.endpoint (the
+          # S3-compatible-storage/MinIO override -- see values.yaml and
+          # networkpolicy.yaml's egress.s3.port comment) is likewise empty
+          # everywhere, so backup-cronjob.yaml's --endpoint-url branch is
+          # covered here too rather than needing its own separate render.
           helm template team-manager helm/team-manager \
             --set backup.enabled=true --set backup.s3.enabled=true \
-            --set backup.s3.bucket=x --set backup.s3.credentialsSecretName=dummy-creds > /dev/null
+            --set backup.s3.bucket=x --set backup.s3.credentialsSecretName=dummy-creds \
+            --set backup.s3.endpoint=https://minio.example.com:9000 > /dev/null
           # deploymentStrategy is `{}` (empty map, so Deployment.spec.strategy
           # is omitted entirely) in every shipped values file, so the
           # `{{- with .Values.deploymentStrategy }}` branch in deployment.yaml
@@ -1084,3 +1089,10 @@ jobs:
           # coverage in any render above.
           helm template team-manager helm/team-manager \
             --set backup.enabled=true --set backup.serviceAccount.create=true > /dev/null
+          # serviceAccount.create is `true` in every shipped values file, so
+          # team-manager.serviceAccountName's `{{- else }}` branch (used when
+          # pointing the chart at an externally-managed ServiceAccount
+          # instead of letting it create one) has no template-syntax
+          # coverage in any render above.
+          helm template team-manager helm/team-manager \
+            --set serviceAccount.create=false --set serviceAccount.name=external-sa > /dev/null
