@@ -152,7 +152,12 @@ export interface AppState {
   /** Shared editing buffer for the active sheet; read typed via formValues<T>() (src/utils/forms.ts). */
   form: Record<string, unknown>;
   formErrors: Record<string, string>;
-  toast: { message: string; action?: { label: string; fn: () => void } } | null;
+  /**
+   * `kind` defaults to 'success' when omitted (Toast.tsx) -- most of the ~70
+   * toastMsg call sites across the app are success confirmations, so only
+   * error paths (reportActionError) need to pass 'error' explicitly.
+   */
+  toast: { message: string; action?: { label: string; fn: () => void }; kind?: 'success' | 'error' } | null;
   error: string | null;
 }
 
@@ -212,7 +217,7 @@ export interface AppContextValue {
   myRoles: () => Role[];
   can: (module: ModuleKey, level?: PermLevel) => boolean;
   isStaff: () => boolean;
-  toastMsg: (m: string, action?: { label: string; fn: () => void }) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   resetDemo: () => void;
   setPrimaryColor: (c: string) => void;
   setColorScheme: (scheme: AppState['colorScheme']) => void;
@@ -441,9 +446,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const isStaff = useCallback(() => isStaffForTeam(activeTeam()), [activeTeam]);
   const toastMsg = useCallback(
-    (m: string, action?: { label: string; fn: () => void }) => {
+    (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
-      setState({ toast: { message: m, action } });
+      setState({ toast: { message: m, action, kind } });
       toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
     },
     [setState],

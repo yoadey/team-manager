@@ -92,6 +92,21 @@ describe('reportActionError', () => {
     expect(toastMsg.mock.calls[0][0]).toBe('Dafür fehlt dir die Berechtigung');
     expect(onAuthError).not.toHaveBeenCalled();
   });
+
+  // Regression test: every reportActionError toast (network/auth/forbidden/
+  // generic) previously called toastMsg with no kind, so Toast.tsx always
+  // rendered the green success checkmark even for "You don't have permission
+  // to do that" -- the single most misleading case, since the text reads as
+  // a failure while the icon/color scream success.
+  it('passes kind: "error" to toastMsg for every error branch', () => {
+    const setState = vi.fn();
+    const cases: unknown[] = [new Error('kaputt'), new NetworkError(), new AuthError(), new ForbiddenError()];
+    for (const err of cases) {
+      const toastMsg = vi.fn();
+      reportActionError({ setState, toastMsg }, err);
+      expect(toastMsg.mock.calls[0][2]).toBe('error');
+    }
+  });
 });
 
 describe('typed error classes', () => {

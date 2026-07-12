@@ -86,7 +86,7 @@ export async function retryable<T>(fn: () => Promise<T>, maxRetries = 2): Promis
 interface ActionReporter {
   /** Clears any in-flight `busy` flag so the UI is never stuck. */
   setState: (patch: { busy: null }) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'error') => void;
   /**
    * Called when an AuthError (HTTP 401 — session expired/invalid) is caught.
    * Use to trigger logout and redirect to the login screen so the user is
@@ -132,13 +132,13 @@ export function reportActionError(reporter: ActionReporter, err: unknown, fallba
   }
 
   if (err instanceof NetworkError) {
-    reporter.toastMsg(t('error.network'));
+    reporter.toastMsg(t('error.network'), undefined, 'error');
   } else if (err instanceof AuthError) {
-    reporter.toastMsg(t('error.login'));
+    reporter.toastMsg(t('error.login'), undefined, 'error');
     reporter.onAuthError?.();
   } else if (err instanceof ForbiddenError) {
-    reporter.toastMsg(t('error.forbidden'));
+    reporter.toastMsg(t('error.forbidden'), undefined, 'error');
   } else {
-    reporter.toastMsg(`${t(fallbackKey)}: ${getErrorMessage(err)}`);
+    reporter.toastMsg(`${t(fallbackKey)}: ${getErrorMessage(err)}`, undefined, 'error');
   }
 }
