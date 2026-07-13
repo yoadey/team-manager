@@ -215,6 +215,20 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	slog.SetDefault(logger)
 
+	// Registered here, before any slow startup work (DB connect/migrate,
+	// River migration -- which holds a Postgres advisory lock for its
+	// duration), rather than just before the blocking <-quit receive below.
+	// Until signal.Notify runs, SIGTERM has its OS default disposition
+	// (immediate termination) -- Go installs no handler for it automatically
+	// -- so a rolling deployment or node drain sending SIGTERM while this
+	// process is still mid-init would kill it outright, skipping the app's
+	// own graceful-shutdown path (and its "shutting down" log line, Sentry/
+	// OTel flush) entirely. The channel is buffered (size 1), so a signal
+	// arriving during init is queued and simply picked up by <-quit as soon
+	// as init finishes, instead of being lost.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
 	applyMemoryLimitHeadroom()
 	failIfMetricsOpen(cfg)
 	warnIfPaginationKeyOpen(cfg)
@@ -464,9 +478,9 @@ func main() {
 	go runHTTPServer(httpSrv)
 
 	// ─── Graceful shutdown ───────────────────────────────────────────────────
+	// quit was registered near the top of main(), before any slow startup
+	// work -- see that declaration's comment for why.
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	slog.Info("shutting down server")
