@@ -28,21 +28,22 @@ SET amount = p.amount, label = p.label
 FROM penalties p
 WHERE p.id = pa.penalty_id AND pa.amount IS NULL;
 
--- A plain "ALTER COLUMN ... SET NOT NULL" takes an ACCESS EXCLUSIVE lock for
--- the duration of a full-table scan to verify no NULLs remain. Validating a
--- NOT VALID CHECK constraint first (SHARE UPDATE EXCLUSIVE, doesn't block
--- reads/writes) lets Postgres's planner skip that scan when SET NOT NULL
--- runs next, following the same expand/contract discipline as 00016+00018 --
--- maxAssignmentsPerTeam (100k) bounds a single team, but this table has no
--- overall cap across teams, so it isn't safe to assume small.
-ALTER TABLE penalty_assignments ADD CONSTRAINT penalty_assignments_amount_not_null CHECK (amount IS NOT NULL) NOT VALID;
-ALTER TABLE penalty_assignments ADD CONSTRAINT penalty_assignments_label_not_null CHECK (label IS NOT NULL) NOT VALID;
-ALTER TABLE penalty_assignments VALIDATE CONSTRAINT penalty_assignments_amount_not_null;
-ALTER TABLE penalty_assignments VALIDATE CONSTRAINT penalty_assignments_label_not_null;
-ALTER TABLE penalty_assignments ALTER COLUMN amount SET NOT NULL;
-ALTER TABLE penalty_assignments ALTER COLUMN label SET NOT NULL;
-ALTER TABLE penalty_assignments DROP CONSTRAINT penalty_assignments_amount_not_null;
-ALTER TABLE penalty_assignments DROP CONSTRAINT penalty_assignments_label_not_null;
+-- Deliberately NOT enforced NOT NULL here (no VALIDATE CONSTRAINT / SET NOT
+-- NULL step), unlike 00016/00018's expand/contract precedent. Under a
+-- RollingUpdate deploy (the default, replicaCount > 1 in prod -- see
+-- docs/operations.md's "Rolling upgrades & schema-changing migrations"),
+-- old-version pods still running the pre-this-release binary run
+-- CreateAssignment's INSERT without amount/label at all; a NOT NULL
+-- constraint landing in the SAME release as the code that starts always
+-- supplying them would make every one of those concurrent old-pod inserts
+-- fail for the whole rollout window. gen.PenaltyAssignment.Amount/Label are
+-- already *int64/*string (nullable) end-to-end -- toGenAssignment,
+-- PenaltyAssignmentRow, and the OpenAPI schema all already tolerate a NULL
+-- value -- so nothing downstream requires this to be non-null at the DB
+-- level. A future migration, once this release has been fully rolled out
+-- (no old-code pod can still be running), MAY add NOT NULL via the standard
+-- NOT VALID -> VALIDATE -> SET NOT NULL -> DROP CONSTRAINT sequence if
+-- desired; it isn't required for correctness.
 
 -- +goose Down
 

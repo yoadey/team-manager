@@ -252,6 +252,53 @@ func TestFinancesRepository_CreateAssignment_MaxAmountPenalty_Succeeds(t *testin
 	assert.Equal(t, int64(maxAmountCents), *assign.PenaltyAmount)
 }
 
+// TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert is a
+// regression test for a rolling-deploy hazard in migration
+// 00025_penalty_assignment_amount_snapshot.sql: under Kubernetes'
+// RollingUpdate strategy (the default with replicaCount > 1), old-version
+// pods still running the pre-snapshot binary keep issuing
+// "INSERT INTO penalty_assignments (team_id, user_id, penalty_id) ..." with
+// no amount/label for the whole rollout window. If those two columns were
+// ever made NOT NULL (they deliberately are not -- see the migration's own
+// comment), every one of those concurrent old-pod inserts would fail. This
+// directly exercises that exact old-binary INSERT shape against the current
+// schema and asserts it still succeeds, leaving amount/label NULL --
+// tolerated end-to-end since PenaltyAssignmentRow.PenaltyAmount/PenaltyLabel
+// and the generated OpenAPI type are already nullable (*int64/*string).
+func TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Pre-snapshot Fine", 500)
+	require.NoError(t, err)
+
+	var assignmentID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, tid, uid, pen.ID).Scan(&assignmentID)
+	require.NoError(t, err, "an old-binary INSERT omitting amount/label must not be rejected by a NOT NULL constraint during a rolling deploy")
+
+	var amount *int64
+	var label *string
+	err = pool.QueryRow(ctx, `SELECT amount, label FROM penalty_assignments WHERE id = $1`, assignmentID).Scan(&amount, &label)
+	require.NoError(t, err)
+	assert.Nil(t, amount)
+	assert.Nil(t, label)
+}
+
 func TestFinancesRepository_Contributions(t *testing.T) {
 	t.Parallel()
 
