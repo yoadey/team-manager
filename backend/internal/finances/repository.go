@@ -728,7 +728,7 @@ func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UU
 	rows, err := r.db.Query(ctx, `
 		SELECT pa.user_id, u.name, u.avatar_color,
 		       (u.photo_data IS NOT NULL) AS has_photo,
-		       SUM(pa.amount)::BIGINT AS total_amount
+		       COALESCE(SUM(pa.amount), 0)::BIGINT AS total_amount
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1 AND pa.paid = false

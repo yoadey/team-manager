@@ -299,6 +299,51 @@ func TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert(t *testi
 	assert.Nil(t, label)
 }
 
+// TestFinancesRepository_ListOpenPenaltiesByUser_TreatsNullAmountAsZero is a
+// companion regression test to
+// TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert: an
+// old-binary INSERT during a rolling deploy can leave a user's ONLY unpaid
+// penalty_assignments row with amount = NULL. SUM() over a Postgres group
+// where every contributing row is NULL returns SQL NULL, not 0 -- unlike the
+// row-level read paths (ListAssignments etc.), which already tolerate a NULL
+// amount via a nullable *int64 field, ListOpenPenaltiesByUser scans straight
+// into a non-pointer int64 TotalAmount, so an unguarded SUM(pa.amount) would
+// fail that scan and take down the whole finance overview endpoint for the
+// team (GetOverview runs every read, including this one, inside a single
+// transaction that returns an error on any failure). Mirrors the
+// COALESCE(SUM(...), 0) pattern already used by SumTransactions.
+func TestFinancesRepository_ListOpenPenaltiesByUser_TreatsNullAmountAsZero(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Pre-snapshot Fine", 500)
+	require.NoError(t, err)
+
+	// The exact old-binary INSERT shape from the sibling test above: no
+	// amount/label at all, leaving this the user's only open assignment.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
+		VALUES ($1, $2, $3)
+	`, tid, uid, pen.ID)
+	require.NoError(t, err)
+
+	openPens, err := repo.ListOpenPenaltiesByUser(ctx, teamID)
+	require.NoError(t, err, "must not fail scanning a NULL SUM() when every row in the group has a NULL amount")
+	require.Len(t, openPens, 1)
+	assert.Equal(t, int64(0), openPens[0].TotalAmount)
+}
+
 func TestFinancesRepository_Contributions(t *testing.T) {
 	t.Parallel()
 
