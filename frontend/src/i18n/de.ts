@@ -25,6 +25,8 @@ export const de = {
     copy: 'Kopieren fehlgeschlagen',
     forbidden: 'Dafür fehlt dir die Berechtigung',
     fileRead: 'Die ausgewählte Datei konnte nicht gelesen werden',
+    fileType: 'Bitte wähle eine Bilddatei aus',
+    fileTooLarge: 'Die ausgewählte Datei ist zu groß (max. {mb} MB)',
   },
   relTime: {
     now: 'gerade eben',

@@ -360,6 +360,50 @@ describe('AppProvider / actions (app phase)', () => {
     expect(cb).not.toHaveBeenCalled();
     expect(screen.getByTestId('toast').textContent).not.toBe('');
   });
+
+  // Regression test: onFile had no MIME-type check -- the <input
+  // accept="image/*"> attribute is only a picker-UI hint, so a user could
+  // switch to "All Files" and select an arbitrary non-image file, which
+  // onFile would silently read as a data URL and hand to the caller as if
+  // it were a valid photo/logo.
+  it('onFile rejects a non-image file without reading it', async () => {
+    await renderAndBootstrap();
+
+    const file = new File(['%PDF-1.4'], 'doc.pdf', { type: 'application/pdf' });
+    const input = document.createElement('input');
+    input.type = 'file';
+    Object.defineProperty(input, 'files', { value: [file] });
+    const cb = vi.fn();
+
+    await act(async () => {
+      capturedActions.onFile({ target: input } as unknown as Parameters<typeof capturedActions.onFile>[0], cb);
+    });
+
+    expect(cb).not.toHaveBeenCalled();
+    expect(screen.getByTestId('toast').textContent).not.toBe('');
+  });
+
+  // Regression test: onFile had no file-size check -- readAsDataURL reads
+  // the entire file into memory as base64 with no cap, so a huge file
+  // picked via "All Files" could freeze the tab and produce a payload with
+  // no client-side size guard before it's sent to the backend.
+  it('onFile rejects an oversized file without reading it', async () => {
+    await renderAndBootstrap();
+
+    const file = new File(['x'], 'huge.png', { type: 'image/png' });
+    Object.defineProperty(file, 'size', { value: 10 * 1024 * 1024 });
+    const input = document.createElement('input');
+    input.type = 'file';
+    Object.defineProperty(input, 'files', { value: [file] });
+    const cb = vi.fn();
+
+    await act(async () => {
+      capturedActions.onFile({ target: input } as unknown as Parameters<typeof capturedActions.onFile>[0], cb);
+    });
+
+    expect(cb).not.toHaveBeenCalled();
+    expect(screen.getByTestId('toast').textContent).not.toBe('');
+  });
 });
 
 // Regression test: on-demand per-route loaders (loadFinances, loadStats,

@@ -24,6 +24,8 @@ export const en: Messages = {
     copy: 'Copy failed',
     forbidden: "You don't have permission to do that",
     fileRead: 'Could not read the selected file',
+    fileType: 'Please select an image file',
+    fileTooLarge: 'The selected file is too large (max {mb} MB)',
   },
   relTime: {
     now: 'just now',

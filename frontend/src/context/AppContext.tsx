@@ -206,6 +206,11 @@ const initialState: AppState = {
   error: null,
 };
 
+// Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
+// JSON string field -- there is no server-side streaming upload path, so an
+// oversized file has to be rejected client-side before FileReader reads it.
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
 const PAGE_SHEETS = ['eventDetail', 'eventForm', 'memberDetail', 'memberForm', 'teamSettings', 'roles', 'roleForm'];
 export const isPageSheet = (type?: string | null) => !!type && PAGE_SHEETS.includes(type);
 
@@ -580,6 +585,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
+      // The <input accept="image/*"> attribute is only a picker-UI filter
+      // hint -- a user can switch to "All Files" or drag-and-drop past it,
+      // so this is the only real gate against reading an arbitrary
+      // non-image file (or something huge enough to freeze the tab) into a
+      // base64 data URL and shipping it to the backend as a "photo"/"logo".
+      if (!f.type.startsWith('image/')) {
+        toastMsg(t('error.fileType'), undefined, 'error');
+        e.target.value = '';
+        return;
+      }
+      if (f.size > MAX_UPLOAD_BYTES) {
+        toastMsg(t('error.fileTooLarge', { mb: MAX_UPLOAD_BYTES / (1024 * 1024) }), undefined, 'error');
+        e.target.value = '';
+        return;
+      }
       const r = new FileReader();
       r.onload = () => cb(r.result as string);
       // Without this, a failed read (a corrupted file, a cloud-backed
