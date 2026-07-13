@@ -73,18 +73,36 @@ func notificationModule(notifType gen.NotificationType) string {
 }
 
 // hasReadAccess reports whether p grants at least "read" on module. An empty
-// module (self-standing notification types, e.g. "absence") is always visible.
+// module (self-standing notification types, e.g. "absence") is always
+// visible. Every other module string must match one of PermissionsJSON's six
+// fields explicitly and fail CLOSED on anything else -- unlike
+// notificationModule's callers-are-trusted default, this function is the
+// actual gate deciding whether a notification is shown, so an unrecognized
+// module (e.g. notificationModule is later extended to return "members"/
+// "finances"/"settings" for a new notification type, without a matching case
+// added here too) must not silently grant access, mirroring
+// middleware/authz.go's hasWritePermission/hasAnyPermission, which fail
+// closed on the same six module names for the identical reason.
 func hasReadAccess(p teams.PermissionsJSON, module string) bool {
+	if module == "" {
+		return true
+	}
 	var level string
 	switch module {
 	case "events":
 		level = p.Events
+	case "members":
+		level = p.Members
+	case "finances":
+		level = p.Finances
 	case "news":
 		level = p.News
 	case "polls":
 		level = p.Polls
+	case "settings":
+		level = p.Settings
 	default:
-		return true
+		return false
 	}
 	return level == "read" || level == "write"
 }
