@@ -164,3 +164,57 @@ func TestRetentionWorker_DeletesLongExpiredInvites(t *testing.T) {
 
 	assert.Equal(t, []string{"still-valid-code"}, codes, "only the still-valid invite should survive retention")
 }
+
+// TestRetentionWorker_ContinuesLaterPhasesWhenAnEarlierPhaseFails is a
+// regression test for a bug where Work returned immediately on the first
+// phase's error, skipping sessions/invites/audit_log entirely -- exactly the
+// "one table's backlog starves the phases after it" failure mode
+// retentionPhaseTimeout's own independent per-phase budgets were built to
+// prevent, just triggered by a phase's own error/timeout propagating up
+// instead of a shared budget being exhausted. Forces the notifications
+// phase to fail with a genuine SQL error (dropping its table), which
+// exercises the identical deleteBatched error-return path a real
+// retentionPhaseTimeout timeout would, then verifies the sessions and
+// invites phases still ran and cleaned up despite that failure.
+func TestRetentionWorker_ContinuesLaterPhasesWhenAnEarlierPhaseFails(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Retention Continue User', 'retention-continue@example.com', '#654321')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sessions (user_id, token_hash, created_at, expires_at)
+		VALUES ($1, 'phase-continue-expired', now() - interval '130 days', now() - interval '100 days')
+	`, userID)
+	require.NoError(t, err)
+
+	teamID := uuid.New()
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Retention Continue Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO invites (team_id, code, expires_at)
+		VALUES ($1, 'phase-continue-code', now() - interval '100 days')
+	`, teamID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `DROP TABLE notifications CASCADE`)
+	require.NoError(t, err)
+
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	err = worker.Work(ctx, &river.Job[jobs.RetentionArgs]{})
+	require.Error(t, err, "Work must report the notifications phase's failure")
+	assert.Contains(t, err.Error(), "delete notifications")
+
+	var sessionCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE user_id = $1`, userID).Scan(&sessionCount))
+	assert.Equal(t, 0, sessionCount, "sessions phase must still run and delete the expired session even though notifications failed first")
+
+	var inviteCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM invites WHERE team_id = $1`, teamID).Scan(&inviteCount))
+	assert.Equal(t, 0, inviteCount, "invites phase must still run and delete the expired invite even though notifications failed first")
+}

@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -119,6 +120,16 @@ func (w *RetentionWorker) Timeout(*river.Job[RetentionArgs]) time.Duration {
 
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
+//
+// Each of the four phases below runs regardless of whether an earlier phase
+// failed or timed out, and their errors are joined at the end rather than
+// returned immediately -- returning early on the first error would let an
+// unusually large backlog in one table (e.g. notifications, always deleted
+// first) that exceeds its own retentionPhaseTimeout silently abort every
+// later phase on every run, including audit_log's compliance-mandated
+// cleanup, defeating the whole point of giving each phase an independent
+// timeout budget (see retentionPhaseTimeout's doc comment) by introducing
+// the same starvation failure mode through a different mechanism.
 func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs]) (err error) {
 	ctx, span := tracer.Start(ctx, "retention.work")
 	defer func() {
@@ -130,18 +141,20 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	}()
 
 	now := time.Now()
+	var errs []error
 
 	// Delete old notifications.
 	notifCtx, notifCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	notifCutoff := now.Add(-w.notificationRetention)
-	notifRows, err := deleteBatched(notifCtx, w.pool, "notifications", "created_at", notifCutoff)
+	notifRows, notifErr := deleteBatched(notifCtx, w.pool, "notifications", "created_at", notifCutoff)
 	notifCancel()
-	if err != nil {
+	if notifErr != nil {
 		metrics.RetentionJobFailures.WithLabelValues("notifications").Inc()
-		return fmt.Errorf("retention: delete notifications: %w", err)
+		errs = append(errs, fmt.Errorf("retention: delete notifications: %w", notifErr))
+	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("notifications").Add(float64(notifRows))
+		slog.Info("retention: deleted old notifications", "rows", notifRows, "cutoff", notifCutoff)
 	}
-	metrics.RetentionJobRowsDeleted.WithLabelValues("notifications").Add(float64(notifRows))
-	slog.Info("retention: deleted old notifications", "rows", notifRows, "cutoff", notifCutoff)
 
 	// Delete sessions that expired more than sessionRetention ago. Keying off
 	// expires_at (not created_at) is required for correctness: a long-lived
@@ -150,27 +163,29 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	// expired and the retention grace period has passed.
 	sessionCtx, sessionCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	sessionCutoff := now.Add(-w.sessionRetention)
-	sessionRows, err := deleteBatched(sessionCtx, w.pool, "sessions", "expires_at", sessionCutoff)
+	sessionRows, sessionErr := deleteBatched(sessionCtx, w.pool, "sessions", "expires_at", sessionCutoff)
 	sessionCancel()
-	if err != nil {
+	if sessionErr != nil {
 		metrics.RetentionJobFailures.WithLabelValues("sessions").Inc()
-		return fmt.Errorf("retention: delete sessions: %w", err)
+		errs = append(errs, fmt.Errorf("retention: delete sessions: %w", sessionErr))
+	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("sessions").Add(float64(sessionRows))
+		slog.Info("retention: deleted old sessions", "rows", sessionRows, "cutoff", sessionCutoff)
 	}
-	metrics.RetentionJobRowsDeleted.WithLabelValues("sessions").Add(float64(sessionRows))
-	slog.Info("retention: deleted old sessions", "rows", sessionRows, "cutoff", sessionCutoff)
 
 	// Delete invites that expired more than inviteRetention ago. Keyed off
 	// expires_at, same reasoning as sessions above.
 	inviteCtx, inviteCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	inviteCutoff := now.Add(-inviteRetention)
-	inviteRows, err := deleteBatched(inviteCtx, w.pool, "invites", "expires_at", inviteCutoff)
+	inviteRows, inviteErr := deleteBatched(inviteCtx, w.pool, "invites", "expires_at", inviteCutoff)
 	inviteCancel()
-	if err != nil {
+	if inviteErr != nil {
 		metrics.RetentionJobFailures.WithLabelValues("invites").Inc()
-		return fmt.Errorf("retention: delete invites: %w", err)
+		errs = append(errs, fmt.Errorf("retention: delete invites: %w", inviteErr))
+	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("invites").Add(float64(inviteRows))
+		slog.Info("retention: deleted expired invites", "rows", inviteRows, "cutoff", inviteCutoff)
 	}
-	metrics.RetentionJobRowsDeleted.WithLabelValues("invites").Add(float64(inviteRows))
-	slog.Info("retention: deleted expired invites", "rows", inviteRows, "cutoff", inviteCutoff)
 
 	// Delete old audit_log entries. Compliance regulations typically require a
 	// minimum retention period (e.g. 1 year); RETENTION_AUDIT_LOG_DAYS defaults
@@ -188,14 +203,19 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	// migrations' checksums against their file content.
 	auditCtx, auditCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	auditCutoff := now.Add(-w.auditLogRetention)
-	auditRows, err := deleteBatched(auditCtx, w.pool, "audit_log", "occurred_at", auditCutoff)
+	auditRows, auditErr := deleteBatched(auditCtx, w.pool, "audit_log", "occurred_at", auditCutoff)
 	auditCancel()
-	if err != nil {
+	if auditErr != nil {
 		metrics.RetentionJobFailures.WithLabelValues("audit_log").Inc()
-		return fmt.Errorf("retention: delete audit_log: %w", err)
+		errs = append(errs, fmt.Errorf("retention: delete audit_log: %w", auditErr))
+	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("audit_log").Add(float64(auditRows))
+		slog.Info("retention: deleted old audit_log entries", "rows", auditRows, "cutoff", auditCutoff)
 	}
-	metrics.RetentionJobRowsDeleted.WithLabelValues("audit_log").Add(float64(auditRows))
-	slog.Info("retention: deleted old audit_log entries", "rows", auditRows, "cutoff", auditCutoff)
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
 
 	metrics.RetentionJobLastSuccessTimestamp.Set(float64(now.Unix()))
 	return nil
