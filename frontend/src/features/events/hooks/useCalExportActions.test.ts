@@ -18,7 +18,7 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
     startTime: '18:00',
     endTime: null,
     meetTimeMandatory: false,
-    responseMode: 'manual',
+    responseMode: 'opt_in',
     recurring: false,
     seriesId: null,
     status: 'active',
