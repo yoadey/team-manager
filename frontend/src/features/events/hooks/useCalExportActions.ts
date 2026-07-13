@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import type { TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import { hhmm } from '@/styles/tokens';
-import { combineDateAndTimeLocal } from '@/utils/date';
+import { zonedTimeToUtc } from '@/utils/date';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -50,9 +50,14 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
     const now = new Date();
     const tMeta: Record<string, string> = { training: 'Training', auftritt: 'Auftritt / Turnier', event: 'Team-Event' };
     evs.forEach((e) => {
-      const start = combineDateAndTimeLocal(e.date, hhmm(e.startTime) || hhmm(e.meetTime) || '18:00');
+      // e.date/startTime/endTime are team-local (Europe/Berlin) wall-clock
+      // strings (see EventDto's doc comment) -- must resolve to the same
+      // absolute instant regardless of the exporting browser's own
+      // timezone, unlike combineDateAndTimeLocal which would silently
+      // reinterpret them in whatever timezone the browser happens to run in.
+      const start = zonedTimeToUtc(e.date, hhmm(e.startTime) || hhmm(e.meetTime) || '18:00', 'Europe/Berlin');
       const end = e.endTime
-        ? combineDateAndTimeLocal(e.date, hhmm(e.endTime))
+        ? zonedTimeToUtc(e.date, hhmm(e.endTime), 'Europe/Berlin')
         : new Date(start.getTime() + 2 * 3600 * 1000);
       const descParts: string[] = [];
       if (e.meetTime) descParts.push('Treffen: ' + hhmm(e.meetTime));
