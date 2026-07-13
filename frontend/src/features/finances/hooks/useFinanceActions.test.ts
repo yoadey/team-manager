@@ -106,6 +106,20 @@ describe('useFinanceActions', () => {
     );
   });
 
+  // Regression test: a new transaction's category used to be prefilled with
+  // the literal German word 'Beiträge' as an actual form VALUE, independent
+  // of the active UI locale -- same bug class as the round-75 absence-reason
+  // fix. An English-locale user creating a transaction saw an already-filled
+  // German word instead of the already-translated txCategoryPlaceholder
+  // hint (which never renders once the field has a value).
+  it('openTxForm defaults a new transaction category to empty (not a hardcoded locale-specific value)', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTxForm();
+    });
+    expect(setState).toHaveBeenCalledWith(expect.objectContaining({ form: expect.objectContaining({ category: '' }) }));
+  });
+
   it('openTxForm sets edit sheet when transaction passed', () => {
     const tx = { id: 'tx1', type: 'income', title: 'Test', amount: 50, category: 'Beiträge' } as never;
     const { result } = renderActions();

@@ -72,6 +72,19 @@ describe('EventAbsences', () => {
     expect(screen.getByText(/Urlaub/)).toBeTruthy();
   });
 
+  // Regression test: an absence with no reason (a genuinely optional field,
+  // and now easy to save empty since round 75 removed the hardcoded
+  // 'Urlaub' default) used to unconditionally append " · " + reason,
+  // leaving a dangling trailing separator like "Jan 10 – Jan 20 · " with
+  // nothing after it -- EventDetailSheet.tsx already has the correct
+  // conditional pattern nearby for the same class of optional trailing text.
+  it('omits the separator when the absence has no reason', () => {
+    const absence = makeAbsence({ reason: '' });
+    mockUseApp.mockReturnValue(makeApp({ absences: [absence] }) as never);
+    render(<EventAbsences />);
+    expect(screen.queryByText(/·/)).toBeNull();
+  });
+
   it('filters out past absences (to < today)', () => {
     const past = makeAbsence({ to: '2020-01-01' });
     mockUseApp.mockReturnValue(makeApp({ absences: [past] }) as never);

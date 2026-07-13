@@ -48,7 +48,12 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
       'X-WR-TIMEZONE:Europe/Berlin',
     ];
     const now = new Date();
-    const tMeta: Record<string, string> = { training: 'Training', auftritt: 'Auftritt / Turnier', event: 'Team-Event' };
+    const typeLabel = (type: string) =>
+      type === 'training'
+        ? t('eventType.training')
+        : type === 'auftritt'
+          ? t('eventType.auftritt')
+          : t('eventType.event');
     evs.forEach((e) => {
       // e.date/startTime/endTime are team-local (Europe/Berlin) wall-clock
       // strings (see EventDto's doc comment) -- must resolve to the same
@@ -60,9 +65,9 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
         ? zonedTimeToUtc(e.date, hhmm(e.endTime), 'Europe/Berlin')
         : new Date(start.getTime() + 2 * 3600 * 1000);
       const descParts: string[] = [];
-      if (e.meetTime) descParts.push('Treffen: ' + hhmm(e.meetTime));
+      if (e.meetTime) descParts.push(t('events.meetTime', { time: hhmm(e.meetTime) }));
       if (e.note) descParts.push(e.note);
-      descParts.push('Typ: ' + (tMeta[e.type] || 'Team-Event'));
+      descParts.push(t('events.eventType') + ': ' + typeLabel(e.type));
       lines.push(
         'BEGIN:VEVENT',
         'UID:' + e.id + '@teamverwaltung.app',

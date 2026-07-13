@@ -38,7 +38,7 @@ export function EventAbsences() {
             {isMe ? <Chip label={t('events.meLabel')} color={tk.primary} bg={tk.primaryContainer} /> : null}
           </Box>
           <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '2px' }}>
-            {fmtRange(a.from, a.to) + ' · ' + a.reason}
+            {fmtRange(a.from, a.to) + (a.reason ? ' · ' + a.reason : '')}
           </Box>
         </Box>
         <Box
