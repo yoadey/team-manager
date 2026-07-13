@@ -158,6 +158,17 @@ describe('EventFormSheet', () => {
     expect(note.maxLength).toBe(10000);
   });
 
+  // Regression test: title was capped at 100, needlessly stricter than the
+  // backend's validate.Name bound (255) that location/note already match --
+  // silently blocking a longer title the backend would happily accept.
+  it('caps the title input matching the backend limit', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    const title = document.querySelector('input[name="title"]') as HTMLInputElement;
+    expect(title.maxLength).toBe(255);
+  });
+
   it('renders recurring toggle in create mode', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
