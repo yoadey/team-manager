@@ -774,6 +774,21 @@ jobs:
           fail=0
           while IFS= read -r f; do
             [ -z "$f" ] && continue
+            # File-level check (not per-statement): goose wraps a migration's
+            # statements in a transaction by default, and Postgres rejects
+            # CREATE INDEX CONCURRENTLY inside a transaction block. Every
+            # migration using CONCURRENTLY today opts out via a
+            # '-- +goose NO TRANSACTION' annotation before '-- +goose Up' --
+            # this only checks the annotation is PRESENT somewhere in the
+            # file, not its exact placement, since goose itself is the
+            # authority on that; this just catches the easy slip of adding
+            # CONCURRENTLY and forgetting the annotation entirely, which
+            # otherwise only surfaces when the migration actually runs
+            # against a real database (i.e. in a deploy, not in CI).
+            if grep -qi 'CONCURRENTLY' "$f" && ! grep -qE '^-- \+goose NO TRANSACTION' "$f"; then
+              echo "::error file=$f::CREATE INDEX CONCURRENTLY requires a '-- +goose NO TRANSACTION' annotation (goose wraps migrations in a transaction by default, and Postgres rejects CONCURRENTLY inside one). Add '-- +goose NO TRANSACTION' before '-- +goose Up'."
+              fail=1
+            fi
             # Split the file into ;-terminated statements and flatten each
             # statement's internal newlines to spaces, so a multi-line
             # ALTER TABLE / CREATE INDEX (this repo uses both styles — see
