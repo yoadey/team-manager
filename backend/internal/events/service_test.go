@@ -37,6 +37,7 @@ type mockSvcRepo struct {
 	setAttendanceFn          func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
 	setNominationFn          func(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
 	listCommentsFn           func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
+	countCommentsFn          func(ctx context.Context, eventID, teamID string) (int, error)
 	addCommentFn             func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
 	deleteCommentFn          func(ctx context.Context, commentID, userID, teamID string) error
 }
@@ -112,6 +113,13 @@ func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, callerID, user
 
 func (m *mockSvcRepo) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error) {
 	return m.listCommentsFn(ctx, eventID, teamID, limit, offset)
+}
+
+func (m *mockSvcRepo) CountComments(ctx context.Context, eventID, teamID string) (int, error) {
+	if m.countCommentsFn != nil {
+		return m.countCommentsFn(ctx, eventID, teamID)
+	}
+	return 0, nil
 }
 
 func (m *mockSvcRepo) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error) {
@@ -758,4 +766,48 @@ func TestEventService_ListAttendance_RedactsReasonOnNonDeclineStatus(t *testing.
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Nil(t, rows[0].Reason, "a reason attached to a non-'no' status must still be redacted from a viewer without a matching role")
+}
+
+// Regression test: AddComment used to have no per-event cap at all --
+// events/comments is a self-service write reachable by any team member with
+// no RBAC gate and no other natural bound, unlike finances' equivalent
+// write paths (maxTransactionsPerTeam). Once an event reaches
+// maxCommentsPerEvent, AddComment must reject the write instead of calling
+// through to the repository.
+func TestEventService_AddComment_TooManyComments_Blocked(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockSvcRepo{
+		countCommentsFn: func(context.Context, string, string) (int, error) {
+			return 2000, nil
+		},
+		addCommentFn: func(context.Context, string, string, string, string) (*events.CommentRow, error) {
+			t.Fatal("repository AddComment must not be called once the cap is reached")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	_, err := svc.AddComment(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), "one too many")
+	require.ErrorIs(t, err, events.ErrTooManyComments)
+}
+
+func TestEventService_AddComment_BelowCap_Allowed(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	repo := &mockSvcRepo{
+		countCommentsFn: func(context.Context, string, string) (int, error) {
+			return 1999, nil
+		},
+		addCommentFn: func(context.Context, string, string, string, string) (*events.CommentRow, error) {
+			called = true
+			return &events.CommentRow{Id: uuid.New(), Text: "hi", CreatedAt: time.Now()}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	_, err := svc.AddComment(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), "hi")
+	require.NoError(t, err)
+	assert.True(t, called, "repository AddComment must be called when below the cap")
 }

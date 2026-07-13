@@ -1072,6 +1072,32 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, callerID, userI
 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
+// maxCommentsPerEvent caps how many comments a single event can accumulate,
+// enforced in Service.AddComment via CountComments -- unlike ListAttendance's
+// per-request row cap, comments have no natural bound (any team member can
+// add one via the self-service events/comments route, with no RBAC write
+// gate), and ListComments' OFFSET-based pagination would otherwise let an
+// unbounded comment count grow to where every page pays a proportionally
+// larger scan cost, with no ceiling anywhere in the write path.
+const maxCommentsPerEvent = 2000
+
+// CountComments returns the number of comments an event has, used to enforce
+// maxCommentsPerEvent before an insert.
+func (r *Repository) CountComments(ctx context.Context, eventID, teamID string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM event_comments c
+		JOIN events e ON e.id = c.event_id
+		WHERE c.event_id = $1 AND e.team_id = $2
+	`, eventID, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("events.Repository.CountComments: %w", err)
+	}
+	return count, nil
+}
+
 // ListComments returns all comments for an event scoped to teamID, enriched
 // with user data.
 func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error) {

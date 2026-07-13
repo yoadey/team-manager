@@ -28,6 +28,7 @@ type mockEventService struct {
 	setStatus     func(ctx context.Context, userID, eventID, teamID, status, scope string) (*gen.TeamEvent, error)
 	setAttendance func(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
 	setNomination func(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error
+	addComment    func(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error)
 }
 
 func (m *mockEventService) ListEvents(context.Context, string, string, gen.ListEventsParamsScope, string, int) ([]gen.TeamEvent, *string, error) {
@@ -58,7 +59,10 @@ func (m *mockEventService) ListComments(context.Context, string, string, int, in
 	panic("not implemented")
 }
 
-func (m *mockEventService) AddComment(context.Context, string, string, string, string) (*gen.EventComment, error) {
+func (m *mockEventService) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error) {
+	if m.addComment != nil {
+		return m.addComment(ctx, eventID, userID, teamID, text)
+	}
 	panic("not implemented")
 }
 
@@ -368,6 +372,28 @@ func TestEventHandler_SetNomination_MissingUserId_Returns400(t *testing.T) {
 		TeamId: uuid.New(), EventId: uuid.New(), Body: body,
 	})
 	require.Error(t, err)
+}
+
+// Regression test: AddEventComment had no per-event cap, unlike finances'
+// equivalent write paths (ErrTooManyTransactions maps to 422), so an event
+// could accumulate comments without bound -- events/comments is a
+// self-service write reachable by any team member with no RBAC gate.
+func TestEventHandler_AddEventComment_TooManyComments_Returns422(t *testing.T) {
+	t.Parallel()
+	h := events.NewHandler(&mockEventService{
+		addComment: func(context.Context, string, string, string, string) (*gen.EventComment, error) {
+			return nil, events.ErrTooManyComments
+		},
+	}, slog.Default())
+
+	body := &gen.AddEventCommentJSONRequestBody{Text: "one comment too many"}
+	_, err := h.AddEventComment(ctxWithUser(), gen.AddEventCommentRequestObject{
+		TeamId: uuid.New(), EventId: uuid.New(), Body: body,
+	})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, 422, apiErr.Status)
 }
 
 func ptr[T any](v T) *T { return &v }

@@ -1113,6 +1113,50 @@ func TestEventRepository_AddComment_RejectsNonMemberUser(t *testing.T) {
 	assert.Equal(t, "from an actual member", comment.Text)
 }
 
+func TestEventRepository_CountComments(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	member := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Count Comments Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Member', 'count-comments-member@example.com', '#abcdef')`, member)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Count Comments Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	count, err := repo.CountComments(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	_, err = repo.AddComment(ctx, eventID, member.String(), teamID.String(), "one")
+	require.NoError(t, err)
+	_, err = repo.AddComment(ctx, eventID, member.String(), teamID.String(), "two")
+	require.NoError(t, err)
+
+	count, err = repo.CountComments(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, 2, count)
+
+	// A cross-team teamID must not see this event's comments.
+	otherTeamID := uuid.New()
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Count Comments Other Team')`, otherTeamID)
+	require.NoError(t, err)
+	count, err = repo.CountComments(ctx, eventID, otherTeamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "CountComments must not see a cross-team event's comments")
+}
+
 // TestEventRepository_SetNomination_ClearsStaleReason regression-tests a bug
 // where SetNomination(false)'s ON CONFLICT branch only updated status/at,
 // leaving a prior "no" row's reason/reason_id/reason_visibility untouched.

@@ -303,6 +303,9 @@ func (h *Handler) AddEventComment(ctx context.Context, request gen.AddEventComme
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")
 		}
+		if errors.Is(err, ErrTooManyComments) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "AddEventComment failed", "err", err)
 		return nil, apierror.Internal("failed to add comment")
 	}

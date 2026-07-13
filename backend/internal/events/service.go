@@ -26,6 +26,7 @@ var (
 	ErrSetNominationForbidden       = errors.New("events.Service.SetNomination: caller lacks events:write")
 	ErrAttendanceStatusNotNominated = errors.New("events.Service.SetAttendance: status 'not_nominated' may only be set via SetNomination")
 	ErrRepeatWeeksTooLarge          = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
+	ErrTooManyComments              = fmt.Errorf("event has reached the maximum of %d comments", maxCommentsPerEvent)
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -53,6 +54,7 @@ type eventRepo interface {
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
 	SetNomination(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
 	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
+	CountComments(ctx context.Context, eventID, teamID string) (int, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error)
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
 }
@@ -382,8 +384,19 @@ func (s *Service) ListComments(ctx context.Context, eventID, teamID string, limi
 	return out, nil
 }
 
-// AddComment adds a comment to an event scoped to teamID.
+// AddComment adds a comment to an event scoped to teamID. Returns
+// ErrTooManyComments once the event has reached maxCommentsPerEvent --
+// events/comments is a self-service write reachable by any team member with
+// no RBAC gate and no other natural bound, unlike finances' write paths
+// which already enforce an equivalent per-team cap (maxTransactionsPerTeam).
 func (s *Service) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error) {
+	count, err := s.repo.CountComments(ctx, eventID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Service.AddComment: %w", err)
+	}
+	if count >= maxCommentsPerEvent {
+		return nil, ErrTooManyComments
+	}
 	c, err := s.repo.AddComment(ctx, eventID, userID, teamID, text)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.AddComment: %w", err)
