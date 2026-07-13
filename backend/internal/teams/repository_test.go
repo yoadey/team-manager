@@ -246,6 +246,51 @@ func TestTeamRepository_BatchedListEnrichment_ReturnsPerTeamResults(t *testing.T
 	assert.Equal(t, "Admin", rolesByMembership[membershipB.Id.String()][0].Name)
 }
 
+// TestTeamRepository_GetRolesForMemberships_ExcludesCrossTeamRole is a
+// defense-in-depth regression test: GetRolesForMemberships joined roles to
+// membership_roles with no r.team_id check, unlike the established pattern
+// elsewhere (members.getMembershipEffectivePermissionsQ,
+// teams.Repository.GetRolesForMembership). Every current INSERT INTO
+// membership_roles call site always inserts a role already validated as
+// belonging to the target team, so this can't happen through normal API use
+// today -- but this feeds ListForUser's per-team displayed Perms, so a
+// future change that broke that insert-side invariant would silently merge
+// a different team's role permissions into what the caller sees for this
+// team instead of failing safe.
+func TestTeamRepository_GetRolesForMemberships_ExcludesCrossTeamRole(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := insertUser(t, pool, "crossrole-owner@example.com")
+	repo := teams.NewRepository(pool)
+	teamA, err := repo.CreateTeam(ctx, "Cross Role Team A", userID)
+	require.NoError(t, err)
+	teamB, err := repo.CreateTeam(ctx, "Cross Role Team B", userID)
+	require.NoError(t, err)
+
+	var membershipA uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamA.Id, userID).Scan(&membershipA)
+	require.NoError(t, err)
+
+	var foreignRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Foreign Role', '{"settings":"write"}') RETURNING id`,
+		teamB.Id,
+	).Scan(&foreignRoleID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipA, foreignRoleID)
+	require.NoError(t, err)
+
+	rolesByMembership, err := repo.GetRolesForMemberships(ctx, []string{membershipA.String()})
+	require.NoError(t, err)
+	names := make([]string, len(rolesByMembership[membershipA.String()]))
+	for i, r := range rolesByMembership[membershipA.String()] {
+		names[i] = r.Name
+	}
+	assert.Contains(t, names, "Admin", "the membership's own-team role must still be returned")
+	assert.NotContains(t, names, "Foreign Role", "a role belonging to a different team must never be returned, even if membership_roles points at it")
+}
+
 func TestTeamRepository_UpdateTeam(t *testing.T) {
 	pool := testutil.NewTestDB(t)
 	ctx := context.Background()

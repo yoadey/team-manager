@@ -83,7 +83,7 @@ const absenceRoleJoins = `
 	JOIN users u ON u.id = a.user_id
 	LEFT JOIN memberships m ON m.user_id = a.user_id AND m.team_id = a.team_id
 	LEFT JOIN membership_roles mr ON mr.membership_id = m.id
-	LEFT JOIN roles r ON r.id = mr.role_id AND r.system = false
+	LEFT JOIN roles r ON r.id = mr.role_id AND r.system = false AND r.team_id = a.team_id
 `
 
 func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) {

@@ -519,7 +519,8 @@ func (r *Repository) GetRolesForMemberships(ctx context.Context, membershipIDs [
 		SELECT mr.membership_id, r.id, r.team_id, r.name, r.system, r.color, r.permissions
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
-		WHERE mr.membership_id = ANY($1)
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE mr.membership_id = ANY($1) AND r.team_id = m.team_id
 	`, membershipIDs)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Repository.GetRolesForMemberships: %w", err)

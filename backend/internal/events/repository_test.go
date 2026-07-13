@@ -665,6 +665,59 @@ func TestEventRepository_GetReasonVisibilityContext(t *testing.T) {
 	assert.Equal(t, []string{otherRoleID.String()}, viewerRoleIDs)
 }
 
+// TestEventRepository_GetReasonVisibilityContext_ExcludesCrossTeamRole is a
+// defense-in-depth regression test: the viewer-roles query joined roles to
+// membership_roles with no r.team_id check, unlike the established pattern
+// elsewhere (members.getMembershipEffectivePermissionsQ,
+// teams.Repository.GetRolesForMembership). Every current INSERT INTO
+// membership_roles call site always inserts a role already validated as
+// belonging to the target team, so this can't happen through normal API use
+// today -- but this feeds the decline-reason redaction decision in
+// ListAttendance, so a future change that broke that insert-side invariant
+// would silently let a cross-team role slip a viewer into the reason-
+// visibility whitelist instead of failing safe.
+func TestEventRepository_GetReasonVisibilityContext_ExcludesCrossTeamRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	otherTeamID := uuid.New()
+	viewerID := uuid.New()
+	ownRoleID := uuid.New()
+	foreignRoleID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Reason Vis Own Team'), ($2, 'Reason Vis Other Team')`,
+		teamID, otherTeamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Cross Team Viewer', 'viewer-crossteam-reasonvis@example.com', '#456456')`,
+		viewerID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO roles (id, team_id, name) VALUES ($1, $2, 'Own'), ($3, $4, 'Foreign')`,
+		ownRoleID, teamID, foreignRoleID, otherTeamID)
+	require.NoError(t, err)
+
+	var membershipID uuid.UUID
+	err = pool.QueryRow(
+		ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, viewerID,
+	).Scan(&membershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2), ($1, $3)`,
+		membershipID, ownRoleID, foreignRoleID)
+	require.NoError(t, err)
+
+	_, viewerRoleIDs, err := repo.GetReasonVisibilityContext(ctx, teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	assert.Contains(t, viewerRoleIDs, ownRoleID.String(), "the viewer's own-team role must still be returned")
+	assert.NotContains(t, viewerRoleIDs, foreignRoleID.String(), "a role belonging to a different team must never be returned, even if membership_roles points at it")
+}
+
 func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 	t.Parallel()
 

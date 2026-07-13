@@ -878,7 +878,7 @@ func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, vie
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
 		JOIN memberships m ON m.id = mr.membership_id
-		WHERE m.team_id = $1 AND m.user_id = $2
+		WHERE m.team_id = $1 AND m.user_id = $2 AND r.team_id = $1
 	`, teamID, viewerID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("events.Repository.GetReasonVisibilityContext viewer roles: %w", err)

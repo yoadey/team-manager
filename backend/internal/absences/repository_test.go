@@ -68,6 +68,56 @@ func TestAbsenceRepository_CreateAndList(t *testing.T) {
 	assert.Equal(t, ab.Id, mine[0].Id)
 }
 
+// TestAbsenceRepository_ListByTeam_ExcludesCrossTeamRole is a defense-in-
+// depth regression test: absenceRoleJoins joined roles to membership_roles
+// with no r.team_id check, unlike the established pattern elsewhere
+// (members.getMembershipEffectivePermissionsQ,
+// teams.Repository.GetRolesForMembership). Every current INSERT INTO
+// membership_roles call site always inserts a role already validated as
+// belonging to the target team, so this can't happen through normal API use
+// today -- but this feeds the displayed RoleName/RoleColor on absence rows,
+// so a future change that broke that insert-side invariant would silently
+// show a different team's role name/color instead of failing safe.
+func TestAbsenceRepository_ListByTeam_ExcludesCrossTeamRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	teamID := uuid.New()
+	otherTeamID := uuid.New()
+	foreignRoleID := uuid.New()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Cross Role Absent User', 'abs-crossrole@example.com', '#ff0000')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Absence Own Team'), ($2, 'Absence Other Team')`,
+		teamID, otherTeamID)
+	require.NoError(t, err)
+	var membershipID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, userID,
+	).Scan(&membershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO roles (id, team_id, name) VALUES ($1, $2, 'Foreign Role')`, foreignRoleID, otherTeamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, foreignRoleID)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 7).Format("2006-01-02")
+	_, err = repo.Create(ctx, teamID, userID, from, to, nil)
+	require.NoError(t, err)
+
+	all, err := repo.ListByTeam(ctx, teamID, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.Nil(t, all[0].RoleName, "a role belonging to a different team must never be surfaced, even if membership_roles points at it")
+}
+
 func TestAbsenceRepository_Update(t *testing.T) {
 	t.Parallel()
 
