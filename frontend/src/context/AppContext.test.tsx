@@ -730,6 +730,73 @@ describe('AppProvider / team-switch race guards', () => {
     listForTeamSpy.mockRestore();
     listMineSpy.mockRestore();
   });
+
+  // Regression test: the activeTeamId check alone only guards against a TEAM
+  // SWITCH completing while a loader is in flight -- it does NOT catch two
+  // same-team calls to the SAME loader racing each other (e.g. two
+  // attendance updates in quick succession both triggering refreshEvents).
+  // If the network responds out of request order, the OLDER call's response
+  // could still land second and overwrite the newer one's fresher data.
+  // refreshEvents itself isn't exposed from useAppActions (it's an internal
+  // loader used by ensureRouteData/goEventsPending), so this drives it
+  // indirectly via go('events'), which calls refreshEvents whenever
+  // state.events is still null -- true for both calls here, since the
+  // first's still-pending response hasn't set it yet.
+  it('refreshEvents (via go) discards a stale response when a newer call has since resolved', async () => {
+    const svc = await import('@/services/serviceLayer');
+    type Events = Awaited<ReturnType<typeof svc.api.events.list>>;
+    let resolveFirst!: (v: Events) => void;
+    const listSpy = vi
+      .spyOn(svc.api.events, 'list')
+      .mockReturnValueOnce(new Promise<Events>((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValueOnce([{ id: 'fresh-event' }] as unknown as Events);
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return <div data-testid="events">{state.events ? JSON.stringify(state.events) : 'null'}</div>;
+    }
+
+    render(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({
+        phase: 'app',
+        activeTeamId: 'team1',
+        teams: [
+          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { events: 'write' } },
+        ] as never,
+        events: null,
+      });
+    });
+
+    // First call kicks off with a still-pending response.
+    act(() => {
+      actions.go('events');
+    });
+    // Second (newer) call resolves immediately -- state.events is still
+    // null at this point, so ensureRouteData fires refreshEvents again.
+    await act(async () => {
+      actions.go('events');
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('events').textContent).toContain('fresh-event');
+
+    // The first call's stale response now arrives -- it must NOT overwrite
+    // the second, fresher call's already-applied result.
+    await act(async () => {
+      resolveFirst([{ id: 'stale-event' }] as unknown as Events);
+    });
+    expect(screen.getByTestId('events').textContent).toContain('fresh-event');
+    expect(screen.getByTestId('events').textContent).not.toContain('stale-event');
+
+    listSpy.mockRestore();
+  });
 });
 
 // The bootstrap sets: events=write, members=read, finances=none

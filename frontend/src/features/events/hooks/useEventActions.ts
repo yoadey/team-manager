@@ -41,8 +41,17 @@ export function useEventDetailActions({
   toastMsg,
   logout,
 }: EventFeatureDeps) {
+  // Guards against a STALE reloadDetail response overwriting a NEWER one for
+  // the same eventId -- e.g. two attendance-status updates on different rows
+  // both triggering reloadDetail for the same open event, where the network
+  // responds out of request order. The existing sheet.eventId check already
+  // handles the event-CHANGED case (sheet closed/switched while in flight);
+  // this ref handles the same-event, same-sheet race the eventId check can't
+  // catch, mirroring afterLoginLoadSeq's identical reasoning in AppContext.
+  const reloadDetailSeq = useRef(0);
   const reloadDetail = useCallback(
     async (eventId: string) => {
+      const seq = ++reloadDetailSeq.current;
       try {
         const teamId = S().activeTeamId!;
         const [event, rows, comments] = await Promise.all([
@@ -51,11 +60,12 @@ export function useEventDetailActions({
           api.events.listComments(eventId, teamId),
         ]);
         setState((s) =>
-          s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId
+          s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId && reloadDetailSeq.current === seq
             ? { sheet: { ...s.sheet, event, eventNotFound: event === null, rows, comments } }
             : {},
         );
       } catch (err) {
+        if (reloadDetailSeq.current !== seq) return;
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load');
         // openEventDetail opens the sheet optimistically with event: null
         // (EventDetailSheet shows a spinner until eventNotFound flips true).

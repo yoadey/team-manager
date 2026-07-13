@@ -742,35 +742,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [api, S, setState, reportLoad],
   );
+  // Each loader below gets its own monotonic call-sequence ref, mirroring
+  // afterLoginLoadSeq above: the activeTeamId check alone only guards
+  // against a TEAM SWITCH completing while a call is in flight, not against
+  // two same-team refreshes of the SAME loader racing each other (e.g. two
+  // attendance updates in quick succession both triggering refreshEvents,
+  // or rapidly switching the stats date range). If the network responds
+  // out of request order, an unguarded loader would apply whichever
+  // response happened to arrive last, silently reverting to stale data
+  // even though a newer request was already in flight.
+  const refreshEventsSeq = useRef(0);
   const refreshEvents = useCallback(async () => {
     const teamId = S().activeTeamId!;
+    const seq = ++refreshEventsSeq.current;
     try {
       const events = await retryable(() => api.events.list(teamId, 'all'));
-      // Guard against a team switch completing while this was in flight --
-      // without it, a slow refreshEvents for team A could clobber team B's
-      // freshly-cleared state with team A's stale event list.
-      setState((s) => (s.activeTeamId === teamId ? { events } : {}));
+      setState((s) => (s.activeTeamId === teamId && refreshEventsSeq.current === seq ? { events } : {}));
       loadNotifications();
     } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
+      if (S().activeTeamId === teamId && refreshEventsSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, loadNotifications, reportLoad]);
+  const refreshMembersSeq = useRef(0);
   const refreshMembers = useCallback(async () => {
     const teamId = S().activeTeamId!;
+    const seq = ++refreshMembersSeq.current;
     try {
       const members = await api.members.list(teamId);
-      setState((s) => (s.activeTeamId === teamId ? { members } : {}));
+      setState((s) => (s.activeTeamId === teamId && refreshMembersSeq.current === seq ? { members } : {}));
     } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
+      if (S().activeTeamId === teamId && refreshMembersSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
+  const refreshRolesSeq = useRef(0);
   const refreshRoles = useCallback(async () => {
     const teamId = S().activeTeamId!;
+    const seq = ++refreshRolesSeq.current;
     try {
       const roles = await api.roles.list(teamId);
-      setState((s) => (s.activeTeamId === teamId ? { roles } : {}));
+      setState((s) => (s.activeTeamId === teamId && refreshRolesSeq.current === seq ? { roles } : {}));
     } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
+      if (S().activeTeamId === teamId && refreshRolesSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
   const refreshTeams = useCallback(async () => {
@@ -781,58 +793,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       reportLoad(err);
     }
   }, [api, setState, reportLoad]);
+  const loadFinancesSeq = useRef(0);
   const loadFinances = useCallback(async () => {
     const teamId = S().activeTeamId!;
+    const seq = ++loadFinancesSeq.current;
     try {
       const finances = await api.finances.overview(teamId);
-      setState((s) => (s.activeTeamId === teamId ? { finances } : {}));
+      setState((s) => (s.activeTeamId === teamId && loadFinancesSeq.current === seq ? { finances } : {}));
     } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
+      if (S().activeTeamId === teamId && loadFinancesSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
+  const loadStatsSeq = useRef(0);
   const loadStats = useCallback(
     async (range?: DateRange | null) => {
       const teamId = S().activeTeamId!;
+      const seq = ++loadStatsSeq.current;
       try {
         const r = range !== undefined ? range : S().statsRange;
         const stats = await api.stats.teamOverview(teamId, r);
-        setState((s) => (s.activeTeamId === teamId ? { stats } : {}));
+        setState((s) => (s.activeTeamId === teamId && loadStatsSeq.current === seq ? { stats } : {}));
       } catch (err) {
-        if (S().activeTeamId === teamId) reportLoad(err);
+        if (S().activeTeamId === teamId && loadStatsSeq.current === seq) reportLoad(err);
       }
     },
     [api, S, setState, reportLoad],
   );
+  const loadNewsSeq = useRef(0);
   const loadNews = useCallback(async () => {
     const teamId = S().activeTeamId!;
+    const seq = ++loadNewsSeq.current;
     try {
       const news = await api.news.list(teamId);
-      setState((s) => (s.activeTeamId === teamId ? { news } : {}));
+      setState((s) => (s.activeTeamId === teamId && loadNewsSeq.current === seq ? { news } : {}));
       loadNotifications();
     } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
+      if (S().activeTeamId === teamId && loadNewsSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, loadNotifications, reportLoad]);
+  const loadPollsSeq = useRef(0);
   const loadPolls = useCallback(async () => {
     const teamId = S().activeTeamId!;
+    const seq = ++loadPollsSeq.current;
     try {
       const polls = await api.polls.list(teamId);
-      setState((s) => (s.activeTeamId === teamId ? { polls } : {}));
+      setState((s) => (s.activeTeamId === teamId && loadPollsSeq.current === seq ? { polls } : {}));
       loadNotifications();
     } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
+      if (S().activeTeamId === teamId && loadPollsSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, loadNotifications, reportLoad]);
+  const loadAbsencesSeq = useRef(0);
   const loadAbsences = useCallback(async () => {
     const teamId = S().activeTeamId!;
+    const seq = ++loadAbsencesSeq.current;
     try {
       const [absences, myAbsences] = await Promise.all([
         api.absences.listForTeam(teamId),
         api.absences.listMine(teamId),
       ]);
-      setState((s) => (s.activeTeamId === teamId ? { absences, myAbsences } : {}));
+      setState((s) =>
+        s.activeTeamId === teamId && loadAbsencesSeq.current === seq ? { absences, myAbsences } : {},
+      );
     } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
+      if (S().activeTeamId === teamId && loadAbsencesSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(

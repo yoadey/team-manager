@@ -316,6 +316,45 @@ describe('useEventDetailActions', () => {
     expect((stateRef.sheet as { event?: { id: string } } | null)?.event?.id).toBe('ev2');
   });
 
+  // Regression test: the eventId check above only guards against the sheet
+  // having switched to a DIFFERENT event while a reloadDetail call was in
+  // flight. It does NOT catch two reloadDetail calls for the SAME event
+  // racing each other -- e.g. two attendance updates on different rows both
+  // triggering a reload for the same open event. If the network responds
+  // out of request order, the older call's stale response could still
+  // overwrite the newer call's fresher data even though the sheet never
+  // changed identity.
+  it('a slow reloadDetail cannot overwrite a newer reload for the SAME event', async () => {
+    let resolveFirst!: (v: { id: string; title: string; date: string }) => void;
+    const firstPromise = new Promise<{ id: string; title: string; date: string }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    api.events.get = vi
+      .fn()
+      .mockReturnValueOnce(firstPromise)
+      .mockResolvedValueOnce({ id: 'ev1', title: 'Fresh Title', date: '2026-03-03' });
+
+    const { result } = renderActions();
+    stateRef = makeState({ sheet: { type: 'eventDetail', eventId: 'ev1', event: null, rows: [] } as never });
+
+    const firstReload = act(async () => {
+      await result.current.reloadDetail('ev1');
+    });
+
+    // Second (newer) reload for the SAME event resolves immediately.
+    await act(async () => {
+      await result.current.reloadDetail('ev1');
+    });
+    expect((stateRef.sheet as { event?: { title: string } } | null)?.event?.title).toBe('Fresh Title');
+
+    // The first call's stale response now arrives -- it must not overwrite
+    // the second, fresher call's already-applied result.
+    resolveFirst!({ id: 'ev1', title: 'Stale Title', date: '2026-01-01' });
+    await firstReload;
+
+    expect((stateRef.sheet as { event?: { title: string } } | null)?.event?.title).toBe('Fresh Title');
+  });
+
   it('submitComment sets attendance and reopens event detail', async () => {
     stateRef = makeState({
       sheet: { type: 'comment', eventId: 'ev1', userId: 'u2', status: 'no' } as never,
