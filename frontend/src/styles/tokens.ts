@@ -194,23 +194,51 @@ export function hhmm(isoStr: string | null): string {
   const d = new Date(isoStr);
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
+
+// Constructing an Intl.DateTimeFormat/NumberFormat is expensive relative to a
+// cache lookup, and these helpers run per-row in list views (e.g. finances
+// tables), so every unrelated app re-render was reconstructing one per row.
+// Mirrors the pluralRulesCache pattern in src/i18n/index.ts. Keyed on locale +
+// options since both getIntlLocale()/getCurrency() and the options literal
+// can vary per call site.
+const dateTimeFormatCache = new Map<string, Intl.DateTimeFormat>();
+function getDateTimeFormat(locale: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = locale + JSON.stringify(options);
+  let f = dateTimeFormatCache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormatCache.set(key, f);
+  }
+  return f;
+}
+const numberFormatCache = new Map<string, Intl.NumberFormat>();
+function getNumberFormat(locale: string, options: Intl.NumberFormatOptions): Intl.NumberFormat {
+  const key = locale + JSON.stringify(options);
+  let f = numberFormatCache.get(key);
+  if (!f) {
+    f = new Intl.NumberFormat(locale, options);
+    numberFormatCache.set(key, f);
+  }
+  return f;
+}
+
 export const fmtDate = (ds: string) =>
-  new Intl.DateTimeFormat(getIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).format(
+  getDateTimeFormat(getIntlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).format(
     parseDateOnlyLocal(ds),
   );
 export const fmtDateLong = (ds: string) =>
-  new Intl.DateTimeFormat(getIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(
+  getDateTimeFormat(getIntlLocale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(
     parseDateOnlyLocal(ds),
   );
 export function fmtRange(a: string, b: string) {
   const f = (x: string) =>
-    new Intl.DateTimeFormat(getIntlLocale(), { day: 'numeric', month: 'short' }).format(parseDateOnlyLocal(x));
+    getDateTimeFormat(getIntlLocale(), { day: 'numeric', month: 'short' }).format(parseDateOnlyLocal(x));
   return f(a) + ' – ' + f(b);
 }
 export const fmtMoney = (n: number) =>
-  new Intl.NumberFormat(getIntlLocale(), { style: 'currency', currency: getCurrency() }).format(n);
+  getNumberFormat(getIntlLocale(), { style: 'currency', currency: getCurrency() }).format(n);
 export function fmtDateTime(isoStr: string) {
-  return new Intl.DateTimeFormat(getIntlLocale(), {
+  return getDateTimeFormat(getIntlLocale(), {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
@@ -220,9 +248,7 @@ export function fmtDateTime(isoStr: string) {
 export function monthName(ym: string) {
   const p = String(ym || '').split('-');
   if (p.length < 2) return ym || '';
-  return new Intl.DateTimeFormat(getIntlLocale(), { month: 'long', year: 'numeric' }).format(
-    new Date(+p[0], +p[1] - 1, 1),
-  );
+  return getDateTimeFormat(getIntlLocale(), { month: 'long', year: 'numeric' }).format(new Date(+p[0], +p[1] - 1, 1));
 }
 export function initials(name: string) {
   return (name || '')

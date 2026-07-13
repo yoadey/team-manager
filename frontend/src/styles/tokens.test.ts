@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   buildTokens,
   neutralCssVars,
@@ -6,6 +6,8 @@ import {
   statusMeta,
   hhmm,
   fmtRange,
+  fmtDate,
+  fmtMoney,
   monthName,
   initials,
   relTime,
@@ -201,5 +203,37 @@ describe('relTime', () => {
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     const result = relTime(twoDaysAgo);
     expect(result).toBeTruthy();
+  });
+});
+
+describe('formatter caching', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reuses a single Intl.DateTimeFormat instance across repeated fmtDate calls with the same options', () => {
+    const OriginalDateTimeFormat = Intl.DateTimeFormat;
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      ...args: ConstructorParameters<typeof Intl.DateTimeFormat>
+    ) {
+      return new OriginalDateTimeFormat(...args);
+    });
+    fmtDate('2025-06-01');
+    fmtDate('2025-06-02');
+    fmtDate('2025-06-03');
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses a single Intl.NumberFormat instance across repeated fmtMoney calls', () => {
+    const OriginalNumberFormat = Intl.NumberFormat;
+    const spy = vi.spyOn(Intl, 'NumberFormat').mockImplementation(function (
+      ...args: ConstructorParameters<typeof Intl.NumberFormat>
+    ) {
+      return new OriginalNumberFormat(...args);
+    });
+    fmtMoney(1);
+    fmtMoney(2);
+    fmtMoney(3);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
