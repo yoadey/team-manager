@@ -40,15 +40,34 @@ func NewService(repo notifRepo, perms permChecker) *Service {
 // aggregates across events, news, and polls), so without this, a member
 // with e.g. events:none would still see event/attendance notices -- exactly
 // the "none must hide the module" property enforced everywhere else.
-func notificationModule(notifType string) string {
+//
+// Typed on gen.NotificationType (not a plain string) specifically so the
+// repo-wide "exhaustive" linter (see .golangci.yml) can enforce that every
+// case here is revisited when a new value is added to that enum -- a plain
+// string switch is invisible to it, and would otherwise let a future
+// module-gated notification type silently fall through the default case and
+// leak to every team member regardless of their permission on that module.
+func notificationModule(notifType gen.NotificationType) string {
 	switch notifType {
-	case "attendance", "event_created", "event_updated", "event_cancelled", "event_reactivated", "event_deleted":
+	case gen.NotificationTypeAttendance,
+		gen.NotificationTypeEventCreated,
+		gen.NotificationTypeEventUpdated,
+		gen.NotificationTypeEventCancelled,
+		gen.NotificationTypeEventReactivated,
+		gen.NotificationTypeEventDeleted:
 		return "events"
-	case "news":
+	case gen.NotificationTypeNews:
 		return "news"
-	case "poll":
+	case gen.NotificationTypePoll:
 		return "polls"
+	case gen.NotificationTypeAbsence:
+		return ""
 	default:
+		// Safety net for a value outside the known enum (a malformed/future
+		// DB row) -- exhaustive's default-signifies-exhaustive check is off
+		// repo-wide, so this default does NOT suppress a missing-case warning
+		// when a new gen.NotificationType constant is added; it only covers
+		// values that were never valid to begin with.
 		return ""
 	}
 }
@@ -85,7 +104,7 @@ func (s *Service) List(ctx context.Context, teamID, userID uuid.UUID) (gen.Notif
 	items := make([]gen.AppNotification, 0, len(rows))
 	unreadCount := 0
 	for _, row := range rows {
-		if !hasReadAccess(perms, notificationModule(row.Type)) {
+		if !hasReadAccess(perms, notificationModule(gen.NotificationType(row.Type))) {
 			continue
 		}
 		n := toGenNotification(row)
