@@ -56,10 +56,12 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
           maxLength={1000}
         />
       </Field>
-      <Box>
-        <Box sx={labelSx}>{t('polls.answerOptions')}</Box>
+      <Box role="group" aria-labelledby="poll-options-label">
+        <Box id="poll-options-label" sx={labelSx}>
+          {t('polls.answerOptions')}
+        </Box>
         {opts.length < 2 && errs.options ? (
-          <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }} role="alert">
+          <Box id="poll-options-error" sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }} role="alert">
             {errs.options}
           </Box>
         ) : null}
@@ -69,12 +71,16 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
             placeholder={t('polls.option1')}
             onBlur={() => app.setFormErrors({ options: opts.length < 2 ? t('polls.optionsError') : '' })}
             maxLength={500}
+            aria-invalid={opts.length < 2 && !!errs.options}
+            aria-describedby={opts.length < 2 && errs.options ? 'poll-options-error' : undefined}
           />
           <TextInput
             name="opt1"
             placeholder={t('polls.option2')}
             onBlur={() => app.setFormErrors({ options: opts.length < 2 ? t('polls.optionsError') : '' })}
             maxLength={500}
+            aria-invalid={opts.length < 2 && !!errs.options}
+            aria-describedby={opts.length < 2 && errs.options ? 'poll-options-error' : undefined}
           />
           <TextInput name="opt2" placeholder={t('polls.option3')} maxLength={500} />
           <TextInput name="opt3" placeholder={t('polls.option4')} maxLength={500} />
