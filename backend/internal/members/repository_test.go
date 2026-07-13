@@ -689,6 +689,82 @@ func TestMembersRepository_RemoveMember_CallerLacksSettingsWrite_OrdinaryMemberA
 	require.NoError(t, err)
 }
 
+// Defense-in-depth regression test, same class as
+// TestMembersRepository_ListMembers_ExcludesCrossTeamRole: RemoveMember's
+// teamHasOtherSettingsWriteMember and its own settings-writer check both
+// used to join roles to membership_roles with no r.team_id filter. Every
+// current INSERT INTO membership_roles call site always inserts a role
+// already validated as belonging to the target team, so this can't happen
+// through normal API use today -- but manually inserting a membership_roles
+// row that pairs a team-A membership with a team-B settings:write role
+// (bypassing that invariant directly) must not let the cross-team role
+// count as "another settings admin" for team A, or it would let team A's
+// actual last admin be removed with no recovery path via the API.
+func TestMembersRepository_RemoveMember_LastSettingsAdmin_IgnoresCrossTeamRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	adminRole := seedRole(t, pool, teamID, "Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+	m := seedMember(t, pool, teamID, "Sole Admin", "sole-admin-cross@example.com", adminRole)
+
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTeamID)
+	require.NoError(t, err)
+	crossRole := seedRole(t, pool, otherTeamID, "Cross-Team Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	// A second membership in team A whose only role is team B's crossRole --
+	// bypasses the insert-side invariant directly via raw SQL.
+	phantom := seedMember(t, pool, teamID, "Phantom", "phantom-cross@example.com")
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, phantom.MembershipID, crossRole)
+	require.NoError(t, err)
+
+	err = repo.RemoveMember(ctx, m.MembershipID.String(), teamID.String(), m.UserID.String())
+	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
+
+	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	assert.Len(t, list, 2)
+}
+
+// Companion regression test for RemoveMember's own isSettingsWriter check
+// (distinct query from teamHasOtherSettingsWriteMember above, same missing
+// r.team_id gap): a membership whose ONLY role is a cross-team settings:write
+// role must not be treated as a settings admin of teamID, or a members:write-
+// only caller (correctly allowed to remove ordinary members) would be
+// wrongly blocked by ErrCannotRemoveSettingsAdmin for a member who doesn't
+// actually hold settings:write in this team.
+func TestMembersRepository_RemoveMember_IsSettingsWriter_IgnoresCrossTeamRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	rosterManagerRole := seedRole(t, pool, teamID, "Roster Manager", `{"events":"none","members":"write","finances":"none","news":"none","polls":"none","settings":"none"}`)
+	rosterManager := seedMember(t, pool, teamID, "Roster Manager", "roster-cross@example.com", rosterManagerRole)
+
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team 2')`, otherTeamID)
+	require.NoError(t, err)
+	crossRole := seedRole(t, pool, otherTeamID, "Cross-Team Admin", `{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}`)
+
+	victim := seedMember(t, pool, teamID, "Victim", "victim-cross@example.com")
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, victim.MembershipID, crossRole)
+	require.NoError(t, err)
+
+	err = repo.RemoveMember(ctx, victim.MembershipID.String(), teamID.String(), rosterManager.UserID.String())
+	require.NoError(t, err)
+
+	list, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	assert.Len(t, list, 1)
+}
+
 func TestMembersRepository_SetRoles_LastSettingsAdmin_Blocked(t *testing.T) {
 	t.Parallel()
 

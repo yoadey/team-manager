@@ -180,6 +180,66 @@ func TestRolesRepository_DeleteRole_LastSettingsAdmin_Blocked(t *testing.T) {
 	assert.Len(t, list, 1, "role must still exist")
 }
 
+// Defense-in-depth regression test, same class as
+// members.TestMembersRepository_RemoveMember_LastSettingsAdmin_IgnoresCrossTeamRole:
+// DeleteRole's othersHaveSettingsWrite check used to join roles to
+// membership_roles with no r.team_id filter. Manually pairing a team-A
+// membership with a team-B settings:write role (bypassing the insert-side
+// invariant every real INSERT INTO membership_roles call site upholds) must
+// not let that cross-team role count as "another settings admin" for team A,
+// or DeleteRole would strip team A's only real settings:write role with no
+// recovery path via the API.
+func TestRolesRepository_DeleteRole_LastSettingsAdmin_IgnoresCrossTeamRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	uid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Cross Team Delete Role Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Sole Admin', 'sole-delete-cross-admin@example.com', '#123abc')`, uid)
+	require.NoError(t, err)
+	var mid string
+	err = pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid).Scan(&mid)
+	require.NoError(t, err)
+
+	adminRole, err := repo.CreateRole(ctx, tid, "Custom Admin", nil, teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write",
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid, adminRole.Id.String())
+	require.NoError(t, err)
+
+	otherTid := uuid.New().String()
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Delete Team')`, otherTid)
+	require.NoError(t, err)
+	crossRole, err := repo.CreateRole(ctx, otherTid, "Cross-Team Admin", nil, teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write",
+	})
+	require.NoError(t, err)
+	// A second membership in team A whose only role is team B's crossRole.
+	phantomUid := uuid.New().String()
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Phantom', 'phantom-delete-cross@example.com', '#abc123')`, phantomUid)
+	require.NoError(t, err)
+	var phantomMid string
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, phantomUid).Scan(&phantomMid))
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, phantomMid, crossRole.Id.String())
+	require.NoError(t, err)
+
+	err = repo.DeleteRole(ctx, adminRole.Id.String(), tid)
+	require.ErrorIs(t, err, roles.ErrLastSettingsAdmin)
+
+	list, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	assert.Len(t, list, 1, "role must still exist")
+}
+
 // A settings:write role can be deleted once another role/member already
 // provides equivalent coverage.
 func TestRolesRepository_DeleteRole_NotLastSettingsAdmin_Allowed(t *testing.T) {
@@ -339,6 +399,66 @@ func TestRolesRepository_UpdateRole_RevokingLastSettingsWrite_Blocked(t *testing
 	require.ErrorIs(t, err, roles.ErrLastSettingsAdmin)
 
 	// The role's permissions must be untouched by the rejected update.
+	got, err := repo.ListRoles(ctx, tid)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "write", got[0].Permissions.Settings)
+}
+
+// Defense-in-depth regression test, same class as the DeleteRole variant
+// above: guardRoleUpdate's othersHaveSettingsWrite check used to join roles
+// to membership_roles with no r.team_id filter. A team-B settings:write role
+// manually paired with a team-A membership must not count as "another
+// settings admin" when downgrading team A's only real settings:write role,
+// or the last-settings-admin guard would be silently bypassed.
+func TestRolesRepository_UpdateRole_RevokingLastSettingsWrite_IgnoresCrossTeamRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := roles.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	uid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Cross Team Update Role Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Sole Admin', 'sole-update-cross-admin@example.com', '#654abc')`, uid)
+	require.NoError(t, err)
+	var mid string
+	err = pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, uid).Scan(&mid)
+	require.NoError(t, err)
+
+	adminRole, err := repo.CreateRole(ctx, tid, "Custom Admin", nil, teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write",
+	})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, mid, adminRole.Id.String())
+	require.NoError(t, err)
+
+	otherTid := uuid.New().String()
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Update Team')`, otherTid)
+	require.NoError(t, err)
+	crossRole, err := repo.CreateRole(ctx, otherTid, "Cross-Team Admin", nil, teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "write",
+	})
+	require.NoError(t, err)
+	phantomUid := uuid.New().String()
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Phantom', 'phantom-update-cross@example.com', '#123def')`, phantomUid)
+	require.NoError(t, err)
+	var phantomMid string
+	require.NoError(t, pool.QueryRow(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, tid, phantomUid).Scan(&phantomMid))
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, phantomMid, crossRole.Id.String())
+	require.NoError(t, err)
+
+	downgraded := teams.PermissionsJSON{
+		Events: "write", Members: "write", Finances: "write", News: "write", Polls: "write", Settings: "read",
+	}
+	_, err = repo.UpdateRole(ctx, adminRole.Id.String(), tid, uid, roles.RolePatch{Permissions: &downgraded})
+	require.ErrorIs(t, err, roles.ErrLastSettingsAdmin)
+
 	got, err := repo.ListRoles(ctx, tid)
 	require.NoError(t, err)
 	require.Len(t, got, 1)

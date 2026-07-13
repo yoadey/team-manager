@@ -589,7 +589,8 @@ func teamHasOtherSettingsWriteMember(ctx context.Context, tx pgx.Tx, teamID, exc
 			JOIN membership_roles mr ON mr.membership_id = m.id
 			JOIN roles r ON r.id = mr.role_id
 			JOIN users u ON u.id = m.user_id
-			WHERE m.team_id = $1 AND m.id != $2 AND r.permissions->>'settings' = 'write'
+			WHERE m.team_id = $1 AND m.id != $2 AND r.team_id = m.team_id
+			  AND r.permissions->>'settings' = 'write'
 			  AND u.deleted_at IS NULL
 		)`, teamID, excludeMembershipID,
 	).Scan(&has)
@@ -623,8 +624,8 @@ func (r *Repository) RemoveMember(ctx context.Context, membershipID, teamID, cal
 		SELECT EXISTS(
 			SELECT 1 FROM membership_roles mr
 			JOIN roles r ON r.id = mr.role_id
-			WHERE mr.membership_id = $1 AND r.permissions->>'settings' = 'write'
-		)`, membershipID,
+			WHERE mr.membership_id = $1 AND r.team_id = $2 AND r.permissions->>'settings' = 'write'
+		)`, membershipID, teamID,
 	).Scan(&isSettingsWriter)
 	if err != nil {
 		return fmt.Errorf("members.Repository.RemoveMember: check settings write: %w", err)

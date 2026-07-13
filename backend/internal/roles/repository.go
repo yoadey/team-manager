@@ -197,7 +197,8 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 			JOIN membership_roles mr ON mr.membership_id = m.id
 			JOIN roles r ON r.id = mr.role_id
 			JOIN users u ON u.id = m.user_id
-			WHERE m.team_id = $1 AND r.id != $2 AND r.permissions->>'settings' = 'write'
+			WHERE m.team_id = $1 AND r.id != $2 AND r.team_id = m.team_id
+			  AND r.permissions->>'settings' = 'write'
 			  AND u.deleted_at IS NULL
 		)`, teamID, roleID,
 	).Scan(&othersHaveSettingsWrite); err != nil {
@@ -418,7 +419,8 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 			JOIN membership_roles mr ON mr.membership_id = m.id
 			JOIN roles r ON r.id = mr.role_id
 			JOIN users u ON u.id = m.user_id
-			WHERE m.team_id = $1 AND r.id != $2 AND r.permissions->>'settings' = 'write'
+			WHERE m.team_id = $1 AND r.id != $2 AND r.team_id = m.team_id
+			  AND r.permissions->>'settings' = 'write'
 			  AND u.deleted_at IS NULL
 		)`, teamID, roleID,
 	).Scan(&othersHaveSettingsWrite)
