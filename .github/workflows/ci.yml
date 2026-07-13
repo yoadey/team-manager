@@ -799,6 +799,23 @@ jobs:
                 echo "::error file=$f::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
                 fail=1
               fi
+              # ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds the backing
+              # index under an ACCESS EXCLUSIVE lock -- the same hazard the
+              # CREATE INDEX check below exists for, just reached through a
+              # different statement shape. Neither supports NOT VALID, so
+              # this is unconditional: build the index CONCURRENTLY first,
+              # then ADD CONSTRAINT ... UNIQUE/PRIMARY KEY USING INDEX.
+              if echo "$stmt" | grep -iE 'ADD +CONSTRAINT +[^ ]+ +(UNIQUE|PRIMARY +KEY)( |\()'; then
+                echo "::error file=$f::ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds its index under an ACCESS EXCLUSIVE lock. CREATE [UNIQUE] INDEX CONCURRENTLY first, then ADD CONSTRAINT ... USING INDEX."
+                fail=1
+              fi
+              # ADD CONSTRAINT ... FOREIGN KEY without NOT VALID validates
+              # every existing row in both tables while holding a
+              # SHARE ROW EXCLUSIVE lock, blocking writes for the duration.
+              if echo "$stmt" | grep -iE 'ADD +CONSTRAINT +[^ ]+ +FOREIGN +KEY' | grep -qiv 'NOT VALID'; then
+                echo "::error file=$f::ADD CONSTRAINT ... FOREIGN KEY without NOT VALID locks both tables while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+                fail=1
+              fi
               # CREATE INDEX without CONCURRENTLY holds a table-level lock
               # blocking writes for the duration of the index build — the
               # single most common unsafe-DDL mistake in Postgres migrations,
