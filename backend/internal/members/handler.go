@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -82,7 +83,14 @@ func validateMemberPatch(body *gen.UpdateMemberJSONRequestBody) (MemberPatch, er
 		if err := validate.Email(string(*body.Email)); err != nil {
 			return patch, fmt.Errorf("%w", err)
 		}
-		s := string(*body.Email)
+		// Normalized to lowercase before it ever reaches the DB's UNIQUE
+		// constraint on users.email, which is case-sensitive -- without
+		// this, Bob@Example.com and bob@example.com collide on every real
+		// mail provider but not on this constraint, so ErrEmailTaken would
+		// never fire and the app would end up with two accounts for what is
+		// really one address. Login (auth.Repository.FindUserByEmail) also
+		// normalizes its lookup key to match.
+		s := strings.ToLower(strings.TrimSpace(string(*body.Email)))
 		patch.Email = &s
 	}
 	if body.Phone != nil {

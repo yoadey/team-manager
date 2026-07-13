@@ -36,6 +36,33 @@ func TestRepository_FindUserByEmail(t *testing.T) {
 	assert.Equal(t, "11111111-1111-1111-1111-111111111111", user.Id.String())
 }
 
+// Regression test: FindUserByEmail used to compare the caller-supplied
+// email verbatim against the case-sensitive UNIQUE column, so a user who
+// types their email with different casing at login than what's stored
+// (e.g. a mail client that capitalizes, or simple habit) would fail to find
+// their own account. members.Repository.UpdateMember always normalizes to
+// lowercase before writing, so this exercises the read side of that same
+// invariant.
+func TestRepository_FindUserByEmail_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	_, err := pool.Exec(
+		ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash)
+		 VALUES ('22222222-2222-2222-2222-222222222222', 'Bob', 'bob@example.com', '#00ff00', 'hash2')`,
+	)
+	require.NoError(t, err)
+
+	user, err := repo.FindUserByEmail(ctx, "Bob@Example.COM")
+	require.NoError(t, err)
+	assert.Equal(t, "bob@example.com", user.Email)
+	assert.Equal(t, "22222222-2222-2222-2222-222222222222", user.Id.String())
+}
+
 func TestRepository_FindUserByID(t *testing.T) {
 	t.Parallel()
 

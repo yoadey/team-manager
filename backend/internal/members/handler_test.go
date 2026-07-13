@@ -168,6 +168,35 @@ func TestMemberHandler_UpdateMember_EmailTaken_MapsToGenericInvalidEmailResponse
 		"must be byte-for-byte identical to a malformed-email response, not a distinguishable 'taken' message")
 }
 
+// Regression test: the handler used to pass the caller-supplied email
+// through verbatim, so Bob@Example.com and bob@example.com collided on
+// every real mail provider but not on users.email's case-sensitive UNIQUE
+// constraint -- ErrEmailTaken would never fire for a case-variant, letting
+// the app end up with two accounts for what is really one address.
+// Normalizing to lowercase here (matching auth.Repository.FindUserByEmail's
+// matching normalization on the login lookup side) closes that gap.
+func TestMemberHandler_UpdateMember_NormalizesEmailToLowercase(t *testing.T) {
+	t.Parallel()
+
+	var capturedPatch members.MemberPatch
+	svc := &mockMemberService{
+		updateMember: func(_ context.Context, _, _, _ string, patch members.MemberPatch) (*gen.Member, error) {
+			capturedPatch = patch
+			return &gen.Member{}, nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	email := openapi_types.Email("Bob@Example.COM")
+	body := &gen.UpdateMemberJSONRequestBody{Email: &email}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.NoError(t, err)
+	require.NotNil(t, capturedPatch.Email)
+	assert.Equal(t, "bob@example.com", *capturedPatch.Email)
+}
+
 func TestMemberHandler_UpdateMember_CannotChangeOthersEmail_Returns403(t *testing.T) {
 	t.Parallel()
 

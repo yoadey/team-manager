@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -64,12 +65,17 @@ func scanUser(row interface {
 	return u, nil
 }
 
-// FindUserByEmail looks up a user by email address.
+// FindUserByEmail looks up a user by email address. The lookup key is
+// normalized to lowercase to match members.Repository.UpdateMember, which
+// normalizes before writing -- the DB's UNIQUE constraint on users.email is
+// case-sensitive, so without matching normalization on both sides, a user
+// who typed their email in a different case at signup than at login would
+// fail to find their own account.
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := fmt.Sprintf(`SELECT %s FROM users WHERE email = $1 AND deleted_at IS NULL`, selectUserFields)
-	row := r.pool.QueryRow(ctx, q, email)
+	row := r.pool.QueryRow(ctx, q, strings.ToLower(strings.TrimSpace(email)))
 	u, err := scanUser(row)
 	if err != nil {
 		return nil, fmt.Errorf("auth.Repository.FindUserByEmail: %w", err)
