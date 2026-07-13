@@ -272,6 +272,35 @@ describe('useEventDetailActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Nicht nominiert');
   });
 
+  // Regression test: same double-submission class as setMyStatus above --
+  // toggleNomination had no inFlight guard at all, unlike setMyStatus/
+  // setStatusFor, so a double-tap on the nominate icon fired two concurrent
+  // setNomination calls (and two refreshEvents/reloadDetail round-trips) for
+  // what the user perceives as a single click.
+  it('toggleNomination ignores a second call for the same event/user while the first is still in flight', async () => {
+    let resolveFirst!: () => void;
+    api.attendance.setNomination = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValue(undefined);
+    const { result } = renderActions();
+
+    let firstDone = false;
+    const first = act(async () => {
+      await result.current.toggleNomination('ev1', 'u2', false).then(() => (firstDone = true));
+    });
+    await act(async () => {
+      await result.current.toggleNomination('ev1', 'u2', false);
+    });
+
+    expect(firstDone).toBe(false);
+    expect(api.attendance.setNomination).toHaveBeenCalledTimes(1);
+
+    resolveFirst();
+    await first;
+    expect(firstDone).toBe(true);
+  });
+
   it('reloadDetail handles API errors gracefully', async () => {
     api.events.get = vi.fn().mockRejectedValue(new Error('Network error'));
     const { result } = renderActions();

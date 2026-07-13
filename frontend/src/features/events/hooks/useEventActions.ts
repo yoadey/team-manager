@@ -242,6 +242,9 @@ export function useEventDetailActions({
 
   const toggleNomination = useCallback(
     async (eventId: string, userId: string, currentlyNominated: boolean) => {
+      const key = `${eventId}:${userId}`;
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
       try {
         await api.attendance.setNomination(eventId, userId, !currentlyNominated, S().activeTeamId!);
         await refreshEvents();
@@ -249,6 +252,8 @@ export function useEventDetailActions({
         toastMsg(currentlyNominated ? t('attendance.not_nominated') : t('attendance.nominated'));
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
+      } finally {
+        inFlight.current.delete(key);
       }
     },
     [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
