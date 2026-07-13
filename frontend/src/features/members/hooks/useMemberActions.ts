@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { Member, MemberFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
@@ -36,8 +36,20 @@ export function useMemberActions({
   toastMsg,
   logout,
 }: MemberDeps) {
+  // Guards against a STALE stats response overwriting a NEWER one for the
+  // SAME membershipId -- e.g. rapid double-clicks on the same member row (no
+  // busy/disabled state blocks a second click here), or mashing browser
+  // back/forward between /members/A -> /members -> /members/A before the
+  // first fetch for A resolves (the popstate handler calls openMemberDetail
+  // again on each landing). The existing sheet.membershipId check already
+  // handles the member-CHANGED case; it can't tell two in-flight fetches for
+  // the SAME member apart, so if the network responds out of request order
+  // the older, stale fetch would silently overwrite the newer stats. Mirrors
+  // reloadDetailSeq's identical reasoning in useEventActions.ts.
+  const openMemberDetailSeq = useRef(0);
   const openMemberDetail = useCallback(
     async (membershipId: string) => {
+      const seq = ++openMemberDetailSeq.current;
       const m = (S().members ?? []).find((x) => x.membershipId === membershipId);
       setState({ sheet: { type: 'memberDetail', membershipId, member: m, stats: null } });
       // m can genuinely be missing (a stale bookmarked/back-forward URL for
@@ -47,11 +59,14 @@ export function useMemberActions({
       try {
         const stats = await api.stats.attendanceFor(S().activeTeamId!, m.userId);
         setState((s) =>
-          s.sheet?.type === 'memberDetail' && s.sheet.membershipId === membershipId
+          s.sheet?.type === 'memberDetail' &&
+          s.sheet.membershipId === membershipId &&
+          openMemberDetailSeq.current === seq
             ? { sheet: { ...s.sheet, stats } }
             : {},
         );
       } catch (err) {
+        if (openMemberDetailSeq.current !== seq) return;
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load');
       }
     },

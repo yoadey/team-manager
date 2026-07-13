@@ -785,12 +785,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (S().activeTeamId === teamId && refreshRolesSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
+  // Unlike its sibling loaders above, refreshTeams has no activeTeamId scope
+  // (teams are user-, not team-, scoped) -- but it still needs the same
+  // monotonic-sequence guard, and for the same reason: it's invoked from
+  // many independent, unserialized call sites (useTeamActions' saveTeamPhoto/
+  // saveTeamLogo/setTeamIcon/removeTeamPhoto/saveTeamSettings/createTeam/
+  // uploadMyPhoto, and useRoleActions' toggleMyRole), each guarded against
+  // racing ITSELF (an in-flight key, or toggleMyRole's own chain) but not
+  // against racing each other -- e.g. uploading a team photo while toggling
+  // one's own role in a different sheet fires two concurrent refreshTeams()
+  // calls. Without this, an out-of-order response applies whichever call
+  // happened to resolve last, silently reverting the other's change (e.g. a
+  // just-toggled own role, which feeds can()/myRoles() via activeTeam(),
+  // appearing to un-toggle itself) until the next unrelated refresh.
+  const refreshTeamsSeq = useRef(0);
   const refreshTeams = useCallback(async () => {
+    const seq = ++refreshTeamsSeq.current;
     try {
       const teams = await api.teams.listForCurrentUser();
-      setState({ teams });
+      if (refreshTeamsSeq.current === seq) setState({ teams });
     } catch (err) {
-      reportLoad(err);
+      if (refreshTeamsSeq.current === seq) reportLoad(err);
     }
   }, [api, setState, reportLoad]);
   const loadFinancesSeq = useRef(0);

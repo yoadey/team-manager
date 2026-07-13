@@ -147,6 +147,44 @@ describe('useMemberActions', () => {
     expect(toastMsg).toHaveBeenCalled();
   });
 
+  // Regression test: the sheet.membershipId check alone only guards against
+  // the sheet having switched to a DIFFERENT member while a stats fetch was
+  // in flight. It does not catch two openMemberDetail calls for the SAME
+  // member racing each other -- e.g. rapid double-clicks on the same row (no
+  // busy/disabled state blocks a second click) or mashing browser back/
+  // forward between the same member's URL. If the network responds out of
+  // request order, the older call's stale stats could overwrite the newer
+  // call's fresher data even though the sheet never changed identity.
+  it('a slow openMemberDetail cannot overwrite a newer call for the SAME member', async () => {
+    let resolveFirst!: (v: { quote: number; counted: number; yes: number }) => void;
+    const firstPromise = new Promise<{ quote: number; counted: number; yes: number }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    api.stats.attendanceFor = vi
+      .fn()
+      .mockReturnValueOnce(firstPromise)
+      .mockResolvedValueOnce({ quote: 0.5, counted: 4, yes: 2 });
+
+    const { result } = renderActions();
+
+    const firstOpen = act(async () => {
+      await result.current.openMemberDetail('ms1');
+    });
+
+    // Second (newer) call for the SAME member resolves immediately.
+    await act(async () => {
+      await result.current.openMemberDetail('ms1');
+    });
+    expect((stateRef.sheet as { stats?: { counted: number } } | null)?.stats?.counted).toBe(4);
+
+    // The first call's stale response now arrives -- it must not overwrite
+    // the second, fresher call's already-applied result.
+    resolveFirst!({ quote: 0.8, counted: 10, yes: 8 });
+    await firstOpen;
+
+    expect((stateRef.sheet as { stats?: { counted: number } } | null)?.stats?.counted).toBe(4);
+  });
+
   it('openMemberForm sets memberForm sheet with member data', () => {
     const member = stateRef.members![0];
     const { result } = renderActions();
