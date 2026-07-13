@@ -138,14 +138,29 @@ export function useTeamActions({
   );
 
   const setTeamIcon = useCallback(
-    (em: string) => {
-      setFormVal({ icon: em, logo: null });
-      api.teams
-        .updateSettings(S().activeTeamId!, { icon: em, logo: null })
-        .then(() => refreshTeams())
-        .catch((err) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save'));
+    async (em: string) => {
+      // Was optimistic (setFormVal before the API call, no rollback on
+      // failure) -- unlike every other photo/logo mutation in this file,
+      // which all await the API call first and only touch form state on
+      // success. A failed updateSettings (permission revoked mid-session,
+      // network blip) left the settings sheet showing the new icon as
+      // selected even though the backend still had the old one, with only a
+      // transient toast as the (easy-to-miss) signal it didn't save.
+      const key = 'logo';
+      if (photoLogoInFlight.current.has(key)) return;
+      photoLogoInFlight.current.add(key);
+      const teamId = S().activeTeamId!;
+      try {
+        await api.teams.updateSettings(teamId, { icon: em, logo: null });
+        await refreshTeams();
+        if (stillOnTeamSettingsFor(teamId)) setFormVal({ icon: em, logo: null });
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+      } finally {
+        photoLogoInFlight.current.delete(key);
+      }
     },
-    [api, S, setFormVal, refreshTeams, setState, toastMsg, logout],
+    [api, S, refreshTeams, setFormVal, stillOnTeamSettingsFor, setState, toastMsg, logout],
   );
 
   const toggleReasonRole = useCallback(

@@ -375,12 +375,29 @@ describe('useTeamActions', () => {
   });
 
   it('setTeamIcon calls setFormVal and updateSettings', async () => {
+    stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
     const { result } = renderActions();
     await act(async () => {
-      result.current.setTeamIcon('🏆');
+      await result.current.setTeamIcon('🏆');
     });
-    expect(setFormVal).toHaveBeenCalledWith({ icon: '🏆', logo: null });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { icon: '🏆', logo: null });
+    expect(setFormVal).toHaveBeenCalledWith({ icon: '🏆', logo: null });
+  });
+
+  // Regression test: setTeamIcon used to write { icon, logo: null } into the
+  // form BEFORE the API call, with no rollback if updateSettings failed --
+  // unlike every other photo/logo mutation in this file, which all await
+  // first and only touch form state on success. A failed save left the
+  // settings sheet showing the new icon as selected even though the backend
+  // still had the old one.
+  it('setTeamIcon does not touch the form if updateSettings fails', async () => {
+    stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
+    vi.mocked(api.teams.updateSettings).mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.setTeamIcon('🏆');
+    });
+    expect(setFormVal).not.toHaveBeenCalled();
   });
 
   it('toggleReasonRole adds role to reasonRoles', () => {
