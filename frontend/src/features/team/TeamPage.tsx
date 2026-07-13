@@ -107,14 +107,18 @@ export function TeamPage() {
             flexWrap: 'wrap',
           }}
         >
-          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
-            <Sym name="badge" size={16} color="inherit" />
-            {app
-              .myRoles()
-              .map((r) => r.name)
-              .join(', ')}
-          </Box>
-          <Box component="span">·</Box>
+          {app.myRoles().length > 0 ? (
+            <>
+              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontWeight: 600 }}>
+                <Sym name="badge" size={16} color="inherit" />
+                {app
+                  .myRoles()
+                  .map((r) => r.name)
+                  .join(', ')}
+              </Box>
+              <Box component="span">·</Box>
+            </>
+          ) : null}
           {t('team.membersCount', { n: team.memberCount })}
         </Box>
       </Box>
@@ -178,7 +182,9 @@ export function TeamPage() {
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ fontSize: '14px', fontWeight: 600 }}>{tm.name}</Box>
               <Box sx={{ fontSize: '12px', color: active ? tk.onPrimaryContainer : NEUTRAL.secondary, mt: '2px' }}>
-                {tm.myRoles.map((r) => r.name).join(', ') + ' · ' + t('team.membersCount', { n: tm.memberCount })}
+                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount })]
+                  .filter(Boolean)
+                  .join(' · ')}
               </Box>
             </Box>
             {active ? <Sym name="check_circle" size={22} color={tk.primary} /> : null}

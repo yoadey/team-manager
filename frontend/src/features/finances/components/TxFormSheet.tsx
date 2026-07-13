@@ -6,7 +6,7 @@ import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
 import type { TxFormValues } from '../types';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
-import { t } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 
 export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
@@ -50,7 +50,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
 
   const cats = [
     ...new Set(((app.state.finances && app.state.finances.transactions) || []).map((x) => x.category).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b, 'de'));
+  ].sort((a, b) => a.localeCompare(b, getIntlLocale()));
 
   const catField = (
     <Box>

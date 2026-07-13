@@ -246,6 +246,28 @@ describe('TxFormSheet', () => {
     expect(app.setFormVal).toHaveBeenCalledWith({ category: 'Sponsoring' });
   });
 
+  // Regression test: the category chip sort used to hardcode localeCompare's
+  // locale argument to 'de' regardless of the active UI locale, unlike every
+  // other locale-aware sort/format helper in the app (which reads
+  // getIntlLocale()). Spy on getIntlLocale to prove the sort now consults
+  // it instead of a hardcoded value.
+  it('sorts category chips using the current locale rather than a hardcoded one', async () => {
+    const i18n = await import('@/i18n');
+    const spy = vi.spyOn(i18n, 'getIntlLocale').mockReturnValue('en-US');
+    const localeCompareSpy = vi.spyOn(String.prototype, 'localeCompare');
+    const app = makeApp({ title: '', amount: '' }, {}, [{ category: 'Alpha' }, { category: 'Beta' }]);
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+
+    expect(spy).toHaveBeenCalled();
+    const usedLocaleArgs = localeCompareSpy.mock.calls.map((c) => c[1]);
+    expect(usedLocaleArgs).toContain('en-US');
+    expect(usedLocaleArgs).not.toContain('de');
+
+    spy.mockRestore();
+    localeCompareSpy.mockRestore();
+  });
+
   it('does not render category chips when transactions have no categories', () => {
     const app = makeApp({ title: '', amount: '' }, {}, []);
     const sheet = { mode: 'create' } as never;

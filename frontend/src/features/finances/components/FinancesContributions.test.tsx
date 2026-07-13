@@ -32,7 +32,10 @@ vi.mock('@/styles/tokens', () => ({
   },
 }));
 
-vi.mock('@/i18n', () => ({ t: vi.fn().mockImplementation((key) => key) }));
+vi.mock('@/i18n', () => ({
+  t: vi.fn().mockImplementation((key) => key),
+  getIntlLocale: vi.fn().mockReturnValue('de-DE'),
+}));
 
 const tk = {
   primary: '#1565C0',
@@ -237,6 +240,27 @@ describe('FinancesContributions', () => {
       ),
     ).not.toThrow();
     expect(screen.getByText('Bob')).toBeTruthy();
+  });
+
+  // Regression test: the contributor-row sort used to hardcode
+  // localeCompare's locale argument to 'de' regardless of the active UI
+  // locale, unlike every other locale-aware sort/format helper in the app.
+  it('sorts contributor rows using the current locale rather than a hardcoded one', async () => {
+    const i18n = await import('@/i18n');
+    vi.mocked(i18n.getIntlLocale).mockReturnValue('en-US');
+    const localeCompareSpy = vi.spyOn(String.prototype, 'localeCompare');
+    const app = makeApp();
+    const contribs = [makeContrib({ id: 'c1', name: 'Alice' }), makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' })];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
+    );
+
+    const usedLocaleArgs = localeCompareSpy.mock.calls.map((c) => c[1]);
+    expect(usedLocaleArgs).toContain('en-US');
+    expect(usedLocaleArgs).not.toContain('de');
+
+    localeCompareSpy.mockRestore();
+    vi.mocked(i18n.getIntlLocale).mockReturnValue('de-DE');
   });
 
   it('clicking the edit action calls openContribForm with the contribution', () => {

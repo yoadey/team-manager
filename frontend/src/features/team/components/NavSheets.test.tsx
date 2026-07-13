@@ -121,6 +121,19 @@ describe('TeamsSheet', () => {
     expect(screen.getByText(/Mitglied · 8 Mitglieder/)).toBeTruthy();
   });
 
+  // Regression test: the team-switcher subtitle used to unconditionally
+  // join role names and member count with ' · ', so a team where the
+  // caller holds no role (e.g. their sole role assignment was deleted)
+  // rendered a dangling leading separator like " · 8 Mitglieder".
+  it('omits the separator for a team where the caller has no roles', () => {
+    const app = makeApp({
+      teams: [...MOCK_TEAMS, { ...MOCK_TEAMS[1], id: 'team-3', name: 'Roleless Club', myRoles: [] }],
+    });
+    render(<TeamsSheet app={app as never} sheet={SHEET} />);
+    expect(screen.getByText('8 Mitglieder')).toBeTruthy();
+    expect(screen.queryByText(/^·/)).toBeNull();
+  });
+
   it('renders "New team" add button', () => {
     const app = makeApp();
     render(<TeamsSheet app={app as never} sheet={SHEET} />);

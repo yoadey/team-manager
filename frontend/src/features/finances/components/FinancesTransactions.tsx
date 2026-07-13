@@ -50,7 +50,9 @@ export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
           >
             {tx.title}
           </Box>
-          <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>{tx.category + ' · ' + fmtDate(tx.date)}</Box>
+          <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
+            {[tx.category, fmtDate(tx.date)].filter(Boolean).join(' · ')}
+          </Box>
         </Box>
         <Box sx={{ fontSize: '15px', fontWeight: 700, color: tx.type === 'income' ? NEUTRAL.success : NEUTRAL.error }}>
           {(tx.type === 'income' ? '+' : '−') + fmtMoney(tx.amount).replace('-', '')}

@@ -58,6 +58,36 @@ describe('TeamPage', () => {
     expect(screen.getAllByText('FC Test').length).toBeGreaterThan(0);
   });
 
+  // Regression test: the own-team header used to unconditionally render a
+  // "·" separator between the role list and the member count, so a member
+  // with no roles (e.g. after their sole role was deleted) saw a dangling
+  // leading separator with nothing before it.
+  it('omits the role separator in the header when the caller has no roles', () => {
+    const app = makeApp();
+    app.myRoles = vi.fn().mockReturnValue([]);
+    mockUseApp.mockReturnValue(app);
+    render(<TeamPage />);
+    expect(screen.queryByText('·')).toBeNull();
+  });
+
+  it('shows the role separator in the header when the caller has roles', () => {
+    mockUseApp.mockReturnValue(makeApp());
+    render(<TeamPage />);
+    expect(screen.getByText('·')).toBeTruthy();
+  });
+
+  // Same dangling-separator class, in the team-switcher list this time --
+  // a DIFFERENT team the caller belongs to but holds no role in.
+  it('omits the role separator in the team list when a team has no roles', () => {
+    const app = makeApp({
+      teams: [makeTeam({ id: 'team1' }), makeTeam({ id: 'team2', name: 'Roleless Team', myRoles: [] })],
+    });
+    mockUseApp.mockReturnValue(app);
+    render(<TeamPage />);
+    const roleless = screen.getByText('Roleless Team').closest('button')!;
+    expect(roleless.textContent).not.toContain('·');
+  });
+
   it('renders Rollen & Rechte action', () => {
     mockUseApp.mockReturnValue(makeApp());
     render(<TeamPage />);

@@ -56,7 +56,7 @@ export function useEventFormActions({
             meetT: '19:15',
             startT: '19:30',
             endT: '21:30',
-            location: 'Tanzsporthalle Eilendorf',
+            location: '',
             note: '',
             meetTimeMandatory: true,
             responseMode: 'opt_out',

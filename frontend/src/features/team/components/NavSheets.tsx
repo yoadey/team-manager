@@ -76,7 +76,9 @@ export function TeamsSheet({ app }: SheetProps) {
                 {tm.name}
               </Box>
               <Box component="span" sx={{ display: 'block', fontSize: '12px', color: NEUTRAL.secondary }}>
-                {tm.myRoles.map((r) => r.name).join(', ') + ' · ' + t('team.membersCount', { n: tm.memberCount })}
+                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount })]
+                  .filter(Boolean)
+                  .join(' · ')}
               </Box>
             </Box>
             {active ? <Sym name="check_circle" size={24} color={tk.primary} /> : null}
