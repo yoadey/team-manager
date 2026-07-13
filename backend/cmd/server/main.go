@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -117,6 +119,38 @@ func warnIfPaginationKeyOpen(cfg *config.Config) {
 	}
 }
 
+// gomemlimitHeadroomFactor scales GOMEMLIMIT down before handing it to the
+// Go runtime's soft memory limit, leaving headroom below the container's
+// hard cgroup memory limit. GOMEMLIMIT only accounts for memory the Go
+// runtime tracks (heap + goroutine stacks), not other RSS contributors
+// (mmap'd regions, cgo allocations, thread stacks) -- setting it equal to
+// the hard limit means a load spike that grows non-heap RSS even slightly
+// can still trip the kubelet's OOMKill before the GC pacer's soft-limit
+// response gets a chance to react, undermining the exact protection
+// GOMEMLIMIT exists to provide (see deployment.yaml's env block comment).
+const gomemlimitHeadroomFactor = 0.9
+
+// applyMemoryLimitHeadroom re-applies GOMEMLIMIT (set by the Helm chart from
+// the downward API as a raw byte count -- limits.memory with no divisor,
+// see deployment.yaml) scaled down by gomemlimitHeadroomFactor. Kubernetes'
+// resourceFieldRef has no built-in percentage option, so the Go runtime's
+// automatic env-var handling alone can't add this margin; calling
+// debug.SetMemoryLimit here overrides whatever it applied at process init.
+// A no-op when GOMEMLIMIT is unset or unparseable (local dev, tests, or a
+// future non-numeric GOMEMLIMIT format like "256MiB" that this intentionally
+// doesn't attempt to parse -- the chart only ever sets the raw-byte form).
+func applyMemoryLimitHeadroom() {
+	raw := os.Getenv("GOMEMLIMIT")
+	if raw == "" {
+		return
+	}
+	limit, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || limit <= 0 {
+		return
+	}
+	debug.SetMemoryLimit(int64(float64(limit) * gomemlimitHeadroomFactor))
+}
+
 // metricsHandler exposes Prometheus metrics, requiring a bearer token when one
 // is configured. Left open when token is empty so local dev and in-cluster
 // scraping over a private network keep working.
@@ -181,6 +215,7 @@ func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	slog.SetDefault(logger)
 
+	applyMemoryLimitHeadroom()
 	failIfMetricsOpen(cfg)
 	warnIfPaginationKeyOpen(cfg)
 
