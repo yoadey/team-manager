@@ -113,6 +113,47 @@ func TestMembersRepository_ListMembers(t *testing.T) {
 	assert.Equal(t, "Charlie", page[2].Name)
 }
 
+// TestMembersRepository_ListMembers_ExcludesCrossTeamRole is a defense-in-
+// depth regression test: batchGetRoles (via ListMembers) used to join roles
+// to membership_roles with no r.team_id check, unlike its sibling
+// teams.Repository.GetRolesForMembership. Every current INSERT INTO
+// membership_roles call site always inserts a role already validated as
+// belonging to the target team, so this can't happen through normal API use
+// today -- but if that insert-side invariant is ever broken by a future
+// change, a query missing this filter would silently surface the foreign
+// role instead of failing safe. Manually inserts a membership_roles row
+// pointing at a role from a DIFFERENT team (bypassing that invariant
+// directly, the way seedMember's raw INSERT allows) and asserts it never
+// appears in the returned member's Roles.
+func TestMembersRepository_ListMembers_ExcludesCrossTeamRole(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	otherTeamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTeamID)
+	require.NoError(t, err)
+
+	ownRoleID := seedRole(t, pool, teamID, "Own Role", `{"events":"read"}`)
+	foreignRoleID := seedRole(t, pool, otherTeamID, "Foreign Role", `{"settings":"write"}`)
+
+	seedMember(t, pool, teamID, "Dana", "dana@example.com", ownRoleID, foreignRoleID)
+
+	page, err := repo.ListMembers(ctx, teamID.String(), 10, nil)
+	require.NoError(t, err)
+	require.Len(t, page, 1)
+
+	roleIDs := make([]uuid.UUID, len(page[0].Roles))
+	for i, r := range page[0].Roles {
+		roleIDs[i] = r.Id
+	}
+	assert.Contains(t, roleIDs, ownRoleID, "the member's own-team role must still be returned")
+	assert.NotContains(t, roleIDs, foreignRoleID, "a role belonging to a different team must never be returned, even if membership_roles points at it")
+}
+
 func TestMembersRepository_ListMembers_Pagination(t *testing.T) {
 	t.Parallel()
 

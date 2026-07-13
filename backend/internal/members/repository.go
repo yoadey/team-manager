@@ -491,14 +491,21 @@ func roleSetEffectivePermissions(ctx context.Context, tx pgx.Tx, teamID string, 
 }
 
 // getMembershipEffectivePermissionsQ returns the per-module maximum
-// permission across membershipID's CURRENTLY assigned roles.
+// permission across membershipID's CURRENTLY assigned roles. The
+// r.team_id = m.team_id join predicate is defense in depth against a
+// membership_roles row ever pointing at a role from a different team (see
+// teams.Repository.GetRolesForMembership's identical rationale) -- notably
+// this feeds enforceNoPermissionEscalation's escalation-ceiling calculation,
+// so a cross-team role slipping through here would inflate that ceiling
+// instead of failing safe.
 func getMembershipEffectivePermissionsQ(ctx context.Context, q querier, membershipID string) (teams.PermissionsJSON, error) {
 	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
 	rows, err := q.Query(ctx, `
 		SELECT r.permissions
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
-		WHERE mr.membership_id = $1
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE mr.membership_id = $1 AND r.team_id = m.team_id
 	`, membershipID)
 	if err != nil {
 		return eff, fmt.Errorf("getMembershipEffectivePermissionsQ: %w", err)
@@ -773,7 +780,8 @@ func (r *Repository) batchGetRoles(ctx context.Context, membershipIDs []string) 
 		SELECT mr.membership_id, r.id, r.team_id, r.name, r.system, r.color, r.permissions
 		FROM membership_roles mr
 		JOIN roles r ON r.id = mr.role_id
-		WHERE mr.membership_id = ANY($1::uuid[])
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE mr.membership_id = ANY($1::uuid[]) AND r.team_id = m.team_id
 	`, membershipIDs)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.batchGetRoles: %w", err)
@@ -801,7 +809,8 @@ func getRolesForMembershipQ(ctx context.Context, q querier, membershipID string)
 		SELECT r.id, r.team_id, r.name, r.system, r.color, r.permissions
 		FROM roles r
 		JOIN membership_roles mr ON mr.role_id = r.id
-		WHERE mr.membership_id = $1
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE mr.membership_id = $1 AND r.team_id = m.team_id
 	`, membershipID)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.getRolesForMembership: %w", err)
