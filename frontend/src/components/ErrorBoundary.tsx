@@ -45,6 +45,8 @@ export class ErrorBoundary extends Component<Props, State> {
 function DefaultFallback({ error, onReset }: { error: Error; onReset: () => void }) {
   return (
     <Box
+      role="alert"
+      aria-live="assertive"
       sx={{
         display: 'flex',
         flexDirection: 'column',
@@ -99,6 +101,8 @@ function DefaultFallback({ error, onReset }: { error: Error; onReset: () => void
 export function AppErrorFallback({ error }: { error: Error }) {
   return (
     <Box
+      role="alert"
+      aria-live="assertive"
       sx={{
         display: 'flex',
         flexDirection: 'column',

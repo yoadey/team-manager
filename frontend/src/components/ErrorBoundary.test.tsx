@@ -36,6 +36,20 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.getByText('caught: explode')).toBeInTheDocument();
   });
+
+  // Regression test: the default fallback had no role/aria-live, unlike
+  // every other dynamic-state component in the app (Toast, SpinnerBox,
+  // SkeletonList) -- a screen reader user got no notification that the
+  // content they were interacting with just silently turned into an error
+  // message, and had to blindly re-explore the DOM to discover it.
+  it('announces the default fallback via role="alert"', () => {
+    render(
+      <ErrorBoundary>
+        <Boom />
+      </ErrorBoundary>,
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Etwas ist schiefgelaufen');
+  });
 });
 
 describe('AppErrorFallback', () => {
@@ -65,5 +79,13 @@ describe('AppErrorFallback', () => {
     const btn = document.querySelector('button')!;
     fireEvent.click(btn);
     expect(reloadMock).toHaveBeenCalled();
+  });
+
+  // Regression test: same gap as DefaultFallback above -- no role/aria-live,
+  // so a screen reader user reloading into a crashed app got no announcement
+  // at all.
+  it('announces itself via role="alert"', () => {
+    render(<AppErrorFallback error={new Error('test error')} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Die App konnte nicht geladen werden');
   });
 });
