@@ -41,7 +41,7 @@ export function useAbsenceActions({
     (absence?: { id: string; from: string; to: string; reason: string } | null) => {
       const f: AbsenceFormValues = absence
         ? { id: absence.id, from: absence.from, to: absence.to, reason: absence.reason }
-        : { from: todayStr(), to: todayStr(), reason: 'Urlaub' };
+        : { from: todayStr(), to: todayStr(), reason: '' };
       setState({ sheet: { type: 'absenceForm', mode: absence ? 'edit' : 'create' }, form: f });
     },
     [setState],

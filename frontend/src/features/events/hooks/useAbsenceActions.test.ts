@@ -83,6 +83,29 @@ describe('useAbsenceActions', () => {
     );
   }
 
+  // Regression test: openAbsenceForm used to prefill a NEW absence's reason
+  // field with the literal German word 'Urlaub' as an actual form VALUE
+  // (not a placeholder), independent of the active UI locale -- an
+  // English-locale user opening "Log absence" saw an already-filled German
+  // word instead of the already-translated absenceReasonPlaceholder hint
+  // (which never renders once the field has a value), and could save an
+  // absence with that untranslated reason shown to every teammate.
+  it('openAbsenceForm defaults a new absence reason to empty (not a hardcoded locale-specific value)', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openAbsenceForm();
+    });
+    expect(stateRef.form).toMatchObject({ reason: '' });
+  });
+
+  it('openAbsenceForm preserves the existing reason when editing an absence', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openAbsenceForm({ id: 'a1', from: '2026-01-01', to: '2026-01-02', reason: 'Injured knee' });
+    });
+    expect(stateRef.form).toMatchObject({ reason: 'Injured knee' });
+  });
+
   it('saveAbsence updates an existing absence and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {
