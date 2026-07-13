@@ -873,6 +873,20 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamA, user)
 	require.NoError(t, err)
 
+	// user needs events:write in teamA for the SetNomination calls below,
+	// which are never self-service and now re-verify events:write atomically.
+	var writeRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'IDOR Organizer', '{"events":"write"}') RETURNING id`,
+		teamA,
+	).Scan(&writeRoleID)
+	require.NoError(t, err)
+	var userMembershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamA, user).Scan(&userMembershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, userMembershipID, writeRoleID)
+	require.NoError(t, err)
+
 	params := makeCreateParams("Team A Event", time.Now().UTC())
 	ev, err := repo.CreateEvent(ctx, teamA.String(), &params)
 	require.NoError(t, err)
@@ -905,10 +919,10 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	_, err = repo.SetAttendance(ctx, eventID, user.String(), user.String(), teamB.String(), &status, nil, nil, nil)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetAttendance must reject cross-team eventID")
 
-	err = repo.SetNomination(ctx, eventID, user.String(), teamB.String(), false)
+	err = repo.SetNomination(ctx, eventID, user.String(), user.String(), teamB.String(), false)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(false) must reject cross-team eventID")
 
-	err = repo.SetNomination(ctx, eventID, user.String(), teamB.String(), true)
+	err = repo.SetNomination(ctx, eventID, user.String(), user.String(), teamB.String(), true)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(true) must reject cross-team eventID")
 
 	_, err = repo.AddComment(ctx, eventID, user.String(), teamB.String(), "cross-team comment")
@@ -968,12 +982,26 @@ func TestEventRepository_SetNomination_RejectsNonMemberUser(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
 	require.NoError(t, err)
 
+	// member needs events:write to act as the caller below (SetNomination is
+	// never self-service and now re-verifies events:write atomically).
+	var writeRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Nomination Organizer', '{"events":"write"}') RETURNING id`,
+		teamID,
+	).Scan(&writeRoleID)
+	require.NoError(t, err)
+	var memberMembershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, member).Scan(&memberMembershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, memberMembershipID, writeRoleID)
+	require.NoError(t, err)
+
 	params := makeCreateParams("Nomination Event", time.Now().UTC())
 	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
 	require.NoError(t, err)
 	eventID := ev.Id.String()
 
-	err = repo.SetNomination(ctx, eventID, outsider.String(), teamID.String(), false)
+	err = repo.SetNomination(ctx, eventID, member.String(), outsider.String(), teamID.String(), false)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(false) must reject a userID that is not a member of teamID")
 
 	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
@@ -981,7 +1009,7 @@ func TestEventRepository_SetNomination_RejectsNonMemberUser(t *testing.T) {
 	assert.Empty(t, attendanceList, "no attendance row should have been created for the non-member user")
 
 	// A real member of the team is unaffected.
-	err = repo.SetNomination(ctx, eventID, member.String(), teamID.String(), false)
+	err = repo.SetNomination(ctx, eventID, member.String(), member.String(), teamID.String(), false)
 	require.NoError(t, err, "SetNomination(false) scoped to an actual team member must succeed")
 }
 
@@ -1055,6 +1083,20 @@ func TestEventRepository_SetNomination_ClearsStaleReason(t *testing.T) {
 	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
 	require.NoError(t, err)
 
+	// member needs events:write to call SetNomination (never self-service,
+	// now re-verified atomically).
+	var writeRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Reason Organizer', '{"events":"write"}') RETURNING id`,
+		teamID,
+	).Scan(&writeRoleID)
+	require.NoError(t, err)
+	var memberMembershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, member).Scan(&memberMembershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, memberMembershipID, writeRoleID)
+	require.NoError(t, err)
+
 	params := makeCreateParams("Nomination Reason Event", time.Now().UTC())
 	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
 	require.NoError(t, err)
@@ -1065,7 +1107,7 @@ func TestEventRepository_SetNomination_ClearsStaleReason(t *testing.T) {
 	_, err = repo.SetAttendance(ctx, eventID, member.String(), member.String(), teamID.String(), &status, &reason, nil, nil)
 	require.NoError(t, err)
 
-	err = repo.SetNomination(ctx, eventID, member.String(), teamID.String(), false)
+	err = repo.SetNomination(ctx, eventID, member.String(), member.String(), teamID.String(), false)
 	require.NoError(t, err)
 
 	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
@@ -1073,4 +1115,134 @@ func TestEventRepository_SetNomination_ClearsStaleReason(t *testing.T) {
 	require.Len(t, attendanceList, 1)
 	assert.Equal(t, "not_nominated", attendanceList[0].Status)
 	assert.Nil(t, attendanceList[0].Reason, "reason must be cleared once nomination is revoked, not just left stale under a new status")
+}
+
+// TestEventRepository_SetNomination_RejectsCallerWithoutEventsWrite regression-
+// tests the TOCTOU race deferred in round 68 alongside SetAttendance's
+// equivalent fix: SetNomination is never self-service (events.Service.
+// SetNomination requires events:write unconditionally, with no caller-equals-
+// target bypass), so a concurrent SetRoles/DeleteRole/UpdateRole revoking the
+// caller's events:write between the service layer's unlocked permission read
+// and this write must not let either the upsert (nominated=false) or delete
+// (nominated=true) branch through. Calls the repository directly, bypassing
+// the service layer's own (separately racy) check, to prove the write itself
+// is guarded.
+func TestEventRepository_SetNomination_RejectsCallerWithoutEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	callerID := uuid.New()
+	targetID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Nomination No Write Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+			($1, 'Caller', 'nom-caller-nowrite@example.com', '#111111'),
+			($2, 'Target', 'nom-target-nowrite@example.com', '#222222')
+	`, callerID, targetID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3)`, teamID, callerID, targetID)
+	require.NoError(t, err)
+
+	// Caller has a role, but it grants events:read, not events:write.
+	var readOnlyRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Nomination Read Only', '{"events":"read"}') RETURNING id`,
+		teamID,
+	).Scan(&readOnlyRoleID)
+	require.NoError(t, err)
+	var callerMembershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, callerID).Scan(&callerMembershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMembershipID, readOnlyRoleID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Nomination No Write Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	// nominated=false (upsert branch) must be rejected.
+	err = repo.SetNomination(ctx, eventID, callerID.String(), targetID.String(), teamID.String(), false)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(false) must reject a caller without events:write, even called directly")
+
+	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	assert.Empty(t, attendanceList, "no attendance row should have been created by the rejected upsert")
+
+	// Seed a not_nominated row directly (bypassing the guard) so the delete
+	// branch below has something to try to delete.
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status, at) VALUES ($1, $2, 'not_nominated', now())`, eventID, targetID)
+	require.NoError(t, err)
+
+	// nominated=true (delete branch) must also be rejected.
+	err = repo.SetNomination(ctx, eventID, callerID.String(), targetID.String(), teamID.String(), true)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(true) must reject a caller without events:write, even called directly")
+
+	attendanceList, err = repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	require.Len(t, attendanceList, 1, "the seeded not_nominated row must survive the rejected delete")
+	assert.Equal(t, "not_nominated", attendanceList[0].Status)
+}
+
+// Companion positive test: a caller WITH events:write can set/clear another
+// member's nomination, confirming the new predicate isn't overly restrictive.
+func TestEventRepository_SetNomination_AllowsCallerWithEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	callerID := uuid.New()
+	targetID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Nomination Write Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+			($1, 'Organizer', 'nom-caller-write@example.com', '#111111'),
+			($2, 'Target', 'nom-target-write@example.com', '#222222')
+	`, callerID, targetID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3)`, teamID, callerID, targetID)
+	require.NoError(t, err)
+
+	var writeRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Nomination Organizer', '{"events":"write"}') RETURNING id`,
+		teamID,
+	).Scan(&writeRoleID)
+	require.NoError(t, err)
+	var callerMembershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, callerID).Scan(&callerMembershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, callerMembershipID, writeRoleID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Nomination Write Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	err = repo.SetNomination(ctx, eventID, callerID.String(), targetID.String(), teamID.String(), false)
+	require.NoError(t, err, "SetNomination(false) with events:write must succeed")
+
+	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	require.Len(t, attendanceList, 1)
+	assert.Equal(t, "not_nominated", attendanceList[0].Status)
+
+	err = repo.SetNomination(ctx, eventID, callerID.String(), targetID.String(), teamID.String(), true)
+	require.NoError(t, err, "SetNomination(true) with events:write must succeed")
+
+	attendanceList, err = repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	assert.Empty(t, attendanceList, "not_nominated row must be removed")
 }

@@ -51,7 +51,7 @@ type eventRepo interface {
 	ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error)
 	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
-	SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error
+	SetNomination(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
 	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error)
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
@@ -555,7 +555,7 @@ func (s *Service) SetNomination(ctx context.Context, eventID, callerID, teamID s
 		return ErrSetNominationForbidden
 	}
 
-	if err := s.repo.SetNomination(ctx, eventID, req.UserId.String(), teamID, req.Nominated); err != nil {
+	if err := s.repo.SetNomination(ctx, eventID, callerID, req.UserId.String(), teamID, req.Nominated); err != nil {
 		return fmt.Errorf("events.Service.SetNomination: %w", err)
 	}
 	return nil

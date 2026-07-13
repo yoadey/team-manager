@@ -35,7 +35,7 @@ type mockSvcRepo struct {
 	listAttendanceFn         func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
 	getReasonVisibilityCtxFn func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
 	setAttendanceFn          func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
-	setNominationFn          func(ctx context.Context, eventID, userID, teamID string, nominated bool) error
+	setNominationFn          func(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
 	listCommentsFn           func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
 	addCommentFn             func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
 	deleteCommentFn          func(ctx context.Context, commentID, userID, teamID string) error
@@ -106,8 +106,8 @@ func (m *mockSvcRepo) SetAttendance(ctx context.Context, eventID, callerID, user
 	return m.setAttendanceFn(ctx, eventID, callerID, userID, teamID, status, reason, reasonID, reasonVisibility)
 }
 
-func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error {
-	return m.setNominationFn(ctx, eventID, userID, teamID, nominated)
+func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error {
+	return m.setNominationFn(ctx, eventID, callerID, userID, teamID, nominated)
 }
 
 func (m *mockSvcRepo) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error) {
@@ -493,7 +493,7 @@ func TestEventService_SetNomination_RequiresEventsWrite(t *testing.T) {
 	teamID := uuid.New()
 
 	repo := &mockSvcRepo{
-		setNominationFn: func(context.Context, string, string, string, bool) error {
+		setNominationFn: func(context.Context, string, string, string, string, bool) error {
 			t.Fatal("repository must not be called when caller lacks events:write")
 			return nil
 		},
@@ -510,7 +510,7 @@ func TestEventService_SetNomination_NilPermChecker_Forbidden(t *testing.T) {
 	t.Parallel()
 
 	repo := &mockSvcRepo{
-		setNominationFn: func(context.Context, string, string, string, bool) error {
+		setNominationFn: func(context.Context, string, string, string, string, bool) error {
 			t.Fatal("repository must not be called when there is no permission checker")
 			return nil
 		},
@@ -533,9 +533,10 @@ func TestEventService_SetNomination_AllowedWithEventsWrite(t *testing.T) {
 
 	called := false
 	repo := &mockSvcRepo{
-		setNominationFn: func(_ context.Context, evID, uID, tID string, nominated bool) error {
+		setNominationFn: func(_ context.Context, evID, cID, uID, tID string, nominated bool) error {
 			called = true
 			assert.Equal(t, eventID.String(), evID)
+			assert.Equal(t, callerID.String(), cID)
 			assert.Equal(t, targetUserID.String(), uID)
 			assert.Equal(t, teamID.String(), tID)
 			assert.True(t, nominated)

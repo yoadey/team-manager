@@ -954,10 +954,21 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userI
 // ─── SetNomination ──────────────────────────────────────────────────────────
 
 // SetNomination sets or removes nomination for a user on an event scoped to
-// teamID. Returns pgx.ErrNoRows if eventID does not belong to teamID.
+// teamID. callerID is the authenticated caller; SetNomination is never
+// self-service (the service layer requires events:write unconditionally, see
+// events.Service.SetNomination), so unlike SetAttendance there is no "acting
+// on self" bypass here -- the write itself re-verifies callerID currently
+// holds events:write via the EXISTS clause below, closing the same
+// concurrent-permission-revocation race SetAttendance's WHERE clause closes,
+// rather than relying solely on the service layer's earlier, unlocked
+// permChecker.GetPermissions read.
+// Returns pgx.ErrNoRows if eventID does not belong to teamID, if userID is
+// not a member of teamID, OR -- in that narrow race -- if callerID no longer
+// holds events:write; these are deliberately not distinguished in the
+// nominated=false branch, matching SetAttendance's identical ambiguity.
 // nominated=false → upsert status=not_nominated
 // nominated=true  → delete any not_nominated record for this user/event.
-func (r *Repository) SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error {
+func (r *Repository) SetNomination(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if !nominated {
@@ -971,10 +982,17 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, userID, teamID 
 			SELECT $1, $2, 'not_nominated', now()
 			WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $3)
 			  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $3 AND user_id = $2)
+			  AND EXISTS (
+			        SELECT 1 FROM roles r
+			        JOIN membership_roles mr ON mr.role_id = r.id
+			        JOIN memberships m ON m.id = mr.membership_id
+			        WHERE m.team_id = $3 AND m.user_id = $4 AND r.team_id = $3
+			          AND r.permissions->>'events' = 'write'
+			      )
 			ON CONFLICT (event_id, user_id) DO UPDATE
 				SET status = 'not_nominated', reason = NULL, reason_id = NULL, reason_visibility = NULL, at = now()
 		`
-		tag, err := r.pool.Exec(ctx, q, eventID, userID, teamID)
+		tag, err := r.pool.Exec(ctx, q, eventID, userID, teamID, callerID)
 		if err != nil {
 			return fmt.Errorf("events.Repository.SetNomination(false): %w", err)
 		}
@@ -985,26 +1003,46 @@ func (r *Repository) SetNomination(ctx context.Context, eventID, userID, teamID 
 	}
 
 	// Remove not_nominated record so the user reverts to pending/default,
-	// scoped to teamID via a join back to events.
+	// scoped to teamID via a join back to events, and gated on callerID
+	// currently holding events:write via the same EXISTS predicate.
 	tag, err := r.pool.Exec(
 		ctx,
 		`DELETE FROM attendance a USING events e
 		 WHERE a.event_id = e.id AND a.event_id = $1 AND a.user_id = $2
-		   AND a.status = 'not_nominated' AND e.team_id = $3`,
-		eventID, userID, teamID,
+		   AND a.status = 'not_nominated' AND e.team_id = $3
+		   AND EXISTS (
+		         SELECT 1 FROM roles r
+		         JOIN membership_roles mr ON mr.role_id = r.id
+		         JOIN memberships m ON m.id = mr.membership_id
+		         WHERE m.team_id = $3 AND m.user_id = $4 AND r.team_id = $3
+		           AND r.permissions->>'events' = 'write'
+		       )`,
+		eventID, userID, teamID, callerID,
 	)
 	if err != nil {
 		return fmt.Errorf("events.Repository.SetNomination(true): %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		// Distinguish "event not in team" from "nothing to delete" by checking
-		// the event exists in the team; a no-op delete for an owned event is
-		// not an error, but a cross-team attempt must be.
-		var exists bool
-		if err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM events WHERE id = $1 AND team_id = $2)`, eventID, teamID).Scan(&exists); err != nil {
-			return fmt.Errorf("events.Repository.SetNomination(true): verify team: %w", err)
+		// Distinguish "event not in team" from "caller lost events:write" from
+		// "nothing to delete" -- a no-op delete for an owned event with a
+		// permitted caller is not an error, but a cross-team attempt must be,
+		// and a caller who has lost events:write must not be told the delete
+		// silently succeeded.
+		var eventInTeam, callerHasWrite bool
+		if err := r.pool.QueryRow(ctx, `
+			SELECT
+			    EXISTS(SELECT 1 FROM events WHERE id = $1 AND team_id = $2),
+			    EXISTS(
+			        SELECT 1 FROM roles r
+			        JOIN membership_roles mr ON mr.role_id = r.id
+			        JOIN memberships m ON m.id = mr.membership_id
+			        WHERE m.team_id = $2 AND m.user_id = $3 AND r.team_id = $2
+			          AND r.permissions->>'events' = 'write'
+			    )
+		`, eventID, teamID, callerID).Scan(&eventInTeam, &callerHasWrite); err != nil {
+			return fmt.Errorf("events.Repository.SetNomination(true): verify team/permission: %w", err)
 		}
-		if !exists {
+		if !eventInTeam || !callerHasWrite {
 			return pgx.ErrNoRows
 		}
 	}
