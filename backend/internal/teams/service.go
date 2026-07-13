@@ -40,7 +40,7 @@ const maxDecodePixels = 50_000_000
 type teamRepo interface {
 	ListTeamsForUser(ctx context.Context, userID string) ([]TeamRow, error)
 	GetTeam(ctx context.Context, teamID string) (*TeamRow, error)
-	CreateTeam(ctx context.Context, name, creatorUserID string) (*TeamRow, error)
+	CreateTeam(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*TeamRow, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error)
 	GetMemberCount(ctx context.Context, teamID string) (int, error)
 	GetMembership(ctx context.Context, teamID, userID string) (*MembershipRow, error)
@@ -122,8 +122,8 @@ func (s *Service) ListForUser(ctx context.Context, userID string) ([]gen.TeamFor
 }
 
 // CreateTeam creates a new team and returns it enriched for the creator.
-func (s *Service) CreateTeam(ctx context.Context, userID, name string) (*gen.TeamForUser, error) {
-	tr, err := s.repo.CreateTeam(ctx, name, userID)
+func (s *Service) CreateTeam(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error) {
+	tr, err := s.repo.CreateTeam(ctx, name, userID, icon, iconBg, iconFg)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.CreateTeam: %w", err)
 	}

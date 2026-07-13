@@ -23,7 +23,7 @@ import (
 // teamService is the interface the Handler relies on.
 type teamService interface {
 	ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error)
-	CreateTeam(ctx context.Context, userID, name string) (*gen.TeamForUser, error)
+	CreateTeam(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error)
 	GetTeam(ctx context.Context, teamID string) (*gen.Team, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*gen.Team, error)
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
@@ -88,8 +88,26 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 	if err := validate.Name(request.Body.Name); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	// Same bounds validateUpdateTeamBody applies to these fields on the PATCH
+	// path -- CreateTeam must validate them too, since they reach the same
+	// icon/icon_bg/icon_fg columns.
+	for _, f := range []struct {
+		val   *string
+		field string
+	}{
+		{request.Body.Icon, "icon"},
+		{request.Body.IconBg, "iconBg"},
+		{request.Body.IconFg, "iconFg"},
+	} {
+		if f.val == nil {
+			continue
+		}
+		if err := validate.MaxLen(*f.val, 50, f.field); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 
-	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name)
+	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name, request.Body.Icon, request.Body.IconBg, request.Body.IconFg)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTeam failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)

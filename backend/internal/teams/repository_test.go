@@ -47,11 +47,36 @@ func TestTeamRepository_CreateTeam(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := teams.NewRepository(pool)
-	tr, err := repo.CreateTeam(ctx, "My Team", userID)
+	tr, err := repo.CreateTeam(ctx, "My Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, tr.Id.String())
 	assert.Equal(t, "My Team", tr.Name)
 	assert.False(t, tr.CreatedAt.IsZero())
+}
+
+// Regression test: CreateTeam used to insert only the name column, silently
+// discarding icon/iconBg/iconFg even though the frontend's create-team form
+// (and the OpenAPI CreateTeamRequest schema) always sends them -- a team
+// created against the real backend ended up with NULL icon colors
+// regardless of what the user picked, with no error to surface it.
+func TestTeamRepository_CreateTeam_PersistsIconFields(t *testing.T) {
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := insertUser(t, pool, "create-icon@example.com")
+	repo := teams.NewRepository(pool)
+
+	icon := "🏆"
+	iconBg := "#1A1A1A"
+	iconFg := "#F5C518"
+	tr, err := repo.CreateTeam(ctx, "Icon Team", userID, &icon, &iconBg, &iconFg)
+	require.NoError(t, err)
+	require.NotNil(t, tr.Icon)
+	require.NotNil(t, tr.IconBg)
+	require.NotNil(t, tr.IconFg)
+	assert.Equal(t, icon, *tr.Icon)
+	assert.Equal(t, iconBg, *tr.IconBg)
+	assert.Equal(t, iconFg, *tr.IconFg)
 }
 
 // Regression test: the seeded default "Member" role (auto-assigned to every
@@ -77,7 +102,7 @@ func TestTeamRepository_CreateTeam_DefaultMemberRoleCanReadRosterAndRoleCatalog(
 	require.NoError(t, err)
 
 	repo := teams.NewRepository(pool)
-	tr, err := repo.CreateTeam(ctx, "Default Role Team", userID)
+	tr, err := repo.CreateTeam(ctx, "Default Role Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	var permsJSON []byte
@@ -112,9 +137,9 @@ func TestBackfillMemberRolePermissionsMigration(t *testing.T) {
 	userID := insertUser(t, pool, "backfill-migration@example.com")
 	repo := teams.NewRepository(pool)
 
-	brokenTeam, err := repo.CreateTeam(ctx, "Pre-Fix Team", userID)
+	brokenTeam, err := repo.CreateTeam(ctx, "Pre-Fix Team", userID, nil, nil, nil)
 	require.NoError(t, err)
-	customizedTeam, err := repo.CreateTeam(ctx, "Customized Team", userID)
+	customizedTeam, err := repo.CreateTeam(ctx, "Customized Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Simulate a team whose Member role still has the pre-round-44 broken
@@ -189,7 +214,7 @@ func TestTeamRepository_ListForUser(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := teams.NewRepository(pool)
-	_, err = repo.CreateTeam(ctx, "List Team", userID)
+	_, err = repo.CreateTeam(ctx, "List Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	result, err := repo.ListTeamsForUser(ctx, userID)
@@ -211,9 +236,9 @@ func TestTeamRepository_BatchedListEnrichment_ReturnsPerTeamResults(t *testing.T
 	otherUserID := insertUser(t, pool, "batch-other@example.com")
 
 	repo := teams.NewRepository(pool)
-	teamA, err := repo.CreateTeam(ctx, "Batch Team A", userID)
+	teamA, err := repo.CreateTeam(ctx, "Batch Team A", userID, nil, nil, nil)
 	require.NoError(t, err)
-	teamB, err := repo.CreateTeam(ctx, "Batch Team B", userID)
+	teamB, err := repo.CreateTeam(ctx, "Batch Team B", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	// Add a second member to team A only, so its member count (2) differs
@@ -263,9 +288,9 @@ func TestTeamRepository_GetRolesForMemberships_ExcludesCrossTeamRole(t *testing.
 
 	userID := insertUser(t, pool, "crossrole-owner@example.com")
 	repo := teams.NewRepository(pool)
-	teamA, err := repo.CreateTeam(ctx, "Cross Role Team A", userID)
+	teamA, err := repo.CreateTeam(ctx, "Cross Role Team A", userID, nil, nil, nil)
 	require.NoError(t, err)
-	teamB, err := repo.CreateTeam(ctx, "Cross Role Team B", userID)
+	teamB, err := repo.CreateTeam(ctx, "Cross Role Team B", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	var membershipA uuid.UUID
@@ -304,7 +329,7 @@ func TestTeamRepository_UpdateTeam(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := teams.NewRepository(pool)
-	tr, err := repo.CreateTeam(ctx, "Original Name", userID)
+	tr, err := repo.CreateTeam(ctx, "Original Name", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	newName := "Updated Name"
@@ -327,11 +352,11 @@ func TestTeamRepository_UpdateTeam_ReasonVisibilityRoleIDs_ValidatesOwnership(t 
 	require.NoError(t, err)
 
 	repo := teams.NewRepository(pool)
-	tr, err := repo.CreateTeam(ctx, "Reason Vis Team", userID)
+	tr, err := repo.CreateTeam(ctx, "Reason Vis Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	// A role from a different team must be rejected.
-	otherTeam, err := repo.CreateTeam(ctx, "Other Team", userID)
+	otherTeam, err := repo.CreateTeam(ctx, "Other Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 	var foreignRoleID string
 	err = pool.QueryRow(ctx,
@@ -388,7 +413,7 @@ func TestTeamRepository_DeleteTeamPhoto_ClearsStoredPhoto(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := teams.NewRepository(pool)
-	tr, err := repo.CreateTeam(ctx, "Photo Delete Team", userID)
+	tr, err := repo.CreateTeam(ctx, "Photo Delete Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, repo.UpdateTeamPhoto(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
@@ -429,7 +454,7 @@ func TestTeamRepository_DeleteTeamLogo_ClearsStoredLogo(t *testing.T) {
 	require.NoError(t, err)
 
 	repo := teams.NewRepository(pool)
-	tr, err := repo.CreateTeam(ctx, "Logo Delete Team", userID)
+	tr, err := repo.CreateTeam(ctx, "Logo Delete Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, repo.UpdateTeamLogo(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
@@ -463,7 +488,7 @@ func TestTeamRepository_AcceptInvite_NewMember_JoinsAndGetsDefaultMemberRole(t *
 	repo := teams.NewRepository(pool)
 
 	creatorID := insertUser(t, pool, "invite-accept-creator@example.com")
-	tr, err := repo.CreateTeam(ctx, "Invite Accept Team", creatorID)
+	tr, err := repo.CreateTeam(ctx, "Invite Accept Team", creatorID, nil, nil, nil)
 	require.NoError(t, err)
 
 	inv, err := repo.CreateInvite(ctx, tr.Id.String(), 7*24*time.Hour)
@@ -496,7 +521,7 @@ func TestTeamRepository_AcceptInvite_AlreadyMember_IsIdempotentAndKeepsRoles(t *
 	repo := teams.NewRepository(pool)
 
 	creatorID := insertUser(t, pool, "invite-idempotent-creator@example.com")
-	tr, err := repo.CreateTeam(ctx, "Invite Idempotent Team", creatorID)
+	tr, err := repo.CreateTeam(ctx, "Invite Idempotent Team", creatorID, nil, nil, nil)
 	require.NoError(t, err)
 
 	inv, err := repo.CreateInvite(ctx, tr.Id.String(), 7*24*time.Hour)
@@ -528,7 +553,7 @@ func TestTeamRepository_AcceptInvite_ExpiredCode_ReturnsErrInviteNotFound(t *tes
 	repo := teams.NewRepository(pool)
 
 	creatorID := insertUser(t, pool, "invite-expired-creator@example.com")
-	tr, err := repo.CreateTeam(ctx, "Invite Expired Team", creatorID)
+	tr, err := repo.CreateTeam(ctx, "Invite Expired Team", creatorID, nil, nil, nil)
 	require.NoError(t, err)
 
 	inv, err := repo.CreateInvite(ctx, tr.Id.String(), 7*24*time.Hour)
@@ -565,7 +590,7 @@ func TestTeamRepository_UpdateTeam_ClearingReasonVisibilityRoles_DoesNotBlockOnA
 	ctx := context.Background()
 
 	creatorID := insertUser(t, pool, "clear-roles-creator@example.com")
-	tr, err := repo.CreateTeam(ctx, "Clear Roles Team", creatorID)
+	tr, err := repo.CreateTeam(ctx, "Clear Roles Team", creatorID, nil, nil, nil)
 	require.NoError(t, err)
 	teamID := tr.Id.String()
 

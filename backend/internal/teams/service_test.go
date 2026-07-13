@@ -69,7 +69,7 @@ func fakeOversizedPNGHeader(width, height uint32) []byte {
 type mockTeamRepo struct {
 	listTeamsForUser       func(ctx context.Context, userID string) ([]teams.TeamRow, error)
 	getTeam                func(ctx context.Context, teamID string) (*teams.TeamRow, error)
-	createTeam             func(ctx context.Context, name, creatorUserID string) (*teams.TeamRow, error)
+	createTeam             func(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*teams.TeamRow, error)
 	updateTeam             func(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error)
 	getMemberCount         func(ctx context.Context, teamID string) (int, error)
 	getMembership          func(ctx context.Context, teamID, userID string) (*teams.MembershipRow, error)
@@ -95,8 +95,8 @@ func (m *mockTeamRepo) GetTeam(ctx context.Context, teamID string) (*teams.TeamR
 	return m.getTeam(ctx, teamID)
 }
 
-func (m *mockTeamRepo) CreateTeam(ctx context.Context, name, creatorUserID string) (*teams.TeamRow, error) {
-	return m.createTeam(ctx, name, creatorUserID)
+func (m *mockTeamRepo) CreateTeam(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*teams.TeamRow, error) {
+	return m.createTeam(ctx, name, creatorUserID, icon, iconBg, iconFg)
 }
 
 func (m *mockTeamRepo) UpdateTeam(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error) {

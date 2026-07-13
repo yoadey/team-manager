@@ -147,7 +147,11 @@ func (r *Repository) GetTeam(ctx context.Context, teamID string) (*TeamRow, erro
 
 // CreateTeam inserts a new team, a membership for the creator, and two default roles
 // (Admin with all-write, Member with events/members/news/polls/settings read).
-func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string) (*TeamRow, error) {
+// icon/iconBg/iconFg are optional (nil leaves the column at its DB default,
+// NULL) -- UpdateTeam already lets a caller set these after the fact, but the
+// frontend's create-team form collects them upfront and expects CreateTeam
+// itself to persist what was submitted, not silently discard it.
+func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*TeamRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -159,13 +163,13 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 	// Insert team.
 	var tr TeamRow
 	err = tx.QueryRow(ctx, `
-		INSERT INTO teams (name)
-		VALUES ($1)
+		INSERT INTO teams (name, icon, icon_bg, icon_fg)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, name, short, icon, icon_bg, icon_fg,
 		          (photo_data IS NOT NULL AND length(photo_data) > 0),
 		          (logo_data IS NOT NULL AND length(logo_data) > 0),
 		          description, reason_visibility_role_ids, created_at
-	`, name).Scan(
+	`, name, icon, iconBg, iconFg).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
 		&tr.HasPhoto,
 		&tr.HasLogo,

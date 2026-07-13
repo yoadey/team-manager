@@ -29,7 +29,7 @@ import (
 
 type mockTeamService struct {
 	listForUser      func(ctx context.Context, userID string) ([]gen.TeamForUser, error)
-	createTeam       func(ctx context.Context, userID, name string) (*gen.TeamForUser, error)
+	createTeam       func(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error)
 	getTeam          func(ctx context.Context, teamID string) (*gen.Team, error)
 	updateTeam       func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
 	createInvite     func(ctx context.Context, teamID string) (*gen.Invite, error)
@@ -46,8 +46,8 @@ func (m *mockTeamService) ListForUser(ctx context.Context, userID string) ([]gen
 	return m.listForUser(ctx, userID)
 }
 
-func (m *mockTeamService) CreateTeam(ctx context.Context, userID, name string) (*gen.TeamForUser, error) {
-	return m.createTeam(ctx, userID, name)
+func (m *mockTeamService) CreateTeam(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error) {
+	return m.createTeam(ctx, userID, name, icon, iconBg, iconFg)
 }
 
 func (m *mockTeamService) GetTeam(ctx context.Context, teamID string) (*gen.Team, error) {
@@ -530,7 +530,7 @@ func TestTeamHandler_CreateTeam_EmitsAuditEvent(t *testing.T) {
 
 	teamID := uuid.New()
 	svc := &mockTeamService{
-		createTeam: func(_ context.Context, _, _ string) (*gen.TeamForUser, error) {
+		createTeam: func(_ context.Context, _, _ string, _, _, _ *string) (*gen.TeamForUser, error) {
 			return &gen.TeamForUser{Id: teamID, Name: "New Team"}, nil
 		},
 	}
@@ -555,7 +555,7 @@ func TestTeamHandler_CreateTeam_RejectsEmptyName_Returns400(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockTeamService{
-		createTeam: func(context.Context, string, string) (*gen.TeamForUser, error) {
+		createTeam: func(context.Context, string, string, *string, *string, *string) (*gen.TeamForUser, error) {
 			t.Fatal("service must not be called when validation fails")
 			return nil, nil
 		},
