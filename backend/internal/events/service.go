@@ -37,7 +37,7 @@ const maxRepeatWeeks = 104
 
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
-	ListEvents(ctx context.Context, teamID string, scope string, limit int, cur *ListCursor) ([]EventRow, error)
+	ListEvents(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *ListCursor) ([]EventRow, error)
 	GetEvent(ctx context.Context, eventID, teamID string) (*EventRow, error)
 	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
@@ -117,7 +117,7 @@ func (s *Service) validateNominatedRoles(ctx context.Context, teamID string, rol
 // ListEvents returns a keyset page of events (enriched with attendance summary
 // and the user's status) plus the cursor for the next page (nil on the last
 // page). cursor is the opaque token from a prior page ("" = first page).
-func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error) {
+func (s *Service) ListEvents(ctx context.Context, teamID, userID string, scope gen.ListEventsParamsScope, cursor string, limit int) ([]gen.TeamEvent, *string, error) {
 	var cur *ListCursor
 	var decoded ListCursor
 	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {

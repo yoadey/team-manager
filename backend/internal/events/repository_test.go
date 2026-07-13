@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/events"
+	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/testutil"
 )
 
@@ -67,17 +68,17 @@ func TestEventRepository_CreateAndListEvents(t *testing.T) {
 	assert.Equal(t, "Training B", e2.Title)
 
 	// List all.
-	all, err := repo.ListEvents(ctx, testTeamID, "all", 50, nil)
+	all, err := repo.ListEvents(ctx, testTeamID, gen.All, 50, nil)
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 
 	// List upcoming (both events are today or future).
-	upcoming, err := repo.ListEvents(ctx, testTeamID, "upcoming", 50, nil)
+	upcoming, err := repo.ListEvents(ctx, testTeamID, gen.Upcoming, 50, nil)
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, len(upcoming), 1)
 
 	// List past (no past events seeded).
-	past, err := repo.ListEvents(ctx, testTeamID, "past", 50, nil)
+	past, err := repo.ListEvents(ctx, testTeamID, gen.Past, 50, nil)
 	require.NoError(t, err)
 	assert.Len(t, past, 0)
 }
@@ -267,7 +268,7 @@ func TestEventRepository_UpdateEvent_Series_DoesNotCollapseDates(t *testing.T) {
 	assert.Equal(t, newTitle, updated.Title)
 	assert.Equal(t, newDate.Format("2006-01-02"), updated.Date.Format("2006-01-02"))
 
-	all, err := repo.ListEvents(ctx, teamID, "all", 50, nil)
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 3)
 
@@ -375,7 +376,7 @@ func TestEventRepository_UpdateEvent_Series_OnlyDateSet_DoesNotCorruptSQL(t *tes
 	assert.Equal(t, targetID, updated.Id, "the targeted event's own identity must be unchanged")
 	assert.Equal(t, originalTitle, updated.Title, "title must be untouched since it wasn't in the patch")
 
-	all, err := repo.ListEvents(ctx, teamID, "all", 50, nil)
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
 	require.NoError(t, err)
 	require.Len(t, all, 3, "no rows must be lost or merged")
 
@@ -427,7 +428,7 @@ func TestEventRepository_DeleteEvent_Series_RemovesAllOccurrences(t *testing.T) 
 	err = repo.DeleteEvent(ctx, eventRows[0].Id.String(), teamID, "series")
 	require.NoError(t, err)
 
-	all, err := repo.ListEvents(ctx, teamID, "all", 50, nil)
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, all, "all occurrences of the deleted series must be gone, not just detached")
 

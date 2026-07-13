@@ -20,7 +20,7 @@ import (
 
 // eventService is the interface the Handler relies on.
 type eventService interface {
-	ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error)
+	ListEvents(ctx context.Context, teamID, userID string, scope gen.ListEventsParamsScope, cursor string, limit int) ([]gen.TeamEvent, *string, error)
 	CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error)
 	GetEvent(ctx context.Context, teamID, userID, eventID string) (*gen.TeamEvent, error)
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
@@ -54,12 +54,12 @@ func (h *Handler) ListEvents(ctx context.Context, request gen.ListEventsRequestO
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 
-	scope := "upcoming"
+	scope := gen.Upcoming
 	if request.Params.Scope != nil {
 		if !request.Params.Scope.Valid() {
 			return nil, apierror.BadRequest("scope: not a valid value")
 		}
-		scope = string(*request.Params.Scope)
+		scope = *request.Params.Scope
 	}
 	limit := pagination.ParseLimit(request.Params.Limit)
 	cursor := ""

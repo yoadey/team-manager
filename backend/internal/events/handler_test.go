@@ -30,7 +30,7 @@ type mockEventService struct {
 	setNomination func(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error
 }
 
-func (m *mockEventService) ListEvents(context.Context, string, string, string, string, int) ([]gen.TeamEvent, *string, error) {
+func (m *mockEventService) ListEvents(context.Context, string, string, gen.ListEventsParamsScope, string, int) ([]gen.TeamEvent, *string, error) {
 	panic("not implemented")
 }
 

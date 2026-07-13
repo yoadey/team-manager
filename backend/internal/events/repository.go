@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/yoadey/team-manager/backend/internal/gen"
 )
 
 // pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
@@ -119,7 +121,18 @@ type ListCursor struct {
 
 // ListEvents returns up to limit events for a team filtered by scope, starting
 // after cur (nil = first page). Keyset pagination — no OFFSET.
-func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit int, cur *ListCursor) ([]EventRow, error) {
+//
+// scope is typed on gen.ListEventsParamsScope (not a plain string)
+// specifically so the repo-wide "exhaustive" linter (see .golangci.yml) can
+// enforce that every case here is revisited when the enum grows -- a plain
+// string switch is invisible to it (see notificationModule's identical
+// reasoning in internal/notifications/service.go). The handler already
+// rejects an unknown scope value via gen.ListEventsParamsScope.Valid()
+// before it ever reaches here, so gen.All's case body and the default case
+// are deliberately identical -- the default only guards against a future
+// caller bypassing that boundary check, not against a currently-reachable
+// input.
+func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *ListCursor) ([]EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	today := time.Now().UTC()
@@ -130,7 +143,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit
 	)
 
 	switch scope {
-	case "past":
+	case gen.Past:
 		args = []any{teamID, today, limit}
 		pred := ""
 		if cur != nil {
@@ -138,7 +151,7 @@ func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit
 			args = append(args, cur.Date, cur.ID)
 		}
 		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date < $2 %s ORDER BY date DESC, id DESC LIMIT $3`, selectEventFields, pred)
-	case "upcoming":
+	case gen.Upcoming:
 		args = []any{teamID, today, limit}
 		pred := ""
 		if cur != nil {
@@ -146,6 +159,14 @@ func (r *Repository) ListEvents(ctx context.Context, teamID, scope string, limit
 			args = append(args, cur.Date, cur.ID)
 		}
 		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 AND date >= $2 %s ORDER BY date ASC, id ASC LIMIT $3`, selectEventFields, pred)
+	case gen.All:
+		args = []any{teamID, limit}
+		pred := ""
+		if cur != nil {
+			pred = "AND (date, id) > ($3, $4)"
+			args = append(args, cur.Date, cur.ID)
+		}
+		q = fmt.Sprintf(`SELECT %s FROM events WHERE team_id = $1 %s ORDER BY date ASC, id ASC LIMIT $2`, selectEventFields, pred)
 	default:
 		args = []any{teamID, limit}
 		pred := ""
