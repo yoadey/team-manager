@@ -229,3 +229,25 @@ groups:
         annotations:
           summary: "Disk space below 10%"
           description: "Available disk space on {{ $labels.instance }} is {{ $value | humanizePercentage }}."
+
+      - alert: PodCrashLooping
+        # A pod that crashes and restarts but happens to pass its readiness
+        # probe again shortly after (e.g. a panic recovered by Kubernetes'
+        # restart rather than by Go's own recover(), or a slow-init pod
+        # repeatedly hitting the startupProbe's failure threshold) trips none
+        # of the other rules in this file -- HighErrorRate/HighLatencyP99
+        # only see traffic actually reaching a live pod, and BackendDown only
+        # fires if EVERY replica is down for a full minute simultaneously, not
+        # if one keeps crash-restarting while its siblings absorb traffic.
+        # kube_pod_container_status_restarts_total is a monotonic counter, so
+        # increase() over a window is the correct way to detect a burst
+        # rather than comparing the raw value (which would also fire for an
+        # old pod with a stale one-time restart from weeks ago).
+        expr: |
+          increase(kube_pod_container_status_restarts_total{container="team-manager"}[15m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend pod restarting repeatedly"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes."
