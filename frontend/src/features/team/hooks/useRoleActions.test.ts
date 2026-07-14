@@ -44,7 +44,12 @@ describe('useRoleActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let refreshRoles: ReturnType<typeof vi.fn>;
   let refreshTeams: ReturnType<typeof vi.fn>;
-  let api: { roles: { create: ReturnType<typeof vi.fn> }; members: { setRoles: ReturnType<typeof vi.fn> } };
+  let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
+  let api: {
+    roles: { create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
+    members: { setRoles: ReturnType<typeof vi.fn> };
+  };
   let stateRef: AppState;
 
   beforeEach(() => {
@@ -60,8 +65,14 @@ describe('useRoleActions', () => {
     toastMsg = vi.fn();
     refreshRoles = vi.fn().mockResolvedValue(undefined);
     refreshTeams = vi.fn().mockResolvedValue(undefined);
+    askConfirm = vi.fn((cfg) => cfg.onConfirm());
+    logout = vi.fn();
     api = {
-      roles: { create: vi.fn().mockResolvedValue({ id: 'r-new' }) },
+      roles: {
+        create: vi.fn().mockResolvedValue({ id: 'r-new' }),
+        update: vi.fn().mockResolvedValue({ id: 'r1' }),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
       members: { setRoles: vi.fn().mockResolvedValue(undefined) },
     };
   });
@@ -75,7 +86,9 @@ describe('useRoleActions', () => {
         activeTeam: () => makeActiveTeam(roleIds) as never,
         refreshRoles: refreshRoles as never,
         refreshTeams: refreshTeams as never,
+        askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }
@@ -88,18 +101,35 @@ describe('useRoleActions', () => {
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'roles' } });
   });
 
-  it('openCreateRole sets roleForm sheet with default permissions', () => {
+  it('openRoleForm with no argument sets roleForm sheet in create mode with default permissions', () => {
     const { result } = renderActions();
     act(() => {
-      result.current.openCreateRole();
+      result.current.openRoleForm();
     });
     expect(setState).toHaveBeenCalled();
     const patch = stateRef;
     expect(patch.sheet?.type).toBe('roleForm');
+    expect(patch.sheet?.mode).toBe('create');
     expect(patch.form).toMatchObject({
       name: '',
       perms: expect.objectContaining({ events: 'read', finances: 'none' }),
     });
+  });
+
+  it('openRoleForm with a role pre-fills the form in edit mode', () => {
+    const { result } = renderActions();
+    const role = {
+      id: 'r1',
+      name: 'Trainer',
+      permissions: { events: 'write', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+    };
+    act(() => {
+      result.current.openRoleForm(role as never);
+    });
+    const patch = stateRef;
+    expect(patch.sheet?.type).toBe('roleForm');
+    expect(patch.sheet?.mode).toBe('edit');
+    expect(patch.form).toMatchObject({ id: 'r1', name: 'Trainer', perms: role.permissions });
   });
 
   it('setRolePerm updates permission for a module', () => {
@@ -117,7 +147,7 @@ describe('useRoleActions', () => {
     await act(async () => {
       await result.current.saveRole();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.', undefined, 'error');
     expect(api.roles.create).not.toHaveBeenCalled();
   });
 
@@ -129,6 +159,93 @@ describe('useRoleActions', () => {
     });
     expect(api.roles.create).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Trainer' }));
     expect(toastMsg).toHaveBeenCalledWith('Rolle angelegt');
+  });
+
+  it('saveRole updates an existing role (form has id) instead of creating', async () => {
+    stateRef = makeState({ form: { id: 'r1', name: 'Renamed', perms: { events: 'write', finances: 'none' } } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveRole();
+    });
+    expect(api.roles.update).toHaveBeenCalledWith(
+      'r1',
+      expect.objectContaining({ name: 'Renamed' }),
+      'team1',
+    );
+    expect(api.roles.create).not.toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalledWith('Rolle aktualisiert');
+  });
+
+  it('saveRole shows toast when name is whitespace-only, without calling the API', async () => {
+    stateRef = makeState({ form: { name: '   ' } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveRole();
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.', undefined, 'error');
+    expect(api.roles.create).not.toHaveBeenCalled();
+  });
+
+  it('saveRole trims leading/trailing whitespace from the name before saving', async () => {
+    stateRef = makeState({ form: { name: '  Trainer  ', perms: { events: 'write', finances: 'none' } } });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveRole();
+    });
+    expect(api.roles.create).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Trainer' }));
+  });
+
+  // Regression: saveRole used to navigate to the roles sheet unconditionally
+  // (once the team still matched), so a slow save could clobber whatever
+  // DIFFERENT sheet the user had since opened while it was in flight.
+  it('saveRole does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveUpdate!: (v: { id: string }) => void;
+    api.roles.update = vi.fn(() => new Promise((resolve) => (resolveUpdate = resolve)));
+    stateRef = makeState({
+      form: { id: 'r1', name: 'Renamed', perms: { events: 'write', finances: 'none' } },
+      sheet: { type: 'roleForm', mode: 'edit' } as never,
+    });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveRole();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveUpdate({ id: 'r1' });
+      await savePromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+  });
+
+  it('removeRole asks for confirmation, then removes the role and shows toast', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      result.current.removeRole('r1');
+      await Promise.resolve();
+    });
+    expect(askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ danger: true, onConfirm: expect.any(Function) }),
+    );
+    expect(api.roles.remove).toHaveBeenCalledWith('r1', 'team1');
+    expect(refreshRoles).toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalledWith('Rolle gelöscht');
+  });
+
+  it('removeRole reports an error without removing on API failure', async () => {
+    api.roles.remove.mockRejectedValueOnce(new Error('boom'));
+    const { result } = renderActions();
+    await act(async () => {
+      result.current.removeRole('r1');
+      await Promise.resolve();
+    });
+    expect(toastMsg).toHaveBeenCalled();
+    expect(refreshRoles).not.toHaveBeenCalled();
   });
 
   it('toggleMyRole adds role and shows toast', async () => {
@@ -153,7 +270,52 @@ describe('useRoleActions', () => {
     await act(async () => {
       await result.current.toggleMyRole('r1');
     });
-    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.');
+    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.', undefined, 'error');
     expect(api.members.setRoles).not.toHaveBeenCalled();
+  });
+
+  // Regression test: toggleMyRole used to compute `next` from whatever
+  // `activeTeam().myRoles` looked like at click time. Two rapid toggles
+  // (different roles) both read the same pre-toggle snapshot before either
+  // request's refreshTeams() had a chance to update it, so the second PUT
+  // silently overwrote the first's change instead of building on it --
+  // toggling r2 then r3 could end up saving ['r1','r3'], losing r2 entirely.
+  // toggleMyRole must serialize so each toggle reads the roles the previous
+  // one actually left behind.
+  it('serializes rapid toggles so the second reads the roles the first left behind', async () => {
+    let currentRoleIds = ['r1'];
+    const activeTeam = () => makeActiveTeam(currentRoleIds);
+    api.members.setRoles.mockImplementation(async (_ms: string, roleIds: string[]) => {
+      // A real network round-trip always crosses at least one microtask
+      // boundary before the caller's continuation (and refreshTeams' effect
+      // on activeTeam()) is observable -- await one explicitly so a second,
+      // synchronously-fired toggle's read of activeTeam() genuinely races
+      // against this one instead of always seeing an already-applied result.
+      await Promise.resolve();
+      currentRoleIds = roleIds; // simulate refreshTeams() picking up the server's new state
+    });
+
+    const { result } = renderHook(() =>
+      useRoleActions({
+        api: api as never,
+        S: () => stateRef,
+        setState: setState as never,
+        activeTeam: activeTeam as never,
+        refreshRoles: refreshRoles as never,
+        refreshTeams: refreshTeams as never,
+        askConfirm: askConfirm as never,
+        toastMsg: toastMsg as never,
+        logout: logout as never,
+      }),
+    );
+
+    await act(async () => {
+      const p1 = result.current.toggleMyRole('r2');
+      const p2 = result.current.toggleMyRole('r3');
+      await Promise.all([p1, p2]);
+    });
+
+    expect(api.members.setRoles).toHaveBeenNthCalledWith(1, 'ms1', ['r1', 'r2'], 'team1');
+    expect(api.members.setRoles).toHaveBeenNthCalledWith(2, 'ms1', ['r1', 'r2', 'r3'], 'team1');
   });
 });

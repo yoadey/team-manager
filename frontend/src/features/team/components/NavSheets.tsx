@@ -3,12 +3,14 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
 import type { Route } from '@/context/AppContext';
+import { ROUTE_MODULE } from '@/context/urlState';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, Av, SectionTitle } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
 import { t, type Locale } from '@/i18n';
 import { useLocale } from '@/i18n/LocaleProvider';
 import { captureException } from '@/monitoring';
+import { reportActionError, AuthError } from '@/utils/errors';
 
 /** Each language is shown in its own name (endonym), independent of UI locale. */
 const LANGUAGE_LABELS: Record<Locale, string> = { de: 'Deutsch', en: 'English' };
@@ -74,7 +76,9 @@ export function TeamsSheet({ app }: SheetProps) {
                 {tm.name}
               </Box>
               <Box component="span" sx={{ display: 'block', fontSize: '12px', color: NEUTRAL.secondary }}>
-                {tm.myRoles.map((r) => r.name).join(', ') + ' · ' + t('team.membersCount', { n: tm.memberCount })}
+                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount, count: tm.memberCount })]
+                  .filter(Boolean)
+                  .join(' · ')}
               </Box>
             </Box>
             {active ? <Sym name="check_circle" size={24} color={tk.primary} /> : null}
@@ -116,9 +120,11 @@ export function ProfileSheet({ app }: SheetProps) {
   const roles = S.roles;
   const myIds = app.myRoles().map((r) => r.id);
   // Self-assigning a role is the same privileged operation as assigning it to
-  // another member (MemberSheets gates that behind members:write) — without
-  // this check, any member could grant themselves an admin role here.
-  const canEditMyRoles = app.can('members', 'write');
+  // another member (MemberSheets gates that the same way) — the backend
+  // requires settings:write for any members/{id}/roles mutation (assigning a
+  // role can hand out settings:write itself), so members:write alone must
+  // not be enough to self-grant admin access here either.
+  const canEditMyRoles = app.can('settings', 'write');
 
   // Account erasure (GDPR Art. 17): a destructive, irreversible action gated by
   // retyping the account email — no password, since accounts may be OIDC-only.
@@ -136,6 +142,7 @@ export function ProfileSheet({ app }: SheetProps) {
           <Box
             component="label"
             key="up"
+            aria-label={t('team.changeProfilePhoto')}
             sx={{
               position: 'absolute',
               right: '-4px',
@@ -184,6 +191,9 @@ export function ProfileSheet({ app }: SheetProps) {
             return (
               <ButtonBase
                 key={r.id}
+                role="checkbox"
+                aria-checked={sel}
+                aria-label={r.name}
                 disabled={!canEditMyRoles}
                 onClick={canEditMyRoles ? () => app.toggleMyRole(r.id) : undefined}
                 sx={{
@@ -247,6 +257,7 @@ export function ProfileSheet({ app }: SheetProps) {
               <ButtonBase
                 key={scheme}
                 onClick={() => app.setColorScheme(scheme)}
+                aria-pressed={active}
                 sx={{
                   flex: 1,
                   display: 'flex',
@@ -334,8 +345,7 @@ export function ProfileSheet({ app }: SheetProps) {
             try {
               await app.exportMyData();
             } catch (err) {
-              captureException(err);
-              app.toastMsg(t('team.exportDataError'));
+              reportActionError({ setState: app.setState, toastMsg: app.toastMsg, onAuthError: app.logout }, err, 'team.exportDataError');
             }
           }}
           sx={{
@@ -444,8 +454,12 @@ export function ProfileSheet({ app }: SheetProps) {
                     await app.deleteAccount(confirmEmail.trim());
                     // On success the app resets to the login screen and this sheet unmounts.
                   } catch (err) {
-                    captureException(err);
-                    setDeleteErr(true);
+                    if (err instanceof AuthError) {
+                      reportActionError({ setState: app.setState, toastMsg: app.toastMsg, onAuthError: app.logout }, err);
+                    } else {
+                      captureException(err);
+                      setDeleteErr(true);
+                    }
                     setDeleting(false);
                   }
                 }}
@@ -477,12 +491,22 @@ export function ProfileSheet({ app }: SheetProps) {
 }
 
 export function MoreSheet({ app }: SheetProps) {
+  // Derived from the shared ROUTE_MODULE map (same one RouteScreen's content
+  // gate and AppShell's rail/bottom nav use) so a restricted role can't reach
+  // a route from here that it can't actually see -- previously only
+  // 'finances' checked app.can(), so a role with e.g. news:none still saw and
+  // could tap a "News" entry that bounced it straight back to Home with a
+  // spurious forbidden toast.
+  const canSee = (route: Route) => {
+    const module = ROUTE_MODULE[route];
+    return !module || app.can(module, 'read');
+  };
   const items: Array<[Route, string, string, boolean]> = [
-    ['finances', t('nav.finances'), 'payments', app.can('finances', 'read')],
-    ['stats', t('nav.stats'), 'insights', true],
-    ['news', t('nav.news'), 'campaign', true],
-    ['polls', t('nav.polls'), 'how_to_vote', true],
-    ['team', t('nav.team'), 'shield', true],
+    ['finances', t('nav.finances'), 'payments', canSee('finances')],
+    ['stats', t('nav.stats'), 'insights', canSee('stats')],
+    ['news', t('nav.news'), 'campaign', canSee('news')],
+    ['polls', t('nav.polls'), 'how_to_vote', canSee('polls')],
+    ['team', t('nav.team'), 'shield', canSee('team')],
   ];
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>

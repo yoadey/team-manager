@@ -33,19 +33,35 @@ var (
 
 // Metrics returns middleware that records Prometheus metrics for each request:
 // request count (by method, path, status), latency histogram, and in-flight gauge.
+//
+// Recording happens in a defer (rather than immediately after next.ServeHTTP
+// returns) so a panicking handler still decrements the in-flight gauge and
+// records a request/duration sample — Recoverer wraps this middleware, so
+// without the defer a panic would unwind straight past the bookkeeping below,
+// permanently leaking the in-flight gauge and undercounting error rates. The
+// panic is re-raised afterward so Recoverer still handles the response and
+// logging as before.
 func Metrics(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rw := newResponseWriter(w)
 		httpRequestsInFlight.Inc()
 		start := time.Now()
 
-		next.ServeHTTP(rw, r)
+		defer func() {
+			httpRequestsInFlight.Dec()
+			status := rw.status
+			rec := recover()
+			if rec != nil {
+				status = http.StatusInternalServerError
+			}
+			httpRequestsTotal.WithLabelValues(r.Method, routeLabel(r), strconv.Itoa(status)).Inc()
+			httpRequestDuration.WithLabelValues(r.Method, routeLabel(r)).Observe(time.Since(start).Seconds())
+			if rec != nil {
+				panic(rec)
+			}
+		}()
 
-		httpRequestsInFlight.Dec()
-		duration := time.Since(start).Seconds()
-		status := strconv.Itoa(rw.status)
-		httpRequestsTotal.WithLabelValues(r.Method, routeLabel(r), status).Inc()
-		httpRequestDuration.WithLabelValues(r.Method, routeLabel(r)).Observe(duration)
+		next.ServeHTTP(rw, r)
 	})
 }
 

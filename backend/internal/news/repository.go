@@ -23,14 +23,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 const selectNewsFields = `
 	n.id, n.team_id, n.author_id, n.title, n.body, n.pinned, n.created_at,
 	u.name AS author_name, u.avatar_color AS author_color,
-	COALESCE(u.photo_data, ''::bytea) AS photo_data
+	(u.photo_data IS NOT NULL) AS has_photo
 `
 
 func scanNews(row interface{ Scan(dest ...any) error }) (*NewsRow, error) {
 	nr := &NewsRow{}
 	err := row.Scan(
 		&nr.Id, &nr.TeamId, &nr.AuthorId, &nr.Title, &nr.Body, &nr.Pinned, &nr.CreatedAt,
-		&nr.AuthorName, &nr.AuthorColor, &nr.PhotoData,
+		&nr.AuthorName, &nr.AuthorColor, &nr.HasPhoto,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
@@ -84,7 +84,30 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int
 	return result, rows.Err()
 }
 
+// CountByTeam returns the number of news items the team has, used to enforce
+// maxNewsPerTeam before an insert.
+func (r *Repository) CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM news WHERE team_id = $1`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("news.Repository.CountByTeam: %w", err)
+	}
+	return count, nil
+}
+
 // Create inserts a new news item and returns the enriched row.
+//
+// Known, accepted tradeoff: if the INSERT commits but the findByID reload
+// right after it fails (a transient DB/network blip -- there's no
+// concurrent-delete race to guard against here, unlike the finances package's
+// otherwise-similar reload-after-write pattern), that error surfaces as a
+// generic 500 even though the news item now exists. A client that retries
+// after seeing that 500 will create a duplicate -- there's no idempotency
+// key or client-supplied ID to detect it. Left unfixed since the failure
+// window (a second query on the same pool right after a successful insert)
+// is narrow and this hasn't been a real deployment issue.
 func (r *Repository) Create(ctx context.Context, teamID, authorID uuid.UUID, title, body string, pinned bool) (*NewsRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -134,21 +157,6 @@ func (r *Repository) Delete(ctx context.Context, id, teamID uuid.UUID) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return pgx.ErrNoRows
-	}
-	return nil
-}
-
-// InsertNotification creates a notification for the news item creation.
-func (r *Repository) InsertNotification(ctx context.Context, teamID, actorID uuid.UUID, title string) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	_, err := r.pool.Exec(
-		ctx,
-		`INSERT INTO notifications (team_id, type, actor_id, status, title) VALUES ($1, 'news', $2, 'info', $3)`,
-		teamID, actorID, title,
-	)
-	if err != nil {
-		return fmt.Errorf("news.Repository.InsertNotification: %w", err)
 	}
 	return nil
 }

@@ -7,46 +7,45 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/members"
+	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // ─── mock service ─────────────────────────────────────────────────────────────
 
 type mockMemberService struct {
 	listMembers  func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
-	addMember    func(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error)
-	updateMember func(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*gen.Member, error)
-	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error)
-	removeMember func(ctx context.Context, membershipID, teamID string) error
+	updateMember func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
+	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
+	removeMember func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
 	return m.listMembers(ctx, teamID, limit, cursor)
 }
 
-func (m *mockMemberService) AddMember(ctx context.Context, teamID string, params members.AddMemberParams) (*gen.Member, error) {
-	return m.addMember(ctx, teamID, params)
+func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error) {
+	return m.updateMember(ctx, membershipID, teamID, callerUserID, patch)
 }
 
-func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID string, patch members.MemberPatch) (*gen.Member, error) {
-	return m.updateMember(ctx, membershipID, teamID, patch)
+func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error) {
+	return m.setRoles(ctx, membershipID, teamID, roleIDs, callerUserID)
 }
 
-func (m *mockMemberService) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error) {
-	return m.setRoles(ctx, membershipID, teamID, roleIDs)
-}
-
-func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID, teamID string) error {
-	return m.removeMember(ctx, membershipID, teamID)
+func (m *mockMemberService) RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error {
+	return m.removeMember(ctx, membershipID, teamID, callerUserID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -72,32 +71,304 @@ func fixedGenMember() gen.Member {
 
 // ─── tests ───────────────────────────────────────────────────────────────────
 
-func TestMemberHandler_AddMember_EmitsAuditEvent(t *testing.T) {
+func TestMemberHandler_UpdateMember_PhoneTooLong_Returns400(t *testing.T) {
 	t.Parallel()
 
-	teamID := uuid.New()
-	member := fixedGenMember()
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	longPhone := strings.Repeat("1", 33)
+	body := &gen.UpdateMemberJSONRequestBody{Phone: &longPhone}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_UpdateMember_AddressTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	longAddress := strings.Repeat("a", 501)
+	body := &gen.UpdateMemberJSONRequestBody{Address: &longAddress}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+func TestMemberHandler_UpdateMember_GroupTooLong_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	longGroup := strings.Repeat("g", 101)
+	body := &gen.UpdateMemberJSONRequestBody{Group: &longGroup}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+}
+
+// Regression test: unlike every other free-text/date field, birthday had no
+// server-side range validation at all -- a members:write holder could set an
+// arbitrary, nonsensical date (in the future, or centuries in the past) with
+// no rejection.
+func TestMemberHandler_UpdateMember_BirthdayOutOfRange_Returns400(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+
+	future := openapi_types.Date{Time: time.Now().AddDate(0, 0, 1)}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.UpdateMemberJSONRequestBody{Birthday: &future},
+	})
+	require.Error(t, err, "future birthday must be rejected")
+
+	tooOld := openapi_types.Date{Time: time.Date(1899, 12, 31, 0, 0, 0, 0, time.UTC)}
+	_, err = h.UpdateMember(ctx, gen.UpdateMemberRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+		Body: &gen.UpdateMemberJSONRequestBody{Birthday: &tooOld},
+	})
+	require.Error(t, err, "birthday before 1900 must be rejected")
+}
+
+// Regression test: unlike a plain wrapped error, UpdateMember's users.email
+// UNIQUE violation used to have no special handling at all, so changing a
+// member's email to one already used by a different account surfaced as a
+// raw wrapped error -> generic 500, instead of a clean, mapped error.
+//
+// The mapped response deliberately reuses validate.Email's exact
+// status/message rather than a distinct 409 with revealing text: users.email
+// is a global (not per-team) UNIQUE constraint, and members:write on ANY
+// team is trivially obtainable (create one), so a distinguishable response
+// here would let a caller probe whether an arbitrary, unrelated email
+// address belongs to a registered account anywhere on the platform. Making
+// a well-formed-but-taken address respond identically to a malformed one
+// closes that oracle.
+func TestMemberHandler_UpdateMember_EmailTaken_MapsToGenericInvalidEmailResponse(t *testing.T) {
+	t.Parallel()
+
 	svc := &mockMemberService{
-		addMember: func(_ context.Context, _ string, _ members.AddMemberParams) (*gen.Member, error) {
-			return &member, nil
+		updateMember: func(context.Context, string, string, string, members.MemberPatch) (*gen.Member, error) {
+			return nil, members.ErrEmailTaken
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	email := openapi_types.Email("taken@example.com")
+	body := &gen.UpdateMemberJSONRequestBody{Email: &email}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T (%v) — must not fall through to the generic 500", err, err)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	assert.Equal(t, validate.ErrEmailInvalid.Error(), apiErr.Detail,
+		"must be byte-for-byte identical to a malformed-email response, not a distinguishable 'taken' message")
+}
+
+// Regression test: the handler used to pass the caller-supplied email
+// through verbatim, so Bob@Example.com and bob@example.com collided on
+// every real mail provider but not on users.email's case-sensitive UNIQUE
+// constraint -- ErrEmailTaken would never fire for a case-variant, letting
+// the app end up with two accounts for what is really one address.
+// Normalizing to lowercase here (matching auth.Repository.FindUserByEmail's
+// matching normalization on the login lookup side) closes that gap.
+func TestMemberHandler_UpdateMember_NormalizesEmailToLowercase(t *testing.T) {
+	t.Parallel()
+
+	var capturedPatch members.MemberPatch
+	svc := &mockMemberService{
+		updateMember: func(_ context.Context, _, _, _ string, patch members.MemberPatch) (*gen.Member, error) {
+			capturedPatch = patch
+			return &gen.Member{}, nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	email := openapi_types.Email("Bob@Example.COM")
+	body := &gen.UpdateMemberJSONRequestBody{Email: &email}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.NoError(t, err)
+	require.NotNil(t, capturedPatch.Email)
+	assert.Equal(t, "bob@example.com", *capturedPatch.Email)
+}
+
+func TestMemberHandler_UpdateMember_CannotChangeOthersEmail_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		updateMember: func(context.Context, string, string, string, members.MemberPatch) (*gen.Member, error) {
+			return nil, members.ErrCannotChangeOthersEmail
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Roster Manager", Email: "rm@x.c"})
+	email := openapi_types.Email("new@example.com")
+	body := &gen.UpdateMemberJSONRequestBody{Email: &email}
+	_, err := h.UpdateMember(ctx, gen.UpdateMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok, "expected *apierror.APIError, got %T", err)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+}
+
+func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_Returns409(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		setRoles: func(context.Context, string, string, []string, string) (*gen.Member, error) {
+			return nil, members.ErrLastSettingsAdmin
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	body := &gen.SetMemberRolesJSONRequestBody{RoleIds: []uuid.UUID{}}
+	_, err := h.SetMemberRoles(ctx, gen.SetMemberRolesRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(), Body: body,
+	})
+	require.Error(t, err)
+}
+
+func TestMemberHandler_RemoveMember_LastSettingsAdmin_Returns409(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		removeMember: func(context.Context, string, string, string) error {
+			return members.ErrLastSettingsAdmin
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	_, err := h.RemoveMember(ctx, gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
+	require.Error(t, err)
+}
+
+// Regression test: a rejected attempt to strip roles from or remove the last
+// settings-admin -- a security-relevant rejected privilege change -- used to
+// leave no audit trail at all, unlike every successful role/member change.
+func TestMemberHandler_SetMemberRoles_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		setRoles: func(context.Context, string, string, []string, string) (*gen.Member, error) {
+			return nil, members.ErrLastSettingsAdmin
 		},
 	}
 	var buf bytes.Buffer
 	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
 
-	actorID := uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: actorID, Name: "Admin", Email: "a@x.c"})
-	body := &gen.AddMemberJSONRequestBody{Name: "Bob", Email: "bob@example.com"}
-	_, err := h.AddMember(ctx, gen.AddMemberRequestObject{TeamId: teamID, Body: body})
-	require.NoError(t, err)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	body := &gen.SetMemberRolesJSONRequestBody{RoleIds: []uuid.UUID{}}
+	_, err := h.SetMemberRoles(ctx, gen.SetMemberRolesRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(), Body: body,
+	})
+	require.Error(t, err)
 
 	var rec map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
 	assert.Equal(t, true, rec["audit"])
-	assert.Equal(t, "member.add", rec["event"])
-	assert.Equal(t, actorID.String(), rec["actor"])
-	assert.Equal(t, teamID.String(), rec["teamId"])
-	assert.Equal(t, member.MembershipId.String(), rec["membershipId"])
+	assert.Equal(t, "member.roles_change", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "last_settings_admin", rec["reason"])
+}
+
+func TestMemberHandler_RemoveMember_LastSettingsAdmin_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		removeMember: func(context.Context, string, string, string) error {
+			return members.ErrLastSettingsAdmin
+		},
+	}
+	var buf bytes.Buffer
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	_, err := h.RemoveMember(ctx, gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
+	require.Error(t, err)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "member.remove", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "last_settings_admin", rec["reason"])
+}
+
+// Regression test: DELETE .../members/{id} used to be gated only on
+// members:write, with no ceiling check analogous to SetRoles'
+// enforceNoPermissionEscalation -- a members:write-only "roster manager"
+// could forcibly remove a settings:write admin's membership outright (as
+// long as another admin remained, so ErrLastSettingsAdmin never triggered),
+// a strictly more severe action than the role-assignment/email-change
+// escalations already blocked elsewhere. The service now returns
+// ErrCannotRemoveSettingsAdmin, mapped to a 403 with an audit-failure
+// record.
+func TestMemberHandler_RemoveMember_CannotRemoveSettingsAdmin_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		removeMember: func(context.Context, string, string, string) error {
+			return members.ErrCannotRemoveSettingsAdmin
+		},
+	}
+	var buf bytes.Buffer
+	h := members.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Roster Manager", Email: "r@x.c"})
+	_, err := h.RemoveMember(ctx, gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusForbidden, apiErr.Status)
+
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "member.remove", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "cannot_remove_settings_admin", rec["reason"])
+}
+
+func TestMemberHandler_RemoveMember_RequiresAuthentication(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockMemberService{
+		removeMember: func(context.Context, string, string, string) error {
+			t.Fatal("service must not be called when unauthenticated")
+			return nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	_, err := h.RemoveMember(context.Background(), gen.RemoveMemberRequestObject{TeamId: uuid.New(), MembershipId: uuid.New()})
+	require.Error(t, err)
+	apiErr, ok := err.(*apierror.APIError)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusUnauthorized, apiErr.Status)
+}
+
+func TestMemberHandler_SetMemberRoles_TooManyRoleIds_Returns400(t *testing.T) {
+	t.Parallel()
+
+	roleIDs := make([]uuid.UUID, 201)
+	for i := range roleIDs {
+		roleIDs[i] = uuid.New()
+	}
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	ctx := auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Admin", Email: "a@x.c"})
+	body := &gen.SetMemberRolesJSONRequestBody{RoleIds: roleIDs}
+	_, err := h.SetMemberRoles(ctx, gen.SetMemberRolesRequestObject{TeamId: uuid.New(), MembershipId: uuid.New(), Body: body})
+
+	require.Error(t, err)
 }
 
 func TestMemberHandler_ListMembers(t *testing.T) {

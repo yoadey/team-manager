@@ -16,6 +16,7 @@ type statsRepo interface {
 	MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]MemberStatRow, error)
 	EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error)
 	SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*MemberStatRow, error)
+	WithReadTx(ctx context.Context, fn func(OverviewReader) error) error
 }
 
 // Service implements stats business logic.
@@ -28,32 +29,63 @@ func NewService(repo statsRepo) *Service {
 	return &Service{repo: repo}
 }
 
-// defaultDateRange returns from = 90 days ago, to = today if not specified.
+// maxStatsRangeDays caps how far apart from/to may be. Generous for any
+// club's history view, while preventing a caller-supplied range (e.g.
+// from=0001-01-01) from forcing a full-table aggregation across every event
+// and attendance row the team has ever had, unlike GetMemberStats which
+// always uses the fixed 3-month default (its request has no from/to params
+// at all, so this function's from==nil, to==nil branch is its only path).
+const maxStatsRangeDays = 730
+
+// defaultDateRange returns from = 3 months ago, to = today if not specified,
+// clamping the effective range to at most maxStatsRangeDays wide.
 func defaultDateRange(from, to *openapi_types.Date) (fromStr, toStr string) {
 	now := time.Now()
-	toStr = now.Format("2006-01-02")
-	fromStr = now.AddDate(0, -3, 0).Format("2006-01-02")
-	if from != nil {
-		fromStr = from.Format("2006-01-02")
-	}
+	toTime := now
 	if to != nil {
-		toStr = to.Format("2006-01-02")
+		toTime = to.Time
 	}
-	return fromStr, toStr
+	fromTime := toTime.AddDate(0, -3, 0)
+	if from != nil {
+		fromTime = from.Time
+	}
+	if fromTime.After(toTime) {
+		fromTime = toTime
+	}
+	if toTime.Sub(fromTime) > maxStatsRangeDays*24*time.Hour {
+		fromTime = toTime.AddDate(0, 0, -maxStatsRangeDays)
+	}
+	return fromTime.Format("2006-01-02"), toTime.Format("2006-01-02")
 }
 
 // GetOverview builds the full StatsOverview for the given team and date range.
 func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error) {
 	fromStr, toStr := defaultDateRange(from, to)
 
-	members, err := s.repo.MemberStats(ctx, teamID, fromStr, toStr)
+	var (
+		members []MemberStatRow
+		events  []EventStatRow
+	)
+	// Run both reads inside one read-only transaction so Members[].Quote/Avg
+	// (from MemberStats) and Events/PastCount (from EventStats) reflect the
+	// same underlying event/attendance snapshot, instead of possibly
+	// drifting if an event is created/cancelled or attendance is recorded
+	// between the two queries -- mirrors finances.GetOverview's identical
+	// WithReadTx guard.
+	err := s.repo.WithReadTx(ctx, func(repo OverviewReader) error {
+		var err error
+		members, err = repo.MemberStats(ctx, teamID, fromStr, toStr)
+		if err != nil {
+			return fmt.Errorf("members: %w", err)
+		}
+		events, err = repo.EventStats(ctx, teamID, fromStr, toStr)
+		if err != nil {
+			return fmt.Errorf("events: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("stats.Service.GetOverview members: %w", err)
-	}
-
-	events, err := s.repo.EventStats(ctx, teamID, fromStr, toStr)
-	if err != nil {
-		return nil, fmt.Errorf("stats.Service.GetOverview events: %w", err)
+		return nil, fmt.Errorf("stats.Service.GetOverview: %w", err)
 	}
 
 	genMembers := make([]gen.MemberStat, 0, len(members))
@@ -84,6 +116,7 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *o
 		genEvents = append(genEvents, gen.EventStat{
 			Id:        e.EventID,
 			Title:     e.Title,
+			Type:      gen.EventType(e.Type),
 			Date:      parseDateOrZero(e.Date),
 			Yes:       e.Yes,
 			Nominated: e.Counted,

@@ -18,7 +18,7 @@ type AbsenceRow struct {
 	// Joined from users
 	MemberName        *string
 	MemberAvatarColor *string
-	PhotoData         []byte
+	HasPhoto          bool
 	// Joined from roles (primary role)
 	RoleName  *string
 	RoleColor *string

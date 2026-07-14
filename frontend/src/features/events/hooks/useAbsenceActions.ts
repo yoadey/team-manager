@@ -5,6 +5,7 @@ import type { AbsenceFormValues } from '../types';
 import { validateDateRange } from '@/utils/validation';
 import { todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
+import { clearBusyIfOwned } from '@/utils/forms';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -22,7 +23,8 @@ type AbsenceDeps = {
     danger?: boolean;
     onConfirm: () => void | Promise<void>;
   }) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
+  logout: () => void;
 };
 
 export function useAbsenceActions({
@@ -33,12 +35,13 @@ export function useAbsenceActions({
   loadAbsences,
   askConfirm,
   toastMsg,
+  logout,
 }: AbsenceDeps) {
   const openAbsenceForm = useCallback(
     (absence?: { id: string; from: string; to: string; reason: string } | null) => {
       const f: AbsenceFormValues = absence
         ? { id: absence.id, from: absence.from, to: absence.to, reason: absence.reason }
-        : { from: todayStr(), to: todayStr(), reason: 'Urlaub' };
+        : { from: todayStr(), to: todayStr(), reason: '' };
       setState({ sheet: { type: 'absenceForm', mode: absence ? 'edit' : 'create' }, form: f });
     },
     [setState],
@@ -48,23 +51,35 @@ export function useAbsenceActions({
     const f = S().form as AbsenceFormValues;
     const range = validateDateRange(f.from, f.to);
     if (!range.ok) {
-      toastMsg(range.message!);
+      toastMsg(range.message!, undefined, 'error');
       return;
     }
     const mode = S().sheet!.mode;
+    const sh = S().sheet;
     setState({ busy: 'save' });
     try {
       const teamId = S().activeTeamId!;
       if (mode === 'edit')
         await api.absences.update(f.id!, { from: range.value!.from, to: range.value!.to, reason: f.reason }, teamId);
-      else await api.absences.create({ teamId, from: range.value!.from, to: range.value!.to, reason: f.reason });
+      else
+        await api.absences.create({
+          teamId,
+          userId: S().user!.id,
+          from: range.value!.from,
+          to: range.value!.to,
+          reason: f.reason,
+        });
       await Promise.all([refreshEvents(), loadAbsences()]);
-      setState({ busy: null, sheet: null });
+      clearBusyIfOwned(S, setState, 'save');
+      // Don't close a sheet the user has since opened for a different team
+      // after switching away mid-request, or one they've since opened while
+      // this save was in flight.
+      if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
-  }, [api, S, setState, refreshEvents, loadAbsences, toastMsg]);
+  }, [api, S, setState, refreshEvents, loadAbsences, toastMsg, logout]);
 
   const removeAbsence = useCallback(
     (id: string) => {
@@ -79,12 +94,12 @@ export function useAbsenceActions({
             await Promise.all([refreshEvents(), loadAbsences()]);
             toastMsg(t('events.toastAbsenceDeleted'));
           } catch (err) {
-            reportActionError({ setState, toastMsg }, err, 'error.delete');
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
       });
     },
-    [api, S, askConfirm, refreshEvents, loadAbsences, setState, toastMsg],
+    [api, S, askConfirm, refreshEvents, loadAbsences, setState, toastMsg, logout],
   );
 
   return { openAbsenceForm, saveAbsence, removeAbsence };

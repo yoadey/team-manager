@@ -72,7 +72,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Field label={t('news.fieldTitle')} required error={!!errs.title} errorText={errs.title}>
-        <TextInput name="title" placeholder={t('news.fieldTitlePlaceholder')} onBlur={validateTitle} maxLength={120} />
+        <TextInput name="title" placeholder={t('news.fieldTitlePlaceholder')} onBlur={validateTitle} maxLength={255} />
       </Field>
       <Field label={t('news.fieldBody')} required error={!!errs.body} errorText={errs.body}>
         <TextArea
@@ -80,7 +80,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
           placeholder={t('news.fieldBodyPlaceholder')}
           minHeight={120}
           onBlur={validateBody}
-          maxLength={5000}
+          maxLength={10000}
         />
       </Field>
       {pin}

@@ -146,6 +146,15 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	toggled, err := repo.ToggleAssignmentPaid(ctx, assign.ID, teamID)
 	require.NoError(t, err)
 	assert.True(t, toggled.Paid)
+	// Regression: ToggleAssignmentPaid's RETURNING used to omit label/amount,
+	// so a's snapshot fields stayed nil -- fine when Service.ToggleAssignmentPaid's
+	// post-toggle reload succeeds (its enriched result is used instead), but
+	// silently incomplete if that reload ever hits the ErrNoRows fallback,
+	// unlike CreateAssignment's equivalent fallback which keeps them.
+	require.NotNil(t, toggled.PenaltyLabel)
+	assert.Equal(t, "Very late", *toggled.PenaltyLabel)
+	require.NotNil(t, toggled.PenaltyAmount)
+	assert.Equal(t, int64(500), *toggled.PenaltyAmount)
 
 	require.NoError(t, repo.DeleteAssignment(ctx, assign.ID, teamID))
 
@@ -158,6 +167,181 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	pens, err = repo.ListPenalties(ctx, teamID)
 	require.NoError(t, err)
 	assert.Empty(t, pens)
+}
+
+func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 500)
+	require.NoError(t, err)
+
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	require.NotNil(t, assign.PenaltyAmount)
+	assert.Equal(t, int64(500), *assign.PenaltyAmount)
+
+	// Editing the penalty definition after the assignment was created must
+	// not retroactively change what the assignment shows -- it's a
+	// historical record of what was actually assigned, not a live view.
+	newLabel := "Very late"
+	newAmount := int64(5000)
+	_, err = repo.UpdatePenalty(ctx, pen.ID, teamID, finances.PenaltyPatch{Label: &newLabel, Amount: &newAmount})
+	require.NoError(t, err)
+
+	fetched, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.PenaltyLabel)
+	require.NotNil(t, fetched.PenaltyAmount)
+	assert.Equal(t, "Late arrival", *fetched.PenaltyLabel)
+	assert.Equal(t, int64(500), *fetched.PenaltyAmount)
+
+	// A new assignment created after the edit does pick up the new amount.
+	assign2, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	require.NotNil(t, assign2.PenaltyAmount)
+	assert.Equal(t, int64(5000), *assign2.PenaltyAmount)
+
+	openPens, err := repo.ListOpenPenaltiesByUser(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, openPens, 1)
+	assert.Equal(t, int64(5500), openPens[0].TotalAmount)
+}
+
+// Regression test: penalty_assignments.amount must be BIGINT (integer
+// cents), matching penalties.amount, not the legacy NUMERIC(10,2) every
+// other amount column moved off in migration 00008. NUMERIC(10,2) can't
+// hold 100_000_000 cents (the app-allowed maxAmountCents, i.e. $1,000,000.00)
+// without a numeric field overflow, so a penalty at the top of the allowed
+// range could never actually be assigned to anyone.
+func TestFinancesRepository_CreateAssignment_MaxAmountPenalty_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	const maxAmountCents = 100_000_000
+	pen, err := repo.CreatePenalty(ctx, teamID, "Max Fine", maxAmountCents)
+	require.NoError(t, err)
+
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	require.NotNil(t, assign.PenaltyAmount)
+	assert.Equal(t, int64(maxAmountCents), *assign.PenaltyAmount)
+}
+
+// TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert is a
+// regression test for a rolling-deploy hazard in migration
+// 00025_penalty_assignment_amount_snapshot.sql: under Kubernetes'
+// RollingUpdate strategy (the default with replicaCount > 1), old-version
+// pods still running the pre-snapshot binary keep issuing
+// "INSERT INTO penalty_assignments (team_id, user_id, penalty_id) ..." with
+// no amount/label for the whole rollout window. If those two columns were
+// ever made NOT NULL (they deliberately are not -- see the migration's own
+// comment), every one of those concurrent old-pod inserts would fail. This
+// directly exercises that exact old-binary INSERT shape against the current
+// schema and asserts it still succeeds, leaving amount/label NULL --
+// tolerated end-to-end since PenaltyAssignmentRow.PenaltyAmount/PenaltyLabel
+// and the generated OpenAPI type are already nullable (*int64/*string).
+func TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Pre-snapshot Fine", 500)
+	require.NoError(t, err)
+
+	var assignmentID uuid.UUID
+	err = pool.QueryRow(ctx, `
+		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
+		VALUES ($1, $2, $3)
+		RETURNING id
+	`, tid, uid, pen.ID).Scan(&assignmentID)
+	require.NoError(t, err, "an old-binary INSERT omitting amount/label must not be rejected by a NOT NULL constraint during a rolling deploy")
+
+	var amount *int64
+	var label *string
+	err = pool.QueryRow(ctx, `SELECT amount, label FROM penalty_assignments WHERE id = $1`, assignmentID).Scan(&amount, &label)
+	require.NoError(t, err)
+	assert.Nil(t, amount)
+	assert.Nil(t, label)
+}
+
+// TestFinancesRepository_ListOpenPenaltiesByUser_TreatsNullAmountAsZero is a
+// companion regression test to
+// TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert: an
+// old-binary INSERT during a rolling deploy can leave a user's ONLY unpaid
+// penalty_assignments row with amount = NULL. SUM() over a Postgres group
+// where every contributing row is NULL returns SQL NULL, not 0 -- unlike the
+// row-level read paths (ListAssignments etc.), which already tolerate a NULL
+// amount via a nullable *int64 field, ListOpenPenaltiesByUser scans straight
+// into a non-pointer int64 TotalAmount, so an unguarded SUM(pa.amount) would
+// fail that scan and take down the whole finance overview endpoint for the
+// team (GetOverview runs every read, including this one, inside a single
+// transaction that returns an error on any failure). Mirrors the
+// COALESCE(SUM(...), 0) pattern already used by SumTransactions.
+func TestFinancesRepository_ListOpenPenaltiesByUser_TreatsNullAmountAsZero(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Pre-snapshot Fine", 500)
+	require.NoError(t, err)
+
+	// The exact old-binary INSERT shape from the sibling test above: no
+	// amount/label at all, leaving this the user's only open assignment.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO penalty_assignments (team_id, user_id, penalty_id)
+		VALUES ($1, $2, $3)
+	`, tid, uid, pen.ID)
+	require.NoError(t, err)
+
+	openPens, err := repo.ListOpenPenaltiesByUser(ctx, teamID)
+	require.NoError(t, err, "must not fail scanning a NULL SUM() when every row in the group has a NULL amount")
+	require.Len(t, openPens, 1)
+	assert.Equal(t, int64(0), openPens[0].TotalAmount)
 }
 
 func TestFinancesRepository_Contributions(t *testing.T) {
@@ -244,6 +428,54 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, "open", list[0].Status)
 }
 
+// TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates
+// guards against a read-then-write race: ToggleContributionStatus previously
+// read the current status, computed the flip in Go, then wrote it back in a
+// separate statement — two concurrent toggles could both read "open", both
+// compute "paid", and both write "paid", losing one of the two toggle
+// intents (net effect of two toggles should be back to "open"). The fix
+// flips the status atomically in a single UPDATE ... CASE statement.
+func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	var contribID uuid.UUID
+	err := pool.QueryRow(ctx,
+		`INSERT INTO contributions (team_id, user_id, month, amount, status)
+		 VALUES ($1, $2, '2024-07', 1500, 'open') RETURNING id`,
+		teamID, userID,
+	).Scan(&contribID)
+	require.NoError(t, err)
+
+	const n = 20
+	errs := make(chan error, n)
+	for range n {
+		go func() {
+			_, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
+			errs <- err
+		}()
+	}
+	for range n {
+		require.NoError(t, <-errs)
+	}
+
+	// An even number of toggles must land back on the original status —
+	// a lost update would instead leave it stuck on "paid".
+	list, err := repo.ListContributions(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "open", list[0].Status)
+}
+
 // TestFinancesRepository_UserIsMemberOfTeam guards against regressing to a
 // nonexistent table name (the query must target `memberships`, the table
 // every other module uses — a prior version queried a nonexistent
@@ -279,4 +511,70 @@ func TestFinancesRepository_UserIsMemberOfTeam(t *testing.T) {
 	isMember, err = repo.UserIsMemberOfTeam(ctx, otherUserID, teamID)
 	require.NoError(t, err)
 	assert.False(t, isMember)
+}
+
+// TestFinancesRepository_CreateAssignment_RejectsNonMemberUser regression-tests
+// a TOCTOU gap where CreateAssignment's plain INSERT trusted the service
+// layer's earlier, separate UserIsMemberOfTeam check -- penalty_assignments.
+// user_id only references users(id), not memberships, so nothing at the DB
+// level stopped an assignment being created for a user who was removed from
+// the team in the narrow window between that check and this insert. The
+// INSERT now re-checks membership atomically via WHERE EXISTS.
+func TestFinancesRepository_CreateAssignment_RejectsNonMemberUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	penalty, err := repo.CreatePenalty(ctx, teamID, "Missed practice", 500)
+	require.NoError(t, err)
+
+	// uid was never given a membership row by seedFinanceFixtures.
+	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "CreateAssignment must reject a userID that is not a member of teamID")
+
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	a, err := repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	require.NoError(t, err, "CreateAssignment scoped to an actual team member must succeed")
+	assert.Equal(t, userID, a.UserID)
+}
+
+// TestFinancesRepository_CreateAssignment_RejectsDeletedPenalty regression-tests
+// the sibling TOCTOU race on the penalty side: penalty_id does have a real FK
+// (unlike user_id), so a penalty deleted concurrently between the service
+// layer's PenaltyBelongsToTeam check and this insert surfaces as a Postgres
+// foreign-key violation (23503). CreateAssignment must map that to
+// ErrPenaltyNotInTeam so the handler returns 404/422 instead of a generic 500.
+func TestFinancesRepository_CreateAssignment_RejectsDeletedPenalty(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	penalty, err := repo.CreatePenalty(ctx, teamID, "Missed practice", 500)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.DeletePenalty(ctx, penalty.ID, teamID))
+
+	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	assert.ErrorIs(t, err, finances.ErrPenaltyNotInTeam, "CreateAssignment must map a penalty FK violation to ErrPenaltyNotInTeam")
 }

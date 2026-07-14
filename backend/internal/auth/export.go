@@ -226,8 +226,8 @@ func (r *Repository) ExportUserData(ctx context.Context, userID string) (*Export
 	}
 
 	if out.PenaltyAssignments, err = queryExportRows(ctx, r.pool.Query, `
-		SELECT pa.team_id::text, pen.label, pen.amount::text, pa.paid, pa.date::text
-		FROM penalty_assignments pa JOIN penalties pen ON pen.id = pa.penalty_id
+		SELECT pa.team_id::text, pa.label, pa.amount::text, pa.paid, pa.date::text
+		FROM penalty_assignments pa
 		WHERE pa.user_id = $1 ORDER BY pa.date
 	`, userID, func(rows pgx.Rows) (ExportPenaltyAssignment, error) {
 		var p ExportPenaltyAssignment

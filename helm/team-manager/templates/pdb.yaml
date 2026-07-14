@@ -10,4 +10,17 @@ spec:
   selector:
     matchLabels:
       {{- include "team-manager.selectorLabels" . | nindent 6 }}
+    # The backup CronJob's pod template (backup-cronjob.yaml) carries these
+    # same two selectorLabels (name+instance) plus its own
+    # app.kubernetes.io/component: backup -- Kubernetes label selectors match
+    # on presence, not exclusivity, so without this exclusion the backup
+    # pod's transient Ready state (it has no readinessProbe, so the default
+    # container-readiness rule marks it Ready as soon as it starts) would
+    # count toward currentHealthy for the whole duration pg-dump/s3-upload
+    # runs, temporarily inflating disruptionsAllowed and letting more real
+    # Deployment replicas be evicted than minAvailable is meant to protect.
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: NotIn
+        values: [backup]
 {{- end }}

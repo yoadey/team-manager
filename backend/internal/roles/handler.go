@@ -30,7 +30,7 @@ func validPermissions(p gen.Permissions) bool {
 type roleService interface {
 	ListRoles(ctx context.Context, teamID uuid.UUID) ([]gen.Role, error)
 	CreateRole(ctx context.Context, teamID uuid.UUID, body *gen.CreateRoleJSONRequestBody) (*gen.Role, error)
-	UpdateRole(ctx context.Context, roleID, teamID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
+	UpdateRole(ctx context.Context, roleID, teamID, callerUserID uuid.UUID, body *gen.UpdateRoleJSONRequestBody) (*gen.Role, error)
 	DeleteRole(ctx context.Context, roleID, teamID uuid.UUID) error
 }
 
@@ -75,6 +75,11 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 	if err := validate.Name(req.Body.Name); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if req.Body.Color != nil {
+		if err := validate.MaxLen(*req.Body.Color, 32, "color"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	if !validPermissions(req.Body.Permissions) {
 		return nil, apierror.BadRequest("permissions must each be one of none, read, write")
 	}
@@ -103,16 +108,33 @@ func (h *Handler) UpdateRole(ctx context.Context, req gen.UpdateRoleRequestObjec
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
+	if req.Body.Color != nil {
+		if err := validate.MaxLen(*req.Body.Color, 32, "color"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	if req.Body.Permissions != nil && !validPermissions(*req.Body.Permissions) {
 		return nil, apierror.BadRequest("permissions must each be one of none, read, write")
 	}
-	role, err := h.svc.UpdateRole(ctx, req.RoleId, req.TeamId, req.Body)
+	role, err := h.svc.UpdateRole(ctx, req.RoleId, req.TeamId, user.Id, req.Body)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("role not found")
 		}
 		if errors.Is(err, ErrSystemRole) {
+			h.audit.Record(ctx, audit.EventRoleUpdate, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "system_role"))
 			return nil, apierror.Forbidden("cannot change the name or permissions of a built-in system role")
+		}
+		if errors.Is(err, ErrInsufficientPermissionToGrant) {
+			h.audit.Record(ctx, audit.EventRoleUpdate, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "insufficient_permission_to_grant"))
+			return nil, apierror.Forbidden(ErrInsufficientPermissionToGrant.Error())
+		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			h.audit.Record(ctx, audit.EventRoleUpdate, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "last_settings_admin"))
+			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateRole failed", "err", err)
 		return nil, apierror.Internal("failed to update role")
@@ -134,7 +156,14 @@ func (h *Handler) DeleteRole(ctx context.Context, req gen.DeleteRoleRequestObjec
 			return nil, apierror.NotFound("role not found")
 		}
 		if errors.Is(err, ErrSystemRole) {
+			h.audit.Record(ctx, audit.EventRoleDelete, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "system_role"))
 			return nil, apierror.Forbidden("cannot delete a built-in system role")
+		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			h.audit.Record(ctx, audit.EventRoleDelete, audit.Failure, user.Id.String(),
+				slog.String("roleId", req.RoleId.String()), slog.String("reason", "last_settings_admin"))
+			return nil, apierror.Conflict(ErrLastSettingsAdmin.Error())
 		}
 		h.logger.ErrorContext(ctx, "DeleteRole failed", "err", err)
 		return nil, apierror.Internal("failed to delete role")

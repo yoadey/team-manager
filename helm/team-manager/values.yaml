@@ -3,10 +3,45 @@
 
 replicaCount: 2
 
+# Left empty by default (Kubernetes' own default: RollingUpdate,
+# maxSurge/maxUnavailable 25%). docs/operations.md's migration-safety runbook
+# recommends switching to Recreate for a single deploy when a migration
+# changes a column's meaning (not just its lock duration) rather than
+# following the expand/contract pattern -- Recreate guarantees no old-version
+# pod keeps serving traffic against the new schema, which surging a
+# RollingUpdate pod alongside a still-terminating old one does not. Override
+# per-deploy, e.g. `--set deploymentStrategy.type=Recreate`.
+deploymentStrategy: {}
+
+# Kubernetes' own default is 30s. cmd/server/main.go's SIGTERM handler runs
+# three sequential phases -- HTTP drain (10s budget), then River job-worker
+# stop, then OTEL shutdown (10s budget) -- followed by pool.Close(). The River
+# phase is bounded by jobs.SoftStopTimeout (8s): river.Client.Stop gives
+# running jobs up to that long to finish on their own, then automatically
+# cancels their contexts, so Stop() reliably returns within roughly
+# jobs.SoftStopTimeout + a few seconds' margin for the cancellation to be
+# observed (main.go budgets 15s) rather than blocking for as long as the
+# slowest job's own internal Timeout() (RetentionWorker's is 150s) -- without
+# SoftStopTimeout configured, a timed-out Stop() doesn't cancel the job, it
+# just returns early while the job keeps running and holding a pool
+# connection, racing pool.Close() below it. Worst case is now ~35s before the
+# pool even starts closing, with no margin for signal-delivery latency -- the
+# default grace period would let Kubernetes SIGKILL the process mid-River-stop
+# (abandoning an in-flight job claimed-but-not-completed) or mid/pre-
+# pool.Close() (an unclean Postgres disconnect) on any rolling deploy or node
+# drain where a phase takes more than an instant. 60s leaves real margin over
+# that measured worst case.
+terminationGracePeriodSeconds: 60
+
 image:
   repository: ghcr.io/yoadey/team-manager-backend
   pullPolicy: IfNotPresent
-  tag: ""  # Defaults to Chart.appVersion when empty
+  # Defaults to Chart.appVersion when empty — but nothing bumps Chart.yaml's
+  # appVersion as part of a release, so that default is a fixed placeholder,
+  # not "the latest released version". ALWAYS set this explicitly (e.g.
+  # 1.2.3, matching a real vX.Y.Z release tag with the v stripped) for any
+  # real deployment. templates/NOTES.txt warns about this at deploy time.
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -14,19 +49,26 @@ fullnameOverride: ""
 
 serviceAccount:
   create: true
-  automount: true
+  # The backend makes no Kubernetes API calls (no client-go/InClusterConfig
+  # usage), so there's nothing that needs the pod's own API token — leave
+  # disabled unless a future feature requires it.
+  automount: false
   annotations: {}
   name: ""
 
 podAnnotations:
   prometheus.io/scrape: "true"
-  prometheus.io/port: "8080"
+  # prometheus.io/port is deliberately not set here -- deployment.yaml
+  # templates it directly from .Values.service.targetPort so it can never
+  # drift from the port the container actually listens on.
   prometheus.io/path: "/metrics"
 
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
   fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   allowPrivilegeEscalation: false
@@ -34,6 +76,8 @@ securityContext:
   capabilities:
     drop:
       - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 service:
   type: ClusterIP
@@ -65,20 +109,45 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
+# httpGet.port is deliberately omitted here: the deployment template fills it
+# in from service.targetPort, so the probes always target the same port the
+# container actually listens on, even if targetPort is overridden.
+#
+# startupProbe gates liveness/readiness until the app has bound its HTTP
+# port: main.go runs DB migrations synchronously before ListenAndServe, so
+# a slow migration (e.g. CREATE INDEX CONCURRENTLY on a large table, see
+# docs/operations.md) means the port isn't listening yet -- without this,
+# livenessProbe's own tight timing (10s + 3*15s ~= 55s) would kill and
+# restart the pod mid-migration instead of just waiting, which doesn't fix
+# a slow migration and can crash-loop indefinitely. Up to ~5 minutes here
+# before falling through to the (deliberately tight) liveness/readiness
+# probes for the steady state.
+startupProbe:
+  httpGet:
+    path: /healthz
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 60
+
 livenessProbe:
   httpGet:
     path: /healthz
-    port: 8080
   initialDelaySeconds: 10
   periodSeconds: 15
+  timeoutSeconds: 3
   failureThreshold: 3
 
 readinessProbe:
   httpGet:
     path: /readyz
-    port: 8080
   initialDelaySeconds: 5
   periodSeconds: 10
+  # /readyz does a live pool.Ping(ctx) against Postgres (cmd/server/main.go),
+  # unlike /healthz's static 200 -- without an explicit timeout here,
+  # Kubernetes' 1-second default is tight enough that transient DB latency
+  # (pool saturation, a brief network blip, replica failover) trips the
+  # probe and pulls an otherwise-healthy pod out of Service endpoints.
+  timeoutSeconds: 5
   failureThreshold: 3
 
 nodeSelector: {}
@@ -108,7 +177,17 @@ env:
 
 # Reference to an existing Secret containing sensitive values.
 # The Secret must have keys: DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY,
-# COOKIE_ENCRYPTION_KEY, and optionally SENTRY_DSN, METRICS_TOKEN.
+# COOKIE_ENCRYPTION_KEY, and optionally SENTRY_DSN, PAGINATION_HMAC_KEY,
+# COOKIE_ENCRYPTION_KEYS (plural — takes precedence over the singular key
+# above when set; use it for zero-downtime key rotation, see docs/operations.md).
+# METRICS_TOKEN is listed as optional in the Deployment template (it's fine
+# to omit when env.COOKIE_SECURE is "false", e.g. local/dev), but the
+# backend hard-fails startup (os.Exit(1), not just a warning) when
+# COOKIE_SECURE is "true" (the default, and what every shipped environment
+# overlay uses) and METRICS_TOKEN is empty — unless env.METRICS_ALLOW_OPEN
+# is also set to "true". Set a METRICS_TOKEN key in this Secret for any
+# COOKIE_SECURE=true deployment, or you'll get a guaranteed crash-loop.
+# templates/NOTES.txt reminds you of this at deploy time.
 existingSecret: ""
 
 # ALLOWED_ORIGINS as a comma-separated list.
@@ -135,11 +214,31 @@ networkPolicy:
     # an external/managed database). Left empty by default so egress is only
     # port-restricted, matching prior behavior.
     postgres:
+      # DATABASE_URL is an opaque Secret value this chart never inspects, so
+      # if it points at a connection pooler (e.g. PgBouncer, commonly 6432)
+      # or any proxy fronting a managed Postgres instance instead of a direct
+      # 5432 connection, override this to match -- otherwise egress is
+      # silently dropped once networkPolicy.enabled is true, surfacing only
+      # as connection timeouts with no obvious link back to this policy. Same
+      # rationale as networkPolicy.egress.s3.port below.
+      port: 5432
       to: []
       # to:
       #   - ipBlock:
       #       cidr: 10.0.1.0/24
     https:
+      to: []
+    # Only rendered when backup.enabled and backup.s3.enabled are both true.
+    # The https rule above hardcodes port 443, which is fine for real AWS S3
+    # but not for a self-hosted S3-compatible endpoint (backup.s3.endpoint,
+    # e.g. MinIO) that conventionally listens on a different port such as
+    # 9000 — without this, the backup CronJob's s3-upload container (which
+    # carries the same pod selector labels as the main Deployment and is
+    # therefore subject to this NetworkPolicy too) has its egress silently
+    # dropped, and `aws s3 cp` hangs until backup.activeDeadlineSeconds kills
+    # the Job. Override the port to match backup.s3.endpoint's actual port.
+    s3:
+      port: 443
       to: []
 
 podDisruptionBudget:
@@ -155,8 +254,29 @@ monitoring:
   # `existingSecret` — the two are independent Secrets with no validation
   # tying them together; a mismatch causes Prometheus to get silent 401s from
   # /metrics with no obvious link back to this setting.
+  #
+  # This is the one place under `monitoring` that doesn't follow the
+  # existingSecret-only convention used everywhere else a credential appears
+  # in this chart (see the top-level existingSecret comment above) — the raw
+  # token has to be typed into a values override or passed via --set, which
+  # (unlike a real Secret reference) has no rotation story and can land in
+  # shell history or a committed overlay file. Prefer metricsTokenSecretName
+  # below for anything beyond local/dev.
   metricsToken: ""
+  # Name of an existing, externally-managed Secret holding the bearer token
+  # (keyed by metricsTokenSecretKey). Takes precedence over metricsToken
+  # above when set, and skips creating the chart-managed metrics-token
+  # Secret entirely.
+  metricsTokenSecretName: ""
+  metricsTokenSecretKey: "token"
   additionalLabels: {}  # Labels to help Prometheus Operator find this ServiceMonitor
+  grafanaDashboard:
+    # Renders a ConfigMap holding the bundled Grafana dashboard, labeled
+    # grafana_dashboard: "1" for the standard kube-prometheus-stack Grafana
+    # sidecar (grafana.sidecar.dashboards) to auto-discover. Off by default
+    # since not every cluster runs that sidecar/convention — the dashboard
+    # JSON is also available at files/grafana-dashboard.json for manual import.
+    enabled: false
 
 migrations:
   runAsInitContainer: true   # Run DB migrations as an initContainer before the app starts
@@ -164,13 +284,75 @@ migrations:
 backup:
   enabled: false           # Enable daily PostgreSQL backup CronJob
   schedule: "0 2 * * *"   # Daily at 02:00 UTC
+  startingDeadlineSeconds: 900  # How late a missed run may still start before Kubernetes gives up on it
+  # Bounds how long a RUNNING backup may take before Kubernetes kills it.
+  # Without this, a hung pg_dump (lock contention) or aws s3 cp (network
+  # partition) never self-terminates, and concurrencyPolicy: Forbid means
+  # every subsequent scheduled run is silently skipped until it does --
+  # only the RPO/staleness alert (32h) would eventually catch this, a full
+  # day after the fact. 1h is comfortably above expected dump/upload
+  # duration for this app's data volume; raise it if your database is large
+  # enough that backups routinely take longer.
+  activeDeadlineSeconds: 3600
   postgresVersion: "17"
+  # Digest for postgresVersion "17", matching docker-compose.yml's local-dev
+  # pin (resolved 2026-07-08 from registry-1.docker.io, docker-library/postgres
+  # 17.10) so a tag-hijack of the mutable `postgres:17` tag can't silently
+  # reach this CronJob's initContainer, which holds the app's DATABASE_URL
+  # credential. Appended to the image reference when set. If you override
+  # postgresVersion to a different major version, set the matching digest
+  # yourself or clear this to fall back to the mutable tag -- Dependabot
+  # cannot keep this current automatically (its docker ecosystem updater only
+  # scans Dockerfiles and docker-compose.y*ml, not arbitrary keys in a Helm
+  # values.yaml). Any point-in-time digest pin will eventually accrue newly-
+  # published CVEs against its frozen package versions (caught once already by
+  # CI's security-container-backup Trivy scan) -- re-resolve periodically.
+  postgresImageDigest: "sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397"
+  # Caps on the CronJob's two emptyDir volumes (dump output, scratch space
+  # for pg_dump/aws-cli temp files) -- otherwise unbounded, so a runaway
+  # dump or temp-file leak is limited only by the node's actual free disk,
+  # triggering node-level DiskPressure and evicting arbitrary unrelated
+  # pods on that node instead of being contained within this Job.
+  dumpSizeLimit: 2Gi
+  tmpSizeLimit: 256Mi
+  # Sanity floor on the dump's pg_restore --list table-of-contents entry
+  # count -- pg_dump exiting 0 doesn't guarantee a *usable* dump (e.g.
+  # DATABASE_URL pointing at an unexpectedly empty database still "succeeds"
+  # with a tiny but well-formed file). This app's schema has 20+ tables,
+  # each contributing multiple TOC entries (data + definition + indexes/
+  # constraints), so a real dump is comfortably in the hundreds; 10 is a
+  # generous floor that only trips on a near-empty/corrupt dump, not on
+  # legitimate schema variation.
+  minDumpEntries: 10
   retentionDays: 30        # Informational; enforce via S3 bucket lifecycle rules
   s3:
     enabled: false          # When false, the dump is discarded (job fails loudly instead of silently losing data)
-    awsCliImage: "amazon/aws-cli:2.31.13"
+    # Digest-pinned (resolved 2026-07-08 from registry-1.docker.io for
+    # amazon/aws-cli:2.35.18, the latest release at pin time -- CI's
+    # security-container-backup Trivy scan caught fresh HIGH CVEs (expat,
+    # libblkid, python3, sqlite-libs) disclosed against the previously-pinned
+    # 2.35.17's Amazon Linux 2023 base layer since it was pinned) so a
+    # tag-hijack of a mutable upstream tag can't silently reach a CronJob
+    # holding S3 write credentials; unlike docker-compose.yml's equivalent
+    # pin, Dependabot cannot keep this current automatically (its docker
+    # ecosystem updater only scans Dockerfiles and docker-compose.y*ml, not
+    # arbitrary keys in a Helm values.yaml) -- bump both the tag and digest
+    # together by hand on a schedule.
+    awsCliImage: "amazon/aws-cli:2.35.18@sha256:5d6ba5056f48726a1f2d3447d0ad1ae2506f966f431d69649dc7da5cae8e4667"
     bucket: ""
     prefix: "team-manager"
     region: "eu-central-1"
     endpoint: ""            # Override for S3-compatible storage (MinIO, etc.)
-    credentialsSecretName: "" # Secret with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; leave empty to use the pod's IAM role (e.g. IRSA via serviceAccount.annotations)
+    credentialsSecretName: "" # Secret with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; leave empty to use the pod's IAM role (e.g. IRSA via backup.serviceAccount.annotations below)
+  # The backup CronJob shares the main serviceAccount (above) by default, so
+  # by default this section has no effect. Set create: true to give the
+  # backup Job its own ServiceAccount instead -- otherwise an IRSA role ARN
+  # annotation added for S3 backup access would also be injected into every
+  # replica of the main app Deployment via the shared account, widening the
+  # app's own blast radius (e.g. for RCE/SSRF) to include S3 write access it
+  # has no other reason to hold.
+  serviceAccount:
+    create: false
+    annotations: {}
+    # Defaults to "<fullname>-backup" when create is true and this is empty.
+    name: ""

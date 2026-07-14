@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Av, Chip, Sym, inputSx, SkeletonList } from '@/components/ui';
+import { Av, Chip, EmptyState, Sym, inputSx, SkeletonList } from '@/components/ui';
 import { t } from '@/i18n';
 
 export function MembersPage() {
@@ -27,6 +27,7 @@ export function MembersPage() {
     return (
       <ButtonBase
         key={m.membershipId}
+        data-testid="member-row"
         onClick={() => app.openMemberDetail(m.membershipId)}
         sx={{
           display: 'flex',
@@ -106,7 +107,7 @@ export function MembersPage() {
     <Box sx={{ maxWidth: '820px' }}>
       <Box sx={{ display: 'flex', gap: '8px', mb: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
         <Box sx={{ fontSize: '13px', fontWeight: 600, color: NEUTRAL.secondary }}>
-          {t('members.count', { n: state.members.length, count: state.members.length })}
+          {t('members.count', { n: list.length, count: list.length })}
         </Box>
         <Box sx={{ flex: 1 }} />
         <input
@@ -136,7 +137,11 @@ export function MembersPage() {
           {t('members.rolesAndRights')}
         </ButtonBase>
       </Box>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>{rows}</Box>
+      {list.length ? (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>{rows}</Box>
+      ) : (
+        <EmptyState icon="search_off" text={t('members.searchEmpty')} />
+      )}
     </Box>
   );
 }

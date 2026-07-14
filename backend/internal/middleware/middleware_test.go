@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/middleware"
 )
 
@@ -102,6 +103,31 @@ func TestLogger_DefaultStatus200(t *testing.T) {
 	var entry map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &entry))
 	assert.EqualValues(t, http.StatusOK, entry["status"])
+}
+
+// A panicking handler must still produce a "request" log line (with status
+// forced to 500) — Recoverer sits above Logger in the real chain, so without
+// a defer in Logger the panic would unwind straight past the logging call.
+// The panic is re-raised by Logger, so this test recovers it itself
+// (standing in for Recoverer).
+func TestLogger_PanicStillLogsRequest(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+
+	handler := middleware.Logger(logger)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		panic("boom")
+	}))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/panic-test", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	require.Panics(t, func() { handler.ServeHTTP(rec, req) })
+
+	require.NotEmpty(t, buf.String(), "logger must still produce a request log line when the handler panics")
+	var entry map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &entry))
+	assert.Equal(t, "request", entry["msg"])
+	assert.EqualValues(t, http.StatusInternalServerError, entry["status"])
 }
 
 // ─── CORS ────────────────────────────────────────────────────────────────────
@@ -268,6 +294,10 @@ func TestRecoverer_CatchesPanic(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.EqualValues(t, http.StatusInternalServerError, body["status"])
+	// Regression: this response used to hardcode a literal "type" URI instead
+	// of going through apierror, so it never honored ERROR_TYPE_BASE_URI.
+	assert.Equal(t, apierror.Internal("").Type, body["type"],
+		"panic-recovery response must use apierror's type URI, not a hardcoded literal")
 
 	logOutput := buf.String()
 	assert.True(t, strings.Contains(logOutput, "panic"), "log must mention the panic")
@@ -388,6 +418,13 @@ func TestRateLimit_UntrustedPeer_IgnoresSpoofedForwardedFor(t *testing.T) {
 
 	assert.Equal(t, http.StatusTooManyRequests, rec2.Code,
 		"second request from the same untrusted peer must be blocked despite a different spoofed X-Forwarded-For")
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &body))
+	// Regression: this response used to hardcode a literal "type" URI instead
+	// of going through apierror, so it never honored ERROR_TYPE_BASE_URI.
+	assert.Equal(t, apierror.New(http.StatusTooManyRequests, "Too Many Requests", "").Type, body["type"],
+		"rate-limit response must use apierror's type URI, not a hardcoded literal")
 }
 
 func TestRateLimit_TrustedPeer_HonorsForwardedFor(t *testing.T) {
@@ -433,6 +470,50 @@ func TestRateLimit_TrustedPeer_SameForwardedFor_StillLimited(t *testing.T) {
 // matched chi route pattern gives every distinct ID its own Prometheus label
 // combination, an unbounded-cardinality memory-growth vector reachable by
 // any caller since this middleware runs before auth.
+// A panicking handler must not leak the in-flight gauge or skip the
+// request/duration sample — Recoverer sits above Metrics in the real chain,
+// so without a defer in Metrics the panic would unwind straight past its
+// bookkeeping. The panic is re-raised by Metrics, so this test recovers it
+// itself (standing in for Recoverer).
+func TestMetrics_PanicStillRecordsRequestAndDecrementsInFlight(t *testing.T) {
+	handler := middleware.Metrics(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		panic("boom")
+	}))
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/panic-test", http.NoBody)
+	rec := httptest.NewRecorder()
+
+	require.Panics(t, func() { handler.ServeHTTP(rec, req) })
+
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+
+	var inFlight, total *dto.MetricFamily
+	for _, f := range families {
+		switch f.GetName() {
+		case "teammanager_http_requests_in_flight":
+			inFlight = f
+		case "teammanager_http_requests_total":
+			total = f
+		}
+	}
+	require.NotNil(t, inFlight)
+	require.Len(t, inFlight.Metric, 1)
+	assert.Equal(t, float64(0), inFlight.Metric[0].GetGauge().GetValue(),
+		"in-flight gauge must be decremented even when the handler panics")
+
+	require.NotNil(t, total)
+	var found500 bool
+	for _, m := range total.Metric {
+		for _, l := range m.Label {
+			if l.GetName() == "status" && l.GetValue() == "500" {
+				found500 = true
+			}
+		}
+	}
+	assert.True(t, found500, "a panicking request must still be recorded, with status forced to 500")
+}
+
 func TestMetrics_LabelsUseRoutePatternNotRawPath(t *testing.T) {
 	router := chi.NewRouter()
 	router.Use(middleware.Metrics)

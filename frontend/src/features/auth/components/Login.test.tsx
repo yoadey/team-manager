@@ -30,12 +30,15 @@ const appleProvider = {
   glyph: 'A',
 };
 
-function makeApp(overrides: { providers?: (typeof googleProvider)[]; busy?: string | null } = {}) {
+function makeApp(
+  overrides: { providers?: (typeof googleProvider)[]; busy?: string | null; error?: string | null } = {},
+) {
   const doLogin = vi.fn();
   const app = {
     state: {
       providers: overrides.providers ?? [googleProvider],
       busy: overrides.busy ?? null,
+      error: overrides.error ?? null,
     },
     doLogin,
   };
@@ -92,11 +95,37 @@ describe('Login', () => {
     expect(googleBtn).toBeDisabled();
   });
 
-  it('provider button is enabled when a different provider is busy', () => {
+  // Regression test: every login control used to only disable itself while
+  // ITS OWN busy value was set, so clicking a second provider (or the
+  // password form) while the first was still in flight started a second,
+  // overlapping login -- the shared busy field got silently clobbered, and a
+  // late-failing first login could clear it out from under the second,
+  // still-pending one. Every control must disable while ANY login is busy.
+  it('provider button is disabled when a DIFFERENT provider is busy', () => {
     makeApp({ providers: [googleProvider, appleProvider], busy: 'login:apple' });
     render(<Login />);
     const googleBtn = screen.getByText('Google').closest('button');
-    expect(googleBtn).not.toBeDisabled();
+    expect(googleBtn).toBeDisabled();
+  });
+
+  it('clicking a provider button while a different login is in flight does not call doLogin', () => {
+    const app = makeApp({ providers: [googleProvider, appleProvider], busy: 'login:apple' });
+    render(<Login />);
+    const googleBtn = screen.getByText('Google').closest('button');
+    fireEvent.click(googleBtn!);
+    expect(app.doLogin).not.toHaveBeenCalled();
+  });
+
+  it('shows no error banner when state.error is null', () => {
+    makeApp();
+    render(<Login />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows an error banner with the message when state.error is set', () => {
+    makeApp({ error: 'Anmeldung fehlgeschlagen.' });
+    render(<Login />);
+    expect(screen.getByRole('alert').textContent).toContain('Anmeldung fehlgeschlagen.');
   });
 
   it('renders hint text (auth.loginHint key)', () => {

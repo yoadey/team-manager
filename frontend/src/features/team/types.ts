@@ -2,8 +2,9 @@ import type { Permissions } from '@/types';
 
 // Editing buffer shapes for the team/role sheets.
 
-/** Role create sheet (name + per-module permission levels). */
+/** Role create/edit sheet (name + per-module permission levels). `id` set means edit mode. */
 export interface RoleFormValues extends Record<string, unknown> {
+  id?: string;
   name: string;
   perms: Permissions;
 }

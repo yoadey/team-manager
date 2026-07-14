@@ -169,4 +169,51 @@ describe('PollFormSheet', () => {
     fireEvent.blur(inputs[1]);
     expect(app.setFormErrors).toHaveBeenCalled();
   });
+
+  // Regression test: the question/option inputs had no maxLength, so a user
+  // could type far past the backend's limits (question: 1000, each option:
+  // 500) and only find out via a generic server-error toast after submit.
+  it('caps the question input at 1000 characters matching the backend limit', () => {
+    makeApp();
+    render(<PollFormSheet app={mockUseApp() as never} sheet={sheet} />);
+    const input = screen.getByPlaceholderText('Worüber soll abgestimmt werden?') as HTMLInputElement;
+    expect(input.maxLength).toBe(1000);
+  });
+
+  it('caps each option input at 500 characters matching the backend limit', () => {
+    makeApp();
+    render(<PollFormSheet app={mockUseApp() as never} sheet={sheet} />);
+    for (const placeholder of ['Option 1', 'Option 2', 'Option 3 (optional)', 'Option 4 (optional)']) {
+      const input = screen.getByPlaceholderText(placeholder) as HTMLInputElement;
+      expect(input.maxLength).toBe(500);
+    }
+  });
+
+  // Regression test: the options error box had no stable id and wasn't wired
+  // to the option inputs via aria-describedby/aria-invalid, unlike every
+  // other validated field in the app (which goes through the shared Field
+  // component and gets this wiring for free) -- a screen reader user
+  // focusing an option input got no indication it was the invalid field.
+  it('wires the options error to the first two option inputs via aria-describedby/aria-invalid', () => {
+    const app = makeApp({ opt0: 'Nur eine Option', opt1: '' }, { options: 'Mindestens zwei Optionen angeben.' });
+    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const errorBox = screen.getByRole('alert');
+    expect(errorBox.id).toBeTruthy();
+
+    const opt0 = screen.getByPlaceholderText('Option 1');
+    const opt1 = screen.getByPlaceholderText('Option 2');
+    expect(opt0.getAttribute('aria-describedby')).toBe(errorBox.id);
+    expect(opt1.getAttribute('aria-describedby')).toBe(errorBox.id);
+    expect(opt0.getAttribute('aria-invalid')).toBe('true');
+    expect(opt1.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('does not mark option inputs invalid when there is no options error', () => {
+    makeApp({ opt0: 'A', opt1: 'B' });
+    const app = mockUseApp();
+    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const opt0 = screen.getByPlaceholderText('Option 1');
+    expect(opt0.getAttribute('aria-describedby')).toBeNull();
+    expect(opt0.getAttribute('aria-invalid')).toBe('false');
+  });
 });

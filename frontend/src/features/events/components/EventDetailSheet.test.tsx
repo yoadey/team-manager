@@ -103,7 +103,7 @@ describe('EventDetailSheet', () => {
     vi.clearAllMocks();
   });
 
-  it('renders SpinnerBox when event is null', () => {
+  it('renders SpinnerBox when event is null and still loading', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
     const { container } = render(
@@ -111,6 +111,26 @@ describe('EventDetailSheet', () => {
     );
     // SpinnerBox renders without the event details
     expect(container.firstChild).toBeTruthy();
+    expect(screen.queryByText('events.detailNotFound')).toBeNull();
+  });
+
+  // Regression test: EventDetailSheet used to render SpinnerBox forever for a
+  // confirmed-missing event (deleted, or inaccessible) -- `sheet.event` is
+  // null both while still loading AND once a reload resolves with a
+  // confirmed 404, with no way to distinguish the two, so a stale
+  // bookmarked/deep-linked URL, or an event deleted in another tab, left the
+  // user staring at an infinite spinner with no explanation and no way out
+  // except manually closing the sheet.
+  it('renders a not-found empty state when the event is confirmed missing', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(
+      <EventDetailSheet
+        app={app as never}
+        sheet={{ type: 'eventDetail', event: null, eventNotFound: true } as never}
+      />,
+    );
+    expect(screen.getByText('events.detailNotFound')).toBeTruthy();
   });
 
   it('renders event title in the document', () => {
@@ -401,6 +421,35 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     expect(screen.getByText('events.notNominated')).toBeTruthy();
+  });
+
+  // Regression test: the backend's opt_out/absence-based defaulting
+  // (computeEffectiveAttendance) checks a covering planned absence BEFORE
+  // responseMode, so a member with an absence covering an opt_out event's
+  // date gets myStatus="no", myAuto=true -- but this banner used to check
+  // responseMode==='opt_out' first, showing "you're automatically counted
+  // as attending" (autoOptOut) directly above RSVP buttons that
+  // simultaneously highlight "No" as selected.
+  it('shows the auto-absent banner, not the auto-opt-out banner, when an opt_out event auto-defaults to no', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ date: '2026-07-01', responseMode: 'opt_out', myStatus: 'no', myAuto: true });
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.getByText('events.autoAbsent')).toBeTruthy();
+    expect(screen.queryByText('events.autoOptOut')).toBeNull();
+  });
+
+  it('still shows the auto-opt-out banner when an opt_out event auto-defaults to yes', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent({ date: '2026-07-01', responseMode: 'opt_out', myStatus: 'yes', myAuto: true });
+    render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+    );
+    expect(screen.getByText('events.autoOptOut')).toBeTruthy();
+    expect(screen.queryByText('events.autoAbsent')).toBeNull();
   });
 
   it('clicking RSVP yes calls setMyStatus with yes', () => {

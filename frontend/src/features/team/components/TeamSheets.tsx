@@ -22,6 +22,9 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
   const icons = TEAM_ICONS.map((em) => (
     <ButtonBase
       key={em}
+      role="radio"
+      aria-checked={F.icon === em}
+      aria-label={em}
       onClick={() => app.setFormVal({ icon: em })}
       sx={{
         width: '48px',
@@ -68,7 +71,25 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         key="f"
         type="file"
         accept="image/*"
-        onChange={(e) => app.onFile(e, (d) => app.setFormVal({ photo: d }))}
+        onChange={(e) => {
+          // setFormVal writes into the single shared, untyped form buffer
+          // regardless of which sheet is open. Snapshot the sheet type here,
+          // synchronously, before onFile's async FileReader read starts, and
+          // re-check it via setState's functional-update form once the read
+          // completes -- app.state itself is just this render's snapshot
+          // (React context value, not a live ref), so re-reading app.state
+          // here would just compare the closure to itself and never catch
+          // anything; the functional updater's `s` argument is guaranteed
+          // to be the actual live state at apply time. Without this, if the
+          // user closes this sheet (or opens a different one, e.g. team
+          // settings, which reads the same form.photo field for its own
+          // unrelated preview) before the read completes, the resolved
+          // callback would overwrite that other sheet's in-progress data.
+          const sheetType = app.state.sheet?.type;
+          app.onFile(e, (d) => {
+            app.setState((s) => (s.sheet?.type === sheetType ? { form: { ...s.form, photo: d } } : {}));
+          });
+        }}
         hidden
       />
     </Box>
@@ -100,7 +121,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         <Box key="l" sx={labelSx}>
           {t('team.iconLabel')}
         </Box>
-        <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        <Box key="b" role="radiogroup" aria-label={t('team.iconLabel')} sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
           {icons}
         </Box>
       </Box>
@@ -219,7 +240,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   const F = formValues<TeamSettingsFormValues>(app.state);
   const roles = app.state.roles;
 
-  const upLabel = (icon: string, label: string, cb: (d: string) => void) => (
+  const upLabel = (icon: string, label: string, cb: (d: string, teamId: string) => void) => (
     <Box
       key="u"
       component="label"
@@ -239,7 +260,20 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
     >
       <Sym name={icon} size={18} />
       {label}
-      <input key="f" type="file" accept="image/*" onChange={(e) => app.onFile(e, cb)} hidden />
+      <input
+        key="f"
+        type="file"
+        accept="image/*"
+        onChange={(e) => {
+          // Snapshot activeTeamId here, synchronously, before onFile starts
+          // its FileReader read -- reading it inside cb (which only runs
+          // once the read completes) would capture whatever team is active
+          // AT THAT LATER POINT, not the team this upload was actually for.
+          const teamId = app.state.activeTeamId!;
+          app.onFile(e, (d) => cb(d, teamId));
+        }}
+        hidden
+      />
     </Box>
   );
 
@@ -273,14 +307,17 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
       <SectionTitle>{t('team.settingsLogoSection')}</SectionTitle>
       <Box key="r" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '10px' }}>
         {logoPreview}
-        {upLabel('upload', F.logo ? t('team.settingsLogoChange') : t('team.settingsLogoUpload'), (d) =>
-          app.saveTeamLogo(d),
+        {upLabel('upload', F.logo ? t('team.settingsLogoChange') : t('team.settingsLogoUpload'), (d, teamId) =>
+          app.saveTeamLogo(d, teamId),
         )}
       </Box>
       <Box key="em" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {TEAM_ICONS.map((em) => (
           <ButtonBase
             key={em}
+            role="radio"
+            aria-checked={!F.logo && F.icon === em}
+            aria-label={em}
             onClick={() => app.setTeamIcon(em)}
             sx={{
               width: '44px',
@@ -326,9 +363,27 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
             image
           </Box>
         )}
-        {upLabel('photo_camera', team.photo ? t('team.settingsPhotoChange') : t('team.settingsPhotoUpload'), (d) =>
-          app.saveTeamPhoto(d),
+        {upLabel('photo_camera', team.photo ? t('team.settingsPhotoChange') : t('team.settingsPhotoUpload'), (d, teamId) =>
+          app.saveTeamPhoto(d, teamId),
         )}
+        {team.photo ? (
+          <ButtonBase
+            key="rm"
+            onClick={() => app.removeTeamPhoto()}
+            aria-label={t('team.settingsPhotoRemove')}
+            sx={{
+              width: '36px',
+              height: '36px',
+              borderRadius: '50%',
+              background: NEUTRAL.errorBg,
+              color: NEUTRAL.error,
+              cursor: 'pointer',
+              flex: '0 0 auto',
+            }}
+          >
+            <Sym name="delete" size={18} color={NEUTRAL.error} />
+          </ButtonBase>
+        ) : null}
       </Box>
       <Box key="h" sx={{ fontSize: '12px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
         {t('team.settingsPhotoHint')}
@@ -386,7 +441,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
         <TextInput name="name" placeholder={t('team.settingsNamePlaceholder')} maxLength={60} />
       </Field>
       <Field label={t('team.settingsDescField')}>
-        <TextArea name="description" placeholder={t('team.settingsDescPlaceholder')} minHeight={80} />
+        <TextArea name="description" placeholder={t('team.settingsDescPlaceholder')} minHeight={80} maxLength={10000} />
       </Field>
       {logoSec}
       {photoSec}

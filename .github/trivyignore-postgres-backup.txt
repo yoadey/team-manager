@@ -1,0 +1,34 @@
+# Scoped ignore list for the security-container-backup CI job's postgres
+# scan ONLY (passed explicitly via trivy-action's `trivyignores` input on
+# that one step) -- NOT a repo-root .trivyignore, so it can't accidentally
+# suppress a real finding in the app's own backend/frontend image scans.
+#
+# All 15 CVEs below are in usr/local/bin/gosu, a small static Go binary
+# baked into the official postgres Docker image (docker-library/postgres)
+# solely to drop root privileges before exec'ing postgres at container
+# startup -- it runs once per container start, never accepts network input,
+# and exits immediately after exec. The CVEs are all in Go's crypto/tls,
+# net/url, net/mail, crypto/x509, net/http2, and os (os.Root) stdlib
+# packages, none of which gosu's own code path exercises (it does not open
+# a TLS connection, parse a URL, handle HTTP, or use the os.Root sandboxed-
+# filesystem API). They are unreachable in this deployment context.
+#
+# Every current postgres:17.x tag (17, 17.5, 17.6, 17-bookworm as of
+# 2026-07-11) resolves to a different image digest but the same gosu build
+# (Go 1.24.6) -- there is no available upstream fix to pin to yet. Re-check
+# when docker-library/postgres publishes a rebuild with an updated gosu.
+CVE-2025-68121
+CVE-2025-61726
+CVE-2025-61729
+CVE-2026-25679
+CVE-2026-27145
+CVE-2026-32280
+CVE-2026-32281
+CVE-2026-32283
+CVE-2026-33811
+CVE-2026-33814
+CVE-2026-39820
+CVE-2026-39822
+CVE-2026-39836
+CVE-2026-42499
+CVE-2026-42504

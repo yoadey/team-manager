@@ -2,13 +2,58 @@ package absences
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
+const pgCheckViolation = "23514"
+
+// ErrInvalidDateRange is returned when a partial update would leave an
+// absence's to_date before its from_date (violates the absences_date_range
+// CHECK constraint). CreateAbsence/UpdateAbsence request bodies are validated
+// in the handler when both dates are present in the same request, but a
+// partial UpdateAbsence (only one of from/to) can only be caught here, since
+// the merge happens inside the UPDATE statement itself.
+var ErrInvalidDateRange = errors.New("to date must not be before from date")
+
+// ErrSpanTooLong is returned when a partial update would leave an absence
+// spanning more than maxAbsenceSpanDays (violates the
+// absences_span_within_limit CHECK constraint, migration 00016). Same
+// partial-PATCH gap as ErrInvalidDateRange: the handler only checks the span
+// when both from/to are present in the same request.
+var ErrSpanTooLong = errors.New("absence span must not exceed 3 years")
+
+// ErrNotMember is returned by Create when userID is not (or is no longer) a
+// member of teamID. RequireMembership checks this once at the start of the
+// request, but absences is self-service with no module-level write gate
+// (see authz.go's routeModule), so nothing re-checks it here -- without this,
+// a membership removal racing this request (e.g. an admin's concurrent
+// RemoveMember) could still leave an orphaned absence row (with a private
+// `reason` text) attached to a team the user no longer belongs to, since
+// events.SetAttendance/SetNomination already guard the identical race for
+// their own self-service writes.
+var ErrNotMember = errors.New("user is not a member of this team")
+
+// absencesSpanConstraint is the CHECK constraint name added by migration
+// 00016, used to distinguish an over-long span from an inverted date range
+// (both surface as the same SQLSTATE 23514).
+const absencesSpanConstraint = "absences_span_within_limit"
+
+// ErrOverlappingAbsence is returned by Create/Update when the resulting date
+// range would overlap another absence entry already recorded for the same
+// user in the same team. Enforced in Go (behind the per-team advisory lock),
+// not a DB constraint -- an EXCLUDE constraint would need to validate
+// against any pre-existing overlapping rows at migration time, which isn't
+// safe to assume clean without a data audit; this closes the same gap for
+// every write going forward without touching existing rows.
+var ErrOverlappingAbsence = errors.New("absence dates overlap an existing entry")
 
 // Repository handles all absence-related DB operations.
 type Repository struct {
@@ -23,7 +68,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 const selectAbsenceFields = `
 	a.id, a.user_id, a.team_id, a.from_date, a.to_date, a.reason, a.created_at,
 	u.name AS member_name, u.avatar_color AS member_avatar_color,
-	COALESCE(u.photo_data, ''::bytea) AS photo_data,
+	(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo,
 	r.name AS role_name, r.color AS role_color
 `
 
@@ -33,19 +78,25 @@ const absenceJoins = `
 
 // absenceRoleJoins enriches a set of absence rows (aliased as a) with the
 // author and a single non-system role. Shared by the list queries (which alias
-// a keyset-bounded subquery as a) and findByID.
+// a keyset-bounded subquery as a) and findByID. A member holding two or more
+// custom roles fans this join out into multiple candidate rows per absence;
+// every caller collapses that with SELECT DISTINCT ON (a.id) ... ORDER BY
+// a.id, r.id -- the r.id tiebreak (matching events.batchGetPrimaryRoles'
+// convention) is required, not optional: without it, Postgres's choice of
+// which role's name/color survives is unspecified row order, so the badge
+// shown next to an absence could differ across otherwise-identical requests.
 const absenceRoleJoins = `
 	JOIN users u ON u.id = a.user_id
 	LEFT JOIN memberships m ON m.user_id = a.user_id AND m.team_id = a.team_id
 	LEFT JOIN membership_roles mr ON mr.membership_id = m.id
-	LEFT JOIN roles r ON r.id = mr.role_id AND r.system = false
+	LEFT JOIN roles r ON r.id = mr.role_id AND r.system = false AND r.team_id = a.team_id
 `
 
 func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) {
 	ab := &AbsenceRow{}
 	err := row.Scan(
 		&ab.Id, &ab.UserId, &ab.TeamId, &ab.FromDate, &ab.ToDate, &ab.Reason, &ab.CreatedAt,
-		&ab.MemberName, &ab.MemberAvatarColor, &ab.PhotoData,
+		&ab.MemberName, &ab.MemberAvatarColor, &ab.HasPhoto,
 		&ab.RoleName, &ab.RoleColor,
 	)
 	if err != nil {
@@ -56,6 +107,16 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 
 // ListCursor is the keyset position for absence pagination
 // (ORDER BY from_date DESC, id DESC).
+//
+// Known, accepted limitation: from_date is mutable (self-service Update lets
+// a user change their own absence's start date). If a row's from_date
+// changes to fall on the other side of an in-progress pagination's cursor
+// while a caller is mid-page, that row can be skipped or, less likely,
+// duplicated across pages -- the same tradeoff any keyset pagination scheme
+// accepts when sorting by an editable column. The window is self-healing
+// (a fresh list call is always fully correct) and low-impact (an admin
+// viewing the team's absence list, not a security or data-integrity issue),
+// so this is deliberately not being architected around.
 type ListCursor struct {
 	FromDate time.Time `json:"f"`
 	ID       uuid.UUID `json:"i"`
@@ -106,7 +167,7 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int
 				LIMIT $2
 			) a
 			%s
-			ORDER BY a.id
+			ORDER BY a.id, r.id
 		) sub
 		ORDER BY from_date DESC, id DESC`, selectAbsenceFields, predicate, absenceRoleJoins)
 	rows, err := r.pool.Query(ctx, q, args...)
@@ -138,7 +199,7 @@ func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, l
 				LIMIT $3
 			) a
 			%s
-			ORDER BY a.id
+			ORDER BY a.id, r.id
 		) sub
 		ORDER BY from_date DESC, id DESC`, selectAbsenceFields, predicate, absenceRoleJoins)
 	rows, err := r.pool.Query(ctx, q, args...)
@@ -149,53 +210,202 @@ func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, l
 	return scanAbsenceRows(rows, "ListByUser")
 }
 
-// Create inserts a new absence and returns the enriched row.
+// Create inserts a new absence and returns the enriched row. Returns
+// ErrNotMember if userID is not a member of teamID (see ErrNotMember's doc
+// comment for why this re-check is needed despite RequireMembership already
+// having run once at the start of the request).
 func (r *Repository) Create(ctx context.Context, teamID, userID uuid.UUID, fromDate, toDate string, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var id uuid.UUID
-	err := r.pool.QueryRow(
-		ctx,
-		`INSERT INTO absences (user_id, team_id, from_date, to_date, reason) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		userID, teamID, fromDate, toDate, reason,
-	).Scan(&id)
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.Create: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize against a concurrent Create/Update for the same team so the
+	// overlap check below can't be invalidated by a second request
+	// inserting between the check and this INSERT.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Create: advisory lock: %w", err)
+	}
+
+	overlaps, err := userHasOverlappingAbsence(ctx, tx, teamID, userID, uuid.Nil, fromDate, toDate)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.Create: %w", err)
 	}
-	return r.findByID(ctx, id)
+	if overlaps {
+		return nil, ErrOverlappingAbsence
+	}
+
+	var id uuid.UUID
+	err = tx.QueryRow(
+		ctx,
+		`INSERT INTO absences (user_id, team_id, from_date, to_date, reason)
+		SELECT $1, $2, $3, $4, $5
+		WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $2 AND user_id = $1)
+		RETURNING id`,
+		userID, teamID, fromDate, toDate, reason,
+	).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotMember
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			if pgErr.ConstraintName == absencesSpanConstraint {
+				return nil, ErrSpanTooLong
+			}
+			return nil, ErrInvalidDateRange
+		}
+		return nil, fmt.Errorf("absences.Repository.Create: %w", err)
+	}
+
+	ab, err := findByIDQ(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Create: commit: %w", err)
+	}
+	return ab, nil
+}
+
+// userHasOverlappingAbsence reports whether userID already has an absence
+// entry in teamID whose [from_date, to_date] range overlaps [fromDate,
+// toDate], other than excludeID (pass uuid.Nil for a new entry with nothing
+// to exclude).
+func userHasOverlappingAbsence(ctx context.Context, tx pgx.Tx, teamID, userID, excludeID uuid.UUID, fromDate, toDate string) (bool, error) {
+	var overlaps bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM absences
+			WHERE team_id = $1 AND user_id = $2 AND id != $3
+			  AND from_date <= $5::date AND to_date >= $4::date
+		)
+	`, teamID, userID, excludeID, fromDate, toDate).Scan(&overlaps)
+	if err != nil {
+		return false, fmt.Errorf("check overlapping absence: %w", err)
+	}
+	return overlaps, nil
+}
+
+// resolveFinalRange loads id's current [from_date, to_date] and merges in
+// whichever of fromDate/toDate a partial PATCH actually supplied, returning
+// the range Update's write would result in. Returns pgx.ErrNoRows if no
+// matching absence exists.
+func resolveFinalRange(ctx context.Context, tx pgx.Tx, id, teamID, userID uuid.UUID, fromDate, toDate *string) (finalFrom, finalTo string, err error) {
+	err = tx.QueryRow(
+		ctx,
+		`SELECT from_date::text, to_date::text FROM absences WHERE id = $1 AND team_id = $2 AND user_id = $3`,
+		id, teamID, userID,
+	).Scan(&finalFrom, &finalTo)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", pgx.ErrNoRows
+		}
+		return "", "", fmt.Errorf("absences.Repository.Update: load current range: %w", err)
+	}
+	if fromDate != nil {
+		finalFrom = *fromDate
+	}
+	if toDate != nil {
+		finalTo = *toDate
+	}
+	return finalFrom, finalTo, nil
 }
 
 // Update modifies an absence that belongs to teamID and userID (self-service:
 // a member may only update their own absence entries) and returns the
-// enriched row. Returns pgx.ErrNoRows if no matching absence exists.
+// enriched row. Returns pgx.ErrNoRows if no matching absence exists OR if
+// userID is no longer a member of teamID -- like Create, the write re-checks
+// membership atomically inside the UPDATE itself (behind the same advisory
+// lock RemoveMember takes), closing the same TOCTOU race Create's ErrNotMember
+// guards against: without it, a concurrent RemoveMember could complete after
+// RequireMembership's request-start check but before this write commits,
+// still letting a just-departed member mutate an absence row tied to a team
+// they no longer belong to.
 func (r *Repository) Update(ctx context.Context, id, teamID, userID uuid.UUID, fromDate, toDate, reason *string) (*AbsenceRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: advisory lock: %w", err)
+	}
+
+	// A partial PATCH (only from or only to) needs the *resulting* range to
+	// check for overlap against, not just whichever field was supplied --
+	// same reason the span/date-range CHECK constraints alone aren't enough
+	// (see ErrInvalidDateRange/ErrSpanTooLong above).
+	finalFrom, finalTo, err := resolveFinalRange(ctx, tx, id, teamID, userID, fromDate, toDate)
+	if err != nil {
+		return nil, err
+	}
+
+	overlaps, err := userHasOverlappingAbsence(ctx, tx, teamID, userID, id, finalFrom, finalTo)
+	if err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: %w", err)
+	}
+	if overlaps {
+		return nil, ErrOverlappingAbsence
+	}
+
+	tag, err := tx.Exec(
 		ctx,
 		`UPDATE absences SET
 			from_date = COALESCE($4::date, from_date),
 			to_date   = COALESCE($5::date, to_date),
 			reason    = COALESCE($6, reason)
-		 WHERE id = $1 AND team_id = $2 AND user_id = $3`,
+		 WHERE id = $1 AND team_id = $2 AND user_id = $3
+		   AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $2 AND user_id = $3)`,
 		id, teamID, userID, fromDate, toDate, reason,
 	)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+			if pgErr.ConstraintName == absencesSpanConstraint {
+				return nil, ErrSpanTooLong
+			}
+			return nil, ErrInvalidDateRange
+		}
 		return nil, fmt.Errorf("absences.Repository.Update: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, pgx.ErrNoRows
 	}
-	return r.findByID(ctx, id)
+
+	ab, err := findByIDQ(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("absences.Repository.Update: commit: %w", err)
+	}
+	return ab, nil
 }
 
 // Delete removes an absence by ID that belongs to teamID and userID
 // (self-service: a member may only delete their own absence entries).
-// Returns pgx.ErrNoRows if no matching absence exists.
+// Returns pgx.ErrNoRows if no matching absence exists OR if userID is no
+// longer a member of teamID -- same TOCTOU guard as Update/Create (see
+// Update's doc comment); a single DELETE statement is already atomic, so no
+// explicit transaction/advisory lock is needed here.
 func (r *Repository) Delete(ctx context.Context, id, teamID, userID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `DELETE FROM absences WHERE id = $1 AND team_id = $2 AND user_id = $3`, id, teamID, userID)
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM absences WHERE id = $1 AND team_id = $2 AND user_id = $3
+		  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $2 AND user_id = $3)`,
+		id, teamID, userID)
 	if err != nil {
 		return fmt.Errorf("absences.Repository.Delete: %w", err)
 	}
@@ -205,10 +415,22 @@ func (r *Repository) Delete(ctx context.Context, id, teamID, userID uuid.UUID) e
 	return nil
 }
 
-// findByID looks up a single absence with enrichment.
-func (r *Repository) findByID(ctx context.Context, id uuid.UUID) (*AbsenceRow, error) {
-	q := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.id = $1 ORDER BY a.id`, selectAbsenceFields, absenceJoins)
-	row := r.pool.QueryRow(ctx, q, id)
+// querier is satisfied by both *pgxpool.Pool and pgx.Tx, letting findByIDQ
+// run either as a standalone query or inside a caller's transaction.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// findByIDQ looks up a single absence with enrichment. Takes a querier
+// rather than always using r.pool so Create/Update can read the row back
+// inside their own transaction, before committing -- still holding the
+// per-team advisory lock. Delete doesn't take that lock, so a post-commit
+// reload on r.pool could otherwise race a concurrent self-service delete of
+// the very row just written, turning a genuinely successful write into a
+// reported error.
+func findByIDQ(ctx context.Context, q querier, id uuid.UUID) (*AbsenceRow, error) {
+	sql := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.id = $1 ORDER BY a.id, r.id`, selectAbsenceFields, absenceJoins)
+	row := q.QueryRow(ctx, sql, id)
 	ab, err := scanAbsence(row)
 	if err != nil {
 		return nil, fmt.Errorf("absences.Repository.findByID: %w", err)

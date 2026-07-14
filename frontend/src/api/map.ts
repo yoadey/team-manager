@@ -1,7 +1,13 @@
 // Mapping functions: API schema types → frontend domain types.
-// Photos: the backend stores raw bytes and returns hasPhoto:boolean.
-// Photo display uses null (initials/avatar fallback) for now; upload still works.
+// Photos: the backend stores raw bytes and returns hasPhoto:boolean. Only two
+// GET-by-bytes endpoints exist — the current user's own photo (/auth/me/photo)
+// and a team's photo/logo (/teams/{teamId}/photo|logo) — so only those two
+// entities can be resolved to a display URL here. Other members' photos
+// (attendance rows, comments, poll voters, finance rows, stats, ...) have no
+// per-arbitrary-user photo endpoint on the backend, so they stay null
+// (initials/avatar fallback) until such an endpoint exists.
 
+import { config } from '@/config';
 import type { components } from './types.gen';
 import type {
   User,
@@ -48,6 +54,30 @@ export function eurosToCents(euros: number): number {
   return Math.round(euros * 100);
 }
 
+// photoUrl builds a cache-busted display URL for a hasPhoto-gated GET
+// endpoint, or null when the entity has no photo. The session cookie is
+// same-origin (or configured-CORS) and sent automatically by <img>/CSS
+// background-image requests, so no auth token needs to be embedded here.
+// The timestamp query param exists purely to bust the browser's HTTP cache
+// on re-upload — it is recomputed only when the mapper re-runs (i.e. on a
+// fresh API response), not on every render, so it doesn't defeat caching
+// between unrelated re-renders of the same mapped object.
+function photoUrl(hasPhoto: boolean | undefined, path: string): string | null {
+  if (!hasPhoto) return null;
+  return `${config.apiBaseUrl}/api/v1${path}?v=${Date.now()}`;
+}
+
+// The backend's attendance-quote fields (MemberStat.quote, EventStat.pct,
+// StatsOverview.avg, MemberAttendanceStats.quote) are 0-1 fractions
+// (internal/stats/service.go's quote() divides yes/counted); every frontend
+// consumer (Stats.tsx, MemberSheets.tsx) renders them as a whole-number
+// percentage (`+ '%'`) with 0-100 thresholds, matching the mock service
+// layer's convention. Round to the nearest integer percentage here, once, so
+// every caller of these mappers gets the scale the UI already assumes.
+function fractionToPercent(fraction: number): number {
+  return Math.round(fraction * 100);
+}
+
 export function mapUser(u: S['User']): User {
   return {
     id: u.id,
@@ -55,7 +85,7 @@ export function mapUser(u: S['User']): User {
     email: u.email,
     phone: u.phone ?? '',
     avatarColor: u.avatarColor,
-    photo: null, // hasPhoto→null; photo upload/display via separate endpoints
+    photo: photoUrl(u.hasPhoto, '/auth/me/photo'),
     birthday: u.birthday ?? '',
     address: u.address ?? '',
   };
@@ -92,8 +122,8 @@ export function mapTeam(t: S['Team']): Team {
     icon: t.icon ?? '⭐',
     iconBg: t.iconBg ?? '#1565C0',
     iconFg: t.iconFg ?? '#FFFFFF',
-    photo: null,
-    logo: null,
+    photo: photoUrl(t.hasPhoto, `/teams/${t.id}/photo`),
+    logo: photoUrl(t.hasLogo, `/teams/${t.id}/logo`),
     description: t.description ?? '',
     reasonVisibilityRoles: t.reasonVisibilityRoleIds,
   };
@@ -107,6 +137,10 @@ export function mapTeamForUser(t: S['TeamForUser']): TeamForUser {
     membershipId: t.membershipId,
     memberCount: t.memberCount,
   };
+}
+
+export function mapAcceptInviteResponse(r: S['AcceptInviteResponse']): TeamForUser & { alreadyMember: boolean } {
+  return { ...mapTeamForUser(r), alreadyMember: r.alreadyMember };
 }
 
 export function mapInvite(inv: S['Invite']): Invite {
@@ -176,7 +210,15 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
     summary: mapEventSummary(e.summary),
     myStatus: e.myStatus ?? 'pending',
     myAuto: e.myAuto ?? false,
-    myReason: '',
+    // events.Service.{ListEvents,GetEvent} populate MyReason from the
+    // caller's own attendance row (see internal/events/service.go). Dropping
+    // it here (as this used to, always returning '') meant setMyStatus()
+    // (useEventActions.ts's `keep = ev.myReason || ''`) always saw an empty
+    // reason for the real backend and silently erased the user's previously
+    // saved attendance reason on every quick yes/no/maybe tap, and
+    // EventDetailSheet.tsx's comment-reason indicator always rendered as
+    // "no reason" even when one existed.
+    myReason: e.myReason ?? '',
   };
 }
 
@@ -249,7 +291,11 @@ export function mapPoll(p: S['Poll']): Poll {
     anonymous: p.anonymous,
     createdAt: p.createdAt,
     totalVotes: p.totalVotes,
-    myVote: p.myVote ?? [],
+    // p.myVote is null (never []) from the backend when the caller hasn't
+    // voted — PollsPage.tsx's `voted = !!p.myVote` treats [] as "voted" too
+    // (!![] is true in JS), so coalescing null to [] here made every unvoted
+    // poll render as if the user had already voted. Preserve the null.
+    myVote: p.myVote ?? null,
     options: (p.options ?? []).map((o) => ({
       id: o.id,
       text: o.text,
@@ -370,7 +416,11 @@ export function mapMemberStat(s: S['MemberStat']): MemberStat {
     name: s.name,
     avatarColor: s.avatarColor,
     photo: null,
-    quote: s.quote,
+    // counted === 0 means "no data yet", not "0% attendance" — Stats.tsx
+    // renders these as distinct states (– / gray vs. 0% / red). The backend
+    // always returns a number (0 when counted is 0), so map that case to
+    // null here, matching the mock and stats.attendanceFor's convention.
+    quote: s.counted > 0 ? fractionToPercent(s.quote) : null,
     counted: s.counted,
     yes: s.yes,
   };
@@ -384,14 +434,14 @@ export function mapEventStat(s: S['EventStat']): EventStat {
     date: s.date,
     yes: s.yes,
     nominated: s.nominated,
-    pct: s.pct,
+    pct: fractionToPercent(s.pct),
     enough: s.enough,
   };
 }
 
 export function mapStatsOverview(o: S['StatsOverview']): StatsOverview {
   return {
-    avg: o.avg,
+    avg: fractionToPercent(o.avg),
     members: o.members.map(mapMemberStat),
     events: o.events.map(mapEventStat),
     pastCount: o.pastCount,

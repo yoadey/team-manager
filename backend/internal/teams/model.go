@@ -14,10 +14,8 @@ type TeamRow struct {
 	Icon                    *string
 	IconBg                  *string
 	IconFg                  *string
-	PhotoData               []byte
-	PhotoMime               *string
-	LogoData                []byte
-	LogoMime                *string
+	HasPhoto                bool
+	HasLogo                 bool
 	Description             *string
 	ReasonVisibilityRoleIDs []uuid.UUID
 	CreatedAt               time.Time

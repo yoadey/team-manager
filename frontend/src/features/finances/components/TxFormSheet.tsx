@@ -5,7 +5,8 @@ import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
 import type { TxFormValues } from '../types';
-import { t } from '@/i18n';
+import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
+import { getIntlLocale, t } from '@/i18n';
 
 export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
@@ -24,6 +25,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       <ButtonBase
         key={v}
         onClick={() => app.setFormVal({ type: v })}
+        aria-pressed={sel}
         sx={{
           flex: 1,
           display: 'flex',
@@ -48,56 +50,57 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
 
   const cats = [
     ...new Set(((app.state.finances && app.state.finances.transactions) || []).map((x) => x.category).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b, 'de'));
+  ].sort((a, b) => a.localeCompare(b, getIntlLocale()));
 
   const catField = (
-    <Field label={t('finances.txFieldCategory')}>
-      <Box>
+    <Box>
+      <Field label={t('finances.txFieldCategory')}>
         <input
           key="i"
           name="category"
           list="tvCatList"
           autoComplete="off"
+          maxLength={255}
           value={F.category == null ? '' : F.category}
           onChange={app.onFormInput}
           placeholder={t('finances.txCategoryPlaceholder')}
           style={inputSx}
         />
-        <datalist key="dl" id="tvCatList">
-          {cats.map((c) => (
-            <option key={c} value={c} />
-          ))}
-        </datalist>
-        {cats.length ? (
-          <Box key="qp" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px', mt: '8px' }}>
-            {cats.map((c) => {
-              const sel = F.category === c;
-              return (
-                <ButtonBase
-                  key={c}
-                  onClick={() => app.setFormVal({ category: c })}
-                  sx={{
-                    p: '5px 11px',
-                    borderRadius: '999px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    border: '1px solid ' + (sel ? tk.primary : NEUTRAL.inputBorder),
-                    background: sel ? tk.primaryContainer : NEUTRAL.card,
-                    color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
-                  }}
-                >
-                  {c}
-                </ButtonBase>
-              );
-            })}
-          </Box>
-        ) : null}
-        <Box key="hint" sx={{ fontSize: '11px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
-          {t('finances.txCategoryHint')}
+      </Field>
+      <datalist key="dl" id="tvCatList">
+        {cats.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      {cats.length ? (
+        <Box key="qp" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px', mt: '8px' }}>
+          {cats.map((c) => {
+            const sel = F.category === c;
+            return (
+              <ButtonBase
+                key={c}
+                onClick={() => app.setFormVal({ category: c })}
+                sx={{
+                  p: '5px 11px',
+                  borderRadius: '999px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: '1px solid ' + (sel ? tk.primary : NEUTRAL.inputBorder),
+                  background: sel ? tk.primaryContainer : NEUTRAL.card,
+                  color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+                }}
+              >
+                {c}
+              </ButtonBase>
+            );
+          })}
         </Box>
+      ) : null}
+      <Box key="hint" sx={{ fontSize: '11px', color: NEUTRAL.faint, mt: '8px', lineHeight: 1.5 }}>
+        {t('finances.txCategoryHint')}
       </Box>
-    </Field>
+    </Box>
   );
 
   const del = edit ? (
@@ -136,37 +139,21 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   const validateTitle = () =>
     app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : t('finances.txFieldTitleError') });
   const validateAmount = () => {
-    const raw = String(F.amount ?? '')
-      .trim()
-      .replace(',', '.');
-    const n = Number(raw);
-    app.setFormErrors({
-      amount: !raw
-        ? t('finances.txFieldAmountError')
-        : !Number.isFinite(n) || n <= 0
-          ? t('finances.txFieldAmountErrorPositive')
-          : '',
-    });
+    const r = validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
+    app.setFormErrors({ amount: r.ok ? '' : r.message! });
   };
 
   const canSubmit =
-    !!F.title?.trim() &&
-    (() => {
-      const raw = String(F.amount ?? '')
-        .trim()
-        .replace(',', '.');
-      const n = Number(raw);
-      return raw && Number.isFinite(n) && n > 0;
-    })();
+    !!F.title?.trim() && validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box sx={{ display: 'flex', gap: '8px' }}>{typeBtns}</Box>
       <Field label={t('finances.txFieldTitle')} required error={!!errs.title} errorText={errs.title}>
-        <TextInput name="title" placeholder={t('finances.txFieldTitlePlaceholder')} onBlur={validateTitle} />
+        <TextInput name="title" placeholder={t('finances.txFieldTitlePlaceholder')} onBlur={validateTitle} maxLength={255} />
       </Field>
       <Field label={t('finances.txFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
-        <TextInput name="amount" type="number" onBlur={validateAmount} />
+        <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
       </Field>
       {catField}
       <PrimaryButton

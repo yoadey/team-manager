@@ -88,6 +88,21 @@ describe('NewsFormSheet', () => {
     expect(app.setFormErrors).toHaveBeenCalledWith({ body: '' });
   });
 
+  // Regression test: title/body were capped at 120/5000, needlessly
+  // stricter than the backend's validate.Name/validate.Text bounds
+  // (255/10000) -- silently blocking a longer title or post the backend
+  // would happily accept, unlike every other form in the codebase which
+  // matches the backend's limits exactly.
+  it('caps title and body inputs matching the backend limits', () => {
+    makeApp();
+    const app = mockUseApp();
+    render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
+    const title = screen.getByPlaceholderText('Überschrift') as HTMLInputElement;
+    const body = screen.getByPlaceholderText('Was gibt es Neues?') as HTMLTextAreaElement;
+    expect(title.maxLength).toBe(255);
+    expect(body.maxLength).toBe(10000);
+  });
+
   it('renders pin toggle', () => {
     makeApp();
     const app = mockUseApp();

@@ -38,7 +38,6 @@ const (
 	EventRoleUpdate = "role.update"
 	EventRoleDelete = "role.delete"
 
-	EventMemberAdd         = "member.add"
 	EventMemberUpdate      = "member.update"
 	EventMemberRemove      = "member.remove"
 	EventMemberRolesChange = "member.roles_change"
@@ -47,8 +46,15 @@ const (
 	// action is carried in an "operation" attribute (e.g. transaction.create).
 	EventFinanceMutation = "finance.mutation"
 
-	EventTeamUpdate = "team.update"
-	EventTeamInvite = "team.invite_create"
+	EventTeamCreate       = "team.create"
+	EventTeamUpdate       = "team.update"
+	EventTeamInvite       = "team.invite_create"
+	EventTeamInviteAccept = "team.invite_accept"
+
+	// EventTeamBrandingUpdate covers photo/logo upload and delete; the
+	// specific action is carried in an "operation" attribute (e.g.
+	// photo.upload), mirroring EventFinanceMutation's shape.
+	EventTeamBrandingUpdate = "team.branding_update"
 )
 
 // Logger emits audit records to the application log and, when a DB pool is

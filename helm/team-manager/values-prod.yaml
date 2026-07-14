@@ -28,6 +28,13 @@ env:
   SESSION_TTL_HOURS: "720"
   OTEL_SERVICE_NAME: "team-manager-backend"
   ENVIRONMENT: "production"
+  # Since ingress is enabled above, every request is proxied through
+  # nginx-ingress — set this to your cluster's ingress-controller pod CIDR
+  # (or LB egress range) or rate limiting/login brute-force protection
+  # silently keys on the ingress controller's own IP for every client. See
+  # docs/operations.md's "Rate limiting" section. `helm install`/`upgrade`
+  # prints a warning (see templates/NOTES.txt) if this is left unset.
+  # TRUSTED_PROXY_CIDRS: "10.244.0.0/16"
 
 resources:
   requests:

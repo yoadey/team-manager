@@ -3,7 +3,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
 )
 
@@ -85,29 +85,46 @@ func (rw *responseWriter) WriteHeader(code int) {
 // Logger returns structured request logging middleware backed by the supplied
 // slog.Logger. Each request produces a single log record containing the HTTP
 // method, path, status code, duration, and request ID (when present).
+//
+// The log line is emitted from a defer so a panicking handler still produces
+// a "request" record (with status forced to 500) — Recoverer wraps this
+// middleware, so without the defer a panic would unwind straight past the
+// logging call below. The panic is re-raised afterward so Recoverer still
+// handles the response and its own "panic recovered" log line as before.
 func Logger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
 			start := time.Now()
 			rw := newResponseWriter(w)
 
-			next.ServeHTTP(rw, r)
+			defer func() {
+				status := rw.status
+				rec := recover()
+				if rec != nil {
+					status = http.StatusInternalServerError
+				}
+				attrs := []any{
+					slog.String("method", r.Method),
+					slog.String("path", r.URL.Path),
+					slog.Int("status", status),
+					slog.Duration("duration", time.Since(start)),
+					slog.String("request_id", GetRequestID(ctx)),
+				}
+				// Correlate logs with traces when a span is active.
+				if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
+					attrs = append(attrs,
+						slog.String("trace_id", sc.TraceID().String()),
+						slog.String("span_id", sc.SpanID().String()),
+					)
+				}
+				logger.InfoContext(ctx, "request", attrs...)
+				if rec != nil {
+					panic(rec)
+				}
+			}()
 
-			attrs := []any{
-				slog.String("method", r.Method),
-				slog.String("path", r.URL.Path),
-				slog.Int("status", rw.status),
-				slog.Duration("duration", time.Since(start)),
-				slog.String("request_id", GetRequestID(r.Context())),
-			}
-			// Correlate logs with traces when a span is active.
-			if sc := trace.SpanContextFromContext(r.Context()); sc.IsValid() {
-				attrs = append(attrs,
-					slog.String("trace_id", sc.TraceID().String()),
-					slog.String("span_id", sc.SpanID().String()),
-				)
-			}
-			logger.InfoContext(r.Context(), "request", attrs...)
+			next.ServeHTTP(rw, r)
 		})
 	}
 }
@@ -121,16 +138,8 @@ func makeLimitHandler(window time.Duration, limitCtx string) httprate.Option {
 	retryAfter := strconv.Itoa(max(1, int(window.Seconds())))
 	return httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 		metrics.RateLimitHits.WithLabelValues(limitCtx).Inc()
-		w.Header().Set("Content-Type", "application/problem+json")
 		w.Header().Set("Retry-After", retryAfter)
-		w.WriteHeader(http.StatusTooManyRequests)
-		body := map[string]any{
-			"type":   "https://teammanager.example/errors/too-many-requests",
-			"title":  "Too Many Requests",
-			"status": http.StatusTooManyRequests,
-			"detail": "rate limit exceeded; please slow down",
-		}
-		_ = json.NewEncoder(w).Encode(body)
+		apierror.New(http.StatusTooManyRequests, "Too Many Requests", "rate limit exceeded; please slow down").Render(w)
 	})
 }
 
@@ -363,15 +372,7 @@ func Recoverer(logger *slog.Logger) func(http.Handler) http.Handler {
 					span.RecordError(fmt.Errorf("%w: %v", errPanicRecovered, rec))
 					span.SetStatus(codes.Error, "panic recovered")
 
-					w.Header().Set("Content-Type", "application/problem+json")
-					w.WriteHeader(http.StatusInternalServerError)
-					body := map[string]any{
-						"type":   "https://teammanager.example/errors/internal-server-error",
-						"title":  "Internal Server Error",
-						"status": http.StatusInternalServerError,
-						"detail": "an unexpected error occurred",
-					}
-					_ = json.NewEncoder(w).Encode(body)
+					apierror.Internal("an unexpected error occurred").Render(w)
 				}
 			}()
 

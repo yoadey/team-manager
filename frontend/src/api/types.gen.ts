@@ -166,7 +166,8 @@ export interface paths {
         /** Upload team photo (scaled to max 800×800 px) */
         put: operations["uploadTeamPhoto"];
         post?: never;
-        delete?: never;
+        /** Remove team photo (revert to icon) */
+        delete: operations["deleteTeamPhoto"];
         options?: never;
         head?: never;
         patch?: never;
@@ -186,7 +187,8 @@ export interface paths {
         /** Upload team logo (scaled to max 800×800 px) */
         put: operations["uploadTeamLogo"];
         post?: never;
-        delete?: never;
+        /** Remove team logo (revert to icon) */
+        delete: operations["deleteTeamLogo"];
         options?: never;
         head?: never;
         patch?: never;
@@ -211,6 +213,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/invites/{code}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem an invite code, adding the authenticated user to its team
+         * @description Idempotent: redeeming a code for a team the caller already belongs to just returns that team rather than erroring.
+         */
+        post: operations["acceptInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{teamId}/members": {
         parameters: {
             query?: never;
@@ -223,8 +247,7 @@ export interface paths {
         /** List team members */
         get: operations["listMembers"];
         put?: never;
-        /** Add a member to the team */
-        post: operations["addMember"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -988,6 +1011,10 @@ export interface components {
             membershipId: string;
             memberCount: number;
         };
+        AcceptInviteResponse: components["schemas"]["TeamForUser"] & {
+            /** @description True when the caller was already a member of this team before redeeming the code (the request was a no-op join-wise). */
+            alreadyMember: boolean;
+        };
         CreateTeamRequest: {
             name: string;
             icon?: string;
@@ -1055,14 +1082,6 @@ export interface components {
             perms?: components["schemas"]["Permissions"];
             /** Format: date-time */
             joinedAt: string;
-        };
-        AddMemberRequest: {
-            name: string;
-            /** Format: email */
-            email: string;
-            phone?: string;
-            roleIds?: string[];
-            group?: string;
         };
         UpdateMemberRequest: {
             name?: string;
@@ -1307,6 +1326,7 @@ export interface components {
             anonymous: boolean;
         };
         VotePollRequest: {
+            /** @description Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. Capped to match CreatePollRequest.options' maxItems, since a poll can never have more options than that to vote for. */
             optionIds: string[];
         };
         AppNotification: {
@@ -1566,6 +1586,24 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection. */
+        TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Payload Too Large. All request bodies are capped at 4 MB by default; image upload endpoints additionally enforce their own lower limit. */
+        PayloadTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
     };
     parameters: {
         teamId: string;
@@ -1626,6 +1664,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     logout: {
@@ -1761,6 +1800,7 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
+            413: components["responses"]["PayloadTooLarge"];
         };
     };
     listTeams: {
@@ -1906,6 +1946,27 @@ export interface operations {
                     "application/json": components["schemas"]["Team"];
                 };
             };
+            413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    deleteTeamPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     getTeamLogo: {
@@ -1958,6 +2019,27 @@ export interface operations {
                     "application/json": components["schemas"]["Team"];
                 };
             };
+            413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    deleteTeamLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     createInvite: {
@@ -1980,6 +2062,29 @@ export interface operations {
                     "application/json": components["schemas"]["Invite"];
                 };
             };
+        };
+    };
+    acceptInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptInviteResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listMembers: {
@@ -2008,32 +2113,6 @@ export interface operations {
                         /** @description Cursor for the next page, or null when there are no more items. */
                         nextCursor: string | null;
                     };
-                };
-            };
-        };
-    };
-    addMember: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                teamId: components["parameters"]["teamId"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AddMemberRequest"];
-            };
-        };
-        responses: {
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Member"];
                 };
             };
         };

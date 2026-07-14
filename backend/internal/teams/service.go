@@ -13,24 +13,49 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"golang.org/x/image/draw"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 )
 
 const inviteTTL = 7 * 24 * time.Hour
 
+// ErrImageTooLarge is returned by resizeImage when the uploaded image's
+// dimensions exceed maxDecodePixels.
+var ErrImageTooLarge = errors.New("teams.resizeImage: image dimensions exceed the allowed maximum")
+
+// maxLogoDim caps the longest edge of a resized team photo/logo.
+const maxLogoDim = 800
+
+// maxDecodePixels caps the total pixel count of an uploaded image before it
+// is fully decoded, bounding peak memory against decompression-bomb inputs
+// (a small compressed file can declare enormous dimensions that blow up
+// memory when fully decoded — the 2 MB upload-size limit in readMultipartImage
+// does not bound the decoded pixel count). 50 MP comfortably covers
+// legitimate phone-camera photos. Mirrors internal/auth/service.go's
+// resizeImage, which guards user profile photo uploads the same way.
+const maxDecodePixels = 50_000_000
+
 // teamRepo is the interface the Service relies on.
 type teamRepo interface {
 	ListTeamsForUser(ctx context.Context, userID string) ([]TeamRow, error)
 	GetTeam(ctx context.Context, teamID string) (*TeamRow, error)
-	CreateTeam(ctx context.Context, name, creatorUserID string) (*TeamRow, error)
+	CreateTeam(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*TeamRow, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error)
 	GetMemberCount(ctx context.Context, teamID string) (int, error)
 	GetMembership(ctx context.Context, teamID, userID string) (*MembershipRow, error)
 	GetRolesForMembership(ctx context.Context, membershipID, teamID string) ([]RoleRow, error)
+	GetMemberCounts(ctx context.Context, teamIDs []string) (map[string]int, error)
+	GetMembershipsForUser(ctx context.Context, teamIDs []string, userID string) (map[string]MembershipRow, error)
+	GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
+	AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, bool, error)
+	GetTeamPhotoBytes(ctx context.Context, teamID string) ([]byte, *string, error)
+	GetTeamLogoBytes(ctx context.Context, teamID string) ([]byte, *string, error)
 	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
 	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
+	DeleteTeamPhoto(ctx context.Context, teamID string) error
+	DeleteTeamLogo(ctx context.Context, teamID string) error
 }
 
 // Service implements team business logic.
@@ -48,27 +73,57 @@ func NewService(repo teamRepo, publicBaseURL string) *Service {
 }
 
 // ListForUser returns all teams for the given user enriched with member count,
-// the user's roles, and merged permissions.
+// the user's roles, and merged permissions. Enrichment is batched across all
+// of the user's teams (3 queries total) rather than per-team, since this
+// backs GET /teams -- hit on essentially every session -- and a user can
+// belong to an unbounded number of teams.
 func (s *Service) ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error) {
 	teams, err := s.repo.ListTeamsForUser(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.ListForUser: %w", err)
 	}
+	if len(teams) == 0 {
+		return []gen.TeamForUser{}, nil
+	}
+
+	teamIDs := make([]string, len(teams))
+	for i, t := range teams {
+		teamIDs[i] = t.Id.String()
+	}
+
+	counts, err := s.repo.GetMemberCounts(ctx, teamIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.ListForUser counts: %w", err)
+	}
+	memberships, err := s.repo.GetMembershipsForUser(ctx, teamIDs, userID)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.ListForUser memberships: %w", err)
+	}
+
+	membershipIDs := make([]string, 0, len(memberships))
+	for _, m := range memberships {
+		membershipIDs = append(membershipIDs, m.Id.String())
+	}
+	rolesByMembership, err := s.repo.GetRolesForMemberships(ctx, membershipIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.ListForUser roles: %w", err)
+	}
 
 	out := make([]gen.TeamForUser, 0, len(teams))
 	for _, t := range teams {
-		tfu, err := s.enrichTeamForUser(ctx, t, userID)
-		if err != nil {
-			return nil, err
+		m, ok := memberships[t.Id.String()]
+		if !ok {
+			return nil, fmt.Errorf("teams.Service.ListForUser: %w for team %s", pgx.ErrNoRows, t.Id)
 		}
-		out = append(out, *tfu)
+		roles := rolesByMembership[m.Id.String()]
+		out = append(out, *buildTeamForUser(t, m, counts[t.Id.String()], roles))
 	}
 	return out, nil
 }
 
 // CreateTeam creates a new team and returns it enriched for the creator.
-func (s *Service) CreateTeam(ctx context.Context, userID, name string) (*gen.TeamForUser, error) {
-	tr, err := s.repo.CreateTeam(ctx, name, userID)
+func (s *Service) CreateTeam(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error) {
+	tr, err := s.repo.CreateTeam(ctx, name, userID, icon, iconBg, iconFg)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.CreateTeam: %w", err)
 	}
@@ -77,6 +132,40 @@ func (s *Service) CreateTeam(ctx context.Context, userID, name string) (*gen.Tea
 		return nil, err
 	}
 	return tfu, nil
+}
+
+// AcceptInvite redeems a 7-day invite code, adding userID to the invite's
+// team, and returns that team enriched for the caller, plus whether the
+// caller was already a member (a no-op join-wise).
+func (s *Service) AcceptInvite(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error) {
+	tr, alreadyMember, err := s.repo.AcceptInvite(ctx, code, userID)
+	if err != nil {
+		if errors.Is(err, ErrInviteNotFound) {
+			return nil, ErrInviteNotFound
+		}
+		return nil, fmt.Errorf("teams.Service.AcceptInvite: %w", err)
+	}
+	tfu, err := s.enrichTeamForUser(ctx, *tr, userID)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.AcceptInviteResponse{
+		Id:                      tfu.Id,
+		Name:                    tfu.Name,
+		Short:                   tfu.Short,
+		Icon:                    tfu.Icon,
+		IconBg:                  tfu.IconBg,
+		IconFg:                  tfu.IconFg,
+		Description:             tfu.Description,
+		HasPhoto:                tfu.HasPhoto,
+		HasLogo:                 tfu.HasLogo,
+		MemberCount:             tfu.MemberCount,
+		MembershipId:            tfu.MembershipId,
+		MyRoles:                 tfu.MyRoles,
+		MyPerms:                 tfu.MyPerms,
+		ReasonVisibilityRoleIds: tfu.ReasonVisibilityRoleIds,
+		AlreadyMember:           alreadyMember,
+	}, nil
 }
 
 // GetTeam returns the gen.Team for the given ID.
@@ -97,6 +186,9 @@ func (s *Service) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
+		}
+		if errors.Is(err, ErrRoleNotInTeam) {
+			return nil, ErrRoleNotInTeam
 		}
 		return nil, fmt.Errorf("teams.Service.UpdateTeam: %w", err)
 	}
@@ -122,21 +214,21 @@ func (s *Service) CreateInvite(ctx context.Context, teamID string) (*gen.Invite,
 
 // GetTeamPhotoData returns the raw photo bytes and MIME type for the given team.
 func (s *Service) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
-	tr, err := s.repo.GetTeam(ctx, teamID)
+	data, mimePtr, err := s.repo.GetTeamPhotoBytes(ctx, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", pgx.ErrNoRows
 		}
 		return nil, "", fmt.Errorf("teams.Service.GetTeamPhotoData: %w", err)
 	}
-	if len(tr.PhotoData) == 0 {
+	if len(data) == 0 {
 		return nil, "", pgx.ErrNoRows
 	}
 	mime = "image/jpeg"
-	if tr.PhotoMime != nil && *tr.PhotoMime != "" {
-		mime = *tr.PhotoMime
+	if mimePtr != nil && *mimePtr != "" {
+		mime = *mimePtr
 	}
-	return tr.PhotoData, mime, nil
+	return data, mime, nil
 }
 
 // UpdatePhoto resizes and stores the team photo, returning the updated gen.Team.
@@ -155,23 +247,34 @@ func (s *Service) UpdatePhoto(ctx context.Context, teamID string, data []byte, m
 	return toGenTeam(tr), nil
 }
 
+// DeletePhoto clears the team photo, reverting display to the icon fallback.
+func (s *Service) DeletePhoto(ctx context.Context, teamID string) error {
+	if err := s.repo.DeleteTeamPhoto(ctx, teamID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgx.ErrNoRows
+		}
+		return fmt.Errorf("teams.Service.DeletePhoto: %w", err)
+	}
+	return nil
+}
+
 // GetTeamLogoData returns the raw logo bytes and MIME type for the given team.
 func (s *Service) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
-	tr, err := s.repo.GetTeam(ctx, teamID)
+	data, mimePtr, err := s.repo.GetTeamLogoBytes(ctx, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, "", pgx.ErrNoRows
 		}
 		return nil, "", fmt.Errorf("teams.Service.GetTeamLogoData: %w", err)
 	}
-	if len(tr.LogoData) == 0 {
+	if len(data) == 0 {
 		return nil, "", pgx.ErrNoRows
 	}
 	mime = "image/jpeg"
-	if tr.LogoMime != nil && *tr.LogoMime != "" {
-		mime = *tr.LogoMime
+	if mimePtr != nil && *mimePtr != "" {
+		mime = *mimePtr
 	}
-	return tr.LogoData, mime, nil
+	return data, mime, nil
 }
 
 // UpdateLogo resizes and stores the team logo, returning the updated gen.Team.
@@ -188,6 +291,17 @@ func (s *Service) UpdateLogo(ctx context.Context, teamID string, data []byte, mi
 		return nil, fmt.Errorf("teams.Service.UpdateLogo: refresh: %w", err)
 	}
 	return toGenTeam(tr), nil
+}
+
+// DeleteLogo clears the team logo, reverting display to the icon fallback.
+func (s *Service) DeleteLogo(ctx context.Context, teamID string) error {
+	if err := s.repo.DeleteTeamLogo(ctx, teamID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return pgx.ErrNoRows
+		}
+		return fmt.Errorf("teams.Service.DeleteLogo: %w", err)
+	}
+	return nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -208,14 +322,21 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 		return nil, fmt.Errorf("teams.Service.enrichTeamForUser roles: %w", err)
 	}
 
+	return buildTeamForUser(tr, *m, count, roles), nil
+}
+
+// buildTeamForUser assembles the API shape from already-fetched pieces, so
+// both the single-team path (enrichTeamForUser) and the batched list path
+// (ListForUser) share one assembly implementation.
+func buildTeamForUser(tr TeamRow, m MembershipRow, count int, roles []RoleRow) *gen.TeamForUser {
 	genRoles := make([]gen.Role, len(roles))
 	for i, r := range roles {
 		genRoles[i] = toGenRole(r)
 	}
 
 	perms := MergePermissions(roles)
-	hasPhoto := len(tr.PhotoData) > 0
-	hasLogo := len(tr.LogoData) > 0
+	hasPhoto := tr.HasPhoto
+	hasLogo := tr.HasLogo
 
 	tfu := &gen.TeamForUser{
 		Id:           tr.Id,
@@ -239,12 +360,12 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 		tfu.ReasonVisibilityRoleIds = &uuids
 	}
 
-	return tfu, nil
+	return tfu
 }
 
 func toGenTeam(tr *TeamRow) *gen.Team {
-	hasPhoto := len(tr.PhotoData) > 0
-	hasLogo := len(tr.LogoData) > 0
+	hasPhoto := tr.HasPhoto
+	hasLogo := tr.HasLogo
 	t := &gen.Team{
 		Id:          tr.Id,
 		Name:        tr.Name,
@@ -282,25 +403,73 @@ func toGenRole(r RoleRow) gen.Role {
 	}
 }
 
+// resizeImage decodes a JPEG or PNG, scales it proportionally so neither
+// dimension exceeds maxLogoDim, and re-encodes as JPEG.
 func resizeImage(data []byte, mime string) ([]byte, error) {
-	reader := bytes.NewReader(data)
+	// Read the header first (cheap) and reject oversized images before a full
+	// decode — see maxDecodePixels.
+	var cfg image.Config
+	var cfgErr error
+	switch mime {
+	case "image/png":
+		cfg, cfgErr = png.DecodeConfig(bytes.NewReader(data))
+	default:
+		cfg, cfgErr = jpeg.DecodeConfig(bytes.NewReader(data))
+	}
+	if cfgErr != nil {
+		return nil, fmt.Errorf("decode image config: %w", cfgErr)
+	}
+	if cfg.Width*cfg.Height > maxDecodePixels {
+		return nil, fmt.Errorf("%w (%dx%d)", ErrImageTooLarge, cfg.Width, cfg.Height)
+	}
 
 	var src image.Image
 	var decodeErr error
 
 	switch mime {
 	case "image/png":
-		src, decodeErr = png.Decode(reader)
+		src, decodeErr = png.Decode(bytes.NewReader(data))
 	default:
-		src, decodeErr = jpeg.Decode(reader)
+		src, decodeErr = jpeg.Decode(bytes.NewReader(data))
 	}
 	if decodeErr != nil {
 		return nil, fmt.Errorf("decode image: %w", decodeErr)
 	}
 
+	bounds := src.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+
+	if w <= maxLogoDim && h <= maxLogoDim {
+		// No resize needed — still re-encode as JPEG for consistency.
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, src, &jpeg.Options{Quality: 85}); err != nil {
+			return nil, fmt.Errorf("encode image: %w", err)
+		}
+		return buf.Bytes(), nil
+	}
+
+	// Compute new dimensions preserving aspect ratio.
+	var newW, newH int
+	if w > h {
+		newH = h * maxLogoDim / w
+		newW = maxLogoDim
+	} else {
+		newW = w * maxLogoDim / h
+		newH = maxLogoDim
+	}
+	if newW < 1 {
+		newW = 1
+	}
+	if newH < 1 {
+		newH = 1
+	}
+
+	dst := image.NewRGBA(image.Rect(0, 0, newW, newH))
+	draw.BiLinear.Scale(dst, dst.Bounds(), src, src.Bounds(), draw.Over, nil)
+
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, src, &jpeg.Options{Quality: 85}); err != nil {
-		return nil, fmt.Errorf("encode jpeg: %w", err)
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, fmt.Errorf("encode resized image: %w", err)
 	}
 	return buf.Bytes(), nil
 }

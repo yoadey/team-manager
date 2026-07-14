@@ -29,7 +29,7 @@ import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
-import { reportActionError } from '@/utils/errors';
+import { ForbiddenError, reportActionError, retryable } from '@/utils/errors';
 import { captureException, setSentryUser } from '@/monitoring';
 import { t } from '@/i18n';
 import { useFeatureActions } from './useFeatureActions';
@@ -37,7 +37,15 @@ import { useFeatureActions } from './useFeatureActions';
 export type Phase = 'loading' | 'login' | 'noTeam' | 'app';
 export { ALL_ROUTES, routeFromPath } from './urlState';
 export type { Route } from './urlState';
-import { parseLocation, buildPath, currentPath, type Route, type UrlState } from './urlState';
+import {
+  parseLocation,
+  buildPath,
+  currentPath,
+  parsePendingInvite,
+  ROUTE_MODULE,
+  type Route,
+  type UrlState,
+} from './urlState';
 
 /** Map the active detail sheet (walking the back-stack) to a URL detail ref. */
 function detailOfSheet(sheet: SheetState | null): UrlState['detail'] {
@@ -93,6 +101,10 @@ export interface SheetState {
   self?: boolean;
   action?: 'cancel' | 'delete' | 'reactivate';
   event?: TeamEvent | null;
+  /** True once a reload has resolved with a confirmed-missing event (deleted
+   * or inaccessible) -- distinguishes that from `event` still being null
+   * because the initial load hasn't resolved yet. */
+  eventNotFound?: boolean;
   eventId?: string;
   rows?: AttendanceRow[];
   comments?: import('@/features/events').EventComment[];
@@ -140,7 +152,12 @@ export interface AppState {
   /** Shared editing buffer for the active sheet; read typed via formValues<T>() (src/utils/forms.ts). */
   form: Record<string, unknown>;
   formErrors: Record<string, string>;
-  toast: { message: string; action?: { label: string; fn: () => void } } | null;
+  /**
+   * `kind` defaults to 'success' when omitted (Toast.tsx) -- most of the ~70
+   * toastMsg call sites across the app are success confirmations, so only
+   * error paths (reportActionError) need to pass 'error' explicitly.
+   */
+  toast: { message: string; action?: { label: string; fn: () => void }; kind?: 'success' | 'error' } | null;
   error: string | null;
 }
 
@@ -189,8 +206,28 @@ const initialState: AppState = {
   error: null,
 };
 
+// Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
+// JSON string field -- there is no server-side streaming upload path, so an
+// oversized file has to be rejected client-side before FileReader reads it.
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+
 const PAGE_SHEETS = ['eventDetail', 'eventForm', 'memberDetail', 'memberForm', 'teamSettings', 'roles', 'roleForm'];
 export const isPageSheet = (type?: string | null) => !!type && PAGE_SHEETS.includes(type);
+
+/**
+ * Key for the ErrorBoundary wrapping a rendered sheet (AppShell/SheetHost).
+ * React only resets an error boundary's caught-error state on remount (key
+ * change) or an explicit reset -- keying on `sheet.type` alone means
+ * switching between two DIFFERENT entities of the SAME sheet type (e.g. the
+ * popstate handler going straight from eventDetail(evA) to eventDetail(evB)
+ * without an intervening close, which React's automatic batching can collapse
+ * into a single commit with no unmount in between) never remounts the
+ * boundary, so a crash while rendering evA leaves evB stuck behind evA's
+ * stale fallback. Including the entity id closes that gap.
+ */
+export function sheetErrorBoundaryKey(sheet: SheetState): string {
+  return sheet.type + ':' + (sheet.eventId || sheet.membershipId || sheet.userId || '');
+}
 
 export interface AppContextValue {
   state: AppState;
@@ -200,7 +237,7 @@ export interface AppContextValue {
   myRoles: () => Role[];
   can: (module: ModuleKey, level?: PermLevel) => boolean;
   isStaff: () => boolean;
-  toastMsg: (m: string, action?: { label: string; fn: () => void }) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   resetDemo: () => void;
   setPrimaryColor: (c: string) => void;
   setColorScheme: (scheme: AppState['colorScheme']) => void;
@@ -219,6 +256,7 @@ export interface AppContextValue {
   // nav
   go: (route: Route) => void;
   goEventsPending: () => void;
+  goEventsAbsences: () => void;
   closeSheet: () => void;
   activePageSheet: () => SheetState | null;
   selectTeam: (id: string) => Promise<void>;
@@ -238,7 +276,7 @@ export interface AppContextValue {
   openComment: (e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => void;
   submitComment: () => Promise<void>;
   postEventComment: (eventId: string) => Promise<void>;
-  removeEventComment: (eventId: string, cid: string) => Promise<void>;
+  removeEventComment: (eventId: string, cid: string) => void;
   toggleNomination: (eventId: string, userId: string, currentlyNominated: boolean) => Promise<void>;
   // confirm
   askConfirm: (cfg: {
@@ -270,17 +308,19 @@ export interface AppContextValue {
   removeMember: (membershipId: string) => void;
   // roles
   openRoles: () => void;
-  openCreateRole: () => void;
+  openRoleForm: (role?: Role) => void;
   setRolePerm: (module: ModuleKey, level: PermLevel) => void;
   saveRole: () => Promise<void>;
+  removeRole: (roleId: string) => void;
   toggleMyRole: (roleId: string) => Promise<void>;
   // team
   openTeamSwitcher: () => void;
   openProfile: () => void;
   openMore: () => void;
   openTeamSettings: () => void;
-  saveTeamPhoto: (dataUrl: string) => Promise<void>;
-  saveTeamLogo: (dataUrl: string) => Promise<void>;
+  saveTeamPhoto: (dataUrl: string, teamId: string) => Promise<void>;
+  removeTeamPhoto: () => Promise<void>;
+  saveTeamLogo: (dataUrl: string, teamId: string) => Promise<void>;
   setTeamIcon: (em: string) => void;
   toggleReasonRole: (roleId: string) => void;
   saveTeamSettings: () => Promise<void>;
@@ -311,7 +351,7 @@ export interface AppContextValue {
   deletePenaltyDef: (id: string) => void;
   openPenaltyAssign: () => void;
   savePenaltyAssign: () => Promise<void>;
-  deleteAssignment: (id: string) => Promise<void>;
+  deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
   saveContrib: () => Promise<void>;
   togglePenalty: (id: string) => Promise<void>;
@@ -426,9 +466,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
   const isStaff = useCallback(() => isStaffForTeam(activeTeam()), [activeTeam]);
   const toastMsg = useCallback(
-    (m: string, action?: { label: string; fn: () => void }) => {
+    (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
-      setState({ toast: { message: m, action } });
+      setState({ toast: { message: m, action, kind } });
       toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
     },
     [setState],
@@ -467,7 +507,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // onAuthError handler without a TDZ issue. doLogin depends on afterLoginLoad
   // (defined below) so it stays in the data-loaders section.
   const logout = useCallback(() => {
-    api.auth.logout();
+    // The session may already be invalid (e.g. this logout was triggered by an
+    // AuthError from another call), in which case the server 401s here too;
+    // client-side state is cleared regardless, so a failed server-side
+    // invalidation isn't actionable — just report it instead of letting it
+    // surface as an unhandled rejection.
+    api.auth.logout().catch((err: unknown) => {
+      captureException(err, { context: 'logout' });
+    });
     setSentryUser(null);
     setState({
       phase: 'login',
@@ -534,13 +581,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (patch: Record<string, string>) => setState((s) => ({ formErrors: { ...s.formErrors, ...patch } })),
     [setState],
   );
-  const onFile = useCallback((e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
-    const f = e.target.files && e.target.files[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = () => cb(r.result as string);
-    r.readAsDataURL(f);
-  }, []);
+  const onFile = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      // The <input accept="image/*"> attribute is only a picker-UI filter
+      // hint -- a user can switch to "All Files" or drag-and-drop past it,
+      // so this is the only real gate against reading an arbitrary
+      // non-image file (or something huge enough to freeze the tab) into a
+      // base64 data URL and shipping it to the backend as a "photo"/"logo".
+      if (!f.type.startsWith('image/')) {
+        toastMsg(t('error.fileType'), undefined, 'error');
+        e.target.value = '';
+        return;
+      }
+      if (f.size > MAX_UPLOAD_BYTES) {
+        toastMsg(t('error.fileTooLarge', { mb: MAX_UPLOAD_BYTES / (1024 * 1024) }), undefined, 'error');
+        e.target.value = '';
+        return;
+      }
+      const r = new FileReader();
+      r.onload = () => cb(r.result as string);
+      // Without this, a failed read (a corrupted file, a cloud-backed
+      // picker file needing a network fetch that fails, a permission/
+      // hardware error) leaves onload never firing and cb never called --
+      // the user's "upload photo" click silently does nothing, with no
+      // toast and no way to tell it failed at all.
+      r.onerror = () => toastMsg(t('error.fileRead'), undefined, 'error');
+      r.readAsDataURL(f);
+    },
+    [toastMsg],
+  );
 
   // ---------- idle session timeout ----------
   // After IDLE_MS of no pointer/keyboard activity the user gets a toast warning,
@@ -588,11 +659,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [setState, toastMsg, logout],
   );
   const loadNotifications = useCallback(async () => {
+    const teamId = S().activeTeamId!;
     try {
-      const r = await api.notifications.list(S().activeTeamId!);
-      setState({ notifications: r.items, notifUnread: r.unreadCount });
+      const r = await api.notifications.list(teamId);
+      // Discard a stale response if the user switched teams while this was
+      // in flight -- otherwise the previous team's notifications would
+      // clobber the newly selected team's already-cleared state.
+      setState((s) => (s.activeTeamId === teamId ? { notifications: r.items, notifUnread: r.unreadCount } : {}));
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
   // Monotonically increasing call counter so that, if afterLoginLoad is invoked
@@ -619,120 +694,210 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         notifications: null,
         eventsOnlyPending: false,
       });
-      try {
-        const [events, members, roles, news, notif] = await Promise.all([
-          api.events.list(teamId, 'all'),
-          api.members.list(teamId),
-          api.roles.list(teamId),
-          api.news.list(teamId),
-          api.notifications.list(teamId),
-        ]);
-        // Discard results if the user switched to a different team while loading,
-        // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
-        // team) has since been invoked.
-        setState((s) => {
-          if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
-          return { events, members, roles, news, notifications: notif.items, notifUnread: notif.unreadCount };
-        });
-      } catch (err) {
-        if (afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) reportLoad(err);
-        setState((s) =>
-          s.activeTeamId === teamId && afterLoginLoadSeq.current === seq ? { error: t('error.load') } : {},
-        );
+      // Retry on transient network failures — this is the initial-load read
+      // path for the whole app, so a single dropped connection shouldn't
+      // fail the entire team switch/login when a retry would likely
+      // succeed. All five calls are idempotent reads.
+      //
+      // allSettled (not all): a member whose role permits some but not all
+      // of these modules (e.g. finances:none is the default) must still see
+      // everything they DO have access to — one 403 shouldn't blank out
+      // events/news/notifications that already loaded successfully. Each
+      // slot keeps its previous value on failure rather than being forced
+      // to null, so a permission-denied module just doesn't overwrite
+      // whatever was already there (typically null on first load).
+      const [events, members, roles, news, notif] = await Promise.allSettled([
+        retryable(() => api.events.list(teamId, 'all')),
+        retryable(() => api.members.list(teamId)),
+        retryable(() => api.roles.list(teamId)),
+        retryable(() => api.news.list(teamId)),
+        retryable(() => api.notifications.list(teamId)),
+      ]);
+      const failures = [events, members, roles, news, notif].filter((r) => r.status === 'rejected');
+      // A ForbiddenError here just means the caller's role has that module set
+      // to 'none' -- an entirely ordinary, expected state (e.g. news:none),
+      // not a real failure. Surfacing it as a toast on every single login/team
+      // switch for such a role would be a false alarm; only report a genuine
+      // (non-permission) failure.
+      const reportable = failures.find((r) => !(r.reason instanceof ForbiddenError));
+      if (reportable && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
+        reportLoad(reportable.reason);
       }
+      // Discard results if the user switched to a different team while loading,
+      // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
+      // team) has since been invoked.
+      setState((s) => {
+        if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
+        const patch: Partial<AppState> = {};
+        if (events.status === 'fulfilled') patch.events = events.value;
+        if (members.status === 'fulfilled') patch.members = members.value;
+        if (roles.status === 'fulfilled') patch.roles = roles.value;
+        if (news.status === 'fulfilled') patch.news = news.value;
+        if (notif.status === 'fulfilled') {
+          patch.notifications = notif.value.items;
+          patch.notifUnread = notif.value.unreadCount;
+        }
+        return patch;
+      });
     },
     [api, S, setState, reportLoad],
   );
+  // Each loader below gets its own monotonic call-sequence ref, mirroring
+  // afterLoginLoadSeq above: the activeTeamId check alone only guards
+  // against a TEAM SWITCH completing while a call is in flight, not against
+  // two same-team refreshes of the SAME loader racing each other (e.g. two
+  // attendance updates in quick succession both triggering refreshEvents,
+  // or rapidly switching the stats date range). If the network responds
+  // out of request order, an unguarded loader would apply whichever
+  // response happened to arrive last, silently reverting to stale data
+  // even though a newer request was already in flight.
+  const refreshEventsSeq = useRef(0);
   const refreshEvents = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++refreshEventsSeq.current;
     try {
-      const events = await api.events.list(S().activeTeamId!, 'all');
-      setState({ events });
+      const events = await retryable(() => api.events.list(teamId, 'all'));
+      setState((s) => (s.activeTeamId === teamId && refreshEventsSeq.current === seq ? { events } : {}));
       loadNotifications();
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId && refreshEventsSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, loadNotifications, reportLoad]);
+  const refreshMembersSeq = useRef(0);
   const refreshMembers = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++refreshMembersSeq.current;
     try {
-      const members = await api.members.list(S().activeTeamId!);
-      setState({ members });
+      const members = await api.members.list(teamId);
+      setState((s) => (s.activeTeamId === teamId && refreshMembersSeq.current === seq ? { members } : {}));
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId && refreshMembersSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
+  const refreshRolesSeq = useRef(0);
   const refreshRoles = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++refreshRolesSeq.current;
     try {
-      const roles = await api.roles.list(S().activeTeamId!);
-      setState({ roles });
+      const roles = await api.roles.list(teamId);
+      setState((s) => (s.activeTeamId === teamId && refreshRolesSeq.current === seq ? { roles } : {}));
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId && refreshRolesSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
+  // Unlike its sibling loaders above, refreshTeams has no activeTeamId scope
+  // (teams are user-, not team-, scoped) -- but it still needs the same
+  // monotonic-sequence guard, and for the same reason: it's invoked from
+  // many independent, unserialized call sites (useTeamActions' saveTeamPhoto/
+  // saveTeamLogo/setTeamIcon/removeTeamPhoto/saveTeamSettings/createTeam/
+  // uploadMyPhoto, and useRoleActions' toggleMyRole), each guarded against
+  // racing ITSELF (an in-flight key, or toggleMyRole's own chain) but not
+  // against racing each other -- e.g. uploading a team photo while toggling
+  // one's own role in a different sheet fires two concurrent refreshTeams()
+  // calls. Without this, an out-of-order response applies whichever call
+  // happened to resolve last, silently reverting the other's change (e.g. a
+  // just-toggled own role, which feeds can()/myRoles() via activeTeam(),
+  // appearing to un-toggle itself) until the next unrelated refresh.
+  const refreshTeamsSeq = useRef(0);
   const refreshTeams = useCallback(async () => {
+    const seq = ++refreshTeamsSeq.current;
     try {
       const teams = await api.teams.listForCurrentUser();
-      setState({ teams });
+      if (refreshTeamsSeq.current === seq) setState({ teams });
     } catch (err) {
-      reportLoad(err);
+      if (refreshTeamsSeq.current === seq) reportLoad(err);
     }
   }, [api, setState, reportLoad]);
+  const loadFinancesSeq = useRef(0);
   const loadFinances = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++loadFinancesSeq.current;
     try {
-      const finances = await api.finances.overview(S().activeTeamId!);
-      setState({ finances });
+      const finances = await api.finances.overview(teamId);
+      setState((s) => (s.activeTeamId === teamId && loadFinancesSeq.current === seq ? { finances } : {}));
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId && loadFinancesSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
+  const loadStatsSeq = useRef(0);
   const loadStats = useCallback(
     async (range?: DateRange | null) => {
+      const teamId = S().activeTeamId!;
+      const seq = ++loadStatsSeq.current;
       try {
         const r = range !== undefined ? range : S().statsRange;
-        const stats = await api.stats.teamOverview(S().activeTeamId!, r);
-        setState({ stats });
+        const stats = await api.stats.teamOverview(teamId, r);
+        setState((s) => (s.activeTeamId === teamId && loadStatsSeq.current === seq ? { stats } : {}));
       } catch (err) {
-        reportLoad(err);
+        if (S().activeTeamId === teamId && loadStatsSeq.current === seq) reportLoad(err);
       }
     },
     [api, S, setState, reportLoad],
   );
+  const loadNewsSeq = useRef(0);
   const loadNews = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++loadNewsSeq.current;
     try {
-      const news = await api.news.list(S().activeTeamId!);
-      setState({ news });
+      const news = await api.news.list(teamId);
+      setState((s) => (s.activeTeamId === teamId && loadNewsSeq.current === seq ? { news } : {}));
       loadNotifications();
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId && loadNewsSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, loadNotifications, reportLoad]);
+  const loadPollsSeq = useRef(0);
   const loadPolls = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++loadPollsSeq.current;
     try {
-      const polls = await api.polls.list(S().activeTeamId!);
-      setState({ polls });
+      const polls = await api.polls.list(teamId);
+      setState((s) => (s.activeTeamId === teamId && loadPollsSeq.current === seq ? { polls } : {}));
       loadNotifications();
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId && loadPollsSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, loadNotifications, reportLoad]);
+  const loadAbsencesSeq = useRef(0);
   const loadAbsences = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++loadAbsencesSeq.current;
     try {
       const [absences, myAbsences] = await Promise.all([
-        api.absences.listForTeam(S().activeTeamId!),
-        api.absences.listMine(S().activeTeamId!),
+        api.absences.listForTeam(teamId),
+        api.absences.listMine(teamId),
       ]);
-      setState({ absences, myAbsences });
+      setState((s) =>
+        s.activeTeamId === teamId && loadAbsencesSeq.current === seq ? { absences, myAbsences } : {},
+      );
     } catch (err) {
-      reportLoad(err);
+      if (S().activeTeamId === teamId && loadAbsencesSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(
     (route: Route) => {
+      // events/members are normally populated by afterLoginLoad, but that
+      // Promise.allSettled leaves a slot at its previous value (null, right
+      // after login) if its fetch fails and every retry is exhausted -- with
+      // no re-fetch trigger, EventsPage/MembersPage would show a permanent
+      // skeleton loader for the rest of the session, since navigating to
+      // either route was previously a no-op here.
+      //
+      // Skip entirely for a module the caller can't read (nav already hides
+      // these routes, but a stale bookmark/URL or browser back/forward can
+      // still land here) -- RouteScreen renders Home instead of the real
+      // page for that case anyway, so fetching would just be a wasted 403
+      // that reportLoad would then surface as a spurious forbidden toast.
+      const module = ROUTE_MODULE[route];
+      if (module && !can(module, 'read')) return;
+      if (route === 'events' && !S().events) refreshEvents();
+      if (route === 'members' && !S().members) refreshMembers();
       if (route === 'finances' && !S().finances) loadFinances();
       if (route === 'stats' && !S().stats) loadStats();
       if (route === 'news' && !S().news) loadNews();
       if (route === 'polls' && !S().polls) loadPolls();
     },
-    [S, loadFinances, loadStats, loadNews, loadPolls],
+    [S, can, refreshEvents, refreshMembers, loadFinances, loadStats, loadNews, loadPolls],
   );
 
   // ---------- auth ----------
@@ -740,49 +905,125 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // active team and transitions into the app. Shared by the login flows and the
   // startup session-restore effect.
   const establishSession = useCallback(
-    async (user: User | null) => {
-      const teams = await api.teams.listForCurrentUser();
+    async (user: User | null, opts?: { restoreLocation?: boolean }) => {
+      // An invite link (/join/<teamId>/<code>) may have brought the user here,
+      // whether they already had a session (redirected straight back in) or
+      // just logged in for the first time. Redeem it before loading the team
+      // list so the newly joined team is included and can be auto-selected.
+      const invite = parsePendingInvite(window.location.pathname);
+      let joinedTeamId: string | null = null;
+      if (invite) {
+        try {
+          const joined = await api.teams.acceptInvite(invite.code);
+          joinedTeamId = joined.id;
+          // Idempotent redemption: a user re-visiting/re-clicking an old
+          // invite link for a team they're already in must not see a
+          // "joined" toast implying a state change that didn't happen.
+          if (!joined.alreadyMember) {
+            toastMsg(t('team.toastJoined', { name: joined.name }));
+          }
+        } catch {
+          toastMsg(t('team.toastInviteInvalid'), undefined, 'error');
+        }
+      }
+
+      const teams = await retryable(() => api.teams.listForCurrentUser());
       setSentryUser(user);
       if (!teams.length) {
+        if (invite) history.replaceState({}, '', '/');
         setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
-        return;
+        return null;
       }
-      const activeTeamId = teams[0].id;
+      const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0].id;
+      if (opts?.restoreLocation) {
+        // Session restore (a page reload, or a bookmarked/shared deep link
+        // like /finances or /events?view=absences) must not silently bounce
+        // the user to /home. Re-parse the URL fresh here (same pattern as
+        // parsePendingInvite above) rather than trust the module-load-time
+        // initialLocation/initialState snapshot, then fetch that route's
+        // data the same way the popstate handler below does -- afterLoginLoad
+        // only covers events/members/roles/news/notifications, so without
+        // this a deep link into finances/stats/polls would render the right
+        // route with no data, ever (the same "permanent skeleton loader"
+        // class fixed for refreshEvents/refreshMembers in round 46, but for
+        // the bootstrap path). Left as `detail: null` here deliberately --
+        // the caller opens the detail sheet (see the bootstrap effect
+        // below), and the state->URL sync effect restores the id segment
+        // once state.sheet is set, so there's no need to duplicate that
+        // logic here.
+        const restored = parseLocation(window.location.pathname, window.location.search);
+        history.replaceState(
+          { route: restored.route },
+          '',
+          buildPath({
+            route: restored.route,
+            eventScope: restored.eventScope,
+            eventsView: restored.eventsView,
+            eventsOnlyPending: restored.eventsOnlyPending,
+            finTab: restored.finTab,
+            detail: null,
+          }),
+        );
+        setState({
+          user,
+          teams,
+          activeTeamId,
+          phase: 'app',
+          busy: null,
+          route: restored.route,
+          eventScope: restored.eventScope,
+          eventsView: restored.eventsView,
+          eventsOnlyPending: restored.eventsOnlyPending,
+          finTab: restored.finTab,
+        });
+        await afterLoginLoad(activeTeamId);
+        ensureRouteData(restored.route);
+        return restored;
+      }
       history.replaceState({ route: 'home' }, '', '/home');
       setState({ user, teams, activeTeamId, phase: 'app', busy: null, route: 'home' });
       await afterLoginLoad(activeTeamId);
+      return null;
     },
-    [api, setState, afterLoginLoad],
+    [api, setState, afterLoginLoad, toastMsg, ensureRouteData],
   );
 
   const doLogin = useCallback(
     async (pid: string) => {
-      setState({ busy: 'login:' + pid, error: null });
+      const owner = 'login:' + pid;
+      setState({ busy: owner, error: null });
       try {
         await api.auth.login(pid);
         const user = await api.auth.currentUser();
         await establishSession(user);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
-        setState({ busy: null, error: msg });
+        // Guard against a different, still-in-flight login (Login.tsx
+        // normally prevents this by disabling every control while any login
+        // is busy, but a defensive owner-check here costs nothing and keeps
+        // this consistent with every other busy-setting flow in the app).
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
       }
     },
-    [api, setState, establishSession],
+    [api, S, setState, establishSession],
   );
 
   const doPasswordLogin = useCallback(
     async (email: string, password: string) => {
-      setState({ busy: 'login:password', error: null });
+      const owner = 'login:password';
+      setState({ busy: owner, error: null });
       try {
         await api.auth.login(email, password);
         const user = await api.auth.currentUser();
         await establishSession(user);
       } catch (err) {
         const msg = err instanceof Error ? err.message : t('error.login');
-        setState({ busy: null, error: msg });
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
       }
     },
-    [api, setState, establishSession],
+    [api, S, setState, establishSession],
   );
 
   // ---------- nav ----------
@@ -802,6 +1043,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setState({ route: 'events', sheet: null, eventsView: 'list', eventScope: 'upcoming', eventsOnlyPending: true });
     ensureRouteData('events');
   }, [setState, ensureRouteData]);
+  // Dedicated nav action (rather than a raw setState) so an absence
+  // notification's "jump to the Events > Absences tab" click goes through
+  // ensureRouteData like every other route change -- without it, a null
+  // state.events left over from a failed afterLoginLoad (see round 46's
+  // ensureRouteData fix) would never retry, leaving EventsPage stuck on a
+  // skeleton loader forever, since it gates on state.events before it ever
+  // reaches the eventsView === 'absences' branch.
+  const goEventsAbsences = useCallback(() => {
+    setState({ route: 'events', sheet: null, eventsView: 'absences' });
+    ensureRouteData('events');
+    // ensureRouteData already skips its own fetches when the caller can't
+    // read events (a stale absence notification, cached from before a
+    // permission downgrade, is the one way this route is reachable without
+    // events:read -- RouteScreen bounces the resulting navigation to Home
+    // either way). loadAbsences has no such built-in guard, so without this
+    // check it would still fire two now-forbidden requests in the
+    // background, producing exactly the spurious "no permission" toast
+    // ensureRouteData's own permission pre-check exists to prevent.
+    if (can('events', 'read')) loadAbsences();
+  }, [setState, ensureRouteData, loadAbsences, can]);
   const activePageSheet = useCallback(() => {
     let s = S().sheet;
     while (s) {
@@ -873,15 +1134,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveMember,
     removeMember,
     openRoles,
-    openCreateRole,
+    openRoleForm,
     setRolePerm,
     saveRole,
+    removeRole,
     toggleMyRole,
     openTeamSwitcher,
     openProfile,
     openMore,
     openTeamSettings,
     saveTeamPhoto,
+    removeTeamPhoto,
     saveTeamLogo,
     setTeamIcon,
     toggleReasonRole,
@@ -942,6 +1205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toastMsg,
     setFormVal,
     askConfirm,
+    logout,
   });
 
   // ---------- routing: state <-> URL ----------
@@ -1002,23 +1266,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state.sheet,
   ]);
 
+  const bootstrapStarted = useRef(false);
   useEffect(() => {
+    // React.StrictMode double-invokes effects on initial mount in dev; without
+    // this guard that means two concurrent establishSession() calls (each
+    // fanning out teams.listForCurrentUser() + 5 afterLoginLoad requests) on
+    // every dev-mode app load. The ref (not state) survives both invocations
+    // since StrictMode replays the same component instance.
+    if (bootstrapStarted.current) return;
+    bootstrapStarted.current = true;
     (async () => {
       try {
         // Restore an existing session from the HttpOnly cookie. If one is active,
         // the user stays logged in across reloads without seeing the login screen.
         const user = await api.auth.currentUser();
         if (user) {
-          await establishSession(user);
+          const restored = await establishSession(user, { restoreLocation: true });
+          // Mirrors the popstate handler below: a deep link into a specific
+          // event/member detail sheet (e.g. /events/ev1) must survive a
+          // page reload too, not just the route/list-filter portion of the
+          // URL restoreLocation already restores above.
+          if (restored?.detailId && restored.route === 'events') void openEventDetail(restored.detailId);
+          else if (restored?.detailId && restored.route === 'members') void openMemberDetail(restored.detailId);
           return;
         }
         const providers = await api.auth.providers();
         setState({ providers, phase: 'login' });
       } catch {
-        setState({ phase: 'login', providers: [], error: t('error.network') });
+        // A valid session but a failed establishSession (e.g. a transient
+        // network error loading the team list, already retried once inside
+        // establishSession) must still land on a *usable* login screen --
+        // otherwise providers stays [] forever, Login has no SSO buttons and
+        // no password-provider button to reach the password form, and the
+        // user is stuck with only a manual page reload to recover.
+        try {
+          const providers = await api.auth.providers();
+          setState({ phase: 'login', providers, error: t('error.network') });
+        } catch {
+          setState({ phase: 'login', providers: [], error: t('error.network') });
+        }
       }
     })();
-  }, [api, setState, establishSession]);
+  }, [api, setState, establishSession, openEventDetail, openMemberDetail]);
 
   // All actions/helpers are stable (useCallback), so the actions object is built
   // once and never changes identity — this is what lets useAppActions consumers
@@ -1046,6 +1335,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       exportMyData,
       go,
       goEventsPending,
+      goEventsAbsences,
       closeSheet,
       activePageSheet,
       selectTeam,
@@ -1080,15 +1370,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveMember,
       removeMember,
       openRoles,
-      openCreateRole,
+      openRoleForm,
       setRolePerm,
       saveRole,
+      removeRole,
       toggleMyRole,
       openTeamSwitcher,
       openProfile,
       openMore,
       openTeamSettings,
       saveTeamPhoto,
+      removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
       toggleReasonRole,
@@ -1149,6 +1441,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doPasswordLogin,
       go,
       goEventsPending,
+      goEventsAbsences,
       closeSheet,
       activePageSheet,
       selectTeam,
@@ -1183,15 +1476,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveMember,
       removeMember,
       openRoles,
-      openCreateRole,
+      openRoleForm,
       setRolePerm,
       saveRole,
+      removeRole,
       toggleMyRole,
       openTeamSwitcher,
       openProfile,
       openMore,
       openTeamSettings,
       saveTeamPhoto,
+      removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
       toggleReasonRole,

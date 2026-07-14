@@ -100,4 +100,26 @@ describe('NewsPage', () => {
     await userEvent.click(screen.getByLabelText('News löschen'));
     expect(app.removeNews).toHaveBeenCalledWith('n1');
   });
+
+  // Regression/coverage test: unlike finances/roles, this page had no
+  // negative assertion that a read-only user (can('news','write') === false)
+  // gets no edit/delete controls at all, not just disabled ones.
+  it('hides edit/delete buttons for a read-only user', () => {
+    const newsItem = {
+      id: 'n1',
+      title: 'Neuigkeit',
+      body: 'Body',
+      authorName: 'Coach',
+      authorPhoto: null,
+      authorColor: '#000',
+      createdAt: '2026-01-15T10:00:00Z',
+      pinned: false,
+    };
+    const app = makeApp({ news: [newsItem] });
+    app.can = vi.fn().mockReturnValue(false);
+    mockUseApp.mockReturnValue(app);
+    render(<NewsPage />);
+    expect(screen.queryByLabelText('News bearbeiten')).toBeNull();
+    expect(screen.queryByLabelText('News löschen')).toBeNull();
+  });
 });

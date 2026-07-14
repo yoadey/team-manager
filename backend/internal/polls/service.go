@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
@@ -17,9 +19,19 @@ import (
 // option for a poll that does not allow multiple selections.
 var ErrSingleChoiceMultipleOptions = errors.New("cannot select multiple options on a single-choice poll")
 
+// ErrTooManyPolls is returned once a team hits maxPollsPerTeam. Unlike
+// finances' per-team caps, ListByTeam here is already properly
+// keyset-paginated (O(limit), not O(table size)), so this isn't closing an
+// availability bug -- it's a cheap defense-in-depth cap against unbounded
+// storage growth from a scripted or careless polls:write caller.
+var ErrTooManyPolls = fmt.Errorf("team has reached the maximum of %d polls", maxPollsPerTeam)
+
+const maxPollsPerTeam = 50_000
+
 // pollRepo is the interface the Service relies on.
 type pollRepo interface {
 	ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *ListCursor) ([]*PollRow, error)
+	CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error)
 	FindByID(ctx context.Context, id, teamID uuid.UUID) (*PollRow, error)
 	Create(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
 	Delete(ctx context.Context, id, teamID uuid.UUID) error
@@ -28,6 +40,7 @@ type pollRepo interface {
 	ListOptionsByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollOptionRow, error)
 	ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*PollVoteRow, error)
 	ReplaceVotes(ctx context.Context, pollID, userID uuid.UUID, optionIDs []uuid.UUID, multiple bool) error
+	WithReadTx(ctx context.Context, fn func(PollListReader) error) error
 }
 
 // jobEnqueuer is satisfied by *jobs.Client.
@@ -37,18 +50,19 @@ type jobEnqueuer interface {
 
 // Service implements polls business logic.
 type Service struct {
-	repo  pollRepo
-	jobs  jobEnqueuer
-	pager *pagination.Paginator
+	repo   pollRepo
+	jobs   jobEnqueuer
+	pager  *pagination.Paginator
+	logger *slog.Logger
 }
 
 // NewService creates a new Service. pager may be nil, in which case a default
 // (unsigned) Paginator is used.
-func NewService(repo pollRepo, enq jobEnqueuer, pager *pagination.Paginator) *Service {
+func NewService(repo pollRepo, enq jobEnqueuer, pager *pagination.Paginator, logger *slog.Logger) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, jobs: enq, pager: pager}
+	return &Service{repo: repo, jobs: enq, pager: pager, logger: logger}
 }
 
 // ListByTeam returns a keyset page of polls (with full vote data) plus the
@@ -63,31 +77,46 @@ func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUI
 		cur = &decoded
 	}
 
-	pollRows, err := s.repo.ListByTeam(ctx, teamID, limit+1, cur)
-	if err != nil {
-		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
-	}
-
+	var pollRows []*PollRow
+	var optionsByPoll map[uuid.UUID][]*PollOptionRow
+	var votesByPoll map[uuid.UUID][]*PollVoteRow
 	var next *string
-	if len(pollRows) > limit {
-		pollRows = pollRows[:limit]
-		last := pollRows[len(pollRows)-1]
-		token, err := s.pager.Encode(ListCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+	// Run all three reads inside one read-only transaction so the poll list
+	// and its options/votes observe a single consistent snapshot, instead of
+	// possibly drifting under a concurrent Delete (which would otherwise
+	// leave a "ghost" poll in the response -- a real question/options row
+	// with empty options/votes for a poll that no longer exists).
+	err := s.repo.WithReadTx(ctx, func(r PollListReader) error {
+		var err error
+		pollRows, err = r.ListByTeam(ctx, teamID, limit+1, cur)
 		if err != nil {
-			return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
+			return fmt.Errorf("list: %w", err)
 		}
-		next = &token
-	}
 
-	pollIDs := make([]uuid.UUID, len(pollRows))
-	for i, pr := range pollRows {
-		pollIDs[i] = pr.Id
-	}
-	optionsByPoll, err := s.repo.ListOptionsByPollIDs(ctx, pollIDs)
-	if err != nil {
-		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
-	}
-	votesByPoll, err := s.repo.ListVotesByPollIDs(ctx, pollIDs)
+		if len(pollRows) > limit {
+			pollRows = pollRows[:limit]
+			last := pollRows[len(pollRows)-1]
+			token, err := s.pager.Encode(ListCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+			if err != nil {
+				return fmt.Errorf("cursor: %w", err)
+			}
+			next = &token
+		}
+
+		pollIDs := make([]uuid.UUID, len(pollRows))
+		for i, pr := range pollRows {
+			pollIDs[i] = pr.Id
+		}
+		optionsByPoll, err = r.ListOptionsByPollIDs(ctx, pollIDs)
+		if err != nil {
+			return fmt.Errorf("options: %w", err)
+		}
+		votesByPoll, err = r.ListVotesByPollIDs(ctx, pollIDs)
+		if err != nil {
+			return fmt.Errorf("votes: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("polls.Service.ListByTeam: %w", err)
 	}
@@ -99,8 +128,24 @@ func (s *Service) ListByTeam(ctx context.Context, teamID, currentUserID uuid.UUI
 	return result, next, nil
 }
 
-// Create adds a new poll and returns it fully assembled.
+// Create adds a new poll (and its options) and returns it fully assembled.
+//
+// Known, accepted tradeoff: same as news.Repository.Create -- if s.repo.Create
+// commits but the FindByID reload right after it fails on a transient
+// DB/network blip, the caller sees a generic error even though the poll now
+// exists, and a client retry with no idempotency key would create a
+// duplicate poll+options. Left unfixed for the same reason: a narrow
+// failure window on a second query immediately after a successful write,
+// not a real deployment issue observed so far.
 func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body *gen.CreatePollRequest) (gen.Poll, error) {
+	count, err := s.repo.CountByTeam(ctx, teamID)
+	if err != nil {
+		return gen.Poll{}, fmt.Errorf("polls.Service.Create: %w", err)
+	}
+	if count >= maxPollsPerTeam {
+		return gen.Poll{}, ErrTooManyPolls
+	}
+
 	multiple := false
 	if body.Multiple != nil {
 		multiple = *body.Multiple
@@ -120,12 +165,14 @@ func (s *Service) Create(ctx context.Context, teamID, creatorID uuid.UUID, body 
 	// Enqueue notification (best-effort; ignore error so it doesn't fail the request).
 	if s.jobs != nil {
 		question := body.Question
-		_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+		if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
 			TeamID:  teamID,
 			Type:    "poll",
 			ActorID: creatorID,
 			Title:   &question,
-		})
+		}); err != nil {
+			s.logger.Warn("polls: failed to enqueue notification", slog.String("pollId", pollID.String()), slog.String("error", err.Error()))
+		}
 	}
 	return s.buildPoll(ctx, pr, creatorID)
 }
@@ -136,6 +183,10 @@ func (s *Service) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, op
 	if err != nil {
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote FindByID: %w", err)
 	}
+	// Dedupe before the single-choice check: a client submitting the same
+	// option twice (the OpenAPI schema doesn't declare uniqueItems) is still
+	// only choosing one option and must not trip ErrSingleChoiceMultipleOptions.
+	optionIDs = dedupeUUIDs(optionIDs)
 	if !pr.Multiple && len(optionIDs) > 1 {
 		return gen.Poll{}, ErrSingleChoiceMultipleOptions
 	}
@@ -143,9 +194,24 @@ func (s *Service) Vote(ctx context.Context, pollID, teamID, userID uuid.UUID, op
 		if errors.Is(err, ErrOptionNotInPoll) {
 			return gen.Poll{}, ErrOptionNotInPoll
 		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return gen.Poll{}, pgx.ErrNoRows
+		}
 		return gen.Poll{}, fmt.Errorf("polls.Service.Vote ReplaceVotes: %w", err)
 	}
-	return s.buildPoll(ctx, pr, userID)
+	// Re-fetch rather than reuse the pre-write pr: a concurrent DeletePoll
+	// could cascade this poll away between ReplaceVotes committing and this
+	// point. buildPoll's ListOptions/ListVotes would then silently return
+	// empty results (a poll_id matching zero rows is a valid, error-free
+	// query result, not pgx.ErrNoRows), assembling a nonsensical empty 200 OK
+	// from the stale pre-delete pr instead of the accurate 404 -- and the
+	// vote the caller just successfully cast would already be gone too,
+	// cascaded away along with the poll.
+	fresh, err := s.repo.FindByID(ctx, pollID, teamID)
+	if err != nil {
+		return gen.Poll{}, fmt.Errorf("polls.Service.Vote refetch: %w", err)
+	}
+	return s.buildPoll(ctx, fresh, userID)
 }
 
 // Delete removes a poll by ID, scoped to teamID.
@@ -212,7 +278,7 @@ func assemblePoll(pr *PollRow, options []*PollOptionRow, votes []*PollVoteRow, c
 				Name     *string `json:"name,omitempty"`
 			}, 0, len(voters))
 			for _, v := range voters {
-				hasPhoto := len(v.PhotoData) > 0
+				hasPhoto := v.HasPhoto
 				voterList = append(voterList, struct {
 					Color    *string `json:"color,omitempty"`
 					HasPhoto *bool   `json:"hasPhoto,omitempty"`

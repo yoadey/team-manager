@@ -10,6 +10,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { realApi } from './serviceLayerReal';
 import { mapAttendanceDtoToRow, mapEventDtoToTeamEvent, mapMemberDtoToMember } from './mappers';
+import { config } from '@/config';
 import type {
   AttendanceStatus,
   DateRange,
@@ -56,13 +57,15 @@ function nextWeekday(weekday: number, weeks = 0) {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   const diff = (weekday - d.getDay() + 7) % 7;
-  d.setTime(d.getTime() + (diff + weeks * 7) * DAY);
+  // setDate (calendar day) rather than adding raw milliseconds -- across a
+  // DST transition a fixed-ms offset can land a day early/late.
+  d.setDate(d.getDate() + diff + weeks * 7);
   return d;
 }
 function plusDays(n: number) {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
-  d.setTime(d.getTime() + n * DAY);
+  d.setDate(d.getDate() + n);
   return formatDateOnly(d);
 }
 
@@ -706,7 +709,7 @@ function seed(): DB {
 
 // ---- Persistenz (tagesfrisch) ----------------------------------------------
 function todayKey() {
-  return 'tv_db_v7_' + todayLocalDate();
+  return config.storageKeyPrefix + 'v7_' + todayLocalDate();
 }
 function loadDb(): DB {
   try {
@@ -726,9 +729,26 @@ function save(db: DB) {
     /* ignore */
   }
 }
-const DB = loadDb();
+let DB = loadDb();
 function persist() {
   save(DB);
+}
+// persist() always overwrites the whole stored blob with this tab's
+// in-memory snapshot -- without this listener, a stale tab's next mutation
+// (however unrelated) would silently clobber/resurrect data written by
+// another tab in the meantime, since the two never otherwise communicate.
+// Reloading DB in-place from the fresh value on every cross-tab write closes
+// that window for all but genuinely simultaneous edits in both tabs, which
+// this mock backend (unlike the real API) has no way to serialize anyway.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== todayKey()) return;
+    try {
+      DB = e.newValue ? JSON.parse(e.newValue) : seed();
+    } catch {
+      /* ignore a malformed write from another tab */
+    }
+  });
 }
 function pushNotif(o: Partial<AppNotification>) {
   DB.notifications.push(Object.assign({ id: rid('ntf'), createdAt: iso(new Date()) }, o) as AppNotification);
@@ -738,7 +758,7 @@ const session: { userId: string | null } = { userId: null };
 export function resetDemoData() {
   try {
     Object.keys(localStorage)
-      .filter((k) => k.startsWith('tv_db_'))
+      .filter((k) => k.startsWith(config.storageKeyPrefix))
       .forEach((k) => localStorage.removeItem(k));
   } catch {
     /* ignore */
@@ -779,6 +799,21 @@ function primaryRole(roles: Role[]): Role | null {
 function absenceCovers(userId: string, date: string) {
   return DB.absences.some((a) => a.userId === userId && date >= a.from && date <= a.to);
 }
+// Matches stats.Repository's `COUNT(*) FILTER (WHERE a.status IN
+// ('yes','no','maybe'))` — the attendance-stats denominator excludes both
+// 'pending' and 'not_nominated', unlike the general-purpose "nominated"
+// count used elsewhere (events._withSummary) which only excludes
+// 'not_nominated'.
+function isCountedStatus(status: string): boolean {
+  return status === 'yes' || status === 'no' || status === 'maybe';
+}
+// Matches stats.Service.defaultDateRange's `now.AddDate(0, -3, 0)` — 3
+// calendar months before `dateStr`, not literally 90 days.
+function threeMonthsBeforeLocal(dateStr: string): string {
+  const d = parseDateOnlyLocal(dateStr);
+  d.setMonth(d.getMonth() - 3);
+  return formatDateOnly(d);
+}
 function effectiveStatus(event: EventDto, userId: string | null) {
   const rec = DB.attendance.find((a) => a.eventId === event.id && a.userId === userId);
   if (rec)
@@ -791,11 +826,17 @@ function effectiveStatus(event: EventDto, userId: string | null) {
       absent: absenceCovers(userId!, event.date),
     };
   if (userId && absenceCovers(userId, event.date))
+    // Matches events.computeEffectiveAttendance (backend/internal/events/attendance.go):
+    // no reason/reasonId/reasonVisibility is synthesized here -- the UI already
+    // renders a dedicated, localized "absent" badge (events.absent) for
+    // Absent=true instead of a raw reason field, so hardcoding a single-locale
+    // string here would both diverge from the real backend and show German
+    // text regardless of the active locale.
     return {
       status: 'no' as AttendanceStatus,
-      reason: 'Geplante Abwesenheit',
+      reason: '',
       reasonId: null,
-      reasonVisibility: 'team' as ReasonVisibility,
+      reasonVisibility: null,
       auto: true,
       absent: true,
     };
@@ -856,9 +897,16 @@ export const SERVICE_ENDPOINTS = {
   // auth: thin wrappers for future authentication/session endpoints.
   auth: ['auth.providers', 'auth.login', 'auth.currentUser', 'auth.logout', 'auth.setPhoto'],
   // teams: thin wrappers for team CRUD and invite endpoints; listForCurrentUser is enriched with role permissions.
-  teams: ['teams.listForCurrentUser', 'teams.get', 'teams.create', 'teams.updateSettings', 'teams.createInvite'],
+  teams: [
+    'teams.listForCurrentUser',
+    'teams.get',
+    'teams.create',
+    'teams.updateSettings',
+    'teams.createInvite',
+    'teams.acceptInvite',
+  ],
   // members: list returns Member ViewModels mapped from MemberDto plus derived primaryRole/perms.
-  members: ['members.list', 'members.add', 'members.update', 'members.setRoles', 'members.remove'],
+  members: ['members.list', 'members.update', 'members.setRoles', 'members.remove'],
   // roles: direct RoleDto CRUD endpoints.
   roles: ['roles.list', 'roles.create', 'roles.update', 'roles.remove'],
   // events: list/get map EventDto to TeamEvent with client-side summary/myStatus aggregation.
@@ -925,7 +973,7 @@ const _mockApi = {
       await delay(50, 120);
       return session.userId ? clone(DB.users.find((u) => u.id === session.userId)!) : null;
     },
-    logout() {
+    async logout() {
       session.userId = null;
     },
     // GDPR Art. 15: a minimal personal-data export for the current mock user.
@@ -1038,13 +1086,51 @@ const _mockApi = {
         id: rid('inv'),
         teamId,
         code,
-        link: 'https://teamverwaltung.app/join/' + code,
+        // Matches serviceLayerReal.ts's `${publicBaseURL}/join/{teamId}/{code}`
+        // shape (teams.Service.CreateInvite on the real backend), since
+        // acceptInvite's URL-parsing on the frontend expects that format
+        // regardless of which service layer generated the link.
+        link: 'https://teamverwaltung.app/join/' + teamId + '/' + code,
         createdAt: iso(new Date()),
         expiresAt: iso(new Date(Date.now() + 7 * DAY)),
       };
       DB.invites.push(inv);
       persist();
       return clone(inv);
+    },
+
+    async acceptInvite(code: string): Promise<TeamForUser & { alreadyMember: boolean }> {
+      await delay(180, 360);
+      const inv = DB.invites.find((i) => i.code === code);
+      if (!inv || new Date(inv.expiresAt).getTime() <= Date.now()) {
+        throw new Error('invite not found or expired');
+      }
+
+      const existing = DB.memberships.find((m) => m.teamId === inv.teamId && m.userId === session.userId);
+      const alreadyMember = !!existing;
+      if (!existing) {
+        const memberRole = DB.roles.find((r) => r.teamId === inv.teamId && r.name === 'Tänzer / Mitglied');
+        DB.memberships.push({
+          id: rid('mem'),
+          teamId: inv.teamId,
+          userId: session.userId!,
+          roleIds: memberRole ? [memberRole.id] : [],
+          group: '',
+          joinedAt: iso(new Date()),
+        });
+        persist();
+      }
+
+      const t = DB.teams.find((x) => x.id === inv.teamId)!;
+      const m = DB.memberships.find((x) => x.teamId === inv.teamId && x.userId === session.userId)!;
+      const roles = rolesOf(m);
+      return Object.assign(clone(t), {
+        myRoles: clone(roles),
+        myPerms: mergePerms(roles),
+        membershipId: m.id,
+        memberCount: DB.memberships.filter((x) => x.teamId === t.id).length,
+        alreadyMember,
+      });
     },
   },
 
@@ -1074,44 +1160,6 @@ const _mockApi = {
         })
         .sort((a, b) => a.name.localeCompare(b.name, 'de'));
     },
-    async add(
-      teamId: string,
-      {
-        name,
-        email,
-        phone,
-        roleIds,
-        group,
-        photo,
-      }: { name: string; email?: string; phone?: string; roleIds?: string[]; group?: string; photo?: string | null },
-    ) {
-      await delay(280, 520);
-      const u: User = {
-        id: rid('u'),
-        name,
-        email: email || '',
-        phone: phone || '',
-        avatarColor: ['#1565C0', '#00796B', '#C2185B', '#5D4037', '#7B1FA2', '#455A64'][Math.floor(Math.random() * 6)],
-        photo: photo || null,
-        birthday: '',
-        address: '',
-      };
-      DB.users.push(u);
-      const mem: Membership = {
-        id: rid('mem'),
-        teamId,
-        userId: u.id,
-        roleIds:
-          roleIds && roleIds.length
-            ? roleIds
-            : [DB.roles.find((r) => r.teamId === teamId && r.name === 'Tänzer / Mitglied')!.id],
-        group: group || '',
-        joinedAt: iso(new Date()),
-      };
-      DB.memberships.push(mem);
-      persist();
-      return { membershipId: mem.id, userId: u.id };
-    },
     async update(
       membershipId: string,
       {
@@ -1120,18 +1168,14 @@ const _mockApi = {
         phone,
         birthday,
         address,
-        roleIds,
         group,
-        photo,
       }: {
         name?: string;
         email?: string;
         phone?: string;
         birthday?: string;
         address?: string;
-        roleIds?: string[];
         group?: string;
-        photo?: string | null;
       },
       _teamId: string,
     ) {
@@ -1143,8 +1187,6 @@ const _mockApi = {
       if (phone !== undefined) u.phone = phone;
       if (birthday !== undefined) u.birthday = birthday;
       if (address !== undefined) u.address = address;
-      if (photo !== undefined) u.photo = photo;
-      if (roleIds !== undefined && roleIds.length) m.roleIds = roleIds;
       if (group !== undefined) m.group = group;
       persist();
       return true;
@@ -1179,7 +1221,12 @@ const _mockApi = {
         teamId,
         name,
         system: false,
-        color: color || '#5B6470',
+        // Matches api/map.ts's mapRole fallback (r.color ?? '#888888') — the
+        // real backend stores an omitted color as NULL and that's the
+        // default applied on read, so the mock must agree or a role created
+        // without an explicit color (RoleFormSheet has no color picker)
+        // renders a different color depending on which backend is active.
+        color: color || '#888888',
         permissions: permissions || perms('read', 'read', 'none', 'read', 'read', 'none'),
       };
       DB.roles.push(r);
@@ -1246,7 +1293,17 @@ const _mockApi = {
         {
           teamId,
           recurring: false,
-          meetTimeMandatory: true,
+          // Matches the real backend: CreateEventRequest.meetTimeMandatory is
+          // optional, and internal/events/repository.go's boolVal(nil) stores
+          // `false` when the field is omitted (see also api/map.ts's
+          // `e.meetTimeMandatory ?? false` read-side fallback). The event
+          // creation UI (useEventFormActions.ts) always sends an explicit
+          // boolean, so this default only bites callers that omit the field
+          // (e.g. serviceLayer.test.ts's `api.events.create(..., { type,
+          // title, date })` calls) — but it must still agree with the real
+          // backend, or such a caller sees a different value depending on
+          // which backend is active.
+          meetTimeMandatory: false,
           location: '',
           note: '',
           responseMode: 'opt_in',
@@ -1538,16 +1595,16 @@ const _mockApi = {
       from: string;
       to: string;
       reason?: string;
-      userId?: string;
+      userId: string;
     }): Promise<Absence> {
       await delay(220, 420);
-      const uid = userId || session.userId!;
+      const uid = userId;
       const a: Absence = {
         id: rid('abs'),
         userId: uid,
         from,
         to,
-        reason: reason || 'Abwesend',
+        reason: reason || '',
         createdAt: iso(new Date()),
       };
       DB.absences.push(a);
@@ -1704,7 +1761,7 @@ const _mockApi = {
         title,
         amount: Number(amount),
         date: todayLocalDate(),
-        category: category || 'Sonstiges',
+        category: category || '',
       };
       DB.transactions.push(t);
       persist();
@@ -1817,13 +1874,22 @@ const _mockApi = {
   stats: {
     async attendanceFor(teamId: string, userId: string) {
       await delay(110, 220);
-      const today = todayLocalDate();
-      const past = DB.events.filter((e) => e.teamId === teamId && e.date < today && e.status !== 'cancelled');
+      // Matches stats.Service.GetMemberStats / SingleMemberStats: default
+      // date range is 3 calendar months ago -> today when none is supplied
+      // (this mock method takes no range param, so it always uses the
+      // default), and `counted` is yes/no/maybe responses only — excludes
+      // both 'pending' and 'not_nominated' (COUNT(*) FILTER (WHERE a.status
+      // IN ('yes','no','maybe'))), not just 'not_nominated'.
+      const to = todayLocalDate();
+      const from = threeMonthsBeforeLocal(to);
+      const inRange = DB.events.filter(
+        (e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to,
+      );
       let yes = 0,
         counted = 0;
-      past.forEach((e) => {
+      inRange.forEach((e) => {
         const s = effectiveStatus(e, userId).status;
-        if (s === 'not_nominated') return;
+        if (!isCountedStatus(s)) return;
         counted++;
         if (s === 'yes') yes++;
       });
@@ -1831,22 +1897,29 @@ const _mockApi = {
     },
     async teamOverview(teamId: string, range?: DateRange | null): Promise<StatsOverview> {
       await delay(180, 360);
+      // Matches stats.Service.defaultDateRange (90 days ago exactly? no —
+      // 3 calendar months, i.e. Go's `now.AddDate(0, -3, 0)`) -> today.
       const today = todayLocalDate();
-      const from = range && range.from ? range.from : null;
-      const to = range && range.to ? range.to : null;
-      const members = DB.memberships.filter((m) => m.teamId === teamId);
-      let past = DB.events.filter((e) => e.teamId === teamId && e.date < today && e.status !== 'cancelled');
-      if (from) past = past.filter((e) => e.date >= from);
-      if (to) past = past.filter((e) => e.date <= to);
-      past = past.sort((a, b) => b.date.localeCompare(a.date));
-      const memberStats = members
-        .map((m) => {
-          const u = DB.users.find((x) => x.id === m.userId)!;
+      const from = range && range.from ? range.from : threeMonthsBeforeLocal(today);
+      const to = range && range.to ? range.to : today;
+      const memberIds = DB.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+      // stats.Repository.{MemberStats,EventStats} filter status='active'
+      // (this mock's only other status is 'cancelled', so `!== 'cancelled'`
+      // is equivalent) and date BETWEEN from AND to — no "date < today"
+      // requirement, unlike this mock's previous "past events only" filter,
+      // which excluded today's/future-dated events within the range that
+      // the real backend would include.
+      const events = DB.events
+        .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to)
+        .sort((a, b) => a.date.localeCompare(b.date)); // ORDER BY e.date
+      const memberStats = memberIds
+        .map((uid) => {
+          const u = DB.users.find((x) => x.id === uid)!;
           let yes = 0,
             counted = 0;
-          past.forEach((e) => {
-            const s = effectiveStatus(e, u.id).status;
-            if (s === 'not_nominated') return;
+          events.forEach((e) => {
+            const s = effectiveStatus(e, uid).status;
+            if (!isCountedStatus(s)) return;
             counted++;
             if (s === 'yes') yes++;
           });
@@ -1860,27 +1933,37 @@ const _mockApi = {
             yes,
           };
         })
-        .sort((a, b) => (b.quote || 0) - (a.quote || 0));
-      const quotes = memberStats.filter((s) => s.quote !== null).map((s) => s.quote!);
-      const avg = quotes.length ? Math.round(quotes.reduce((s, q) => s + q, 0) / quotes.length) : 0;
-      const eventStats = past
-        .slice(0, 8)
-        .map((e) => {
-          const sum = api.events._withSummary(e, teamId).summary;
-          const pct = sum.nominated ? Math.round((sum.yes / sum.nominated) * 100) : 0;
-          return {
-            id: e.id,
-            title: e.title,
-            type: e.type,
-            date: e.date,
-            yes: sum.yes,
-            nominated: sum.nominated,
-            pct,
-            enough: pct >= 80,
-          };
-        })
-        .reverse();
-      return { avg, members: memberStats, events: eventStats, pastCount: past.length, from, to };
+        .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de')); // ORDER BY yes_count DESC, u.name
+      // Matches stats.Service.GetOverview: `avg` sums every member's quote
+      // (quote() returns 0, not skipped, for a member with 0 counted events)
+      // and divides by the total member count — a member with no counted
+      // attendance in range still drags the average down instead of being
+      // excluded from both the numerator and the denominator.
+      const avg = memberStats.length
+        ? Math.round(memberStats.reduce((s, m) => s + (m.quote ?? 0), 0) / memberStats.length)
+        : 0;
+      const eventStats = events.map((e) => {
+        let yes = 0,
+          counted = 0;
+        memberIds.forEach((uid) => {
+          const s = effectiveStatus(e, uid).status;
+          if (!isCountedStatus(s)) return;
+          counted++;
+          if (s === 'yes') yes++;
+        });
+        const pct = counted ? Math.round((yes / counted) * 100) : 0;
+        return {
+          id: e.id,
+          title: e.title,
+          type: e.type,
+          date: e.date,
+          yes,
+          nominated: counted,
+          pct,
+          enough: pct >= 50, // matches stats.Service.GetOverview's `pct >= 0.5`
+        };
+      });
+      return { avg, members: memberStats, events: eventStats, pastCount: events.length, from, to };
     },
   },
 
@@ -2011,5 +2094,5 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
 };
 export const STATUS_ORDER_EXPORT = STATUS_ORDER;
 
-export const api = (import.meta.env.VITE_API_BASE_URL ? realApi : _mockApi) as typeof _mockApi;
+export const api = (config.apiBaseUrl ? realApi : _mockApi) as typeof _mockApi;
 export type Api = typeof _mockApi;

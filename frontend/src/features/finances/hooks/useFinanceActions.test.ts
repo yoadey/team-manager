@@ -55,6 +55,7 @@ describe('useFinanceActions', () => {
   let loadStats: ReturnType<typeof vi.fn>;
   let refreshMembers: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -73,6 +74,7 @@ describe('useFinanceActions', () => {
     loadStats = vi.fn().mockResolvedValue(undefined);
     refreshMembers = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -87,6 +89,7 @@ describe('useFinanceActions', () => {
         refreshMembers: refreshMembers as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }
@@ -101,6 +104,20 @@ describe('useFinanceActions', () => {
         sheet: expect.objectContaining({ type: 'txForm', mode: 'create' }),
       }),
     );
+  });
+
+  // Regression test: a new transaction's category used to be prefilled with
+  // the literal German word 'Beiträge' as an actual form VALUE, independent
+  // of the active UI locale -- same bug class as the round-75 absence-reason
+  // fix. An English-locale user creating a transaction saw an already-filled
+  // German word instead of the already-translated txCategoryPlaceholder
+  // hint (which never renders once the field has a value).
+  it('openTxForm defaults a new transaction category to empty (not a hardcoded locale-specific value)', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTxForm();
+    });
+    expect(setState).toHaveBeenCalledWith(expect.objectContaining({ form: expect.objectContaining({ category: '' }) }));
   });
 
   it('openTxForm sets edit sheet when transaction passed', () => {
@@ -122,7 +139,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.saveTx();
     });
-    expect(toastMsg).toHaveBeenCalledWith(expect.stringContaining('fehlt'));
+    expect(toastMsg).toHaveBeenCalledWith(expect.stringContaining('fehlt'), undefined, 'error');
     expect(api.finances.addTransaction).not.toHaveBeenCalled();
   });
 
@@ -165,6 +182,37 @@ describe('useFinanceActions', () => {
     );
   });
 
+  // Regression: a slow saveTx used to unconditionally close the sheet once
+  // it resolved, as long as the team hadn't changed -- so closing this
+  // transaction's edit form and opening a different sheet (e.g. a different
+  // transaction, same team) while the save was still in flight would get
+  // silently clobbered by the stale save once it finally resolved.
+  it('saveTx does not touch the sheet if the user opened something else while the save was in flight', async () => {
+    let resolveUpdate!: () => void;
+    api.finances.updateTransaction = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
+    stateRef = makeState({
+      sheet: { type: 'txForm', mode: 'edit' } as never,
+      form: { id: 'tx1', title: 'Updated', amount: '75', type: 'expense', category: 'Ausrüstung' },
+    });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveTx();
+    });
+    expect(api.finances.updateTransaction).toHaveBeenCalled();
+
+    const otherTxForm = { type: 'txForm', mode: 'edit' } as never;
+    stateRef = { ...stateRef, sheet: otherTxForm };
+
+    await act(async () => {
+      resolveUpdate();
+      await savePromise;
+    });
+
+    expect(stateRef.sheet).toBe(otherTxForm);
+  });
+
   it('deleteTx calls deleteTransaction and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {
@@ -188,6 +236,20 @@ describe('useFinanceActions', () => {
       result.current.openPenaltyForm();
     });
     expect(setState).toHaveBeenCalled();
+  });
+
+  // Regression test: openPenaltyForm/openPenaltyAssign/openContribForm used
+  // to leave a prior sheet's formErrors in place, unlike openTxForm/
+  // openEventForm/openNewsForm/openPollForm, which all reset it -- reopening
+  // any of these three after a validation error on a *different* record
+  // showed that stale error under a freshly-loaded, valid form.
+  it('openPenaltyForm clears a stale formErrors from a previous sheet', () => {
+    stateRef = makeState({ formErrors: { label: 'Bezeichnung fehlt.' } });
+    const { result } = renderActions();
+    act(() => {
+      result.current.openPenaltyForm();
+    });
+    expect(stateRef.formErrors).toEqual({});
   });
 
   it('savePenalty shows toast when label is empty', async () => {
@@ -230,7 +292,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.savePenaltyAssign();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Person wählen.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Person wählen.', undefined, 'error');
   });
 
   it('savePenaltyAssign shows toast when penaltyId is missing', async () => {
@@ -239,7 +301,7 @@ describe('useFinanceActions', () => {
     await act(async () => {
       await result.current.savePenaltyAssign();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Strafe wählen.');
+    expect(toastMsg).toHaveBeenCalledWith('Bitte Strafe wählen.', undefined, 'error');
   });
 
   it('savePenaltyAssign assigns penalty when valid', async () => {
@@ -252,10 +314,27 @@ describe('useFinanceActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Strafe erfasst');
   });
 
-  it('deleteAssignment calls deleteAssignment API', async () => {
+  // Regression test: deleteAssignment used to call the API directly with no
+  // confirmation, unlike every other destructive action in this file
+  // (deletePenaltyDef etc.), so a single misclick permanently deleted a
+  // penalty-assignment record with no "are you sure."
+  it('deleteAssignment asks for confirmation before calling the API', () => {
     const { result } = renderActions();
+    act(() => {
+      result.current.deleteAssignment('a1');
+    });
+    expect(askConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
+    expect(api.finances.deleteAssignment).not.toHaveBeenCalled();
+  });
+
+  it('deleteAssignment calls the API once confirmed', async () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.deleteAssignment('a1');
+    });
+    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
     await act(async () => {
-      await result.current.deleteAssignment('a1');
+      await onConfirm();
     });
     expect(api.finances.deleteAssignment).toHaveBeenCalledWith('a1', 'team1');
   });
@@ -323,6 +402,16 @@ describe('useFinanceActions', () => {
     );
   });
 
+  it('openContribForm clears a stale formErrors from a previous sheet', () => {
+    stateRef = makeState({ formErrors: { label: 'Bezeichnung fehlt.' } });
+    const c = { id: 'c1', label: 'Beitrag', amount: 20 } as never;
+    const { result } = renderActions();
+    act(() => {
+      result.current.openContribForm(c);
+    });
+    expect(stateRef.formErrors).toEqual({});
+  });
+
   it('openPenaltyAssign triggers refreshMembers when members empty', () => {
     stateRef = makeState({ members: [], finances: { penalties: [{ id: 'p1' }] } as never });
     const { result } = renderActions();
@@ -330,5 +419,18 @@ describe('useFinanceActions', () => {
       result.current.openPenaltyAssign();
     });
     expect(refreshMembers).toHaveBeenCalled();
+  });
+
+  it('openPenaltyAssign clears a stale formErrors from a previous sheet', () => {
+    stateRef = makeState({
+      members: [{ userId: 'u2' }] as never,
+      finances: { penalties: [{ id: 'p1' }] } as never,
+      formErrors: { userId: 'Person erforderlich.' },
+    });
+    const { result } = renderActions();
+    act(() => {
+      result.current.openPenaltyAssign();
+    });
+    expect(stateRef.formErrors).toEqual({});
   });
 });

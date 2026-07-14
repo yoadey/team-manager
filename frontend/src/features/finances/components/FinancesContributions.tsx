@@ -4,7 +4,7 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtMoney, monthName, NEUTRAL } from '@/styles/tokens';
 import { Av, Chip, EmptyState, Sym } from '@/components/ui';
 import type { Contribution, FinanceOverview } from '../types';
-import { t } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 
 type App = ReturnType<typeof useApp>;
 type Tk = ReturnType<typeof buildTokens>;
@@ -22,7 +22,9 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const months = [...new Set(contribs.map((c) => c.month).filter(Boolean))].sort().reverse();
   if (!months.length) return <EmptyState icon="payments" text={t('finances.contribEmpty')} />;
   const sel = state.contribMonth && months.includes(state.contribMonth) ? state.contribMonth : months[0];
-  const rows = contribs.filter((c) => c.month === sel).sort((a, b) => a.name!.localeCompare(b.name!, 'de'));
+  const rows = contribs
+    .filter((c) => c.month === sel)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', getIntlLocale()));
   const paidRows = rows.filter((c) => c.status === 'paid');
   const sum = paidRows.reduce((s, c) => s + c.amount, 0);
   const total = rows.reduce((s, c) => s + c.amount, 0);
@@ -132,6 +134,23 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
               </Box>
               <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>{fmtMoney(c.amount)}</Box>
             </Box>
+            {canFin ? (
+              <ButtonBase
+                onClick={() => app.openContribForm(c)}
+                aria-label={t('finances.editContribLabel')}
+                sx={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '50%',
+                  background: NEUTRAL.sidebar,
+                  color: NEUTRAL.faint,
+                  cursor: 'pointer',
+                  flex: '0 0 auto',
+                }}
+              >
+                <Sym name="edit" size={16} color={NEUTRAL.faint} />
+              </ButtonBase>
+            ) : null}
             {canFin ? (
               <ButtonBase
                 onClick={() => app.toggleContribution(c.id)}

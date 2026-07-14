@@ -1,0 +1,72 @@
+{{ include "team-manager.fullname" . }} has been deployed.
+
+{{- if not .Values.image.tag }}
+
+WARNING: image.tag is not set, so the backend image resolves to
+Chart.appVersion ("{{ .Chart.AppVersion }}") — a value hand-set in
+Chart.yaml that nothing in the release process bumps to match the
+latest published tag. .github/workflows/release.yml publishes images
+tagged by the actual released version (e.g. "1.2.3", the v stripped),
+never "{{ .Chart.AppVersion }}" unless that happens to coincidentally be
+a real release. Set image.tag explicitly to a real release tag, e.g.:
+
+  helm upgrade --install {{ .Release.Name }} . --set image.tag=1.2.3
+
+or you risk an ImagePullBackOff against a tag GHCR never published.
+{{- end }}
+{{- if .Values.ingress.enabled }}
+
+Ingress host(s):
+{{- range .Values.ingress.hosts }}
+  https://{{ .host }}
+{{- end }}
+{{- end }}
+
+{{- if and .Values.ingress.enabled (not (index .Values.env "TRUSTED_PROXY_CIDRS")) }}
+
+WARNING: ingress is enabled but env.TRUSTED_PROXY_CIDRS is not set.
+
+Every request reaches the backend proxied through your ingress controller
+({{ .Values.ingress.className | default "nginx" }}), so without
+TRUSTED_PROXY_CIDRS every real client appears to share the ingress
+controller's own IP address for the global rate limiter (RATE_LIMIT_RPS)
+and, more importantly, the login brute-force limiter
+(LOGIN_RATE_LIMIT_PER_MIN) — see docs/operations.md's "Rate limiting"
+section for the full explanation.
+
+Set env.TRUSTED_PROXY_CIDRS to your cluster's ingress-controller pod CIDR
+(or load balancer's known egress range) via a values override, e.g.:
+
+  helm upgrade --install {{ .Release.Name }} . \
+    --set env.TRUSTED_PROXY_CIDRS=10.244.0.0/16
+
+The correct CIDR is cluster/CNI-specific (varies by Kubernetes
+distribution and networking plugin) and cannot be safely defaulted by
+this chart — a too-broad value would let clients on the same network
+spoof X-Forwarded-For and bypass rate limiting entirely, which is worse
+than leaving it unset.
+{{- end }}
+
+{{- if and (eq (index .Values.env "COOKIE_SECURE") "true") (ne (index .Values.env "METRICS_ALLOW_OPEN") "true") }}
+
+REMINDER: env.COOKIE_SECURE is "true", so the backend hard-fails startup
+(exit 1, every replica crash-loops) unless your {{ .Values.existingSecret | default "existingSecret" }}
+Secret has a non-empty METRICS_TOKEN key — this chart cannot verify that
+from here, since it only sees the Secret's name, not its contents. If you
+haven't set one, either add a METRICS_TOKEN key to that Secret, or set
+env.METRICS_ALLOW_OPEN=true if /metrics is already restricted at the
+network layer and you accept it being unauthenticated.
+{{- end }}
+
+{{- if and .Values.backup.enabled .Values.backup.s3.enabled }}
+
+REMINDER: backup.retentionDays ({{ .Values.backup.retentionDays }}) is
+informational only -- nothing in this chart enforces it. The backup
+CronJob uploads one dump per successful run to
+s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/ and
+never deletes old objects itself. Without a matching S3 (or S3-compatible)
+bucket lifecycle rule configured separately, backups accumulate in that
+bucket indefinitely -- unbounded storage cost, and a data-minimization/
+compliance risk for backups containing personal data retained far longer
+than any documented policy.
+{{- end }}

@@ -26,6 +26,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     go: mockGo,
     goEventsPending: mockGoEventsPending,
     openEventForm: mockOpenEventForm,
+    can: () => true,
   };
 }
 
@@ -97,6 +98,31 @@ describe('Home', () => {
     render(<Home />);
     expect(screen.getByText('Mitglieder')).toBeTruthy();
     expect(screen.getByText('10')).toBeTruthy();
+  });
+
+  // Regression test: a role with news:none previously still saw the "News"
+  // section and its "Alle ansehen" cross-link on Home, which would bounce
+  // back with a spurious forbidden toast when tapped (afterLoginLoad's
+  // background news fetch already 403s silently now, but the section itself
+  // must not render either).
+  it('hides the News section when the caller lacks news:read', () => {
+    mockUseApp.mockReturnValue({ ...makeApp(), can: (m: string) => m !== 'news' });
+    render(<Home />);
+    expect(screen.queryByText('Noch keine News')).toBeNull();
+    expect(screen.getAllByText('Alle ansehen')).toHaveLength(1);
+  });
+
+  it('hides the events stats/section when the caller lacks events:read', () => {
+    mockUseApp.mockReturnValue({ ...makeApp(), can: (m: string) => m !== 'events' });
+    render(<Home />);
+    expect(screen.queryByText('Anstehende Termine')).toBeNull();
+    expect(screen.queryByText('Keine anstehenden Termine')).toBeNull();
+  });
+
+  it('hides the Mitglieder stat when the caller lacks members:read', () => {
+    mockUseApp.mockReturnValue({ ...makeApp(), can: (m: string) => m !== 'members' });
+    render(<Home />);
+    expect(screen.queryByText('Mitglieder')).toBeNull();
   });
 
   it('navigates to events when clicking "Anstehende Termine" stat', async () => {

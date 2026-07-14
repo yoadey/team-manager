@@ -4,7 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#1565C0" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' https://*.ingest.sentry.io; manifest-src 'self'; worker-src 'self';" />
+    <!--
+      connect-src includes ${API_BASE_URL}, a placeholder substituted by the
+      production Docker image's entrypoint (see frontend/docker/) from the
+      container's API_BASE_URL env var, so a cross-origin backend is allowed
+      to receive fetch()/XHR calls. Outside that image (local dev, tests,
+      `vite preview`) the placeholder is left un-substituted; CSP silently
+      drops unrecognized source expressions rather than failing the whole
+      directive, so 'self' still applies as before.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' ${API_BASE_URL} https://*.ingest.sentry.io; manifest-src 'self'; worker-src 'self';" />
     <!--
       IMPORTANT: frame-ancestors cannot be set via <meta> — browsers ignore it here.
       The production web server MUST emit these HTTP response headers to prevent clickjacking:
@@ -21,6 +30,13 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Plain (non-module) script: the parser executes it synchronously and
+         immediately, before the document finishes parsing. type="module"
+         scripts are always deferred to after parsing regardless of position
+         in the document (Vite also hoists the built one into <head>), so
+         this still runs first, guaranteeing window.__RUNTIME_CONFIG__ is set
+         before src/config.ts reads it. -->
+    <script src="/config.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

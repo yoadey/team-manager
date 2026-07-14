@@ -1,13 +1,15 @@
+import { useSyncExternalStore } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { useApp, type Route } from '@/context/AppContext';
+import { useApp, sheetErrorBoundaryKey, type Route } from '@/context/AppContext';
+import { ROUTE_MODULE } from '@/context/urlState';
 import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
-import { t as tl } from '@/i18n';
+import { t as tl, getLocale, subscribeLocale } from '@/i18n';
 import { pageMeta } from './pageMeta';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { captureError } from '@/monitoring';
@@ -21,7 +23,18 @@ interface NavDef {
   gate?: () => boolean;
 }
 
+// Subscribes to the module-level i18n store directly (see the identical
+// helper in components/cards.tsx) so Shell re-renders on a locale switch.
+// pageMeta()/tl() read module-level i18n state, not AppContext, so without
+// this the page title/subtitle and nav labels stayed in the old language
+// until some UNRELATED AppContext change (navigation, a toast) happened to
+// force a re-render.
+function useLocaleSubscription(): void {
+  useSyncExternalStore(subscribeLocale, getLocale);
+}
+
 export function Shell() {
+  useLocaleSubscription();
   const app = useApp();
   const { state } = app;
   const compact = useCompact();
@@ -87,26 +100,35 @@ export function Shell() {
 
   const content = pageSheet ? (
     <Box sx={{ maxWidth: '860px' }}>
-      <ErrorBoundary key={pageSheet.type} onError={captureError}>
+      <ErrorBoundary key={sheetErrorBoundaryKey(pageSheet)} onError={captureError}>
         {renderSheet(app, pageSheet)}
       </ErrorBoundary>
     </Box>
   ) : <RouteScreen />;
 
+  // Derives each nav entry's gate from the shared ROUTE_MODULE map (same one
+  // RouteScreen's per-route content gate uses) rather than hand-rolling
+  // per-entry app.can() checks, so nav visibility and page content can't
+  // drift apart the way they previously did (only 'finances' was gated here).
+  const navGate = (route: Route): (() => boolean) | undefined => {
+    const module = ROUTE_MODULE[route];
+    return module ? () => app.can(module, 'read') : undefined;
+  };
+
   const railDefs: NavDef[] = [
     { key: 'home', label: tl('nav.home'), icon: 'home' },
-    { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending },
-    { key: 'members', label: tl('nav.members'), icon: 'group' },
-    { key: 'finances', label: tl('nav.finances'), icon: 'payments', gate: () => app.can('finances', 'read') },
-    { key: 'stats', label: tl('nav.stats'), icon: 'insights' },
-    { key: 'news', label: tl('nav.news'), icon: 'campaign' },
-    { key: 'polls', label: tl('nav.polls'), icon: 'how_to_vote' },
-    { key: 'team', label: tl('nav.team'), icon: 'shield' },
+    { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending, gate: navGate('events') },
+    { key: 'members', label: tl('nav.members'), icon: 'group', gate: navGate('members') },
+    { key: 'finances', label: tl('nav.finances'), icon: 'payments', gate: navGate('finances') },
+    { key: 'stats', label: tl('nav.stats'), icon: 'insights', gate: navGate('stats') },
+    { key: 'news', label: tl('nav.news'), icon: 'campaign', gate: navGate('news') },
+    { key: 'polls', label: tl('nav.polls'), icon: 'how_to_vote', gate: navGate('polls') },
+    { key: 'team', label: tl('nav.team'), icon: 'shield', gate: navGate('team') },
   ];
   const bottomDefs: NavDef[] = [
     { key: 'home', label: tl('nav.home'), icon: 'home' },
-    { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending },
-    { key: 'members', label: tl('nav.members'), icon: 'group' },
+    { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending, gate: navGate('events') },
+    { key: 'members', label: tl('nav.members'), icon: 'group', gate: navGate('members') },
     { key: '__more', label: tl('nav.more'), icon: 'apps' },
   ];
 
@@ -201,7 +223,7 @@ export function Shell() {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {pageSheet ? pm.title : pm.title}
+                {pm.title}
               </Box>
             </Box>
             <Sym name="unfold_more" size={20} sx={{ opacity: 0.8 }} />
@@ -209,7 +231,9 @@ export function Shell() {
           <ButtonBase
             onClick={app.openNotifications}
             aria-label={
-              hasUnread ? tl('shell.unreadNotifications', { n: state.notifUnread }) : tl('shell.openNotifications')
+              hasUnread
+                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                : tl('shell.openNotifications')
             }
             sx={{
               position: 'relative',
@@ -303,7 +327,9 @@ export function Shell() {
             p: '8px 6px',
           }}
         >
-          {bottomDefs.map((n) => {
+          {bottomDefs
+            .filter((d) => !d.gate || d.gate())
+            .map((n) => {
             const isMore = n.key === '__more';
             const active = !isMore && state.route === n.key;
             const badge = n.badge || 0;
@@ -568,7 +594,9 @@ export function Shell() {
           <ButtonBase
             onClick={app.openNotifications}
             aria-label={
-              hasUnread ? tl('shell.unreadNotifications', { n: state.notifUnread }) : tl('shell.openNotifications')
+              hasUnread
+                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                : tl('shell.openNotifications')
             }
             sx={{
               position: 'relative',

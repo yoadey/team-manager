@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { todayLocalDate } from '@/utils/date';
 import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta, NEUTRAL } from '@/styles/tokens';
-import { Av, Chip, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '@/components/ui';
+import { Av, Chip, EmptyState, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '@/components/ui';
 import type { AttendanceRow, EventComment, EventCommentFormValues, TeamEvent } from '../types';
 import type { AttendanceStatus } from '@/types';
 import type { SheetProps } from '@/sheets/types';
@@ -14,7 +14,10 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const tk = buildTokens(state.primaryColor);
 
   const e: TeamEvent | null = sheet.event ?? null;
-  if (!e) return <SpinnerBox />;
+  if (!e) {
+    if (sheet.eventNotFound) return <EmptyState icon="event_busy" text={t('events.detailNotFound')} />;
+    return <SpinnerBox />;
+  }
 
   const tm = typeMeta(e.type);
   const today = todayLocalDate();
@@ -281,7 +284,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               }}
             >
               <Sym name="info" size={16} color={NEUTRAL.warn} />
-              {e.responseMode === 'opt_out' ? t('events.autoOptOut') : myStatus === 'no' ? t('events.autoAbsent') : ''}
+              {myStatus === 'no' ? t('events.autoAbsent') : e.responseMode === 'opt_out' ? t('events.autoOptOut') : ''}
             </Box>
           ) : null}
           <Box key="btns" sx={{ display: 'flex', gap: '8px', mb: '10px' }}>
@@ -636,6 +639,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
             if (ev.key === 'Enter') app.postEventComment(e.id);
           }}
           placeholder={t('events.commentWrite')}
+          maxLength={10000}
           style={{ ...inputSx, flex: 1 }}
         />
         <ButtonBase

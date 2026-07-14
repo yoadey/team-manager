@@ -1,5 +1,6 @@
 import { captureException } from '@/monitoring';
 import { t } from '@/i18n';
+import { clearBusyIfOwned } from '@/utils/forms';
 
 /** Extracts a human-readable message from an unknown thrown value. */
 export function getErrorMessage(err: unknown): string {
@@ -85,7 +86,7 @@ export async function retryable<T>(fn: () => Promise<T>, maxRetries = 2): Promis
 interface ActionReporter {
   /** Clears any in-flight `busy` flag so the UI is never stuck. */
   setState: (patch: { busy: null }) => void;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'error') => void;
   /**
    * Called when an AuthError (HTTP 401 — session expired/invalid) is caught.
    * Use to trigger logout and redirect to the login screen so the user is
@@ -93,6 +94,27 @@ interface ActionReporter {
    * (HTTP 403), since the session is still valid there.
    */
   onAuthError?: () => void;
+  /**
+   * Reads the live app state so busyOwner can be checked against the CURRENT
+   * `busy` value, not a stale one captured at call time. Required together
+   * with busyOwner; omit both if the failing action never set `busy` itself
+   * (e.g. a background load) -- see busyOwner's doc comment for why.
+   */
+  S?: () => { busy: string | null };
+  /**
+   * The exact value this action's own setState({ busy: '...' }) used before
+   * starting its request. When set (with S), busy is only cleared if it
+   * still holds this value (clearBusyIfOwned) -- otherwise a DIFFERENT,
+   * still-in-flight action that has since taken over `busy` would have its
+   * spinner/disabled state incorrectly cleared by this one's failure.
+   *
+   * Omit for reporters whose action never sets `busy` in the first place
+   * (background loads, votes/toggles using their own inFlight Set guard):
+   * clearing busy unconditionally here would still risk clobbering an
+   * unrelated in-flight action, so those reporters don't touch `busy` at all
+   * rather than falling back to the old unconditional clear.
+   */
+  busyOwner?: string;
 }
 
 /**
@@ -105,16 +127,18 @@ interface ActionReporter {
  */
 export function reportActionError(reporter: ActionReporter, err: unknown, fallbackKey = 'error.action'): void {
   captureException(err);
-  reporter.setState({ busy: null });
+  if (reporter.S && reporter.busyOwner) {
+    clearBusyIfOwned(reporter.S, reporter.setState, reporter.busyOwner);
+  }
 
   if (err instanceof NetworkError) {
-    reporter.toastMsg(t('error.network'));
+    reporter.toastMsg(t('error.network'), undefined, 'error');
   } else if (err instanceof AuthError) {
-    reporter.toastMsg(t('error.login'));
+    reporter.toastMsg(t('error.login'), undefined, 'error');
     reporter.onAuthError?.();
   } else if (err instanceof ForbiddenError) {
-    reporter.toastMsg(t('error.forbidden'));
+    reporter.toastMsg(t('error.forbidden'), undefined, 'error');
   } else {
-    reporter.toastMsg(`${t(fallbackKey)}: ${getErrorMessage(err)}`);
+    reporter.toastMsg(`${t(fallbackKey)}: ${getErrorMessage(err)}`, undefined, 'error');
   }
 }

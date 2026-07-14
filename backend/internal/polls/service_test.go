@@ -2,6 +2,8 @@ package polls_test
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 	"github.com/yoadey/team-manager/backend/internal/polls"
 )
 
@@ -18,6 +21,7 @@ import (
 
 type mockRepo struct {
 	listByTeam   func(ctx context.Context, teamID uuid.UUID, limit int, cur *polls.ListCursor) ([]*polls.PollRow, error)
+	countByTeam  func(ctx context.Context, teamID uuid.UUID) (int, error)
 	findByID     func(ctx context.Context, id, teamID uuid.UUID) (*polls.PollRow, error)
 	create       func(ctx context.Context, teamID, creatorID uuid.UUID, question string, multiple, anonymous bool, options []string) (uuid.UUID, error)
 	delete       func(ctx context.Context, id, teamID uuid.UUID) error
@@ -30,10 +34,24 @@ type mockRepo struct {
 	// ID so existing single-poll test setups keep working unchanged.
 	listOptionsByPollIDs func(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*polls.PollOptionRow, error)
 	listVotesByPollIDs   func(ctx context.Context, pollIDs []uuid.UUID) (map[uuid.UUID][]*polls.PollVoteRow, error)
+
+	// withReadTxCalledPtr, when set, is flipped to true inside WithReadTx --
+	// lets a test assert its reads were actually routed through it.
+	withReadTxCalledPtr *bool
 }
 
 func (m *mockRepo) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int, cur *polls.ListCursor) ([]*polls.PollRow, error) {
 	return m.listByTeam(ctx, teamID, limit, cur)
+}
+
+// CountByTeam is optional; when unset, existing tests exercising Create get a
+// default of 0 (well under maxPollsPerTeam) so they don't all need updating
+// just to set this new field.
+func (m *mockRepo) CountByTeam(ctx context.Context, teamID uuid.UUID) (int, error) {
+	if m.countByTeam != nil {
+		return m.countByTeam(ctx, teamID)
+	}
+	return 0, nil
 }
 
 func (m *mockRepo) FindByID(ctx context.Context, id, teamID uuid.UUID) (*polls.PollRow, error) {
@@ -88,6 +106,16 @@ func (m *mockRepo) ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID) 
 		result[id] = votes
 	}
 	return result, nil
+}
+
+// WithReadTx runs fn directly against the mock itself (which already
+// implements polls.PollListReader), since unit tests have no live
+// transaction to hand out.
+func (m *mockRepo) WithReadTx(ctx context.Context, fn func(polls.PollListReader) error) error {
+	if m.withReadTxCalledPtr != nil {
+		*m.withReadTxCalledPtr = true
+	}
+	return fn(m)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -145,7 +173,7 @@ func TestService_ListByTeam(t *testing.T) {
 		listVotes: emptyVoteRepo(),
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	result, next, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
 
 	require.NoError(t, err)
@@ -155,6 +183,43 @@ func TestService_ListByTeam(t *testing.T) {
 	assert.Equal(t, "Best player?", result[0].Question)
 	require.Len(t, result[0].Options, 1)
 	assert.Equal(t, "Alice", result[0].Options[0].Text)
+}
+
+// Regression test: ListByTeam used to issue three independent, unprotected
+// queries (poll rows, then options, then votes) directly against the pool.
+// A concurrent Delete landing between them could leave a "ghost" poll in the
+// response -- a real question/options row with empty options/votes for a
+// poll that no longer exists. The fix routes all three reads through
+// WithReadTx so they observe one consistent snapshot; this test guards
+// against a regression back to calling the repo's plain methods directly,
+// which would silently reintroduce the race without any test failing to
+// notice (the mock's plain methods return the same data either way).
+func TestService_ListByTeam_RunsInsideReadTx(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow()
+	opt := makeOptionRow()
+
+	withReadTxCalled := false
+	repo := &mockRepo{
+		listByTeam: func(_ context.Context, tid uuid.UUID, _ int, _ *polls.ListCursor) ([]*polls.PollRow, error) {
+			assert.True(t, withReadTxCalled, "ListByTeam must be called from within the WithReadTx callback")
+			assert.Equal(t, teamID, tid)
+			return []*polls.PollRow{pr}, nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{opt}, nil
+		},
+		listVotes: emptyVoteRepo(),
+	}
+	repo.withReadTxCalledPtr = &withReadTxCalled
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	result, _, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
+
+	require.NoError(t, err)
+	assert.True(t, withReadTxCalled, "ListByTeam must route its reads through WithReadTx")
+	require.Len(t, result, 1)
 }
 
 // TestService_ListByTeam_BulkFetchesOptionsAndVotes guards against a
@@ -201,7 +266,7 @@ func TestService_ListByTeam_BulkFetchesOptionsAndVotes(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	result, _, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
 
 	require.NoError(t, err)
@@ -238,7 +303,7 @@ func TestService_Create(t *testing.T) {
 		listVotes: emptyVoteRepo(),
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	body := &gen.CreatePollRequest{
 		Question: "Vote now?",
 		Options:  []string{"Yes", "No"},
@@ -248,6 +313,72 @@ func TestService_Create(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Vote now?", result.Question)
 	assert.Len(t, result.Options, 2)
+}
+
+// Regression test: with no per-team cap, a member holding only polls:write
+// could script unbounded Create calls, growing the polls table without
+// limit. Create must refuse once the team is at maxPollsPerTeam, without
+// ever reaching the repo's insert.
+func TestService_Create_RejectsAtCap(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		countByTeam: func(context.Context, uuid.UUID) (int, error) { return 50_000, nil },
+		create: func(context.Context, uuid.UUID, uuid.UUID, string, bool, bool, []string) (uuid.UUID, error) {
+			t.Fatal("Create must not be called once the team is at the polls cap")
+			return uuid.Nil, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	body := &gen.CreatePollRequest{Question: "Vote now?", Options: []string{"Yes", "No"}}
+	_, err := svc.Create(context.Background(), teamID, userID, body)
+	require.ErrorIs(t, err, polls.ErrTooManyPolls)
+}
+
+// mockJobEnqueuer satisfies jobEnqueuer for tests exercising the
+// best-effort notification path.
+type mockJobEnqueuer struct {
+	err error
+}
+
+func (m *mockJobEnqueuer) EnqueueNotification(context.Context, jobs.NotificationArgs) error {
+	return m.err
+}
+
+// TestService_Create_NotificationEnqueueFailure_StillSucceeds regression-tests
+// that a failed best-effort notification enqueue doesn't fail the request
+// (the write already succeeded) -- this was already true before, but a
+// failure here used to be discarded with no trace at all; the logger
+// parameter added alongside this test makes it observable instead.
+func TestService_Create_NotificationEnqueueFailure_StillSucceeds(t *testing.T) {
+	t.Parallel()
+
+	newID := uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
+	pr := &polls.PollRow{
+		Id: newID, TeamId: teamID, CreatorId: userID,
+		Question: "Vote now?", Multiple: false, Anonymous: false, CreatedAt: time.Now(),
+	}
+
+	repo := &mockRepo{
+		create: func(context.Context, uuid.UUID, uuid.UUID, string, bool, bool, []string) (uuid.UUID, error) {
+			return newID, nil
+		},
+		findByID: func(_ context.Context, _, _ uuid.UUID) (*polls.PollRow, error) {
+			return pr, nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{{Id: optionID, PollId: newID, Text: "Yes", SortOrder: 0}}, nil
+		},
+		listVotes: emptyVoteRepo(),
+	}
+
+	svc := polls.NewService(repo, &mockJobEnqueuer{err: errors.New("river unavailable")}, nil, slog.Default())
+	body := &gen.CreatePollRequest{Question: "Vote now?", Options: []string{"Yes"}}
+	result, err := svc.Create(context.Background(), teamID, userID, body)
+
+	require.NoError(t, err)
+	assert.Equal(t, "Vote now?", result.Question)
 }
 
 func TestService_Vote(t *testing.T) {
@@ -281,7 +412,7 @@ func TestService_Vote(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	result, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID})
 
 	require.NoError(t, err)
@@ -289,6 +420,43 @@ func TestService_Vote(t *testing.T) {
 	assert.Equal(t, 1, result.TotalVotes)
 	require.NotNil(t, result.MyVote)
 	assert.Len(t, *result.MyVote, 1)
+}
+
+// Regression test: Vote used to reuse the pre-write poll row (pr) to build
+// the response instead of re-fetching after ReplaceVotes commits. A poll
+// deleted concurrently between the write and buildPoll's reads (ListOptions/
+// ListVotes silently return empty results for a gone poll_id, not an error)
+// used to assemble a nonsensical empty 200 OK from stale data instead of the
+// accurate 404 "poll not found".
+func TestService_Vote_PollDeletedBeforeRefetch_ReturnsErrNoRows(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow()
+	findByIDCalls := 0
+
+	repo := &mockRepo{
+		findByID: func(_ context.Context, id, tid uuid.UUID) (*polls.PollRow, error) {
+			findByIDCalls++
+			if findByIDCalls == 1 {
+				return pr, nil
+			}
+			return nil, pgx.ErrNoRows
+		},
+		replaceVotes: func(_ context.Context, _, _ uuid.UUID, _ []uuid.UUID, _ bool) error {
+			return nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			t.Fatal("buildPoll must not run against the stale pre-write poll row once the re-fetch reports it gone")
+			return nil, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	_, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID})
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+	assert.Equal(t, 2, findByIDCalls, "must re-fetch after ReplaceVotes, not reuse the pre-write poll row")
 }
 
 func TestService_Vote_CrossTeamBlocked(t *testing.T) {
@@ -307,7 +475,7 @@ func TestService_Vote_CrossTeamBlocked(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	_, err := svc.Vote(context.Background(), pollID, otherTeamID, userID, []uuid.UUID{optionID})
 
 	require.Error(t, err)
@@ -330,11 +498,43 @@ func TestService_Vote_SingleChoiceRejectsMultipleOptions(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	_, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID, otherOptionID})
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, polls.ErrSingleChoiceMultipleOptions)
+}
+
+func TestService_Vote_SingleChoiceDuplicateOptionID_NotRejected(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow() // Multiple: false
+	opt := makeOptionRow()
+	var gotOptionIDs []uuid.UUID
+
+	repo := &mockRepo{
+		findByID: func(context.Context, uuid.UUID, uuid.UUID) (*polls.PollRow, error) {
+			return pr, nil
+		},
+		replaceVotes: func(_ context.Context, _, _ uuid.UUID, oids []uuid.UUID, _ bool) error {
+			gotOptionIDs = oids
+			return nil
+		},
+		listOptions: func(context.Context, uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{opt}, nil
+		},
+		listVotes: func(context.Context, uuid.UUID) ([]*polls.PollVoteRow, error) {
+			return nil, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	// Same option submitted twice — a single-choice vote in substance, must
+	// not trip ErrSingleChoiceMultipleOptions (raw, undeduped length is 2).
+	_, err := svc.Vote(context.Background(), pollID, teamID, userID, []uuid.UUID{optionID, optionID})
+
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{optionID}, gotOptionIDs, "duplicate must be deduped before reaching the repository")
 }
 
 func TestService_Delete(t *testing.T) {
@@ -350,7 +550,7 @@ func TestService_Delete(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	err := svc.Delete(context.Background(), pollID, teamID)
 
 	require.NoError(t, err)
@@ -369,7 +569,7 @@ func TestService_Delete_CrossTeamBlocked(t *testing.T) {
 		},
 	}
 
-	svc := polls.NewService(repo, nil, nil)
+	svc := polls.NewService(repo, nil, nil, slog.Default())
 	err := svc.Delete(context.Background(), pollID, otherTeamID)
 
 	require.Error(t, err)

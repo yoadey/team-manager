@@ -31,13 +31,37 @@ RUN npm run build && find dist -name '*.map' -delete
 # Pinned to the alpine3.23 variant (rather than the 1.27-alpine tag previously
 # here) for current, patched OS packages — 1.27-alpine's Alpine base carried
 # several HIGH/CRITICAL CVEs (openssl, libpng, libxml2, musl) that the newly
-# added Trivy frontend scan caught.
-FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:a8d5564c3354241473c1e152d5dd3281ab4224edb61b23c291e0bfd9854687a1 AS runtime
+# added Trivy frontend scan caught. Re-resolved 2026-07-08 (from
+# registry-1.docker.io) after the previous digest's frozen libexpat 2.8.1-r0
+# picked up 3 fresh HIGH CVEs disclosed since it was pinned.
+FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:592b23aa79a6e6c08ba4b20f1fff700e1328895705966722608e115d62e52d39 AS runtime
+
+# envsubst (gettext) ships in the base image for its own built-in
+# entrypoint.d templating feature; fail the build loudly here rather than
+# discovering it's missing only when a container starts.
+RUN which envsubst
 
 # Replace the default site with our SPA + security-header config.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY security-headers.conf /etc/nginx/conf.d/security-headers.conf
-COPY --from=builder /app/dist /usr/share/nginx/html
+# --chown=101:101 (nginx-unprivileged's non-root user): plain COPY defaults
+# to root:root regardless of the image's USER directive, since these files
+# come from the root-run builder stage. docker-entrypoint-runtime-config.sh
+# below runs as uid 101 (containers don't switch users between ENTRYPOINT
+# and CMD) and needs write permission on index.html specifically — an
+# `envsubst > existing-file` redirect opens the existing inode for writing,
+# which fails on a root-owned, group/other-unwritable file even though the
+# directory itself is otherwise servable.
+COPY --chown=101:101 --from=builder /app/dist /usr/share/nginx/html
+
+# index.html.template is the *built* index.html (correct hashed asset paths)
+# re-used as an envsubst template for its CSP connect-src placeholder — see
+# docker-entrypoint-runtime-config.sh, which runs before nginx starts (via
+# the base image's inherited ENTRYPOINT) and overwrites both this and
+# config.js in /usr/share/nginx/html from the API_BASE_URL env var.
+COPY --from=builder /app/dist/index.html /etc/nginx/templates/index.html.template
+COPY docker/config.js.template /etc/nginx/templates/config.js.template
+COPY --chmod=755 docker/docker-entrypoint-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

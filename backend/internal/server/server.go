@@ -71,6 +71,10 @@ func (StrictUnimplemented) CreateInvite(_ context.Context, _ gen.CreateInviteReq
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) AcceptInvite(_ context.Context, _ gen.AcceptInviteRequestObject) (gen.AcceptInviteResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 func (StrictUnimplemented) GetTeamLogo(_ context.Context, _ gen.GetTeamLogoRequestObject) (gen.GetTeamLogoResponseObject, error) {
 	return nil, errNotImplemented
 }
@@ -87,11 +91,15 @@ func (StrictUnimplemented) UploadTeamPhoto(_ context.Context, _ gen.UploadTeamPh
 	return nil, errNotImplemented
 }
 
-func (StrictUnimplemented) ListMembers(_ context.Context, _ gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
+func (StrictUnimplemented) DeleteTeamPhoto(_ context.Context, _ gen.DeleteTeamPhotoRequestObject) (gen.DeleteTeamPhotoResponseObject, error) {
 	return nil, errNotImplemented
 }
 
-func (StrictUnimplemented) AddMember(_ context.Context, _ gen.AddMemberRequestObject) (gen.AddMemberResponseObject, error) {
+func (StrictUnimplemented) DeleteTeamLogo(_ context.Context, _ gen.DeleteTeamLogoRequestObject) (gen.DeleteTeamLogoResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) ListMembers(_ context.Context, _ gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
 	return nil, errNotImplemented
 }
 
@@ -416,6 +424,10 @@ func (s *Server) CreateInvite(ctx context.Context, req gen.CreateInviteRequestOb
 	return s.Teams.CreateInvite(ctx, req)
 }
 
+func (s *Server) AcceptInvite(ctx context.Context, req gen.AcceptInviteRequestObject) (gen.AcceptInviteResponseObject, error) {
+	return s.Teams.AcceptInvite(ctx, req)
+}
+
 func (s *Server) GetTeamLogo(ctx context.Context, req gen.GetTeamLogoRequestObject) (gen.GetTeamLogoResponseObject, error) {
 	return s.Teams.GetTeamLogo(ctx, req)
 }
@@ -432,14 +444,18 @@ func (s *Server) UploadTeamPhoto(ctx context.Context, req gen.UploadTeamPhotoReq
 	return s.Teams.UploadTeamPhoto(ctx, req)
 }
 
+func (s *Server) DeleteTeamPhoto(ctx context.Context, req gen.DeleteTeamPhotoRequestObject) (gen.DeleteTeamPhotoResponseObject, error) {
+	return s.Teams.DeleteTeamPhoto(ctx, req)
+}
+
+func (s *Server) DeleteTeamLogo(ctx context.Context, req gen.DeleteTeamLogoRequestObject) (gen.DeleteTeamLogoResponseObject, error) {
+	return s.Teams.DeleteTeamLogo(ctx, req)
+}
+
 // ─── Members delegations ──────────────────────────────────────────────────────
 
 func (s *Server) ListMembers(ctx context.Context, req gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
 	return s.Members.ListMembers(ctx, req)
-}
-
-func (s *Server) AddMember(ctx context.Context, req gen.AddMemberRequestObject) (gen.AddMemberResponseObject, error) {
-	return s.Members.AddMember(ctx, req)
 }
 
 func (s *Server) RemoveMember(ctx context.Context, req gen.RemoveMemberRequestObject) (gen.RemoveMemberResponseObject, error) {

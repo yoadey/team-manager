@@ -47,7 +47,7 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
           event_upcoming
         </Box>
         <Box key="s" sx={{ fontSize: '14px', color: NEUTRAL.secondary, mt: '12px', lineHeight: 1.5 }}>
-          {t('events.calExportHero', { n: cnt })}
+          {t('events.calExportHero', { n: cnt, count: cnt })}
         </Box>
       </Box>
 

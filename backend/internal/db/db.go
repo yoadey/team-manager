@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 )
 
 // Sentinel errors for the db package.
@@ -80,7 +81,17 @@ func RunMigrations(ctx context.Context, pool *pgxpool.Pool, migrationsDir string
 
 	fsys := os.DirFS(migrationsDir)
 
-	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, fsys)
+	// A Postgres session-level advisory lock serializes concurrent Up() calls
+	// across processes — e.g. the Helm chart's per-replica migrate
+	// initContainer running on several pods during a rolling update or HPA
+	// scale-out — so they apply migrations one at a time instead of racing
+	// on the same DDL. Without WithSessionLocker, goose disables locking
+	// entirely.
+	locker, err := lock.NewPostgresSessionLocker()
+	if err != nil {
+		return fmt.Errorf("db: create session locker: %w", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, fsys, goose.WithSessionLocker(locker))
 	if err != nil {
 		return fmt.Errorf("db: create goose provider: %w", err)
 	}

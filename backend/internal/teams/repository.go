@@ -26,6 +26,14 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
+// ErrRoleNotInTeam is returned when one or more role IDs passed to UpdateTeam
+// (via ReasonVisibilityRoleIDs) do not belong to the team being updated.
+var ErrRoleNotInTeam = errors.New("role does not belong to team")
+
+// ErrInviteNotFound is returned by AcceptInvite when no non-expired invite
+// matches the given code.
+var ErrInviteNotFound = errors.New("invite not found or expired")
+
 // TeamPatch carries optional fields for an UPDATE teams query.
 type TeamPatch struct {
 	Name                    *string
@@ -41,8 +49,8 @@ type TeamPatch struct {
 
 const selectTeamFields = `
 	t.id, t.name, t.short, t.icon, t.icon_bg, t.icon_fg,
-	COALESCE(t.photo_data, ''::bytea), t.photo_mime,
-	COALESCE(t.logo_data, ''::bytea), t.logo_mime,
+	(t.photo_data IS NOT NULL AND length(t.photo_data) > 0),
+	(t.logo_data IS NOT NULL AND length(t.logo_data) > 0),
 	t.description, t.reason_visibility_role_ids, t.created_at
 `
 
@@ -50,14 +58,46 @@ func scanTeam(row interface{ Scan(dest ...any) error }) (*TeamRow, error) {
 	tr := &TeamRow{}
 	err := row.Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
-		&tr.PhotoData, &tr.PhotoMime,
-		&tr.LogoData, &tr.LogoMime,
+		&tr.HasPhoto,
+		&tr.HasLogo,
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
 	}
 	return tr, nil
+}
+
+// GetTeamPhotoBytes returns the raw photo bytes and MIME type for teamID, or
+// pgx.ErrNoRows if the team has no photo set. Kept separate from GetTeam
+// (which only exposes a HasPhoto boolean) so byte-serving is the only path
+// that pays for transferring the blob out of Postgres.
+func (r *Repository) GetTeamPhotoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = r.pool.QueryRow(ctx, `SELECT photo_data, photo_mime FROM teams WHERE id = $1`, teamID).Scan(&data, &mime)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, pgx.ErrNoRows
+		}
+		return nil, nil, fmt.Errorf("teams.Repository.GetTeamPhotoBytes: %w", err)
+	}
+	return data, mime, nil
+}
+
+// GetTeamLogoBytes returns the raw logo bytes and MIME type for teamID, or
+// pgx.ErrNoRows if the team has no logo set.
+func (r *Repository) GetTeamLogoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = r.pool.QueryRow(ctx, `SELECT logo_data, logo_mime FROM teams WHERE id = $1`, teamID).Scan(&data, &mime)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, pgx.ErrNoRows
+		}
+		return nil, nil, fmt.Errorf("teams.Repository.GetTeamLogoBytes: %w", err)
+	}
+	return data, mime, nil
 }
 
 // ListTeamsForUser returns all teams the given user is a member of.
@@ -106,8 +146,12 @@ func (r *Repository) GetTeam(ctx context.Context, teamID string) (*TeamRow, erro
 }
 
 // CreateTeam inserts a new team, a membership for the creator, and two default roles
-// (Admin with all-write, Member with events/news/polls read).
-func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string) (*TeamRow, error) {
+// (Admin with all-write, Member with events/members/news/polls/settings read).
+// icon/iconBg/iconFg are optional (nil leaves the column at its DB default,
+// NULL) -- UpdateTeam already lets a caller set these after the fact, but the
+// frontend's create-team form collects them upfront and expects CreateTeam
+// itself to persist what was submitted, not silently discard it.
+func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*TeamRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	tx, err := r.pool.Begin(ctx)
@@ -119,16 +163,16 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 	// Insert team.
 	var tr TeamRow
 	err = tx.QueryRow(ctx, `
-		INSERT INTO teams (name)
-		VALUES ($1)
+		INSERT INTO teams (name, icon, icon_bg, icon_fg)
+		VALUES ($1, $2, $3, $4)
 		RETURNING id, name, short, icon, icon_bg, icon_fg,
-		          COALESCE(photo_data, ''::bytea), photo_mime,
-		          COALESCE(logo_data, ''::bytea), logo_mime,
+		          (photo_data IS NOT NULL AND length(photo_data) > 0),
+		          (logo_data IS NOT NULL AND length(logo_data) > 0),
 		          description, reason_visibility_role_ids, created_at
-	`, name).Scan(
+	`, name, icon, iconBg, iconFg).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
-		&tr.PhotoData, &tr.PhotoMime,
-		&tr.LogoData, &tr.LogoMime,
+		&tr.HasPhoto,
+		&tr.HasLogo,
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
@@ -161,10 +205,18 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 		return nil, fmt.Errorf("teams.Repository.CreateTeam insert admin role: %w", err)
 	}
 
-	// Insert Member role (events/news/polls read).
+	// Insert Member role (events/news/polls read). Members and Settings are
+	// also "read" (not "none") -- RequirePermission gates GET requests too,
+	// and a module set to "none" hides reads entirely (see authz.go), so
+	// "none" here would 403 every ordinary member's own dashboard load:
+	// AppContext.afterLoginLoad unconditionally fetches both the member
+	// roster (GET .../members) and the role catalog (GET .../roles, gated by
+	// "settings") for every team member on every login/team switch, not just
+	// for admins. Finances stays "none" -- financial data is legitimately
+	// admin-only by default.
 	memberPerms, _ := json.Marshal(PermissionsJSON{
-		Events: "read", Members: "none", Finances: "none",
-		News: "read", Polls: "read", Settings: "none",
+		Events: "read", Members: "read", Finances: "none",
+		News: "read", Polls: "read", Settings: "read",
 	})
 	var memberRoleID uuid.UUID
 	err = tx.QueryRow(ctx, `
@@ -190,15 +242,49 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string)
 	return &tr, nil
 }
 
-// UpdateTeam applies a partial update to the teams row and returns the updated row.
-func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	// Build a dynamic SET clause.
-	setClauses := []string{}
-	args := []any{}
-	argN := 1
+// parseAndValidateTeamRoleIDs parses ids as UUIDs and verifies every one
+// belongs to teamID, returning ErrRoleNotInTeam otherwise. Takes tx (not the
+// pool) so the check runs inside the caller's transaction, after it holds the
+// team's advisory lock -- otherwise a role could be deleted between this
+// check and the caller's later write, leaving a dangling reference.
+func parseAndValidateTeamRoleIDs(ctx context.Context, tx pgx.Tx, teamID string, ids []string) ([]uuid.UUID, error) {
+	uids := make([]uuid.UUID, len(ids))
+	for i, s := range ids {
+		u, err := uuid.Parse(s)
+		if err != nil {
+			return nil, fmt.Errorf("teams.Repository: invalid role id %q: %w", s, err)
+		}
+		uids[i] = u
+	}
+	if len(uids) == 0 {
+		return uids, nil
+	}
+	var count int
+	if err := tx.QueryRow(ctx,
+		`SELECT COUNT(*)::int FROM roles WHERE id = ANY($1) AND team_id = $2`,
+		uids, teamID,
+	).Scan(&count); err != nil {
+		return nil, fmt.Errorf("teams.Repository: check roles: %w", err)
+	}
+	// COUNT(*) counts matching rows (one per distinct role), not input array
+	// elements -- compare against the distinct id count so a request that
+	// legitimately repeats the same valid role ID isn't wrongly rejected.
+	seen := make(map[uuid.UUID]struct{}, len(uids))
+	for _, u := range uids {
+		seen[u] = struct{}{}
+	}
+	if count != len(seen) {
+		return nil, ErrRoleNotInTeam
+	}
+	return uids, nil
+}
 
+// buildSimpleTeamPatchClauses builds the SET clauses/args for TeamPatch
+// fields that need no extra validation, returning the next free placeholder
+// index. ReasonVisibilityRoleIDs is handled separately by the caller since it
+// needs a transaction to validate against.
+func buildSimpleTeamPatchClauses(patch TeamPatch) (setClauses []string, args []any, argN int) {
+	argN = 1
 	if patch.Name != nil {
 		setClauses = append(setClauses, fmt.Sprintf("name = $%d", argN))
 		args = append(args, *patch.Name)
@@ -229,14 +315,42 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 		args = append(args, *patch.Description)
 		argN++
 	}
+	return setClauses, args, argN
+}
+
+// UpdateTeam applies a partial update to the teams row and returns the updated row.
+func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.UpdateTeam: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if len(patch.ReasonVisibilityRoleIDs) > 0 {
+		// Uses the same advisory lock key as members.SetRoles/roles.DeleteRole
+		// (hashtextextended(teamID, 0)) so validating these role IDs can't
+		// race with a concurrent DeleteRole -- otherwise a role could be
+		// deleted (and scrubbed from this same array) between the check
+		// below and this UPDATE's commit, re-introducing a dangling
+		// reference right after DeleteRole just removed it. Skipped when the
+		// caller is clearing the list (a non-nil but empty slice) -- an empty
+		// array has nothing to validate against a concurrent role deletion,
+		// mirroring events.validateNominatedRolesInTx's same short-circuit.
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+			return nil, fmt.Errorf("teams.Repository.UpdateTeam: advisory lock: %w", err)
+		}
+	}
+
+	// Build a dynamic SET clause.
+	setClauses, args, argN := buildSimpleTeamPatchClauses(patch)
+
 	if patch.ReasonVisibilityRoleIDs != nil {
-		uids := make([]uuid.UUID, len(patch.ReasonVisibilityRoleIDs))
-		for i, s := range patch.ReasonVisibilityRoleIDs {
-			u, err := uuid.Parse(s)
-			if err != nil {
-				return nil, fmt.Errorf("teams.Repository.UpdateTeam: invalid role id %q: %w", s, err)
-			}
-			uids[i] = u
+		uids, err := parseAndValidateTeamRoleIDs(ctx, tx, teamID, patch.ReasonVisibilityRoleIDs)
+		if err != nil {
+			return nil, err
 		}
 		setClauses = append(setClauses, fmt.Sprintf("reason_visibility_role_ids = $%d", argN))
 		args = append(args, uids)
@@ -260,16 +374,16 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 	q := fmt.Sprintf(`
 		UPDATE teams SET %s WHERE id = $%d
 		RETURNING id, name, short, icon, icon_bg, icon_fg,
-		          COALESCE(photo_data, ''::bytea), photo_mime,
-		          COALESCE(logo_data, ''::bytea), logo_mime,
+		          (photo_data IS NOT NULL AND length(photo_data) > 0),
+		          (logo_data IS NOT NULL AND length(logo_data) > 0),
 		          description, reason_visibility_role_ids, created_at
 	`, setSQL, argN)
 
 	var tr TeamRow
-	err := r.pool.QueryRow(ctx, q, args...).Scan(
+	err = tx.QueryRow(ctx, q, args...).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
-		&tr.PhotoData, &tr.PhotoMime,
-		&tr.LogoData, &tr.LogoMime,
+		&tr.HasPhoto,
+		&tr.HasLogo,
 		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
 	)
 	if err != nil {
@@ -277,6 +391,9 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 			return nil, pgx.ErrNoRows
 		}
 		return nil, fmt.Errorf("teams.Repository.UpdateTeam: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("teams.Repository.UpdateTeam: commit: %w", err)
 	}
 	return &tr, nil
 }
@@ -340,6 +457,96 @@ func (r *Repository) GetRolesForMembership(ctx context.Context, membershipID, te
 	return out, rows.Err()
 }
 
+// GetMemberCounts returns the member count for each of the given team IDs, in
+// one query rather than one round trip per team (used by ListTeamsForUser to
+// avoid an N+1 pattern when a user belongs to many teams).
+func (r *Repository) GetMemberCounts(ctx context.Context, teamIDs []string) (map[string]int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT team_id, COUNT(*)
+		FROM memberships
+		WHERE team_id = ANY($1)
+		GROUP BY team_id
+	`, teamIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.GetMemberCounts: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int, len(teamIDs))
+	for rows.Next() {
+		var teamID string
+		var count int
+		if err := rows.Scan(&teamID, &count); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetMemberCounts scan: %w", err)
+		}
+		out[teamID] = count
+	}
+	return out, rows.Err()
+}
+
+// GetMembershipsForUser returns the given user's membership row for each of
+// the given team IDs, keyed by team ID (see GetMemberCounts for why this is
+// batched rather than called once per team).
+func (r *Repository) GetMembershipsForUser(ctx context.Context, teamIDs []string, userID string) (map[string]MembershipRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT id, team_id, user_id, "group", joined_at
+		FROM memberships
+		WHERE team_id = ANY($1) AND user_id = $2
+	`, teamIDs, userID)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.GetMembershipsForUser: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]MembershipRow, len(teamIDs))
+	for rows.Next() {
+		var m MembershipRow
+		if err := rows.Scan(&m.Id, &m.TeamID, &m.UserID, &m.Group, &m.JoinedAt); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetMembershipsForUser scan: %w", err)
+		}
+		out[m.TeamID.String()] = m
+	}
+	return out, rows.Err()
+}
+
+// GetRolesForMemberships returns the roles assigned to each of the given
+// membership IDs, keyed by membership ID (see GetMemberCounts for why this is
+// batched rather than called once per membership).
+func (r *Repository) GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]RoleRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT mr.membership_id, r.id, r.team_id, r.name, r.system, r.color, r.permissions
+		FROM roles r
+		JOIN membership_roles mr ON mr.role_id = r.id
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE mr.membership_id = ANY($1) AND r.team_id = m.team_id
+	`, membershipIDs)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Repository.GetRolesForMemberships: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string][]RoleRow, len(membershipIDs))
+	for rows.Next() {
+		var membershipID string
+		rr := RoleRow{}
+		var permJSON []byte
+		if err := rows.Scan(&membershipID, &rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permJSON); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetRolesForMemberships scan: %w", err)
+		}
+		if err := json.Unmarshal(permJSON, &rr.Permissions); err != nil {
+			return nil, fmt.Errorf("teams.Repository.GetRolesForMemberships unmarshal permissions: %w", err)
+		}
+		out[membershipID] = append(out[membershipID], rr)
+	}
+	return out, rows.Err()
+}
+
 // MergePermissions computes the highest permission level across all roles per module.
 func MergePermissions(roles []RoleRow) gen.Permissions {
 	order := map[string]int{"none": 0, "read": 1, "write": 2}
@@ -399,6 +606,99 @@ func (r *Repository) CreateInvite(ctx context.Context, teamID string, ttl time.D
 	return inv, nil
 }
 
+// AcceptInvite redeems a non-expired invite code, adding userID as a member of
+// its team. Idempotent: redeeming a code for a team the user already belongs
+// to is a no-op that still returns that team, and only a brand-new membership
+// gets the default system "Member" role -- an admin who has since stripped a
+// re-joining member's roles must not have that silently undone by the member
+// re-clicking their old invite link.
+// AcceptInvite's second return value reports whether the caller was already
+// a member of the team before this call (a no-op join-wise), so the caller
+// can distinguish that from an actual new join (e.g. to avoid showing a
+// misleading "joined" toast on a repeat visit to an old invite link).
+func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var teamID uuid.UUID
+	err = tx.QueryRow(ctx, `
+		SELECT team_id FROM invites WHERE code = $1 AND expires_at > now()
+	`, code).Scan(&teamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, ErrInviteNotFound
+		}
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: lookup invite: %w", err)
+	}
+
+	// Same advisory lock key as every other team-mutating path (roles
+	// deletion, CreateEvent/UpdateEvent nominations, UpdateTeam), so a
+	// concurrent role deletion can't race the default-role assignment below.
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID.String()); err != nil {
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: advisory lock: %w", err)
+	}
+
+	var membershipID uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, userID).
+		Scan(&membershipID)
+	isNewMembership := errors.Is(err, pgx.ErrNoRows)
+	if err != nil && !isNewMembership {
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: check membership: %w", err)
+	}
+
+	if isNewMembership {
+		err = tx.QueryRow(ctx, `
+			INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id
+		`, teamID, userID).Scan(&membershipID)
+		if err != nil {
+			return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: create membership: %w", err)
+		}
+
+		var memberRoleID uuid.UUID
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM roles WHERE team_id = $1 AND system = true AND name = 'Member'
+		`, teamID).Scan(&memberRoleID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: find member role: %w", err)
+		}
+		if err == nil {
+			if _, err = tx.Exec(ctx, `
+				INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)
+			`, membershipID, memberRoleID); err != nil {
+				return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: assign member role: %w", err)
+			}
+		}
+	}
+
+	var tr TeamRow
+	err = tx.QueryRow(ctx, `
+		SELECT id, name, short, icon, icon_bg, icon_fg,
+		       (photo_data IS NOT NULL AND length(photo_data) > 0),
+		       (logo_data IS NOT NULL AND length(logo_data) > 0),
+		       description, reason_visibility_role_ids, created_at
+		FROM teams WHERE id = $1
+	`, teamID).Scan(
+		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
+		&tr.HasPhoto,
+		&tr.HasLogo,
+		&tr.Description, &tr.ReasonVisibilityRoleIDs, &tr.CreatedAt,
+	)
+	if err != nil {
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: fetch team: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, false, fmt.Errorf("teams.Repository.AcceptInvite: commit: %w", err)
+	}
+	return &tr, !isNewMembership, nil
+}
+
 // UpdateTeamPhoto stores raw photo bytes and MIME type for the given team.
 func (r *Repository) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -425,6 +725,36 @@ func (r *Repository) UpdateTeamLogo(ctx context.Context, teamID string, data []b
 	)
 	if err != nil {
 		return fmt.Errorf("teams.Repository.UpdateTeamLogo: %w", err)
+	}
+	return nil
+}
+
+// DeleteTeamPhoto clears the stored photo for the given team, reverting
+// display to the icon fallback. Returns pgx.ErrNoRows if teamID doesn't exist.
+func (r *Repository) DeleteTeamPhoto(ctx context.Context, teamID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `UPDATE teams SET photo_data = NULL, photo_mime = NULL WHERE id = $1`, teamID)
+	if err != nil {
+		return fmt.Errorf("teams.Repository.DeleteTeamPhoto: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteTeamLogo clears the stored logo for the given team, reverting
+// display to the icon fallback. Returns pgx.ErrNoRows if teamID doesn't exist.
+func (r *Repository) DeleteTeamLogo(ctx context.Context, teamID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx, `UPDATE teams SET logo_data = NULL, logo_mime = NULL WHERE id = $1`, teamID)
+	if err != nil {
+		return fmt.Errorf("teams.Repository.DeleteTeamLogo: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }

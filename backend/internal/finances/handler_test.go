@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +108,26 @@ func authedCtx() context.Context {
 	}
 	ctx := context.Background()
 	return auth.ContextWithUser(ctx, user)
+}
+
+// findAuditLogLine parses a multi-line JSON log buffer (a handler that logs
+// both an error and an audit record writes two separate JSON objects to the
+// same buffer, which json.Unmarshal can't parse as one value) and returns the
+// first line that is an audit record.
+func findAuditLogLine(t *testing.T, buf []byte) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(string(buf), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+		if rec["audit"] == true {
+			return rec
+		}
+	}
+	t.Fatal("no audit log line found")
+	return nil
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -209,11 +231,42 @@ func TestHandler_CreateTransaction_RejectsNonPositiveAmount(t *testing.T) {
 	}
 	h := finances.NewHandler(svc, slog.Default(), nil)
 
-	for _, amount := range []int64{0, -10} {
+	for _, amount := range []int64{0, -10, 100_000_001, math.MaxInt64} {
 		body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Membership fee", Amount: amount}
 		_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
 		require.Error(t, err)
 	}
+}
+
+func TestHandler_CreateTransaction_RejectsOversizedCategory(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when category validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	category := strings.Repeat("x", 256)
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Membership fee", Amount: 100, Category: &category}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+}
+
+func TestHandler_CreateTransaction_RejectsInvalidType(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when type validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.TransactionType("bogus"), Title: "Membership fee", Amount: 100}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
 }
 
 func TestHandler_UpdateTransaction_RejectsNonPositiveAmount(t *testing.T) {
@@ -274,6 +327,53 @@ func TestHandler_CreateTransaction_EmitsAuditEvent(t *testing.T) {
 	assert.Equal(t, testTxID.String(), rec["transactionId"])
 }
 
+// Regression test: unlike UpdateTransaction/DeleteTransaction/UpdatePenalty/etc.,
+// CreateTransaction's service-error branch used to only log via h.logger and
+// never call h.recordFinanceFailure, leaving no audit_log trace of a failed
+// (or repeatedly probed) transaction creation.
+func TestHandler_CreateTransaction_ServiceError_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Fee", Amount: 5000}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+
+	rec := findAuditLogLine(t, buf.Bytes())
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "finance.mutation", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "transaction.create", rec["operation"])
+}
+
+// Regression test: same gap as CreateTransaction above, for CreatePenalty.
+func TestHandler_CreatePenalty_ServiceError_RecordsAuditFailure(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createPenalty: func(_ context.Context, _ uuid.UUID, _ *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+			return nil, errors.New("db error")
+		},
+	}
+	var buf bytes.Buffer
+	h := finances.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil)
+
+	body := &gen.CreatePenaltyJSONRequestBody{Label: "Late", Amount: 500}
+	_, err := h.CreatePenalty(authedCtx(), gen.CreatePenaltyRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+
+	rec := findAuditLogLine(t, buf.Bytes())
+	assert.Equal(t, true, rec["audit"])
+	assert.Equal(t, "finance.mutation", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.Equal(t, "penalty.create", rec["operation"])
+}
+
 func TestHandler_DeleteTransaction_Success(t *testing.T) {
 	t.Parallel()
 	svc := &mockFinanceService{
@@ -313,6 +413,31 @@ func TestHandler_TogglePenaltyPaid_NotFoundReturns404(t *testing.T) {
 	_, err := h.TogglePenaltyPaid(authedCtx(), gen.TogglePenaltyPaidRequestObject{
 		TeamId:       testTeamID,
 		AssignmentId: testTxID,
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
+}
+
+// Regression test: Service.CreateAssignment returns bare pgx.ErrNoRows when
+// the just-created row is gone by the time it's reloaded (a concurrent
+// DeletePenalty cascaded it away) -- unlike every other write handler in
+// this file, CreatePenaltyAssignment had no pgx.ErrNoRows branch at all, so
+// this benign race fell through to a generic 500 instead of the intended 404.
+func TestHandler_CreatePenaltyAssignment_ReloadRaceReturns404(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createAssignment: func(_ context.Context, _ uuid.UUID, _ *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: testTxID, UserId: testTxID}
+	_, err := h.CreatePenaltyAssignment(authedCtx(), gen.CreatePenaltyAssignmentRequestObject{
+		TeamId: testTeamID,
+		Body:   body,
 	})
 	require.Error(t, err)
 	var apiErr *apierror.APIError

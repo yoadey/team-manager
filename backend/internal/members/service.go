@@ -17,10 +17,9 @@ import (
 // memberRepo is the interface the Service relies on.
 type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
-	AddMember(ctx context.Context, teamID string, params AddMemberParams) (*MemberRow, error)
-	UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*MemberRow, error)
-	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*MemberRow, error)
-	RemoveMember(ctx context.Context, membershipID, teamID string) error
+	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*MemberRow, error)
+	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*MemberRow, error)
+	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 // Service implements member business logic.
@@ -73,19 +72,11 @@ func (s *Service) ListMembers(ctx context.Context, teamID string, limit int, cur
 	return out, next, nil
 }
 
-// AddMember adds a member and returns the gen.Member.
-func (s *Service) AddMember(ctx context.Context, teamID string, params AddMemberParams) (*gen.Member, error) {
-	mr, err := s.repo.AddMember(ctx, teamID, params)
-	if err != nil {
-		return nil, fmt.Errorf("members.Service.AddMember: %w", err)
-	}
-	m := toGenMember(*mr)
-	return &m, nil
-}
-
 // UpdateMember updates member profile and returns the updated gen.Member.
-func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID string, patch MemberPatch) (*gen.Member, error) {
-	mr, err := s.repo.UpdateMember(ctx, membershipID, teamID, patch)
+// callerUserID is the authenticated caller, used to require settings:write
+// when the patch changes another member's email (see ErrCannotChangeOthersEmail).
+func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*gen.Member, error) {
+	mr, err := s.repo.UpdateMember(ctx, membershipID, teamID, callerUserID, patch)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -96,15 +87,23 @@ func (s *Service) UpdateMember(ctx context.Context, membershipID, teamID string,
 	return &m, nil
 }
 
-// SetRoles replaces the member's role assignments.
-func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string) (*gen.Member, error) {
-	mr, err := s.repo.SetRoles(ctx, membershipID, teamID, roleIDs)
+// SetRoles replaces the member's role assignments. callerUserID is the
+// acting user, used to enforce that they cannot grant a permission level
+// they do not themselves hold (see enforceNoPermissionEscalation).
+func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error) {
+	mr, err := s.repo.SetRoles(ctx, membershipID, teamID, roleIDs, callerUserID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
 		if errors.Is(err, ErrRoleNotInTeam) {
 			return nil, ErrRoleNotInTeam
+		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			return nil, ErrLastSettingsAdmin
+		}
+		if errors.Is(err, ErrInsufficientPermissionToGrant) {
+			return nil, ErrInsufficientPermissionToGrant
 		}
 		return nil, fmt.Errorf("members.Service.SetRoles: %w", err)
 	}
@@ -113,10 +112,16 @@ func (s *Service) SetRoles(ctx context.Context, membershipID, teamID string, rol
 }
 
 // RemoveMember removes a member from the team.
-func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID string) error {
-	if err := s.repo.RemoveMember(ctx, membershipID, teamID); err != nil {
+func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error {
+	if err := s.repo.RemoveMember(ctx, membershipID, teamID, callerUserID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
+		}
+		if errors.Is(err, ErrLastSettingsAdmin) {
+			return ErrLastSettingsAdmin
+		}
+		if errors.Is(err, ErrCannotRemoveSettingsAdmin) {
+			return ErrCannotRemoveSettingsAdmin
 		}
 		return fmt.Errorf("members.Service.RemoveMember: %w", err)
 	}
@@ -126,14 +131,17 @@ func (s *Service) RemoveMember(ctx context.Context, membershipID, teamID string)
 // ─── mapper ──────────────────────────────────────────────────────────────────
 
 func toGenMember(mr MemberRow) gen.Member {
-	hasPhoto := len(mr.PhotoData) > 0
+	hasPhoto := mr.HasPhoto
 
 	genRoles := make([]gen.Role, len(mr.Roles))
 	for i, r := range mr.Roles {
 		genRoles[i] = toGenRole(r)
 	}
 
-	// Primary role = first role (arbitrary ordering).
+	// Primary role = first role, ordered by role id (arbitrary but
+	// deterministic -- repository.go's batchGetRoles/getRolesForMembershipQ
+	// both ORDER BY r.id so this agrees with events.batchGetPrimaryRoles'
+	// identical convention for the same membership).
 	var primaryRole *gen.Role
 	if len(genRoles) > 0 {
 		primaryRole = &genRoles[0]

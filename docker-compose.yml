@@ -1,11 +1,20 @@
+# Local development only -- not a production deployment manifest. Postgres
+# credentials default to a well-known value, the DB port is published to the
+# host, and COOKIE_SECURE is hardcoded to "false" (plaintext-HTTP session
+# cookies). Override POSTGRES_USER/POSTGRES_PASSWORD/POSTGRES_DB via .env for
+# anything beyond a throwaway local instance; see helm/ for production.
 services:
   postgres:
     # Pin to an immutable digest for reproducible local dev. Dependabot's
     # docker ecosystem entry for directory / (.github/dependabot.yml) keeps
     # this digest current automatically.
-    # Digest below resolved 2026-07-01 from registry-1.docker.io for postgres:17
-    # (docker-library/postgres 17.10).
-    image: postgres:17@sha256:5c855ad7b85e68e48a62f34662853f38b57c1c1d80f3a927ab58034fd6d31c5e
+    # Digest below resolved 2026-07-08 from registry-1.docker.io for postgres:17
+    # (docker-library/postgres 17.10). Re-resolved from the prior pin, which
+    # CI's security-container-backup Trivy scan (ci.yml) caught shipping a
+    # stale bundled gosu binary with real, fixed-upstream Go stdlib CVEs --
+    # any point-in-time digest pin will eventually accrue newly-published
+    # CVEs against its frozen package versions; re-resolve periodically.
+    image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-teammanager}
@@ -43,7 +52,11 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      # The distroless/static image has no shell/wget, so this must be the
+      # exec form invoking the /healthcheck binary directly (see backend
+      # Dockerfile) rather than "CMD-SHELL wget ... || exit 1", which can
+      # never exec and always reports unhealthy.
+      test: ["CMD", "/healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -79,7 +92,11 @@ services:
           memory: 128M
 
   frontend:
-    image: node:22-alpine
+    # Pin to an immutable digest, matching this file's postgres service.
+    # Dependabot's docker ecosystem entry for directory / (.github/dependabot.yml)
+    # keeps this digest current automatically.
+    # Digest below resolved 2026-07-04 from registry-1.docker.io for node:22-alpine.
+    image: node:22-alpine@sha256:16e22a550f3863206a3f701448c45f7912c6896a62de43add43bb9c86130c3e2
     working_dir: /app
     volumes:
       - ./frontend:/app

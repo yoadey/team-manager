@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/stats"
 )
 
@@ -20,6 +21,7 @@ type mockRepo struct {
 	memberStatsFn       func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MemberStatRow, error)
 	eventStatsFn        func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.EventStatRow, error)
 	singleMemberStatsFn func(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error)
+	withReadTxFn        func(ctx context.Context, fn func(stats.OverviewReader) error) error
 }
 
 func (m *mockRepo) MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
@@ -32,6 +34,16 @@ func (m *mockRepo) EventStats(ctx context.Context, teamID uuid.UUID, from, to st
 
 func (m *mockRepo) SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error) {
 	return m.singleMemberStatsFn(ctx, teamID, userID, from, to)
+}
+
+// WithReadTx runs fn directly against the mock itself (which already
+// implements stats.OverviewReader), since unit tests have no live
+// transaction to hand out.
+func (m *mockRepo) WithReadTx(ctx context.Context, fn func(stats.OverviewReader) error) error {
+	if m.withReadTxFn != nil {
+		return m.withReadTxFn(ctx, fn)
+	}
+	return fn(m)
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -50,8 +62,8 @@ func TestService_GetOverview_ComputesQuotesAndAverage(t *testing.T) {
 		},
 		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) {
 			return []stats.EventStatRow{
-				{EventID: uuid.New(), Title: "Match", Date: "2026-01-15", Yes: 6, Counted: 10},    // 0.6 -> Enough
-				{EventID: uuid.New(), Title: "Training", Date: "2026-01-20", Yes: 3, Counted: 10}, // 0.3 -> not Enough
+				{EventID: uuid.New(), Title: "Match", Type: "auftritt", Date: "2026-01-15", Yes: 6, Counted: 10},    // 0.6 -> Enough
+				{EventID: uuid.New(), Title: "Training", Type: "training", Date: "2026-01-20", Yes: 3, Counted: 10}, // 0.3 -> not Enough
 			}, nil
 		},
 	}
@@ -70,6 +82,10 @@ func TestService_GetOverview_ComputesQuotesAndAverage(t *testing.T) {
 	require.Len(t, overview.Events, 2)
 	assert.True(t, overview.Events[0].Enough, "0.6 attendance ratio should meet the 0.5 threshold")
 	assert.False(t, overview.Events[1].Enough, "0.3 attendance ratio should not meet the 0.5 threshold")
+	// Regression: Type used to be dropped entirely between EventStatRow and
+	// gen.EventStat, always defaulting the client to the generic "event" icon.
+	assert.Equal(t, gen.EventType("auftritt"), overview.Events[0].Type)
+	assert.Equal(t, gen.EventType("training"), overview.Events[1].Type)
 	assert.Equal(t, 2, overview.PastCount)
 }
 
@@ -93,6 +109,35 @@ func TestService_GetOverview_DefaultsDateRangeWhenUnset(t *testing.T) {
 	assert.Less(t, capturedFrom, capturedTo, "default range should start before it ends")
 }
 
+// Pins the exact default window width so a future change to defaultDateRange
+// (or to how GetMemberStats/GetOverview call it) can't silently drift from
+// "3 months" without a test failing -- this is the only path GetMemberStats
+// exercises, since its request has no from/to params at all.
+func TestService_GetOverview_DefaultRangeIsExactlyThreeMonths(t *testing.T) {
+	t.Parallel()
+
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		memberStatsFn: func(_ context.Context, _ uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
+			capturedFrom, capturedTo = from, to
+			return nil, nil
+		},
+		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) { return nil, nil },
+	}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetOverview(context.Background(), uuid.New(), nil, nil)
+	require.NoError(t, err)
+
+	gotFrom, err := time.Parse("2006-01-02", capturedFrom)
+	require.NoError(t, err)
+	gotTo, err := time.Parse("2006-01-02", capturedTo)
+	require.NoError(t, err)
+
+	wantFrom := gotTo.AddDate(0, -3, 0)
+	assert.Equal(t, wantFrom.Format("2006-01-02"), gotFrom.Format("2006-01-02"))
+}
+
 func TestService_GetOverview_UsesExplicitDateRange(t *testing.T) {
 	t.Parallel()
 
@@ -113,6 +158,36 @@ func TestService_GetOverview_UsesExplicitDateRange(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2026-02-01", capturedFrom)
 	assert.Equal(t, "2026-02-28", capturedTo)
+}
+
+// Regression test: from/to were previously passed straight into a Postgres
+// BETWEEN clause with no bound on how far apart they could be, so a caller
+// could force a full-history aggregation (e.g. from=0001-01-01) on every
+// request. The effective range must now be clamped to maxStatsRangeDays.
+func TestService_GetOverview_ClampsOversizedDateRange(t *testing.T) {
+	t.Parallel()
+
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		memberStatsFn: func(_ context.Context, _ uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
+			capturedFrom, capturedTo = from, to
+			return nil, nil
+		},
+		eventStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.EventStatRow, error) { return nil, nil },
+	}
+
+	from := openapi_types.Date{Time: mustParseDate(t, "0001-01-01")}
+	to := openapi_types.Date{Time: mustParseDate(t, "2026-02-28")}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetOverview(context.Background(), uuid.New(), &from, &to)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-02-28", capturedTo)
+	gotFrom, err := time.Parse("2006-01-02", capturedFrom)
+	require.NoError(t, err)
+	gotTo, err := time.Parse("2006-01-02", capturedTo)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, gotTo.Sub(gotFrom), 730*24*time.Hour)
 }
 
 func TestService_GetOverview_PropagatesRepositoryError(t *testing.T) {
@@ -149,6 +224,33 @@ func TestService_GetMemberStats(t *testing.T) {
 	assert.Equal(t, 4, result.Yes)
 	assert.Equal(t, 5, result.Counted)
 	assert.InDelta(t, 0.8, result.Quote, 0.001)
+}
+
+// Regression/documentation test: GetMemberStats's handler never has from/to
+// to pass through (its OpenAPI request has no such params), but the service
+// method itself still accepts them -- pin that even an explicit range is
+// used verbatim (defaultDateRange only falls back when nil), so a future
+// change can't silently start ignoring an explicitly-passed range instead.
+func TestService_GetMemberStats_UsesExplicitRangeWhenGiven(t *testing.T) {
+	t.Parallel()
+
+	teamID, userID := uuid.New(), uuid.New()
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		singleMemberStatsFn: func(_ context.Context, _, _ uuid.UUID, from, to string) (*stats.MemberStatRow, error) {
+			capturedFrom, capturedTo = from, to
+			return &stats.MemberStatRow{UserID: userID, Yes: 1, Counted: 1}, nil
+		},
+	}
+
+	from := openapi_types.Date{Time: mustParseDate(t, "2026-01-01")}
+	to := openapi_types.Date{Time: mustParseDate(t, "2026-01-31")}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetMemberStats(context.Background(), teamID, userID, &from, &to)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-01-01", capturedFrom)
+	assert.Equal(t, "2026-01-31", capturedTo)
 }
 
 func mustParseDate(t *testing.T, s string) time.Time {

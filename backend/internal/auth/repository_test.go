@@ -36,6 +36,33 @@ func TestRepository_FindUserByEmail(t *testing.T) {
 	assert.Equal(t, "11111111-1111-1111-1111-111111111111", user.Id.String())
 }
 
+// Regression test: FindUserByEmail used to compare the caller-supplied
+// email verbatim against the case-sensitive UNIQUE column, so a user who
+// types their email with different casing at login than what's stored
+// (e.g. a mail client that capitalizes, or simple habit) would fail to find
+// their own account. members.Repository.UpdateMember always normalizes to
+// lowercase before writing, so this exercises the read side of that same
+// invariant.
+func TestRepository_FindUserByEmail_CaseInsensitive(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	_, err := pool.Exec(
+		ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash)
+		 VALUES ('22222222-2222-2222-2222-222222222222', 'Bob', 'bob@example.com', '#00ff00', 'hash2')`,
+	)
+	require.NoError(t, err)
+
+	user, err := repo.FindUserByEmail(ctx, "Bob@Example.COM")
+	require.NoError(t, err)
+	assert.Equal(t, "bob@example.com", user.Email)
+	assert.Equal(t, "22222222-2222-2222-2222-222222222222", user.Id.String())
+}
+
 func TestRepository_FindUserByID(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +81,34 @@ func TestRepository_FindUserByID(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Bob", user.Name)
 	assert.Equal(t, "bob@example.com", user.Email)
+}
+
+// Regression test: FindUserByID is on the hot path (invoked on essentially
+// every authenticated request via AuthMiddleware), so it must only expose a
+// HasPhoto boolean rather than fetching the full photo_data BLOB every time;
+// FindUserPhotoByID is the dedicated method for the one path that actually
+// needs the raw bytes.
+func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	_, err := pool.Exec(
+		ctx,
+		`INSERT INTO users (id, name, email, avatar_color, photo_data, photo_mime)
+		 VALUES ('33333333-3333-3333-3333-333333333333', 'Carol', 'carol@example.com', '#0000ff', '\x89504e47', 'image/jpeg')`,
+	)
+	require.NoError(t, err)
+
+	user, err := repo.FindUserByID(ctx, "33333333-3333-3333-3333-333333333333")
+	require.NoError(t, err)
+	assert.True(t, user.HasPhoto)
+
+	data, err := repo.FindUserPhotoByID(ctx, "33333333-3333-3333-3333-333333333333")
+	require.NoError(t, err)
+	assert.NotEmpty(t, data)
 }
 
 func TestRepository_CreateAndFindSession(t *testing.T) {
@@ -86,6 +141,183 @@ func TestRepository_CreateAndFindSession(t *testing.T) {
 	assert.Equal(t, "33333333-3333-3333-3333-333333333333", found.UserId.String())
 }
 
+func TestRepository_EraseUser_SoleSettingsAdmin_Blocked(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "aaaaaaaa-1111-1111-1111-111111111111"
+	userID := "aaaaaaaa-2222-2222-2222-222222222222"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Erase Test Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Sole Admin', 'sole-admin@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+	var membershipID, roleID string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, userID).Scan(&membershipID))
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO roles (team_id, name, permissions)
+		VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+		RETURNING id
+	`, teamID).Scan(&roleID))
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+	require.NoError(t, err)
+
+	err = repo.EraseUser(ctx, userID)
+	require.ErrorIs(t, err, auth.ErrSoleSettingsAdmin)
+	var soleErr *auth.SoleSettingsAdminError
+	require.ErrorAs(t, err, &soleErr)
+	assert.Equal(t, []string{teamID}, soleErr.TeamIDs)
+
+	// Must not have been anonymized -- the erasure was fully rejected.
+	var deletedAt *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT deleted_at FROM users WHERE id = $1`, userID).Scan(&deletedAt))
+	assert.Nil(t, deletedAt)
+}
+
+// Regression test: a user who is the sole settings:write holder of TWO
+// teams must have both surfaced -- the query aggregates across every
+// membership, not just the first one found.
+func TestRepository_EraseUser_SoleSettingsAdminOfMultipleTeams_ListsAllTeams(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "cccccccc-2222-2222-2222-222222222222"
+	_, err := pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Multi-Team Admin', 'multi-admin@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+
+	teamIDs := []string{"cccccccc-1111-1111-1111-111111111111", "cccccccc-3333-3333-3333-333333333333"}
+	for i, teamID := range teamIDs {
+		_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, $2)`, teamID, "Multi Team "+string(rune('A'+i)))
+		require.NoError(t, err)
+		var membershipID, roleID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, userID).Scan(&membershipID))
+		require.NoError(t, pool.QueryRow(ctx, `
+			INSERT INTO roles (team_id, name, permissions)
+			VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+			RETURNING id
+		`, teamID).Scan(&roleID))
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
+	}
+
+	err = repo.EraseUser(ctx, userID)
+	var soleErr *auth.SoleSettingsAdminError
+	require.ErrorAs(t, err, &soleErr)
+	assert.ElementsMatch(t, teamIDs, soleErr.TeamIDs)
+}
+
+func TestRepository_EraseUser_AnotherSettingsAdminExists_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "bbbbbbbb-1111-1111-1111-111111111111"
+	userID := "bbbbbbbb-2222-2222-2222-222222222222"
+	otherAdminID := "bbbbbbbb-3333-3333-3333-333333333333"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Erase Test Team 2')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Leaving Admin', 'leaving-admin@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Admin', 'other-admin@example.com', '#654321')`, otherAdminID)
+	require.NoError(t, err)
+
+	var roleID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO roles (team_id, name, permissions)
+		VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+		RETURNING id
+	`, teamID).Scan(&roleID))
+
+	for _, uid := range []string{userID, otherAdminID} {
+		var membershipID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, uid).Scan(&membershipID))
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, repo.EraseUser(ctx, userID))
+
+	var deletedAt *time.Time
+	require.NoError(t, pool.QueryRow(ctx, `SELECT deleted_at FROM users WHERE id = $1`, userID).Scan(&deletedAt))
+	assert.NotNil(t, deletedAt)
+}
+
+// Regression test: EraseUser's sole-settings-admin check used to run without
+// taking the per-team pg_advisory_xact_lock(hashtextextended(teamID, 0)) that
+// every other role/membership-mutating operation (SetRoles, RemoveMember,
+// UpdateRole, DeleteRole) takes to serialize against the same invariant --
+// so a concurrent self-erasure and a role change stripping another member's
+// settings:write could each pass their own check against a stale snapshot
+// and both commit, leaving a team with zero settings:write holders. This
+// test holds the same lock key open in a separate transaction and asserts
+// EraseUser blocks until it's released, proving the lock is actually taken.
+func TestRepository_EraseUser_TakesAdvisoryLockForUserTeams(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "dddddddd-1111-1111-1111-111111111111"
+	userID := "dddddddd-2222-2222-2222-222222222222"
+	otherAdminID := "dddddddd-3333-3333-3333-333333333333"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Lock Test Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Locked User', 'locked-user@example.com', '#123456')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Admin', 'lock-other-admin@example.com', '#654321')`, otherAdminID)
+	require.NoError(t, err)
+
+	var roleID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO roles (team_id, name, permissions)
+		VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+		RETURNING id
+	`, teamID).Scan(&roleID))
+	for _, uid := range []string{userID, otherAdminID} {
+		var membershipID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, uid).Scan(&membershipID))
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
+	}
+
+	// Hold the same advisory lock key EraseUser must take, in a separate,
+	// uncommitted transaction on its own connection.
+	lockConn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	defer lockConn.Release()
+	lockTx, err := lockConn.Begin(ctx)
+	require.NoError(t, err)
+	_, err = lockTx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID)
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() { done <- repo.EraseUser(ctx, userID) }()
+
+	select {
+	case <-done:
+		t.Fatal("EraseUser returned before the held advisory lock was released -- it isn't taking the lock")
+	case <-time.After(300 * time.Millisecond):
+		// Expected: EraseUser is blocked waiting for the lock.
+	}
+
+	require.NoError(t, lockTx.Rollback(ctx))
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("EraseUser did not complete after the advisory lock was released")
+	}
+}
+
 func TestRepository_DeleteSession(t *testing.T) {
 	t.Parallel()
 
@@ -109,4 +341,53 @@ func TestRepository_DeleteSession(t *testing.T) {
 
 	_, err = repo.FindSession(ctx, "deletehash")
 	assert.Error(t, err, "FindSession should return error after deletion")
+}
+
+// Regression test: ExportUserData's penalty-assignments query used to join
+// the live penalties table for label/amount instead of reading the
+// assignment's own snapshotted columns -- the exact bug migration 00025
+// fixed for every other read path (ListAssignments, GetAssignmentByID,
+// CreateAssignment). A member's GDPR export would report whatever the
+// penalty definition currently says, not what they were actually assigned
+// and (possibly already) charged.
+func TestRepository_ExportUserData_PenaltyAssignmentUsesSnapshotNotLiveDefinition(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "55555555-5555-5555-5555-555555555555"
+	teamID := "66666666-6666-6666-6666-666666666666"
+	penaltyID := "77777777-7777-7777-7777-777777777777"
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Eve', 'eve-export@example.com', '#abcdef')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Export Penalty Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO penalties (id, team_id, label, amount) VALUES ($1, $2, 'Zu spät', 5.00)`,
+		penaltyID, teamID)
+	require.NoError(t, err)
+
+	// Snapshot amount/label at assignment time, matching what
+	// finances.Repository.CreateAssignment writes.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO penalty_assignments (team_id, user_id, penalty_id, amount, label, date)
+		 VALUES ($1, $2, $3, 500, 'Zu spät', '2026-01-15')`,
+		teamID, userID, penaltyID)
+	require.NoError(t, err)
+
+	// The penalty definition is later edited -- allowed at any time, with no
+	// restriction once assignments exist.
+	_, err = pool.Exec(ctx, `UPDATE penalties SET label = 'Zu spät (neu)', amount = 50.00 WHERE id = $1`, penaltyID)
+	require.NoError(t, err)
+
+	data, err := repo.ExportUserData(ctx, userID)
+	require.NoError(t, err)
+	require.Len(t, data.PenaltyAssignments, 1)
+	assert.Equal(t, "Zu spät", data.PenaltyAssignments[0].Label, "export must report the snapshotted label, not the live one")
+	assert.Equal(t, "500", data.PenaltyAssignments[0].Amount, "export must report the snapshotted amount, not the live one")
 }

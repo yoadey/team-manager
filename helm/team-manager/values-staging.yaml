@@ -1,14 +1,33 @@
 # Staging overrides — lower resource footprint, debug logging enabled.
 replicaCount: 1
 
-image:
-  tag: "main"  # track main branch image for staging
-
+# No image.tag override here (deliberately): it used to hardcode "main", but
+# .github/workflows/release.yml only ever builds and pushes images on a
+# vX.Y.Z tag push (see its metadata-action tag list) or "latest" for tagged
+# releases — it never publishes a "main"-tagged image, so that reference
+# resolved to a nonexistent tag and staging deploys would ImagePullBackOff.
+# Staging falls back to the same default as production (image.tag empty ->
+# Chart.appVersion) — but nothing in the release process bumps
+# Chart.yaml's appVersion to match the latest released tag (it's been
+# hand-set to "0.1.0" since the chart's initial commit), so that fallback is
+# NOT "the most recently released version" despite what an earlier version
+# of this comment claimed — it's a fixed placeholder. templates/NOTES.txt
+# warns about this at deploy time. ALWAYS set image.tag explicitly (e.g.
+# --set image.tag=1.2.3, stripped of the v prefix, matching a real release
+# tag) for any real staging/production deploy. If you want staging to
+# continuously track unreleased main-branch commits instead, add your own
+# image-publishing pipeline for that — this chart doesn't ship one.
 ingress:
   enabled: true
   className: nginx
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
+    # Match prod's ingress body-size limit: the backend accepts multipart
+    # uploads (team/profile photos) up to 2 MB, but nginx-ingress defaults to
+    # a 1m client-max-body-size when this annotation is absent, so staging
+    # would 413 uploads between 1-2 MB that prod (and the app itself) accept.
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
   hosts:
     - host: staging.team-manager.example.com
       paths:
@@ -29,6 +48,11 @@ env:
   SESSION_TTL_HOURS: "720"
   OTEL_SERVICE_NAME: "team-manager-backend-staging"
   ENVIRONMENT: "staging"
+  LOG_LEVEL: "debug"
+  # See the same note in values-prod.yaml: ingress is enabled above, so set
+  # this to your cluster's ingress-controller pod CIDR or rate limiting
+  # silently keys on the ingress controller's own IP for every client.
+  # TRUSTED_PROXY_CIDRS: "10.244.0.0/16"
 
 resources:
   requests:

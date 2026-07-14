@@ -32,7 +32,10 @@ vi.mock('@/styles/tokens', () => ({
   },
 }));
 
-vi.mock('@/i18n', () => ({ t: vi.fn().mockImplementation((key) => key) }));
+vi.mock('@/i18n', () => ({
+  t: vi.fn().mockImplementation((key) => key),
+  getIntlLocale: vi.fn().mockReturnValue('de-DE'),
+}));
 
 const tk = {
   primary: '#1565C0',
@@ -46,6 +49,7 @@ function makeApp(overrides = {}) {
     setState: vi.fn(),
     state: { contribMonth: null },
     openContribForm: vi.fn(),
+    toggleContribution: vi.fn(),
     ...overrides,
   };
 }
@@ -182,5 +186,95 @@ describe('FinancesContributions', () => {
       />,
     );
     expect(screen.getAllByText('finances.contribOpen').length).toBeGreaterThan(0);
+  });
+
+  // Regression: openContribForm/api.finances.updateContribution were fully
+  // implemented (hook, sheet, service layer) but no rendered component ever
+  // called openContribForm -- a contribution's label/amount could never be
+  // corrected through the UI. Only visible with canFin=true.
+  it('shows an edit action for each contribution when canFin is true', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={true}
+      />,
+    );
+    expect(screen.getByLabelText('finances.editContribLabel')).toBeTruthy();
+  });
+
+  it('hides the edit action when canFin is false', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.queryByLabelText('finances.editContribLabel')).toBeNull();
+  });
+
+  // Regression test: memberName is optional per the OpenAPI Contribution
+  // schema (not in `required`), and the row-sort comparator used to call
+  // `.name!.localeCompare(...)` unguarded -- a contribution with no name
+  // (e.g. a left-outer-join for a member who left the team) would throw
+  // "Cannot read properties of undefined" and crash the whole page.
+  it('does not throw when a contribution has no member name', () => {
+    const app = makeApp();
+    const contribs = [
+      makeContrib({ id: 'c1', name: undefined }),
+      makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' }),
+    ];
+    expect(() =>
+      render(
+        <FinancesContributions
+          app={app as never}
+          t={tk}
+          f={makeFinances({ contributions: contribs })}
+          canFin={false}
+        />,
+      ),
+    ).not.toThrow();
+    expect(screen.getByText('Bob')).toBeTruthy();
+  });
+
+  // Regression test: the contributor-row sort used to hardcode
+  // localeCompare's locale argument to 'de' regardless of the active UI
+  // locale, unlike every other locale-aware sort/format helper in the app.
+  it('sorts contributor rows using the current locale rather than a hardcoded one', async () => {
+    const i18n = await import('@/i18n');
+    vi.mocked(i18n.getIntlLocale).mockReturnValue('en-US');
+    const localeCompareSpy = vi.spyOn(String.prototype, 'localeCompare');
+    const app = makeApp();
+    const contribs = [makeContrib({ id: 'c1', name: 'Alice' }), makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' })];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
+    );
+
+    const usedLocaleArgs = localeCompareSpy.mock.calls.map((c) => c[1]);
+    expect(usedLocaleArgs).toContain('en-US');
+    expect(usedLocaleArgs).not.toContain('de');
+
+    localeCompareSpy.mockRestore();
+    vi.mocked(i18n.getIntlLocale).mockReturnValue('de-DE');
+  });
+
+  it('clicking the edit action calls openContribForm with the contribution', () => {
+    const app = makeApp();
+    const contrib = makeContrib();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [contrib] })}
+        canFin={true}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('finances.editContribLabel'));
+    expect(app.openContribForm).toHaveBeenCalledWith(contrib);
   });
 });

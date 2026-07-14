@@ -18,5 +18,5 @@ type NewsRow struct {
 	// Joined from users
 	AuthorName  *string
 	AuthorColor *string
-	PhotoData   []byte
+	HasPhoto    bool
 }

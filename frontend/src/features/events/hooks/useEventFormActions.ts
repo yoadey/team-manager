@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services/serviceLayer';
 import type { EventFormValues, TeamEvent } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
+import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
 import { validateEventForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
@@ -16,10 +16,19 @@ type EventFormDeps = {
   setState: SetState;
   refreshEvents: () => Promise<void>;
   openEventDetail: (eventId: string) => Promise<void>;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
+  logout: () => void;
 };
 
-export function useEventFormActions({ api, S, setState, refreshEvents, openEventDetail, toastMsg }: EventFormDeps) {
+export function useEventFormActions({
+  api,
+  S,
+  setState,
+  refreshEvents,
+  openEventDetail,
+  toastMsg,
+  logout,
+}: EventFormDeps) {
   const openEventForm = useCallback(
     (event: TeamEvent | null) => {
       const f: EventFormValues = event
@@ -47,7 +56,7 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
             meetT: '19:15',
             startT: '19:30',
             endT: '21:30',
-            location: 'Tanzsporthalle Eilendorf',
+            location: '',
             note: '',
             meetTimeMandatory: true,
             responseMode: 'opt_out',
@@ -75,10 +84,11 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
       const mode = sh.mode;
       const validation = validateEventForm(f, mode);
       if (!validation.ok) {
-        toastMsg(validation.message!);
+        toastMsg(validation.message!, undefined, 'error');
         return;
       }
       const back = sh.back;
+      const teamId = S().activeTeamId!;
       setState({ busy: 'save' });
       const payload = {
         type: f.type,
@@ -94,17 +104,28 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
         nominatedRoleIds: f.nominatedRoleIds,
       };
       try {
-        if (mode === 'edit') await api.events.update(f.id!, payload, scope, S().activeTeamId!);
+        if (mode === 'edit') await api.events.update(f.id!, payload, scope, teamId);
         else
-          await api.events.create(S().activeTeamId!, {
+          await api.events.create(teamId, {
             ...payload,
             recurring: f.recurring,
             repeatWeeks: validation.value!.repeatWeeks,
             nominatedRoleIds: f.nominatedRoleIds,
           });
         await refreshEvents();
-        setState({ busy: null, sheet: null });
-        if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
+        clearBusyIfOwned(S, setState, 'save');
+        // Don't close/reopen a sheet the user has since opened for a
+        // different team after switching away mid-request -- openEventDetail
+        // would look up f.id in the new team's event list and find nothing.
+        // Also don't touch it if the user has since closed this form and
+        // opened a DIFFERENT one (same team) while this save was in flight --
+        // otherwise a slow save for event A would silently close and replace
+        // whatever the user is now looking at (e.g. an edit form for event B)
+        // with A's detail view, discarding B's unsaved edits without warning.
+        if (S().activeTeamId === teamId && S().sheet === sh) {
+          setState({ sheet: null });
+          if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
+        }
         toastMsg(
           mode === 'edit'
             ? scope === 'series'
@@ -113,10 +134,10 @@ export function useEventFormActions({ api, S, setState, refreshEvents, openEvent
             : t('events.toastEventCreated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
       }
     },
-    [api, S, setState, refreshEvents, openEventDetail, toastMsg],
+    [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout],
   );
 
   const toggleFormNomRole = useCallback(

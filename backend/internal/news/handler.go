@@ -65,14 +65,17 @@ func (h *Handler) CreateNews(ctx context.Context, req gen.CreateNewsRequestObjec
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if err := validate.Text(req.Body.Title, "title"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
+	if err := validate.Name(req.Body.Title); err != nil {
+		return nil, apierror.BadRequest("title: " + err.Error())
 	}
 	if err := validate.Text(req.Body.Body, "body"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
 	item, err := h.svc.Create(ctx, req.TeamId, user.Id, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyNewsItems) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateNews failed", "err", err)
 		return nil, apierror.Internal("failed to create news item")
 	}
@@ -89,8 +92,8 @@ func (h *Handler) UpdateNews(ctx context.Context, req gen.UpdateNewsRequestObjec
 		return nil, apierror.BadRequest("missing request body")
 	}
 	if req.Body.Title != nil {
-		if err := validate.Text(*req.Body.Title, "title"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
+		if err := validate.Name(*req.Body.Title); err != nil {
+			return nil, apierror.BadRequest("title: " + err.Error())
 		}
 	}
 	if req.Body.Body != nil {

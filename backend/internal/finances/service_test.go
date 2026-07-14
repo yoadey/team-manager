@@ -3,10 +3,12 @@ package finances_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -24,6 +26,7 @@ type mockRepo struct {
 	updateTransactionFn      func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
 	deleteTransactionFn      func(ctx context.Context, id, teamID uuid.UUID) error
 	listPenaltiesFn          func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error)
+	countPenaltiesFn         func(ctx context.Context, teamID uuid.UUID) (int, error)
 	createPenaltyFn          func(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error)
 	updatePenaltyFn          func(ctx context.Context, id, teamID uuid.UUID, patch finances.PenaltyPatch) (*finances.PenaltyRow, error)
 	deletePenaltyFn          func(ctx context.Context, id, teamID uuid.UUID) error
@@ -40,6 +43,8 @@ type mockRepo struct {
 	toggleContributionFn     func(ctx context.Context, id, teamID uuid.UUID) (*finances.ContributionRow, error)
 	listOpenPenaltiesFn      func(ctx context.Context, teamID uuid.UUID) ([]finances.OpenPenaltyAggregate, error)
 	withReadTxFn             func(ctx context.Context, fn func(finances.OverviewReader) error) error
+	countTransactionsFn      func(ctx context.Context, teamID uuid.UUID) (int, error)
+	countAssignmentsFn       func(ctx context.Context, teamID uuid.UUID) (int, error)
 }
 
 func (m *mockRepo) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error) {
@@ -48,6 +53,16 @@ func (m *mockRepo) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]fi
 
 func (m *mockRepo) SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error) {
 	return m.sumTransactionsFn(ctx, teamID)
+}
+
+// CountTransactions is optional; when unset, existing tests exercising
+// CreateTransaction get a default of 0 (well under maxTransactionsPerTeam)
+// so they don't all need updating just to set this new field.
+func (m *mockRepo) CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error) {
+	if m.countTransactionsFn != nil {
+		return m.countTransactionsFn(ctx, teamID)
+	}
+	return 0, nil
 }
 
 func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*finances.TransactionRow, error) {
@@ -64,6 +79,16 @@ func (m *mockRepo) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) 
 
 func (m *mockRepo) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error) {
 	return m.listPenaltiesFn(ctx, teamID)
+}
+
+// CountPenalties is optional; when unset, existing tests exercising
+// CreatePenalty get a default of 0 (well under maxPenaltiesPerTeam) so they
+// don't all need updating just to set this new field.
+func (m *mockRepo) CountPenalties(ctx context.Context, teamID uuid.UUID) (int, error) {
+	if m.countPenaltiesFn != nil {
+		return m.countPenaltiesFn(ctx, teamID)
+	}
+	return 0, nil
 }
 
 func (m *mockRepo) CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error) {
@@ -88,6 +113,16 @@ func (m *mockRepo) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]fin
 
 func (m *mockRepo) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
 	return m.getAssignmentByIDFn(ctx, id, teamID)
+}
+
+// CountAssignments is optional; when unset, existing tests exercising
+// CreateAssignment get a default of 0 (well under maxAssignmentsPerTeam) so
+// they don't all need updating just to set this new field.
+func (m *mockRepo) CountAssignments(ctx context.Context, teamID uuid.UUID) (int, error) {
+	if m.countAssignmentsFn != nil {
+		return m.countAssignmentsFn(ctx, teamID)
+	}
+	return 0, nil
 }
 
 func (m *mockRepo) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
@@ -157,7 +192,7 @@ func TestService_GetOverview_ComputesBalanceAndOpenPenaltySum(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	overview, err := svc.GetOverview(context.Background(), teamID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(50000), overview.Income)
@@ -178,7 +213,7 @@ func TestService_GetOverview_PropagatesRepositoryError(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	_, err := svc.GetOverview(context.Background(), uuid.New())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -202,7 +237,7 @@ func TestService_CreateTransaction(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreateTransactionJSONRequestBody{
 		Type:     gen.Expense,
 		Title:    "Balls",
@@ -214,6 +249,54 @@ func TestService_CreateTransaction(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, int64(4250), capturedAmount)
 	assert.Equal(t, "Balls", result.Title)
+}
+
+// Regression test: with no per-team cap, a member holding only
+// finances:write could flood the transactions table past what the
+// unbounded aggregate queries behind the finance overview (SumTransactions)
+// can scan within their fixed 5s timeout, degrading or hard-failing the
+// overview for the whole team. CreateTransaction must refuse once the team
+// is at maxTransactionsPerTeam, without ever reaching the repo's insert.
+func TestService_CreateTransaction_RejectsAtCap(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	repo := &mockRepo{
+		countTransactionsFn: func(context.Context, uuid.UUID) (int, error) { return 100_000, nil },
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string) (*finances.TransactionRow, error) {
+			t.Fatal("CreateTransaction must not be called once the team is at the transaction cap")
+			return nil, nil
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Expense, Title: "Balls", Amount: 100}
+	_, err := svc.CreateTransaction(context.Background(), teamID, body)
+	require.ErrorIs(t, err, finances.ErrTooManyTransactions)
+}
+
+// Regression test: unlike CreateTransaction/CreateAssignment, CreatePenalty
+// used to have no CountPenalties check at all -- a team member with
+// finances:write could flood the penalties table without bound, and
+// GetOverview reads ListPenalties unconditionally inside the same 5s query
+// timeout as every other overview list. CreatePenalty must refuse once the
+// team is at maxPenaltiesPerTeam, without ever reaching the repo's insert.
+func TestService_CreatePenalty_RejectsAtCap(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	repo := &mockRepo{
+		countPenaltiesFn: func(context.Context, uuid.UUID) (int, error) { return 500, nil },
+		createPenaltyFn: func(context.Context, uuid.UUID, string, int64) (*finances.PenaltyRow, error) {
+			t.Fatal("CreatePenalty must not be called once the team is at the penalty cap")
+			return nil, nil
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	body := &gen.CreatePenaltyJSONRequestBody{Label: "Zu spät", Amount: 500}
+	_, err := svc.CreatePenalty(context.Background(), teamID, body)
+	require.ErrorIs(t, err, finances.ErrTooManyPenalties)
 }
 
 func TestService_UpdateTransaction_OnlySetsProvidedFields(t *testing.T) {
@@ -231,7 +314,7 @@ func TestService_UpdateTransaction_OnlySetsProvidedFields(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.UpdateTransactionJSONRequestBody{Title: &newTitle}
 	_, err := svc.UpdateTransaction(context.Background(), id, teamID, body)
 	require.NoError(t, err)
@@ -254,7 +337,7 @@ func TestService_DeleteTransaction(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	err := svc.DeleteTransaction(context.Background(), uuid.New(), uuid.New())
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -269,7 +352,7 @@ func TestService_CreateAssignment_RejectsPenaltyFromAnotherTeam(t *testing.T) {
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: uuid.New(), UserId: uuid.New()}
 	_, err := svc.CreateAssignment(context.Background(), uuid.New(), body)
 	require.ErrorIs(t, err, finances.ErrPenaltyNotInTeam)
@@ -283,10 +366,35 @@ func TestService_CreateAssignment_RejectsUserNotInTeam(t *testing.T) {
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: uuid.New(), UserId: uuid.New()}
 	_, err := svc.CreateAssignment(context.Background(), uuid.New(), body)
 	require.ErrorIs(t, err, finances.ErrUserNotInTeam)
+}
+
+// Regression test: same unbounded-growth risk as
+// TestService_CreateTransaction_RejectsAtCap, but for penalty_assignments,
+// which ListOpenPenaltiesByUser scans on every finance overview. The cap
+// check must run after the existing penalty/user validation (so those still
+// report their own specific errors) but before the insert.
+func TestService_CreateAssignment_RejectsAtCap(t *testing.T) {
+	t.Parallel()
+
+	teamID, penaltyID, userID := uuid.New(), uuid.New(), uuid.New()
+	repo := &mockRepo{
+		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		countAssignmentsFn:     func(context.Context, uuid.UUID) (int, error) { return 100_000, nil },
+		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			t.Fatal("CreateAssignment must not be called once the team is at the assignment cap")
+			return nil, nil
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
+	_, err := svc.CreateAssignment(context.Background(), teamID, body)
+	require.ErrorIs(t, err, finances.ErrTooManyAssignments)
 }
 
 func TestService_CreateAssignment_ReloadsEnrichedRowOnSuccess(t *testing.T) {
@@ -310,7 +418,7 @@ func TestService_CreateAssignment_ReloadsEnrichedRowOnSuccess(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	result, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.NoError(t, err)
@@ -334,12 +442,41 @@ func TestService_CreateAssignment_FallsBackToUnenrichedRowWhenReloadFails(t *tes
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	result, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.NoError(t, err, "a reload failure after a successful create should not fail the request")
 	assert.Equal(t, createdID, result.Id)
 	assert.Nil(t, result.Label, "unenriched fallback row has no penalty label")
+}
+
+// Regression test: a concurrent DeletePenalty that cascades the just-created
+// assignment away between the insert and the reload used to be
+// indistinguishable from a merely transient reload failure -- both fell
+// through to the same "return the bare, unenriched row with a 200 OK"
+// fallback, silently reporting success for a row that no longer exists in
+// the database. pgx.ErrNoRows specifically must propagate instead, so the
+// handler's existing "not found" mapping applies.
+func TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t *testing.T) {
+	t.Parallel()
+
+	teamID, penaltyID, userID := uuid.New(), uuid.New(), uuid.New()
+	createdID := uuid.New()
+	repo := &mockRepo{
+		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: penaltyID}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
+	_, err := svc.CreateAssignment(context.Background(), teamID, body)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
 
 func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
@@ -358,12 +495,33 @@ func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	result, err := svc.ToggleAssignmentPaid(context.Background(), teamID, id)
 	require.NoError(t, err)
 	assert.True(t, result.Paid)
 	require.NotNil(t, result.Label)
 	assert.Equal(t, label, *result.Label)
+}
+
+// Regression test: same class as
+// TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload,
+// for the toggle-paid path.
+func TestService_ToggleAssignmentPaid_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t *testing.T) {
+	t.Parallel()
+
+	teamID, id := uuid.New(), uuid.New()
+	repo := &mockRepo{
+		toggleAssignmentPaidFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, Paid: true}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return nil, pgx.ErrNoRows
+		},
+	}
+
+	svc := finances.NewService(repo, slog.Default())
+	_, err := svc.ToggleAssignmentPaid(context.Background(), teamID, id)
+	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
 
 // ─── Contributions ───────────────────────────────────────────────────────────
@@ -380,7 +538,7 @@ func TestService_ToggleContribution(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo)
+	svc := finances.NewService(repo, slog.Default())
 	result, err := svc.ToggleContribution(context.Background(), id, teamID)
 	require.NoError(t, err)
 	assert.Equal(t, gen.ContributionStatus("paid"), result.Status)

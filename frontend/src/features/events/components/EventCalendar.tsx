@@ -35,7 +35,10 @@ export function EventCalendar() {
       while (d <= end) {
         const ds = formatDateOnly(d);
         (absByDate[ds] = absByDate[ds] || []).push(a);
-        d = new Date(d.getTime() + 86400000);
+        // Increment by calendar day, not a fixed 24h in ms -- across a DST
+        // transition the local day is 23 or 25 hours, so +86400000 either
+        // lands on the same date twice or skips a day entirely.
+        d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
       }
     });
   }
@@ -153,7 +156,7 @@ export function EventCalendar() {
         {absChips}
         {abs.length > (mobile ? 1 : 2) ? (
           <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>
-            {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absent').slice(0, 3) + '.'}
+            {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absentShort')}
           </Box>
         ) : null}
       </Box>,
@@ -221,7 +224,9 @@ export function EventCalendar() {
             <Sym name="chevron_right" size={22} color={NEUTRAL.onSurfaceVariant} />
           </ButtonBase>
         </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}>{cells}</Box>
+        <Box data-testid="calendar-grid" sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}>
+          {cells}
+        </Box>
       </Card>
     </Box>
   );

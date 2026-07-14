@@ -91,6 +91,24 @@ describe('FinancesTransactions', () => {
     expect(screen.getByText('Hallemiete')).toBeTruthy();
   });
 
+  it('renders category and date separated by " · "', () => {
+    const app = makeApp();
+    render(<FinancesTransactions app={app as never} t={tk} f={makeFinances([makeTx()])} canFin={false} />);
+    expect(screen.getByText('beitrag · 2025-06-01')).toBeTruthy();
+  });
+
+  // Regression test: a transaction with an empty category (category is not
+  // a required field -- saveTx only validates title/amount) used to render
+  // an unconditional ' · ' + fmtDate(...), leaving a dangling leading
+  // separator like " · 2025-06-01" with nothing before it.
+  it('omits the separator when the transaction has no category', () => {
+    const app = makeApp();
+    const tx = makeTx({ category: '' });
+    render(<FinancesTransactions app={app as never} t={tk} f={makeFinances([tx])} canFin={false} />);
+    expect(screen.getByText('2025-06-01')).toBeTruthy();
+    expect(screen.queryByText(/^·/)).toBeNull();
+  });
+
   it('clicking income tx row calls openTxForm when canFin', () => {
     const app = makeApp();
     const tx = makeTx();

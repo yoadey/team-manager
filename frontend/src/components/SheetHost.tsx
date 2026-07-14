@@ -1,16 +1,29 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Modal from '@mui/material/Modal';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { useApp } from '@/context/AppContext';
-import { isPageSheet } from '@/context/AppContext';
+import { isPageSheet, sheetErrorBoundaryKey } from '@/context/AppContext';
 import { NEUTRAL } from '@/styles/tokens';
 import { Sym } from './ui';
 import { renderSheet, sheetMeta } from '@/sheets';
 import { useCompact } from '@/layouts/AppShell';
-import { t } from '@/i18n';
+import { t, getLocale, subscribeLocale } from '@/i18n';
+import { ErrorBoundary } from './ErrorBoundary';
+import { captureError } from '@/monitoring';
+
+// Subscribes to the module-level i18n store directly (see the identical
+// helper in components/cards.tsx and layouts/AppShell.tsx) so SheetHost
+// re-renders on a locale switch. sheetMeta()/t() read module-level i18n
+// state, not AppContext, so without this the modal's title/subtitle stayed
+// in the old language until some UNRELATED AppContext change forced a
+// re-render.
+function useLocaleSubscription(): void {
+  useSyncExternalStore(subscribeLocale, getLocale);
+}
 
 export function SheetHost() {
+  useLocaleSubscription();
   const app = useApp();
   const { state } = app;
   const compact = useCompact();
@@ -117,7 +130,11 @@ export function SheetHost() {
               <Sym name="close" size={22} />
             </ButtonBase>
           </Box>
-          <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '4px 20px 22px' }}>{renderSheet(app, modalSheet)}</Box>
+          <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '4px 20px 22px' }}>
+            <ErrorBoundary key={sheetErrorBoundaryKey(modalSheet)} onError={captureError}>
+              {renderSheet(app, modalSheet)}
+            </ErrorBoundary>
+          </Box>
         </Box>
       </Box>
     </Modal>

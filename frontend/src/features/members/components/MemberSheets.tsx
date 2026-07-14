@@ -1,7 +1,7 @@
 import { NEUTRAL } from '@/styles/tokens';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
-import { Av, Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
+import { Av, Chip, EmptyState, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { Member, MemberFormValues } from '../types';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
@@ -10,7 +10,13 @@ import { validateBirthday, validateEmail, validatePhone, validateRequiredText } 
 
 export function MemberDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const m: Member = sheet.member!;
+  // member is looked up from the already-loaded local member list (not an
+  // async fetch), so it can genuinely be missing -- e.g. a stale bookmarked
+  // or browser-back/forward URL for a member who has since been removed.
+  // Render a graceful empty state instead of force-unwrapping into a
+  // render-time crash.
+  if (!sheet.member) return <EmptyState icon="person_off" text={t('members.detailNotFound')} />;
+  const m: Member = sheet.member;
   const st: { quote: number | null; counted: number; yes: number } | null = sheet.stats ?? null;
   const qcol =
     st && st.quote !== null
@@ -177,12 +183,21 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
   );
 }
 
-export function MemberFormSheet({ app }: SheetProps) {
+export function MemberFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const F = formValues<MemberFormValues>(app.state);
   const errs = state.formErrors;
   const myIds: string[] = F.roleIds || [];
-  const canRoles = app.can('members', 'write');
+  // Role assignment is a settings:write operation on the backend (assigning a
+  // role can hand out settings:write itself), not members:write — gating on
+  // members:write would show editable role chips to an admin whose actual
+  // save would be rejected.
+  const canRoles = app.can('settings', 'write');
+  const canSubmit = !!F.name?.trim();
+  // The backend has no endpoint to set another member's photo at all (only
+  // PUT /auth/me/photo, self-only) — show the control only when editing your
+  // own profile, not when an admin edits someone else's.
+  const canEditPhoto = !!sheet.self;
 
   const validateName = () => {
     const r = validateRequiredText(F.name, t('members.fieldNameError'));
@@ -201,7 +216,7 @@ export function MemberFormSheet({ app }: SheetProps) {
     app.setFormErrors({ birthday: r.ok ? '' : r.message! });
   };
 
-  const photoRow = (
+  const photoRow = canEditPhoto ? (
     <Box key="ph" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '4px' }}>
       <Av key="a" name={F.name || '?'} photo={F.photo} color={NEUTRAL.faint} size={56} font={20} />
       <Box
@@ -227,12 +242,31 @@ export function MemberFormSheet({ app }: SheetProps) {
           key="f"
           type="file"
           accept="image/*"
-          onChange={(e) => app.onFile(e, (d) => app.setFormVal({ photo: d }))}
+          onChange={(e) => {
+            // setFormVal writes into the single shared, untyped form buffer
+            // regardless of which sheet is open. Snapshot the sheet type
+            // here, synchronously, before onFile's async FileReader read
+            // starts, and re-check it via setState's functional-update form
+            // once the read completes -- state/app.state are just this
+            // render's snapshot (React context value, not a live ref), so
+            // re-reading them here would just compare the closure to itself
+            // and never catch anything; the functional updater's `s`
+            // argument is guaranteed to be the actual live state at apply
+            // time. Without this, if the user closes this member form (or
+            // opens a different sheet that also reads form.photo, e.g. team
+            // settings or create-team) before the read completes, the
+            // resolved callback would overwrite that other sheet's
+            // in-progress data.
+            const sheetType = state.sheet?.type;
+            app.onFile(e, (d) => {
+              app.setState((s) => (s.sheet?.type === sheetType ? { form: { ...s.form, photo: d } } : {}));
+            });
+          }}
           hidden
         />
       </Box>
     </Box>
-  );
+  ) : null;
 
   const roleChips = canRoles ? (
     <Box key="rc">
@@ -288,19 +322,25 @@ export function MemberFormSheet({ app }: SheetProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {photoRow}
       <Field label={t('members.fieldName')} required error={!!errs.name} errorText={errs.name}>
-        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} onBlur={validateName} />
+        <TextInput name="name" placeholder={t('members.fieldNamePlaceholder')} onBlur={validateName} maxLength={255} />
       </Field>
       <Field label={t('members.fieldEmail')} error={!!errs.email} errorText={errs.email}>
-        <TextInput name="email" type="email" placeholder={t('members.fieldEmailPlaceholder')} onBlur={validateEmail_} />
+        <TextInput
+          name="email"
+          type="email"
+          placeholder={t('members.fieldEmailPlaceholder')}
+          onBlur={validateEmail_}
+          maxLength={254}
+        />
       </Field>
       <Field label={t('members.fieldPhone')} error={!!errs.phone} errorText={errs.phone}>
-        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} />
+        <TextInput name="phone" placeholder={t('members.fieldPhonePlaceholder')} onBlur={validatePhone_} maxLength={32} />
       </Field>
       <Field label={t('members.fieldBirthday')} error={!!errs.birthday} errorText={errs.birthday}>
-        <TextInput name="birthday" type="date" onBlur={validateBirthday_} />
+        <TextInput name="birthday" type="date" min="1900-01-01" onBlur={validateBirthday_} />
       </Field>
       <Field label={t('members.fieldAddress')}>
-        <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} />
+        <TextInput name="address" placeholder={t('members.fieldAddressPlaceholder')} maxLength={500} />
       </Field>
       {contactNote}
       {roleChips}
@@ -308,6 +348,7 @@ export function MemberFormSheet({ app }: SheetProps) {
         label={t('members.saveProfile')}
         onClick={() => app.saveMember()}
         busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
       />
     </Box>
   );

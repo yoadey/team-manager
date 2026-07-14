@@ -5,6 +5,22 @@ on:
     branches: [main, master]
   pull_request:
 
+# Cancel a still-running CI run for the same workflow+ref when a new commit
+# supersedes it (e.g. a rapid-iteration push or force-push to an open PR) --
+# this workflow runs ~18 jobs (Playwright E2E, Lighthouse, CodeQL matrix, a
+# ZAP DAST scan) so leaving superseded runs going wastes real runner minutes.
+# Never cancel an in-progress run on main/master itself: those are the
+# authoritative post-merge result, not a stale intermediate iteration.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master' }}
+
+# Least-privilege default: most jobs only need to read the repo checkout.
+# Jobs that need more (e.g. security-sast's security-events: write) declare
+# their own `permissions:` block, which overrides this default.
+permissions:
+  contents: read
+
 jobs:
   # ── Frontend ──────────────────────────────────────────────────────────────
 
@@ -81,6 +97,71 @@ jobs:
       - run: npm ci
       - run: npm run audit:ci
 
+  frontend-licenses:
+    name: Frontend · License check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # backend-licenses (below) enforces a GPL/AGPL ban on Go modules; the
+    # much larger npm dependency tree had no equivalent check at all. No
+    # needs: -- this only inspects installed package metadata, so it can run
+    # in parallel with lint/test/build like backend-licenses does.
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Report production dependency licenses
+        id: licenses
+        # --production scopes this to what's actually shipped in the built
+        # bundle, not devDependencies (eslint, vitest, playwright, ...),
+        # matching backend-licenses' scope of "what's compiled in". Doesn't
+        # hard-fail the job on a tool crash (npx resolution failure, network
+        # blip) for the same reason backend-licenses doesn't: an
+        # empty/partial licenses.csv would make the next step's grep look
+        # identical to a real clean scan.
+        run: |
+          set +e
+          npx --yes license-checker@25.0.1 --production --csv --out licenses.csv 2>license-checker.stderr
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::license-checker failed (exit $status) — the GPL/AGPL check below is skipped and cannot be trusted this run. See the uploaded license-checker.stderr artifact."
+            cat license-checker.stderr
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Check for GPL/AGPL licenses
+        run: |
+          if [ "${{ steps.licenses.outputs.failed }}" = "true" ]; then
+            echo "::warning::Skipping GPL/AGPL check — license report generation failed above."
+            exit 0
+          fi
+          # \b(GPL|AGPL)\b (not a bare "GPL") so LGPL -- a materially
+          # different, commonly-allowed license -- isn't caught as a
+          # substring match.
+          if grep -qE '\b(GPL|AGPL)\b' licenses.csv 2>/dev/null; then
+            echo "::error::GPL/AGPL licensed dependencies found:"
+            grep -E '\b(GPL|AGPL)\b' licenses.csv
+            exit 1
+          else
+            echo "No GPL/AGPL licenses detected."
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: frontend-licenses
+          path: |
+            frontend/licenses.csv
+            frontend/license-checker.stderr
+          retention-days: 30
+
   frontend-build:
     name: Frontend · Build
     runs-on: ubuntu-latest
@@ -149,8 +230,25 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Get installed Playwright version
+        id: playwright-version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browser binaries
+        id: playwright-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      # A cache hit skips the browser download but not the OS-level apt
+      # dependencies (--with-deps installs both; the runner image itself
+      # isn't cached, only ~/.cache/ms-playwright), so install-deps alone
+      # still has to run every time.
       - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
+      - name: Install Playwright OS dependencies (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm run build
       - name: Run Playwright E2E tests
         run: npx playwright test --reporter=html
@@ -187,6 +285,50 @@ jobs:
 
   # ── Backend ───────────────────────────────────────────────────────────────
 
+  backend-openapi-drift:
+    name: Backend · OpenAPI codegen drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # Reads the version straight from backend/Makefile (kept in sync with
+      # go.mod by backend-lint's "tool-version pins" check below) instead of a
+      # third hardcoded copy of the pin.
+      - name: Install oapi-codegen
+        run: |
+          set -euo pipefail
+          version=$(grep -oP 'oapi-codegen/v2/cmd/oapi-codegen@\K\S+' backend/Makefile)
+          go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$version"
+      - name: Regenerate backend/internal/gen/api.gen.go
+        run: cd backend && make generate
+      - name: npm ci (frontend, for openapi-typescript)
+        working-directory: frontend
+        run: npm ci
+      - name: Regenerate frontend/src/api/types.gen.ts
+        run: make generate-ts
+      # backend/internal/gen/api.gen.go is marked "DO NOT EDIT" and
+      # frontend/src/api/types.gen.ts is likewise generated; both must be
+      # regenerated and committed whenever openapi.yaml changes. Without this
+      # check, a PR that edits the spec but forgets (or loses to a merge
+      # conflict) the regeneration step passes every other job green with the
+      # client/server contract silently out of sync.
+      - name: Fail if generated code is out of sync with openapi.yaml
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code -- backend/internal/gen/api.gen.go frontend/src/api/types.gen.ts; then
+            echo "::error::backend/internal/gen/api.gen.go and/or frontend/src/api/types.gen.ts are out of sync with backend/openapi/openapi.yaml. Run 'make generate && make generate-ts' at the repo root and commit the result."
+            exit 1
+          fi
+
   backend-lint:
     name: Backend · Lint
     runs-on: ubuntu-latest
@@ -196,6 +338,129 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # goose/oapi-codegen are pinned in Makefile's `tools` target to match
+      # go.mod (so the installed CLI agrees with the library version the rest
+      # of the build depends on), and golangci-lint is pinned in Makefile to
+      # match this job's golangci-lint-action version (so local `make lint`
+      # and CI agree on findings) — but those pins live in plain shell/YAML
+      # text that Dependabot's gomod ecosystem entry never touches when it
+      # bumps go.mod, so a merged dependency bump could silently desync them.
+      # This step turns that into a hard CI failure instead of a silent drift.
+      - name: Verify tool-version pins stay in sync
+        working-directory: .
+        run: |
+          set -euo pipefail
+          goose_gomod=$(grep -oP 'github\.com/pressly/goose/v3 \K\S+' backend/go.mod)
+          goose_makefile=$(grep -oP 'goose/v3/cmd/goose@\K\S+' backend/Makefile)
+          if [ "$goose_gomod" != "$goose_makefile" ]; then
+            echo "::error::goose version mismatch: go.mod has $goose_gomod, backend/Makefile pins $goose_makefile"
+            exit 1
+          fi
+          goose_ci=$(grep -oP '^\s*run: go install github\.com/pressly/goose/v3/cmd/goose@\K\S+' .github/workflows/ci.yml | sort -u)
+          if [ "$(echo "$goose_ci" | wc -l)" != "1" ] || [ "$goose_gomod" != "$goose_ci" ]; then
+            echo "::error::goose version mismatch: go.mod has $goose_gomod, ci.yml pins [$goose_ci]"
+            exit 1
+          fi
+
+          oapi_gomod=$(grep -oP 'github\.com/oapi-codegen/oapi-codegen/v2 \K\S+' backend/go.mod)
+          oapi_makefile=$(grep -oP 'oapi-codegen/v2/cmd/oapi-codegen@\K\S+' backend/Makefile)
+          if [ "$oapi_gomod" != "$oapi_makefile" ]; then
+            echo "::error::oapi-codegen version mismatch: go.mod has $oapi_gomod, backend/Makefile pins $oapi_makefile"
+            exit 1
+          fi
+
+          lint_makefile=$(grep -oP 'golangci-lint@\K\S+' backend/Makefile)
+          lint_ci=$(grep -A5 '^\s*uses: golangci/golangci-lint-action@' .github/workflows/ci.yml | grep -oP '^\s*version:\s*\K\S+' | head -1)
+          if [ "$lint_makefile" != "$lint_ci" ]; then
+            echo "::error::golangci-lint version mismatch: backend/Makefile pins $lint_makefile, ci.yml pins $lint_ci"
+            exit 1
+          fi
+
+          # backend/Dockerfile's builder stage isn't touched by Dependabot's
+          # gomod ecosystem entry, only its docker ecosystem entry (digest
+          # bumps within whatever version is already pinned) -- nothing ties
+          # its Go version to go.mod's `go` directive, so a go.mod bump (like
+          # the CVE-driven one that produced 1.25.12) can silently leave the
+          # shipped image built by a different toolchain than every Go job in
+          # this workflow (setup-go with go-version-file: backend/go.mod)
+          # actually tests/scans.
+          go_gomod=$(grep -oP '^go \K[\d.]+' backend/go.mod)
+          go_dockerfile=$(grep -oP 'FROM golang:\K[\d.]+(?=@)' backend/Dockerfile)
+          if [ "$go_gomod" != "$go_dockerfile" ]; then
+            echo "::error::Go version mismatch: go.mod has $go_gomod, backend/Dockerfile builds with golang:$go_dockerfile"
+            exit 1
+          fi
+          echo "Tool-version pins are in sync (goose $goose_gomod, oapi-codegen $oapi_gomod, golangci-lint $lint_makefile, go $go_gomod)."
+      - name: Verify pinned base image digests stay in sync
+        working-directory: .
+        # postgres:17's digest is duplicated in docker-compose.yml (kept
+        # current automatically by Dependabot's docker ecosystem entry for
+        # directory /), helm/team-manager/values.yaml's
+        # backup.postgresImageDigest (explicitly NOT covered by Dependabot,
+        # per that key's own comment), and ci.yml's security-container-backup
+        # Trivy scan step, backend-migration-rollback's and dast's postgres
+        # service containers, plus scheduled-security-scan.yml's own copy of
+        # the same Trivy scan (duplicated there so its weekly re-scan doesn't
+        # depend on ci.yml's push/pull_request-only triggers) -- with nothing
+        # tying them together, Dependabot bumping the first copy on its own
+        # schedule would silently desync it from the rest, and the CI scan/
+        # service containers or the actual backup CronJob could end up
+        # validating/running a stale digest. Same risk, weaker (no Dependabot
+        # coverage on either side) for aws-cli's pin.
+        #
+        # node:22-alpine's digest is separately duplicated in docker-compose.yml
+        # (Dependabot docker ecosystem entry for directory /) and
+        # frontend/Dockerfile (separate entry for directory /frontend) -- the
+        # same split-directory drift risk as postgres/aws-cli above, since each
+        # entry can open and merge its own digest-bump PR independently.
+        run: |
+          set -euo pipefail
+          pg_compose=$(grep -oP 'postgres:17@\Ksha256:\S+' docker-compose.yml)
+          pg_values=$(grep -oP 'postgresImageDigest:\s*"\K[^"]+' helm/team-manager/values.yaml)
+          pg_ci=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml)
+          pg_scheduled=$(grep -oP 'image-ref:\s*postgres:17@\Ksha256:\S+' .github/workflows/scheduled-security-scan.yml)
+          if [ "$pg_compose" != "$pg_values" ] || [ "$pg_compose" != "$pg_ci" ] || [ "$pg_compose" != "$pg_scheduled" ]; then
+            echo "::error::postgres:17 digest mismatch: docker-compose.yml=$pg_compose values.yaml=$pg_values ci.yml=$pg_ci scheduled-security-scan.yml=$pg_scheduled"
+            exit 1
+          fi
+          pg_services=$(grep -oP '^\s*image:\s*postgres:17@\Ksha256:\S+' .github/workflows/ci.yml | sort -u)
+          if [ "$(echo "$pg_services" | wc -l)" != "1" ] || [ "$pg_services" != "$pg_compose" ]; then
+            echo "::error::postgres:17 service-container digest(s) out of sync: expected $pg_compose, found: $pg_services"
+            exit 1
+          fi
+
+          aws_values=$(grep -oP 'awsCliImage:\s*"amazon/aws-cli:\K\S+(?=")' helm/team-manager/values.yaml)
+          aws_ci=$(grep -oP 'image-ref:\s*amazon/aws-cli:\K\S+' .github/workflows/ci.yml)
+          aws_scheduled=$(grep -oP 'image-ref:\s*amazon/aws-cli:\K\S+' .github/workflows/scheduled-security-scan.yml)
+          if [ "$aws_values" != "$aws_ci" ] || [ "$aws_values" != "$aws_scheduled" ]; then
+            echo "::error::amazon/aws-cli digest mismatch: values.yaml=$aws_values ci.yml=$aws_ci scheduled-security-scan.yml=$aws_scheduled"
+            exit 1
+          fi
+          echo "Backup image digests are in sync (postgres:17@$pg_compose, aws-cli:$aws_values)."
+
+          node_compose=$(grep -oP 'node:22-alpine@\Ksha256:\S+' docker-compose.yml)
+          node_dockerfile=$(grep -oP 'FROM node:22-alpine@\Ksha256:\S+' frontend/Dockerfile)
+          if [ "$node_compose" != "$node_dockerfile" ]; then
+            echo "::error::node:22-alpine digest mismatch: docker-compose.yml=$node_compose frontend/Dockerfile=$node_dockerfile"
+            exit 1
+          fi
+          echo "node:22-alpine digest is in sync ($node_compose)."
+      - name: Forbid hardcoded RFC 9457 type-URI literals outside apierror
+        # internal/apierror is the single source of truth for the Problem
+        # Details `type` field (honors ERROR_TYPE_BASE_URI). Multiple rounds
+        # of review found handlers/middleware hand-rolling their own
+        # "https://teammanager.example/errors/..." literal instead of calling
+        # into apierror, silently bypassing that override in production. This
+        # guards against the bug class recurring.
+        run: |
+          set -euo pipefail
+          hits=$(grep -rn 'https://teammanager\.example/errors/' --include='*.go' . | grep -v '^\./internal/apierror/' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Found hardcoded RFC 9457 type-URI literals outside internal/apierror/ — use apierror.New/apierror.BadRequest/etc. instead so ERROR_TYPE_BASE_URI is honored:"
+            echo "$hits"
+            exit 1
+          fi
+          echo "No hardcoded RFC 9457 type-URI literals found outside internal/apierror/."
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
@@ -221,7 +486,10 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # No docker/setup-buildx-action here -- this job's only Docker usage is
+      # testcontainers-go pulling the pre-built postgres:17 image (see
+      # internal/testutil/postgres.go), never `docker build`, so there's
+      # nothing for a Buildx builder to do.
       - run: go test ./... -race -count=1 -coverprofile=coverage.out -timeout=300s
         env:
           TESTCONTAINERS_RYUK_DISABLED: "true"
@@ -269,7 +537,9 @@ jobs:
     name: Backend · License check
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [backend-build]
+    # No needs: -- this only runs go-licenses report against source, never
+    # consuming backend-build's binary/SBOM artifacts, so it doesn't need to
+    # wait on that job and can run in parallel with lint/test/build.
     defaults:
       run:
         working-directory: backend
@@ -280,14 +550,38 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: Install go-licenses
-        run: go install github.com/google/go-licenses@latest
+        run: go install github.com/google/go-licenses@v1.6.0
       - name: Report all dependency licenses
-        run: go-licenses report ./... 2>/dev/null > licenses.csv || true
+        id: licenses
+        # go-licenses is known to be brittle (crashes on some generics/newer-Go
+        # packages), so this step deliberately doesn't hard-fail the job on a
+        # tool crash — but it must not silently report "no GPL/AGPL found" in
+        # that case either, since an empty/partial licenses.csv would make the
+        # next step's grep look identical to a real clean scan (the same
+        # silent-false-green shape the migration-safety job had before it was
+        # fixed to distinguish "nothing found" from "couldn't check").
+        run: |
+          set +e
+          go-licenses report ./... 2>go-licenses.stderr > licenses.csv
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::go-licenses report failed (exit $status) — the GPL/AGPL check below is skipped and cannot be trusted this run. See the uploaded go-licenses.stderr artifact."
+            cat go-licenses.stderr
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Check for GPL/AGPL licenses
         run: |
+          if [ "${{ steps.licenses.outputs.failed }}" = "true" ]; then
+            echo "::warning::Skipping GPL/AGPL check — license report generation failed above."
+            exit 0
+          fi
           if grep -qE '\b(GPL|AGPL)\b' licenses.csv 2>/dev/null; then
-            echo "WARNING: GPL/AGPL licensed dependencies found:"
+            echo "::error::GPL/AGPL licensed dependencies found:"
             grep -E '\b(GPL|AGPL)\b' licenses.csv
+            exit 1
           else
             echo "No GPL/AGPL licenses detected."
           fi
@@ -295,7 +589,9 @@ jobs:
         if: always()
         with:
           name: backend-licenses
-          path: backend/licenses.csv
+          path: |
+            backend/licenses.csv
+            backend/go-licenses.stderr
           retention-days: 30
 
   backend-security:
@@ -310,13 +606,13 @@ jobs:
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: backend/go.mod
-      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
       - run: govulncheck ./...
 
   backend-coverage:
     name: Backend · Coverage gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     needs: [backend-test]
     defaults:
       run:
@@ -327,11 +623,14 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Run tests with coverage
-        run: go test ./... -race -count=1 -coverprofile=coverage.out -timeout=300s
-        env:
-          TESTCONTAINERS_RYUK_DISABLED: "true"
+      # Reuses the coverage.out backend-test already produced and uploaded,
+      # instead of re-running the entire (slow, Testcontainers-based) suite a
+      # second time from scratch just to recompute this gate.
+      - name: Download coverage from backend-test
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: backend-coverage
+          path: backend/
       - name: Enforce minimum coverage threshold
         # The gate measures business-logic packages only. Generated code
         # (internal/gen) and infra/wiring packages (cmd/server, internal/db,
@@ -400,7 +699,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
         env:
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
@@ -422,7 +721,7 @@ jobs:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
       - name: Install goose
-        run: go install github.com/pressly/goose/v3/cmd/goose@latest
+        run: go install github.com/pressly/goose/v3/cmd/goose@v3.24.2
       - name: Apply all migrations
         run: goose -dir internal/db/migrations postgres "$DATABASE_URL" up
         env:
@@ -435,6 +734,238 @@ jobs:
         run: goose -dir internal/db/migrations postgres "$DATABASE_URL" up
         env:
           DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
+
+  backend-migration-safety:
+    name: Backend · Migration safety lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only meaningful with a base ref to diff against; only lints migration
+    # files added/changed in this PR, so it never flags already-applied
+    # migrations (e.g. 00007/00008, which predate this check and are not
+    # retroactively edited — editing an already-applied migration is unsafe).
+    if: github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: Flag unsafe DDL patterns in new/changed migrations
+        run: |
+          set -euo pipefail
+          # No --depth=1 here: the checkout step already set fetch-depth: 0,
+          # making the repo non-shallow. Shallow-fetching just the base ref
+          # on top of that grafts it as a parentless commit, which breaks
+          # the three-dot diff's merge-base lookup below with "no merge
+          # base" (exit 128) whenever the base has advanced since the PR
+          # branched — the common case for any real PR. That failure must
+          # also be allowed to fail the job (not swallowed with `|| true`):
+          # this is a safety guardrail, so a broken diff should fail loudly
+          # rather than silently report "no migrations changed".
+          git fetch origin "${{ github.base_ref }}"
+          # --relative makes git report paths relative to cwd (this job runs
+          # every 'run:' step from the backend/ working directory, per the
+          # job-level 'defaults.run.working-directory' below) rather than its
+          # default of repo-root-relative -- without it, $f later fails to
+          # open (git diff --name-only always reports root-relative paths
+          # regardless of cwd, e.g. "backend/internal/db/migrations/x.sql",
+          # which doesn't exist relative to a cwd that's already inside
+          # backend/). $annotate_path (built per-file below) re-adds the
+          # backend/ prefix for GitHub's ::error file=...:: annotations,
+          # which do need repo-root-relative paths to link correctly in the
+          # PR's "Files changed" view.
+          changed=$(git diff --name-only --relative --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- 'internal/db/migrations/*.sql')
+          if [ -z "$changed" ]; then
+            echo "No migration files changed."
+            exit 0
+          fi
+          echo "Checking changed migrations:"
+          echo "$changed"
+          # Preprocessor for the per-statement checks below: blanks out the
+          # contents of '-quoted string literals, -- line comments, and
+          # /* */ block comments (replacing each character with a space,
+          # preserving newlines and overall layout) before any hazard-phrase
+          # matching or statement splitting happens. Without this, a mitigation
+          # phrase like "NOT VALID" or "USING INDEX" occurring inside a string
+          # literal or comment -- not as the actual trailing SQL clause -- was
+          # enough to satisfy the grep -v checks below and silently wave
+          # through a genuinely unsafe statement (e.g. a CHECK constraint
+          # comparing a column against the literal string 'NOT VALID', or an
+          # explanatory comment mentioning it). The same blanking also fixes
+          # the inverse problem: a ';' inside a string literal (e.g. a CHECK
+          # expression like note !~ 'contains a semicolon; like this') used to
+          # split one safe statement into two fragments that individually
+          # looked unsafe, since the awk 'BEGIN{RS=";"}' splitter below has no
+          # concept of quoting. A doubled '' (SQL's escape for a literal quote
+          # inside a string) is handled for free: toggling the "in string"
+          # state twice in a row nets out to the same state, so it never
+          # miscounts. Dollar-quoting ($$...$$) isn't handled -- this
+          # migrations directory has never used it (no function bodies), so
+          # it isn't a real gap for this repo's actual content.
+          strip_quotes_comments() {
+            awk -v q="'" '
+              BEGIN { state = "normal" }
+              { buf = buf $0 "\n" }
+              END {
+                n = length(buf)
+                i = 1
+                out = ""
+                while (i <= n) {
+                  c = substr(buf, i, 1)
+                  c2 = substr(buf, i, 2)
+                  if (state == "normal") {
+                    if (c == q) { state = "sq"; out = out " "; i++; continue }
+                    if (c2 == "--") { state = "line"; out = out "  "; i += 2; continue }
+                    if (c2 == "/*") { state = "block"; out = out "  "; i += 2; continue }
+                    out = out c; i++; continue
+                  }
+                  if (state == "sq") {
+                    if (c == q) { state = "normal"; out = out " "; i++; continue }
+                    out = out (c == "\n" ? "\n" : " "); i++; continue
+                  }
+                  if (state == "line") {
+                    if (c == "\n") { state = "normal"; out = out "\n"; i++; continue }
+                    out = out " "; i++; continue
+                  }
+                  if (state == "block") {
+                    if (c2 == "*/") { state = "normal"; out = out "  "; i += 2; continue }
+                    out = out (c == "\n" ? "\n" : " "); i++; continue
+                  }
+                }
+                printf "%s", out
+              }
+            ' "$1"
+          }
+          fail=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            annotate_path="backend/$f"
+            stripped=$(strip_quotes_comments "$f")
+            # File-level check (not per-statement): goose wraps a migration's
+            # statements in a transaction by default, and Postgres rejects
+            # CREATE INDEX CONCURRENTLY inside a transaction block. Every
+            # migration using CONCURRENTLY today opts out via a
+            # '-- +goose NO TRANSACTION' annotation before '-- +goose Up' --
+            # this only checks the annotation is PRESENT somewhere in the
+            # file, not its exact placement, since goose itself is the
+            # authority on that; this just catches the easy slip of adding
+            # CONCURRENTLY and forgetting the annotation entirely, which
+            # otherwise only surfaces when the migration actually runs
+            # against a real database (i.e. in a deploy, not in CI).
+            if grep -qi 'CONCURRENTLY' "$f" && ! grep -qE '^-- \+goose NO TRANSACTION' "$f"; then
+              echo "::error file=$annotate_path::CREATE INDEX CONCURRENTLY requires a '-- +goose NO TRANSACTION' annotation (goose wraps migrations in a transaction by default, and Postgres rejects CONCURRENTLY inside one). Add '-- +goose NO TRANSACTION' before '-- +goose Up'."
+              fail=1
+            fi
+            # Split the file into ;-terminated statements and flatten each
+            # statement's internal newlines to spaces, so a multi-line
+            # ALTER TABLE / CREATE INDEX (this repo uses both styles — see
+            # e.g. 00002/00005 for multi-line, 00007 for single-line) is
+            # matched the same way regardless of line breaks. Checking stays
+            # scoped per statement, not file-wide, so a safe NOT VALID on one
+            # statement can't mask an unsafe one elsewhere in the file.
+            while IFS= read -r stmt; do
+              [ -z "${stmt// /}" ] && continue
+              # ALTER COLUMN ... TYPE rewrites the whole table under an
+              # ACCESS EXCLUSIVE lock, blocking all reads/writes for the
+              # duration on large tables — use an expand/contract migration
+              # instead (add a new column, batch-backfill, then a fast
+              # rename/drop), as internal/jobs/retention.go's batching
+              # helper already does for large-table deletes. COLUMN is
+              # optional in Postgres's own grammar (ALTER TABLE t ALTER col
+              # TYPE ... is as valid as ALTER TABLE t ALTER COLUMN col TYPE
+              # ...), so it must be optional here too or this check is
+              # trivially bypassed by omitting a keyword nothing else
+              # requires. Likewise "SET DATA" before TYPE is an optional
+              # prefix in Postgres's grammar (ALTER [COLUMN] col [SET DATA]
+              # TYPE ...) -- without making it optional here too, writing
+              # SET DATA TYPE (equally valid, and equally unsafe) bypassed
+              # this check entirely.
+              if echo "$stmt" | grep -qiE 'ALTER +(COLUMN +)?[^ ]+ +(SET +DATA +)?TYPE'; then
+                echo "::error file=$annotate_path::ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE lock. Use an expand/contract migration instead (add a new column, batch-backfill, then rename/drop)."
+                fail=1
+              fi
+              # ADD CONSTRAINT ... CHECK without NOT VALID validates against
+              # every existing row while holding an ACCESS EXCLUSIVE lock.
+              # CONSTRAINT <name> is optional (Postgres auto-names an
+              # unnamed constraint), so it must be optional here too --
+              # ADD CHECK (...) is exactly as valid, and exactly as
+              # unsafe without NOT VALID, as ADD CONSTRAINT x CHECK (...).
+              if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?CHECK' | grep -qiv 'NOT VALID'; then
+                echo "::error file=$annotate_path::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+                fail=1
+              fi
+              # ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds the backing
+              # index under an ACCESS EXCLUSIVE lock -- the same hazard the
+              # CREATE INDEX check below exists for, just reached through a
+              # different statement shape. Neither supports NOT VALID, so
+              # this is unconditional: build the index CONCURRENTLY first,
+              # then ADD CONSTRAINT ... UNIQUE/PRIMARY KEY USING INDEX.
+              # CONSTRAINT <name> is optional here for the same reason as
+              # the CHECK case above. Excludes USING INDEX: that's this
+              # check's own recommended safe remediation (attach a
+              # pre-built, CONCURRENTLY-created index as the constraint's
+              # backing index instead of having ADD CONSTRAINT build one
+              # itself), and it was being flagged as unsafe right along with
+              # the hazard it's meant to replace -- a developer following
+              # the error message's own instructions had no way to land the
+              # fix without editing this check.
+              if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?(UNIQUE|PRIMARY +KEY)( |\()' | grep -qivE 'USING +INDEX'; then
+                echo "::error file=$annotate_path::ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds its index under an ACCESS EXCLUSIVE lock. CREATE [UNIQUE] INDEX CONCURRENTLY first, then ADD CONSTRAINT ... USING INDEX."
+                fail=1
+              fi
+              # ADD CONSTRAINT ... FOREIGN KEY without NOT VALID validates
+              # every existing row in both tables while holding a
+              # SHARE ROW EXCLUSIVE lock, blocking writes for the duration.
+              # CONSTRAINT <name> is optional here for the same reason as
+              # the CHECK case above.
+              if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?FOREIGN +KEY' | grep -qiv 'NOT VALID'; then
+                echo "::error file=$annotate_path::ADD CONSTRAINT ... FOREIGN KEY without NOT VALID locks both tables while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+                fail=1
+              fi
+              # ALTER COLUMN ... SET NOT NULL forces a full-table scan under
+              # an ACCESS EXCLUSIVE lock unless a validated CHECK (col IS NOT
+              # NULL) constraint already covers it -- this codebase's own
+              # established safe pattern for that (00016/00018) uses exactly
+              # such a CHECK, added NOT VALID then VALIDATE CONSTRAINT'd in a
+              # follow-up migration, never a raw SET NOT NULL. Flag it
+              # unconditionally, same as the UNIQUE/PRIMARY KEY check above:
+              # add the CHECK constraint NOT VALID, VALIDATE CONSTRAINT it in
+              # a follow-up (safe, doesn't take ACCESS EXCLUSIVE), then only
+              # once validated does SET NOT NULL become metadata-only.
+              # COLUMN is optional for the same reason as the TYPE case above.
+              if echo "$stmt" | grep -iE 'ALTER +(COLUMN +)?[^ ]+ +SET +NOT +NULL'; then
+                echo "::error file=$annotate_path::ALTER COLUMN ... SET NOT NULL scans the whole table under an ACCESS EXCLUSIVE lock unless a validated CHECK (col IS NOT NULL) constraint already covers it. Add that constraint NOT VALID, VALIDATE CONSTRAINT in a follow-up migration, then SET NOT NULL."
+                fail=1
+              fi
+              # ADD COLUMN ... GENERATED ALWAYS AS (...) STORED computes and
+              # stores the expression for every existing row under an ACCESS
+              # EXCLUSIVE lock -- the same full-table-rewrite hazard as
+              # ALTER COLUMN ... TYPE above, just reached by adding a new
+              # column instead of altering an existing one (a plain
+              # ADD COLUMN ... DEFAULT <constant> is NOT flagged: that's the
+              # fast, metadata-only path since Postgres 11 this whole file
+              # otherwise assumes is always safe). COLUMN is optional here
+              # for the same reason as the ALTER COLUMN ... TYPE case above
+              # -- ADD full_name text GENERATED ALWAYS AS (...) STORED is
+              # exactly as valid, and exactly as unsafe, as ADD COLUMN
+              # full_name text GENERATED ALWAYS AS (...) STORED.
+              if echo "$stmt" | grep -iE 'ADD +(COLUMN +)?' | grep -qiE 'GENERATED +ALWAYS +AS'; then
+                echo "::error file=$annotate_path::ADD COLUMN ... GENERATED ALWAYS AS (...) STORED computes and stores the expression for every existing row under an ACCESS EXCLUSIVE lock. Add a plain nullable column instead, batch-backfill it, and maintain it via a trigger or the application write path."
+                fail=1
+              fi
+              # CREATE INDEX without CONCURRENTLY holds a table-level lock
+              # blocking writes for the duration of the index build — the
+              # single most common unsafe-DDL mistake in Postgres migrations,
+              # and one this codebase has hit before (00009_notification_idempotency.sql,
+              # already applied and not retroactively edited).
+              if echo "$stmt" | grep -iE 'CREATE +(UNIQUE +)?INDEX' | grep -qivE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY'; then
+                echo "::error file=$annotate_path::CREATE INDEX without CONCURRENTLY holds a table-level lock blocking writes for the duration of the index build. Add CONCURRENTLY (and a '+goose NO TRANSACTION' annotation, since CONCURRENTLY cannot run inside a transaction)."
+                fail=1
+              fi
+            done <<< "$(echo "$stripped" | awk 'BEGIN{RS=";"} {gsub(/\n/," "); print}')"
+          done <<< "$changed"
+          exit $fail
 
   security-container:
     name: Security · Container scan (Trivy)
@@ -459,6 +990,54 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
 
+  security-container-backup:
+    name: Security · Container scan (Trivy, backup CronJob images)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
+      # pulls postgres and amazon/aws-cli directly from Docker Hub at runtime
+      # -- unlike the app's own two images, these were never scanned anywhere
+      # in CI. Scan the exact digest-pinned references shipped in
+      # values.yaml's backup.postgresImageDigest/backup.s3.awsCliImage so a
+      # CVE published against either is caught the same way as the app's own
+      # images, instead of silently reaching a CronJob that holds DB
+      # credentials and, when backup.s3.enabled, S3 write access.
+      #
+      # scanners: vuln only (unlike the app's own two Trivy jobs, which use
+      # the default vuln+secret scan) -- Trivy's secret scanner otherwise
+      # flags postgres's bundled /etc/ssl/private/ssl-cert-snakeoil.key as an
+      # "AsymmetricPrivateKey": a well-known Debian ssl-cert package
+      # convention (a placeholder self-signed cert generated at image build
+      # time), not an actual leaked secret. That check is only meaningful for
+      # scanning images this project actually builds, where a real secret
+      # could get baked in by mistake -- not a third-party vendor base image.
+      - name: Scan postgres (backup pg_dump initContainer)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          scanners: vuln
+          # 15 CVEs, all in the bundled gosu privilege-drop helper (never
+          # processes network input, exits immediately after exec at
+          # container startup) with no fixed upstream image build available
+          # yet across any current postgres:17.x tag as of 2026-07-11 --
+          # see the file for full justification and a re-check reminder.
+          trivyignores: .github/trivyignore-postgres-backup.txt
+      - name: Scan aws-cli (backup s3-upload container)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: amazon/aws-cli:2.35.18@sha256:5d6ba5056f48726a1f2d3447d0ad1ae2506f966f431d69649dc7da5cae8e4667
+          format: table
+          exit-code: '1'
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          scanners: vuln
+
   security-container-frontend:
     name: Security · Container scan (Trivy, frontend)
     runs-on: ubuntu-latest
@@ -476,6 +1055,31 @@ jobs:
           exit-code: '1'
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          trivyignores: .github/trivyignore-frontend.txt
+
+      # `docker build` only proves the image compiles; it never runs
+      # docker-entrypoint-runtime-config.sh (frontend/docker/), which
+      # executes as the image's non-root user (uid 101) at container start
+      # to regenerate config.js/index.html from API_BASE_URL — a permissions
+      # or scripting bug there would only surface here, not in the build or
+      # the Trivy scan above.
+      - name: Boot the image and verify the runtime-config entrypoint
+        run: |
+          set -euo pipefail
+          cid=$(docker run -d -p 18080:8080 -e API_BASE_URL=https://api.example.com team-manager-frontend:ci)
+          trap 'docker logs "$cid"; docker rm -f "$cid" >/dev/null' EXIT
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:18080/healthz && break
+            sleep 1
+            if [ "$i" = 30 ]; then
+              echo "::error::container never became healthy"
+              exit 1
+            fi
+          done
+          config_js=$(curl -sf http://localhost:18080/config.js)
+          echo "$config_js"
+          echo "$config_js" | grep -q 'https://api.example.com'
+          curl -sf http://localhost:18080/ | grep -q 'https://api.example.com'
 
   dast:
     name: DAST — OWASP ZAP Baseline
@@ -486,7 +1090,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
         env:
           POSTGRES_PASSWORD: testpassword
           POSTGRES_DB: testdb
@@ -545,3 +1149,105 @@ jobs:
       - name: Stop backend
         if: always()
         run: kill $(cat /tmp/server.pid) || true
+
+  helm-lint:
+    name: Helm · Lint & template
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install Helm
+        # Pinned to the v3.16.3 tag ref (not the mutable `main` branch) so
+        # the installer *script* is as pinned as the Helm *binary* it
+        # installs (--version v3.16.3 already pins that) — every other
+        # third-party dependency in this workflow is SHA/digest-pinned
+        # (see the trivy-action pin's comment for why), this was the one
+        # curl-|-bash exception fetching from a live, writable ref.
+        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/v3.16.3/scripts/get-helm-3 | bash -s -- --no-sudo --version v3.16.3
+
+      # Lint and render against every values file this chart ships (base
+      # values.yaml, plus each environment overlay) — a values-dependent
+      # template error (e.g. a required field only set in one overlay) would
+      # otherwise only surface at actual deploy time.
+      - name: helm lint
+        run: |
+          set -e
+          helm lint helm/team-manager
+          helm lint helm/team-manager -f helm/team-manager/values-staging.yaml
+          helm lint helm/team-manager -f helm/team-manager/values-prod.yaml
+
+      - name: helm template
+        run: |
+          set -e
+          helm template team-manager helm/team-manager > /dev/null
+          helm template team-manager helm/team-manager -f helm/team-manager/values-staging.yaml > /dev/null
+          helm template team-manager helm/team-manager -f helm/team-manager/values-prod.yaml > /dev/null
+          # monitoring.enabled/grafanaDashboard.enabled are false in every
+          # shipped values file, so without this the ServiceMonitor/
+          # PrometheusRule/Grafana-dashboard-ConfigMap templates would never
+          # actually render in CI and a syntax error in them would only
+          # surface the first time an operator opts in at deploy time.
+          # monitoring.metricsToken is also empty everywhere (including
+          # above), so the metrics-token-secret.yaml Secret and
+          # servicemonitor.yaml's bearerTokenSecret block are exercised here too.
+          helm template team-manager helm/team-manager \
+            --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true \
+            --set monitoring.metricsToken=dummy > /dev/null
+          # backup.enabled is only true in values-prod.yaml, which also sets
+          # backup.s3.enabled=true -- so backup-cronjob.yaml's `{{- else }}`
+          # branch (the no-op-warning container, taken when S3 upload is
+          # disabled) is never rendered by any of the invocations above.
+          helm template team-manager helm/team-manager \
+            --set backup.enabled=true --set backup.s3.enabled=false > /dev/null
+          # monitoring.metricsTokenSecretName (external-Secret reference,
+          # added to fix the existingSecret-only convention gap) is empty in
+          # every shipped values file and unset by the monitoring.enabled
+          # render above too, so its branch of servicemonitor.yaml's
+          # bearerTokenSecret block was never rendered anywhere.
+          helm template team-manager helm/team-manager \
+            --set monitoring.enabled=true --set monitoring.metricsTokenSecretName=dummy-secret > /dev/null
+          # backup.s3.credentialsSecretName (static AWS credentials, the one
+          # alternative to IRSA) is empty in every shipped values file,
+          # including values-prod.yaml's IRSA-based backup.enabled=true
+          # render above -- so backup-cronjob.yaml's credentialsSecretName
+          # branch (the AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secretKeyRefs)
+          # has no template-syntax coverage at all. backup.s3.endpoint (the
+          # S3-compatible-storage/MinIO override -- see values.yaml and
+          # networkpolicy.yaml's egress.s3.port comment) is likewise empty
+          # everywhere, so backup-cronjob.yaml's --endpoint-url branch is
+          # covered here too rather than needing its own separate render.
+          helm template team-manager helm/team-manager \
+            --set backup.enabled=true --set backup.s3.enabled=true \
+            --set backup.s3.bucket=x --set backup.s3.credentialsSecretName=dummy-creds \
+            --set backup.s3.endpoint=https://minio.example.com:9000 > /dev/null
+          # deploymentStrategy is `{}` (empty map, so Deployment.spec.strategy
+          # is omitted entirely) in every shipped values file, so the
+          # `{{- with .Values.deploymentStrategy }}` branch in deployment.yaml
+          # otherwise has no template-syntax coverage -- this is the
+          # docs/operations.md-recommended `Recreate` override for a
+          # backward-incompatible migration deploy.
+          helm template team-manager helm/team-manager \
+            --set deploymentStrategy.type=Recreate > /dev/null
+          # monitoring.namespace combined with the chart-managed
+          # monitoring.metricsToken Secret is never exercised above -- this
+          # is the combination that caught metrics-token-secret.yaml
+          # rendering into .Release.Namespace while servicemonitor.yaml
+          # rendered into monitoring.namespace, so the bearerTokenSecret
+          # reference silently failed to resolve.
+          helm template team-manager helm/team-manager \
+            --set monitoring.enabled=true --set monitoring.namespace=monitoring \
+            --set monitoring.metricsToken=dummy > /dev/null
+          # backup.serviceAccount.create (a dedicated ServiceAccount for the
+          # backup CronJob, so an IRSA annotation for S3 access doesn't also
+          # get injected into the main app Deployment's pods) has no
+          # coverage in any render above.
+          helm template team-manager helm/team-manager \
+            --set backup.enabled=true --set backup.serviceAccount.create=true > /dev/null
+          # serviceAccount.create is `true` in every shipped values file, so
+          # team-manager.serviceAccountName's `{{- else }}` branch (used when
+          # pointing the chart at an externally-managed ServiceAccount
+          # instead of letting it create one) has no template-syntax
+          # coverage in any render above.
+          helm template team-manager helm/team-manager \
+            --set serviceAccount.create=false --set serviceAccount.name=external-sa > /dev/null

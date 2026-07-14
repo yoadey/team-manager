@@ -9,14 +9,17 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 )
@@ -28,6 +31,7 @@ type mockAuthService struct {
 	validateToken  func(ctx context.Context, token string) (*auth.UserRow, error)
 	logout         func(ctx context.Context, tokenHash string) error
 	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
+	getMyPhotoData func(ctx context.Context, userID string) ([]byte, error)
 	eraseAccount   func(ctx context.Context, userID, password string) error
 	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
 }
@@ -46,6 +50,13 @@ func (m *mockAuthService) Logout(ctx context.Context, tokenHash string) error {
 
 func (m *mockAuthService) UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error) {
 	return m.updatePhoto(ctx, userID, data, mime)
+}
+
+func (m *mockAuthService) GetMyPhotoData(ctx context.Context, userID string) ([]byte, error) {
+	if m.getMyPhotoData != nil {
+		return m.getMyPhotoData(ctx, userID)
+	}
+	return nil, nil
 }
 
 func (m *mockAuthService) EraseAccount(ctx context.Context, userID, password string) error {
@@ -132,12 +143,19 @@ func callLogout(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
 	_ = resp.VisitLogoutResponse(w)
 }
 
-// callUploadMyPhoto invokes the handler UploadMyPhoto method.
+// callUploadMyPhoto invokes the handler UploadMyPhoto method, routing any
+// returned error through apierror.ResponseErrorHandler exactly like the real
+// strict-server dispatch in cmd/server/main.go does. A hardcoded
+// http.Error(..., http.StatusBadRequest) here previously masked a real bug:
+// every UploadMyPhoto error path returned a bespoke error type that
+// ResponseErrorHandler's errors.As(*apierror.APIError) didn't recognize, so
+// production actually served a 500 for all of them, but the old test helper
+// couldn't observe that because it forced 400 regardless of the real status.
 func callUploadMyPhoto(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
 	mr := multipart.NewReader(r.Body, extractBoundary(r.Header.Get("Content-Type")))
 	resp, err := h.UploadMyPhoto(r.Context(), gen.UploadMyPhotoRequestObject{Body: mr})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		apierror.ResponseErrorHandler(slog.Default())(w, r, err)
 		return
 	}
 	_ = resp.VisitUploadMyPhotoResponse(w)
@@ -409,8 +427,7 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 
 	user := testUser()
 	updatedUser := *user
-	updatedUser.PhotoData = []byte("fake-jpeg")
-	updatedUser.PhotoMime = "image/jpeg"
+	updatedUser.HasPhoto = true
 
 	svc := &mockAuthService{
 		validateToken: func(_ context.Context, _ string) (*auth.UserRow, error) {
@@ -454,6 +471,174 @@ func TestHandler_UploadMyPhoto(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+// Regression test: UploadMyPhoto's error paths (errUnauthorized/errBadRequest/
+// errInternal) used to return a bespoke *handlerError type that
+// apierror.ResponseErrorHandler's errors.As(*apierror.APIError) never
+// matched, so every one of these fell through to a generic 500 in
+// production regardless of the intended status. They must now return an
+// *apierror.APIError so the real status/detail reaches the client.
+func TestHandler_UploadMyPhoto_RejectsNonImageContent(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		validateToken: func(_ context.Context, _ string) (*auth.UserRow, error) {
+			return testUser(), nil
+		},
+	}
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Put("/auth/me/photo", func(w http.ResponseWriter, req *http.Request) {
+			callUploadMyPhoto(h, w, req)
+		})
+	})
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("photo", "not-an-image.txt")
+	require.NoError(t, err)
+	_, err = fw.Write([]byte("plain text, not an image"))
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/auth/me/photo", &buf)
+	addSessionCookie(t, codec, req, "token")
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "JPEG")
+}
+
+// Regression test: io.LimitReader silently truncates rather than erroring
+// once its cap is reached, so a photo between 2 MB and the global body-size
+// cap used to sail past the "cannot read file data" check with intact JPEG
+// magic bytes but truncated body -- decoding it downstream failed with a
+// plain error (not ErrImageTooLarge), falling through to a generic 500
+// instead of a clean 413 for what's really an oversized-payload problem.
+func TestHandler_UploadMyPhoto_RejectsOversizedFile(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		validateToken: func(_ context.Context, _ string) (*auth.UserRow, error) {
+			return testUser(), nil
+		},
+		updatePhoto: func(context.Context, string, []byte, string) (*auth.UserRow, error) {
+			t.Fatal("service must not be called for an oversized upload")
+			return nil, nil
+		},
+	}
+	codec := testCodec(t)
+	h := auth.NewHandler(svc, slog.Default(), codec, nil)
+
+	r := chi.NewRouter()
+	r.Group(func(r chi.Router) {
+		r.Use(h.AuthMiddleware)
+		r.Put("/auth/me/photo", func(w http.ResponseWriter, req *http.Request) {
+			callUploadMyPhoto(h, w, req)
+		})
+	})
+
+	// JPEG magic bytes followed by > 2 MB of filler so DetectContentType
+	// still identifies it as a JPEG, but the file exceeds the 2 MB cap.
+	oversized := append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, make([]byte, 3<<20)...)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, err := mw.CreateFormFile("photo", "huge.jpg")
+	require.NoError(t, err)
+	_, err = fw.Write(oversized)
+	require.NoError(t, err)
+	require.NoError(t, mw.Close())
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPut, "/auth/me/photo", &buf)
+	addSessionCookie(t, codec, req, "token")
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, w.Code)
+}
+
+// Regression test: GetMyPhoto's 404 used to be hand-built with no `type`
+// field at all (the only error response in this package that shipped
+// without one), instead of going through apierror.NotFound like every other
+// error path.
+func TestHandler_GetMyPhoto_NoPhoto_Returns404WithType(t *testing.T) {
+	t.Parallel()
+
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+	resp, err := h.GetMyPhoto(ctx, gen.GetMyPhotoRequestObject{})
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	w := httptest.NewRecorder()
+	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me/photo", http.NoBody), err)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
+	assert.NotEmpty(t, body["type"])
+}
+
+// Regression test: erasing the sole settings administrator of a team used
+// to have no guard at all, permanently orphaning that team's ability to
+// manage roles/members/settings (the erased account's membership_roles row
+// still holds settings:write, but the account can never authenticate again).
+// This must map to a 409, not the generic 401 used for wrong-confirmation.
+func TestHandler_DeleteCurrentUser_SoleSettingsAdmin_Returns409(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		eraseAccount: func(context.Context, string, string) error {
+			return &auth.SoleSettingsAdminError{TeamIDs: []string{"team-1", "team-2"}}
+		},
+	}
+	var buf bytes.Buffer
+	h := auth.NewHandler(svc, slog.New(slog.NewJSONHandler(&buf, nil)), nil, nil)
+
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+	email := openapi_types.Email("test@example.com")
+	resp, err := h.DeleteCurrentUser(ctx, gen.DeleteCurrentUserRequestObject{
+		Body: &gen.DeleteAccountRequest{ConfirmEmail: email},
+	})
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	w := httptest.NewRecorder()
+	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequestWithContext(context.Background(), http.MethodDelete, "/auth/me", http.NoBody), err)
+	assert.Equal(t, http.StatusConflict, w.Code)
+
+	rec := findAuditLogLine(t, buf.Bytes())
+	assert.Equal(t, "auth.account_erase", rec["event"])
+	assert.Equal(t, "failure", rec["outcome"])
+	assert.ElementsMatch(t, []any{"team-1", "team-2"}, rec["blockedByTeamIds"])
+}
+
+// findAuditLogLine parses a multi-line JSON log buffer (a handler that logs
+// both an error and an audit record writes two separate JSON objects to the
+// same buffer, which json.Unmarshal can't parse as one value) and returns the
+// first line that is an audit record.
+func findAuditLogLine(t *testing.T, buf []byte) map[string]any {
+	t.Helper()
+	for _, line := range strings.Split(string(buf), "\n") {
+		if line == "" {
+			continue
+		}
+		var rec map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &rec))
+		if rec["audit"] == true {
+			return rec
+		}
+	}
+	t.Fatal("no audit log line found")
+	return nil
 }
 
 func TestHandler_GetMyDataExport(t *testing.T) {

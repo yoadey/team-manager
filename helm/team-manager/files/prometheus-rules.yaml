@@ -1,0 +1,253 @@
+groups:
+  # ── Availability ─────────────────────────────────────────────────────────────
+
+  - name: availability
+    rules:
+      - alert: BackendDown
+        expr: up{job="team-manager-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend instance down"
+          description: "{{ $labels.namespace }}/{{ $labels.instance }} has been unreachable for more than 1 minute."
+
+      # Grouped by (namespace): job="team-manager-backend" is a fixed literal
+      # (see servicemonitor.yaml's relabelings comment -- kept stable across
+      # release names so these queries don't have to change per release), so
+      # if monitoring.namespace is used to centralize multiple environments'
+      # ServiceMonitors into one shared Prometheus, every environment
+      # produces identically job-labeled series. Without grouping, a quiet
+      # staging instance dilutes a real production spike below threshold (or
+      # vice versa) and the resulting alert can't say which environment fired.
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(teammanager_http_requests_total{job="team-manager-backend", status=~"5.."}[5m])) by (namespace)
+          /
+          sum(rate(teammanager_http_requests_total{job="team-manager-backend"}[5m])) by (namespace) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP 5xx error rate"
+          description: "Error rate in {{ $labels.namespace }} is {{ $value | humanizePercentage }} (threshold: 5%) over the last 5 minutes."
+
+      - alert: HighLatencyP99
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(teammanager_http_request_duration_seconds_bucket{job="team-manager-backend"}[5m])) by (le, namespace)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "P99 latency above 2 s"
+          description: "P99 request latency in {{ $labels.namespace }} is {{ $value | humanizeDuration }}."
+
+  # ── Rate Limiting ─────────────────────────────────────────────────────────────
+
+  - name: rate_limiting
+    rules:
+      - alert: RateLimitSpike
+        expr: |
+          sum(rate(teammanager_rate_limit_hits_total[5m])) by (context, namespace) > 10
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sustained rate-limit hits on {{ $labels.context }} limiter"
+          description: "{{ $value | humanize }} req/s are being rejected by the {{ $labels.context }} rate limiter in {{ $labels.namespace }}. Possible brute-force or misconfigured client."
+
+  # ── Domain Events ─────────────────────────────────────────────────────────────
+
+  - name: domain_events
+    rules:
+      - alert: LoginFailureSpike
+        expr: |
+          sum(rate(teammanager_login_attempts_total{outcome="failure"}[10m])) by (namespace) > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Login failure spike detected"
+          description: "{{ $value | humanize }} failed login attempts/s in {{ $labels.namespace }} over the last 10 minutes."
+
+      - alert: BulkMemberDeletion
+        expr: |
+          sum(increase(teammanager_domain_events_total{module="member", operation="delete"}[5m])) by (namespace) > 10
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Bulk member deletion detected"
+          description: "{{ $value }} member deletions in {{ $labels.namespace }} in the last 5 minutes — may be accidental or malicious."
+
+  # ── Database ──────────────────────────────────────────────────────────────────
+
+  - name: database
+    rules:
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          teammanager_pgxpool_acquired_conns{job="team-manager-backend"}
+          / teammanager_pgxpool_max_conns{job="team-manager-backend"} > 0.9
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "{{ $labels.namespace }}/{{ $labels.instance }}: {{ $value | humanizePercentage }} of the pool's max connections are acquired — pool may be exhausted."
+
+      - alert: SlowQueriesDetected
+        expr: |
+          increase(teammanager_slow_queries_total[10m]) > 20
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated slow query count"
+          description: "{{ $labels.namespace }}: {{ $value }} queries exceeded the slow-query threshold in the last 10 minutes."
+
+  # ── Background Jobs ───────────────────────────────────────────────────────────
+
+  - name: background_jobs
+    rules:
+      - alert: RetentionJobStale
+        # The retention job (internal/jobs.RetentionWorker) runs every 24h
+        # (river.PeriodicInterval in internal/jobs/notification_worker.go).
+        # A silent repeated failure would otherwise let notifications,
+        # sessions, and the compliance-relevant audit_log table grow
+        # unbounded with no signal until the DB runs out of disk. 36h gives
+        # one missed run of grace before paging.
+        # The `> 0` guard excludes the metric's zero-value default (present
+        # from process startup, before the job's first successful run ever
+        # happens) from tripping this alert on a fresh deploy.
+        expr: |
+          teammanager_retention_job_last_success_timestamp_seconds > 0
+          and (time() - teammanager_retention_job_last_success_timestamp_seconds > 36 * 3600)
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Retention job has not succeeded in over 36 hours"
+          description: "{{ $labels.namespace }}: last successful retention run was {{ $value | humanizeDuration }} ago; notifications/sessions/audit_log may be growing unbounded."
+
+      - alert: RetentionJobFailing
+        expr: |
+          increase(teammanager_retention_job_failures_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Retention job run failed"
+          description: "The retention job in {{ $labels.namespace }} failed to delete from {{ $labels.table }} in the last hour."
+
+      - alert: NotificationJobsFailing
+        # notification_enqueue_failures_total (a mutation's best-effort
+        # jobs.Client.EnqueueNotification call failing) and
+        # notification_job_failures_total (internal/jobs.NotificationWorker.Work
+        # itself failing, e.g. its INSERT into notifications) both represent
+        # the same user-facing outcome -- someone silently not receiving a
+        # notification -- with no signal otherwise, since both failure paths
+        # are deliberately non-fatal to the request/job that triggered them.
+        expr: |
+          increase(teammanager_notification_enqueue_failures_total[1h]) > 0
+          or increase(teammanager_notification_job_failures_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification delivery is failing"
+          description: "{{ $labels.namespace }}: notification enqueue and/or worker failures occurred in the last hour -- users may be silently missing notifications."
+
+      # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
+      # declares an explicit RTO of 4h / RPO of 24h in its own header comment,
+      # but -- unlike the retention job above, which has app-level metrics --
+      # nothing was watching it: concurrencyPolicy: Forbid means a single
+      # hung run (DB lock contention, network partition) silently blocks
+      # every subsequent scheduled run too, and a failure (credential
+      # rotation breaking DATABASE_URL, S3 permission drift, image pull
+      # failure) had no paging signal at all. Both rules key off
+      # kube-state-metrics, matched by job/cronjob name suffix rather than
+      # the chart's templated fullname, since this file is embedded into the
+      # PrometheusRule verbatim via .Files.Get (not Helm-templated) -- if
+      # you set fullnameOverride/nameOverride, adjust these regexes to match.
+      - alert: BackupCronJobFailed
+        expr: |
+          kube_job_failed{job_name=~".+-backup-.+"} > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database backup job failed"
+          description: "{{ $labels.namespace }}/{{ $labels.job_name }} failed -- the daily pg_dump/S3-upload run did not complete successfully."
+
+      - alert: BackupCronJobStale
+        # Requires kube-state-metrics >= 2.6.0 for kube_cronjob_status_last_successful_time.
+        # 32h = 24h RPO target + one missed run of grace, matching
+        # RetentionJobStale's grace-period reasoning above.
+        expr: |
+          kube_cronjob_status_last_successful_time{cronjob=~".+-backup"} > 0
+          and (time() - kube_cronjob_status_last_successful_time{cronjob=~".+-backup"} > 32 * 3600)
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database backup has not succeeded in over 32 hours"
+          description: "{{ $labels.namespace }}/{{ $labels.cronjob }}'s last successful run was {{ $value | humanizeDuration }} ago, exceeding its 24h RPO target."
+
+  # ── Infrastructure ────────────────────────────────────────────────────────────
+
+  - name: infrastructure
+    rules:
+      - alert: HighMemoryUsage
+        # Compares the container's actual working set (cAdvisor) against its
+        # own Kubernetes resource limit (kube-state-metrics), not the app
+        # process's RSS against the whole node's memory. The backend's pod
+        # memory limit is 128Mi/512Mi (helm/team-manager/values-{staging,prod}.yaml)
+        # — a small fraction of any real node's total memory — so comparing
+        # against node_memory_MemTotal_bytes could never cross 85% before the
+        # kernel/cgroup OOMKills the pod at its actual limit, making the old
+        # expression unable to catch the failure mode it exists to warn about.
+        expr: |
+          sum(container_memory_working_set_bytes{container="team-manager"}) by (namespace, pod)
+          / on(namespace, pod) group_left()
+          sum(kube_pod_container_resource_limits{resource="memory", container="team-manager"}) by (namespace, pod)
+          > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend memory usage above 85% of its container limit"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is using {{ $value | humanizePercentage }} of its memory limit."
+
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space below 10%"
+          description: "Available disk space on {{ $labels.instance }} is {{ $value | humanizePercentage }}."
+
+      - alert: PodCrashLooping
+        # A pod that crashes and restarts but happens to pass its readiness
+        # probe again shortly after (e.g. a panic recovered by Kubernetes'
+        # restart rather than by Go's own recover(), or a slow-init pod
+        # repeatedly hitting the startupProbe's failure threshold) trips none
+        # of the other rules in this file -- HighErrorRate/HighLatencyP99
+        # only see traffic actually reaching a live pod, and BackendDown only
+        # fires if EVERY replica is down for a full minute simultaneously, not
+        # if one keeps crash-restarting while its siblings absorb traffic.
+        # kube_pod_container_status_restarts_total is a monotonic counter, so
+        # increase() over a window is the correct way to detect a burst
+        # rather than comparing the raw value (which would also fire for an
+        # old pod with a stale one-time restart from weeks ago).
+        expr: |
+          increase(kube_pod_container_status_restarts_total{container="team-manager"}[15m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backend pod restarting repeatedly"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes."

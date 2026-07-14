@@ -6,24 +6,68 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// pgxIface is satisfied by both *pgxpool.Pool and pgx.Tx, letting Repository
+// run its queries either directly against the pool or inside a transaction
+// (see WithReadTx). Mirrors the identical pattern in finances/repository.go.
+type pgxIface interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // Repository handles stats-related DB queries.
 type Repository struct {
+	// pool is only set on the top-level Repository returned by NewRepository;
+	// it is nil on a tx-scoped Repository created by WithReadTx (which has no
+	// need to start a nested transaction).
 	pool *pgxpool.Pool
+	db   pgxIface
 }
 
 // NewRepository creates a new Repository.
 func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+	return &Repository{pool: pool, db: pool}
+}
+
+// OverviewReader is the subset of read operations GetOverview needs. WithReadTx
+// hands its callback this narrower view (rather than *Repository) so a caller
+// can substitute a mock in unit tests without a live transaction.
+type OverviewReader interface {
+	MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]MemberStatRow, error)
+	EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error)
+}
+
+// WithReadTx runs fn with a Repository view backed by a single read-only,
+// repeatable-read transaction, so MemberStats and EventStats observe one
+// consistent snapshot instead of possibly drifting under concurrent writes
+// (e.g. an event created/cancelled or attendance recorded between the two
+// queries) -- unlike finances.GetOverview, which already gets this via its
+// own WithReadTx.
+func (r *Repository) WithReadTx(ctx context.Context, fn func(OverviewReader) error) error {
+	if r.pool == nil {
+		// Already running inside a transaction (nested call) — reuse it.
+		return fn(r)
+	}
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return fmt.Errorf("stats.Repository.WithReadTx: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := fn(&Repository{db: tx}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // MemberStats returns attendance aggregations for all team members in the date range.
 func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]MemberStatRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT
 			u.id,
 			u.name,
@@ -61,10 +105,11 @@ func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to
 func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
+	rows, err := r.db.Query(ctx, `
 		SELECT
 			e.id,
 			e.title,
+			e.type,
 			e.date::text,
 			COUNT(*) FILTER (WHERE a.status = 'yes') AS yes_count,
 			COUNT(*) FILTER (WHERE a.status IN ('yes','no','maybe')) AS counted
@@ -73,7 +118,7 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 		WHERE e.team_id = $1
 		  AND e.date BETWEEN $2 AND $3
 		  AND e.status = 'active'
-		GROUP BY e.id, e.title, e.date
+		GROUP BY e.id, e.title, e.type, e.date
 		ORDER BY e.date
 	`, teamID, from, to)
 	if err != nil {
@@ -84,7 +129,7 @@ func (r *Repository) EventStats(ctx context.Context, teamID uuid.UUID, from, to 
 	var out []EventStatRow
 	for rows.Next() {
 		var s EventStatRow
-		if err := rows.Scan(&s.EventID, &s.Title, &s.Date, &s.Yes, &s.Counted); err != nil {
+		if err := rows.Scan(&s.EventID, &s.Title, &s.Type, &s.Date, &s.Yes, &s.Counted); err != nil {
 			return nil, fmt.Errorf("stats.Repository.EventStats scan: %w", err)
 		}
 		out = append(out, s)
@@ -97,7 +142,7 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	s := &MemberStatRow{}
-	err := r.pool.QueryRow(ctx, `
+	err := r.db.QueryRow(ctx, `
 		SELECT
 			u.id,
 			u.name,

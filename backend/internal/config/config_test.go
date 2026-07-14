@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -33,6 +34,30 @@ func TestLoad_Defaults(t *testing.T) {
 	assert.Equal(t, []string{"http://localhost:5173"}, cfg.AllowedOrigins)
 	// PublicBaseURL defaults to the first allowed origin.
 	assert.Equal(t, "http://localhost:5173", cfg.PublicBaseURL)
+	assert.Equal(t, slog.LevelInfo, cfg.LogLevel)
+}
+
+func TestLoad_LogLevel(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	cases := []struct {
+		env  string
+		want slog.Level
+	}{
+		{"", slog.LevelInfo},
+		{"debug", slog.LevelDebug},
+		{"DEBUG", slog.LevelDebug},
+		{"warn", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"not-a-level", slog.LevelInfo},
+	}
+	for _, c := range cases {
+		t.Setenv("LOG_LEVEL", c.env)
+		cfg, err := config.Load()
+		require.NoError(t, err)
+		assert.Equal(t, c.want, cfg.LogLevel, "LOG_LEVEL=%q", c.env)
+	}
 }
 
 func TestLoad_PublicBaseURL(t *testing.T) {
@@ -325,4 +350,15 @@ func TestLoad_DatabaseURLMissingHost(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres:///db")
 	_, err := config.Load()
 	require.ErrorIs(t, err, config.ErrInvalidDatabaseURL)
+}
+
+// Regression test: an unescaped space in the password makes url.Parse fail
+// with an error whose message embeds the full input string (including the
+// plaintext password) -- that raw parse error must never be wrapped into the
+// returned error, since it ultimately reaches the startup log line.
+func TestLoad_DatabaseURLParseFailure_DoesNotLeakDSN(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:S3cr3t!pass word@localhost/db")
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrInvalidDatabaseURL)
+	assert.NotContains(t, err.Error(), "S3cr3t")
 }

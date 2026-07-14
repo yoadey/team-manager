@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers';
+import { login, NAV_TIMEOUT } from './helpers';
 
 test.describe('User Journeys', () => {
   // Journey 1 — Create an event
@@ -8,7 +8,7 @@ test.describe('User Journeys', () => {
 
     // Navigate to events
     await page.getByRole('button', { name: /events|termine/i }).first().click();
-    await page.getByRole('tablist').first().waitFor({ state: 'visible', timeout: 8_000 });
+    await page.getByRole('tablist').first().waitFor({ state: 'visible', timeout: NAV_TIMEOUT });
 
     // Click the FAB to open the event creation form
     await page.getByRole('button', { name: /termin/i }).last().click();
@@ -46,7 +46,7 @@ test.describe('User Journeys', () => {
     // Navigate to members
     await page.getByRole('button', { name: /members|mitglieder/i }).first().click();
     // Wait for the members page to load (search box appears)
-    await expect(page.getByRole('searchbox')).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByRole('searchbox')).toBeVisible({ timeout: NAV_TIMEOUT });
 
     // Click the FAB to open the invite sheet
     await page.getByRole('button', { name: /einladen/i }).last().click();
@@ -55,13 +55,6 @@ test.describe('User Journeys', () => {
     await expect(
       page.getByText(/einladen|invite/i).first()
     ).toBeVisible({ timeout: 8_000 });
-
-    // Additionally check for a heading or link/QR related to the invite
-    const inviteHeading = page.getByRole('heading', { name: /einladen|invite/i });
-    const inviteLink = page.locator('input[type="url"], [data-testid="invite-link"], canvas').first();
-    const anyVisible = await inviteHeading.isVisible().catch(() => false) ||
-      await inviteLink.isVisible().catch(() => false);
-    expect(anyVisible || true).toBe(true); // sheet already confirmed above
   });
 
   // Journey 3 — Create a finance booking

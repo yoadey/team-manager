@@ -15,16 +15,20 @@ Backend um, je nachdem ob `VITE_API_BASE_URL` gesetzt ist.
 ## Tech-Stack
 
 - **React 19 + TypeScript 5 (strict)** + **Vite**
-- **MUI (Material UI v6)** + **Emotion** als Komponenten- und Theming-Basis (Material Design 3)
+- **MUI (Material UI v9)** + **Emotion** als Komponenten- und Theming-Basis (Material Design 3)
 - **Roboto** (`@fontsource/roboto`) + **Material Symbols Outlined** (`material-symbols`)
 - **Vitest** (+ Testing Library, `vitest-axe`) für Unit-/Komponententests, **Playwright** für E2E
 - **Sentry** für Fehler-Monitoring (optional, via `VITE_SENTRY_DSN`)
-- Zentraler App-State über React Context (`src/context/AppContext.tsx`)
-- Mock-Backend / API-Vertrag: `src/services/serviceLayer.ts`
+- Zentraler App-State über React Context (`frontend/src/context/AppContext.tsx`)
+- Mock-Backend / API-Vertrag: `frontend/src/services/serviceLayer.ts`
 
 ## Loslegen
 
+Das Frontend liegt in `frontend/` und hat sein eigenes `package.json` — ein `npm install`
+im Repo-Root installiert nur die Root-Tooling-Dependencies (Husky), nicht die des Frontends.
+
 ```bash
+cd frontend
 npm install
 npm run dev        # Dev-Server (http://localhost:5173)
 npm run build      # Typecheck + Produktions-Build
@@ -40,7 +44,7 @@ npm test           # Tests einmalig ausführen
 ## Projektstruktur
 
 ```
-src/
+frontend/src/
 ├── main.tsx                # Entry: Fonts, Icons, Monitoring, ErrorBoundary, LocaleProvider
 ├── App.tsx                 # ThemeProvider (MUI) + AppProvider
 ├── config.ts               # Validierte Runtime-Konfiguration aus VITE_*-Variablen
@@ -84,10 +88,18 @@ src/
 
 ## Qualität & CI
 
-`.github/workflows/ci.yml` führt bei jedem PR aus: Lint → Typecheck → Test (Coverage) →
-Build (inkl. Bundle-Size-Budget + SBOM) → Playwright-E2E → Lighthouse CI. Zusätzlich läuft
-`npm audit` (High/Critical in Prod-Deps blockierend). Dependabot aktualisiert Dependencies
-und GitHub-Actions wöchentlich. Siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+`.github/workflows/ci.yml` führt bei jedem PR ~24 Jobs aus (siehe
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) für die vollständige Liste):
+
+- **Frontend**: Lint → Typecheck → Test (Coverage) → `npm audit` (High/Critical in
+  Prod-Deps blockierend) → Lizenzprüfung (GPL/AGPL) → Build (inkl. Bundle-Size-Budget +
+  SBOM) → Playwright-E2E → Lighthouse CI.
+- **Backend**: OpenAPI-Codegen-Drift-Check → Lint → Test → Build → Lizenzprüfung
+  (GPL/AGPL) → `govulncheck` → Migrations-Rollback- und Unsafe-DDL-Checks.
+- **Security/Compliance** (ebenfalls blockierend): CodeQL SAST (Go + TypeScript),
+  TruffleHog Secret-Scanning, Trivy Container-Scans, OWASP ZAP (DAST), Helm-Chart-Lint.
+
+Dependabot aktualisiert Dependencies und GitHub-Actions wöchentlich.
 
 ## Vom Mock zum echten Backend
 

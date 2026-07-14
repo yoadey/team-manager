@@ -5,6 +5,7 @@ import { Field, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
 import type { PenaltyFormValues } from '../types';
+import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { t } from '@/i18n';
 
 export function PenaltyFormSheet({ app, sheet }: SheetProps) {
@@ -20,28 +21,13 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
   };
 
   const validateAmount = () => {
-    const raw = String(F.amount ?? '')
-      .trim()
-      .replace(',', '.');
-    const n = Number(raw);
-    app.setFormErrors({
-      amount: !raw
-        ? t('finances.penaltyFieldAmountError')
-        : !Number.isFinite(n) || n <= 0
-          ? t('finances.penaltyFieldAmountErrorPositive')
-          : '',
-    });
+    const r = validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
+    app.setFormErrors({ amount: r.ok ? '' : r.message! });
   };
 
   const canSubmit =
     !!String(F.label ?? '').trim() &&
-    (() => {
-      const raw = String(F.amount ?? '')
-        .trim()
-        .replace(',', '.');
-      const n = Number(raw);
-      return raw && Number.isFinite(n) && n > 0;
-    })();
+    validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -62,10 +48,10 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         {create ? t('finances.penaltyFormHintCreate') : t('finances.penaltyFormHintEdit')}
       </Box>
       <Field label={t('finances.penaltyFieldLabel')} required error={!!errs.label} errorText={errs.label}>
-        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} onBlur={validateLabel} />
+        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
       </Field>
       <Field label={t('finances.penaltyFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
-        <TextInput name="amount" type="number" onBlur={validateAmount} />
+        <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
       </Field>
       <PrimaryButton
         label={create ? t('finances.penaltySaveCreate') : t('finances.penaltySaveEdit')}

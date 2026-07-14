@@ -1,13 +1,15 @@
 // Real backend service layer — replaces localStorage mock with HTTP API calls.
-// Only activated when VITE_API_BASE_URL is set.
+// Only activated when config.apiBaseUrl is set (see src/config.ts).
 
 import { apiClient } from '@/api/client';
+import { config } from '@/config';
 import {
   mapUser,
   mapProvider,
   mapRole,
   mapTeam,
   mapTeamForUser,
+  mapAcceptInviteResponse,
   mapInvite,
   mapMember,
   mapTeamEvent,
@@ -92,7 +94,7 @@ async function uploadImage(path: string, fieldName: string, dataUrl: string): Pr
   const formData = new FormData();
   formData.append(fieldName, blob, fieldName + '.jpg');
 
-  const resp = await fetch((import.meta.env.VITE_API_BASE_URL ?? '') + path, {
+  const resp = await fetch(config.apiBaseUrl + path, {
     method: 'PUT',
     credentials: 'include',
     body: formData,
@@ -109,6 +111,10 @@ async function uploadImage(path: string, fieldName: string, dataUrl: string): Pr
 
 // Per-page size when walking a keyset list to completion (the backend caps at 500).
 const PAGE_LIMIT = 500;
+
+// Mirrors serviceLayer.ts's STATUS_ORDER — the display grouping the mock uses
+// for attendance rows (see attendance.listForEvent below).
+const ATTENDANCE_STATUS_ORDER: Record<string, number> = { yes: 0, maybe: 1, pending: 2, no: 3, not_nominated: 4 };
 
 // fetchAllPages walks the keyset { items, nextCursor } envelope to the end and
 // returns every row. The app has no paging UI yet and consumers expect full
@@ -127,6 +133,25 @@ async function fetchAllPages<T>(
     if (all.length > 10_000) throw new Error('fetchAllPages: too many pages');
     cursor = page.nextCursor ?? undefined;
     more = cursor !== undefined;
+  }
+  return all;
+}
+
+// fetchAllOffsetPages walks a plain-array endpoint paginated via limit/offset
+// (no { items, nextCursor } envelope, e.g. listEventComments) to completion,
+// stopping once a page comes back shorter than PAGE_LIMIT. Without this, the
+// real backend's default limit=50 would silently truncate any event with
+// more than 50 comments to its oldest 50 (ORDER BY created_at ASC), while the
+// mock returns every comment unconditionally.
+async function fetchAllOffsetPages<T>(fetchPage: (limit: number, offset: number) => Promise<T[]>): Promise<T[]> {
+  const all: T[] = [];
+  let offset = 0;
+  for (;;) {
+    const page = await fetchPage(PAGE_LIMIT, offset);
+    all.push(...page);
+    if (all.length > 10_000) throw new Error('fetchAllOffsetPages: too many pages');
+    if (page.length < PAGE_LIMIT) break;
+    offset += PAGE_LIMIT;
   }
   return all;
 }
@@ -207,6 +232,19 @@ export const realApi = {
         body: { name: opts.name, icon: opts.icon, iconBg: opts.iconBg, iconFg: opts.iconFg },
       });
       const t = await check(res);
+      // CreateTeamRequest has no photo field (see openapi.yaml) — the mock
+      // accepts `opts.photo` directly on the created team, but the real
+      // backend only exposes a photo upload via the per-team PUT
+      // .../{teamId}/photo endpoint, so it must be applied as a second step
+      // once the team (and its id) exists, matching updateSettings()'s
+      // photo-upload path below. Without this, a photo picked in
+      // CreateTeamSheet (useTeamActions.ts's createTeam()) was silently
+      // dropped against the real backend while the mock persisted it.
+      if (opts.photo) {
+        await uploadImage(`/api/v1/teams/${t.id}/photo`, 'photo', opts.photo);
+        const refreshed = await check(await apiClient.GET('/teams/{teamId}', { params: { path: { teamId: t.id } } }));
+        return mapTeam(refreshed);
+      }
       return mapTeam(t);
     },
 
@@ -240,9 +278,13 @@ export const realApi = {
 
       if (patch.photo) {
         await uploadImage(`/api/v1/teams/${teamId}/photo`, 'photo', patch.photo);
+      } else if (patch.photo === null) {
+        await checkOk(await apiClient.DELETE('/teams/{teamId}/photo', { params: { path: { teamId } } }));
       }
       if (patch.logo) {
         await uploadImage(`/api/v1/teams/${teamId}/logo`, 'logo', patch.logo);
+      } else if (patch.logo === null) {
+        await checkOk(await apiClient.DELETE('/teams/{teamId}/logo', { params: { path: { teamId } } }));
       }
 
       const res = await apiClient.GET('/teams/{teamId}', { params: { path: { teamId } } });
@@ -254,6 +296,12 @@ export const realApi = {
       const res = await apiClient.POST('/teams/{teamId}/invite', { params: { path: { teamId } } });
       const inv = await check(res);
       return mapInvite(inv);
+    },
+
+    async acceptInvite(code: string): Promise<TeamForUser & { alreadyMember: boolean }> {
+      const res = await apiClient.POST('/invites/{code}/accept', { params: { path: { code } } });
+      const body = await check(res);
+      return mapAcceptInviteResponse(body);
     },
   },
 
@@ -270,26 +318,9 @@ export const realApi = {
       return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
     },
 
-    async add(teamId: string, params: {
-      name: string; email: string; phone?: string | null; group?: string | null; roleIDs?: string[];
-    }): Promise<Member> {
-      const res = await apiClient.POST('/teams/{teamId}/members', {
-        params: { path: { teamId } },
-        body: {
-          name: params.name,
-          email: params.email as string & { format: 'email' },
-          phone: params.phone ?? undefined,
-          group: params.group ?? undefined,
-          roleIds: params.roleIDs,
-        },
-      });
-      const m = await check(res);
-      return mapMember(m);
-    },
-
     async update(membershipId: string, patch: {
       name?: string; email?: string; phone?: string | null; birthday?: string | null;
-      address?: string | null; group?: string | null; roleIds?: string[];
+      address?: string | null; group?: string | null;
     }, teamId: string): Promise<Member> {
       const res = await apiClient.PATCH('/teams/{teamId}/members/{membershipId}', {
         params: { path: { teamId, membershipId } },
@@ -300,7 +331,6 @@ export const realApi = {
           birthday: patch.birthday ?? undefined,
           address: patch.address ?? undefined,
           group: patch.group ?? undefined,
-          roleIds: patch.roleIds,
         },
       });
       const m = await check(res);
@@ -378,9 +408,17 @@ export const realApi = {
       return mapTeamEvent(e);
     },
 
+    // `meetT`/`startT`/`endT` (not `meetTime`/`startTime`/`endTime`) are the
+    // names the event form (useEventFormActions.ts) actually sends — they
+    // hold "HH:mm" strings, which is also exactly the wire format the
+    // backend's meetTime/startTime/endTime fields expect (see openapi.yaml),
+    // so no conversion is needed, only the rename below. Reading
+    // `payload.meetTime` here (as this used to) is always undefined given
+    // the caller's actual payload shape, silently dropping every meet/start/
+    // end time on event creation against the real backend.
     async create(teamId: string, payload: {
       type: string; title: string; date: string; location?: string; note?: string;
-      meetTime?: string | null; startTime?: string | null; endTime?: string | null;
+      meetT?: string | null; startT?: string | null; endT?: string | null;
       meetTimeMandatory?: boolean; responseMode?: string; nominatedRoleIds?: string[];
       recurring?: boolean; repeatWeeks?: number;
     }): Promise<TeamEvent> {
@@ -392,9 +430,9 @@ export const realApi = {
           date: payload.date,
           location: payload.location ?? undefined,
           note: payload.note ?? undefined,
-          meetTime: payload.meetTime ?? undefined,
-          startTime: payload.startTime ?? undefined,
-          endTime: payload.endTime ?? undefined,
+          meetTime: payload.meetT ?? undefined,
+          startTime: payload.startT ?? undefined,
+          endTime: payload.endT ?? undefined,
           meetTimeMandatory: payload.meetTimeMandatory,
           responseMode: payload.responseMode as 'opt_in' | 'opt_out' | undefined,
           nominatedRoleIds: payload.nominatedRoleIds,
@@ -412,10 +450,33 @@ export const realApi = {
       return mapTeamEvent(first);
     },
 
-    async update(eventId: string, patch: Record<string, unknown>, scope: 'single' | 'series', teamId: string): Promise<TeamEvent> {
+    // Same `meetT`/`startT`/`endT` -> `meetTime`/`startTime`/`endTime` rename
+    // as create() above. This used to forward the raw `patch` object as the
+    // request body (cast past the generated client's body type), so it sent
+    // unrecognised `meetT`/`startT`/`endT` JSON keys that the backend's
+    // plain (non-DisallowUnknownFields) json.Decode silently ignores — the
+    // PATCH still returns 200 and the UI still shows a success toast, but
+    // edited meet/start/end times never persisted.
+    async update(eventId: string, patch: {
+      type?: string; title?: string; date?: string; location?: string; note?: string;
+      meetT?: string | null; startT?: string | null; endT?: string | null;
+      meetTimeMandatory?: boolean; responseMode?: string; nominatedRoleIds?: string[];
+    }, scope: 'single' | 'series', teamId: string): Promise<TeamEvent> {
       const res = await apiClient.PATCH('/teams/{teamId}/events/{eventId}', {
         params: { path: { teamId, eventId }, query: { scope } },
-        body: patch as Parameters<typeof apiClient.PATCH>[1]['body'],
+        body: {
+          type: patch.type as 'training' | 'auftritt' | 'event' | undefined,
+          title: patch.title,
+          date: patch.date,
+          location: patch.location,
+          note: patch.note,
+          meetTime: patch.meetT ?? undefined,
+          startTime: patch.startT ?? undefined,
+          endTime: patch.endT ?? undefined,
+          meetTimeMandatory: patch.meetTimeMandatory,
+          responseMode: patch.responseMode as 'opt_in' | 'opt_out' | undefined,
+          nominatedRoleIds: patch.nominatedRoleIds,
+        },
       });
       const e = await check(res);
       return mapTeamEvent(e);
@@ -438,10 +499,16 @@ export const realApi = {
     },
 
     async listComments(eventId: string, teamId: string): Promise<EventComment[]> {
-      const res = await apiClient.GET('/teams/{teamId}/events/{eventId}/comments', {
-        params: { path: { teamId, eventId } },
-      });
-      const comments = await check(res);
+      // limit/offset paginated (see fetchAllOffsetPages doc comment above) —
+      // walked to completion so events with more than one page of comments
+      // (default limit 50) don't silently lose their oldest ones.
+      const comments = await fetchAllOffsetPages((limit, offset) =>
+        apiClient
+          .GET('/teams/{teamId}/events/{eventId}/comments', {
+            params: { path: { teamId, eventId }, query: { limit, offset } },
+          })
+          .then(check),
+      );
       return comments.map(mapEventComment);
     },
 
@@ -468,7 +535,17 @@ export const realApi = {
         params: { path: { teamId, eventId } },
       });
       const rows = await check(res);
-      return rows.map(mapAttendanceRow);
+      // events.Repository.ListAttendance orders `ORDER BY u.name ASC` only;
+      // the mock additionally groups rows by response status first (yes,
+      // maybe, pending, no, not_nominated — see serviceLayer.ts's
+      // STATUS_ORDER) before falling back to name. EventDetailSheet.tsx
+      // renders `sheet.rows` in the order it receives them (no client-side
+      // re-sort), so without this the participant list order silently
+      // differed depending on which backend served the request.
+      const sorted = [...rows].sort(
+        (a, b) => ATTENDANCE_STATUS_ORDER[a.status] - ATTENDANCE_STATUS_ORDER[b.status] || a.name.localeCompare(b.name, 'de'),
+      );
+      return sorted.map(mapAttendanceRow);
     },
 
     async set(
@@ -508,7 +585,12 @@ export const realApi = {
         });
         return check(res);
       });
-      return items.map(mapAbsence);
+      // absences.Repository orders `from_date DESC, id DESC` (newest-starting
+      // first); the mock sorts ascending by `from` so the soonest-upcoming
+      // absence appears first. EventAbsences.tsx renders the list in the
+      // order it receives (no client-side sort), so re-sort ascending here to
+      // match the mock's convention.
+      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map(mapAbsence);
     },
 
     async listMine(teamId: string): Promise<Absence[]> {
@@ -518,7 +600,7 @@ export const realApi = {
         });
         return check(res);
       });
-      return items.map(mapAbsence);
+      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map(mapAbsence);
     },
 
     async create(payload: { teamId: string; userId: string; from: string; to: string; reason?: string }): Promise<Absence> {
@@ -638,7 +720,15 @@ export const realApi = {
     async overview(teamId: string): Promise<FinanceOverview> {
       const res = await apiClient.GET('/teams/{teamId}/finances', { params: { path: { teamId } } });
       const o = await check(res);
-      return mapFinanceOverview(o);
+      // finances.Repository.ListAssignments orders `pa.date DESC` (newest
+      // first); the mock's array is in ascending insertion order (oldest
+      // first). FinancesPenalties.tsx renders `f.assignments.slice().reverse()`
+      // — which only produces newest-first if the input was ascending — so
+      // passing the backend's already-descending order through unchanged
+      // gets reversed a second time and shows the oldest assignment on top.
+      // Reverse here so both service layers hand the UI the same (ascending)
+      // convention.
+      return mapFinanceOverview({ ...o, assignments: [...o.assignments].reverse() });
     },
 
     async addTransaction(teamId: string, payload: {
@@ -758,7 +848,15 @@ export const realApi = {
         params: { path: { teamId, userId } },
       });
       const s = await check(res);
-      return { quote: s.quote, counted: s.counted, yes: s.yes };
+      // s.quote is a 0-1 fraction (see api/map.ts's fractionToPercent doc
+      // comment); every UI consumer expects a 0-100 percentage. The backend
+      // always returns a number (0 when counted is 0 — see
+      // internal/stats/service.go's quote()), but MemberSheets.tsx renders
+      // null as "no data" (–) vs. 0 as "0% attendance" (red) — genuinely
+      // different states for a member with no counted events yet vs. one who
+      // attended none of several. Map counted === 0 to null here so both
+      // service layers agree on that distinction.
+      return { quote: s.counted > 0 ? Math.round(s.quote * 100) : null, counted: s.counted, yes: s.yes };
     },
 
     async teamOverview(teamId: string, range?: DateRange | null): Promise<StatsOverview> {

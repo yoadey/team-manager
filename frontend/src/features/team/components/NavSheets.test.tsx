@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TeamsSheet, ProfileSheet, MoreSheet } from './NavSheets';
 import { LocaleProvider } from '@/i18n/LocaleProvider';
+import { AuthError } from '@/utils/errors';
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
@@ -86,6 +87,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     deleteAccount: vi.fn().mockResolvedValue(undefined),
     exportMyData: vi.fn().mockResolvedValue(undefined),
     toastMsg: vi.fn(),
+    setState: vi.fn(),
     go: vi.fn(),
     onFormInput: vi.fn(),
     onFile: vi.fn(),
@@ -117,6 +119,19 @@ describe('TeamsSheet', () => {
     // Role names appear in the subtitle (use getAllBy since "Mitglied" appears in subtitle of both)
     expect(screen.getByText(/Trainer · 15 Mitglieder/)).toBeTruthy();
     expect(screen.getByText(/Mitglied · 8 Mitglieder/)).toBeTruthy();
+  });
+
+  // Regression test: the team-switcher subtitle used to unconditionally
+  // join role names and member count with ' · ', so a team where the
+  // caller holds no role (e.g. their sole role assignment was deleted)
+  // rendered a dangling leading separator like " · 8 Mitglieder".
+  it('omits the separator for a team where the caller has no roles', () => {
+    const app = makeApp({
+      teams: [...MOCK_TEAMS, { ...MOCK_TEAMS[1], id: 'team-3', name: 'Roleless Club', myRoles: [] }],
+    });
+    render(<TeamsSheet app={app as never} sheet={SHEET} />);
+    expect(screen.getByText('8 Mitglieder')).toBeTruthy();
+    expect(screen.queryByText(/^·/)).toBeNull();
   });
 
   it('renders "New team" add button', () => {
@@ -268,6 +283,48 @@ describe('ProfileSheet', () => {
     expect(app.deleteAccount).toHaveBeenCalledWith('max@example.com');
   });
 
+  it('exportMyData triggers logout on a 401 (expired session)', async () => {
+    const app = makeApp();
+    app.exportMyData.mockRejectedValue(new AuthError());
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    fireEvent.click(screen.getByText('Meine Daten exportieren'));
+
+    await waitFor(() => expect(app.logout).toHaveBeenCalledTimes(1));
+  });
+
+  it('account deletion triggers logout on a 401 instead of showing the wrong-email error', async () => {
+    const app = makeApp();
+    app.deleteAccount.mockRejectedValue(new AuthError());
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    fireEvent.click(screen.getByText('Konto löschen'));
+    fireEvent.change(screen.getByPlaceholderText('max@example.com'), {
+      target: { value: 'max@example.com' },
+    });
+    fireEvent.click(screen.getByText('Endgültig löschen'));
+
+    await waitFor(() => expect(app.logout).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('Konto konnte nicht gelöscht werden. Stimmt die E-Mail-Adresse?')).toBeNull();
+  });
+
+  it('account deletion shows the wrong-email error for a non-auth failure', async () => {
+    const app = makeApp();
+    app.deleteAccount.mockRejectedValue(new Error('email mismatch'));
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+
+    fireEvent.click(screen.getByText('Konto löschen'));
+    fireEvent.change(screen.getByPlaceholderText('max@example.com'), {
+      target: { value: 'max@example.com' },
+    });
+    fireEvent.click(screen.getByText('Endgültig löschen'));
+
+    await waitFor(() =>
+      expect(screen.getByText('Konto konnte nicht gelöscht werden. Stimmt die E-Mail-Adresse?')).toBeTruthy(),
+    );
+    expect(app.logout).not.toHaveBeenCalled();
+  });
+
   it('renders the team name in the roles section title', () => {
     const app = makeApp();
     render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
@@ -337,6 +394,39 @@ describe('MoreSheet', () => {
     expect(screen.queryByText('Finanzen')).toBeNull();
   });
 
+  // Regression test: previously only 'finances' called app.can() here --
+  // stats/news/polls/team were hardcoded `true`, so a role with e.g.
+  // news:none still saw and could tap a "Neuigkeiten" entry that bounced it
+  // straight back to Home with a spurious forbidden toast.
+  it('hides News when the caller lacks news:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'news');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Neuigkeiten')).toBeNull();
+    expect(screen.getByText('Statistik')).toBeTruthy();
+  });
+
+  it('hides Umfragen when the caller lacks polls:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'polls');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Umfragen')).toBeNull();
+  });
+
+  it('hides Team when the caller lacks members:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'members');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Team')).toBeNull();
+  });
+
+  it('hides Statistik when the caller lacks events:read', () => {
+    const app = makeApp();
+    app.can.mockImplementation((module: string) => module !== 'events');
+    render(<MoreSheet app={app as never} sheet={SHEET} />);
+    expect(screen.queryByText('Statistik')).toBeNull();
+  });
+
   it('clicking stats navigates to stats route', () => {
     const app = makeApp();
     render(<MoreSheet app={app as never} sheet={SHEET} />);
@@ -402,5 +492,14 @@ describe('ProfileSheet — color scheme', () => {
     render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     fireEvent.click(screen.getByText('Dunkel'));
     expect(app.setColorScheme).toHaveBeenCalledWith('dark');
+  });
+
+  it('exposes the selected scheme via aria-pressed for screen-reader users', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    // makeApp defaults state.colorScheme to 'system'.
+    expect(screen.getByText('Automatisch').closest('button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Hell').closest('button')).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByText('Dunkel').closest('button')).toHaveAttribute('aria-pressed', 'false');
   });
 });

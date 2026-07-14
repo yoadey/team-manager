@@ -138,4 +138,36 @@ describe('MembersPage', () => {
     expect(screen.getByText('Anna Müller')).toBeTruthy();
     expect(screen.queryByText('Bob Schmidt')).toBeNull();
   });
+
+  // Regression test: a search query matching zero members used to render a
+  // silent blank Box with no feedback -- every other list view in the app
+  // (PollsPage, NewsPage, EventAbsences, ...) shows an EmptyState for the
+  // zero-item case, but this was the one gap.
+  it('shows an empty state when the search query matches no members', async () => {
+    const members = [makeMember({ name: 'Anna Müller' })];
+    mockUseApp.mockReturnValue(makeApp({ members }));
+    render(<MembersPage />);
+    const searchInput = document.querySelector('input[type="search"]')!;
+    await userEvent.type(searchInput, 'Zzzznomatch');
+    expect(screen.queryByText('Anna Müller')).toBeNull();
+    expect(screen.getByText('Kein Mitglied gefunden.')).toBeTruthy();
+  });
+
+  // Regression test: the header count used to always read
+  // state.members.length (the unfiltered total), so searching "Anna" and
+  // seeing one matching row still showed the full team count -- the count
+  // and the visible rows disagreed.
+  it('updates the header count to reflect the active search filter', async () => {
+    const members = [
+      makeMember({ name: 'Anna Müller' }),
+      makeMember({ membershipId: 'ms2', userId: 'u3', name: 'Bob Schmidt' }),
+    ];
+    mockUseApp.mockReturnValue(makeApp({ members }));
+    render(<MembersPage />);
+    expect(screen.getByText('2 Mitglieder')).toBeTruthy();
+    const searchInput = document.querySelector('input[type="search"]')!;
+    await userEvent.type(searchInput, 'Anna');
+    expect(screen.getByText('1 Mitglied')).toBeTruthy();
+    expect(screen.queryByText('2 Mitglieder')).toBeNull();
+  });
 });

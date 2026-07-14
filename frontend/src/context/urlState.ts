@@ -19,6 +19,27 @@ export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news
 
 export const ALL_ROUTES: Route[] = ['home', 'events', 'members', 'finances', 'stats', 'news', 'polls', 'team'];
 
+/**
+ * Which RBAC module (see types.ModuleKey) gates read access to each route.
+ * `null` means the route has no module of its own (home) or is never gated
+ * (nothing currently falls in that bucket besides home). `stats` piggybacks
+ * on `events:read` and `team` on `members:read`, matching pages/index.tsx's
+ * RouteScreen and CLAUDE.md's documented RBAC module mapping. Single source
+ * of truth for both RouteScreen's per-route content gate and the nav chrome
+ * (AppShell's rail/bottom nav, NavSheets' MoreSheet, Home's cross-links) so
+ * the two can't drift apart the way they did before this map existed.
+ */
+export const ROUTE_MODULE: Record<Route, 'events' | 'members' | 'finances' | 'news' | 'polls' | null> = {
+  home: null,
+  events: 'events',
+  members: 'members',
+  finances: 'finances',
+  stats: 'events',
+  news: 'news',
+  polls: 'polls',
+  team: 'members',
+};
+
 export function routeFromPath(path: string): Route {
   const seg = path.replace(/^\//, '').split('/')[0] as Route;
   return ALL_ROUTES.includes(seg) ? seg : 'home';
@@ -87,4 +108,23 @@ export function parseLocation(pathname: string, search: string): ParsedLocation 
 /** Current location as a path+query string, for comparing against buildPath. */
 export function currentPath(): string {
   return window.location.pathname + window.location.search;
+}
+
+/** An invite link's team + code, parsed from the URL (see PendingInvite below). */
+export interface PendingInvite {
+  teamId: string;
+  code: string;
+}
+
+/**
+ * Parses a `/join/<teamId>/<code>` invite link path (the shape both service
+ * layers' createInvite build — see teams.Service.CreateInvite on the backend
+ * and serviceLayer.ts's mock equivalent). teamId is decorative here (the
+ * backend resolves the team from the code alone) but is still validated as
+ * present so a malformed link doesn't silently half-match.
+ */
+export function parsePendingInvite(pathname: string): PendingInvite | null {
+  const segs = pathname.replace(/^\//, '').split('/');
+  if (segs.length !== 3 || segs[0] !== 'join' || !segs[1] || !segs[2]) return null;
+  return { teamId: decodeURIComponent(segs[1]), code: decodeURIComponent(segs[2]) };
 }

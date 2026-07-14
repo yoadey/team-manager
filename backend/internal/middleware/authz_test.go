@@ -139,7 +139,6 @@ func TestRequirePermission_GET_UnrestrictedPaths_AlwaysPass(t *testing.T) {
 	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
 	paths := []string{
 		"/api/v1/teams/" + testTeamID.String(), // team info itself
-		"/api/v1/teams/" + testTeamID.String() + "/stats",
 		"/api/v1/teams/" + testTeamID.String() + "/photo",
 		"/api/v1/teams/" + testTeamID.String() + "/logo",
 		"/api/v1/teams/" + testTeamID.String() + "/absences/mine",
@@ -149,6 +148,31 @@ func TestRequirePermission_GET_UnrestrictedPaths_AlwaysPass(t *testing.T) {
 		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
 		rec := applyPermMW(nonePerms, req)
 		assert.Equal(t, http.StatusOK, rec.Code, "GET %s should remain unrestricted", p)
+	}
+}
+
+// Regression test: /stats has no write routes of its own, but its GET
+// responses (event titles/types/dates, per-member attendance breakdowns) are
+// exactly the data the "events" module's "none" is meant to hide -- gate
+// reads behind events:read, the same as the events module itself.
+func TestRequirePermission_GET_Stats_RequiresEventsReadPermission(t *testing.T) {
+	paths := []string{
+		"/api/v1/teams/" + testTeamID.String() + "/stats",
+		"/api/v1/teams/" + testTeamID.String() + "/stats/members/" + uuid.New().String(),
+	}
+
+	readPerms := &mockPermissionChecker{perms: teams.PermissionsJSON{Events: "read"}}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(readPerms, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "GET %s with events:read should pass", p)
+	}
+
+	nonePerms := &mockPermissionChecker{perms: teams.PermissionsJSON{}}
+	for _, p := range paths {
+		req := makeChiRequest(http.MethodGet, p, testTeamID.String())
+		rec := applyPermMW(nonePerms, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "GET %s with events:none should be forbidden", p)
 	}
 }
 
@@ -189,6 +213,20 @@ func TestRequirePermission_Mutations(t *testing.T) {
 			teams.PermissionsJSON{Events: "write", Members: "write", Settings: "read"},
 			http.StatusForbidden,
 		},
+		// members/{id}/roles: role assignment must require settings:write, not
+		// just members:write — otherwise a members-write-only member could
+		// self-grant admin permissions via their own membership.
+		{
+			"assign member roles settings write ok", http.MethodPut,
+			"/api/v1/teams/" + tid + "/members/" + uuid.New().String() + "/roles",
+			allWritePerms(), http.StatusOK,
+		},
+		{
+			"assign member roles members-write-only denied", http.MethodPut,
+			"/api/v1/teams/" + tid + "/members/" + uuid.New().String() + "/roles",
+			teams.PermissionsJSON{Members: "write", Settings: "none"},
+			http.StatusForbidden,
+		},
 		// self-service: attendance (POST) — any member may write
 		{
 			"attendance self-service ok (read perms)", http.MethodPost,
@@ -214,11 +252,74 @@ func TestRequirePermission_Mutations(t *testing.T) {
 			"/api/v1/teams/" + tid + "/events/" + evID + "/comments",
 			allReadPerms(), http.StatusOK,
 		},
+		// self-service: event comments DELETE — the trailing commentId segment
+		// must not stop this from matching the same "events/comments"
+		// self-service entry as the POST case above (regression test: this
+		// previously fell through to requiring events:write).
+		{
+			"event comment delete self-service ok (read perms)", http.MethodDelete,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/comments/" + uuid.New().String(),
+			allReadPerms(), http.StatusOK,
+		},
+		// events/attendance/nominations is a 4-segment path whose leaf
+		// ("events" + "attendance") collapses to the same string as the
+		// self-service "events/attendance" 3-segment leaf — regression test
+		// for a bug where this made nominating another member self-service
+		// (bypassing events:write) instead of requiring it, since nominating
+		// is an events:write-only action, never self-service.
+		{
+			"nominations requires events:write, not self-service (read perms denied)", http.MethodPut,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/attendance/nominations",
+			allReadPerms(), http.StatusForbidden,
+		},
+		{
+			"nominations write ok", http.MethodPut,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/attendance/nominations",
+			allWritePerms(), http.StatusOK,
+		},
 		// self-service: notifications/seen
 		{
 			"notifications seen self-service ok (read perms)", http.MethodPost,
 			"/api/v1/teams/" + tid + "/notifications/seen",
 			allReadPerms(), http.StatusOK,
+		},
+		// Regression: self-service exempts a member from needing "write" on
+		// the module, but not from "none" -- a module permission of "none" is
+		// documented to hide the module entirely, and these self-service
+		// routes read back module data (the attendance matrix, comment
+		// thread, or a fully assembled poll including other members' votes),
+		// so they must still require at least "read".
+		{
+			"attendance self-service denied with events:none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/attendance",
+			teams.PermissionsJSON{Events: "none"},
+			http.StatusForbidden,
+		},
+		{
+			"event comments self-service denied with events:none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/events/" + evID + "/comments",
+			teams.PermissionsJSON{Events: "none"},
+			http.StatusForbidden,
+		},
+		{
+			"poll vote self-service denied with polls:none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/polls/" + uuid.New().String() + "/vote",
+			teams.PermissionsJSON{Polls: "none"},
+			http.StatusForbidden,
+		},
+		// Self-standing self-service routes (no RBAC module) stay ungated even
+		// with every module at "none".
+		{
+			"absences self-service ok with all modules none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/absences",
+			teams.PermissionsJSON{},
+			http.StatusOK,
+		},
+		{
+			"notifications seen self-service ok with all modules none", http.MethodPost,
+			"/api/v1/teams/" + tid + "/notifications/seen",
+			teams.PermissionsJSON{},
+			http.StatusOK,
 		},
 	}
 

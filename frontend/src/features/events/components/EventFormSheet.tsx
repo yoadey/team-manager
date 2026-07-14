@@ -266,7 +266,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           name="title"
           placeholder={t('events.fieldTitlePlaceholder')}
           onBlur={req('title', t('events.fieldTitleError'))}
-          maxLength={100}
+          maxLength={255}
         />
       </Field>
       <Field label={t('events.fieldDate')} required error={!!errs.date} errorText={errs.date}>
@@ -294,10 +294,10 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       </Box>
       {nomSel}
       <Field label={t('events.fieldLocation')}>
-        <TextInput name="location" placeholder={t('events.fieldLocationPlaceholder')} />
+        <TextInput name="location" placeholder={t('events.fieldLocationPlaceholder')} maxLength={255} />
       </Field>
       <Field label={t('events.fieldNote')}>
-        <TextArea name="note" placeholder={t('events.fieldNotePlaceholder')} minHeight={64} />
+        <TextArea name="note" placeholder={t('events.fieldNotePlaceholder')} minHeight={64} maxLength={10000} />
       </Field>
       {recur}
       {sheet.mode === 'edit' && F.seriesId ? (

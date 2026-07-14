@@ -33,6 +33,7 @@ vi.mock('@/api/map', () => {
     mapRole: tag('role'),
     mapTeam: tag('team'),
     mapTeamForUser: tag('teamForUser'),
+    mapAcceptInviteResponse: tag('acceptInviteResponse'),
     mapInvite: tag('invite'),
     mapMember: tag('member'),
     mapTeamEvent: tag('teamEvent'),
@@ -250,6 +251,35 @@ describe('teams', () => {
     expect(client.POST).toHaveBeenCalledWith('/teams', { body: { name: 'A', icon: 'i', iconBg: undefined, iconFg: undefined } });
   });
 
+  it('create does not attempt a photo upload when no photo was picked', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.create({ name: 'A' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  // CreateTeamRequest (openapi.yaml) has no photo field, so a photo picked in
+  // CreateTeamSheet before the first save must be uploaded as a second step
+  // via the per-team PUT .../photo endpoint once the team id exists —
+  // otherwise it's silently dropped against the real backend while the mock
+  // (which accepts `photo` directly in its create() call) persists it.
+  it('create uploads a picked photo via multipart PUT after the team is created', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchMock);
+    client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    const dataUrl = 'data:image/png;base64,' + btoa('img');
+    await realApi.teams.create({ name: 'A', photo: dataUrl });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/api/v1/teams/t1/photo');
+    expect(init.method).toBe('PUT');
+    expect(client.GET).toHaveBeenCalledWith('/teams/{teamId}', { params: { path: { teamId: 't1' } } });
+    vi.unstubAllGlobals();
+  });
+
   it('updateSettings maps reasonVisibilityRoles onto reasonVisibilityRoleIds', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
     client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
@@ -289,10 +319,39 @@ describe('teams', () => {
     vi.unstubAllGlobals();
   });
 
+  it('updateSettings calls DELETE when logo is explicitly null (revert to icon)', async () => {
+    client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.DELETE.mockResolvedValueOnce({ response: { ok: true, status: 204 } });
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.updateSettings('t1', { icon: '🏆', logo: null });
+    expect(client.DELETE).toHaveBeenCalledWith('/teams/{teamId}/logo', { params: { path: { teamId: 't1' } } });
+  });
+
+  it('updateSettings calls DELETE when photo is explicitly null', async () => {
+    client.DELETE.mockResolvedValueOnce({ response: { ok: true, status: 204 } });
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.updateSettings('t1', { photo: null });
+    expect(client.DELETE).toHaveBeenCalledWith('/teams/{teamId}/photo', { params: { path: { teamId: 't1' } } });
+  });
+
+  it('updateSettings does not call DELETE when photo/logo are simply omitted', async () => {
+    client.PATCH.mockResolvedValueOnce(ok({ id: 't1' }));
+    client.GET.mockResolvedValueOnce(ok({ id: 't1' }));
+    await realApi.teams.updateSettings('t1', { name: 'New' });
+    expect(client.DELETE).not.toHaveBeenCalled();
+  });
+
   it('createInvite maps the invite', async () => {
     client.POST.mockResolvedValueOnce(ok({ code: 'abc' }));
     const res = await realApi.teams.createInvite('t1');
     expect(res).toMatchObject({ __mapped: 'invite' });
+  });
+
+  it('acceptInvite posts the code and maps the resulting team', async () => {
+    client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
+    const res = await realApi.teams.acceptInvite('abc123');
+    expect(client.POST).toHaveBeenCalledWith('/invites/{code}/accept', { params: { path: { code: 'abc123' } } });
+    expect(res).toMatchObject({ __mapped: 'acceptInviteResponse' });
   });
 });
 
@@ -316,15 +375,6 @@ describe('members', () => {
     expect(client.GET).toHaveBeenLastCalledWith(
       '/teams/{teamId}/members',
       expect.objectContaining({ params: expect.objectContaining({ query: expect.objectContaining({ cursor: 'c1' }) }) }),
-    );
-  });
-
-  it('add forwards roleIDs as roleIds', async () => {
-    client.POST.mockResolvedValueOnce(ok({ id: 'm1' }));
-    await realApi.members.add('t1', { name: 'N', email: 'e@x.c', roleIDs: ['r1'] });
-    expect(client.POST).toHaveBeenCalledWith(
-      '/teams/{teamId}/members',
-      expect.objectContaining({ body: expect.objectContaining({ roleIds: ['r1'] }) }),
     );
   });
 
@@ -413,6 +463,35 @@ describe('events', () => {
     await expect(realApi.events.create('t1', { type: 'event', title: 'T', date: 'd' })).rejects.toThrow('HTTP 500');
   });
 
+  it('create sends meetT/startT/endT under the meetTime/startTime/endTime keys the backend expects', async () => {
+    client.POST.mockResolvedValueOnce(ok({ id: 'e1' }));
+    await realApi.events.create('t1', {
+      type: 'training',
+      title: 'T',
+      date: '2026-01-01',
+      meetT: '19:15',
+      startT: '19:30',
+      endT: '21:30',
+    });
+    expect(client.POST).toHaveBeenCalledWith(
+      '/teams/{teamId}/events',
+      expect.objectContaining({
+        body: expect.objectContaining({ meetTime: '19:15', startTime: '19:30', endTime: '21:30' }),
+      }),
+    );
+  });
+
+  it('update sends meetT/startT/endT under the meetTime/startTime/endTime keys the backend expects', async () => {
+    client.PATCH.mockResolvedValueOnce(ok({ id: 'e1' }));
+    await realApi.events.update('e1', { title: 'X', meetT: '20:00', startT: '20:15', endT: '22:00' }, 'single', 't1');
+    expect(client.PATCH).toHaveBeenCalledWith(
+      '/teams/{teamId}/events/{eventId}',
+      expect.objectContaining({
+        body: expect.objectContaining({ meetTime: '20:00', startTime: '20:15', endTime: '22:00' }),
+      }),
+    );
+  });
+
   it('update, setStatus and remove pass the scope query', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 'e1' }));
     await realApi.events.update('e1', { title: 'X' }, 'series', 't1');
@@ -432,12 +511,40 @@ describe('events', () => {
   it('comments: list, add and remove', async () => {
     client.GET.mockResolvedValueOnce(ok([{ id: 'c1' }]));
     expect((await realApi.events.listComments('e1', 't1'))[0]).toMatchObject({ __mapped: 'eventComment' });
+    expect(client.GET).toHaveBeenCalledWith(
+      '/teams/{teamId}/events/{eventId}/comments',
+      expect.objectContaining({ params: { path: { teamId: 't1', eventId: 'e1' }, query: { limit: 500, offset: 0 } } }),
+    );
 
     client.POST.mockResolvedValueOnce(ok({ id: 'c1' }));
     expect(await realApi.events.addComment('e1', 'hi', 't1')).toMatchObject({ __mapped: 'eventComment' });
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.events.removeComment('c1', 'e1', 't1')).resolves.toBeUndefined();
+  });
+
+  // listEventComments is limit/offset paginated (default limit 50, backend
+  // caps at 500) with no { items, nextCursor } envelope — the backend orders
+  // ORDER BY created_at ASC, so without walking every page to completion an
+  // event with a full page of comments would silently lose everything after
+  // it (its most recent activity) against the real backend, while the mock
+  // returns every comment unconditionally.
+  it('listComments walks every offset page until a short page is returned', async () => {
+    const fullPage = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}` }));
+    client.GET.mockResolvedValueOnce(ok(fullPage)).mockResolvedValueOnce(ok([{ id: 'c500' }]));
+    const res = await realApi.events.listComments('e1', 't1');
+    expect(res).toHaveLength(501);
+    expect(client.GET).toHaveBeenCalledTimes(2);
+    expect(client.GET).toHaveBeenNthCalledWith(
+      1,
+      '/teams/{teamId}/events/{eventId}/comments',
+      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, offset: 0 } }) }),
+    );
+    expect(client.GET).toHaveBeenNthCalledWith(
+      2,
+      '/teams/{teamId}/events/{eventId}/comments',
+      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, offset: 500 } }) }),
+    );
   });
 });
 
@@ -447,6 +554,24 @@ describe('attendance', () => {
   it('listForEvent maps rows', async () => {
     client.GET.mockResolvedValueOnce(ok([{ id: 'a1' }]));
     expect((await realApi.attendance.listForEvent('e1', 't1'))[0]).toMatchObject({ __mapped: 'attendanceRow' });
+  });
+
+  it('listForEvent groups by status (yes, maybe, pending, no, not_nominated) then name, matching the mock', async () => {
+    // The backend orders attendance rows alphabetically only (ORDER BY
+    // u.name ASC); EventDetailSheet.tsx renders the rows in the order it
+    // receives them, so the service layer must re-impose the mock's status
+    // grouping itself.
+    client.GET.mockResolvedValueOnce(
+      ok([
+        { status: 'no', name: 'Bob' },
+        { status: 'yes', name: 'Zoe' },
+        { status: 'yes', name: 'Anna' },
+        { status: 'not_nominated', name: 'Cy' },
+        { status: 'pending', name: 'Mo' },
+      ]),
+    );
+    const rows = (await realApi.attendance.listForEvent('e1', 't1')) as unknown as { input: { name: string } }[];
+    expect(rows.map((r) => r.input.name)).toEqual(['Anna', 'Zoe', 'Mo', 'Bob', 'Cy']);
   });
 
   it('set posts the attendance body', async () => {
@@ -482,6 +607,36 @@ describe('absences', () => {
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.absences.remove('ab1', 't1')).resolves.toBeUndefined();
+  });
+
+  it('listForTeam and listMine sort ascending by `from`, matching the mock (backend returns newest-first)', async () => {
+    // absences.Repository orders `from_date DESC, id DESC`; the mock sorts
+    // ascending so the soonest-upcoming absence is first, and
+    // EventAbsences.tsx renders the list in the order it receives with no
+    // client-side sort.
+    client.GET.mockResolvedValueOnce(
+      ok({
+        items: [
+          { id: 'ab-aug', from: '2026-08-01' },
+          { id: 'ab-jul', from: '2026-07-01' },
+        ],
+        nextCursor: null,
+      }),
+    );
+    const forTeam = (await realApi.absences.listForTeam('t1')) as unknown as { input: { id: string } }[];
+    expect(forTeam.map((a) => a.input.id)).toEqual(['ab-jul', 'ab-aug']);
+
+    client.GET.mockResolvedValueOnce(
+      ok({
+        items: [
+          { id: 'ab-aug', from: '2026-08-01' },
+          { id: 'ab-jul', from: '2026-07-01' },
+        ],
+        nextCursor: null,
+      }),
+    );
+    const mine = (await realApi.absences.listMine('t1')) as unknown as { input: { id: string } }[];
+    expect(mine.map((a) => a.input.id)).toEqual(['ab-jul', 'ab-aug']);
   });
 });
 
@@ -525,8 +680,24 @@ describe('polls', () => {
 
 describe('finances', () => {
   it('overview maps the finance overview', async () => {
-    client.GET.mockResolvedValueOnce(ok({ balance: 0 }));
+    client.GET.mockResolvedValueOnce(ok({ balance: 0, assignments: [] }));
     expect(await realApi.finances.overview('t1')).toMatchObject({ __mapped: 'finance' });
+  });
+
+  it('overview reverses assignments to ascending order, matching the mock (backend returns newest-first)', async () => {
+    // finances.Repository.ListAssignments orders `pa.date DESC`; the mock's
+    // array is in ascending insertion order. FinancesPenalties.tsx renders
+    // `f.assignments.slice().reverse()`, which only yields newest-first if
+    // fed an ascending array — passing the backend's descending order straight
+    // through would get reversed a second time and show the oldest
+    // assignment on top.
+    client.GET.mockResolvedValueOnce(
+      ok({ balance: 0, assignments: [{ id: 'a-newest' }, { id: 'a-oldest' }] }),
+    );
+    const overview = (await realApi.finances.overview('t1')) as unknown as {
+      input: { assignments: { id: string }[] };
+    };
+    expect(overview.input.assignments.map((a) => a.id)).toEqual(['a-oldest', 'a-newest']);
   });
 
   it('transaction lifecycle', async () => {
@@ -581,9 +752,14 @@ describe('finances', () => {
 // ─── stats ──────────────────────────────────────────────────────────────────
 
 describe('stats', () => {
-  it('attendanceFor returns the raw quote/counted/yes', async () => {
+  it('attendanceFor scales the backend 0-1 quote fraction to a 0-100 percentage', async () => {
     client.GET.mockResolvedValueOnce(ok({ quote: 0.5, counted: 4, yes: 2 }));
-    expect(await realApi.stats.attendanceFor('t1', 'u1')).toEqual({ quote: 0.5, counted: 4, yes: 2 });
+    expect(await realApi.stats.attendanceFor('t1', 'u1')).toEqual({ quote: 50, counted: 4, yes: 2 });
+  });
+
+  it('attendanceFor maps counted:0 to quote:null ("no data"), matching the mock', async () => {
+    client.GET.mockResolvedValueOnce(ok({ quote: 0, counted: 0, yes: 0 }));
+    expect(await realApi.stats.attendanceFor('t1', 'u1')).toEqual({ quote: null, counted: 0, yes: 0 });
   });
 
   it('teamOverview forwards the date range and maps the overview', async () => {

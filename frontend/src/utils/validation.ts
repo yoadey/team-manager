@@ -14,7 +14,12 @@ const MAX_REPEAT_WEEKS = 26;
 type MoneyOptions = {
   positive?: boolean;
   allowZero?: boolean;
+  max?: number;
 };
+
+// Matches the backend's `amount` maximum (100000000 cents, openapi.yaml) on
+// CreateTransactionRequest/CreatePenaltyRequest/UpdateContributionRequest.
+export const MAX_MONEY_AMOUNT_EUROS = 1000000;
 
 type EventForm = {
   title?: unknown;
@@ -61,6 +66,8 @@ export function validateMoneyAmount(value: unknown, options: MoneyOptions = {}):
     return { ok: false, message: t('validation.moneyNonNegative') };
   if (!options.positive && options.allowZero === false && rounded <= 0)
     return { ok: false, message: t('validation.moneyNonZero') };
+  if (options.max !== undefined && rounded > options.max)
+    return { ok: false, message: t('validation.moneyTooLarge') };
   return { ok: true, value: rounded };
 }
 
@@ -143,11 +150,16 @@ export function validatePhone(value: unknown, message: string): ValidationResult
   return PHONE_RE.test(v) ? { ok: true, value: v } : { ok: false, message };
 }
 
+// MIN_BIRTHDAY matches the backend's validate.Birthday lower bound
+// (backend/internal/validate/validate.go).
+const MIN_BIRTHDAY = '1900-01-01';
+
 export function validateBirthday(value: unknown, message: string): ValidationResult<string> {
   const v = text(value);
   if (!v) return { ok: true, value: '' };
   if (!DATE_RE.test(v)) return { ok: false, message };
   const d = new Date(v + 'T00:00:00');
   if (isNaN(d.getTime())) return { ok: false, message };
+  if (v < MIN_BIRTHDAY) return { ok: false, message };
   return d > new Date() ? { ok: false, message } : { ok: true, value: v };
 }

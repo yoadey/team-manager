@@ -347,18 +347,31 @@ type Absence struct {
 	UserId            openapi_types.UUID `json:"userId"`
 }
 
+// AcceptInviteResponse defines model for AcceptInviteResponse.
+type AcceptInviteResponse struct {
+	// AlreadyMember True when the caller was already a member of this team before redeeming the code (the request was a no-op join-wise).
+	AlreadyMember bool               `json:"alreadyMember"`
+	Description   *string            `json:"description,omitempty"`
+	HasLogo       *bool              `json:"hasLogo,omitempty"`
+	HasPhoto      *bool              `json:"hasPhoto,omitempty"`
+	Icon          *string            `json:"icon,omitempty"`
+	IconBg        *string            `json:"iconBg,omitempty"`
+	IconFg        *string            `json:"iconFg,omitempty"`
+	Id            openapi_types.UUID `json:"id"`
+	MemberCount   int                `json:"memberCount"`
+	MembershipId  openapi_types.UUID `json:"membershipId"`
+
+	// MyPerms Per-module permission levels
+	MyPerms                 Permissions           `json:"myPerms"`
+	MyRoles                 []Role                `json:"myRoles"`
+	Name                    string                `json:"name"`
+	ReasonVisibilityRoleIds *[]openapi_types.UUID `json:"reasonVisibilityRoleIds,omitempty"`
+	Short                   *string               `json:"short,omitempty"`
+}
+
 // AddCommentRequest defines model for AddCommentRequest.
 type AddCommentRequest struct {
 	Text string `json:"text"`
-}
-
-// AddMemberRequest defines model for AddMemberRequest.
-type AddMemberRequest struct {
-	Email   openapi_types.Email   `json:"email"`
-	Group   *string               `json:"group,omitempty"`
-	Name    string                `json:"name"`
-	Phone   *string               `json:"phone,omitempty"`
-	RoleIds *[]openapi_types.UUID `json:"roleIds,omitempty"`
 }
 
 // AppNotification defines model for AppNotification.
@@ -990,6 +1003,7 @@ type User struct {
 
 // VotePollRequest defines model for VotePollRequest.
 type VotePollRequest struct {
+	// OptionIds Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. Capped to match CreatePollRequest.options' maxItems, since a poll can never have more options than that to vote for.
 	OptionIds []openapi_types.UUID `json:"optionIds"`
 }
 
@@ -1192,9 +1206,6 @@ type UpdateTransactionJSONRequestBody = UpdateTransactionRequest
 // UploadTeamLogoMultipartRequestBody defines body for UploadTeamLogo for multipart/form-data ContentType.
 type UploadTeamLogoMultipartRequestBody UploadTeamLogoMultipartBody
 
-// AddMemberJSONRequestBody defines body for AddMember for application/json ContentType.
-type AddMemberJSONRequestBody = AddMemberRequest
-
 // UpdateMemberJSONRequestBody defines body for UpdateMember for application/json ContentType.
 type UpdateMemberJSONRequestBody = UpdateMemberRequest
 
@@ -1248,6 +1259,9 @@ type ServerInterface interface {
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
+	// Redeem an invite code, adding the authenticated user to its team
+	// (POST /invites/{code}/accept)
+	AcceptInvite(w http.ResponseWriter, r *http.Request, code string)
 	// List teams the authenticated user belongs to
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request)
@@ -1350,6 +1364,9 @@ type ServerInterface interface {
 	// Generate a 7-day invite link
 	// (POST /teams/{teamId}/invite)
 	CreateInvite(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Remove team logo (revert to icon)
+	// (DELETE /teams/{teamId}/logo)
+	DeleteTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Get team logo
 	// (GET /teams/{teamId}/logo)
 	GetTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1359,9 +1376,6 @@ type ServerInterface interface {
 	// List team members
 	// (GET /teams/{teamId}/members)
 	ListMembers(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListMembersParams)
-	// Add a member to the team
-	// (POST /teams/{teamId}/members)
-	AddMember(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Remove member from team
 	// (DELETE /teams/{teamId}/members/{membershipId})
 	RemoveMember(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId)
@@ -1389,6 +1403,9 @@ type ServerInterface interface {
 	// Mark all notifications as seen
 	// (POST /teams/{teamId}/notifications/seen)
 	MarkNotificationsSeen(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Remove team photo (revert to icon)
+	// (DELETE /teams/{teamId}/photo)
+	DeleteTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Get team photo
 	// (GET /teams/{teamId}/photo)
 	GetTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1476,6 +1493,12 @@ func (_ Unimplemented) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
 // List available login providers
 // (GET /auth/providers)
 func (_ Unimplemented) ListProviders(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Redeem an invite code, adding the authenticated user to its team
+// (POST /invites/{code}/accept)
+func (_ Unimplemented) AcceptInvite(w http.ResponseWriter, r *http.Request, code string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1683,6 +1706,12 @@ func (_ Unimplemented) CreateInvite(w http.ResponseWriter, r *http.Request, team
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Remove team logo (revert to icon)
+// (DELETE /teams/{teamId}/logo)
+func (_ Unimplemented) DeleteTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Get team logo
 // (GET /teams/{teamId}/logo)
 func (_ Unimplemented) GetTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
@@ -1698,12 +1727,6 @@ func (_ Unimplemented) UploadTeamLogo(w http.ResponseWriter, r *http.Request, te
 // List team members
 // (GET /teams/{teamId}/members)
 func (_ Unimplemented) ListMembers(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListMembersParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Add a member to the team
-// (POST /teams/{teamId}/members)
-func (_ Unimplemented) AddMember(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1758,6 +1781,12 @@ func (_ Unimplemented) ListNotifications(w http.ResponseWriter, r *http.Request,
 // Mark all notifications as seen
 // (POST /teams/{teamId}/notifications/seen)
 func (_ Unimplemented) MarkNotificationsSeen(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove team photo (revert to icon)
+// (DELETE /teams/{teamId}/photo)
+func (_ Unimplemented) DeleteTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1981,6 +2010,38 @@ func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptInvite operation middleware
+func (siw *ServerInterfaceWrapper) AcceptInvite(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "code" -------------
+	var code string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "code", chi.URLParam(r, "code"), &code, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptInvite(w, r, code)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3420,6 +3481,38 @@ func (siw *ServerInterfaceWrapper) CreateInvite(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteTeamLogo operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTeamLogo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTeamLogo(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTeamLogo operation middleware
 func (siw *ServerInterfaceWrapper) GetTeamLogo(w http.ResponseWriter, r *http.Request) {
 
@@ -3536,38 +3629,6 @@ func (siw *ServerInterfaceWrapper) ListMembers(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMembers(w, r, teamId, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddMember operation middleware
-func (siw *ServerInterfaceWrapper) AddMember(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "teamId" -------------
-	var teamId TeamId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddMember(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3930,6 +3991,38 @@ func (siw *ServerInterfaceWrapper) MarkNotificationsSeen(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MarkNotificationsSeen(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteTeamPhoto operation middleware
+func (siw *ServerInterfaceWrapper) DeleteTeamPhoto(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteTeamPhoto(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4564,6 +4657,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/auth/providers", wrapper.ListProviders)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/invites/{code}/accept", wrapper.AcceptInvite)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams", wrapper.ListTeams)
 	})
 	r.Group(func(r chi.Router) {
@@ -4666,6 +4762,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/teams/{teamId}/invite", wrapper.CreateInvite)
 	})
 	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/logo", wrapper.DeleteTeamLogo)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/logo", wrapper.GetTeamLogo)
 	})
 	r.Group(func(r chi.Router) {
@@ -4673,9 +4772,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/members", wrapper.ListMembers)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/teams/{teamId}/members", wrapper.AddMember)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/teams/{teamId}/members/{membershipId}", wrapper.RemoveMember)
@@ -4703,6 +4799,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{teamId}/notifications/seen", wrapper.MarkNotificationsSeen)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/photo", wrapper.DeleteTeamPhoto)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/photo", wrapper.GetTeamPhoto)
@@ -5035,6 +5134,44 @@ func (response ListProviders200JSONResponse) VisitListProvidersResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInviteRequestObject struct {
+	Code string `json:"code"`
+}
+
+type AcceptInviteResponseObject interface {
+	VisitAcceptInviteResponse(w http.ResponseWriter) error
+}
+
+type AcceptInvite200JSONResponse AcceptInviteResponse
+
+func (response AcceptInvite200JSONResponse) VisitAcceptInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AcceptInvite404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response AcceptInvite404ApplicationProblemPlusJSONResponse) VisitAcceptInviteResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5834,6 +5971,22 @@ func (response CreateInvite201JSONResponse) VisitCreateInviteResponse(w http.Res
 	return err
 }
 
+type DeleteTeamLogoRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type DeleteTeamLogoResponseObject interface {
+	VisitDeleteTeamLogoResponse(w http.ResponseWriter) error
+}
+
+type DeleteTeamLogo204Response struct {
+}
+
+func (response DeleteTeamLogo204Response) VisitDeleteTeamLogoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
 type GetTeamLogoRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 }
@@ -5941,29 +6094,6 @@ func (response ListMembers200JSONResponse) VisitListMembersResponse(w http.Respo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type AddMemberRequestObject struct {
-	TeamId TeamId `json:"teamId"`
-	Body   *AddMemberJSONRequestBody
-}
-
-type AddMemberResponseObject interface {
-	VisitAddMemberResponse(w http.ResponseWriter) error
-}
-
-type AddMember201JSONResponse Member
-
-func (response AddMember201JSONResponse) VisitAddMemberResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6159,6 +6289,22 @@ type MarkNotificationsSeen204Response struct {
 }
 
 func (response MarkNotificationsSeen204Response) VisitMarkNotificationsSeenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteTeamPhotoRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type DeleteTeamPhotoResponseObject interface {
+	VisitDeleteTeamPhotoResponse(w http.ResponseWriter) error
+}
+
+type DeleteTeamPhoto204Response struct {
+}
+
+func (response DeleteTeamPhoto204Response) VisitDeleteTeamPhotoResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
 }
@@ -6496,6 +6642,9 @@ type StrictServerInterface interface {
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
+	// Redeem an invite code, adding the authenticated user to its team
+	// (POST /invites/{code}/accept)
+	AcceptInvite(ctx context.Context, request AcceptInviteRequestObject) (AcceptInviteResponseObject, error)
 	// List teams the authenticated user belongs to
 	// (GET /teams)
 	ListTeams(ctx context.Context, request ListTeamsRequestObject) (ListTeamsResponseObject, error)
@@ -6598,6 +6747,9 @@ type StrictServerInterface interface {
 	// Generate a 7-day invite link
 	// (POST /teams/{teamId}/invite)
 	CreateInvite(ctx context.Context, request CreateInviteRequestObject) (CreateInviteResponseObject, error)
+	// Remove team logo (revert to icon)
+	// (DELETE /teams/{teamId}/logo)
+	DeleteTeamLogo(ctx context.Context, request DeleteTeamLogoRequestObject) (DeleteTeamLogoResponseObject, error)
 	// Get team logo
 	// (GET /teams/{teamId}/logo)
 	GetTeamLogo(ctx context.Context, request GetTeamLogoRequestObject) (GetTeamLogoResponseObject, error)
@@ -6607,9 +6759,6 @@ type StrictServerInterface interface {
 	// List team members
 	// (GET /teams/{teamId}/members)
 	ListMembers(ctx context.Context, request ListMembersRequestObject) (ListMembersResponseObject, error)
-	// Add a member to the team
-	// (POST /teams/{teamId}/members)
-	AddMember(ctx context.Context, request AddMemberRequestObject) (AddMemberResponseObject, error)
 	// Remove member from team
 	// (DELETE /teams/{teamId}/members/{membershipId})
 	RemoveMember(ctx context.Context, request RemoveMemberRequestObject) (RemoveMemberResponseObject, error)
@@ -6637,6 +6786,9 @@ type StrictServerInterface interface {
 	// Mark all notifications as seen
 	// (POST /teams/{teamId}/notifications/seen)
 	MarkNotificationsSeen(ctx context.Context, request MarkNotificationsSeenRequestObject) (MarkNotificationsSeenResponseObject, error)
+	// Remove team photo (revert to icon)
+	// (DELETE /teams/{teamId}/photo)
+	DeleteTeamPhoto(ctx context.Context, request DeleteTeamPhotoRequestObject) (DeleteTeamPhotoResponseObject, error)
 	// Get team photo
 	// (GET /teams/{teamId}/photo)
 	GetTeamPhoto(ctx context.Context, request GetTeamPhotoRequestObject) (GetTeamPhotoResponseObject, error)
@@ -6910,6 +7062,32 @@ func (sh *strictHandler) ListProviders(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListProvidersResponseObject); ok {
 		if err := validResponse.VisitListProvidersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AcceptInvite operation middleware
+func (sh *strictHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, code string) {
+	var request AcceptInviteRequestObject
+
+	request.Code = code
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AcceptInvite(ctx, request.(AcceptInviteRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AcceptInvite")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AcceptInviteResponseObject); ok {
+		if err := validResponse.VisitAcceptInviteResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7937,6 +8115,32 @@ func (sh *strictHandler) CreateInvite(w http.ResponseWriter, r *http.Request, te
 	}
 }
 
+// DeleteTeamLogo operation middleware
+func (sh *strictHandler) DeleteTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request DeleteTeamLogoRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTeamLogo(ctx, request.(DeleteTeamLogoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTeamLogo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTeamLogoResponseObject); ok {
+		if err := validResponse.VisitDeleteTeamLogoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetTeamLogo operation middleware
 func (sh *strictHandler) GetTeamLogo(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	var request GetTeamLogoRequestObject
@@ -8016,39 +8220,6 @@ func (sh *strictHandler) ListMembers(w http.ResponseWriter, r *http.Request, tea
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListMembersResponseObject); ok {
 		if err := validResponse.VisitListMembersResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// AddMember operation middleware
-func (sh *strictHandler) AddMember(w http.ResponseWriter, r *http.Request, teamId TeamId) {
-	var request AddMemberRequestObject
-
-	request.TeamId = teamId
-
-	var body AddMemberJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddMember(ctx, request.(AddMemberRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddMember")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddMemberResponseObject); ok {
-		if err := validResponse.VisitAddMemberResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8317,6 +8488,32 @@ func (sh *strictHandler) MarkNotificationsSeen(w http.ResponseWriter, r *http.Re
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(MarkNotificationsSeenResponseObject); ok {
 		if err := validResponse.VisitMarkNotificationsSeenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteTeamPhoto operation middleware
+func (sh *strictHandler) DeleteTeamPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request DeleteTeamPhotoRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteTeamPhoto(ctx, request.(DeleteTeamPhotoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteTeamPhoto")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteTeamPhotoResponseObject); ok {
+		if err := validResponse.VisitDeleteTeamPhotoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -61,6 +61,38 @@ describe('AbsenceFormSheet', () => {
     expect(inputs.length).toBeGreaterThanOrEqual(1);
   });
 
+  // Regression test: the reason field had no client-side maxLength, unlike
+  // every other create/edit form field, matching the backend's 500-char
+  // validate.MaxLen bound.
+  it('caps the reason input at 500 characters matching the backend limit', () => {
+    mockUseApp.mockReturnValue(makeApp() as never);
+    const app = mockUseApp();
+    render(<AbsenceFormSheet app={app as never} sheet={sheet} />);
+    const input = document.querySelector('input[type="text"]') as HTMLInputElement;
+    expect(input.maxLength).toBe(500);
+  });
+
+  // Regression test: the from/to date inputs had no cross-field min/max, so
+  // the browser's native date picker let a user pick a "to" date before
+  // "from", unlike Stats.tsx's date-range picker which already constrains
+  // its two inputs against each other -- the mismatch was only ever caught
+  // after the fact by validateDateRange on Save.
+  it('constrains the "to" date input by the current "from" value', () => {
+    mockUseApp.mockReturnValue(makeApp({ from: '2026-01-05' }) as never);
+    const app = mockUseApp();
+    render(<AbsenceFormSheet app={app as never} sheet={sheet} />);
+    const dateInputs = document.querySelectorAll('input[type="date"]') as NodeListOf<HTMLInputElement>;
+    expect(dateInputs[1].min).toBe('2026-01-05');
+  });
+
+  it('constrains the "from" date input by the current "to" value', () => {
+    mockUseApp.mockReturnValue(makeApp({ to: '2026-01-10' }) as never);
+    const app = mockUseApp();
+    render(<AbsenceFormSheet app={app as never} sheet={sheet} />);
+    const dateInputs = document.querySelectorAll('input[type="date"]') as NodeListOf<HTMLInputElement>;
+    expect(dateInputs[0].max).toBe('2026-01-10');
+  });
+
   it('shows "Abwesenheit eintragen" label in create mode', () => {
     mockUseApp.mockReturnValue(makeApp() as never);
     const app = mockUseApp();

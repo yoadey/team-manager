@@ -34,9 +34,10 @@ type FeatureActionDeps = {
   loadPolls: () => Promise<void>;
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
-  toastMsg: (m: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   setFormVal: (patch: Record<string, unknown>) => void;
   askConfirm: (cfg: ConfirmConfig) => void;
+  logout: () => void;
 };
 
 export function useFeatureActions(deps: FeatureActionDeps) {
@@ -60,6 +61,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     toastMsg,
     setFormVal,
     askConfirm,
+    logout,
   } = deps;
 
   const eventDetailActions = useEventDetailActions({
@@ -70,7 +72,9 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     myRoles,
     refreshEvents,
     setFormVal,
+    askConfirm,
     toastMsg,
+    logout,
   });
   const eventActions = useEventActionFeatures({
     api,
@@ -81,12 +85,32 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     refreshEvents,
     setFormVal,
     toastMsg,
+    logout,
     askConfirm,
     openEventDetail: eventDetailActions.openEventDetail,
   });
-  const notifActions = useNotificationActions({ api, S, setState, loadNotifications, toastMsg });
-  const memberActions = useMemberActions({ api, S, setState, refreshMembers, refreshTeams, askConfirm, toastMsg });
-  const roleActions = useRoleActions({ api, S, setState, activeTeam, refreshRoles, refreshTeams, toastMsg });
+  const notifActions = useNotificationActions({ api, S, setState, loadNotifications, toastMsg, logout });
+  const memberActions = useMemberActions({
+    api,
+    S,
+    setState,
+    refreshMembers,
+    refreshTeams,
+    askConfirm,
+    toastMsg,
+    logout,
+  });
+  const roleActions = useRoleActions({
+    api,
+    S,
+    setState,
+    activeTeam,
+    refreshRoles,
+    refreshTeams,
+    askConfirm,
+    toastMsg,
+    logout,
+  });
   const teamActions = useTeamActions({
     api,
     S,
@@ -97,10 +121,20 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     setFormVal,
     afterLoginLoad,
     toastMsg,
+    logout,
   });
-  const absenceActions = useAbsenceActions({ api, S, setState, refreshEvents, loadAbsences, askConfirm, toastMsg });
+  const absenceActions = useAbsenceActions({
+    api,
+    S,
+    setState,
+    refreshEvents,
+    loadAbsences,
+    askConfirm,
+    toastMsg,
+    logout,
+  });
   const calExportActions = useCalExportActions({ S, setState, activeTeam, toastMsg });
-  const newsActions = useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg });
+  const newsActions = useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg, logout });
   const financeActions = useFinanceActions({
     api,
     S,
@@ -110,8 +144,9 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     refreshMembers,
     askConfirm,
     toastMsg,
+    logout,
   });
-  const pollActions = usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm });
+  const pollActions = usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm, logout });
   const eventFormActions = useEventFormActions({
     api,
     S,
@@ -119,6 +154,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     refreshEvents,
     openEventDetail: eventDetailActions.openEventDetail,
     toastMsg,
+    logout,
   });
 
   return {

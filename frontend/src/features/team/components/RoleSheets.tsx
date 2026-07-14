@@ -15,6 +15,7 @@ export function RolesSheet({ app, sheet }: SheetProps) {
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   void team;
+  const canManage = app.can('settings', 'write');
 
   const lvl = (v: string) =>
     v === 'write'
@@ -43,6 +44,41 @@ export function RolesSheet({ app, sheet }: SheetProps) {
           color={r.system ? NEUTRAL.secondary : tk.primary}
           bg={r.system ? NEUTRAL.line2 : tk.primaryContainer}
         />
+        {/* System roles (Admin/Member) are protected server-side: renaming or
+            re-permissioning them always 409s, and they can never be deleted —
+            so editing/deleting is only offered for custom roles. */}
+        {canManage && !r.system ? (
+          <Box key="actions" sx={{ display: 'flex', gap: '4px', flex: '0 0 auto' }}>
+            <ButtonBase
+              onClick={() => app.openRoleForm(r)}
+              aria-label={t('team.editRoleLabel')}
+              sx={{
+                width: '26px',
+                height: '26px',
+                borderRadius: '50%',
+                background: NEUTRAL.sidebar,
+                color: NEUTRAL.faint,
+                cursor: 'pointer',
+              }}
+            >
+              <Sym name="edit" size={14} color={NEUTRAL.faint} />
+            </ButtonBase>
+            <ButtonBase
+              onClick={() => app.removeRole(r.id)}
+              aria-label={t('team.deleteRoleLabel')}
+              sx={{
+                width: '26px',
+                height: '26px',
+                borderRadius: '50%',
+                background: NEUTRAL.errorBg,
+                color: NEUTRAL.error,
+                cursor: 'pointer',
+              }}
+            >
+              <Sym name="delete" size={14} color={NEUTRAL.error} />
+            </ButtonBase>
+          </Box>
+        ) : null}
       </Box>
       <Box key="p" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
         {(Object.keys(MODULE_LABELS) as ModuleKey[]).map((mod) => {
@@ -72,10 +108,10 @@ export function RolesSheet({ app, sheet }: SheetProps) {
     </Box>
   ));
 
-  const add = app.can('settings', 'write') ? (
+  const add = canManage ? (
     <ButtonBase
       key="add"
-      onClick={() => app.openCreateRole()}
+      onClick={() => app.openRoleForm()}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -110,6 +146,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
   const team = app.activeTeam()!;
   void team;
   const F = formValues<RoleFormValues>(app.state);
+  const canSubmit = !!F.name?.trim();
 
   const rows = (Object.keys(MODULE_LABELS) as ModuleKey[]).map((mod) => (
     <Box
@@ -147,6 +184,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
           return (
             <ButtonBase
               key={v}
+              aria-pressed={sel}
               onClick={() => app.setRolePerm(mod, v)}
               sx={{
                 p: '6px 11px',
@@ -180,7 +218,12 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
           {rows}
         </Box>
       </Box>
-      <PrimaryButton label={t('team.saveRole')} onClick={() => app.saveRole()} busy={app.state.busy === 'save'} />
+      <PrimaryButton
+        label={t('team.saveRole')}
+        onClick={() => app.saveRole()}
+        busy={app.state.busy === 'save'}
+        disabled={!canSubmit}
+      />
     </Box>
   );
 }

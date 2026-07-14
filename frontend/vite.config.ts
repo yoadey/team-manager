@@ -30,6 +30,10 @@ export default defineConfig({
     // Dev-server security headers that mirror what the production web server
     // (nginx / Caddy / CDN) must also set.  The CSP frame-ancestors directive
     // must stay in an HTTP header — meta-tag CSP ignores it in all browsers.
+    // Deliberately does NOT include Strict-Transport-Security (unlike
+    // security-headers.conf/security.go): this server runs over plain http on
+    // localhost, and a browser that cached an HSTS policy for localhost would
+    // then force https:// on every subsequent local dev visit, breaking it.
     headers: {
       'Content-Security-Policy': "frame-ancestors 'none'",
       'X-Frame-Options': 'DENY',

@@ -4,6 +4,7 @@ import {
   formatDateOnly,
   parseDateOnlyLocal,
   todayLocalDate,
+  zonedTimeToUtc,
 } from './date';
 
 describe('formatDateOnly', () => {
@@ -61,6 +62,31 @@ describe('combineDateAndTimeLocal', () => {
     expect(combined.getHours()).toBe(0);
     expect(combined.getMinutes()).toBe(0);
     expect(combined.getDate()).toBe(15);
+  });
+});
+
+describe('zonedTimeToUtc', () => {
+  // Assertions are on absolute UTC instants, so these pass regardless of the
+  // test runner's own local timezone -- unlike combineDateAndTimeLocal,
+  // zonedTimeToUtc's whole point is to be independent of it.
+  it('converts a summer (CEST, UTC+2) Berlin wall-clock time to the correct UTC instant', () => {
+    const utc = zonedTimeToUtc('2024-06-15', '19:30', 'Europe/Berlin');
+    expect(utc.toISOString()).toBe('2024-06-15T17:30:00.000Z');
+  });
+
+  it('converts a winter (CET, UTC+1) Berlin wall-clock time to the correct UTC instant', () => {
+    const utc = zonedTimeToUtc('2024-01-15', '19:30', 'Europe/Berlin');
+    expect(utc.toISOString()).toBe('2024-01-15T18:30:00.000Z');
+  });
+
+  it('defaults to midnight when the time component is malformed', () => {
+    const utc = zonedTimeToUtc('2024-06-15', 'invalid', 'Europe/Berlin');
+    expect(utc.toISOString()).toBe('2024-06-14T22:00:00.000Z');
+  });
+
+  it('supports a non-Berlin timeZone argument (New York, EDT UTC-4)', () => {
+    const utc = zonedTimeToUtc('2024-06-15', '19:30', 'America/New_York');
+    expect(utc.toISOString()).toBe('2024-06-15T23:30:00.000Z');
   });
 });
 

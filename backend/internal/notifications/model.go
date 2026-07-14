@@ -22,7 +22,7 @@ type NotificationRow struct {
 	// Joined from users (actor)
 	ActorName  *string
 	ActorColor *string
-	PhotoData  []byte
+	HasPhoto   bool
 	// Computed
 	Unread bool
 }

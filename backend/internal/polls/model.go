@@ -32,5 +32,5 @@ type PollVoteRow struct {
 	UserId    uuid.UUID
 	UserName  *string
 	UserColor *string
-	PhotoData []byte
+	HasPhoto  bool
 }

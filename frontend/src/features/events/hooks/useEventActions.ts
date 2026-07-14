@@ -3,7 +3,7 @@ import type { api as defaultApi } from '@/services/serviceLayer';
 import type { AttendanceRow, AttendanceCommentFormValues, EventCommentFormValues, TeamEvent } from '../types';
 import type { AttendanceStatus, Role, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
+import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { canSeeReason } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -18,7 +18,15 @@ type EventFeatureDeps = {
   myRoles: () => Role[];
   refreshEvents: () => Promise<void>;
   setFormVal: (patch: Record<string, unknown>) => void;
-  toastMsg: (m: string) => void;
+  askConfirm: (cfg: {
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void | Promise<void>;
+  }) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
+  logout: () => void;
 };
 
 export function useEventDetailActions({
@@ -29,10 +37,21 @@ export function useEventDetailActions({
   myRoles,
   refreshEvents,
   setFormVal,
+  askConfirm,
   toastMsg,
+  logout,
 }: EventFeatureDeps) {
+  // Guards against a STALE reloadDetail response overwriting a NEWER one for
+  // the same eventId -- e.g. two attendance-status updates on different rows
+  // both triggering reloadDetail for the same open event, where the network
+  // responds out of request order. The existing sheet.eventId check already
+  // handles the event-CHANGED case (sheet closed/switched while in flight);
+  // this ref handles the same-event, same-sheet race the eventId check can't
+  // catch, mirroring afterLoginLoadSeq's identical reasoning in AppContext.
+  const reloadDetailSeq = useRef(0);
   const reloadDetail = useCallback(
     async (eventId: string) => {
+      const seq = ++reloadDetailSeq.current;
       try {
         const teamId = S().activeTeamId!;
         const [event, rows, comments] = await Promise.all([
@@ -41,15 +60,26 @@ export function useEventDetailActions({
           api.events.listComments(eventId, teamId),
         ]);
         setState((s) =>
-          s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId
-            ? { sheet: { ...s.sheet, event, rows, comments } }
+          s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId && reloadDetailSeq.current === seq
+            ? { sheet: { ...s.sheet, event, eventNotFound: event === null, rows, comments } }
             : {},
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.load');
+        if (reloadDetailSeq.current !== seq) return;
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load');
+        // openEventDetail opens the sheet optimistically with event: null
+        // (EventDetailSheet shows a spinner until eventNotFound flips true).
+        // A thrown fetch -- e.g. events:none after a permission downgrade, or
+        // a genuine network failure -- never reaches the success branch
+        // above that would set eventNotFound, so without this the sheet was
+        // stuck spinning forever; the toast above already explains what went
+        // wrong, so just close the sheet instead of showing a misleading
+        // "this event was deleted" empty state for what may just be a
+        // transient failure.
+        setState((s) => (s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId ? { sheet: null } : {}));
       }
     },
-    [api, S, setState, toastMsg],
+    [api, S, setState, toastMsg, logout],
   );
 
   const openEventDetail = useCallback(
@@ -60,8 +90,13 @@ export function useEventDetailActions({
     [setState, reloadDetail],
   );
 
+  const inFlight = useRef(new Set<string>());
+
   const setMyStatus = useCallback(
     async (eventId: string, status: AttendanceStatus) => {
+      const key = `${eventId}:${S().user!.id}`;
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
       const ev = S().sheet && S().sheet!.event;
       const keep = ev && ev.id === eventId ? ev.myReason || '' : '';
       try {
@@ -77,13 +112,13 @@ export function useEventDetailActions({
               : t('attendance.no'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
+      } finally {
+        inFlight.current.delete(key);
       }
     },
-    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
   );
-
-  const inFlight = useRef(new Set<string>());
 
   const setStatusFor = useCallback(
     (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => {
@@ -96,13 +131,13 @@ export function useEventDetailActions({
           await refreshEvents();
           await reloadDetail(e.id);
         } catch (err) {
-          reportActionError({ setState, toastMsg }, err);
+          reportActionError({ setState, toastMsg, onAuthError: logout }, err);
         } finally {
           inFlight.current.delete(key);
         }
       })();
     },
-    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
   );
 
   const canSeeComment = useCallback(
@@ -136,6 +171,7 @@ export function useEventDetailActions({
 
   const submitComment = useCallback(async () => {
     const s = S().sheet!;
+    const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
       await api.attendance.set(
@@ -145,17 +181,23 @@ export function useEventDetailActions({
           status: s.status!,
           reason: formValues<AttendanceCommentFormValues>(S()).commentText || '',
         },
-        S().activeTeamId!,
+        teamId,
       );
       await refreshEvents();
       const eid = s.eventId!;
-      setState({ busy: null, sheet: null });
-      openEventDetail(eid);
+      clearBusyIfOwned(S, setState, 'save');
+      // Don't close/reopen a sheet the user has since opened for a
+      // different team after switching away mid-request, or one they've
+      // since opened while this save was in flight.
+      if (S().activeTeamId === teamId && S().sheet === s) {
+        setState({ sheet: null });
+        openEventDetail(eid);
+      }
       toastMsg(t('events.toastCommentSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
     }
-  }, [api, S, setState, refreshEvents, openEventDetail, toastMsg]);
+  }, [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout]);
 
   const commentInFlight = useRef(new Set<string>());
 
@@ -170,38 +212,51 @@ export function useEventDetailActions({
         setFormVal({ newEventComment: '' });
         await reloadDetail(eventId);
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       } finally {
         commentInFlight.current.delete(eventId);
       }
     },
-    [api, S, setFormVal, reloadDetail, setState, toastMsg],
+    [api, S, setFormVal, reloadDetail, setState, toastMsg, logout],
   );
 
   const removeEventComment = useCallback(
-    async (eventId: string, cid: string) => {
-      try {
-        await api.events.removeComment(cid, eventId, S().activeTeamId!);
-        await reloadDetail(eventId);
-      } catch (err) {
-        reportActionError({ setState, toastMsg }, err, 'error.delete');
-      }
-    },
-    [api, S, reloadDetail, setState, toastMsg],
+    (eventId: string, cid: string) =>
+      askConfirm({
+        title: t('events.deleteCommentTitle'),
+        message: t('events.deleteCommentMsg'),
+        confirmLabel: t('common.delete'),
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await api.events.removeComment(cid, eventId, S().activeTeamId!);
+            await reloadDetail(eventId);
+            toastMsg(t('events.toastCommentDeleted'));
+          } catch (err) {
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
+          }
+        },
+      }),
+    [api, S, askConfirm, reloadDetail, setState, toastMsg, logout],
   );
 
   const toggleNomination = useCallback(
     async (eventId: string, userId: string, currentlyNominated: boolean) => {
+      const key = `${eventId}:${userId}`;
+      if (inFlight.current.has(key)) return;
+      inFlight.current.add(key);
       try {
         await api.attendance.setNomination(eventId, userId, !currentlyNominated, S().activeTeamId!);
         await refreshEvents();
         await reloadDetail(eventId);
         toastMsg(currentlyNominated ? t('attendance.not_nominated') : t('attendance.nominated'));
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
+      } finally {
+        inFlight.current.delete(key);
       }
     },
-    [api, S, refreshEvents, reloadDetail, setState, toastMsg],
+    [api, S, refreshEvents, reloadDetail, setState, toastMsg, logout],
   );
 
   return {
@@ -231,11 +286,13 @@ export type EventActionDeps = EventFeatureDeps & {
 
 export function useEventActionFeatures({
   api,
+  S,
   setState,
   askConfirm,
   refreshEvents,
   openEventDetail,
   toastMsg,
+  logout,
 }: EventActionDeps) {
   const runEventAction = useCallback(
     async (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => {
@@ -247,24 +304,36 @@ export function useEventActionFeatures({
           confirmLabel: t('common.delete'),
           danger: true,
           onConfirm: async () => {
+            const sh = S().sheet;
             try {
               await api.events.remove(event.id, scope, event.teamId);
               await refreshEvents();
-              setState({ sheet: null });
+              // Don't close a sheet the user has since opened for a
+              // different team after switching away mid-request, or one
+              // they've since opened for a different event (same team)
+              // while this delete was in flight.
+              if (S().activeTeamId === event.teamId && S().sheet === sh) setState({ sheet: null });
               toastMsg(scope === 'series' ? t('events.toastSeriesDeleted') : t('events.toastEventDeleted'));
             } catch (err) {
-              reportActionError({ setState, toastMsg }, err, 'error.delete');
+              reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
             }
           },
         });
         return;
       }
+      const sh = S().sheet;
       const status = action === 'cancel' ? 'cancelled' : 'active';
       try {
         await api.events.setStatus(event.id, status, scope, event.teamId);
         await refreshEvents();
-        setState({ sheet: null });
-        openEventDetail(event.id);
+        // Don't close/reopen a sheet the user has since opened for a
+        // different team after switching away mid-request, or one they've
+        // since opened for a different event (same team) while this
+        // cancel/reactivate was in flight.
+        if (S().activeTeamId === event.teamId && S().sheet === sh) {
+          setState({ sheet: null });
+          openEventDetail(event.id);
+        }
         toastMsg(
           action === 'cancel'
             ? scope === 'series'
@@ -275,10 +344,10 @@ export function useEventActionFeatures({
               : t('events.toastEventActivated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg }, err);
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       }
     },
-    [api, askConfirm, refreshEvents, setState, openEventDetail, toastMsg],
+    [api, S, askConfirm, refreshEvents, setState, openEventDetail, toastMsg, logout],
   );
 
   const askEventAction = useCallback(

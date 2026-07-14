@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
@@ -18,15 +20,50 @@ var (
 	ErrUserNotInTeam    = errors.New("user is not a member of this team")
 )
 
+// ErrTooManyTransactions / ErrTooManyAssignments are returned once a team
+// hits maxTransactionsPerTeam / maxAssignmentsPerTeam.
+var (
+	ErrTooManyTransactions = fmt.Errorf("team has reached the maximum of %d transactions", maxTransactionsPerTeam)
+	ErrTooManyAssignments  = fmt.Errorf("team has reached the maximum of %d penalty assignments", maxAssignmentsPerTeam)
+	ErrTooManyPenalties    = fmt.Errorf("team has reached the maximum of %d penalty definitions", maxPenaltiesPerTeam)
+)
+
+// maxTransactionsPerTeam / maxAssignmentsPerTeam cap how many rows a single
+// team can accumulate in these tables. Both are read on every finance
+// overview via unbounded aggregate queries (SumTransactions,
+// ListOpenPenaltiesByUser) under a fixed 5s query timeout -- with no cap, a
+// team member holding only finances:write (not necessarily an owner/admin)
+// could flood either table well past what those aggregates can scan within
+// that timeout, degrading or hard-failing the finance overview for every
+// member of the team, not just the one flooding it. Both limits are
+// generous enough that no legitimate club's multi-year financial history
+// should ever approach them -- this exists to stop runaway/malicious
+// creation, not to constrain real usage.
+//
+// maxPenaltiesPerTeam is much smaller: unlike transactions/assignments,
+// which are naturally bounded by real financial activity, penalty
+// definitions are just a small, hand-curated catalog of fine types (e.g.
+// "Zu spät", "Fehltraining") -- a legitimate club needs at most a few dozen.
+// GetOverview reads ListPenalties unconditionally too (see ListPenalties'
+// doc comment), so it needs the same flood protection as the other lists,
+// just at a scale matching what this table is actually for.
+const (
+	maxTransactionsPerTeam = 100_000
+	maxAssignmentsPerTeam  = 100_000
+	maxPenaltiesPerTeam    = 500
+)
+
 // financeRepo is the interface the Service relies on.
 type financeRepo interface {
 	ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error)
 	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
+	CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 
 	ListPenalties(ctx context.Context, teamID uuid.UUID) ([]PenaltyRow, error)
+	CountPenalties(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreatePenalty(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*PenaltyRow, error)
 	UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error)
 	DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error
@@ -34,6 +71,7 @@ type financeRepo interface {
 
 	ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error)
 	GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
+	CountAssignments(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
 	ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
@@ -51,12 +89,13 @@ type financeRepo interface {
 
 // Service implements finance business logic.
 type Service struct {
-	repo financeRepo
+	repo   financeRepo
+	logger *slog.Logger
 }
 
 // NewService creates a new Service.
-func NewService(repo financeRepo) *Service {
-	return &Service{repo: repo}
+func NewService(repo financeRepo, logger *slog.Logger) *Service {
+	return &Service{repo: repo, logger: logger}
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
@@ -176,6 +215,14 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.Finan
 
 // CreateTransaction creates a new transaction (date defaults to today).
 func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+	count, err := s.repo.CountTransactions(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
+	}
+	if count >= maxTransactionsPerTeam {
+		return nil, ErrTooManyTransactions
+	}
+
 	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, time.Now(), body.Category)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
@@ -220,6 +267,14 @@ func (s *Service) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) e
 
 // CreatePenalty creates a new penalty definition.
 func (s *Service) CreatePenalty(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error) {
+	count, err := s.repo.CountPenalties(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreatePenalty: %w", err)
+	}
+	if count >= maxPenaltiesPerTeam {
+		return nil, ErrTooManyPenalties
+	}
+
 	p, err := s.repo.CreatePenalty(ctx, teamID, body.Label, body.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreatePenalty: %w", err)
@@ -270,13 +325,46 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 		return nil, ErrUserNotInTeam
 	}
 
+	count, err := s.repo.CountAssignments(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreateAssignment: %w", err)
+	}
+	if count >= maxAssignmentsPerTeam {
+		return nil, ErrTooManyAssignments
+	}
+
 	a, err := s.repo.CreateAssignment(ctx, teamID, userID, penaltyID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The membership check above passed, but the atomic WHERE
+			// EXISTS re-check inside the INSERT itself failed -- the user
+			// was removed from the team in the narrow window between the
+			// two. Surface the same error the earlier check would have.
+			return nil, ErrUserNotInTeam
+		}
 		return nil, fmt.Errorf("finances.Service.CreateAssignment: %w", err)
 	}
 	// Reload the single row with joined member/penalty data.
 	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The row we just created is already gone -- a concurrent
+			// DeletePenalty cascaded it away in the narrow window between
+			// the insert and this reload. This is materially different
+			// from a transient reload failure below: returning the
+			// un-joined fallback here would be a 200 OK for an assignment
+			// that no longer exists in the database, with blank
+			// label/amount/member fields. Propagate ErrNoRows so the
+			// handler's existing "not found" mapping applies instead.
+			return nil, pgx.ErrNoRows
+		}
+		// The write already succeeded; any other reload failure (e.g. a
+		// deadline hit right after the insert) must not fail the request,
+		// but silently returning the un-joined fallback (penalty
+		// label/amount/member name/photo all omitted) with no trace was a
+		// real observability gap -- an operator would never know it happened.
+		s.logger.Warn("finances: failed to reload assignment after create, returning partial result",
+			slog.String("assignmentId", a.ID.String()), slog.String("error", err.Error()))
 		result := toGenAssignment(*a)
 		return &result, nil
 	}
@@ -301,6 +389,14 @@ func (s *Service) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID
 	// Reload the single row with joined member/penalty data.
 	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Same reasoning as CreateAssignment above: a concurrent
+			// DeletePenalty cascaded this row away between the toggle and
+			// this reload, so it must not be reported as a 200 OK success.
+			return nil, pgx.ErrNoRows
+		}
+		s.logger.Warn("finances: failed to reload assignment after toggle, returning partial result",
+			slog.String("assignmentId", a.ID.String()), slog.String("error", err.Error()))
 		result := toGenAssignment(*a)
 		return &result, nil
 	}

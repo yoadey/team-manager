@@ -23,14 +23,17 @@ import (
 // teamService is the interface the Handler relies on.
 type teamService interface {
 	ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error)
-	CreateTeam(ctx context.Context, userID, name string) (*gen.TeamForUser, error)
+	CreateTeam(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error)
 	GetTeam(ctx context.Context, teamID string) (*gen.Team, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*gen.Team, error)
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
+	AcceptInvite(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
 	GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error)
 	UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
+	DeletePhoto(ctx context.Context, teamID string) error
 	GetTeamLogoData(ctx context.Context, teamID string) ([]byte, string, error)
 	UpdateLogo(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
+	DeleteLogo(ctx context.Context, teamID string) error
 }
 
 // Handler implements the team-related methods of gen.StrictServerInterface.
@@ -83,15 +86,38 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 		return nil, apierror.BadRequest("missing request body")
 	}
 	if err := validate.Name(request.Body.Name); err != nil {
-		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
+		return nil, apierror.BadRequest(err.Error())
+	}
+	// Same bounds validateUpdateTeamBody applies to these fields on the PATCH
+	// path -- CreateTeam must validate them too, since they reach the same
+	// icon/icon_bg/icon_fg columns.
+	for _, f := range []struct {
+		val   *string
+		field string
+	}{
+		{request.Body.Icon, "icon"},
+		{request.Body.IconBg, "iconBg"},
+		{request.Body.IconFg, "iconFg"},
+	} {
+		if f.val == nil {
+			continue
+		}
+		if err := validate.MaxLen(*f.val, 50, f.field); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 
-	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name)
+	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name, request.Body.Icon, request.Body.IconBg, request.Body.IconFg)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "CreateTeam failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
 	}
 
+	// CreateTeam mints a new Admin role with full write permissions and
+	// assigns it to the caller -- more privilege than UpdateTeam/CreateInvite/
+	// AcceptInvite grant, all three of which are already audited below.
+	h.audit.Record(ctx, audit.EventTeamCreate, audit.Success, actor(ctx),
+		slog.String("teamId", tfu.Id.String()))
 	metrics.TeamEvents.WithLabelValues("team", "create").Inc()
 	return gen.CreateTeam201JSONResponse(*tfu), nil
 }
@@ -135,6 +161,11 @@ func validateUpdateTeamBody(body *gen.UpdateTeamRequest) error {
 			continue
 		}
 		if err := validate.MaxLen(*f.val, f.max, f.field); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if body.ReasonVisibilityRoleIds != nil {
+		if err := validate.UUIDItems(len(*body.ReasonVisibilityRoleIds), "reasonVisibilityRoleIds"); err != nil {
 			return fmt.Errorf("%w", err)
 		}
 	}
@@ -182,6 +213,9 @@ func (h *Handler) UpdateTeam(ctx context.Context, request gen.UpdateTeamRequestO
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("team not found")
 		}
+		if errors.Is(err, ErrRoleNotInTeam) {
+			return nil, apierror.UnprocessableEntity("one or more roles do not belong to this team")
+		}
 		h.logger.ErrorContext(ctx, "UpdateTeam failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.UpdateTeam: %w", err)
 	}
@@ -202,6 +236,31 @@ func (h *Handler) CreateInvite(ctx context.Context, request gen.CreateInviteRequ
 		slog.String("teamId", request.TeamId.String()), slog.String("inviteId", inv.Id.String()))
 	metrics.TeamEvents.WithLabelValues("team", "invite").Inc()
 	return gen.CreateInvite201JSONResponse(*inv), nil
+}
+
+// AcceptInvite redeems an invite code, adding the authenticated caller to the
+// invite's team.
+func (h *Handler) AcceptInvite(ctx context.Context, request gen.AcceptInviteRequestObject) (gen.AcceptInviteResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if err := validate.MaxLen(request.Code, 64, "code"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+
+	tfu, err := h.svc.AcceptInvite(ctx, request.Code, user.Id.String())
+	if err != nil {
+		if errors.Is(err, ErrInviteNotFound) {
+			return notFoundInviteResponse("invite not found or expired"), nil
+		}
+		h.logger.ErrorContext(ctx, "AcceptInvite failed", "err", err)
+		return nil, fmt.Errorf("teams.Handler.AcceptInvite: %w", err)
+	}
+	h.audit.Record(ctx, audit.EventTeamInviteAccept, audit.Success, actor(ctx),
+		slog.String("teamId", tfu.Id.String()))
+	metrics.TeamEvents.WithLabelValues("team", "invite_accept").Inc()
+	return gen.AcceptInvite200JSONResponse(*tfu), nil
 }
 
 // GetTeamPhoto returns the team photo as JPEG.
@@ -241,10 +300,19 @@ func (h *Handler) readMultipartImage(ctx context.Context, body *multipart.Reader
 		}
 	}()
 
-	data, err = io.ReadAll(io.LimitReader(part, 2<<20)) // 2 MB max
+	const maxImageBytes = 2 << 20 // 2 MB max
+	data, err = io.ReadAll(io.LimitReader(part, maxImageBytes+1))
 	if err != nil {
 		h.logger.WarnContext(ctx, label+": read file data failed", "err", err)
 		return nil, "", apierror.BadRequest("cannot read file data")
+	}
+	// io.LimitReader silently truncates rather than erroring once the cap is
+	// reached, so io.ReadAll alone can't distinguish "exactly at the limit"
+	// from "oversized" -- reading one extra byte lets us detect the latter
+	// and reject it explicitly (413) instead of letting the truncated data
+	// fail image decoding downstream and fall through to a generic 500.
+	if len(data) > maxImageBytes {
+		return nil, "", apierror.New(http.StatusRequestEntityTooLarge, "Payload Too Large", "image exceeds the 2 MB upload limit")
 	}
 
 	// Detect MIME from actual content; reject anything other than JPEG/PNG.
@@ -253,6 +321,14 @@ func (h *Handler) readMultipartImage(ctx context.Context, body *multipart.Reader
 		return nil, "", apierror.BadRequest("only JPEG and PNG images are accepted")
 	}
 	return data, ct, nil
+}
+
+// recordBrandingUpdate emits the audit record and metric shared by every
+// successful photo/logo mutation (upload or delete).
+func (h *Handler) recordBrandingUpdate(ctx context.Context, teamID, operation string) {
+	h.audit.Record(ctx, audit.EventTeamBrandingUpdate, audit.Success, actor(ctx),
+		slog.String("teamId", teamID), slog.String("operation", operation))
+	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
 }
 
 // UploadTeamPhoto handles a multipart upload, stores the photo, and returns the updated team.
@@ -264,10 +340,13 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 
 	t, err := h.svc.UpdatePhoto(ctx, request.TeamId.String(), data, ct)
 	if err != nil {
+		if errors.Is(err, ErrImageTooLarge) {
+			return nil, apierror.BadRequest("image dimensions exceed the allowed maximum")
+		}
 		h.logger.ErrorContext(ctx, "UploadTeamPhoto failed", "err", err)
 		return nil, apierror.Internal("photo update failed")
 	}
-	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "photo.upload")
 	return gen.UploadTeamPhoto200JSONResponse(*t), nil
 }
 
@@ -296,47 +375,88 @@ func (h *Handler) UploadTeamLogo(ctx context.Context, request gen.UploadTeamLogo
 
 	t, err := h.svc.UpdateLogo(ctx, request.TeamId.String(), data, ct)
 	if err != nil {
+		if errors.Is(err, ErrImageTooLarge) {
+			return nil, apierror.BadRequest("image dimensions exceed the allowed maximum")
+		}
 		h.logger.ErrorContext(ctx, "UploadTeamLogo failed", "err", err)
 		return nil, apierror.Internal("logo update failed")
 	}
-	metrics.TeamEvents.WithLabelValues("team", "update").Inc()
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "logo.upload")
 	return gen.UploadTeamLogo200JSONResponse(*t), nil
+}
+
+// DeleteTeamPhoto removes the team photo, reverting display to the icon fallback.
+func (h *Handler) DeleteTeamPhoto(ctx context.Context, request gen.DeleteTeamPhotoRequestObject) (gen.DeleteTeamPhotoResponseObject, error) {
+	if err := h.svc.DeletePhoto(ctx, request.TeamId.String()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("team not found")
+		}
+		h.logger.ErrorContext(ctx, "DeleteTeamPhoto failed", "err", err)
+		return nil, apierror.Internal("photo removal failed")
+	}
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "photo.delete")
+	return gen.DeleteTeamPhoto204Response{}, nil
+}
+
+// DeleteTeamLogo removes the team logo, reverting display to the icon fallback.
+func (h *Handler) DeleteTeamLogo(ctx context.Context, request gen.DeleteTeamLogoRequestObject) (gen.DeleteTeamLogoResponseObject, error) {
+	if err := h.svc.DeleteLogo(ctx, request.TeamId.String()); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("team not found")
+		}
+		h.logger.ErrorContext(ctx, "DeleteTeamLogo failed", "err", err)
+		return nil, apierror.Internal("logo removal failed")
+	}
+	h.recordBrandingUpdate(ctx, request.TeamId.String(), "logo.delete")
+	return gen.DeleteTeamLogo204Response{}, nil
 }
 
 // ─── error helpers ───────────────────────────────────────────────────────────
 
 func notFoundTeamResponse(detail string) gen.GetTeamResponseObject {
-	title := "Not Found"
-	status := 404
+	e := apierror.NotFound(detail)
 	return gen.GetTeam404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-			Title:  &title,
+			Title:  &e.Title,
 			Detail: &detail,
-			Status: &status,
+			Status: &e.Status,
+			Type:   &e.Type,
+		},
+	}
+}
+
+func notFoundInviteResponse(detail string) gen.AcceptInviteResponseObject {
+	e := apierror.NotFound(detail)
+	return gen.AcceptInvite404ApplicationProblemPlusJSONResponse{
+		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
+			Title:  &e.Title,
+			Detail: &detail,
+			Status: &e.Status,
+			Type:   &e.Type,
 		},
 	}
 }
 
 func notFoundPhotoResponse(detail string) gen.GetTeamPhotoResponseObject {
-	title := "Not Found"
-	status := 404
+	e := apierror.NotFound(detail)
 	return gen.GetTeamPhoto404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-			Title:  &title,
+			Title:  &e.Title,
 			Detail: &detail,
-			Status: &status,
+			Status: &e.Status,
+			Type:   &e.Type,
 		},
 	}
 }
 
 func notFoundLogoResponse(detail string) gen.GetTeamLogoResponseObject {
-	title := "Not Found"
-	status := 404
+	e := apierror.NotFound(detail)
 	return gen.GetTeamLogo404ApplicationProblemPlusJSONResponse{
 		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-			Title:  &title,
+			Title:  &e.Title,
 			Detail: &detail,
-			Status: &status,
+			Status: &e.Status,
+			Type:   &e.Type,
 		},
 	}
 }

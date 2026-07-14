@@ -87,6 +87,7 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     removeMember: vi.fn(),
     setFormErrors: vi.fn(),
     setFormVal: vi.fn(),
+    setState: vi.fn(),
     onFormInput: vi.fn(),
     onFile: vi.fn(),
     toggleFormRole: vi.fn(),
@@ -119,6 +120,19 @@ describe('MemberDetailSheet', () => {
     const app = makeApp();
     render(<MemberDetailSheet app={app} sheet={makeSheet()} />);
     expect(screen.getByText('Max Mustermann')).toBeTruthy();
+  });
+
+  // Regression test: sheet.member is looked up from the already-loaded
+  // local member list (not an async fetch), so it can genuinely be
+  // undefined -- e.g. a stale bookmarked or browser-back/forward URL for a
+  // member who has since been removed. This used to force-unwrap into a
+  // render-time crash instead of a graceful empty state.
+  it('renders a not-found state instead of crashing when member is undefined', () => {
+    const app = makeApp();
+    expect(() =>
+      render(<MemberDetailSheet app={app} sheet={makeSheet({ member: undefined })} />),
+    ).not.toThrow();
+    expect(screen.getByText('Dieses Mitglied wurde nicht gefunden. Es könnte entfernt worden sein.')).toBeTruthy();
   });
 
   it('renders the member email in contact section', () => {
@@ -237,7 +251,10 @@ describe('MemberFormSheet', () => {
     vi.clearAllMocks();
   });
 
-  const formSheet: SheetState = { type: 'memberForm' } as SheetState;
+  // self: true by default since most of these tests exercise generic form
+  // behavior, not the self-vs-admin-editing-someone-else distinction; the
+  // photo-visibility tests below cover the self: false case explicitly.
+  const formSheet: SheetState = { type: 'memberForm', self: true } as SheetState;
 
   function makeFormApp(
     formOverrides: Record<string, unknown> = {},
@@ -279,10 +296,48 @@ describe('MemberFormSheet', () => {
     expect(inputs.length).toBeGreaterThanOrEqual(1);
   });
 
+  it('caps the birthday input at 1900-01-01 matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = document.querySelector('input[type="date"]') as HTMLInputElement;
+    expect(input.min).toBe('1900-01-01');
+  });
+
   it('renders the address input field', () => {
     const app = makeFormApp();
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     expect(screen.getByPlaceholderText('Straße, PLZ Ort')).toBeTruthy();
+  });
+
+  // Regression test: name/phone/address had no client-side maxLength, unlike
+  // every other create/edit form field, matching the backend's
+  // validate.MaxLen bounds (255 / 32 / 500).
+  it('caps the name input at 255 characters matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = screen.getByPlaceholderText('Vor- und Nachname') as HTMLInputElement;
+    expect(input.maxLength).toBe(255);
+  });
+
+  it('caps the phone input at 32 characters matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = screen.getByPlaceholderText('+49 …') as HTMLInputElement;
+    expect(input.maxLength).toBe(32);
+  });
+
+  it('caps the address input at 500 characters matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = screen.getByPlaceholderText('Straße, PLZ Ort') as HTMLInputElement;
+    expect(input.maxLength).toBe(500);
+  });
+
+  it('caps the email input at 254 characters matching the backend limit', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const input = screen.getByPlaceholderText('name@example.de') as HTMLInputElement;
+    expect(input.maxLength).toBe(254);
   });
 
   it('renders the save button', () => {
@@ -292,10 +347,17 @@ describe('MemberFormSheet', () => {
   });
 
   it('calls saveMember when save button is clicked', () => {
-    const app = makeFormApp();
+    const app = makeFormApp({ name: 'Alice' });
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     fireEvent.click(screen.getByRole('button', { name: /Profil speichern/i }));
     expect(app.saveMember).toHaveBeenCalled();
+  });
+
+  it('disables the save button when the name is empty', () => {
+    const app = makeFormApp({ name: '' });
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    fireEvent.click(screen.getByRole('button', { name: /Profil speichern/i }));
+    expect(app.saveMember).not.toHaveBeenCalled();
   });
 
   it('shows name validation error on blur when name is empty', () => {
@@ -368,6 +430,48 @@ describe('MemberFormSheet', () => {
     const app = makeFormApp({ photo: 'data:image/png;base64,abc' });
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     expect(screen.getByText(/Foto ändern/i)).toBeTruthy();
+  });
+
+  it('hides the photo control when an admin edits someone else\'s profile', () => {
+    // No backend endpoint exists to set another member's photo, so the
+    // control must not be shown at all when self is false.
+    const app = makeFormApp({ photo: null }, {}, true);
+    const otherSheet: SheetState = { type: 'memberForm', self: false } as SheetState;
+    render(<MemberFormSheet app={app} sheet={otherSheet} />);
+    expect(screen.queryByText(/Foto hochladen/i)).toBeNull();
+    expect(screen.queryByText(/Foto ändern/i)).toBeNull();
+  });
+
+  // Regression test: the photo input's onChange used to call
+  // app.onFile(e, (d) => app.setFormVal({ photo: d })) unconditionally --
+  // setFormVal writes into the single shared, untyped form buffer regardless
+  // of which sheet is open. If the user closed this member form (or opened a
+  // different sheet reading the same form.photo field, e.g. team settings)
+  // before the FileReader read completed, the resolved callback would
+  // silently overwrite that other sheet's in-progress photo with this one.
+  it('does not apply the photo via setState if the member form is no longer open when the read completes', () => {
+    const app = makeFormApp({ photo: null });
+    app.state.sheet = formSheet;
+    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const fileInput = document.querySelector('input[type="file"]')!;
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
+
+    expect(app.onFile).toHaveBeenCalledTimes(1);
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+    onFileCb('data:image/png;base64,photodata');
+
+    expect(app.setState).toHaveBeenCalledTimes(1);
+    const updater = (app.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as (
+      s: AppState,
+    ) => Partial<AppState>;
+
+    // Sheet unchanged (still this memberForm): the update applies.
+    expect(updater({ ...app.state, sheet: formSheet } as never)).toEqual({
+      form: { ...app.state.form, photo: 'data:image/png;base64,photodata' },
+    });
+    // User has since closed the sheet (or opened a different one): no-op.
+    expect(updater({ ...app.state, sheet: null } as never)).toEqual({});
+    expect(updater({ ...app.state, sheet: { type: 'teamSettings' } } as never)).toEqual({});
   });
 
   it('shows busy state on save button when busy is "save"', () => {

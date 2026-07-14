@@ -168,6 +168,7 @@ export function CommentSheet({ app, sheet }: SheetProps) {
         value={F.commentText || ''}
         onChange={(e) => app.onFormInput(e)}
         placeholder={t('attendance.commentPlaceholder')}
+        maxLength={500}
         style={{ ...inputSx, minHeight: '100px', resize: 'vertical' }}
       />
       {sheet.status === 'no' ? (

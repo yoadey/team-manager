@@ -99,6 +99,11 @@ type Config struct {
 	// rate limiting keys on the raw TCP peer address until explicitly
 	// configured). Set via TRUSTED_PROXY_CIDRS (comma-separated CIDRs).
 	TrustedProxyCIDRs []string
+	// LogLevel controls the minimum level the JSON structured logger emits.
+	// Set via LOG_LEVEL (debug|info|warn|error, case-insensitive). Defaults
+	// to info; an unrecognized value also falls back to info rather than
+	// failing startup over a logging-verbosity typo.
+	LogLevel slog.Level
 }
 
 func Load() (*Config, error) {
@@ -155,6 +160,8 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	logLevel := loadLogLevel()
+
 	return &Config{
 		Port:                      envOr("PORT", "8080"),
 		DatabaseURL:               dbURL,
@@ -176,7 +183,24 @@ func Load() (*Config, error) {
 		RetentionSessionDays:      retentionSessionDays,
 		RetentionAuditLogDays:     retentionAuditLogDays,
 		TrustedProxyCIDRs:         trustedProxyCIDRs,
+		LogLevel:                  logLevel,
 	}, nil
+}
+
+// loadLogLevel reads LOG_LEVEL (debug|info|warn|error, case-insensitive),
+// defaulting to info. An unrecognized value also falls back to info --
+// logging verbosity isn't worth failing startup over.
+func loadLogLevel() slog.Level {
+	switch strings.ToLower(os.Getenv("LOG_LEVEL")) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // loadSessionTTLHours reads SESSION_TTL_HOURS, defaulting to 720 (30 days).
@@ -291,7 +315,11 @@ func loadTrustedProxyCIDRs() ([]string, error) {
 func validateDatabaseURL(dsn string) error {
 	u, err := url.Parse(dsn)
 	if err != nil {
-		return fmt.Errorf("DATABASE_URL: %w: %w", ErrInvalidDatabaseURL, err)
+		// Deliberately drop err: url.Error.Error() embeds the full input
+		// string, so wrapping it here would leak the DSN -- including a
+		// plaintext password -- into the startup log line this ultimately
+		// reaches (main.go's slog.Error("config error", "err", err)).
+		return ErrInvalidDatabaseURL
 	}
 	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
 		return ErrInvalidDatabaseURL

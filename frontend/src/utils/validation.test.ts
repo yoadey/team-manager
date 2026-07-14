@@ -53,6 +53,24 @@ describe('validateMoneyAmount', () => {
   it('rejects zero when allowZero is explicitly false', () => {
     expect(validateMoneyAmount('0', { allowZero: false }).ok).toBe(false);
   });
+
+  // Regression test: validateMoneyAmount had no upper bound, unlike the
+  // backend's amount cap (100000000 cents / €1,000,000) on
+  // CreateTransactionRequest/CreatePenaltyRequest/UpdateContributionRequest,
+  // so an accidental extra digit passed client-side validation and only
+  // failed with a raw, unlocalized backend error string.
+  it('rejects amounts above an explicit max', () => {
+    const result = validateMoneyAmount('1000000.01', { positive: true, max: 1000000 });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts an amount exactly at the max', () => {
+    expect(validateMoneyAmount('1000000', { positive: true, max: 1000000 })).toEqual({ ok: true, value: 1000000 });
+  });
+
+  it('has no upper bound when max is not specified', () => {
+    expect(validateMoneyAmount('99999999', { positive: true }).ok).toBe(true);
+  });
 });
 
 describe('validateDateRange', () => {
@@ -211,5 +229,17 @@ describe('validateBirthday', () => {
 
   it('rejects an invalid calendar date', () => {
     expect(validateBirthday('2023-13-45', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
+  });
+
+  // Regression test: validateBirthday had no lower bound, unlike the
+  // backend's validate.Birthday (rejects anything before 1900-01-01), so a
+  // typo like 1091-05-06 instead of 1991-05-06 passed client-side validation
+  // and only failed at save time with a raw, unlocalized backend message.
+  it('rejects a date before 1900-01-01', () => {
+    expect(validateBirthday('1899-12-31', 'ungültig')).toEqual({ ok: false, message: 'ungültig' });
+  });
+
+  it('accepts a date exactly at the 1900-01-01 lower bound', () => {
+    expect(validateBirthday('1900-01-01', 'ungültig')).toEqual({ ok: true, value: '1900-01-01' });
   });
 });

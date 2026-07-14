@@ -9,13 +9,24 @@ import { config } from '@/config';
 
 export function Login() {
   const { state, doLogin, doPasswordLogin } = useApp();
-  const { providers, busy } = state;
+  const { providers, busy, error } = state;
 
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
+  // busy is unused before authentication beyond the 'login:*' values this
+  // screen itself sets, so any truthy busy means a login is in flight --
+  // every control must disable while ANY one is pending, not just its own.
+  // Without this, clicking a second provider (or the password form) while
+  // the first is still resolving starts a second, overlapping login: the
+  // shared `busy` field gets silently clobbered, and whichever request
+  // resolves last wins establishSession's final user/team state even though
+  // the session cookie may belong to the OTHER provider's login.
+  const loginInFlight = !!busy;
+
   function handleProviderClick(p: (typeof providers)[number]) {
+    if (loginInFlight) return;
     if (p.id === 'password') {
       setShowPasswordForm(true);
     } else {
@@ -25,6 +36,7 @@ export function Login() {
 
   function handlePasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (loginInFlight) return;
     doPasswordLogin(email, password);
   }
 
@@ -101,6 +113,27 @@ export function Login() {
           </Box>
         </Box>
 
+        {error && (
+          <Box
+            role="alert"
+            sx={{
+              mb: '16px',
+              p: '12px 14px',
+              borderRadius: '14px',
+              background: NEUTRAL.errorBg,
+              color: NEUTRAL.error,
+              fontSize: '13px',
+              lineHeight: 1.5,
+              display: 'flex',
+              gap: '10px',
+              alignItems: 'flex-start',
+            }}
+          >
+            <Sym name="error" size={18} color={NEUTRAL.error} sx={{ lineHeight: 1.2 }} />
+            {error}
+          </Box>
+        )}
+
         {showPasswordForm ? (
           <Box component="form" onSubmit={handlePasswordSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <Box component="label" htmlFor="login-email" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -136,7 +169,7 @@ export function Login() {
             <ButtonBase
               component="button"
               type="submit"
-              disabled={busy === 'login:password'}
+              disabled={loginInFlight}
               sx={{
                 width: '100%',
                 p: '12px 16px',
@@ -169,7 +202,7 @@ export function Login() {
                 <ButtonBase
                   key={p.id}
                   onClick={() => handleProviderClick(p)}
-                  disabled={isBusy}
+                  disabled={loginInFlight}
                   sx={{
                     display: 'flex',
                     alignItems: 'center',

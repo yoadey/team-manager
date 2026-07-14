@@ -3,9 +3,11 @@ package events
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
@@ -18,7 +20,7 @@ import (
 
 // eventService is the interface the Handler relies on.
 type eventService interface {
-	ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error)
+	ListEvents(ctx context.Context, teamID, userID string, scope gen.ListEventsParamsScope, cursor string, limit int) ([]gen.TeamEvent, *string, error)
 	CreateEvent(ctx context.Context, teamID, userID string, body *gen.CreateEventJSONRequestBody) (*gen.TeamEvent, error)
 	GetEvent(ctx context.Context, teamID, userID, eventID string) (*gen.TeamEvent, error)
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
@@ -29,7 +31,7 @@ type eventService interface {
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
 	ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error)
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
-	SetNomination(ctx context.Context, eventID, teamID string, req gen.SetNominationRequest) error
+	SetNomination(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error
 }
 
 // Handler implements the event-related methods of gen.StrictServerInterface.
@@ -52,9 +54,12 @@ func (h *Handler) ListEvents(ctx context.Context, request gen.ListEventsRequestO
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 
-	scope := "upcoming"
+	scope := gen.Upcoming
 	if request.Params.Scope != nil {
-		scope = string(*request.Params.Scope)
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
+		scope = *request.Params.Scope
 	}
 	limit := pagination.ParseLimit(request.Params.Limit)
 	cursor := ""
@@ -87,6 +92,20 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 	}
 	if err := validate.Name(request.Body.Title); err != nil {
 		return nil, apierror.BadRequest("title: " + err.Error())
+	}
+	if !request.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid event type")
+	}
+	if request.Body.Date.IsZero() {
+		return nil, apierror.BadRequest("date: is required")
+	}
+	if err := validateEventFields(request.Body.Location, request.Body.Note, request.Body.MeetTime, request.Body.StartTime, request.Body.EndTime, request.Body.ResponseMode); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if request.Body.NominatedRoleIds != nil {
+		if err := validate.UUIDItems(len(*request.Body.NominatedRoleIds), "nominatedRoleIds"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 
 	ev, err := h.svc.CreateEvent(ctx, request.TeamId.String(), user.Id.String(), request.Body)
@@ -129,7 +148,7 @@ func (h *Handler) GetEvent(ctx context.Context, request gen.GetEventRequestObjec
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
 
 // UpdateEvent updates an event or series.
-func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventRequestObject) (gen.UpdateEventResponseObject, error) {
+func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventRequestObject) (gen.UpdateEventResponseObject, error) { //nolint:gocognit,cyclop // sequential field validation + error-cause mapping, not nested branching
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
@@ -143,9 +162,23 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 			return nil, apierror.BadRequest("title: " + err.Error())
 		}
 	}
+	if request.Body.Type != nil && !request.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid event type")
+	}
+	if err := validateEventFields(request.Body.Location, request.Body.Note, request.Body.MeetTime, request.Body.StartTime, request.Body.EndTime, request.Body.ResponseMode); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if request.Body.NominatedRoleIds != nil {
+		if err := validate.UUIDItems(len(*request.Body.NominatedRoleIds), "nominatedRoleIds"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 
 	scope := "single"
 	if request.Params.Scope != nil {
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
 		scope = string(*request.Params.Scope)
 	}
 
@@ -156,6 +189,9 @@ func (h *Handler) UpdateEvent(ctx context.Context, request gen.UpdateEventReques
 		}
 		if errors.Is(err, ErrInvalidNominatedRoleIDs) {
 			return nil, apierror.BadRequest("nominated_role_ids must refer to roles belonging to this team")
+		}
+		if errors.Is(err, ErrEndTimeBeforeStartTime) {
+			return nil, apierror.BadRequest(ErrEndTimeBeforeStartTime.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to update event")
@@ -175,6 +211,9 @@ func (h *Handler) DeleteEvent(ctx context.Context, request gen.DeleteEventReques
 
 	scope := "single"
 	if request.Params.Scope != nil {
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
 		scope = string(*request.Params.Scope)
 	}
 
@@ -201,9 +240,15 @@ func (h *Handler) SetEventStatus(ctx context.Context, request gen.SetEventStatus
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if !request.Body.Status.Valid() {
+		return nil, apierror.BadRequest("status: not a valid event status")
+	}
 
 	scope := "single"
 	if request.Params.Scope != nil {
+		if !request.Params.Scope.Valid() {
+			return nil, apierror.BadRequest("scope: not a valid value")
+		}
 		scope = string(*request.Params.Scope)
 	}
 
@@ -258,6 +303,9 @@ func (h *Handler) AddEventComment(ctx context.Context, request gen.AddEventComme
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")
 		}
+		if errors.Is(err, ErrTooManyComments) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "AddEventComment failed", "err", err)
 		return nil, apierror.Internal("failed to add comment")
 	}
@@ -305,7 +353,7 @@ func (h *Handler) ListAttendance(ctx context.Context, request gen.ListAttendance
 // ─── SetAttendance ───────────────────────────────────────────────────────────
 
 // SetAttendance upserts an attendance record.
-func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) {
+func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) { //nolint:cyclop // sequential field validation + error-cause mapping, not nested branching
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
@@ -313,6 +361,27 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
+	}
+	if !request.Body.Status.Valid() {
+		return nil, apierror.BadRequest("status: not a valid attendance status")
+	}
+	if request.Body.ReasonVisibility != nil && !request.Body.ReasonVisibility.Valid() {
+		return nil, apierror.BadRequest("reasonVisibility: not a valid value")
+	}
+	if request.Body.Reason != nil {
+		if err := validate.MaxLen(*request.Body.Reason, 500, "reason"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	// reasonId has no length cap in the OpenAPI schema, unlike its sibling
+	// reason -- an unbounded TEXT column with no validation at all. Capped
+	// to match reason's bound; it's stored per attendance row for every
+	// self-service caller (attendance is self-service), so leaving it
+	// unbounded is an unnecessary storage/DoS surface.
+	if request.Body.ReasonId != nil {
+		if err := validate.MaxLen(*request.Body.ReasonId, 500, "reasonId"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
 	}
 
 	// Use user from body (manager setting attendance for others) or fall back to authed user.
@@ -329,6 +398,9 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		if errors.Is(err, ErrSetAttendanceForbidden) {
 			return nil, apierror.Forbidden("not allowed to set attendance for another member")
 		}
+		if errors.Is(err, ErrAttendanceStatusNotNominated) {
+			return nil, apierror.BadRequest("status 'not_nominated' may only be set via the nominations endpoint")
+		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")
 	}
@@ -340,7 +412,7 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 
 // SetNomination sets or removes nomination for a user on an event.
 func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRequestObject) (gen.SetNominationResponseObject, error) {
-	_, ok := auth.UserFromContext(ctx)
+	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
@@ -348,10 +420,16 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 	if request.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if request.Body.UserId == uuid.Nil {
+		return nil, apierror.BadRequest("userId: is required")
+	}
 
-	if err := h.svc.SetNomination(ctx, request.EventId.String(), request.TeamId.String(), *request.Body); err != nil {
+	if err := h.svc.SetNomination(ctx, request.EventId.String(), user.Id.String(), request.TeamId.String(), *request.Body); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("event not found")
+		}
+		if errors.Is(err, ErrSetNominationForbidden) {
+			return nil, apierror.Forbidden("events:write required to nominate a member")
 		}
 		h.logger.ErrorContext(ctx, "SetNomination failed", "err", err)
 		return nil, apierror.Internal("failed to set nomination")
@@ -360,17 +438,76 @@ func (h *Handler) SetNomination(ctx context.Context, request gen.SetNominationRe
 	return gen.SetNomination204Response{}, nil
 }
 
+// errInvalidResponseMode is returned by validateEventFields when responseMode
+// is set to a value outside the ResponseMode enum.
+var errInvalidResponseMode = errors.New("responseMode: not a valid response mode")
+
+// validateEventFields validates the optional free-text/time/enum fields shared
+// by CreateEvent and UpdateEvent. No request-schema validator is wired into
+// the router (see events/service.go), so these are the only enforcement point
+// for the openapi.yaml-declared constraints on these fields.
+func validateEventFields(location, note, meetTime, startTime, endTime *string, responseMode *gen.ResponseMode) error {
+	if err := validateEventTextFields(location, note); err != nil {
+		return err
+	}
+	if err := validateEventTimeFields(meetTime, startTime, endTime); err != nil {
+		return err
+	}
+	if responseMode != nil && !responseMode.Valid() {
+		return errInvalidResponseMode
+	}
+	return nil
+}
+
+// validateEventTextFields validates the optional location/note free-text fields.
+func validateEventTextFields(location, note *string) error {
+	if location != nil {
+		if err := validate.MaxLen(*location, 255, "location"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if note != nil {
+		if err := validate.MaxLen(*note, 10000, "note"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	return nil
+}
+
+// validateEventTimeFields validates the optional HH:MM time-of-day fields.
+func validateEventTimeFields(meetTime, startTime, endTime *string) error {
+	if meetTime != nil && *meetTime != "" {
+		if err := validate.TimeOfDay(*meetTime, "meetTime"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if startTime != nil && *startTime != "" {
+		if err := validate.TimeOfDay(*startTime, "startTime"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if endTime != nil && *endTime != "" {
+		if err := validate.TimeOfDay(*endTime, "endTime"); err != nil {
+			return fmt.Errorf("%w", err)
+		}
+	}
+	if startTime != nil && *startTime != "" && endTime != nil && *endTime != "" && *endTime <= *startTime {
+		return ErrEndTimeBeforeStartTime
+	}
+	return nil
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-// notFoundProblem builds a gen.NotFoundApplicationProblemPlusJSONResponse value.
+// notFoundProblem builds a gen.NotFoundApplicationProblemPlusJSONResponse
+// value, with a Type URI computed via apierror so it honors
+// ERROR_TYPE_BASE_URI like every other error response.
 func notFoundProblem(detail string) gen.NotFoundApplicationProblemPlusJSONResponse {
-	title := "Not Found"
-	status := http.StatusNotFound
-	typeStr := "https://teammanager.example/errors/not-found"
+	e := apierror.New(http.StatusNotFound, "Not Found", detail)
 	return gen.NotFoundApplicationProblemPlusJSONResponse{
-		Title:  &title,
-		Status: &status,
+		Title:  &e.Title,
+		Status: &e.Status,
 		Detail: &detail,
-		Type:   &typeStr,
+		Type:   &e.Type,
 	}
 }

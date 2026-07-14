@@ -10,11 +10,18 @@ DATABASE_URL    ?= postgres://teammanager:teammanager@localhost:5432/teammanager
 all: generate build
 
 ## Install code-generation and quality tools (run once after cloning)
+# All tools are pinned (not @latest) so a compromised or yanked upstream
+# release can't execute unpinned on a dev machine or in CI; bump deliberately.
+# oapi-codegen and goose are pinned to match the versions in go.mod so the
+# CLI used to (re)generate code / run migrations agrees with the library
+# version the rest of the build depends on. golangci-lint is pinned to match
+# .github/workflows/ci.yml's version so local `make lint` and CI agree on
+# findings — bump both together deliberately.
 tools:
-	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest
-	go install github.com/pressly/goose/v3/cmd/goose@latest
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install golang.org/x/vuln/cmd/govulncheck@latest
+	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.1
+	go install github.com/pressly/goose/v3/cmd/goose@v3.24.2
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.12.2
+	go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
 
 ## Generate Go server code from OpenAPI spec
 generate:
@@ -45,9 +52,14 @@ test:
 test-unit:
 	go test ./... -race -count=1 -short
 
-## Run integration tests (requires Docker for testcontainers)
+## Run integration tests (requires Docker for testcontainers). The old
+## "-run Integration" filter matched zero test names (no Test* function in
+## this codebase contains that substring) and silently reported "ok" having
+## run nothing; Docker-backed tests are actually gated by
+## testutil.RequireDocker checking testing.Short(), not by test naming, so
+## the correct way to select them is to run everything WITHOUT -short.
 test-integration:
-	go test ./... -race -count=1 -run Integration
+	go test ./... -race -count=1
 
 ## Run tests with coverage report
 test-coverage:

@@ -27,14 +27,15 @@ docker compose up          # Postgres + Backend + Frontend
 
 ```
 team-manager/
-├── frontend/              React 18 + TypeScript SPA
+├── frontend/              React 19 + TypeScript SPA
 │   ├── src/               Application source
-│   │   ├── services/serviceLayer.ts   Mock backend (replace with real API)
+│   │   ├── services/serviceLayer.ts   Mock/real backend switch (see "Connecting the Real Backend")
 │   │   └── ...
 │   ├── package.json
 │   └── vite.config.ts
 ├── backend/               Go REST API
 │   ├── cmd/server/main.go Entry point
+│   ├── cmd/healthcheck/   Docker HEALTHCHECK binary (no HTTP client at runtime)
 │   ├── internal/
 │   │   ├── auth/          Auth module (password login, JWT, OIDC-ready)
 │   │   ├── teams/         Teams, invites
@@ -52,6 +53,12 @@ team-manager/
 │   │   ├── db/            DB pool + migration runner
 │   │   ├── middleware/    HTTP middleware (auth, logging, CORS, rate-limit)
 │   │   ├── apierror/      RFC 9457 Problem Details
+│   │   ├── audit/         Audit log
+│   │   ├── jobs/          River-based background workers (retention, notifications)
+│   │   ├── metrics/       Prometheus metrics (business + retention job)
+│   │   ├── observability/ OpenTelemetry tracing + Sentry wiring
+│   │   ├── pagination/    Keyset pagination + HMAC-signed cursors
+│   │   ├── validate/      Shared input-validation helpers
 │   │   ├── config/        Environment config
 │   │   └── testutil/      Test helpers (testcontainers)
 │   ├── openapi/openapi.yaml  Source of truth for API contract
@@ -66,17 +73,18 @@ team-manager/
 
 ### Frontend
 
-- **React 18** + **TypeScript 5** (strict mode)
-- **Material UI v6** for components, **Emotion** for styling
-- **Vite 6** for bundling, **Vitest 2** for tests
+- **React 19** + **TypeScript 5** (strict mode)
+- **Material UI v9** for components, **Emotion** for styling
+- **Vite 8** for bundling, **Vitest 4** for tests
 - **State-based routing** (no router dependency; navigation driven by `state.route`)
 - **i18n** via lightweight in-house layer (`src/i18n`)
 - All state in `src/context/AppContext.tsx`; access via `useApp()`
-- Mock backend at `src/services/serviceLayer.ts` — replace bodies with `fetch()` to connect real API
+- `src/services/serviceLayer.ts` exports `api`, switching between the in-memory mock and the real
+  backend based on `VITE_API_BASE_URL` (see "Connecting the Real Backend" below)
 
 ### Backend
 
-- **Go 1.24+** with **Chi v5** router
+- **Go 1.25+** with **Chi v5** router
 - **PostgreSQL 17** via **pgx/v5**; migrations via **goose**
 - **Spec-first**: `openapi/openapi.yaml` → `oapi-codegen` → `internal/gen/api.gen.go`; never edit gen manually
 - **JWT (RS256)** session management; keys configurable via env; auto-generates dev keys when empty
@@ -87,6 +95,8 @@ team-manager/
 
 Each team member has roles; each role has per-module permission levels (`none | read | write`). Modules: `events`, `members`, `finances`, `news`, `polls`, `settings`. Permissions are stored as JSONB in Postgres.
 
+Enforcement (`internal/middleware/authz.go`, `RequirePermission`): mutating requests (POST/PUT/PATCH/DELETE) require `write` on the relevant module, as expected — but GET requests are *also* gated, requiring at least `read`; a module set to `none` hides read access too, not just writes. Self-service routes (an event's own attendance/comments, a poll vote, absences, notifications/seen) never require `write` on their module regardless of method, but still require at least `read` where the route reads back module data (e.g. `polls/vote` returns the assembled poll) — self-service exempts a caller from `write`, not from `none`. `stats` and `notifications` aren't modules of their own: `stats` piggybacks on `events:read` (its data is event/attendance-derived), and `notifications` has no route-level gate at all since it aggregates across modules — instead, `notifications.Service.List` filters each returned item server-side by the caller's permission on that item's originating module.
+
 ## OpenAPI Contract
 
 `backend/openapi/openapi.yaml` is the source of truth. After editing it:
@@ -95,7 +105,8 @@ Each team member has roles; each role has per-module permission levels (`none | 
 cd backend && make generate  # regenerates internal/gen/api.gen.go
 ```
 
-The TypeScript client is also generated from this spec (future: `openapi-typescript` + `openapi-fetch`).
+The TypeScript client is also generated from this spec via `openapi-typescript` + `openapi-fetch`
+(`make generate-ts` at the repo root; see "Connecting the Real Backend" below).
 
 ## Environment Variables
 
@@ -139,12 +150,27 @@ The TypeScript client is also generated from this spec (future: `openapi-typescr
 | `SENTRY_DSN`      | _(empty)_                   | Sentry DSN for backend error tracking; disabled when empty |
 | `ENVIRONMENT`     | _(empty)_                   | Environment label attached to Sentry events |
 | `ERROR_TYPE_BASE_URI` | _(empty)_               | Base URI prefix for the `type` field of RFC 9457 problem+json error responses (e.g. `https://docs.example.com/errors`); left as relative paths when unset. |
+| `LOG_LEVEL`       | `info`                      | Minimum level the JSON structured logger emits (`debug`\|`info`\|`warn`\|`error`, case-insensitive). An unrecognized value falls back to `info` rather than failing startup. |
+| `API_DEPRECATION_DATE` | _(empty)_              | When set, emitted as both the RFC 8594 `Deprecation` and `Sunset` response headers on every request, so API clients can programmatically detect a pending deprecation window. Any string is passed through verbatim (e.g. `@1735689600` or an HTTP-date) — no format validation. |
 
-> **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation. Set
-> the new key first, then append the old key(s): `COOKIE_ENCRYPTION_KEYS=<new>,<old>`.
-> Encryption always uses the first key; decryption tries all keys in order. Old keys can
-> be removed once all sessions using them have expired (after `SESSION_TTL_HOURS`).
-> Generate a new key with `openssl rand -base64 32`.
+> **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation.
+> Encryption always uses the *first* key; decryption tries all keys in order. Like
+> `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` (see docs/operations.md's JWT key rotation runbook),
+> this env var is only read once at process start — updating the Secret alone does
+> nothing until pods are restarted, and a *single* rolling restart straight to
+> `<new>,<old>` is not actually zero-downtime: mid-rollout, already-restarted pods
+> encrypt new cookies with `<new>` while not-yet-restarted pods have never loaded
+> `<new>` and reject them, forcing re-login for any user whose requests land on both
+> pod generations. The genuinely zero-downtime sequence is **two** rolling restarts:
+> 1. Set `COOKIE_ENCRYPTION_KEYS=<old>,<new>` (new key appended, not prepended) and
+>    restart every pod — every replica can now decrypt both, but all still encrypt
+>    with `<old>`, so nothing changes for existing/new cookies yet.
+> 2. Once step 1 has fully rolled out, flip to `COOKIE_ENCRYPTION_KEYS=<new>,<old>`
+>    and restart every pod again — this is the actual cutover to encrypting with
+>    `<new>`; every replica already knows `<new>` from step 1, so no pod ever rejects
+>    a cookie encrypted by another.
+> Old keys can be removed once all sessions using them have expired (after
+> `SESSION_TTL_HOURS`). Generate a new key with `openssl rand -base64 32`.
 
 ## Testing
 
@@ -188,8 +214,13 @@ The real backend integration is already implemented, not a future step:
 - `frontend/src/services/serviceContract.test.ts` cross-tests both implementations
   against the same contract to keep them from drifting apart.
 
-When the OpenAPI spec changes, regenerate `frontend/src/api/types.gen.ts` (via
-`openapi-typescript`, consumed by the `openapi-fetch` client in
-`frontend/src/api/client.ts`) after running `make generate` in `backend/`. There is no
-wired npm script for this yet — run `openapi-typescript` directly against
-`backend/openapi/openapi.yaml`.
+When the OpenAPI spec changes, regenerate both clients from the repo root:
+
+```bash
+make generate     # internal/gen/api.gen.go
+make generate-ts  # frontend/src/api/types.gen.ts (via openapi-typescript)
+```
+
+`frontend/src/api/types.gen.ts` is consumed by the `openapi-fetch` client in
+`frontend/src/api/client.ts`. CI's `backend-openapi-drift` job runs both generators and fails the
+build if the checked-in output doesn't match `backend/openapi/openapi.yaml`.

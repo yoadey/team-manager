@@ -4,6 +4,12 @@ description: Sports-club team management application (backend API + optional fro
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+# autoscaling/v2 (templates/hpa.yaml, GA in 1.23) is the binding minimum --
+# policy/v1 (pdb.yaml) and batch/v1 CronJob (backup-cronjob.yaml) only need
+# 1.21. Without this, installing on an older cluster fails with an opaque
+# API-server "no matches for kind" error instead of Helm's own clear
+# "chart requires kubernetes version X" preflight message.
+kubeVersion: ">=1.23.0-0"
 keywords:
   - team-manager
   - sports

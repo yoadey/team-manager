@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,20 @@ type Handler struct {
 func NewHandler(svc absenceService, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
+
+// maxAbsenceSpanDays caps how far apart from/to may be. Generous for any real
+// absence (illness, injury, long-term leave), while preventing an accidental
+// or malicious multi-decade span (e.g. a typo'd year) from distorting
+// attendance reporting indefinitely. Checked here on create, and on update
+// whenever both from/to are present in the same PATCH (the span is directly
+// computable then, no extra query needed) for an immediate, specific 400.
+// A partial update supplying only one of the two fields skips this
+// in-handler check (UpdateAbsence's patch is applied via a single COALESCE
+// UPDATE with no prior read, so re-deriving the resulting span here would
+// need an extra query) -- that case is instead caught by the
+// absences_span_within_limit DB CHECK constraint (migration 00016), mapped
+// to ErrSpanTooLong in the repository.
+const maxAbsenceSpanDays = 1095 // ~3 years
 
 // ListAbsences returns paginated absences for a team.
 func (h *Handler) ListAbsences(ctx context.Context, req gen.ListAbsencesRequestObject) (gen.ListAbsencesResponseObject, error) {
@@ -72,8 +87,22 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	if req.Body.UserId != user.Id {
 		return nil, apierror.Forbidden("cannot create an absence for another user")
 	}
-	if !req.Body.To.IsZero() && req.Body.From.After(req.Body.To.Time) {
+	// from/to are non-pointer Date fields (required per openapi.yaml), but
+	// nothing in this stack enforces "required" at the request-decode layer
+	// — an omitted field just leaves Go's zero time.Time{}, indistinguishable
+	// from a genuinely-absent value here. Without this explicit check, an
+	// omitted `to` skipped the ordering check below entirely (From.After on
+	// a zero To is never true), and an omitted `from` passed it vacuously
+	// (zero time is never After anything), silently persisting a ~2000-year
+	// absence instead of rejecting the malformed request.
+	if req.Body.From.IsZero() || req.Body.To.IsZero() {
+		return nil, apierror.BadRequest("'from' and 'to' are required")
+	}
+	if req.Body.From.After(req.Body.To.Time) {
 		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	}
+	if req.Body.To.Sub(req.Body.From.Time) > maxAbsenceSpanDays*24*time.Hour {
+		return nil, apierror.BadRequest("absence span must not exceed 3 years")
 	}
 	if req.Body.Reason != nil {
 		if err := validate.MaxLen(*req.Body.Reason, 500, "reason"); err != nil {
@@ -82,6 +111,21 @@ func (h *Handler) CreateAbsence(ctx context.Context, req gen.CreateAbsenceReques
 	}
 	absence, err := h.svc.Create(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrInvalidDateRange) {
+			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
+		if errors.Is(err, ErrSpanTooLong) {
+			return nil, apierror.BadRequest("absence span must not exceed 3 years")
+		}
+		if errors.Is(err, ErrNotMember) {
+			// Same "not found" (not "forbidden") convention RequireMembership
+			// uses for a non-member, so a stale membership doesn't leak team
+			// existence any differently than the normal denial path would.
+			return nil, apierror.NotFound("not found")
+		}
+		if errors.Is(err, ErrOverlappingAbsence) {
+			return nil, apierror.UnprocessableEntity(ErrOverlappingAbsence.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to create absence")
 	}
@@ -139,8 +183,17 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if req.Body.From != nil && req.Body.To != nil && req.Body.From.After(req.Body.To.Time) {
-		return nil, apierror.BadRequest("'from' must not be after 'to'")
+	if req.Body.From != nil && req.Body.To != nil {
+		if req.Body.From.After(req.Body.To.Time) {
+			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
+		// Unlike the ordering check above, maxAbsenceSpanDays is otherwise only
+		// enforced on create (see its doc comment) -- but when both fields are
+		// present in the same PATCH, as here, the resulting span is computable
+		// directly with no extra DB read, so there's no reason to skip it.
+		if req.Body.To.Sub(req.Body.From.Time) > maxAbsenceSpanDays*24*time.Hour {
+			return nil, apierror.BadRequest("absence span must not exceed 3 years")
+		}
 	}
 	if req.Body.Reason != nil {
 		if err := validate.MaxLen(*req.Body.Reason, 500, "reason"); err != nil {
@@ -151,6 +204,15 @@ func (h *Handler) UpdateAbsence(ctx context.Context, req gen.UpdateAbsenceReques
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apierror.NotFound("absence not found")
+		}
+		if errors.Is(err, ErrInvalidDateRange) {
+			return nil, apierror.BadRequest("'from' must not be after 'to'")
+		}
+		if errors.Is(err, ErrSpanTooLong) {
+			return nil, apierror.BadRequest("absence span must not exceed 3 years")
+		}
+		if errors.Is(err, ErrOverlappingAbsence) {
+			return nil, apierror.UnprocessableEntity(ErrOverlappingAbsence.Error())
 		}
 		h.logger.ErrorContext(ctx, "UpdateAbsence failed", "err", err)
 		return nil, apierror.Internal("failed to update absence")

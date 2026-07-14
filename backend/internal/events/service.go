@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,12 +18,15 @@ import (
 
 // Sentinel errors for the events package.
 var (
-	ErrCreateEventNilBody      = errors.New("events.Service.CreateEvent: nil body")
-	ErrCreateEventNoRow        = errors.New("events.Service.CreateEvent: no row returned")
-	ErrUpdateEventNilBody      = errors.New("events.Service.UpdateEvent: nil body")
-	ErrInvalidNominatedRoleIDs = errors.New("nominated_role_ids contain roles not belonging to this team")
-	ErrSetAttendanceForbidden  = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
-	ErrRepeatWeeksTooLarge     = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
+	ErrCreateEventNilBody           = errors.New("events.Service.CreateEvent: nil body")
+	ErrCreateEventNoRow             = errors.New("events.Service.CreateEvent: no row returned")
+	ErrUpdateEventNilBody           = errors.New("events.Service.UpdateEvent: nil body")
+	ErrInvalidNominatedRoleIDs      = errors.New("nominated_role_ids contain roles not belonging to this team")
+	ErrSetAttendanceForbidden       = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
+	ErrSetNominationForbidden       = errors.New("events.Service.SetNomination: caller lacks events:write")
+	ErrAttendanceStatusNotNominated = errors.New("events.Service.SetAttendance: status 'not_nominated' may only be set via SetNomination")
+	ErrRepeatWeeksTooLarge          = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
+	ErrTooManyComments              = fmt.Errorf("event has reached the maximum of %d comments", maxCommentsPerEvent)
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -34,7 +38,7 @@ const maxRepeatWeeks = 104
 
 // eventRepo is the interface the Service relies on.
 type eventRepo interface {
-	ListEvents(ctx context.Context, teamID string, scope string, limit int, cur *ListCursor) ([]EventRow, error)
+	ListEvents(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *ListCursor) ([]EventRow, error)
 	GetEvent(ctx context.Context, eventID, teamID string) (*EventRow, error)
 	CreateEvent(ctx context.Context, teamID string, params *CreateEventParams) (*EventRow, error)
 	CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error)
@@ -42,14 +46,15 @@ type eventRepo interface {
 	SetStatus(ctx context.Context, eventID, teamID, status, scope string) (*EventRow, error)
 	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID, teamID string) (EventSummaryData, error)
-	GetMyAttendance(ctx context.Context, eventID, userID, teamID string) (*AttendanceDBRow, error)
+	GetMyEffectiveAttendance(ctx context.Context, eventID, userID, teamID string) (*EffectiveAttendance, error)
 	GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error)
-	GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]AttendanceDBRow, error)
+	GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]EffectiveAttendance, error)
 	ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error)
 	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
-	SetAttendance(ctx context.Context, eventID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
-	SetNomination(ctx context.Context, eventID, userID, teamID string, nominated bool) error
+	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
+	SetNomination(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
 	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
+	CountComments(ctx context.Context, eventID, teamID string) (int, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error)
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
 }
@@ -78,6 +83,7 @@ type Service struct {
 	pager       *pagination.Paginator
 	roleChecker teamRoleChecker
 	permChecker permissionChecker
+	logger      *slog.Logger
 }
 
 // NewService creates a new Service. pager may be nil (uses default Paginator).
@@ -86,11 +92,11 @@ type Service struct {
 // may be nil in tests that don't exercise SetAttendance; production callers
 // must supply it so that setting another member's attendance requires
 // events:write (see SetAttendance).
-func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker, permChecker permissionChecker) *Service {
+func NewService(repo eventRepo, enq jobEnqueuer, pager *pagination.Paginator, roleChecker teamRoleChecker, permChecker permissionChecker, logger *slog.Logger) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker, permChecker: permChecker}
+	return &Service{repo: repo, jobs: enq, pager: pager, roleChecker: roleChecker, permChecker: permChecker, logger: logger}
 }
 
 // validateNominatedRoles checks that all provided role IDs belong to teamID.
@@ -113,7 +119,7 @@ func (s *Service) validateNominatedRoles(ctx context.Context, teamID string, rol
 // ListEvents returns a keyset page of events (enriched with attendance summary
 // and the user's status) plus the cursor for the next page (nil on the last
 // page). cursor is the opaque token from a prior page ("" = first page).
-func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor string, limit int) ([]gen.TeamEvent, *string, error) {
+func (s *Service) ListEvents(ctx context.Context, teamID, userID string, scope gen.ListEventsParamsScope, cursor string, limit int) ([]gen.TeamEvent, *string, error) {
 	var cur *ListCursor
 	var decoded ListCursor
 	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
@@ -146,9 +152,9 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor 
 	if err != nil {
 		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 	}
-	var myAttendances map[uuid.UUID]AttendanceDBRow
+	var myAttendances map[uuid.UUID]EffectiveAttendance
 	if userID != "" {
-		myAttendances, err = s.repo.GetMyAttendances(ctx, eventIDs, userID)
+		myAttendances, err = s.repo.GetMyEffectiveAttendances(ctx, eventIDs, userID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 		}
@@ -161,6 +167,7 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID, scope, cursor 
 			st := gen.AttendanceStatus(myAtt.Status)
 			ev.MyStatus = &st
 			ev.MyReason = myAtt.Reason
+			ev.MyAuto = &myAtt.Auto
 		}
 		out = append(out, ev)
 	}
@@ -194,10 +201,10 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 
 	recurring := body.Recurring != nil && *body.Recurring
 	repeatWeeks := 1
-	if body.RepeatWeeks != nil && *body.RepeatWeeks > 0 {
+	if body.RepeatWeeks != nil {
 		repeatWeeks = *body.RepeatWeeks
 	}
-	if repeatWeeks > maxRepeatWeeks {
+	if repeatWeeks < 1 || repeatWeeks > maxRepeatWeeks {
 		return nil, ErrRepeatWeeksTooLarge
 	}
 
@@ -219,7 +226,7 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		params.ResponseMode = &rm
 	}
 	if body.NominatedRoleIds != nil {
-		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
+		params.NominatedRoleIds = *body.NominatedRoleIds
 	}
 
 	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
@@ -254,23 +261,21 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 				evID := row.Id
 				evTitle := row.Title
 				evDate := row.Date
-				_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+				if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
 					TeamID:     teamUUID,
 					Type:       "event_created",
 					ActorID:    actorUUID,
 					EventID:    &evID,
 					EventTitle: &evTitle,
 					EventDate:  &evDate,
-				})
+				}); err != nil {
+					s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_created"), slog.String("error", err.Error()))
+				}
 			}
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID, teamID)
-	if err != nil {
-		return nil, err
-	}
-	return &ev, nil
+	return s.enrichEventOrFallback(ctx, row, userID, teamID), nil
 }
 
 // ─── UpdateEvent ────────────────────────────────────────────────────────────
@@ -303,7 +308,12 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		params.ResponseMode = &rm
 	}
 	if body.NominatedRoleIds != nil {
-		params.NominatedRoleIds = append(params.NominatedRoleIds, *body.NominatedRoleIds...)
+		// Direct assignment (not append onto the nil zero value) so an
+		// explicit empty array ("clear all nominations") stays a non-nil
+		// empty slice -- append(nil, emptySlice...) returns nil per Go's
+		// append semantics, which buildUpdateSets' `!= nil` check would then
+		// read as "field not provided," silently no-op'ing the clear.
+		params.NominatedRoleIds = *body.NominatedRoleIds
 	}
 
 	if err := s.validateNominatedRoles(ctx, teamID, params.NominatedRoleIds); err != nil {
@@ -315,11 +325,7 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		return nil, fmt.Errorf("events.Service.UpdateEvent: %w", err)
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID, teamID)
-	if err != nil {
-		return nil, err
-	}
-	return &ev, nil
+	return s.enrichEventOrFallback(ctx, row, userID, teamID), nil
 }
 
 // ─── DeleteEvent ────────────────────────────────────────────────────────────
@@ -347,22 +353,20 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 			evID := row.Id
 			evTitle := row.Title
 			evDate := row.Date
-			_ = s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+			if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
 				TeamID:     row.TeamId,
 				Type:       "event_cancelled",
 				ActorID:    actorUUID,
 				EventID:    &evID,
 				EventTitle: &evTitle,
 				EventDate:  &evDate,
-			})
+			}); err != nil {
+				s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "event_cancelled"), slog.String("error", err.Error()))
+			}
 		}
 	}
 
-	ev, err := s.enrichEvent(ctx, row, userID, teamID)
-	if err != nil {
-		return nil, err
-	}
-	return &ev, nil
+	return s.enrichEventOrFallback(ctx, row, userID, teamID), nil
 }
 
 // ─── Comments ───────────────────────────────────────────────────────────────
@@ -381,8 +385,19 @@ func (s *Service) ListComments(ctx context.Context, eventID, teamID string, limi
 	return out, nil
 }
 
-// AddComment adds a comment to an event scoped to teamID.
+// AddComment adds a comment to an event scoped to teamID. Returns
+// ErrTooManyComments once the event has reached maxCommentsPerEvent --
+// events/comments is a self-service write reachable by any team member with
+// no RBAC gate and no other natural bound, unlike finances' write paths
+// which already enforce an equivalent per-team cap (maxTransactionsPerTeam).
 func (s *Service) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error) {
+	count, err := s.repo.CountComments(ctx, eventID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Service.AddComment: %w", err)
+	}
+	if count >= maxCommentsPerEvent {
+		return nil, ErrTooManyComments
+	}
 	c, err := s.repo.AddComment(ctx, eventID, userID, teamID, text)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.AddComment: %w", err)
@@ -402,13 +417,24 @@ func (s *Service) DeleteComment(ctx context.Context, commentID, userID, teamID s
 // ─── Attendance ─────────────────────────────────────────────────────────────
 
 // ListAttendance returns all attendance rows for an event scoped to teamID.
-// A declined ("no") attendance reason is only included for the viewer's own
-// row or for viewers holding one of the team's reason-visibility roles —
-// mirroring the frontend's canSeeReason gate, but enforced here so a member
-// can't read a teammate's private decline reason by calling the API
-// directly. Matches the RequirePermission middleware, which treats
-// events/attendance as self-service (any member may read it), so this
-// redaction is the only enforcement point for reason confidentiality.
+// An attendance reason is only included for the viewer's own row, for rows
+// the member explicitly marked reasonVisibility="team", or for viewers
+// holding one of the team's reason-visibility roles — mirroring the
+// frontend's canSeeReason gate, but enforced here so a member can't read a
+// teammate's private reason by calling the API directly. Matches the
+// RequirePermission middleware, which treats events/attendance as
+// self-service (any member may read it), so this redaction is the only
+// enforcement point for reason confidentiality. A nil/unset ReasonVisibility
+// (e.g. rows written before the field existed) is treated the same as
+// "trainers" -- the more restrictive default -- not as an implicit "team".
+//
+// This applies regardless of attendance status: SetAttendance places no
+// restriction on which status a reason/reasonId/reasonVisibility may
+// accompany (a "yes, but running late" reason is a legitimate use case), so
+// gating redaction on status=="no" would let a private reason attached to
+// any other status leak to every team member unredacted -- reason
+// confidentiality has to be a property of the reason itself, not of the
+// status it happens to be attached to.
 func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error) {
 	attendanceRows, err := s.repo.ListAttendance(ctx, eventID, teamID)
 	if err != nil {
@@ -417,7 +443,7 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 
 	needsRedactionCheck := false
 	for _, a := range attendanceRows {
-		if a.Status == "no" && a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) {
+		if a.UserId.String() != viewerID && (a.Reason != nil || a.ReasonId != nil) && !reasonSharedWithTeam(a.ReasonVisibility) {
 			needsRedactionCheck = true
 			break
 		}
@@ -434,13 +460,20 @@ func (s *Service) ListAttendance(ctx context.Context, eventID, teamID, viewerID 
 
 	out := make([]gen.AttendanceRow, 0, len(attendanceRows))
 	for _, a := range attendanceRows {
-		if a.Status == "no" && a.UserId.String() != viewerID && !canSeeReasons {
+		if a.UserId.String() != viewerID && !canSeeReasons && !reasonSharedWithTeam(a.ReasonVisibility) {
 			a.Reason = nil
 			a.ReasonId = nil
 		}
 		out = append(out, toGenAttendanceRow(&a))
 	}
 	return out, nil
+}
+
+// reasonSharedWithTeam reports whether the declining member explicitly opted
+// their decline reason into team-wide visibility, bypassing the
+// reason-visibility-role check entirely for that row.
+func reasonSharedWithTeam(reasonVisibility *string) bool {
+	return reasonVisibility != nil && *reasonVisibility == "team"
 }
 
 // roleSetsIntersect reports whether any ID in a is also present in b.
@@ -463,6 +496,16 @@ func roleSetsIntersect(a, b []string) bool {
 // attendance requires events:write — self-service callers may only set their
 // own. Returns ErrSetAttendanceForbidden if the caller lacks that permission.
 func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
+	// status="not_nominated" is exclusively SetNomination's domain (an
+	// events:write-gated organizer action, never self-service). Without this,
+	// a member with only events:read could PUT their own attendance with
+	// status="not_nominated" via this self-service endpoint, achieving the
+	// same DB state SetNomination's permission gate exists to control --
+	// AttendanceStatus's OpenAPI enum has no separate "settable by clients"
+	// subset, so the handler-level Valid() check alone doesn't catch this.
+	if req.Status == gen.NotNominated {
+		return nil, ErrAttendanceStatusNotNominated
+	}
 	if callerID != userID {
 		if s.permChecker == nil {
 			return nil, ErrSetAttendanceForbidden
@@ -491,7 +534,7 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 		reasonVisStr = &rv
 	}
 
-	a, err := s.repo.SetAttendance(ctx, eventID, userID, teamID, &statusStr, req.Reason, req.ReasonId, reasonVisStr)
+	a, err := s.repo.SetAttendance(ctx, eventID, callerID, userID, teamID, &statusStr, req.Reason, req.ReasonId, reasonVisStr)
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.SetAttendance: %w", err)
 	}
@@ -500,8 +543,33 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 }
 
 // SetNomination sets or removes a user's nomination on an event scoped to teamID.
-func (s *Service) SetNomination(ctx context.Context, eventID, teamID string, req gen.SetNominationRequest) error {
-	if err := s.repo.SetNomination(ctx, eventID, req.UserId.String(), teamID, req.Nominated); err != nil {
+// SetNomination sets or clears a member's nomination for an event. Unlike
+// SetAttendance, this is never self-service — nominating (even oneself) is
+// an organizer action gated on events:write, matching the frontend's
+// canEdit-only nominate/denominate controls. callerID is the authenticated
+// user making the request. Returns ErrSetNominationForbidden if the caller
+// lacks events:write.
+func (s *Service) SetNomination(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error {
+	if s.permChecker == nil {
+		return ErrSetNominationForbidden
+	}
+	teamUUID, err := uuid.Parse(teamID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetNomination: parse teamID: %w", err)
+	}
+	callerUUID, err := uuid.Parse(callerID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetNomination: parse callerID: %w", err)
+	}
+	perms, err := s.permChecker.GetPermissions(ctx, teamUUID, callerUUID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetNomination: check permissions: %w", err)
+	}
+	if perms.Events != "write" {
+		return ErrSetNominationForbidden
+	}
+
+	if err := s.repo.SetNomination(ctx, eventID, callerID, req.UserId.String(), teamID, req.Nominated); err != nil {
 		return fmt.Errorf("events.Service.SetNomination: %w", err)
 	}
 	return nil
@@ -519,17 +587,39 @@ func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID, teamID
 	ev := toGenEvent(row, summary)
 
 	if userID != "" {
-		myAtt, err := s.repo.GetMyAttendance(ctx, row.Id.String(), userID, teamID)
+		myAtt, err := s.repo.GetMyEffectiveAttendance(ctx, row.Id.String(), userID, teamID)
 		if err != nil {
-			return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetMyAttendance: %w", err)
+			return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetMyEffectiveAttendance: %w", err)
 		}
 		if myAtt != nil {
 			st := gen.AttendanceStatus(myAtt.Status)
 			ev.MyStatus = &st
 			ev.MyReason = myAtt.Reason
+			ev.MyAuto = &myAtt.Auto
 		}
 	}
 	return ev, nil
+}
+
+// enrichEventOrFallback wraps enrichEvent for write-path callers whose
+// underlying mutation has already committed: an enrichment failure (e.g. a
+// transient timeout on the read-only summary/attendance queries) must not be
+// reported as a request failure, since the caller would see a false error
+// for an already-successful write and could retry it -- for CreateEvent that
+// means minting a duplicate event/series. Falls back to the row's own data
+// with a zero-value summary and no MyStatus; the next list/detail fetch
+// picks up the real numbers. GetEvent (a plain read, no prior write) calls
+// enrichEvent directly instead, since there a genuine failure should be
+// reported as one.
+func (s *Service) enrichEventOrFallback(ctx context.Context, row *EventRow, userID, teamID string) *gen.TeamEvent {
+	ev, err := s.enrichEvent(ctx, row, userID, teamID)
+	if err != nil {
+		s.logger.Warn("events: failed to enrich event after write, returning partial result",
+			slog.String("eventId", row.Id.String()), slog.String("error", err.Error()))
+		fallback := toGenEvent(row, EventSummaryData{})
+		return &fallback
+	}
+	return &ev
 }
 
 // toGenEvent maps an EventRow + summary to gen.TeamEvent.
@@ -603,12 +693,38 @@ func toGenAttendanceRow(a *AttendanceEnriched) gen.AttendanceRow {
 		HasPhoto:    &a.HasPhoto,
 		Reason:      a.Reason,
 		ReasonId:    a.ReasonId,
+		Group:       a.Group,
+		Auto:        &a.Auto,
+		Absent:      &a.Absent,
 	}
 	if a.ReasonVisibility != nil {
 		rv := gen.AttendanceRowReasonVisibility(*a.ReasonVisibility)
 		row.ReasonVisibility = &rv
 	}
+	if a.PrimaryRole != nil {
+		role := toGenRole(*a.PrimaryRole)
+		row.PrimaryRole = &role
+	}
 	return row
+}
+
+// toGenRole maps a teams.RoleRow to gen.Role.
+func toGenRole(r teams.RoleRow) gen.Role {
+	return gen.Role{
+		Id:     r.Id,
+		TeamId: r.TeamID,
+		Name:   r.Name,
+		System: r.System,
+		Color:  r.Color,
+		Permissions: gen.Permissions{
+			Events:   gen.PermLevel(r.Permissions.Events),
+			Members:  gen.PermLevel(r.Permissions.Members),
+			Finances: gen.PermLevel(r.Permissions.Finances),
+			News:     gen.PermLevel(r.Permissions.News),
+			Polls:    gen.PermLevel(r.Permissions.Polls),
+			Settings: gen.PermLevel(r.Permissions.Settings),
+		},
+	}
 }
 
 // toGenAttendanceRecord maps an AttendanceDBRow to gen.AttendanceRecord.

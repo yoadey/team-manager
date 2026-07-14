@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
@@ -23,6 +26,7 @@ type authService interface {
 	ValidateToken(ctx context.Context, tokenString string) (*UserRow, error)
 	Logout(ctx context.Context, tokenHash string) error
 	UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error)
+	GetMyPhotoData(ctx context.Context, userID string) ([]byte, error)
 	EraseAccount(ctx context.Context, userID, password string) error
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
@@ -113,6 +117,12 @@ func (h *Handler) DeleteCurrentUser(ctx context.Context, request gen.DeleteCurre
 
 	if err := h.svc.EraseAccount(ctx, user.Id.String(), string(request.Body.ConfirmEmail)); err != nil {
 		h.logger.WarnContext(ctx, "account erasure failed", "err", err)
+		var soleErr *SoleSettingsAdminError
+		if errors.As(err, &soleErr) {
+			h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String(),
+				slog.Any("blockedByTeamIds", soleErr.TeamIDs))
+			return nil, apierror.Conflict(ErrSoleSettingsAdmin.Error())
+		}
 		h.audit.Record(ctx, audit.EventAccountErase, audit.Failure, user.Id.String())
 		return gen.DeleteCurrentUser401ApplicationProblemPlusJSONResponse{
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
@@ -172,21 +182,19 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 // GetMyPhoto returns the authenticated user's profile photo.
 func (h *Handler) GetMyPhoto(ctx context.Context, _ gen.GetMyPhotoRequestObject) (gen.GetMyPhotoResponseObject, error) {
 	user, ok := UserFromContext(ctx)
-	if !ok || len(user.PhotoData) == 0 {
-		title := "Not Found"
-		detail := "no profile photo"
-		status := 404
-		return gen.GetMyPhoto404ApplicationProblemPlusJSONResponse{
-			NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
-				Title:  &title,
-				Detail: &detail,
-				Status: &status,
-			},
-		}, nil
+	if !ok {
+		return nil, apierror.NotFound("no profile photo")
+	}
+	data, err := h.svc.GetMyPhotoData(ctx, user.Id.String())
+	if err != nil {
+		return nil, fmt.Errorf("auth.Handler.GetMyPhoto: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, apierror.NotFound("no profile photo")
 	}
 	return gen.GetMyPhoto200ImagejpegResponse{
-		Body:          bytes.NewReader(user.PhotoData),
-		ContentLength: int64(len(user.PhotoData)),
+		Body:          bytes.NewReader(data),
+		ContentLength: int64(len(data)),
 	}, nil
 }
 
@@ -215,10 +223,19 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 		}
 	}()
 
-	data, err := io.ReadAll(io.LimitReader(part, 2<<20)) // 2 MB max
+	const maxPhotoBytes = 2 << 20 // 2 MB max
+	data, err := io.ReadAll(io.LimitReader(part, maxPhotoBytes+1))
 	if err != nil {
 		h.logger.WarnContext(ctx, "UploadMyPhoto: read file data failed", "err", err)
 		return nil, errBadRequest("cannot read file data")
+	}
+	// io.LimitReader silently truncates rather than erroring once the cap is
+	// reached, so io.ReadAll alone can't distinguish "exactly at the limit"
+	// from "oversized" -- reading one extra byte lets us detect the latter
+	// and reject it explicitly (413) instead of letting the truncated data
+	// fail image decoding downstream and fall through to a generic 500.
+	if len(data) > maxPhotoBytes {
+		return nil, apierror.New(http.StatusRequestEntityTooLarge, "Payload Too Large", "image exceeds the 2 MB upload limit")
 	}
 
 	// Detect MIME from actual content; reject anything other than JPEG/PNG.
@@ -229,6 +246,9 @@ func (h *Handler) UploadMyPhoto(ctx context.Context, request gen.UploadMyPhotoRe
 
 	updated, err := h.svc.UpdatePhoto(ctx, user.Id.String(), data, ct)
 	if err != nil {
+		if errors.Is(err, ErrImageTooLarge) {
+			return nil, errBadRequest("image dimensions exceed the allowed maximum")
+		}
 		h.logger.ErrorContext(ctx, "update photo failed", "err", err)
 		return nil, errInternal("photo update failed")
 	}
@@ -306,7 +326,7 @@ func ContextWithUser(ctx context.Context, user *UserRow) context.Context {
 
 // toGenUser maps an internal UserRow to the generated gen.User type.
 func toGenUser(u *UserRow) gen.User {
-	hasPhoto := len(u.PhotoData) > 0
+	hasPhoto := u.HasPhoto
 	gu := gen.User{
 		Id:          u.Id,
 		Name:        u.Name,
@@ -327,49 +347,33 @@ func toGenUser(u *UserRow) gen.User {
 	return gu
 }
 
-// unauthorized builds an UnauthorizedApplicationProblemPlusJSONResponse.
+// unauthorized builds an UnauthorizedApplicationProblemPlusJSONResponse, with
+// a Type URI computed via apierror so it honors ERROR_TYPE_BASE_URI like
+// every other error response.
 func unauthorized(detail string) gen.UnauthorizedApplicationProblemPlusJSONResponse {
-	title := "Unauthorized"
-	status := 401
-	typeStr := "https://teammanager.example/errors/unauthorized"
+	e := apierror.New(http.StatusUnauthorized, "Unauthorized", detail)
 	return gen.UnauthorizedApplicationProblemPlusJSONResponse{
-		Title:  &title,
-		Status: &status,
+		Title:  &e.Title,
+		Status: &e.Status,
 		Detail: &detail,
-		Type:   &typeStr,
+		Type:   &e.Type,
 	}
 }
 
 // writeUnauthorized writes a 401 Problem Details JSON response directly.
 func writeUnauthorized(w http.ResponseWriter, detail string) {
-	type problem struct {
-		Type   string `json:"type"`
-		Title  string `json:"title"`
-		Status int    `json:"status"`
-		Detail string `json:"detail"`
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(problem{
-		Type:   "https://teammanager.example/errors/unauthorized",
-		Title:  "Unauthorized",
-		Status: http.StatusUnauthorized,
-		Detail: detail,
-	})
+	apierror.Unauthorized(detail).Render(w)
 }
 
-// handlerError is a sentinel error type carrying an HTTP status for use in
-// UploadMyPhoto where we cannot use typed response objects for non-200 paths.
-type handlerError struct {
-	status  int
-	message string
-}
-
-func (e *handlerError) Error() string { return e.message }
-
-func errUnauthorized(msg string) error { return &handlerError{status: 401, message: msg} }
-func errBadRequest(msg string) error   { return &handlerError{status: 400, message: msg} }
-func errInternal(msg string) error     { return &handlerError{status: 500, message: msg} }
+// errUnauthorized/errBadRequest/errInternal build *apierror.APIError values
+// for handler methods (e.g. UploadMyPhoto) that return non-200 responses as
+// a plain error rather than a typed response object. ResponseErrorHandler's
+// errors.As(err, *apierror.APIError) only matches *apierror.APIError, so
+// these must return that concrete type -- a bespoke error type here would
+// silently fall through to a generic 500 on every call site.
+func errUnauthorized(msg string) error { return apierror.Unauthorized(msg) }
+func errBadRequest(msg string) error   { return apierror.BadRequest(msg) }
+func errInternal(msg string) error     { return apierror.Internal(msg) }
 
 // ensure time is used (time.Time in UserRow.Birthday).
 var _ = time.Time{}

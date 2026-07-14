@@ -50,6 +50,25 @@ func TestRetentionWorker_DeletesInBatches(t *testing.T) {
 	assert.Equal(t, 1, remaining, "only the recent notification should survive retention")
 }
 
+// TestRetentionWorker_TimeoutExceedsRiverDefault is a regression test for a
+// bug where RetentionWorker relied on WorkerDefaults' zero-value Timeout(),
+// so River applied its own JobTimeoutDefault (1 minute) to the job's outer
+// context. That outer deadline caps every phase's own context.WithTimeout
+// (contexts can only get an earlier deadline, never a later one), so with
+// four sequential 30s phase budgets the last phase(s) -- including
+// audit_log's compliance-mandated cleanup -- could be starved or cancelled
+// mid-batch on a run with a large backlog, silently defeating the whole
+// point of giving each phase an independent budget (see
+// retentionPhaseTimeout's doc comment).
+func TestRetentionWorker_TimeoutExceedsRiverDefault(t *testing.T) {
+	t.Parallel()
+
+	worker := jobs.NewRetentionWorker(nil, 90, 30, 365)
+	timeout := worker.Timeout(&river.Job[jobs.RetentionArgs]{})
+	assert.Greater(t, timeout, river.JobTimeoutDefault,
+		"RetentionWorker.Timeout must exceed River's default JobTimeout, or the outer job context caps all four phase timeouts to a shared budget shorter than their sum")
+}
+
 // TestRetentionWorker_KeepsStillValidLongLivedSession is a regression test
 // for a bug where session retention deleted rows based on created_at instead
 // of expires_at: a session created long ago but with a long TTL (still
@@ -98,4 +117,104 @@ func TestRetentionWorker_KeepsStillValidLongLivedSession(t *testing.T) {
 	require.NoError(t, rows.Err())
 
 	assert.Equal(t, []string{"still-valid-long-lived"}, tokens, "only the still-valid session should survive retention")
+}
+
+// Regression test: invites accumulated unboundedly with no cleanup
+// mechanism at all -- CreateInvite is called every time the invite sheet is
+// opened, with no reuse of unexpired codes. An invite still within its
+// (fixed, 7-day) validity window must survive retention even if the row is
+// old-ish; only one that expired more than the retention grace period ago
+// should be purged.
+func TestRetentionWorker_DeletesLongExpiredInvites(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Invite Retention Team')`, teamID)
+	require.NoError(t, err)
+
+	// Still within its validity window -- must NOT be deleted.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO invites (team_id, code, expires_at)
+		VALUES ($1, 'still-valid-code', now() + interval '3 days')
+	`, teamID)
+	require.NoError(t, err)
+
+	// Expired 100 days ago -- must be deleted.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO invites (team_id, code, expires_at)
+		VALUES ($1, 'long-expired-code', now() - interval '100 days')
+	`, teamID)
+	require.NoError(t, err)
+
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	require.NoError(t, worker.Work(ctx, &river.Job[jobs.RetentionArgs]{}))
+
+	var codes []string
+	rows, err := pool.Query(ctx, `SELECT code FROM invites WHERE team_id = $1`, teamID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var code string
+		require.NoError(t, rows.Scan(&code))
+		codes = append(codes, code)
+	}
+	require.NoError(t, rows.Err())
+
+	assert.Equal(t, []string{"still-valid-code"}, codes, "only the still-valid invite should survive retention")
+}
+
+// TestRetentionWorker_ContinuesLaterPhasesWhenAnEarlierPhaseFails is a
+// regression test for a bug where Work returned immediately on the first
+// phase's error, skipping sessions/invites/audit_log entirely -- exactly the
+// "one table's backlog starves the phases after it" failure mode
+// retentionPhaseTimeout's own independent per-phase budgets were built to
+// prevent, just triggered by a phase's own error/timeout propagating up
+// instead of a shared budget being exhausted. Forces the notifications
+// phase to fail with a genuine SQL error (dropping its table), which
+// exercises the identical deleteBatched error-return path a real
+// retentionPhaseTimeout timeout would, then verifies the sessions and
+// invites phases still ran and cleaned up despite that failure.
+func TestRetentionWorker_ContinuesLaterPhasesWhenAnEarlierPhaseFails(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Retention Continue User', 'retention-continue@example.com', '#654321')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO sessions (user_id, token_hash, created_at, expires_at)
+		VALUES ($1, 'phase-continue-expired', now() - interval '130 days', now() - interval '100 days')
+	`, userID)
+	require.NoError(t, err)
+
+	teamID := uuid.New()
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Retention Continue Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO invites (team_id, code, expires_at)
+		VALUES ($1, 'phase-continue-code', now() - interval '100 days')
+	`, teamID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `DROP TABLE notifications CASCADE`)
+	require.NoError(t, err)
+
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	err = worker.Work(ctx, &river.Job[jobs.RetentionArgs]{})
+	require.Error(t, err, "Work must report the notifications phase's failure")
+	assert.Contains(t, err.Error(), "delete notifications")
+
+	var sessionCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM sessions WHERE user_id = $1`, userID).Scan(&sessionCount))
+	assert.Equal(t, 0, sessionCount, "sessions phase must still run and delete the expired session even though notifications failed first")
+
+	var inviteCount int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM invites WHERE team_id = $1`, teamID).Scan(&inviteCount))
+	assert.Equal(t, 0, inviteCount, "invites phase must still run and delete the expired invite even though notifications failed first")
 }

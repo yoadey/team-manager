@@ -37,6 +37,7 @@ describe('useAbsenceActions', () => {
   let refreshEvents: ReturnType<typeof vi.fn>;
   let loadAbsences: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: {
     absences: { create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
   };
@@ -56,6 +57,7 @@ describe('useAbsenceActions', () => {
     refreshEvents = vi.fn().mockResolvedValue(undefined);
     loadAbsences = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    logout = vi.fn();
     api = {
       absences: {
         create: vi.fn().mockResolvedValue({ id: 'ab1' }),
@@ -75,6 +77,7 @@ describe('useAbsenceActions', () => {
         loadAbsences: loadAbsences as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }
@@ -127,7 +130,9 @@ describe('useAbsenceActions', () => {
     await act(async () => {
       await result.current.saveAbsence();
     });
-    expect(api.absences.create).toHaveBeenCalledWith(expect.objectContaining({ from: '2026-01-10', to: '2026-01-15' }));
+    expect(api.absences.create).toHaveBeenCalledWith(
+      expect.objectContaining({ from: '2026-01-10', to: '2026-01-15', userId: 'u1' }),
+    );
     expect(toastMsg).toHaveBeenCalledWith('Abwesenheit eingetragen');
   });
 
@@ -262,6 +267,36 @@ describe('useCalExportActions', () => {
     await act(async () => {
       await result.current.copyCalUrl();
     });
-    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen');
+    expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen', undefined, 'error');
+  });
+
+  // Regression test: the sheet update used to check only sheet.type ===
+  // 'calExport', never the team. If the user switched teams and reopened
+  // the calExport sheet (also type 'calExport') for the new team before a
+  // slow clipboard write for the old team resolved, the stale resolution
+  // would show "Copied!" on the new team's sheet even though nothing was
+  // copied for it.
+  it('does not mark a different team\'s calExport sheet as copied after a slow clipboard write resolves', async () => {
+    let resolveWrite!: () => void;
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn(() => new Promise<void>((resolve) => (resolveWrite = resolve))) },
+    });
+    stateRef = makeState({ sheet: { type: 'calExport' } as never });
+    const { result } = renderActions();
+
+    let copyPromise!: Promise<void>;
+    act(() => {
+      copyPromise = result.current.copyCalUrl();
+    });
+
+    // User switches teams and opens THAT team's own (also empty) calExport sheet.
+    stateRef = { ...stateRef, activeTeamId: 'team2', sheet: { type: 'calExport' } as never };
+
+    await act(async () => {
+      resolveWrite();
+      await copyPromise;
+    });
+
+    expect(stateRef.sheet).toEqual({ type: 'calExport' });
   });
 });

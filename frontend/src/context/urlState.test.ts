@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPath, parseLocation, routeFromPath, type UrlState } from './urlState';
+import { buildPath, parseLocation, parsePendingInvite, routeFromPath, type UrlState } from './urlState';
 
 const base: UrlState = {
   route: 'home',
@@ -73,6 +73,28 @@ describe('parseLocation', () => {
       expect(parsed.eventsOnlyPending).toBe(s.eventsOnlyPending);
       expect(parsed.finTab).toBe(s.finTab);
     }
+  });
+});
+
+describe('parsePendingInvite', () => {
+  it('parses a well-formed /join/<teamId>/<code> path', () => {
+    expect(parsePendingInvite('/join/team-1/abc123')).toEqual({ teamId: 'team-1', code: 'abc123' });
+  });
+
+  it('decodes URI-encoded segments', () => {
+    expect(parsePendingInvite('/join/team%201/ab%2Fc')).toEqual({ teamId: 'team 1', code: 'ab/c' });
+  });
+
+  it('returns null for paths that are not /join/... at all', () => {
+    expect(parsePendingInvite('/home')).toBeNull();
+    expect(parsePendingInvite('/')).toBeNull();
+  });
+
+  it('returns null for a malformed join path (missing segment or extra segment)', () => {
+    expect(parsePendingInvite('/join/team-1')).toBeNull();
+    expect(parsePendingInvite('/join/team-1/code/extra')).toBeNull();
+    expect(parsePendingInvite('/join//code')).toBeNull();
+    expect(parsePendingInvite('/join/team-1/')).toBeNull();
   });
 });
 

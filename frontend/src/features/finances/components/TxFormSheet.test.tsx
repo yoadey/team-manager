@@ -55,6 +55,14 @@ describe('TxFormSheet', () => {
     expect(screen.getByText('Ausgabe')).toBeTruthy();
   });
 
+  it('exposes the selected type via aria-pressed for screen-reader users', () => {
+    const app = makeApp({ type: 'income' });
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    expect(screen.getByText('Einnahme').closest('button')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText('Ausgabe').closest('button')).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('clicking income type button calls setFormVal with type income', () => {
     const app = makeApp({ type: 'expense' });
     const sheet = { mode: 'create' } as never;
@@ -69,6 +77,31 @@ describe('TxFormSheet', () => {
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     fireEvent.click(screen.getByText('Ausgabe'));
     expect(app.setFormVal).toHaveBeenCalledWith({ type: 'expense' });
+  });
+
+  // Regression test: title/category had no client-side maxLength, matching
+  // the backend's 255-char validate.MaxLen bound for both fields.
+  it('caps title and category inputs at 255 characters matching the backend limit', () => {
+    const app = makeApp();
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    const titleInput = screen.getByPlaceholderText('z. B. Mitgliedsbeiträge') as HTMLInputElement;
+    const categoryInput = document.querySelector('input[name="category"]') as HTMLInputElement;
+    expect(titleInput.maxLength).toBe(255);
+    expect(categoryInput.maxLength).toBe(255);
+  });
+
+  // Regression test: the category field's <Field> used to wrap a <Box> that
+  // in turn wrapped the real <input> (plus the datalist/quick-pick chips/hint
+  // text), so Field's cloneElement-injected aria-required/aria-invalid/
+  // aria-describedby landed on that wrapper Box, not the input a screen
+  // reader actually focuses. Field must clone the <input> directly.
+  it('renders the category input as Field\'s direct cloned child, not wrapped in an intermediate element', () => {
+    const app = makeApp();
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    const categoryInput = document.querySelector('input[name="category"]') as HTMLInputElement;
+    expect(categoryInput.parentElement?.tagName).toBe('LABEL');
   });
 
   it('shows title error when title is blank on blur', () => {
@@ -123,6 +156,28 @@ describe('TxFormSheet', () => {
     const amountInput = screen.getByRole('spinbutton');
     fireEvent.blur(amountInput);
     expect(app.setFormErrors).toHaveBeenCalledWith({ amount: '' });
+  });
+
+  // Regression test: the inline blur validator and canSubmit only checked
+  // "positive number", unlike the backend's €1,000,000 amount cap enforced
+  // at submit time (useFinanceActions.ts's saveTx) -- so typing an over-cap
+  // amount showed no inline error and left Save enabled, only failing with a
+  // raw toast after clicking it.
+  it('shows amount error and disables submit when amount exceeds the €1,000,000 cap', () => {
+    const app = makeApp({ title: 'Test', amount: '5000000' });
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+    const amountInput = screen.getByRole('spinbutton');
+    fireEvent.blur(amountInput);
+    expect(app.setFormErrors).toHaveBeenCalledWith({ amount: expect.stringMatching(/\S+/) });
+    expect(screen.getByText(/erfassen|speichern/i).closest('button')).toBeDisabled();
+  });
+
+  it('exposes a max attribute on the amount input matching the backend cap', () => {
+    const app = makeApp();
+    render(<TxFormSheet app={app as never} sheet={{ mode: 'create' } as never} />);
+    const amountInput = screen.getByRole('spinbutton') as HTMLInputElement;
+    expect(amountInput.max).toBe('1000000');
   });
 
   it('submit button is disabled when form is empty', () => {
@@ -189,6 +244,28 @@ describe('TxFormSheet', () => {
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     fireEvent.click(screen.getByText('Sponsoring'));
     expect(app.setFormVal).toHaveBeenCalledWith({ category: 'Sponsoring' });
+  });
+
+  // Regression test: the category chip sort used to hardcode localeCompare's
+  // locale argument to 'de' regardless of the active UI locale, unlike every
+  // other locale-aware sort/format helper in the app (which reads
+  // getIntlLocale()). Spy on getIntlLocale to prove the sort now consults
+  // it instead of a hardcoded value.
+  it('sorts category chips using the current locale rather than a hardcoded one', async () => {
+    const i18n = await import('@/i18n');
+    const spy = vi.spyOn(i18n, 'getIntlLocale').mockReturnValue('en-US');
+    const localeCompareSpy = vi.spyOn(String.prototype, 'localeCompare');
+    const app = makeApp({ title: '', amount: '' }, {}, [{ category: 'Alpha' }, { category: 'Beta' }]);
+    const sheet = { mode: 'create' } as never;
+    render(<TxFormSheet app={app as never} sheet={sheet} />);
+
+    expect(spy).toHaveBeenCalled();
+    const usedLocaleArgs = localeCompareSpy.mock.calls.map((c) => c[1]);
+    expect(usedLocaleArgs).toContain('en-US');
+    expect(usedLocaleArgs).not.toContain('de');
+
+    spy.mockRestore();
+    localeCompareSpy.mockRestore();
   });
 
   it('does not render category chips when transactions have no categories', () => {

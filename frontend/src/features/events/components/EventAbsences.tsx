@@ -38,7 +38,7 @@ export function EventAbsences() {
             {isMe ? <Chip label={t('events.meLabel')} color={tk.primary} bg={tk.primaryContainer} /> : null}
           </Box>
           <Box sx={{ fontSize: '12px', color: NEUTRAL.secondary, mt: '2px' }}>
-            {fmtRange(a.from, a.to) + ' · ' + a.reason}
+            {fmtRange(a.from, a.to) + (a.reason ? ' · ' + a.reason : '')}
           </Box>
         </Box>
         <Box
@@ -48,6 +48,7 @@ export function EventAbsences() {
         {isMe ? (
           <ButtonBase
             onClick={() => app.openAbsenceForm(a)}
+            aria-label={t('events.editAbsenceLabel')}
             sx={{
               width: '34px',
               height: '34px',
@@ -64,6 +65,7 @@ export function EventAbsences() {
         {isMe ? (
           <ButtonBase
             onClick={() => app.removeAbsence(a.id)}
+            aria-label={t('events.deleteAbsenceLabel')}
             sx={{
               width: '34px',
               height: '34px',

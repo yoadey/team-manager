@@ -1,5 +1,9 @@
 {{- if .Values.backup.enabled }}
-# RTO target: 4 hours (restore from latest backup + WAL replay)
+# RTO target: 4 hours (restore from latest nightly pg_dump; this chart does
+# not implement WAL archiving/PITR -- see docs/operations.md's "Point-in-time
+# recovery (PITR)" section for that as a separately-enabled, not-yet-wired-in
+# option, so actual data loss on a DR event is bounded by the full RPO below,
+# not narrowed by any WAL replay step).
 # RPO target: 24 hours (daily backup schedule, adjust via backup.schedule)
 apiVersion: batch/v1
 kind: CronJob
@@ -9,12 +13,19 @@ metadata:
     {{- include "team-manager.labels" . | nindent 4 }}
 spec:
   schedule: {{ .Values.backup.schedule | quote }}
+  # Bounds how late a missed run (e.g. the CronJob controller was down at the
+  # scheduled time) may still start. Without this, Kubernetes either starts
+  # an unboundedly-delayed catch-up run once the controller recovers, or --
+  # past its "100 missed schedules" internal heuristic -- silently gives up
+  # on the CronJob with no alert.
+  startingDeadlineSeconds: {{ .Values.backup.startingDeadlineSeconds }}
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 1
   jobTemplate:
     spec:
       backoffLimit: 2
+      activeDeadlineSeconds: {{ .Values.backup.activeDeadlineSeconds }}
       template:
         metadata:
           labels:
@@ -26,16 +37,26 @@ spec:
           imagePullSecrets:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          serviceAccountName: {{ include "team-manager.serviceAccountName" . }}
+          serviceAccountName: {{ include "team-manager.backupServiceAccountName" . }}
           securityContext:
             runAsNonRoot: true
             runAsUser: 999
+            seccompProfile:
+              type: RuntimeDefault
           volumes:
             - name: dump
-              emptyDir: {}
+              emptyDir:
+                sizeLimit: {{ .Values.backup.dumpSizeLimit }}
+            # Scratch space for readOnlyRootFilesystem containers below --
+            # pg_dump and the AWS CLI both need a writable /tmp (and, for the
+            # AWS CLI, a writable $HOME for its own ~/.aws/cli/cache) even
+            # though neither writes anything outside that scratch dir.
+            - name: tmp
+              emptyDir:
+                sizeLimit: {{ .Values.backup.tmpSizeLimit }}
           initContainers:
           - name: pg-dump
-            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}"
+            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}{{ if .Values.backup.postgresImageDigest }}@{{ .Values.backup.postgresImageDigest }}{{ end }}"
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh
@@ -43,14 +64,42 @@ spec:
             - |
               set -e
               TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-              pg_dump "$DATABASE_URL" | gzip > /backup/backup-${TIMESTAMP}.sql.gz
-              echo "Dump complete: backup-${TIMESTAMP}.sql.gz"
+              # --format=custom writes directly to --file (no shell pipe), and is
+              # already compressed — matches docs/operations.md's documented
+              # backup/restore procedure (pg_restore, not psql < dump). The
+              # previous `pg_dump | gzip > file` piped through /bin/sh, which in
+              # this image is dash: dash has no `pipefail`, so a failing pg_dump
+              # (bad connection, disk pressure) still lets `gzip` exit 0 on empty
+              # input, `set -e` never trips, and the job reports success while
+              # silently producing a corrupt/empty backup.
+              pg_dump --format=custom --no-owner --dbname="$DATABASE_URL" \
+                --file="/backup/teammanager-${TIMESTAMP}.dump"
+              # pg_dump exiting 0 doesn't guarantee a *usable* dump -- e.g.
+              # DATABASE_URL momentarily/permanently pointing at the wrong
+              # (empty) database due to a Secret misconfiguration still
+              # "succeeds" and produces a tiny but well-formed file. Without
+              # this, that dump gets uploaded to S3 looking legitimate --
+              # every "did a run complete" alert stays green -- and the gap
+              # only surfaces when someone actually tries to restore it
+              # during a real incident. pg_restore --list parses the dump's
+              # table of contents without touching any database, so this
+              # fails the Job loudly instead.
+              ENTRY_COUNT=$(pg_restore --list "/backup/teammanager-${TIMESTAMP}.dump" | grep -c '^[0-9]')
+              if [ "$ENTRY_COUNT" -lt {{ .Values.backup.minDumpEntries }} ]; then
+                echo "ERROR: dump has only $ENTRY_COUNT TOC entries (expected at least {{ .Values.backup.minDumpEntries }}) -- refusing to upload a possibly empty/corrupt backup" >&2
+                exit 1
+              fi
+              echo "Dump complete: teammanager-${TIMESTAMP}.dump ($ENTRY_COUNT TOC entries)"
             env:
+            {{- if .Values.existingSecret }}
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.existingSecret | default (printf "%s-secret" (include "team-manager.fullname" .)) }}
+                  name: {{ .Values.existingSecret }}
                   key: DATABASE_URL
+            {{- end }}
+            - name: TMPDIR
+              value: /tmp-scratch
             resources:
               requests:
                 cpu: 100m
@@ -60,12 +109,22 @@ spec:
                 memory: 512Mi
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: false
+              # pg_dump only ever writes to the explicit --file path under
+              # /backup (and libpq's own temp files under $TMPDIR); it never
+              # needs to write anywhere else in its own filesystem, so this
+              # confines a compromised/malicious postgres image (supply-chain
+              # issue, parsing bug) to those two mounted scratch volumes
+              # instead of being able to write/overwrite arbitrary files.
+              readOnlyRootFilesystem: true
               capabilities:
                 drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
             volumeMounts:
               - name: dump
                 mountPath: /backup
+              - name: tmp
+                mountPath: /tmp-scratch
           containers:
           {{- if .Values.backup.s3.enabled }}
           - name: s3-upload
@@ -76,7 +135,7 @@ spec:
             - -c
             - |
               set -e
-              for f in /backup/*.sql.gz; do
+              for f in /backup/*.dump; do
                 echo "Uploading $f to s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/$(basename "$f")"
                 aws s3 cp "$f" "s3://{{ .Values.backup.s3.bucket }}/{{ .Values.backup.s3.prefix }}/$(basename "$f")" \
                   {{- if .Values.backup.s3.endpoint }}
@@ -85,8 +144,16 @@ spec:
                   --region {{ .Values.backup.s3.region }}
               done
               echo "Upload complete"
-            {{- if .Values.backup.s3.credentialsSecretName }}
             env:
+            # The AWS CLI writes its own cache/config under $HOME/.aws/cli/
+            # and stages multipart-upload chunks under $TMPDIR -- both need
+            # to be writable even though readOnlyRootFilesystem below means
+            # nothing else in this container's filesystem is.
+            - name: HOME
+              value: /tmp-scratch
+            - name: TMPDIR
+              value: /tmp-scratch
+            {{- if .Values.backup.s3.credentialsSecretName }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -109,15 +176,28 @@ spec:
                 memory: 256Mi
             securityContext:
               allowPrivilegeEscalation: false
-              readOnlyRootFilesystem: false
+              # aws s3 cp only reads from /backup and writes its own
+              # cache/temp files under $HOME/$TMPDIR (both pointed at the
+              # tmp scratch volume above); it never needs to write anywhere
+              # else in its own filesystem, so this confines a
+              # compromised/malicious aws-cli image (supply-chain issue,
+              # parsing bug) to the two mounted scratch volumes instead of
+              # being able to write/overwrite arbitrary files -- notably
+              # relevant here since this container also holds S3 write
+              # credentials.
+              readOnlyRootFilesystem: true
               capabilities:
                 drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
             volumeMounts:
               - name: dump
                 mountPath: /backup
+              - name: tmp
+                mountPath: /tmp-scratch
           {{- else }}
           - name: no-op-warning
-            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}"
+            image: "postgres:{{ .Values.backup.postgresVersion | default "17" }}{{ if .Values.backup.postgresImageDigest }}@{{ .Values.backup.postgresImageDigest }}{{ end }}"
             imagePullPolicy: IfNotPresent
             command:
             - /bin/sh
@@ -125,17 +205,34 @@ spec:
             - |
               echo "WARNING: backup.s3.enabled is false — the dump in /backup is NOT persisted anywhere and is discarded when this Job's pod is removed. Set backup.s3.enabled=true with a bucket to actually retain backups." >&2
               exit 1
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 128Mi
             securityContext:
               allowPrivilegeEscalation: false
               readOnlyRootFilesystem: true
               capabilities:
                 drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
             volumeMounts:
               - name: dump
                 mountPath: /backup
           {{- end }}
           {{- with .Values.nodeSelector }}
           nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.affinity }}
+          affinity:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
             {{- toYaml . | nindent 12 }}
           {{- end }}
 {{- end }}

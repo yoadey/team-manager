@@ -53,6 +53,8 @@ describe('useEventDetailActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let refreshEvents: ReturnType<typeof vi.fn>;
   let setFormVal: ReturnType<typeof vi.fn>;
+  let askConfirm: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -69,6 +71,8 @@ describe('useEventDetailActions', () => {
     toastMsg = vi.fn();
     refreshEvents = vi.fn().mockResolvedValue(undefined);
     setFormVal = vi.fn();
+    askConfirm = vi.fn();
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -82,7 +86,9 @@ describe('useEventDetailActions', () => {
         myRoles: () => [],
         refreshEvents: refreshEvents as never,
         setFormVal: setFormVal as never,
+        askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
+        logout: logout as never,
       }),
     );
   }
@@ -98,6 +104,44 @@ describe('useEventDetailActions', () => {
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({ sheet: expect.objectContaining({ type: 'eventDetail' }) }),
     );
+  });
+
+  // Regression test: reloadDetail used to set `event: null` on a confirmed
+  // 404 with no other signal, indistinguishable from the initial "still
+  // loading" null -- EventDetailSheet rendered an infinite spinner either
+  // way. reloadDetail must now flag eventNotFound so the component can tell
+  // the two apart.
+  it('openEventDetail sets eventNotFound when the event is confirmed missing', async () => {
+    api.events.get = vi.fn().mockResolvedValue(null);
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openEventDetail('ev1');
+    });
+    expect(stateRef.sheet).toMatchObject({ event: null, eventNotFound: true });
+  });
+
+  it('openEventDetail does not set eventNotFound when the event loads successfully', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openEventDetail('ev1');
+    });
+    expect(stateRef.sheet).toMatchObject({ eventNotFound: false });
+  });
+
+  // Regression test: a thrown fetch (e.g. events:none after a permission
+  // downgrade, reached via a deep link/bookmark/back-forward into
+  // /events/<id> -- ensureRouteData's own permission pre-check doesn't cover
+  // this path) never reached the success branch that sets eventNotFound, so
+  // EventDetailSheet's `if (!e) { ... return <SpinnerBox /> }` spun forever.
+  // reloadDetail must close the sheet on any failure instead.
+  it('openEventDetail closes the sheet instead of spinning forever when the fetch throws', async () => {
+    api.events.get = vi.fn().mockRejectedValue(new Error('boom'));
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.openEventDetail('ev1');
+    });
+    expect(stateRef.sheet).toBeNull();
+    expect(toastMsg).toHaveBeenCalled();
   });
 
   it('setMyStatus calls attendance API and shows toast', async () => {
@@ -117,6 +161,35 @@ describe('useEventDetailActions', () => {
       await result.current.setMyStatus('ev1', 'no');
     });
     expect(toastMsg).toHaveBeenCalledWith('Abgesagt');
+  });
+
+  // Regression test: a rapid double-tap on the RSVP buttons (or a user
+  // switching Yes -> No before the first request resolves) used to fire two
+  // concurrent api.attendance.set calls with no guard, unlike the sibling
+  // setStatusFor (roster admin view), risking an out-of-order response
+  // overwriting the UI with a stale status.
+  it('setMyStatus ignores a second call while the first is still in flight', async () => {
+    let resolveFirst!: () => void;
+    api.attendance.set = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValue(undefined);
+    const { result } = renderActions();
+
+    let firstDone = false;
+    const first = act(async () => {
+      await result.current.setMyStatus('ev1', 'yes').then(() => (firstDone = true));
+    });
+    await act(async () => {
+      await result.current.setMyStatus('ev1', 'no');
+    });
+
+    expect(firstDone).toBe(false);
+    expect(api.attendance.set).toHaveBeenCalledTimes(1);
+
+    resolveFirst();
+    await first;
+    expect(firstDone).toBe(true);
   });
 
   it('openComment sets comment sheet', () => {
@@ -158,10 +231,26 @@ describe('useEventDetailActions', () => {
     expect(api.events.addComment).not.toHaveBeenCalled();
   });
 
-  it('removeEventComment calls removeComment API', async () => {
+  // Regression test: removeEventComment used to call the API directly with
+  // no confirmation, unlike the app's otherwise-universal confirm-before-
+  // destroy convention (deleteEvent, removeMember, removeAbsence, etc.).
+  it('removeEventComment asks for confirmation before calling the API', () => {
     const { result } = renderActions();
+    act(() => {
+      result.current.removeEventComment('ev1', 'c1');
+    });
+    expect(askConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
+    expect(api.events.removeComment).not.toHaveBeenCalled();
+  });
+
+  it('removeEventComment calls the API once confirmed', async () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.removeEventComment('ev1', 'c1');
+    });
+    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
     await act(async () => {
-      await result.current.removeEventComment('ev1', 'c1');
+      await onConfirm();
     });
     expect(api.events.removeComment).toHaveBeenCalledWith('c1', 'ev1', 'team1');
   });
@@ -181,6 +270,35 @@ describe('useEventDetailActions', () => {
       await result.current.toggleNomination('ev1', 'u2', true);
     });
     expect(toastMsg).toHaveBeenCalledWith('Nicht nominiert');
+  });
+
+  // Regression test: same double-submission class as setMyStatus above --
+  // toggleNomination had no inFlight guard at all, unlike setMyStatus/
+  // setStatusFor, so a double-tap on the nominate icon fired two concurrent
+  // setNomination calls (and two refreshEvents/reloadDetail round-trips) for
+  // what the user perceives as a single click.
+  it('toggleNomination ignores a second call for the same event/user while the first is still in flight', async () => {
+    let resolveFirst!: () => void;
+    api.attendance.setNomination = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValue(undefined);
+    const { result } = renderActions();
+
+    let firstDone = false;
+    const first = act(async () => {
+      await result.current.toggleNomination('ev1', 'u2', false).then(() => (firstDone = true));
+    });
+    await act(async () => {
+      await result.current.toggleNomination('ev1', 'u2', false);
+    });
+
+    expect(firstDone).toBe(false);
+    expect(api.attendance.setNomination).toHaveBeenCalledTimes(1);
+
+    resolveFirst();
+    await first;
+    expect(firstDone).toBe(true);
   });
 
   it('reloadDetail handles API errors gracefully', async () => {
@@ -226,6 +344,86 @@ describe('useEventDetailActions', () => {
     expect(stateRef.sheet).toMatchObject({ type: 'eventDetail', eventId: 'ev2' });
     expect((stateRef.sheet as { event?: { id: string } } | null)?.event?.id).toBe('ev2');
   });
+
+  // Regression test: the eventId check above only guards against the sheet
+  // having switched to a DIFFERENT event while a reloadDetail call was in
+  // flight. It does NOT catch two reloadDetail calls for the SAME event
+  // racing each other -- e.g. two attendance updates on different rows both
+  // triggering a reload for the same open event. If the network responds
+  // out of request order, the older call's stale response could still
+  // overwrite the newer call's fresher data even though the sheet never
+  // changed identity.
+  it('a slow reloadDetail cannot overwrite a newer reload for the SAME event', async () => {
+    let resolveFirst!: (v: { id: string; title: string; date: string }) => void;
+    const firstPromise = new Promise<{ id: string; title: string; date: string }>((resolve) => {
+      resolveFirst = resolve;
+    });
+    api.events.get = vi
+      .fn()
+      .mockReturnValueOnce(firstPromise)
+      .mockResolvedValueOnce({ id: 'ev1', title: 'Fresh Title', date: '2026-03-03' });
+
+    const { result } = renderActions();
+    stateRef = makeState({ sheet: { type: 'eventDetail', eventId: 'ev1', event: null, rows: [] } as never });
+
+    const firstReload = act(async () => {
+      await result.current.reloadDetail('ev1');
+    });
+
+    // Second (newer) reload for the SAME event resolves immediately.
+    await act(async () => {
+      await result.current.reloadDetail('ev1');
+    });
+    expect((stateRef.sheet as { event?: { title: string } } | null)?.event?.title).toBe('Fresh Title');
+
+    // The first call's stale response now arrives -- it must not overwrite
+    // the second, fresher call's already-applied result.
+    resolveFirst!({ id: 'ev1', title: 'Stale Title', date: '2026-01-01' });
+    await firstReload;
+
+    expect((stateRef.sheet as { event?: { title: string } } | null)?.event?.title).toBe('Fresh Title');
+  });
+
+  it('submitComment sets attendance and reopens event detail', async () => {
+    stateRef = makeState({
+      sheet: { type: 'comment', eventId: 'ev1', userId: 'u2', status: 'no' } as never,
+      form: { commentText: 'injured' },
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.submitComment();
+    });
+    expect(api.attendance.set).toHaveBeenCalledWith('ev1', 'u2', { status: 'no', reason: 'injured' }, 'team1');
+    expect(stateRef.sheet).toMatchObject({ type: 'eventDetail', eventId: 'ev1' });
+  });
+
+  // Regression: the sheet-identity check used to only verify activeTeamId,
+  // so a slow submitComment could clobber whatever DIFFERENT sheet the user
+  // had since opened while it was in flight.
+  it('submitComment does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveSet!: () => void;
+    api.attendance.set = vi.fn(() => new Promise<void>((resolve) => (resolveSet = resolve)));
+    stateRef = makeState({
+      sheet: { type: 'comment', eventId: 'ev1', userId: 'u2', status: 'no' } as never,
+      form: { commentText: 'injured' },
+    });
+    const { result } = renderActions();
+
+    let submitPromise!: Promise<void>;
+    act(() => {
+      submitPromise = result.current.submitComment();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveSet();
+      await submitPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+  });
 });
 
 describe('useEventActionFeatures', () => {
@@ -234,6 +432,7 @@ describe('useEventActionFeatures', () => {
   let refreshEvents: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let openEventDetail: ReturnType<typeof vi.fn>;
+  let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
 
@@ -251,6 +450,7 @@ describe('useEventActionFeatures', () => {
     refreshEvents = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
     openEventDetail = vi.fn().mockResolvedValue(undefined);
+    logout = vi.fn();
     api = makeApi();
   });
 
@@ -267,6 +467,7 @@ describe('useEventActionFeatures', () => {
         toastMsg: toastMsg as never,
         askConfirm: askConfirm as never,
         openEventDetail: openEventDetail as never,
+        logout: logout as never,
       }),
     );
   }
@@ -310,5 +511,62 @@ describe('useEventActionFeatures', () => {
     });
     expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Termin aktiviert');
+  });
+
+  // Regression: onConfirm used to close the sheet unconditionally (once the
+  // team still matched), so a slow delete for one event could clobber
+  // whatever DIFFERENT sheet the user had since opened while it was in
+  // flight.
+  it('runEventAction delete does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveRemove!: () => void;
+    api.events.remove = vi.fn(() => new Promise<void>((resolve) => (resolveRemove = resolve)));
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
+    const { result } = renderActions();
+
+    act(() => {
+      result.current.runEventAction('delete', event, 'single');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+
+    let confirmPromise!: Promise<void>;
+    act(() => {
+      confirmPromise = cfg.onConfirm();
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveRemove();
+      await confirmPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+  });
+
+  // Same race for the cancel/reactivate branch, which (for a non-series
+  // event) runs directly rather than through askConfirm.
+  it('runEventAction reactivate does not touch the sheet if the user opened something else while in flight', async () => {
+    let resolveStatus!: () => void;
+    api.events.setStatus = vi.fn(() => new Promise<void>((resolve) => (resolveStatus = resolve)));
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
+    stateRef = { ...stateRef, sheet: { type: 'eventDetail', eventId: 'ev1' } as never };
+    const { result } = renderActions();
+
+    let actionPromise!: Promise<void>;
+    act(() => {
+      actionPromise = result.current.runEventAction('reactivate', event, 'single');
+    });
+
+    const somethingElse = { type: 'teams' } as never;
+    stateRef = { ...stateRef, sheet: somethingElse };
+
+    await act(async () => {
+      resolveStatus();
+      await actionPromise;
+    });
+
+    expect(stateRef.sheet).toBe(somethingElse);
+    expect(openEventDetail).not.toHaveBeenCalled();
   });
 });

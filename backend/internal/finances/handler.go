@@ -96,12 +96,25 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if req.Body.Category != nil {
+		if err := validate.MaxLen(*req.Body.Category, 255, "category"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if !req.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid transaction type")
+	}
 	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
 	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyTransactions) {
+			h.recordFinanceFailure(ctx, "transaction.create", err.Error())
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
+		h.recordFinanceFailure(ctx, "transaction.create", "internal error")
 		return nil, apierror.Internal("failed to create transaction")
 	}
 	h.recordFinance(ctx, "transaction.create",
@@ -125,6 +138,14 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 		if err := validate.MaxLen(*req.Body.Title, 255, "title"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
+	}
+	if req.Body.Category != nil {
+		if err := validate.MaxLen(*req.Body.Category, 255, "category"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Type != nil && !req.Body.Type.Valid() {
+		return nil, apierror.BadRequest("type: not a valid transaction type")
 	}
 	if req.Body.Amount != nil {
 		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
@@ -184,7 +205,12 @@ func (h *Handler) CreatePenalty(ctx context.Context, req gen.CreatePenaltyReques
 	}
 	p, err := h.svc.CreatePenalty(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyPenalties) {
+			h.recordFinanceFailure(ctx, "penalty.create", err.Error())
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreatePenalty failed", "err", err)
+		h.recordFinanceFailure(ctx, "penalty.create", "internal error")
 		return nil, apierror.Internal("failed to create penalty")
 	}
 	h.recordFinance(ctx, "penalty.create",
@@ -258,9 +284,18 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 	}
 	a, err := h.svc.CreateAssignment(ctx, req.TeamId, req.Body)
 	if err != nil {
-		if errors.Is(err, ErrPenaltyNotInTeam) || errors.Is(err, ErrUserNotInTeam) {
+		if errors.Is(err, ErrPenaltyNotInTeam) || errors.Is(err, ErrUserNotInTeam) || errors.Is(err, ErrTooManyAssignments) {
 			h.recordFinanceFailure(ctx, "assignment.create", err.Error())
 			return nil, apierror.UnprocessableEntity(err.Error())
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Service.CreateAssignment returns bare pgx.ErrNoRows when the
+			// just-created row is already gone by the time it's reloaded --
+			// a concurrent DeletePenalty cascaded it away. The write itself
+			// never failed, but the row genuinely doesn't exist anymore, so
+			// this maps to 404 rather than the generic 500 below.
+			h.recordFinanceFailure(ctx, "assignment.create", "not found")
+			return nil, apierror.NotFound("penalty assignment not found")
 		}
 		h.recordFinanceFailure(ctx, "assignment.create", "internal error")
 		h.logger.ErrorContext(ctx, "CreatePenaltyAssignment failed", "err", err)

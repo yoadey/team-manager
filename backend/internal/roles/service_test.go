@@ -20,7 +20,7 @@ import (
 type mockRepo struct {
 	listRolesFn  func(ctx context.Context, teamID string) ([]teams.RoleRow, error)
 	createRoleFn func(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error)
-	updateRoleFn func(ctx context.Context, roleID, teamID string, patch roles.RolePatch) (*teams.RoleRow, error)
+	updateRoleFn func(ctx context.Context, roleID, teamID, callerUserID string, patch roles.RolePatch) (*teams.RoleRow, error)
 	deleteRoleFn func(ctx context.Context, roleID, teamID string) error
 }
 
@@ -32,8 +32,8 @@ func (m *mockRepo) CreateRole(ctx context.Context, teamID, name string, color *s
 	return m.createRoleFn(ctx, teamID, name, color, permissions)
 }
 
-func (m *mockRepo) UpdateRole(ctx context.Context, roleID, teamID string, patch roles.RolePatch) (*teams.RoleRow, error) {
-	return m.updateRoleFn(ctx, roleID, teamID, patch)
+func (m *mockRepo) UpdateRole(ctx context.Context, roleID, teamID, callerUserID string, patch roles.RolePatch) (*teams.RoleRow, error) {
+	return m.updateRoleFn(ctx, roleID, teamID, callerUserID, patch)
 }
 
 func (m *mockRepo) DeleteRole(ctx context.Context, roleID, teamID string) error {
@@ -107,12 +107,14 @@ func TestService_UpdateRole_LeavesPermissionsNilWhenNotProvided(t *testing.T) {
 
 	roleID := uuid.New()
 	teamID := uuid.New()
+	callerUserID := uuid.New()
 	newName := "Renamed Role"
 	var capturedPatch roles.RolePatch
 	repo := &mockRepo{
-		updateRoleFn: func(_ context.Context, gotRoleID, gotTeamID string, patch roles.RolePatch) (*teams.RoleRow, error) {
+		updateRoleFn: func(_ context.Context, gotRoleID, gotTeamID, gotCallerUserID string, patch roles.RolePatch) (*teams.RoleRow, error) {
 			assert.Equal(t, roleID.String(), gotRoleID)
 			assert.Equal(t, teamID.String(), gotTeamID)
+			assert.Equal(t, callerUserID.String(), gotCallerUserID)
 			capturedPatch = patch
 			return &teams.RoleRow{Id: roleID, Name: newName}, nil
 		},
@@ -120,7 +122,7 @@ func TestService_UpdateRole_LeavesPermissionsNilWhenNotProvided(t *testing.T) {
 
 	svc := roles.NewService(repo)
 	body := &gen.UpdateRoleJSONRequestBody{Name: &newName}
-	_, err := svc.UpdateRole(context.Background(), roleID, teamID, body)
+	_, err := svc.UpdateRole(context.Background(), roleID, teamID, callerUserID, body)
 	require.NoError(t, err)
 
 	require.NotNil(t, capturedPatch.Name)
@@ -133,9 +135,10 @@ func TestService_UpdateRole_MapsPermissionsWhenProvided(t *testing.T) {
 
 	roleID := uuid.New()
 	teamID := uuid.New()
+	callerUserID := uuid.New()
 	var capturedPatch roles.RolePatch
 	repo := &mockRepo{
-		updateRoleFn: func(_ context.Context, _, _ string, patch roles.RolePatch) (*teams.RoleRow, error) {
+		updateRoleFn: func(_ context.Context, _, _, _ string, patch roles.RolePatch) (*teams.RoleRow, error) {
 			capturedPatch = patch
 			return &teams.RoleRow{Id: roleID}, nil
 		},
@@ -144,7 +147,7 @@ func TestService_UpdateRole_MapsPermissionsWhenProvided(t *testing.T) {
 	svc := roles.NewService(repo)
 	perms := gen.Permissions{Events: gen.Write, Members: gen.None, Finances: gen.None, News: gen.None, Polls: gen.None, Settings: gen.Read}
 	body := &gen.UpdateRoleJSONRequestBody{Permissions: &perms}
-	_, err := svc.UpdateRole(context.Background(), roleID, teamID, body)
+	_, err := svc.UpdateRole(context.Background(), roleID, teamID, callerUserID, body)
 	require.NoError(t, err)
 
 	require.NotNil(t, capturedPatch.Permissions)
@@ -157,16 +160,17 @@ func TestService_UpdateRole_WrongTeam_PropagatesNoRows(t *testing.T) {
 
 	roleID := uuid.New()
 	wrongTeamID := uuid.New()
+	callerUserID := uuid.New()
 	newName := "Attacker Renamed"
 	repo := &mockRepo{
-		updateRoleFn: func(context.Context, string, string, roles.RolePatch) (*teams.RoleRow, error) {
+		updateRoleFn: func(context.Context, string, string, string, roles.RolePatch) (*teams.RoleRow, error) {
 			return nil, pgx.ErrNoRows
 		},
 	}
 
 	svc := roles.NewService(repo)
 	body := &gen.UpdateRoleJSONRequestBody{Name: &newName}
-	_, err := svc.UpdateRole(context.Background(), roleID, wrongTeamID, body)
+	_, err := svc.UpdateRole(context.Background(), roleID, wrongTeamID, callerUserID, body)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 }

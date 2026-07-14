@@ -49,12 +49,19 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Field label={t('polls.fieldQuestion')} required error={!!errs.question} errorText={errs.question}>
-        <TextInput name="question" placeholder={t('polls.fieldQuestionPlaceholder')} onBlur={validateQuestion} />
+        <TextInput
+          name="question"
+          placeholder={t('polls.fieldQuestionPlaceholder')}
+          onBlur={validateQuestion}
+          maxLength={1000}
+        />
       </Field>
-      <Box>
-        <Box sx={labelSx}>{t('polls.answerOptions')}</Box>
+      <Box role="group" aria-labelledby="poll-options-label">
+        <Box id="poll-options-label" sx={labelSx}>
+          {t('polls.answerOptions')}
+        </Box>
         {opts.length < 2 && errs.options ? (
-          <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }} role="alert">
+          <Box id="poll-options-error" sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }} role="alert">
             {errs.options}
           </Box>
         ) : null}
@@ -63,14 +70,20 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
             name="opt0"
             placeholder={t('polls.option1')}
             onBlur={() => app.setFormErrors({ options: opts.length < 2 ? t('polls.optionsError') : '' })}
+            maxLength={500}
+            aria-invalid={opts.length < 2 && !!errs.options}
+            aria-describedby={opts.length < 2 && errs.options ? 'poll-options-error' : undefined}
           />
           <TextInput
             name="opt1"
             placeholder={t('polls.option2')}
             onBlur={() => app.setFormErrors({ options: opts.length < 2 ? t('polls.optionsError') : '' })}
+            maxLength={500}
+            aria-invalid={opts.length < 2 && !!errs.options}
+            aria-describedby={opts.length < 2 && errs.options ? 'poll-options-error' : undefined}
           />
-          <TextInput name="opt2" placeholder={t('polls.option3')} />
-          <TextInput name="opt3" placeholder={t('polls.option4')} />
+          <TextInput name="opt2" placeholder={t('polls.option3')} maxLength={500} />
+          <TextInput name="opt3" placeholder={t('polls.option4')} maxLength={500} />
         </Box>
       </Box>
       <Box sx={{ display: 'flex', gap: '8px' }}>

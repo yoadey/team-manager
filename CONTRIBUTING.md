@@ -5,12 +5,16 @@ workflow and the quality bar enforced in CI.
 
 ## Prerequisites
 
-- **Node.js ≥ 22** and **npm ≥ 10** (see `engines` in `package.json`; `.nvmrc`
-  pins the version — `nvm use`).
+- **Node.js ≥ 22** and **npm ≥ 10** (see `engines` in `frontend/package.json`;
+  `frontend/.nvmrc` pins the version — `cd frontend && nvm use`).
 
 ## Setup
 
+The frontend lives in `frontend/` with its own `package.json` — `npm install` at the
+repo root only installs the root tooling dependency (Husky), not the frontend's.
+
 ```bash
+cd frontend
 npm install
 cp .env.example .env   # optional — the app works with an empty .env
 npm run dev            # http://localhost:5173
@@ -22,7 +26,7 @@ npm run dev            # http://localhost:5173
 2. Make your change, following the conventions in
    [`CLAUDE.md`](./CLAUDE.md) (architecture, state, RBAC, i18n, sheets).
 3. Keep changes scoped; match the style of the surrounding code.
-4. Run the full local check set before pushing:
+4. Run the full local check set before pushing (from `frontend/`):
 
    ```bash
    npm run lint
@@ -31,22 +35,33 @@ npm run dev            # http://localhost:5173
    npm run build
    ```
 
+   Backend changes: run the equivalent Go checks from `backend/` — see
+   [`CLAUDE.md`](./CLAUDE.md#quick-start).
+
 5. Open a PR using the template. CODEOWNERS are requested automatically.
 
 A Husky pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files).
 
 ## Quality bar (enforced in CI)
 
-CI runs lint → typecheck → test (coverage) → build (bundle-size budget + SBOM)
-→ Playwright E2E → Lighthouse. PRs must be green to merge.
+`.github/workflows/ci.yml` runs ~24 jobs gating every PR. PRs must be green to merge:
+
+- **Frontend**: lint → typecheck → test (coverage) → security audit (`npm audit`)
+  → license check (GPL/AGPL) → build (bundle-size budget + SBOM) → Playwright E2E
+  → Lighthouse.
+- **Backend**: OpenAPI codegen drift check → lint → test → build → license check
+  (GPL/AGPL) → `govulncheck` → migration rollback + unsafe-DDL-pattern checks.
+- **Security/compliance** (also block merges): CodeQL SAST (Go + TypeScript),
+  TruffleHog secret scanning, Trivy container image scans, OWASP ZAP (DAST),
+  Helm chart lint.
 
 - **Tests** live next to source as `*.test.ts(x)`. Add tests for new logic; the
-  coverage floors (`vitest.config.ts`) must hold.
+  coverage floors (`frontend/vitest.config.ts`) must hold.
 - **Accessibility**: components must be keyboard-operable and pass `vitest-axe`
   / `eslint-plugin-jsx-a11y`. Respect dark mode via the `NEUTRAL` tokens — avoid
   hardcoded hex colors for surfaces/text.
 - **i18n**: no hardcoded user-facing strings — use `t()` and update **both**
-  `src/i18n/de.ts` and `src/i18n/en.ts`.
+  `frontend/src/i18n/de.ts` and `frontend/src/i18n/en.ts`.
 - **Security**: never commit secrets/PII. `dangerouslySetInnerHTML` is blocked by
   lint; sanitise HTML if you must render it. See [`SECURITY.md`](./SECURITY.md).
 

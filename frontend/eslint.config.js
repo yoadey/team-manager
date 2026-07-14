@@ -44,6 +44,16 @@ export default tsEslint.config(
     },
   },
   {
+    // Loaded via a plain <script> tag in index.html — runs in a browser
+    // window scope, not a module.
+    files: ['public/config.js'],
+    languageOptions: {
+      globals: {
+        window: 'readonly',
+      },
+    },
+  },
+  {
     // Node.js scripts (bundle checker, etc.) use Node globals
     files: ['scripts/**/*.mjs', 'scripts/**/*.js'],
     languageOptions: {

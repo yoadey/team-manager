@@ -18,8 +18,8 @@ const (
 	MaxLimit     = 500
 )
 
-// ErrInvalidCursor is returned by DecodeCursor when the token is not a valid
-// cursor (bad base64 or JSON). Handlers should map it to a 400, not a 500.
+// ErrInvalidCursor is returned by Paginator.Decode when the token is not a
+// valid cursor (bad base64 or JSON). Handlers should map it to a 400, not a 500.
 var ErrInvalidCursor = errors.New("invalid cursor")
 
 // ParseLimit applies the default (50) and cap (500) to an optional limit param.
@@ -32,33 +32,6 @@ func ParseLimit(limit *int) int {
 		}
 	}
 	return l
-}
-
-// EncodeCursor serializes a keyset cursor value into an opaque base64url token.
-// No HMAC signing is applied; use Paginator.Encode for signed cursors.
-func EncodeCursor(v any) (string, error) {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return "", fmt.Errorf("pagination.EncodeCursor: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-// DecodeCursor parses an opaque token produced by EncodeCursor into dst. An
-// empty token returns (false, nil), meaning "start from the beginning".
-// No HMAC verification is performed; use Paginator.Decode for signed cursors.
-func DecodeCursor(token string, dst any) (bool, error) {
-	if token == "" {
-		return false, nil
-	}
-	b, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return false, fmt.Errorf("pagination.DecodeCursor: %w: %v", ErrInvalidCursor, err) //nolint:errorlint // err is context only; ErrInvalidCursor is the matchable sentinel
-	}
-	if err := json.Unmarshal(b, dst); err != nil {
-		return false, fmt.Errorf("pagination.DecodeCursor: %w: %v", ErrInvalidCursor, err) //nolint:errorlint // err is context only; ErrInvalidCursor is the matchable sentinel
-	}
-	return true, nil
 }
 
 // Parse extracts limit and offset from optional pointer params, applying
@@ -80,9 +53,8 @@ func Parse(limit, offset *int) (l, o int) {
 // Paginator is a cursor encoder/decoder that optionally signs cursors with
 // HMAC-SHA256 to prevent clients from crafting arbitrary cursor values.
 //
-// When HMACKey is nil or empty, Paginator behaves identically to the
-// package-level EncodeCursor / DecodeCursor functions (backward-compatible
-// dev mode). When HMACKey is set, cursors are formatted as:
+// When HMACKey is nil or empty, cursors are plain, unsigned base64url tokens
+// (dev mode). When HMACKey is set, cursors are formatted as:
 //
 //	base64url(json) + "." + hex(hmac-sha256(base64url(json), key))
 //
@@ -106,7 +78,7 @@ func (p *Paginator) sign(payload string) string {
 }
 
 // Encode serializes v into an opaque cursor token. When HMACKey is set the
-// token is HMAC-signed; otherwise it is plain base64url (same as EncodeCursor).
+// token is HMAC-signed; otherwise it is plain base64url.
 func (p *Paginator) Encode(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {

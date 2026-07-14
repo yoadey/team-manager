@@ -18,9 +18,8 @@
 
 ## Checklist
 
-- [ ] `npm run lint` passes
-- [ ] `npm run typecheck` passes
-- [ ] `npm test` passes (coverage floors hold)
+- [ ] Frontend: `npm run lint` / `npm run typecheck` / `npm test` pass (coverage floors hold) — if this PR touches `frontend/`
+- [ ] Backend: `make lint` / `make test` pass — if this PR touches `backend/`
 - [ ] New/changed logic is covered by tests
 - [ ] UI changes are accessible (keyboard + screen reader) and respect dark mode
 - [ ] User-facing strings go through `t()` (de **and** en catalogs updated)

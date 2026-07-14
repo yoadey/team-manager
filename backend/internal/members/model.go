@@ -18,7 +18,7 @@ type MemberRow struct {
 	Birthday     *time.Time
 	Address      *string
 	AvatarColor  string
-	PhotoData    []byte
+	HasPhoto     bool
 	Group        *string
 	JoinedAt     time.Time
 	Roles        []teams.RoleRow
@@ -32,13 +32,4 @@ type MemberPatch struct {
 	Birthday *time.Time
 	Address  *string
 	Group    *string
-}
-
-// AddMemberParams holds the fields needed to add a member to a team.
-type AddMemberParams struct {
-	Name    string
-	Email   string
-	Phone   *string
-	Group   *string
-	RoleIDs []string
 }

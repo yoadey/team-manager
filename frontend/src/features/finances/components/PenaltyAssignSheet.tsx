@@ -28,12 +28,19 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
         {t('finances.assignPenalty')}
       </Box>
       {errs.penaltyId ? <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }}>{errs.penaltyId}</Box> : null}
-      <Box key="b" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <Box
+        key="b"
+        role="radiogroup"
+        aria-label={t('finances.assignPenalty')}
+        sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
+      >
         {(f ? f.penalties : []).map((p) => {
           const sel = F.penaltyId === p.id;
           return (
             <ButtonBase
               key={p.id}
+              role="radio"
+              aria-checked={sel}
               onClick={() => {
                 app.setFormVal({ penaltyId: p.id });
                 app.setFormErrors({ penaltyId: '' });

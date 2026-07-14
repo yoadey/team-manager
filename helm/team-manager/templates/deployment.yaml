@@ -8,12 +8,25 @@ spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
+  {{- with .Values.deploymentStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "team-manager.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       annotations:
+        # prometheus.io/port always derives from .Values.service.targetPort,
+        # the same way the probes and NetworkPolicy do -- values.yaml itself
+        # can't reference .Values.service.targetPort (it's plain YAML, not
+        # templated), so a deployer who only overrode service.targetPort
+        # would otherwise silently keep scraping the stale default "8080"
+        # and get connection-refused with no alert. Don't set
+        # prometheus.io/port in .Values.podAnnotations too -- a duplicate key
+        # there is emitted after (and so wins over) this line.
+        prometheus.io/port: {{ .Values.service.targetPort | quote }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -24,71 +37,18 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       serviceAccountName: {{ include "team-manager.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- if .Values.migrations.runAsInitContainer }}
       initContainers:
         - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["--migrate-only"]
-          env:
-            - name: ALLOWED_ORIGINS
-              value: {{ .Values.allowedOrigins | quote }}
-            {{- range $key, $val := .Values.env }}
-            - name: {{ $key }}
-              value: {{ $val | quote }}
-            {{- end }}
-            {{- if .Values.existingSecret }}
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: DATABASE_URL
-            - name: JWT_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: JWT_PRIVATE_KEY
-            - name: JWT_PUBLIC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: JWT_PUBLIC_KEY
-            - name: COOKIE_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: COOKIE_ENCRYPTION_KEY
-            - name: SENTRY_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: SENTRY_DSN
-                  optional: true
-            - name: METRICS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: METRICS_TOKEN
-                  optional: true
-            {{- end }}
-      {{- end }}
-      containers:
-        - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.targetPort }}
-              protocol: TCP
-          livenessProbe:
-            {{- toYaml .Values.livenessProbe | nindent 12 }}
-          readinessProbe:
-            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          args: ["--migrate-only"]
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
@@ -119,6 +79,13 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: COOKIE_ENCRYPTION_KEY
+                  # Optional: config.go's loadCookieEncryptionKeys checks
+                  # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never
+                  # even looks at this singular key -- a Secret populated per
+                  # the zero-downtime-rotation guidance in CLAUDE.md (only
+                  # COOKIE_ENCRYPTION_KEYS set) must not fail pod scheduling
+                  # just because this optional fallback key is absent.
+                  optional: true
             - name: SENTRY_DSN
               valueFrom:
                 secretKeyRef:
@@ -131,7 +98,142 @@ spec:
                   name: {{ .Values.existingSecret }}
                   key: METRICS_TOKEN
                   optional: true
+            - name: PAGINATION_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: PAGINATION_HMAC_KEY
+                  optional: true
+            - name: COOKIE_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: COOKIE_ENCRYPTION_KEYS
+                  optional: true
             {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: {{ .Values.startupProbe.httpGet.path }}
+              port: {{ .Values.service.targetPort }}
+            periodSeconds: {{ .Values.startupProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.startupProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.startupProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.livenessProbe.httpGet.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.readinessProbe.httpGet.path }}
+              port: {{ .Values.service.targetPort }}
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          env:
+            # Without GOMEMLIMIT, the Go GC only targets ~2x live heap and has
+            # no awareness of the container's cgroup memory limit -- under a
+            # load spike it can keep growing right up to (and past) that
+            # limit before the pacer would otherwise have intervened, getting
+            # OOMKilled instead of collecting proactively. Sourced from the
+            # downward API (not hardcoded) so it always tracks whatever
+            # resources.limits.memory actually is, including per-environment
+            # overrides in values-staging.yaml/values-prod.yaml. Deliberately
+            # not tuning GOMAXPROCS alongside it here -- doing that correctly
+            # under a fractional CPU limit needs cgroup-aware rounding
+            # (e.g. go.uber.org/automaxprocs), not just the integer-only
+            # downward API divisor, which is a large enough change to be its
+            # own follow-up rather than bundled into this one.
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  containerName: {{ .Chart.Name }}
+                  resource: limits.memory
+            - name: ALLOWED_ORIGINS
+              value: {{ .Values.allowedOrigins | quote }}
+            {{- range $key, $val := .Values.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+            {{- if .Values.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: DATABASE_URL
+            - name: JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: JWT_PRIVATE_KEY
+            - name: JWT_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: JWT_PUBLIC_KEY
+            - name: COOKIE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: COOKIE_ENCRYPTION_KEY
+                  # Optional: config.go's loadCookieEncryptionKeys checks
+                  # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never
+                  # even looks at this singular key -- a Secret populated per
+                  # the zero-downtime-rotation guidance in CLAUDE.md (only
+                  # COOKIE_ENCRYPTION_KEYS set) must not fail pod scheduling
+                  # just because this optional fallback key is absent.
+                  optional: true
+            - name: SENTRY_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: SENTRY_DSN
+                  optional: true
+            - name: METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: METRICS_TOKEN
+                  optional: true
+            - name: PAGINATION_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: PAGINATION_HMAC_KEY
+                  optional: true
+            - name: COOKIE_ENCRYPTION_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: COOKIE_ENCRYPTION_KEYS
+                  optional: true
+            {{- end }}
+      # Explicit (possibly empty) volumes array: some Kubernetes admission
+      # webhooks that inject a volume by name (e.g. EKS's IRSA pod-identity
+      # webhook, if serviceAccount.annotations carries an IAM role ARN) apply
+      # their mutation as a JSON patch "add" at /spec/volumes/0, which fails
+      # if the pod has no volumes key at all — which is the case here now
+      # that serviceAccount.automount defaults to false (no more
+      # kubelet-injected token volume). See
+      # https://github.com/aws/amazon-eks-pod-identity-webhook/issues/17.
+      volumes: []
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
