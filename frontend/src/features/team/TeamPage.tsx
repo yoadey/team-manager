@@ -119,7 +119,7 @@ export function TeamPage() {
               <Box component="span">·</Box>
             </>
           ) : null}
-          {t('team.membersCount', { n: team.memberCount })}
+          {t('team.membersCount', { n: team.memberCount, count: team.memberCount })}
         </Box>
       </Box>
     </Box>
@@ -182,7 +182,7 @@ export function TeamPage() {
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ fontSize: '14px', fontWeight: 600 }}>{tm.name}</Box>
               <Box sx={{ fontSize: '12px', color: active ? tk.onPrimaryContainer : NEUTRAL.secondary, mt: '2px' }}>
-                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount })]
+                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount, count: tm.memberCount })]
                   .filter(Boolean)
                   .join(' · ')}
               </Box>

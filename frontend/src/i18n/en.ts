@@ -528,6 +528,8 @@ export const en: Messages = {
   team: {
     members: 'Members',
     membersCount: '{n} members',
+    membersCount_one: '{n} member',
+    membersCount_other: '{n} members',
     invite: 'Create invite link',
     inviteDesc: 'Invite new members via link',
     teamSettings: 'Team settings',

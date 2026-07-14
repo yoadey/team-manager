@@ -76,7 +76,7 @@ export function TeamsSheet({ app }: SheetProps) {
                 {tm.name}
               </Box>
               <Box component="span" sx={{ display: 'block', fontSize: '12px', color: NEUTRAL.secondary }}>
-                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount })]
+                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount, count: tm.memberCount })]
                   .filter(Boolean)
                   .join(' · ')}
               </Box>

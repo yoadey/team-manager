@@ -88,6 +88,38 @@ describe('TeamPage', () => {
     expect(roleless.textContent).not.toContain('·');
   });
 
+  // Regression test: the member-count string used a single always-plural
+  // template with no _one/_other forms, so a team with exactly one member
+  // showed the grammatically wrong "1 Mitglieder" instead of "1 Mitglied".
+  it('uses the singular member-count form for a team with exactly one member', () => {
+    const app = makeApp();
+    app.activeTeam = vi.fn().mockReturnValue(makeTeam({ memberCount: 1 }));
+    mockUseApp.mockReturnValue(app);
+    render(<TeamPage />);
+    expect(screen.getByText('1 Mitglied')).toBeTruthy();
+    expect(screen.queryByText('1 Mitglieder')).toBeNull();
+  });
+
+  it('uses the plural member-count form for a team with multiple members', () => {
+    const app = makeApp();
+    app.activeTeam = vi.fn().mockReturnValue(makeTeam({ memberCount: 10 }));
+    mockUseApp.mockReturnValue(app);
+    render(<TeamPage />);
+    expect(screen.getByText('10 Mitglieder')).toBeTruthy();
+  });
+
+  // Same singular/plural bug in the team-switcher list, which reads
+  // memberCount from state.teams rather than activeTeam().
+  it('uses the singular member-count form in the team list for a one-member team', () => {
+    const app = makeApp({
+      teams: [makeTeam({ id: 'team1' }), makeTeam({ id: 'team2', name: 'Solo Team', memberCount: 1 })],
+    });
+    mockUseApp.mockReturnValue(app);
+    render(<TeamPage />);
+    const solo = screen.getByText('Solo Team').closest('button')!;
+    expect(solo.textContent).toMatch(/1 Mitglied(?!er)/);
+  });
+
   it('renders Rollen & Rechte action', () => {
     mockUseApp.mockReturnValue(makeApp());
     render(<TeamPage />);

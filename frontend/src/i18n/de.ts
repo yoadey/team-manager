@@ -535,6 +535,8 @@ export const de = {
   team: {
     members: 'Mitglieder',
     membersCount: '{n} Mitglieder',
+    membersCount_one: '{n} Mitglied',
+    membersCount_other: '{n} Mitglieder',
     invite: 'Einladungslink erstellen',
     inviteDesc: 'Neue Mitglieder per Link einladen',
     teamSettings: 'Team-Einstellungen',
