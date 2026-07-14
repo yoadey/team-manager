@@ -771,9 +771,65 @@ jobs:
           fi
           echo "Checking changed migrations:"
           echo "$changed"
+          # Preprocessor for the per-statement checks below: blanks out the
+          # contents of '-quoted string literals, -- line comments, and
+          # /* */ block comments (replacing each character with a space,
+          # preserving newlines and overall layout) before any hazard-phrase
+          # matching or statement splitting happens. Without this, a mitigation
+          # phrase like "NOT VALID" or "USING INDEX" occurring inside a string
+          # literal or comment -- not as the actual trailing SQL clause -- was
+          # enough to satisfy the grep -v checks below and silently wave
+          # through a genuinely unsafe statement (e.g. a CHECK constraint
+          # comparing a column against the literal string 'NOT VALID', or an
+          # explanatory comment mentioning it). The same blanking also fixes
+          # the inverse problem: a ';' inside a string literal (e.g. a CHECK
+          # expression like note !~ 'contains a semicolon; like this') used to
+          # split one safe statement into two fragments that individually
+          # looked unsafe, since the awk 'BEGIN{RS=";"}' splitter below has no
+          # concept of quoting. A doubled '' (SQL's escape for a literal quote
+          # inside a string) is handled for free: toggling the "in string"
+          # state twice in a row nets out to the same state, so it never
+          # miscounts. Dollar-quoting ($$...$$) isn't handled -- this
+          # migrations directory has never used it (no function bodies), so
+          # it isn't a real gap for this repo's actual content.
+          strip_quotes_comments() {
+            awk -v q="'" '
+              BEGIN { state = "normal" }
+              { buf = buf $0 "\n" }
+              END {
+                n = length(buf)
+                i = 1
+                out = ""
+                while (i <= n) {
+                  c = substr(buf, i, 1)
+                  c2 = substr(buf, i, 2)
+                  if (state == "normal") {
+                    if (c == q) { state = "sq"; out = out " "; i++; continue }
+                    if (c2 == "--") { state = "line"; out = out "  "; i += 2; continue }
+                    if (c2 == "/*") { state = "block"; out = out "  "; i += 2; continue }
+                    out = out c; i++; continue
+                  }
+                  if (state == "sq") {
+                    if (c == q) { state = "normal"; out = out " "; i++; continue }
+                    out = out (c == "\n" ? "\n" : " "); i++; continue
+                  }
+                  if (state == "line") {
+                    if (c == "\n") { state = "normal"; out = out "\n"; i++; continue }
+                    out = out " "; i++; continue
+                  }
+                  if (state == "block") {
+                    if (c2 == "*/") { state = "normal"; out = out "  "; i += 2; continue }
+                    out = out (c == "\n" ? "\n" : " "); i++; continue
+                  }
+                }
+                printf "%s", out
+              }
+            ' "$1"
+          }
           fail=0
           while IFS= read -r f; do
             [ -z "$f" ] && continue
+            stripped=$(strip_quotes_comments "$f")
             # File-level check (not per-statement): goose wraps a migration's
             # statements in a transaction by default, and Postgres rejects
             # CREATE INDEX CONCURRENTLY inside a transaction block. Every
@@ -895,7 +951,7 @@ jobs:
                 echo "::error file=$f::CREATE INDEX without CONCURRENTLY holds a table-level lock blocking writes for the duration of the index build. Add CONCURRENTLY (and a '+goose NO TRANSACTION' annotation, since CONCURRENTLY cannot run inside a transaction)."
                 fail=1
               fi
-            done <<< "$(awk 'BEGIN{RS=";"} {gsub(/\n/," "); print}' "$f")"
+            done <<< "$(echo "$stripped" | awk 'BEGIN{RS=";"} {gsub(/\n/," "); print}')"
           done <<< "$changed"
           exit $fail
 
