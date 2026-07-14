@@ -139,4 +139,42 @@ describe('EventCalendar', () => {
       vi.unstubAllEnvs();
     }
   });
+
+  // Regression test: the "+N absent" overflow badge used to derive its
+  // abbreviation by slicing the first 3 characters off t('events.absent')
+  // (the LONG-form translation), rather than using a dedicated short-form
+  // translation key -- fragile for any locale whose translation doesn't
+  // happen to front-load a recognizable 3-character stem, and liable to cut
+  // a translated string mid-character. Use the dedicated
+  // events.absentShort key instead. Mocking absentShort to a value whose
+  // first 3 characters DIFFER from t('events.absent')'s first 3 characters
+  // proves the badge renders the dedicated key's full value rather than
+  // deriving it from the long form -- with the real (unmocked) strings the
+  // two code paths happen to produce the same output, so a plain string
+  // assertion wouldn't distinguish old from new behavior.
+  it('labels the absence overflow badge with the dedicated short-form translation, not a slice of the long form', async () => {
+    const i18n = await import('@/i18n');
+    const realT = i18n.t;
+    const spy = vi.spyOn(i18n, 't').mockImplementation((key: string, params?: Record<string, string | number>) => {
+      if (key === 'events.absentShort') return 'XYZ';
+      if (key === 'events.absent') return 'not-this-value';
+      return realT(key, params);
+    });
+    try {
+      makeApp({
+        calMonth: new Date(2026, 9, 1),
+        calShowAbsences: true,
+        absences: [
+          { from: '2026-10-05', to: '2026-10-05', name: 'Anna Müller', roleColor: '#111111' },
+          { from: '2026-10-05', to: '2026-10-05', name: 'Bob Schmidt', roleColor: '#222222' },
+          { from: '2026-10-05', to: '2026-10-05', name: 'Carla Weiß', roleColor: '#333333' },
+        ],
+      });
+      render(<EventCalendar />);
+      expect(screen.getByText('+1 XYZ')).toBeTruthy();
+      expect(screen.queryByText(/not/)).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

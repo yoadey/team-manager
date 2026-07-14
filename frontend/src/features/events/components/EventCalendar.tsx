@@ -156,7 +156,7 @@ export function EventCalendar() {
         {absChips}
         {abs.length > (mobile ? 1 : 2) ? (
           <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>
-            {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absent').slice(0, 3) + '.'}
+            {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absentShort')}
           </Box>
         ) : null}
       </Box>,
