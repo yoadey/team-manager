@@ -78,7 +78,13 @@ const absenceJoins = `
 
 // absenceRoleJoins enriches a set of absence rows (aliased as a) with the
 // author and a single non-system role. Shared by the list queries (which alias
-// a keyset-bounded subquery as a) and findByID.
+// a keyset-bounded subquery as a) and findByID. A member holding two or more
+// custom roles fans this join out into multiple candidate rows per absence;
+// every caller collapses that with SELECT DISTINCT ON (a.id) ... ORDER BY
+// a.id, r.id -- the r.id tiebreak (matching events.batchGetPrimaryRoles'
+// convention) is required, not optional: without it, Postgres's choice of
+// which role's name/color survives is unspecified row order, so the badge
+// shown next to an absence could differ across otherwise-identical requests.
 const absenceRoleJoins = `
 	JOIN users u ON u.id = a.user_id
 	LEFT JOIN memberships m ON m.user_id = a.user_id AND m.team_id = a.team_id
@@ -161,7 +167,7 @@ func (r *Repository) ListByTeam(ctx context.Context, teamID uuid.UUID, limit int
 				LIMIT $2
 			) a
 			%s
-			ORDER BY a.id
+			ORDER BY a.id, r.id
 		) sub
 		ORDER BY from_date DESC, id DESC`, selectAbsenceFields, predicate, absenceRoleJoins)
 	rows, err := r.pool.Query(ctx, q, args...)
@@ -193,7 +199,7 @@ func (r *Repository) ListByUser(ctx context.Context, teamID, userID uuid.UUID, l
 				LIMIT $3
 			) a
 			%s
-			ORDER BY a.id
+			ORDER BY a.id, r.id
 		) sub
 		ORDER BY from_date DESC, id DESC`, selectAbsenceFields, predicate, absenceRoleJoins)
 	rows, err := r.pool.Query(ctx, q, args...)
@@ -423,7 +429,7 @@ type querier interface {
 // the very row just written, turning a genuinely successful write into a
 // reported error.
 func findByIDQ(ctx context.Context, q querier, id uuid.UUID) (*AbsenceRow, error) {
-	sql := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.id = $1 ORDER BY a.id`, selectAbsenceFields, absenceJoins)
+	sql := fmt.Sprintf(`SELECT DISTINCT ON (a.id) %s %s WHERE a.id = $1 ORDER BY a.id, r.id`, selectAbsenceFields, absenceJoins)
 	row := q.QueryRow(ctx, sql, id)
 	ab, err := scanAbsence(row)
 	if err != nil {

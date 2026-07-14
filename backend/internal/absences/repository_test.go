@@ -118,6 +118,84 @@ func TestAbsenceRepository_ListByTeam_ExcludesCrossTeamRole(t *testing.T) {
 	assert.Nil(t, all[0].RoleName, "a role belonging to a different team must never be surfaced, even if membership_roles points at it")
 }
 
+// Regression test: absenceRoleJoins fans an absence row out into one
+// candidate row per custom role a member holds, and ListByTeam/ListByUser
+// collapse that with SELECT DISTINCT ON (a.id) -- previously ORDER BY a.id
+// alone, with no tiebreak among the fanned-out rows, so which role's
+// name/color survived was Postgres's unspecified row order, not
+// deterministic. A member with two custom roles could see a different role
+// badge on their absence entry from one request to the next. This mirrors
+// the primary-role-ordering bug round 80 fixed between members.Repository
+// and events.batchGetPrimaryRoles: the fix here is the same convention
+// (ORDER BY ..., r.id), applied to absences' own role join.
+func TestAbsenceRepository_ListByTeam_RoleBadgeIsDeterministicForMultiRoleMember(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := absences.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	teamID := uuid.New()
+	roleA := uuid.New()
+	roleB := uuid.New()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Multi Role Absent User', 'abs-multirole@example.com', '#ff0000')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Absence Multi Role Team')`, teamID)
+	require.NoError(t, err)
+	var membershipID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, userID,
+	).Scan(&membershipID)
+	require.NoError(t, err)
+	// Insert in an order deliberately unrelated to (and, if UUIDs happen to
+	// sort that way, opposite to) role ID order, so a test relying on
+	// insertion/physical row order rather than a real ORDER BY tiebreak
+	// would be exposed by running this multiple times or on different
+	// Postgres versions -- assert against the actual computed lowest ID
+	// instead of assuming which of roleA/roleB sorts first.
+	_, err = pool.Exec(ctx, `INSERT INTO roles (id, team_id, name) VALUES ($1, $2, 'Trainer'), ($3, $2, 'Co-Trainer')`,
+		roleB, teamID, roleA)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2), ($1, $3)`,
+		membershipID, roleB, roleA)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 7).Format("2006-01-02")
+	_, err = repo.Create(ctx, teamID, userID, from, to, nil)
+	require.NoError(t, err)
+
+	var wantRoleID uuid.UUID
+	if roleA.String() < roleB.String() {
+		wantRoleID = roleA
+	} else {
+		wantRoleID = roleB
+	}
+	var wantRoleName string
+	err = pool.QueryRow(ctx, `SELECT name FROM roles WHERE id = $1`, wantRoleID).Scan(&wantRoleName)
+	require.NoError(t, err)
+
+	// Repeat the query several times: a flaky/unspecified-order bug may not
+	// reproduce on every single call, but should show up across a few.
+	for i := 0; i < 5; i++ {
+		byTeam, err := repo.ListByTeam(ctx, teamID, 50, nil)
+		require.NoError(t, err)
+		require.Len(t, byTeam, 1)
+		require.NotNil(t, byTeam[0].RoleName)
+		assert.Equal(t, wantRoleName, *byTeam[0].RoleName, "ListByTeam role badge must deterministically pick the lowest role id")
+
+		byUser, err := repo.ListByUser(ctx, teamID, userID, 50, nil)
+		require.NoError(t, err)
+		require.Len(t, byUser, 1)
+		require.NotNil(t, byUser[0].RoleName)
+		assert.Equal(t, wantRoleName, *byUser[0].RoleName, "ListByUser role badge must deterministically pick the lowest role id")
+	}
+}
+
 func TestAbsenceRepository_Update(t *testing.T) {
 	t.Parallel()
 
