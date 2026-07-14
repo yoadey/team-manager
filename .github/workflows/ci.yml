@@ -808,8 +808,12 @@ jobs:
               # TYPE ... is as valid as ALTER TABLE t ALTER COLUMN col TYPE
               # ...), so it must be optional here too or this check is
               # trivially bypassed by omitting a keyword nothing else
-              # requires.
-              if echo "$stmt" | grep -qiE 'ALTER +(COLUMN +)?[^ ]+ +TYPE'; then
+              # requires. Likewise "SET DATA" before TYPE is an optional
+              # prefix in Postgres's grammar (ALTER [COLUMN] col [SET DATA]
+              # TYPE ...) -- without making it optional here too, writing
+              # SET DATA TYPE (equally valid, and equally unsafe) bypassed
+              # this check entirely.
+              if echo "$stmt" | grep -qiE 'ALTER +(COLUMN +)?[^ ]+ +(SET +DATA +)?TYPE'; then
                 echo "::error file=$f::ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE lock. Use an expand/contract migration instead (add a new column, batch-backfill, then rename/drop)."
                 fail=1
               fi
@@ -830,8 +834,15 @@ jobs:
               # this is unconditional: build the index CONCURRENTLY first,
               # then ADD CONSTRAINT ... UNIQUE/PRIMARY KEY USING INDEX.
               # CONSTRAINT <name> is optional here for the same reason as
-              # the CHECK case above.
-              if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?(UNIQUE|PRIMARY +KEY)( |\()'; then
+              # the CHECK case above. Excludes USING INDEX: that's this
+              # check's own recommended safe remediation (attach a
+              # pre-built, CONCURRENTLY-created index as the constraint's
+              # backing index instead of having ADD CONSTRAINT build one
+              # itself), and it was being flagged as unsafe right along with
+              # the hazard it's meant to replace -- a developer following
+              # the error message's own instructions had no way to land the
+              # fix without editing this check.
+              if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?(UNIQUE|PRIMARY +KEY)( |\()' | grep -qivE 'USING +INDEX'; then
                 echo "::error file=$f::ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds its index under an ACCESS EXCLUSIVE lock. CREATE [UNIQUE] INDEX CONCURRENTLY first, then ADD CONSTRAINT ... USING INDEX."
                 fail=1
               fi
@@ -866,8 +877,12 @@ jobs:
               # column instead of altering an existing one (a plain
               # ADD COLUMN ... DEFAULT <constant> is NOT flagged: that's the
               # fast, metadata-only path since Postgres 11 this whole file
-              # otherwise assumes is always safe).
-              if echo "$stmt" | grep -iE 'ADD +COLUMN' | grep -qiE 'GENERATED +ALWAYS +AS'; then
+              # otherwise assumes is always safe). COLUMN is optional here
+              # for the same reason as the ALTER COLUMN ... TYPE case above
+              # -- ADD full_name text GENERATED ALWAYS AS (...) STORED is
+              # exactly as valid, and exactly as unsafe, as ADD COLUMN
+              # full_name text GENERATED ALWAYS AS (...) STORED.
+              if echo "$stmt" | grep -iE 'ADD +(COLUMN +)?' | grep -qiE 'GENERATED +ALWAYS +AS'; then
                 echo "::error file=$f::ADD COLUMN ... GENERATED ALWAYS AS (...) STORED computes and stores the expression for every existing row under an ACCESS EXCLUSIVE lock. Add a plain nullable column instead, batch-backfill it, and maintain it via a trigger or the application write path."
                 fail=1
               fi
