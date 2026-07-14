@@ -258,6 +258,27 @@ describe('events & attendance', () => {
     expect(rows).toHaveLength(12);
   });
 
+  // Regression test: a non-responder auto-marked "no" via a covering planned
+  // absence used to carry a hardcoded German reason string ("Geplante
+  // Abwesenheit"), diverging from the real backend (which leaves reason
+  // empty for auto rows, matching events.computeEffectiveAttendance) and
+  // showing German text regardless of the active locale.
+  it('leaves reason empty for a non-responder auto-marked absent, matching the real backend', async () => {
+    const created = await settle(
+      api.events.create('t_a', { type: 'training', title: 'Absence Defaulting Test', date: '2099-09-10' }),
+    );
+    await settle(
+      api.absences.create({ teamId: 't_a', userId: 'u4', from: '2099-09-09', to: '2099-09-11', reason: 'Urlaub' }),
+    );
+
+    const rows = await settle(api.attendance.listForEvent(created.id, 't_a'));
+    const row = rows.find((r) => r.userId === 'u4');
+    expect(row?.status).toBe('no');
+    expect(row?.auto).toBe(true);
+    expect(row?.absent).toBe(true);
+    expect(row?.reason).toBe('');
+  });
+
   it('treats opt-out events as implicit yes for members without a record', async () => {
     // Create an opt-out event with nobody responding, then verify the auto-yes default.
     const created = await settle(

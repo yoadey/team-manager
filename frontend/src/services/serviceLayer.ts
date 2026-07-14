@@ -826,11 +826,17 @@ function effectiveStatus(event: EventDto, userId: string | null) {
       absent: absenceCovers(userId!, event.date),
     };
   if (userId && absenceCovers(userId, event.date))
+    // Matches events.computeEffectiveAttendance (backend/internal/events/attendance.go):
+    // no reason/reasonId/reasonVisibility is synthesized here -- the UI already
+    // renders a dedicated, localized "absent" badge (events.absent) for
+    // Absent=true instead of a raw reason field, so hardcoding a single-locale
+    // string here would both diverge from the real backend and show German
+    // text regardless of the active locale.
     return {
       status: 'no' as AttendanceStatus,
-      reason: 'Geplante Abwesenheit',
+      reason: '',
       reasonId: null,
-      reasonVisibility: 'team' as ReasonVisibility,
+      reasonVisibility: null,
       auto: true,
       absent: true,
     };
