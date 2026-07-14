@@ -12,7 +12,7 @@ import { useNotificationActions } from '@/features/notifications';
 import { usePollActions } from '@/features/polls';
 import { useTeamActions, useRoleActions } from '@/features/team';
 import type { AppState, ConfirmConfig } from './AppContext';
-import type { api as defaultApi } from '@/services/serviceLayer';
+import type { api as defaultApi } from '@/services';
 import type { DateRange, Role, TeamForUser } from '@/types';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;

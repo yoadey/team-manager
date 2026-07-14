@@ -8,7 +8,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { api as defaultApi, resetDemoData } from '@/services/serviceLayer';
+import { api as defaultApi, resetDemoData } from '@/services';
 import type {
   AttendanceStatus,
   DateRange,
@@ -867,9 +867,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         api.absences.listForTeam(teamId),
         api.absences.listMine(teamId),
       ]);
-      setState((s) =>
-        s.activeTeamId === teamId && loadAbsencesSeq.current === seq ? { absences, myAbsences } : {},
-      );
+      setState((s) => (s.activeTeamId === teamId && loadAbsencesSeq.current === seq ? { absences, myAbsences } : {}));
     } catch (err) {
       if (S().activeTeamId === teamId && loadAbsencesSeq.current === seq) reportLoad(err);
     }

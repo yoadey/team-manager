@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import type { api as defaultApi } from '@/services/serviceLayer';
+import type { api as defaultApi } from '@/services';
 import type { Poll, PollFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { validatePollForm } from '@/utils/validation';

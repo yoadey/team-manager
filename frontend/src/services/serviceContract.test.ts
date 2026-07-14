@@ -1,6 +1,6 @@
 // Contract test guarding the dual service-layer implementation. The app ships
 // two implementations of the same `api` surface — the localStorage mock
-// (serviceLayer.ts) and the real HTTP client (serviceLayerReal.ts) — and they
+// (mock/serviceLayerMock.ts) and the real HTTP client (serviceLayerReal.ts) — and they
 // must stay in lockstep: any namespace/method added to one but not the other is
 // a latent bug (the mock passes tests while production 404s, or vice versa).
 //
@@ -8,7 +8,7 @@
 // resolves to the mock; realApi is imported directly. This test fails loudly if
 // their shapes diverge.
 import { describe, it, expect } from 'vitest';
-import { api as mockApi } from './serviceLayer';
+import { mockApi } from './mock/serviceLayerMock';
 import { realApi } from './serviceLayerReal';
 
 type Shape = Record<string, string[]>;
@@ -49,9 +49,7 @@ describe('service-layer contract (mock vs real)', () => {
   // the first default/rest param — sufficient for our required-arg signatures.
   const mockNs = mockApi as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>>;
   const realNs = realApi as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>>;
-  const arityCases = Object.keys(real).flatMap((ns) =>
-    real[ns].map((method) => ({ ns, method })),
-  );
+  const arityCases = Object.keys(real).flatMap((ns) => real[ns].map((method) => ({ ns, method })));
   it.each(arityCases)('$ns.$method takes the same number of arguments', ({ ns, method }) => {
     expect(mockNs[ns][method].length).toBe(realNs[ns][method].length);
   });

@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import type { api as defaultApi } from '@/services/serviceLayer';
+import type { api as defaultApi } from '@/services';
 import type { Invite, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import type { CreateTeamFormValues, TeamSettingsFormValues } from '../types';
@@ -274,7 +274,9 @@ export function useTeamActions({
     // pending, `{ ...s.sheet!, copied: true }` on a null sheet produces a
     // typeless `{ copied: true }` object that still passes SheetHost's
     // truthy check, popping up an empty untitled modal out of nowhere.
-    setState((s) => (s.activeTeamId === teamId && s.sheet?.type === 'invite' ? { sheet: { ...s.sheet, copied: true } } : {}));
+    setState((s) =>
+      s.activeTeamId === teamId && s.sheet?.type === 'invite' ? { sheet: { ...s.sheet, copied: true } } : {},
+    );
     toastMsg(t('team.toastLinkCopied'));
   }, [S, setState, toastMsg]);
 

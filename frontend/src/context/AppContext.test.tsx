@@ -415,7 +415,7 @@ describe('AppProvider / actions (app phase)', () => {
 // selected team's state with the previous team's data.
 describe('AppProvider / team-switch race guards', () => {
   it('loadFinances discards a stale response after the user has switched teams', async () => {
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     type Overview = Awaited<ReturnType<typeof svc.api.finances.overview>>;
     let resolveOverview!: (v: Overview) => void;
     const overviewSpy = vi
@@ -486,7 +486,7 @@ describe('AppProvider / team-switch race guards', () => {
   // modules that succeeded still populate state even when a sibling module
   // fails.
   it('afterLoginLoad still populates modules that succeeded when a sibling module 403s', async () => {
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const { ForbiddenError } = await import('@/utils/errors');
     const membersSpy = vi.spyOn(svc.api.members, 'list').mockRejectedValue(new ForbiddenError());
 
@@ -537,7 +537,7 @@ describe('AppProvider / team-switch race guards', () => {
   // simple enough (one .find() predicate) to trust from inspection plus this
   // side-effect check.
   it('afterLoginLoad leaves other modules populated when the only failure is a ForbiddenError', async () => {
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const { ForbiddenError } = await import('@/utils/errors');
     const newsSpy = vi.spyOn(svc.api.news, 'list').mockRejectedValue(new ForbiddenError());
 
@@ -578,7 +578,7 @@ describe('AppProvider / team-switch race guards', () => {
   // Navigating to the Events or Members tab was previously a no-op in that
   // case, leaving a permanent skeleton loader for the rest of the session.
   it('go("members") retries the load when members is still null from a failed afterLoginLoad', async () => {
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const { ForbiddenError } = await import('@/utils/errors');
     const membersSpy = vi
       .spyOn(svc.api.members, 'list')
@@ -631,7 +631,7 @@ describe('AppProvider / team-switch race guards', () => {
   // action -- so a null state.events left over from a failed afterLoginLoad
   // never retried when the user navigated to Events > Absences this way.
   it('goEventsAbsences retries the events load when events is still null from a failed afterLoginLoad', async () => {
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const { ForbiddenError } = await import('@/utils/errors');
     const eventsSpy = vi
       .spyOn(svc.api.events, 'list')
@@ -689,7 +689,7 @@ describe('AppProvider / team-switch race guards', () => {
   // exactly the spurious "no permission" toast ensureRouteData's own
   // permission pre-check exists to prevent.
   it('goEventsAbsences does not call loadAbsences when the caller lacks events:read', async () => {
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const listForTeamSpy = vi.spyOn(svc.api.absences, 'listForTeam');
     const listMineSpy = vi.spyOn(svc.api.absences, 'listMine');
 
@@ -743,7 +743,7 @@ describe('AppProvider / team-switch race guards', () => {
   // state.events is still null -- true for both calls here, since the
   // first's still-pending response hasn't set it yet.
   it('refreshEvents (via go) discards a stale response when a newer call has since resolved', async () => {
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     type Events = Awaited<ReturnType<typeof svc.api.events.list>>;
     let resolveFirst!: (v: Events) => void;
     const listSpy = vi
@@ -910,14 +910,18 @@ describe('AppProvider / invite-redemption join flow', () => {
   async function freshModules() {
     vi.resetModules();
     localStorage.clear();
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const ctx = await import('./AppContext');
     return { api: svc.api, AppProvider: ctx.AppProvider, useApp: ctx.useApp, useAppActions: ctx.useAppActions };
   }
 
   it('redeems a pending invite on login, joins the team, and lands on it', async () => {
-    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
-      await freshModules();
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
 
     // The seeded demo user (Lena Bergmann / u1) is already a member of t_a
     // by default; remove that membership first so this test genuinely
@@ -966,8 +970,12 @@ describe('AppProvider / invite-redemption join flow', () => {
   // a state change that didn't happen (the redemption is intentionally
   // idempotent both server-side and in the mock).
   it('does not show a "joined" toast when redeeming an invite for a team already joined', async () => {
-    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
-      await freshModules();
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
 
     // The seeded demo user (Lena Bergmann / u1) is already a member of t_b.
     const invite = await api.teams.createInvite('t_b');
@@ -1003,8 +1011,11 @@ describe('AppProvider / invite-redemption join flow', () => {
   });
 
   it('shows an error toast for an invalid invite code but still logs in normally', async () => {
-    const { AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
-      await freshModules();
+    const {
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
     window.history.pushState({}, '', '/join/bogus-team/does-not-exist');
 
     let actions: ReturnType<typeof freshUseAppActions>;
@@ -1047,14 +1058,18 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
   async function freshModules() {
     vi.resetModules();
     localStorage.clear();
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const ctx = await import('./AppContext');
     return { api: svc.api, AppProvider: ctx.AppProvider, useApp: ctx.useApp, useAppActions: ctx.useAppActions };
   }
 
-  it('a late-failing login only reports its own error, without clearing a different login\'s busy state', async () => {
-    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
-      await freshModules();
+  it("a late-failing login only reports its own error, without clearing a different login's busy state", async () => {
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
 
     let rejectGoogle!: (err: Error) => void;
     const googleLoginPromise = new Promise<never>((_resolve, reject) => {
@@ -1115,7 +1130,7 @@ describe('AppProvider / session-restore resilience', () => {
   async function freshModules() {
     vi.resetModules();
     localStorage.clear();
-    const svc = await import('@/services/serviceLayer');
+    const svc = await import('@/services');
     const errors = await import('@/utils/errors');
     const ctx = await import('./AppContext');
     return {
@@ -1211,8 +1226,11 @@ describe('AppProvider / session-restore resilience', () => {
   // was on before a reload -- restoreLocation now re-parses the current URL
   // instead, mirroring the popstate handler.
   it('restores the deep-linked route (not /home) when a session is restored from a reload', async () => {
-    const { AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
-      await freshModules();
+    const {
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
 
     let actions: ReturnType<typeof freshUseAppActions>;
     function Probe() {
@@ -1267,8 +1285,12 @@ describe('AppProvider / session-restore resilience', () => {
   // rewrite the URL down to /events (dropping the id), destroying the deep
   // link outright rather than just failing to render it.
   it('restores a deep-linked event detail sheet when a session is restored from a reload', async () => {
-    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp, useAppActions: freshUseAppActions } =
-      await freshModules();
+    const {
+      api,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
 
     const events = await api.events.list('t_a', 'all');
     const eventId = events[0].id;
