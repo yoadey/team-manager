@@ -284,7 +284,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
               }}
             >
               <Sym name="info" size={16} color={NEUTRAL.warn} />
-              {e.responseMode === 'opt_out' ? t('events.autoOptOut') : myStatus === 'no' ? t('events.autoAbsent') : ''}
+              {myStatus === 'no' ? t('events.autoAbsent') : e.responseMode === 'opt_out' ? t('events.autoOptOut') : ''}
             </Box>
           ) : null}
           <Box key="btns" sx={{ display: 'flex', gap: '8px', mb: '10px' }}>
