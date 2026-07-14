@@ -21,25 +21,27 @@ import (
 
 // mockSvcRepo satisfies the unexported eventRepo interface via structural typing.
 type mockSvcRepo struct {
-	listEventsFn             func(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *events.ListCursor) ([]events.EventRow, error)
-	getEventFn               func(ctx context.Context, eventID, teamID string) (*events.EventRow, error)
-	createEventFn            func(ctx context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error)
-	createSeriesFn           func(ctx context.Context, teamID string, params *events.CreateEventParams) ([]events.EventRow, error)
-	updateEventFn            func(ctx context.Context, eventID, teamID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error)
-	setStatusFn              func(ctx context.Context, eventID, teamID, status, scope string) (*events.EventRow, error)
-	deleteEventFn            func(ctx context.Context, eventID, teamID, scope string) error
-	getAttendanceSummaryFn   func(ctx context.Context, eventID, teamID string) (events.EventSummaryData, error)
-	getMyAttendanceFn        func(ctx context.Context, eventID, userID, teamID string) (*events.AttendanceDBRow, error)
-	getAttendanceSummariesFn func(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]events.EventSummaryData, error)
-	getMyAttendancesFn       func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.AttendanceDBRow, error)
-	listAttendanceFn         func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
-	getReasonVisibilityCtxFn func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
-	setAttendanceFn          func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
-	setNominationFn          func(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
-	listCommentsFn           func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
-	countCommentsFn          func(ctx context.Context, eventID, teamID string) (int, error)
-	addCommentFn             func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
-	deleteCommentFn          func(ctx context.Context, commentID, userID, teamID string) error
+	listEventsFn                func(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *events.ListCursor) ([]events.EventRow, error)
+	getEventFn                  func(ctx context.Context, eventID, teamID string) (*events.EventRow, error)
+	createEventFn               func(ctx context.Context, teamID string, params *events.CreateEventParams) (*events.EventRow, error)
+	createSeriesFn              func(ctx context.Context, teamID string, params *events.CreateEventParams) ([]events.EventRow, error)
+	updateEventFn               func(ctx context.Context, eventID, teamID string, params *events.UpdateEventParams, scope string) (*events.EventRow, error)
+	setStatusFn                 func(ctx context.Context, eventID, teamID, status, scope string) (*events.EventRow, error)
+	deleteEventFn               func(ctx context.Context, eventID, teamID, scope string) error
+	getAttendanceSummaryFn      func(ctx context.Context, eventID, teamID string) (events.EventSummaryData, error)
+	getMyAttendanceFn           func(ctx context.Context, eventID, userID, teamID string) (*events.AttendanceDBRow, error)
+	getAttendanceSummariesFn    func(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]events.EventSummaryData, error)
+	getMyAttendancesFn          func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.AttendanceDBRow, error)
+	getMyEffectiveAttendanceFn  func(ctx context.Context, eventID, userID, teamID string) (*events.EffectiveAttendance, error)
+	getMyEffectiveAttendancesFn func(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.EffectiveAttendance, error)
+	listAttendanceFn            func(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error)
+	getReasonVisibilityCtxFn    func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
+	setAttendanceFn             func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
+	setNominationFn             func(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
+	listCommentsFn              func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
+	countCommentsFn             func(ctx context.Context, eventID, teamID string) (int, error)
+	addCommentFn                func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
+	deleteCommentFn             func(ctx context.Context, commentID, userID, teamID string) error
 }
 
 func (m *mockSvcRepo) ListEvents(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *events.ListCursor) ([]events.EventRow, error) {
@@ -90,6 +92,20 @@ func (m *mockSvcRepo) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID
 		return m.getMyAttendancesFn(ctx, eventIDs, userID)
 	}
 	return map[uuid.UUID]events.AttendanceDBRow{}, nil
+}
+
+func (m *mockSvcRepo) GetMyEffectiveAttendance(ctx context.Context, eventID, userID, teamID string) (*events.EffectiveAttendance, error) {
+	if m.getMyEffectiveAttendanceFn != nil {
+		return m.getMyEffectiveAttendanceFn(ctx, eventID, userID, teamID)
+	}
+	return &events.EffectiveAttendance{Status: "pending"}, nil
+}
+
+func (m *mockSvcRepo) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]events.EffectiveAttendance, error) {
+	if m.getMyEffectiveAttendancesFn != nil {
+		return m.getMyEffectiveAttendancesFn(ctx, eventIDs, userID)
+	}
+	return map[uuid.UUID]events.EffectiveAttendance{}, nil
 }
 
 func (m *mockSvcRepo) ListAttendance(ctx context.Context, eventID, teamID string) ([]events.AttendanceEnriched, error) {
@@ -178,6 +194,53 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 	assert.Nil(t, next)
 	assert.Len(t, result, 3)
 	assert.Equal(t, gen.Upcoming, capturedScope, "scope should be passed through to repository")
+}
+
+// Regression test: enrichEvent/ListEvents used to read GetMyAttendance(s),
+// which stays nil for a member who never explicitly responded -- MyAuto was
+// never populated at all, and MyStatus silently stayed nil instead of
+// reflecting opt_out/absence-based defaulting. This verifies the service
+// layer actually copies the repository's resolved Auto/Status/Reason
+// through to gen.TeamEvent for both the single-event and list paths.
+func TestEventService_GetEvent_And_ListEvents_PopulateMyAutoFromEffectiveAttendance(t *testing.T) {
+	t.Parallel()
+
+	row := svcMakeEventRow("Opt-out Training")
+
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &row, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyEffectiveAttendanceFn: func(_ context.Context, _, _, _ string) (*events.EffectiveAttendance, error) {
+			return &events.EffectiveAttendance{Status: "yes", Auto: true}, nil
+		},
+		listEventsFn: func(_ context.Context, _ string, _ gen.ListEventsParamsScope, _ int, _ *events.ListCursor) ([]events.EventRow, error) {
+			return []events.EventRow{row}, nil
+		},
+		getMyEffectiveAttendancesFn: func(_ context.Context, eventIDs []uuid.UUID, _ string) (map[uuid.UUID]events.EffectiveAttendance, error) {
+			return map[uuid.UUID]events.EffectiveAttendance{
+				row.Id: {Status: "yes", Auto: true},
+			}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+
+	single, err := svc.GetEvent(context.Background(), testTeamID, testUserID, row.Id.String())
+	require.NoError(t, err)
+	require.NotNil(t, single.MyStatus)
+	assert.Equal(t, gen.Yes, *single.MyStatus)
+	require.NotNil(t, single.MyAuto)
+	assert.True(t, *single.MyAuto)
+
+	list, _, err := svc.ListEvents(context.Background(), testTeamID, testUserID, gen.Upcoming, "", 50)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.NotNil(t, list[0].MyStatus)
+	assert.Equal(t, gen.Yes, *list[0].MyStatus)
+	require.NotNil(t, list[0].MyAuto)
+	assert.True(t, *list[0].MyAuto)
 }
 
 func TestEventService_CreateEvent_Recurring(t *testing.T) {

@@ -46,9 +46,9 @@ type eventRepo interface {
 	SetStatus(ctx context.Context, eventID, teamID, status, scope string) (*EventRow, error)
 	DeleteEvent(ctx context.Context, eventID, teamID string, scope string) error
 	GetAttendanceSummary(ctx context.Context, eventID, teamID string) (EventSummaryData, error)
-	GetMyAttendance(ctx context.Context, eventID, userID, teamID string) (*AttendanceDBRow, error)
+	GetMyEffectiveAttendance(ctx context.Context, eventID, userID, teamID string) (*EffectiveAttendance, error)
 	GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error)
-	GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]AttendanceDBRow, error)
+	GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]EffectiveAttendance, error)
 	ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error)
 	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
@@ -152,9 +152,9 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID string, scope g
 	if err != nil {
 		return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 	}
-	var myAttendances map[uuid.UUID]AttendanceDBRow
+	var myAttendances map[uuid.UUID]EffectiveAttendance
 	if userID != "" {
-		myAttendances, err = s.repo.GetMyAttendances(ctx, eventIDs, userID)
+		myAttendances, err = s.repo.GetMyEffectiveAttendances(ctx, eventIDs, userID)
 		if err != nil {
 			return nil, nil, fmt.Errorf("events.Service.ListEvents: %w", err)
 		}
@@ -167,6 +167,7 @@ func (s *Service) ListEvents(ctx context.Context, teamID, userID string, scope g
 			st := gen.AttendanceStatus(myAtt.Status)
 			ev.MyStatus = &st
 			ev.MyReason = myAtt.Reason
+			ev.MyAuto = &myAtt.Auto
 		}
 		out = append(out, ev)
 	}
@@ -586,14 +587,15 @@ func (s *Service) enrichEvent(ctx context.Context, row *EventRow, userID, teamID
 	ev := toGenEvent(row, summary)
 
 	if userID != "" {
-		myAtt, err := s.repo.GetMyAttendance(ctx, row.Id.String(), userID, teamID)
+		myAtt, err := s.repo.GetMyEffectiveAttendance(ctx, row.Id.String(), userID, teamID)
 		if err != nil {
-			return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetMyAttendance: %w", err)
+			return gen.TeamEvent{}, fmt.Errorf("enrichEvent.GetMyEffectiveAttendance: %w", err)
 		}
 		if myAtt != nil {
 			st := gen.AttendanceStatus(myAtt.Status)
 			ev.MyStatus = &st
 			ev.MyReason = myAtt.Reason
+			ev.MyAuto = &myAtt.Auto
 		}
 	}
 	return ev, nil
@@ -691,12 +693,38 @@ func toGenAttendanceRow(a *AttendanceEnriched) gen.AttendanceRow {
 		HasPhoto:    &a.HasPhoto,
 		Reason:      a.Reason,
 		ReasonId:    a.ReasonId,
+		Group:       a.Group,
+		Auto:        &a.Auto,
+		Absent:      &a.Absent,
 	}
 	if a.ReasonVisibility != nil {
 		rv := gen.AttendanceRowReasonVisibility(*a.ReasonVisibility)
 		row.ReasonVisibility = &rv
 	}
+	if a.PrimaryRole != nil {
+		role := toGenRole(*a.PrimaryRole)
+		row.PrimaryRole = &role
+	}
 	return row
+}
+
+// toGenRole maps a teams.RoleRow to gen.Role.
+func toGenRole(r teams.RoleRow) gen.Role {
+	return gen.Role{
+		Id:     r.Id,
+		TeamId: r.TeamID,
+		Name:   r.Name,
+		System: r.System,
+		Color:  r.Color,
+		Permissions: gen.Permissions{
+			Events:   gen.PermLevel(r.Permissions.Events),
+			Members:  gen.PermLevel(r.Permissions.Members),
+			Finances: gen.PermLevel(r.Permissions.Finances),
+			News:     gen.PermLevel(r.Permissions.News),
+			Polls:    gen.PermLevel(r.Permissions.Polls),
+			Settings: gen.PermLevel(r.Permissions.Settings),
+		},
+	}
 }
 
 // toGenAttendanceRecord maps an AttendanceDBRow to gen.AttendanceRecord.

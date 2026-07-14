@@ -30,6 +30,19 @@ func makeCreateParams(title string, date time.Time) events.CreateEventParams {
 	}
 }
 
+// findAttendanceRow returns the roster row for userID, or nil if absent --
+// ListAttendance is roster-based (one row per current team member), so
+// tests that need a specific member's row out of a multi-member roster use
+// this instead of assuming row order or list length alone.
+func findAttendanceRow(rows []events.AttendanceEnriched, userID uuid.UUID) *events.AttendanceEnriched {
+	for i := range rows {
+		if rows[i].UserId == userID {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
 // ─── tests ───────────────────────────────────────────────────────────────────
 
 func TestEventRepository_CreateAndListEvents(t *testing.T) {
@@ -771,10 +784,19 @@ func TestEventRepository_BatchedAttendanceLookups(t *testing.T) {
 	assert.Equal(t, 1, summaries[e1.Id].Yes)
 	assert.Equal(t, 1, summaries[e1.Id].No)
 	assert.Equal(t, 2, summaries[e1.Id].Total)
+	// e2: otherUserID never explicitly responded -- roster-based summaries
+	// count them as a "pending" non-responder rather than dropping them
+	// from Total entirely (the exact bug this roster-based rewrite fixes).
 	assert.Equal(t, 1, summaries[e2.Id].No)
-	assert.Equal(t, 1, summaries[e2.Id].Total)
-	_, e3HasSummary := summaries[e3.Id]
-	assert.False(t, e3HasSummary, "event with no attendance rows should be absent from the map")
+	assert.Equal(t, 1, summaries[e2.Id].Pending)
+	assert.Equal(t, 2, summaries[e2.Id].Total)
+	// e3: nobody has responded at all -- still present in the map with the
+	// full 2-member roster as "pending", not absent (the batch-query
+	// equivalent of the same fix).
+	require.Contains(t, summaries, e3.Id, "event with no attendance rows must still report its full roster")
+	assert.Equal(t, 0, summaries[e3.Id].Yes)
+	assert.Equal(t, 2, summaries[e3.Id].Pending)
+	assert.Equal(t, 2, summaries[e3.Id].Total)
 
 	// Cross-check against the single-event methods to prove the batched
 	// queries return identical results, not just plausible-looking ones.
@@ -867,6 +889,107 @@ func TestEventRepository_AttendanceExcludesDepartedMembers(t *testing.T) {
 	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id})
 	require.NoError(t, err)
 	assert.Equal(t, 1, summaries[ev.Id].Total, "batched summary must also exclude the departed member")
+}
+
+// Regression test for the round-79 finding: response_mode="opt_out" and
+// absence-based auto-attendance were validated and stored but never
+// actually applied anywhere -- ListAttendance/GetAttendanceSummary only
+// counted rows that physically existed in the attendance table, so a
+// non-responder to an opt_out event silently showed as "pending" forever
+// instead of the intended "auto yes", and a member with a planned absence
+// covering the event date was never auto-marked "no". This test drives the
+// full precedence chain: explicit response wins; otherwise a covering
+// absence defaults to auto "no"; otherwise opt_out defaults to auto "yes";
+// otherwise "pending".
+func TestEventRepository_ListAttendance_OptOutAndAbsenceDefaulting(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	respondedUserID := uuid.New()  // explicitly declines
+	absentUserID := uuid.New()     // never responds, has a covering absence
+	silentUserID := uuid.New()     // never responds, no absence
+	explicitAbsentID := uuid.New() // explicitly accepts despite a covering absence
+
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES
+		($1, 'Responded User', 'opt-out-responded@example.com', '#111111'),
+		($2, 'Absent User', 'opt-out-absent@example.com', '#222222'),
+		($3, 'Silent User', 'opt-out-silent@example.com', '#333333'),
+		($4, 'Explicit Despite Absence', 'opt-out-explicit-absent@example.com', '#444444')
+	`, respondedUserID, absentUserID, silentUserID, explicitAbsentID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Opt Out Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3), ($1, $4), ($1, $5)
+	`, teamID, respondedUserID, absentUserID, silentUserID, explicitAbsentID)
+	require.NoError(t, err)
+
+	eventDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := makeCreateParams("Opt-out Training", eventDate)
+	optOut := "opt_out"
+	params.ResponseMode = &optOut
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	// absentUserID and explicitAbsentID both have a planned absence covering
+	// the event date.
+	_, err = pool.Exec(ctx, `
+		INSERT INTO absences (user_id, team_id, from_date, to_date)
+		VALUES ($1, $2, $3, $3), ($4, $2, $3, $3)
+	`, absentUserID, teamID, eventDate, explicitAbsentID)
+	require.NoError(t, err)
+
+	no := "no"
+	_, err = repo.SetAttendance(ctx, eventID, respondedUserID.String(), respondedUserID.String(), teamID.String(), &no, nil, nil, nil)
+	require.NoError(t, err)
+	yes := "yes"
+	_, err = repo.SetAttendance(ctx, eventID, explicitAbsentID.String(), explicitAbsentID.String(), teamID.String(), &yes, nil, nil, nil)
+	require.NoError(t, err)
+
+	rows, err := repo.ListAttendance(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 4)
+
+	responded := findAttendanceRow(rows, respondedUserID)
+	require.NotNil(t, responded)
+	assert.Equal(t, "no", responded.Status, "explicit response must win over opt_out defaulting")
+	assert.False(t, responded.Auto)
+	assert.False(t, responded.Absent, "no covering absence for this member")
+
+	absent := findAttendanceRow(rows, absentUserID)
+	require.NotNil(t, absent)
+	assert.Equal(t, "no", absent.Status, "a covering absence must default a non-responder to auto no")
+	assert.True(t, absent.Auto)
+	assert.True(t, absent.Absent)
+
+	silent := findAttendanceRow(rows, silentUserID)
+	require.NotNil(t, silent)
+	assert.Equal(t, "yes", silent.Status, "opt_out must default a non-responder with no absence to auto yes")
+	assert.True(t, silent.Auto)
+	assert.False(t, silent.Absent)
+
+	explicitDespiteAbsence := findAttendanceRow(rows, explicitAbsentID)
+	require.NotNil(t, explicitDespiteAbsence)
+	assert.Equal(t, "yes", explicitDespiteAbsence.Status, "explicit response must win over the absence default too")
+	assert.False(t, explicitDespiteAbsence.Auto)
+	assert.True(t, explicitDespiteAbsence.Absent, "Absent still reflects the live absence overlap even though the member responded")
+
+	summary, err := repo.GetAttendanceSummary(ctx, eventID, teamID.String())
+	require.NoError(t, err)
+	assert.Equal(t, 2, summary.Yes, "silentUser (auto) + explicitAbsentUser (explicit)")
+	assert.Equal(t, 2, summary.No, "respondedUser (explicit) + absentUser (auto)")
+	assert.Equal(t, 0, summary.Pending)
+	assert.Equal(t, 4, summary.Total)
+
+	summaries, err := repo.GetAttendanceSummaries(ctx, []uuid.UUID{ev.Id})
+	require.NoError(t, err)
+	assert.Equal(t, summary, summaries[ev.Id], "batched summary must agree with the single-event summary")
 }
 
 func TestEventRepository_SetStatus_CrossTeamBlocked(t *testing.T) {
@@ -982,10 +1105,14 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	_, err = repo.AddComment(ctx, eventID, user.String(), teamB.String(), "cross-team comment")
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "AddComment must reject cross-team eventID")
 
-	// Verify no attendance/comment rows leaked through despite the rejected calls.
-	attendanceList, err = repo.ListAttendance(ctx, eventID, teamA.String())
+	// Verify no attendance/comment rows leaked through despite the rejected
+	// calls. ListAttendance is roster-based (every current member of teamA
+	// appears, whether or not they've explicitly responded), so a plain
+	// emptiness check no longer distinguishes "no row was created" -- use
+	// GetMyAttendance (still explicit-row-only) directly instead.
+	noRow, err := repo.GetMyAttendance(ctx, eventID, user.String(), teamA.String())
 	require.NoError(t, err)
-	assert.Empty(t, attendanceList, "no attendance row should have been created by the rejected cross-team SetAttendance call")
+	assert.Nil(t, noRow, "no attendance row should have been created by the rejected cross-team SetAttendance call")
 
 	comments, err = repo.ListComments(ctx, eventID, teamA.String(), 50, 0)
 	require.NoError(t, err)
@@ -1058,9 +1185,16 @@ func TestEventRepository_SetNomination_RejectsNonMemberUser(t *testing.T) {
 	err = repo.SetNomination(ctx, eventID, member.String(), outsider.String(), teamID.String(), false)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(false) must reject a userID that is not a member of teamID")
 
+	// ListAttendance is roster-based (every current team member appears,
+	// whether or not they've responded), so the real member shows up
+	// regardless -- the actual regression to guard is that the non-member
+	// outsider never leaks into the list, which structurally can't happen
+	// via a roster join (outsider was never a memberships row to begin with).
 	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
 	require.NoError(t, err)
-	assert.Empty(t, attendanceList, "no attendance row should have been created for the non-member user")
+	require.Len(t, attendanceList, 1, "only the real member should appear")
+	assert.Equal(t, member, attendanceList[0].UserId)
+	assert.NotEqual(t, "not_nominated", attendanceList[0].Status, "no attendance row should have been created for the non-member user")
 
 	// A real member of the team is unaffected.
 	err = repo.SetNomination(ctx, eventID, member.String(), member.String(), teamID.String(), false)
@@ -1269,9 +1403,16 @@ func TestEventRepository_SetNomination_RejectsCallerWithoutEventsWrite(t *testin
 	err = repo.SetNomination(ctx, eventID, callerID.String(), targetID.String(), teamID.String(), false)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetNomination(false) must reject a caller without events:write, even called directly")
 
+	// ListAttendance is roster-based (both callerID and targetID are
+	// current team members, so both always appear); the regression to
+	// guard is that targetID's row wasn't flipped to not_nominated by the
+	// rejected write.
 	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
 	require.NoError(t, err)
-	assert.Empty(t, attendanceList, "no attendance row should have been created by the rejected upsert")
+	require.Len(t, attendanceList, 2)
+	targetRow := findAttendanceRow(attendanceList, targetID)
+	require.NotNil(t, targetRow)
+	assert.NotEqual(t, "not_nominated", targetRow.Status, "no attendance row should have been created by the rejected upsert")
 
 	// Seed a not_nominated row directly (bypassing the guard) so the delete
 	// branch below has something to try to delete.
@@ -1284,8 +1425,10 @@ func TestEventRepository_SetNomination_RejectsCallerWithoutEventsWrite(t *testin
 
 	attendanceList, err = repo.ListAttendance(ctx, eventID, teamID.String())
 	require.NoError(t, err)
-	require.Len(t, attendanceList, 1, "the seeded not_nominated row must survive the rejected delete")
-	assert.Equal(t, "not_nominated", attendanceList[0].Status)
+	require.Len(t, attendanceList, 2)
+	targetRow = findAttendanceRow(attendanceList, targetID)
+	require.NotNil(t, targetRow)
+	assert.Equal(t, "not_nominated", targetRow.Status, "the seeded not_nominated row must survive the rejected delete")
 }
 
 // Companion positive test: a caller WITH events:write can set/clear another
@@ -1332,15 +1475,23 @@ func TestEventRepository_SetNomination_AllowsCallerWithEventsWrite(t *testing.T)
 	err = repo.SetNomination(ctx, eventID, callerID.String(), targetID.String(), teamID.String(), false)
 	require.NoError(t, err, "SetNomination(false) with events:write must succeed")
 
+	// ListAttendance is roster-based: both callerID and targetID are
+	// current team members and always appear; only targetID's status
+	// should flip to not_nominated.
 	attendanceList, err := repo.ListAttendance(ctx, eventID, teamID.String())
 	require.NoError(t, err)
-	require.Len(t, attendanceList, 1)
-	assert.Equal(t, "not_nominated", attendanceList[0].Status)
+	require.Len(t, attendanceList, 2)
+	targetRow := findAttendanceRow(attendanceList, targetID)
+	require.NotNil(t, targetRow)
+	assert.Equal(t, "not_nominated", targetRow.Status)
 
 	err = repo.SetNomination(ctx, eventID, callerID.String(), targetID.String(), teamID.String(), true)
 	require.NoError(t, err, "SetNomination(true) with events:write must succeed")
 
 	attendanceList, err = repo.ListAttendance(ctx, eventID, teamID.String())
 	require.NoError(t, err)
-	assert.Empty(t, attendanceList, "not_nominated row must be removed")
+	require.Len(t, attendanceList, 2)
+	targetRow = findAttendanceRow(attendanceList, targetID)
+	require.NotNil(t, targetRow)
+	assert.NotEqual(t, "not_nominated", targetRow.Status, "not_nominated row must be removed")
 }

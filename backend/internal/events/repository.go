@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
@@ -668,31 +670,64 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 
 // ─── Attendance Summary ──────────────────────────────────────────────────────
 
+// absenceCoversExpr is a correlated EXISTS check (not a JOIN) for whether m's
+// planned absence covers e's date, shared by every roster-based attendance
+// query below. EXISTS rather than a LEFT JOIN deliberately avoids fanning
+// out a member's row if more than one absence entry happened to cover the
+// same date -- the absences package enforces non-overlap at the application
+// layer (advisory-locked check before insert/update, not a DB constraint),
+// so this is a defensive guard against double-counting from corrupted or
+// pre-constraint historical data, not an expected case.
+const absenceCoversExpr = `
+	EXISTS (
+		SELECT 1 FROM absences ab
+		WHERE ab.user_id = m.user_id AND ab.team_id = m.team_id
+		  AND ab.from_date <= e.date AND ab.to_date >= e.date
+	)
+`
+
+// effectiveStatusExpr is the CASE expression shared by GetAttendanceSummary
+// and GetAttendanceSummaries to resolve each roster row's effective status
+// in SQL, mirroring computeEffectiveAttendance's precedence: an explicit
+// attendance record wins; otherwise a covering planned absence defaults to
+// "no"; otherwise an opt_out event defaults to "yes"; otherwise "pending".
+const effectiveStatusExpr = `
+	CASE
+		WHEN a.status IS NOT NULL THEN a.status
+		WHEN ` + absenceCoversExpr + ` THEN 'no'
+		WHEN e.response_mode = 'opt_out' THEN 'yes'
+		ELSE 'pending'
+	END
+`
+
 // GetAttendanceSummary returns aggregated attendance counts for an event,
-// scoped to teamID.
+// scoped to teamID. Roster-driven (joined from memberships, not attendance):
+// every current team member is counted exactly once, with opt_out/absence-
+// based defaulting (effectiveStatusExpr) applied to members who never
+// explicitly responded -- a departed member (whose attendance row
+// RemoveMember intentionally leaves in place as history, since attendance/
+// absences are keyed by user_id/team_id rather than membership_id) is
+// naturally excluded, since they're no longer a memberships row to join
+// from.
 func (r *Repository) GetAttendanceSummary(ctx context.Context, eventID, teamID string) (EventSummaryData, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// Inner-joined against memberships (not just events/users) so a
-	// departed member's attendance row -- which RemoveMember intentionally
-	// leaves in place as history, since attendance/absences are keyed by
-	// user_id/team_id rather than membership_id -- stops counting toward
-	// the team's current headcount the moment they leave, instead of
-	// forever inflating Yes/No/Maybe/Total for a team an admin might be
-	// planning logistics (catering, transport) around.
 	q := `
 		SELECT
-			COUNT(*) FILTER (WHERE a.status = 'yes')           AS yes,
-			COUNT(*) FILTER (WHERE a.status = 'no')            AS no,
-			COUNT(*) FILTER (WHERE a.status = 'maybe')         AS maybe,
-			COUNT(*) FILTER (WHERE a.status = 'pending')       AS pending,
-			COUNT(*) FILTER (WHERE a.status = 'not_nominated') AS not_nominated,
-			COUNT(*) FILTER (WHERE a.status != 'not_nominated') AS nominated,
-			COUNT(*)                                            AS total
-		FROM attendance a
-		JOIN events e ON e.id = a.event_id
-		JOIN memberships m ON m.user_id = a.user_id AND m.team_id = e.team_id
-		WHERE a.event_id = $1 AND e.team_id = $2
+			COUNT(*) FILTER (WHERE eff_status = 'yes')           AS yes,
+			COUNT(*) FILTER (WHERE eff_status = 'no')            AS no,
+			COUNT(*) FILTER (WHERE eff_status = 'maybe')         AS maybe,
+			COUNT(*) FILTER (WHERE eff_status = 'pending')       AS pending,
+			COUNT(*) FILTER (WHERE eff_status = 'not_nominated') AS not_nominated,
+			COUNT(*) FILTER (WHERE eff_status != 'not_nominated') AS nominated,
+			COUNT(*)                                              AS total
+		FROM (
+			SELECT ` + effectiveStatusExpr + ` AS eff_status
+			FROM events e
+			JOIN memberships m ON m.team_id = e.team_id
+			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
+			WHERE e.id = $1 AND e.team_id = $2
+		) sub
 	`
 	var s EventSummaryData
 	err := r.pool.QueryRow(ctx, q, eventID, teamID).Scan(
@@ -729,13 +764,54 @@ func (r *Repository) GetMyAttendance(ctx context.Context, eventID, userID, teamI
 	return a, nil
 }
 
+// GetMyEffectiveAttendance returns userID's resolved attendance for an
+// event scoped to teamID -- an explicit record if one exists, otherwise the
+// result of opt_out/absence-based defaulting (computeEffectiveAttendance).
+// Unlike GetMyAttendance, this is driven from events (LEFT JOIN attendance),
+// not attendance, so it always resolves to a value for an event that exists
+// in teamID; nil only means eventID doesn't belong to teamID.
+func (r *Repository) GetMyEffectiveAttendance(ctx context.Context, eventID, userID, teamID string) (*EffectiveAttendance, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	q := `
+		SELECT a.status, a.reason, a.reason_id, a.reason_visibility, a.at,
+		       EXISTS (
+		           SELECT 1 FROM absences ab
+		           WHERE ab.user_id = $2 AND ab.team_id = e.team_id
+		             AND ab.from_date <= e.date AND ab.to_date >= e.date
+		       ),
+		       e.response_mode
+		FROM events e
+		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = $2
+		WHERE e.id = $1 AND e.team_id = $3
+	`
+	var status, reason, reasonID, reasonVisibility *string
+	var at *time.Time
+	var absenceCovers bool
+	var responseMode string
+	err := r.pool.QueryRow(ctx, q, eventID, userID, teamID).Scan(
+		&status, &reason, &reasonID, &reasonVisibility, &at, &absenceCovers, &responseMode,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("events.Repository.GetMyEffectiveAttendance: %w", err)
+	}
+	eff := computeEffectiveAttendance(status, reason, reasonID, reasonVisibility, at, absenceCovers, responseMode)
+	return &eff, nil
+}
+
 // ─── Batched attendance lookups (used by ListEvents) ───────────────────────
 
 // GetAttendanceSummaries returns aggregated attendance counts for multiple
-// events in a single query, keyed by event ID. Events with no attendance
-// rows are absent from the map (callers should treat that as a zero-value
-// EventSummaryData). Used by ListEvents to avoid issuing one
-// GetAttendanceSummary query per event.
+// events in a single query, keyed by event ID. Roster-driven like
+// GetAttendanceSummary: an event with zero current team members would be the
+// only way to be absent from the map (never a real case, since CreateEvent
+// requires a team to already exist), so callers can otherwise assume every
+// requested eventID is present. Used by ListEvents to avoid issuing one
+// GetAttendanceSummary query per event; all eventIDs in a single call
+// belong to one team, matching ListEvents' own team-scoped query.
 func (r *Repository) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid.UUID) (map[uuid.UUID]EventSummaryData, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -743,25 +819,24 @@ func (r *Repository) GetAttendanceSummaries(ctx context.Context, eventIDs []uuid
 	if len(eventIDs) == 0 {
 		return out, nil
 	}
-	// Same departed-member exclusion as GetAttendanceSummary -- joined
-	// through events to reach team_id, since this batch query (unlike the
-	// single-event version) isn't itself team-scoped by a caller-supplied
-	// teamID.
 	q := `
 		SELECT
-			a.event_id,
-			COUNT(*) FILTER (WHERE a.status = 'yes')            AS yes,
-			COUNT(*) FILTER (WHERE a.status = 'no')             AS no,
-			COUNT(*) FILTER (WHERE a.status = 'maybe')          AS maybe,
-			COUNT(*) FILTER (WHERE a.status = 'pending')        AS pending,
-			COUNT(*) FILTER (WHERE a.status = 'not_nominated')  AS not_nominated,
-			COUNT(*) FILTER (WHERE a.status != 'not_nominated') AS nominated,
-			COUNT(*)                                            AS total
-		FROM attendance a
-		JOIN events e ON e.id = a.event_id
-		JOIN memberships m ON m.user_id = a.user_id AND m.team_id = e.team_id
-		WHERE a.event_id = ANY($1)
-		GROUP BY a.event_id
+			id,
+			COUNT(*) FILTER (WHERE eff_status = 'yes')            AS yes,
+			COUNT(*) FILTER (WHERE eff_status = 'no')             AS no,
+			COUNT(*) FILTER (WHERE eff_status = 'maybe')          AS maybe,
+			COUNT(*) FILTER (WHERE eff_status = 'pending')        AS pending,
+			COUNT(*) FILTER (WHERE eff_status = 'not_nominated')  AS not_nominated,
+			COUNT(*) FILTER (WHERE eff_status != 'not_nominated') AS nominated,
+			COUNT(*)                                              AS total
+		FROM (
+			SELECT e.id, ` + effectiveStatusExpr + ` AS eff_status
+			FROM events e
+			JOIN memberships m ON m.team_id = e.team_id
+			LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
+			WHERE e.id = ANY($1)
+		) sub
+		GROUP BY id
 	`
 	rows, err := r.pool.Query(ctx, q, eventIDs)
 	if err != nil {
@@ -818,6 +893,54 @@ func (r *Repository) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID,
 	return out, nil
 }
 
+// GetMyEffectiveAttendances returns userID's resolved attendance for
+// multiple events in a single query, keyed by event ID -- the batched
+// counterpart to GetMyEffectiveAttendance, used by ListEvents to avoid one
+// query per event. Every eventID present in the DB is present in the
+// result map (defaulted if the user has no explicit record); an eventID
+// absent from the map means it doesn't exist.
+func (r *Repository) GetMyEffectiveAttendances(ctx context.Context, eventIDs []uuid.UUID, userID string) (map[uuid.UUID]EffectiveAttendance, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out := make(map[uuid.UUID]EffectiveAttendance, len(eventIDs))
+	if len(eventIDs) == 0 {
+		return out, nil
+	}
+	q := `
+		SELECT e.id, a.status, a.reason, a.reason_id, a.reason_visibility, a.at,
+		       EXISTS (
+		           SELECT 1 FROM absences ab
+		           WHERE ab.user_id = $2 AND ab.team_id = e.team_id
+		             AND ab.from_date <= e.date AND ab.to_date >= e.date
+		       ),
+		       e.response_mode
+		FROM events e
+		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = $2
+		WHERE e.id = ANY($1)
+	`
+	rows, err := r.pool.Query(ctx, q, eventIDs, userID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.GetMyEffectiveAttendances: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id uuid.UUID
+		var status, reason, reasonID, reasonVisibility *string
+		var at *time.Time
+		var absenceCovers bool
+		var responseMode string
+		if err := rows.Scan(&id, &status, &reason, &reasonID, &reasonVisibility, &at, &absenceCovers, &responseMode); err != nil {
+			return nil, fmt.Errorf("events.Repository.GetMyEffectiveAttendances scan: %w", err)
+		}
+		out[id] = computeEffectiveAttendance(status, reason, reasonID, reasonVisibility, at, absenceCovers, responseMode)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.GetMyEffectiveAttendances: %w", err)
+	}
+	return out, nil
+}
+
 // ─── ListAttendance ─────────────────────────────────────────────────────────
 
 // maxAttendanceRows caps the attendance list at a size no real team roster
@@ -828,30 +951,35 @@ func (r *Repository) GetMyAttendances(ctx context.Context, eventIDs []uuid.UUID,
 // pagination cutoff.
 const maxAttendanceRows = 5000
 
-// ListAttendance returns up to maxAttendanceRows attendance rows for an event
-// scoped to teamID, enriched with user data.
+// ListAttendance returns up to maxAttendanceRows roster rows for an event
+// scoped to teamID, enriched with user data and each member's effective
+// attendance (computeEffectiveAttendance). Roster-driven, not
+// attendance-driven: every current team member appears exactly once, even
+// if they've never explicitly responded -- a departed member simply isn't a
+// memberships row here anymore, matching the previous inner-join exclusion.
 func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string) ([]AttendanceEnriched, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	// Inner-joined against memberships for the same reason as
-	// GetAttendanceSummary -- a departed member shouldn't keep appearing by
-	// name in the attendee list.
 	q := `
 		SELECT
-			a.user_id,
+			m.id,
+			m.user_id,
+			m."group",
+			u.name,
+			u.avatar_color,
+			(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo,
 			a.status,
 			a.reason,
 			a.reason_id,
 			a.reason_visibility,
 			a.at,
-			u.name,
-			u.avatar_color,
-			(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo
-		FROM attendance a
-		JOIN users u ON u.id = a.user_id
-		JOIN events e ON e.id = a.event_id
-		JOIN memberships m ON m.user_id = a.user_id AND m.team_id = e.team_id
-		WHERE a.event_id = $1 AND e.team_id = $2
+			` + absenceCoversExpr + `,
+			e.response_mode
+		FROM events e
+		JOIN memberships m ON m.team_id = e.team_id
+		JOIN users u ON u.id = m.user_id
+		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = m.user_id
+		WHERE e.id = $1 AND e.team_id = $2
 		ORDER BY u.name ASC
 		LIMIT $3
 	`
@@ -862,21 +990,86 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 	defer rows.Close()
 
 	var out []AttendanceEnriched
+	var membershipIDs []string
 	for rows.Next() {
 		var a AttendanceEnriched
+		var status, reason, reasonID, reasonVisibility *string
+		var at *time.Time
+		var absenceCovers bool
+		var responseMode string
 		err := rows.Scan(
-			&a.UserId, &a.Status, &a.Reason, &a.ReasonId, &a.ReasonVisibility, &a.At,
+			&a.MembershipId, &a.UserId, &a.Group,
 			&a.Name, &a.AvatarColor, &a.HasPhoto,
+			&status, &reason, &reasonID, &reasonVisibility, &at,
+			&absenceCovers, &responseMode,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("events.Repository.ListAttendance scan: %w", err)
 		}
+		eff := computeEffectiveAttendance(status, reason, reasonID, reasonVisibility, at, absenceCovers, responseMode)
+		a.Status = eff.Status
+		a.Reason = eff.Reason
+		a.ReasonId = eff.ReasonId
+		a.ReasonVisibility = eff.ReasonVisibility
+		a.At = eff.At
+		a.Auto = eff.Auto
+		a.Absent = eff.Absent
 		out = append(out, a)
+		membershipIDs = append(membershipIDs, a.MembershipId.String())
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("events.Repository.ListAttendance: %w", err)
 	}
+
+	if len(out) > 0 {
+		primaryRoles, err := r.batchGetPrimaryRoles(ctx, membershipIDs)
+		if err != nil {
+			return nil, fmt.Errorf("events.Repository.ListAttendance: %w", err)
+		}
+		for i := range out {
+			if role, ok := primaryRoles[out[i].MembershipId.String()]; ok {
+				out[i].PrimaryRole = &role
+			}
+		}
+	}
 	return out, nil
+}
+
+// batchGetPrimaryRoles returns each membership's "primary" role -- the same
+// arbitrary-but-stable "first role" convention members.Service.toGenMember
+// uses (no rank-based ordering) -- keyed by membership ID. A membership with
+// no roles is absent from the map. DISTINCT ON (mr.membership_id) with an
+// ORDER BY on role id makes the "first" choice deterministic across calls,
+// rather than depending on unspecified row order.
+func (r *Repository) batchGetPrimaryRoles(ctx context.Context, membershipIDs []string) (map[string]teams.RoleRow, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT DISTINCT ON (mr.membership_id)
+			mr.membership_id, r.id, r.team_id, r.name, r.system, r.color, r.permissions
+		FROM membership_roles mr
+		JOIN roles r ON r.id = mr.role_id
+		JOIN memberships m ON m.id = mr.membership_id
+		WHERE mr.membership_id = ANY($1::uuid[]) AND r.team_id = m.team_id
+		ORDER BY mr.membership_id, r.id
+	`, membershipIDs)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.batchGetPrimaryRoles: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]teams.RoleRow)
+	for rows.Next() {
+		var membershipID string
+		rr := teams.RoleRow{}
+		var permJSON []byte
+		if err := rows.Scan(&membershipID, &rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permJSON); err != nil {
+			return nil, fmt.Errorf("events.Repository.batchGetPrimaryRoles scan: %w", err)
+		}
+		if err := json.Unmarshal(permJSON, &rr.Permissions); err != nil {
+			return nil, fmt.Errorf("events.Repository.batchGetPrimaryRoles unmarshal: %w", err)
+		}
+		result[membershipID] = rr
+	}
+	return result, rows.Err()
 }
 
 // GetReasonVisibilityContext returns the team's configured reason-visibility
