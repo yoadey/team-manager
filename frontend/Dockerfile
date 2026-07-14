@@ -34,7 +34,7 @@ RUN npm run build && find dist -name '*.map' -delete
 # added Trivy frontend scan caught. Re-resolved 2026-07-08 (from
 # registry-1.docker.io) after the previous digest's frozen libexpat 2.8.1-r0
 # picked up 3 fresh HIGH CVEs disclosed since it was pinned.
-FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:592b23aa79a6e6c08ba4b20f1fff700e1328895705966722608e115d62e52d39 AS runtime
+FROM nginxinc/nginx-unprivileged:1-alpine3.23@sha256:6320020c7da8714feab524e02c08c5a1958675c4e68700e93a2fd8970b065786 AS runtime
 
 # envsubst (gettext) ships in the base image for its own built-in
 # entrypoint.d templating feature; fail the build loudly here rather than
