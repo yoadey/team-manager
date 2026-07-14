@@ -138,7 +138,10 @@ func toGenMember(mr MemberRow) gen.Member {
 		genRoles[i] = toGenRole(r)
 	}
 
-	// Primary role = first role (arbitrary ordering).
+	// Primary role = first role, ordered by role id (arbitrary but
+	// deterministic -- repository.go's batchGetRoles/getRolesForMembershipQ
+	// both ORDER BY r.id so this agrees with events.batchGetPrimaryRoles'
+	// identical convention for the same membership).
 	var primaryRole *gen.Role
 	if len(genRoles) > 0 {
 		primaryRole = &genRoles[0]

@@ -475,6 +475,48 @@ func TestMembersRepository_SetRoles(t *testing.T) {
 	assert.Empty(t, updated.Roles)
 }
 
+// Regression test: batchGetRoles/getRolesForMembershipQ used to have no
+// ORDER BY at all, so a multi-role member's role order (and therefore
+// toGenMember's "primary role" = first role) depended on unspecified
+// Postgres row order -- in practice, physical insertion order, i.e. the
+// order roleIDs happened to be submitted in. events.batchGetPrimaryRoles
+// (added alongside the opt_out/absence-defaulting feature) picks the same
+// membership's primary role by lowest role ID instead, an entirely
+// different, uncorrelated criterion -- so the same member could show a
+// different "primary role" on the members page than on an event's
+// attendee list. Both queries now ORDER BY r.id, matching
+// events.batchGetPrimaryRoles' convention, so the "first role" no longer
+// depends on the order roles were assigned in.
+func TestMembersRepository_SetRoles_PrimaryRoleOrderIsDeterministicRegardlessOfAssignmentOrder(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	roleA := seedRole(t, pool, teamID, "Trainer", `{"events":"write","members":"none","finances":"none","news":"none","polls":"none","settings":"none"}`)
+	roleB := seedRole(t, pool, teamID, "Co-Trainer", `{"events":"read","members":"none","finances":"none","news":"none","polls":"none","settings":"none"}`)
+	caller := seedAdminCaller(t, pool, teamID)
+
+	m := seedMember(t, pool, teamID, "Order Test Member", "order-test@example.com")
+
+	updated1, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleA.String(), roleB.String()}, caller.String())
+	require.NoError(t, err)
+	require.Len(t, updated1.Roles, 2)
+	first1 := updated1.Roles[0].Id
+
+	_, err = repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{}, caller.String())
+	require.NoError(t, err)
+	updated2, err := repo.SetRoles(ctx, m.MembershipID.String(), teamID.String(), []string{roleB.String(), roleA.String()}, caller.String())
+	require.NoError(t, err)
+	require.Len(t, updated2.Roles, 2)
+	first2 := updated2.Roles[0].Id
+
+	assert.Equal(t, first1, first2, "primary role (first role after ordering) must not depend on assignment order")
+	assert.Equal(t, roleA.String() < roleB.String(), first1 == roleA, "the deterministic order must actually be by role id, not just internally consistent")
+}
+
 func TestMembersRepository_SetRoles_WrongTeam_ReturnsNoRows(t *testing.T) {
 	t.Parallel()
 

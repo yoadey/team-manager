@@ -783,6 +783,7 @@ func (r *Repository) batchGetRoles(ctx context.Context, membershipIDs []string) 
 		JOIN roles r ON r.id = mr.role_id
 		JOIN memberships m ON m.id = mr.membership_id
 		WHERE mr.membership_id = ANY($1::uuid[]) AND r.team_id = m.team_id
+		ORDER BY mr.membership_id, r.id
 	`, membershipIDs)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.batchGetRoles: %w", err)
@@ -812,6 +813,7 @@ func getRolesForMembershipQ(ctx context.Context, q querier, membershipID string)
 		JOIN membership_roles mr ON mr.role_id = r.id
 		JOIN memberships m ON m.id = mr.membership_id
 		WHERE mr.membership_id = $1 AND r.team_id = m.team_id
+		ORDER BY r.id
 	`, membershipID)
 	if err != nil {
 		return nil, fmt.Errorf("members.Repository.getRolesForMembership: %w", err)

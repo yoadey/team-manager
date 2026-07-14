@@ -1035,12 +1035,14 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 	return out, nil
 }
 
-// batchGetPrimaryRoles returns each membership's "primary" role -- the same
-// arbitrary-but-stable "first role" convention members.Service.toGenMember
-// uses (no rank-based ordering) -- keyed by membership ID. A membership with
-// no roles is absent from the map. DISTINCT ON (mr.membership_id) with an
-// ORDER BY on role id makes the "first" choice deterministic across calls,
-// rather than depending on unspecified row order.
+// batchGetPrimaryRoles returns each membership's "primary" role -- the
+// lowest-role-id-first convention members.Repository's
+// batchGetRoles/getRolesForMembershipQ also ORDER BY, so this attendance
+// row's PrimaryRole agrees with the same member's PrimaryRole on the
+// members list -- keyed by membership ID. A membership with no roles is
+// absent from the map. DISTINCT ON (mr.membership_id) with an ORDER BY on
+// role id makes the "first" choice deterministic across calls, rather than
+// depending on unspecified row order.
 func (r *Repository) batchGetPrimaryRoles(ctx context.Context, membershipIDs []string) (map[string]teams.RoleRow, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT DISTINCT ON (mr.membership_id)
