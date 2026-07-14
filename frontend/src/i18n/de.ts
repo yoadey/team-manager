@@ -74,6 +74,8 @@ export const de = {
     close: 'Schließen',
     openNotifications: 'Benachrichtigungen öffnen',
     unreadNotifications: '{n} ungelesene Benachrichtigungen',
+    unreadNotifications_one: '{n} ungelesene Benachrichtigung',
+    unreadNotifications_other: '{n} ungelesene Benachrichtigungen',
     memberCount: '{n} Mitglieder',
     memberCount_one: '{n} Mitglied',
     memberCount_other: '{n} Mitglieder',
@@ -99,6 +101,8 @@ export const de = {
     eventsSubtitle: 'Planung & Anwesenheit',
     eventsAction: 'Termin',
     membersSubtitle: '{n} Personen · Rollen & Gruppen',
+    membersSubtitle_one: '{n} Person · Rollen & Gruppen',
+    membersSubtitle_other: '{n} Personen · Rollen & Gruppen',
     membersAction: 'Einladen',
     financesSubtitle: 'Kasse, Strafen & Beiträge',
     financesAction: 'Buchung',
@@ -316,6 +320,8 @@ export const de = {
     noAbsences: 'Keine geplanten Abwesenheiten',
     showAbsences: 'Geplante Abwesenheiten anzeigen',
     calExportHero: 'Exportiere alle {n} aktiven Termine und binde sie in deinen Kalender ein.',
+    calExportHero_one: 'Exportiere den {n} aktiven Termin und binde ihn in deinen Kalender ein.',
+    calExportHero_other: 'Exportiere alle {n} aktiven Termine und binde sie in deinen Kalender ein.',
     calDownload: 'Kalenderdatei (.ics) herunterladen',
     calSubscribe: 'Automatisch abonnieren (Abo-Link)',
     calSubscribeDesc:
@@ -672,6 +678,10 @@ export const de = {
     avgQuote: 'Ø Quote',
     teamAttendance: 'Team-Anwesenheit',
     teamAttendanceDesc:
+      'Durchschnittliche Zusagequote über {n} vergangene Termine. Nicht nominierte Termine zählen nicht.',
+    teamAttendanceDesc_one:
+      'Durchschnittliche Zusagequote über {n} vergangenen Termin. Nicht nominierte Termine zählen nicht.',
+    teamAttendanceDesc_other:
       'Durchschnittliche Zusagequote über {n} vergangene Termine. Nicht nominierte Termine zählen nicht.',
     quotePerPerson: 'Quote pro Person',
     memberAria: '{name}: {value}',

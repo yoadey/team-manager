@@ -117,6 +117,19 @@ describe('pageMeta()', () => {
     expect(meta.subtitle).toContain('3');
   });
 
+  // Regression test: page.membersSubtitle had no _one/_other plural forms
+  // and was called with n but not count, so a team with exactly one member
+  // showed the grammatically wrong "1 Personen" ("1 people") instead of
+  // "1 Person".
+  it('uses the singular member-count form in the members subtitle for a one-member team', () => {
+    const app = makeApp('members', {
+      state: { route: 'members', members: [{ id: 'm1' }], primaryColor: '#4285F4' },
+    });
+    const meta = pageMeta(app as never);
+    expect(meta.subtitle).toContain('1 Person ');
+    expect(meta.subtitle).not.toContain('1 Personen');
+  });
+
   // 10. pageSheetMeta returns correct title for 'eventDetail' with event
   it('returns event title for eventDetail sheet with event', () => {
     const mockEvent = { id: 'e1', title: 'Sommerball', date: '2026-07-04' };

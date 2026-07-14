@@ -231,7 +231,9 @@ export function Shell() {
           <ButtonBase
             onClick={app.openNotifications}
             aria-label={
-              hasUnread ? tl('shell.unreadNotifications', { n: state.notifUnread }) : tl('shell.openNotifications')
+              hasUnread
+                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                : tl('shell.openNotifications')
             }
             sx={{
               position: 'relative',
@@ -592,7 +594,9 @@ export function Shell() {
           <ButtonBase
             onClick={app.openNotifications}
             aria-label={
-              hasUnread ? tl('shell.unreadNotifications', { n: state.notifUnread }) : tl('shell.openNotifications')
+              hasUnread
+                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                : tl('shell.openNotifications')
             }
             sx={{
               position: 'relative',

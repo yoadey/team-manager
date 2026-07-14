@@ -150,7 +150,7 @@ export function Stats() {
       <Box sx={{ flex: 1 }}>
         <Box sx={{ fontSize: '16px', fontWeight: 700 }}>{tr('stats.teamAttendance')}</Box>
         <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, mt: '4px', lineHeight: 1.5 }}>
-          {tr('stats.teamAttendanceDesc', { n: st.pastCount })}
+          {tr('stats.teamAttendanceDesc', { n: st.pastCount, count: st.pastCount })}
         </Box>
       </Box>
     </Box>

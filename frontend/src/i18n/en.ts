@@ -73,6 +73,8 @@ export const en: Messages = {
     close: 'Close',
     openNotifications: 'Open notifications',
     unreadNotifications: '{n} unread notifications',
+    unreadNotifications_one: '{n} unread notification',
+    unreadNotifications_other: '{n} unread notifications',
     memberCount: '{n} members',
     memberCount_one: '{n} member',
     memberCount_other: '{n} members',
@@ -99,6 +101,8 @@ export const en: Messages = {
     eventsSubtitle: 'Planning & attendance',
     eventsAction: 'Event',
     membersSubtitle: '{n} people · Roles & groups',
+    membersSubtitle_one: '{n} person · Roles & groups',
+    membersSubtitle_other: '{n} people · Roles & groups',
     membersAction: 'Invite',
     financesSubtitle: 'Funds, penalties & contributions',
     financesAction: 'Transaction',
@@ -315,6 +319,8 @@ export const en: Messages = {
     noAbsences: 'No planned absences',
     showAbsences: 'Show planned absences',
     calExportHero: 'Export all {n} active events and add them to your calendar.',
+    calExportHero_one: 'Export the {n} active event and add it to your calendar.',
+    calExportHero_other: 'Export all {n} active events and add them to your calendar.',
     calDownload: 'Download calendar file (.ics)',
     calSubscribe: 'Subscribe automatically (subscription link)',
     calSubscribeDesc:
@@ -664,6 +670,10 @@ export const en: Messages = {
     avgQuote: 'Avg rate',
     teamAttendance: 'Team attendance',
     teamAttendanceDesc:
+      'Average acceptance rate across {n} past events. Events you were not nominated for are not counted.',
+    teamAttendanceDesc_one:
+      'Average acceptance rate across {n} past event. Events you were not nominated for are not counted.',
+    teamAttendanceDesc_other:
       'Average acceptance rate across {n} past events. Events you were not nominated for are not counted.',
     quotePerPerson: 'Rate per person',
     memberAria: '{name}: {value}',
