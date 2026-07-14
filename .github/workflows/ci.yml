@@ -764,7 +764,18 @@ jobs:
           # this is a safety guardrail, so a broken diff should fail loudly
           # rather than silently report "no migrations changed".
           git fetch origin "${{ github.base_ref }}"
-          changed=$(git diff --name-only --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- 'internal/db/migrations/*.sql')
+          # --relative makes git report paths relative to cwd (this job runs
+          # every 'run:' step from the backend/ working directory, per the
+          # job-level 'defaults.run.working-directory' below) rather than its
+          # default of repo-root-relative -- without it, $f later fails to
+          # open (git diff --name-only always reports root-relative paths
+          # regardless of cwd, e.g. "backend/internal/db/migrations/x.sql",
+          # which doesn't exist relative to a cwd that's already inside
+          # backend/). $annotate_path (built per-file below) re-adds the
+          # backend/ prefix for GitHub's ::error file=...:: annotations,
+          # which do need repo-root-relative paths to link correctly in the
+          # PR's "Files changed" view.
+          changed=$(git diff --name-only --relative --diff-filter=AM "origin/${{ github.base_ref }}...HEAD" -- 'internal/db/migrations/*.sql')
           if [ -z "$changed" ]; then
             echo "No migration files changed."
             exit 0
@@ -829,6 +840,7 @@ jobs:
           fail=0
           while IFS= read -r f; do
             [ -z "$f" ] && continue
+            annotate_path="backend/$f"
             stripped=$(strip_quotes_comments "$f")
             # File-level check (not per-statement): goose wraps a migration's
             # statements in a transaction by default, and Postgres rejects
@@ -842,7 +854,7 @@ jobs:
             # otherwise only surfaces when the migration actually runs
             # against a real database (i.e. in a deploy, not in CI).
             if grep -qi 'CONCURRENTLY' "$f" && ! grep -qE '^-- \+goose NO TRANSACTION' "$f"; then
-              echo "::error file=$f::CREATE INDEX CONCURRENTLY requires a '-- +goose NO TRANSACTION' annotation (goose wraps migrations in a transaction by default, and Postgres rejects CONCURRENTLY inside one). Add '-- +goose NO TRANSACTION' before '-- +goose Up'."
+              echo "::error file=$annotate_path::CREATE INDEX CONCURRENTLY requires a '-- +goose NO TRANSACTION' annotation (goose wraps migrations in a transaction by default, and Postgres rejects CONCURRENTLY inside one). Add '-- +goose NO TRANSACTION' before '-- +goose Up'."
               fail=1
             fi
             # Split the file into ;-terminated statements and flatten each
@@ -870,7 +882,7 @@ jobs:
               # SET DATA TYPE (equally valid, and equally unsafe) bypassed
               # this check entirely.
               if echo "$stmt" | grep -qiE 'ALTER +(COLUMN +)?[^ ]+ +(SET +DATA +)?TYPE'; then
-                echo "::error file=$f::ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE lock. Use an expand/contract migration instead (add a new column, batch-backfill, then rename/drop)."
+                echo "::error file=$annotate_path::ALTER COLUMN ... TYPE rewrites the whole table under an ACCESS EXCLUSIVE lock. Use an expand/contract migration instead (add a new column, batch-backfill, then rename/drop)."
                 fail=1
               fi
               # ADD CONSTRAINT ... CHECK without NOT VALID validates against
@@ -880,7 +892,7 @@ jobs:
               # ADD CHECK (...) is exactly as valid, and exactly as
               # unsafe without NOT VALID, as ADD CONSTRAINT x CHECK (...).
               if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?CHECK' | grep -qiv 'NOT VALID'; then
-                echo "::error file=$f::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+                echo "::error file=$annotate_path::ADD CONSTRAINT ... CHECK without NOT VALID locks the table while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
                 fail=1
               fi
               # ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds the backing
@@ -899,7 +911,7 @@ jobs:
               # the error message's own instructions had no way to land the
               # fix without editing this check.
               if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?(UNIQUE|PRIMARY +KEY)( |\()' | grep -qivE 'USING +INDEX'; then
-                echo "::error file=$f::ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds its index under an ACCESS EXCLUSIVE lock. CREATE [UNIQUE] INDEX CONCURRENTLY first, then ADD CONSTRAINT ... USING INDEX."
+                echo "::error file=$annotate_path::ADD CONSTRAINT ... UNIQUE/PRIMARY KEY builds its index under an ACCESS EXCLUSIVE lock. CREATE [UNIQUE] INDEX CONCURRENTLY first, then ADD CONSTRAINT ... USING INDEX."
                 fail=1
               fi
               # ADD CONSTRAINT ... FOREIGN KEY without NOT VALID validates
@@ -908,7 +920,7 @@ jobs:
               # CONSTRAINT <name> is optional here for the same reason as
               # the CHECK case above.
               if echo "$stmt" | grep -iE 'ADD +(CONSTRAINT +[^ ]+ +)?FOREIGN +KEY' | grep -qiv 'NOT VALID'; then
-                echo "::error file=$f::ADD CONSTRAINT ... FOREIGN KEY without NOT VALID locks both tables while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
+                echo "::error file=$annotate_path::ADD CONSTRAINT ... FOREIGN KEY without NOT VALID locks both tables while validating every existing row. Add NOT VALID, then VALIDATE CONSTRAINT in a follow-up statement."
                 fail=1
               fi
               # ALTER COLUMN ... SET NOT NULL forces a full-table scan under
@@ -923,7 +935,7 @@ jobs:
               # once validated does SET NOT NULL become metadata-only.
               # COLUMN is optional for the same reason as the TYPE case above.
               if echo "$stmt" | grep -iE 'ALTER +(COLUMN +)?[^ ]+ +SET +NOT +NULL'; then
-                echo "::error file=$f::ALTER COLUMN ... SET NOT NULL scans the whole table under an ACCESS EXCLUSIVE lock unless a validated CHECK (col IS NOT NULL) constraint already covers it. Add that constraint NOT VALID, VALIDATE CONSTRAINT in a follow-up migration, then SET NOT NULL."
+                echo "::error file=$annotate_path::ALTER COLUMN ... SET NOT NULL scans the whole table under an ACCESS EXCLUSIVE lock unless a validated CHECK (col IS NOT NULL) constraint already covers it. Add that constraint NOT VALID, VALIDATE CONSTRAINT in a follow-up migration, then SET NOT NULL."
                 fail=1
               fi
               # ADD COLUMN ... GENERATED ALWAYS AS (...) STORED computes and
@@ -939,7 +951,7 @@ jobs:
               # exactly as valid, and exactly as unsafe, as ADD COLUMN
               # full_name text GENERATED ALWAYS AS (...) STORED.
               if echo "$stmt" | grep -iE 'ADD +(COLUMN +)?' | grep -qiE 'GENERATED +ALWAYS +AS'; then
-                echo "::error file=$f::ADD COLUMN ... GENERATED ALWAYS AS (...) STORED computes and stores the expression for every existing row under an ACCESS EXCLUSIVE lock. Add a plain nullable column instead, batch-backfill it, and maintain it via a trigger or the application write path."
+                echo "::error file=$annotate_path::ADD COLUMN ... GENERATED ALWAYS AS (...) STORED computes and stores the expression for every existing row under an ACCESS EXCLUSIVE lock. Add a plain nullable column instead, batch-backfill it, and maintain it via a trigger or the application write path."
                 fail=1
               fi
               # CREATE INDEX without CONCURRENTLY holds a table-level lock
@@ -948,7 +960,7 @@ jobs:
               # and one this codebase has hit before (00009_notification_idempotency.sql,
               # already applied and not retroactively edited).
               if echo "$stmt" | grep -iE 'CREATE +(UNIQUE +)?INDEX' | grep -qivE 'CREATE +(UNIQUE +)?INDEX +CONCURRENTLY'; then
-                echo "::error file=$f::CREATE INDEX without CONCURRENTLY holds a table-level lock blocking writes for the duration of the index build. Add CONCURRENTLY (and a '+goose NO TRANSACTION' annotation, since CONCURRENTLY cannot run inside a transaction)."
+                echo "::error file=$annotate_path::CREATE INDEX without CONCURRENTLY holds a table-level lock blocking writes for the duration of the index build. Add CONCURRENTLY (and a '+goose NO TRANSACTION' annotation, since CONCURRENTLY cannot run inside a transaction)."
                 fail=1
               fi
             done <<< "$(echo "$stripped" | awk 'BEGIN{RS=";"} {gsub(/\n/," "); print}')"
