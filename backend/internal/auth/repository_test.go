@@ -342,3 +342,52 @@ func TestRepository_DeleteSession(t *testing.T) {
 	_, err = repo.FindSession(ctx, "deletehash")
 	assert.Error(t, err, "FindSession should return error after deletion")
 }
+
+// Regression test: ExportUserData's penalty-assignments query used to join
+// the live penalties table for label/amount instead of reading the
+// assignment's own snapshotted columns -- the exact bug migration 00025
+// fixed for every other read path (ListAssignments, GetAssignmentByID,
+// CreateAssignment). A member's GDPR export would report whatever the
+// penalty definition currently says, not what they were actually assigned
+// and (possibly already) charged.
+func TestRepository_ExportUserData_PenaltyAssignmentUsesSnapshotNotLiveDefinition(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "55555555-5555-5555-5555-555555555555"
+	teamID := "66666666-6666-6666-6666-666666666666"
+	penaltyID := "77777777-7777-7777-7777-777777777777"
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Eve', 'eve-export@example.com', '#abcdef')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Export Penalty Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO penalties (id, team_id, label, amount) VALUES ($1, $2, 'Zu spät', 5.00)`,
+		penaltyID, teamID)
+	require.NoError(t, err)
+
+	// Snapshot amount/label at assignment time, matching what
+	// finances.Repository.CreateAssignment writes.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO penalty_assignments (team_id, user_id, penalty_id, amount, label, date)
+		 VALUES ($1, $2, $3, 500, 'Zu spät', '2026-01-15')`,
+		teamID, userID, penaltyID)
+	require.NoError(t, err)
+
+	// The penalty definition is later edited -- allowed at any time, with no
+	// restriction once assignments exist.
+	_, err = pool.Exec(ctx, `UPDATE penalties SET label = 'Zu spät (neu)', amount = 50.00 WHERE id = $1`, penaltyID)
+	require.NoError(t, err)
+
+	data, err := repo.ExportUserData(ctx, userID)
+	require.NoError(t, err)
+	require.Len(t, data.PenaltyAssignments, 1)
+	assert.Equal(t, "Zu spät", data.PenaltyAssignments[0].Label, "export must report the snapshotted label, not the live one")
+	assert.Equal(t, "500", data.PenaltyAssignments[0].Amount, "export must report the snapshotted amount, not the live one")
+}
