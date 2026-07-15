@@ -350,7 +350,6 @@ describe('useEventActionFeatures', () => {
           api: api as never,
           S: () => stateRef,
           setState: setState as never,
-          teamId: stateRef.activeTeamId,
           loadNotifications: loadNotifications as never,
           toastMsg: toastMsg as never,
           askConfirm: askConfirm as never,
@@ -464,5 +463,33 @@ describe('useEventActionFeatures', () => {
 
     expect(stateRef.sheet).toBe(somethingElse);
     expect(openEventDetail).not.toHaveBeenCalled();
+  });
+
+  // Regression: cancel/reactivate/delete must scope the API call to the
+  // event's OWN team, not whatever team happens to be active right now --
+  // the confirm sheet that triggers these can still be open after the user
+  // has switched to a different active team.
+  it('runEventAction reactivate scopes the API call to event.teamId, not the active team', async () => {
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.runEventAction('reactivate', event, 'single');
+    });
+    expect(api.events.setStatus).toHaveBeenCalledWith('ev1', 'active', 'single', 'team1');
+  });
+
+  it('runEventAction delete scopes the API call to event.teamId, not the active team', async () => {
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    const event = { id: 'ev1', title: 'Test', seriesId: null, teamId: 'team1' } as never;
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.runEventAction('delete', event, 'single');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+    await act(async () => {
+      await cfg.onConfirm();
+    });
+    expect(api.events.remove).toHaveBeenCalledWith('ev1', 'single', 'team1');
   });
 });

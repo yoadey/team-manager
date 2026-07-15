@@ -1041,64 +1041,68 @@ describe('AppProvider / session-restore resilience', () => {
     };
   }
 
-  it('recovers to a usable login screen when the post-restore team fetch keeps failing', async () => {
-    const {
-      api,
-      NetworkError,
-      AppProvider: FreshAppProvider,
-      useApp: freshUseApp,
-      useAppActions: freshUseAppActions,
-    } = await freshModules();
+  it(
+    'recovers to a usable login screen when the post-restore team fetch keeps failing',
+    async () => {
+      const {
+        api,
+        NetworkError,
+        AppProvider: FreshAppProvider,
+        useApp: freshUseApp,
+        useAppActions: freshUseAppActions,
+      } = await freshModules();
 
-    let actions: ReturnType<typeof freshUseAppActions>;
-    function Probe() {
-      const { state } = freshUseApp();
-      actions = freshUseAppActions();
-      return (
-        <div>
-          <div data-testid="phase">{state.phase}</div>
-          <div data-testid="providerCount">{state.providers.length}</div>
-        </div>
+      let actions: ReturnType<typeof freshUseAppActions>;
+      function Probe() {
+        const { state } = freshUseApp();
+        actions = freshUseAppActions();
+        return (
+          <div>
+            <div data-testid="phase">{state.phase}</div>
+            <div data-testid="providerCount">{state.providers.length}</div>
+          </div>
+        );
+      }
+
+      const { unmount } = renderApp(
+        <FreshAppProvider>
+          <Probe />
+        </FreshAppProvider>,
       );
-    }
+      // Default waitFor timeout (1000ms) has been observed to be too tight for
+      // this file's very first bootstrap under a loaded CI run (full-suite +
+      // coverage instrumentation contending with other jobs on a shared
+      // runner) -- give it the same headroom as the second waitFor below.
+      await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
 
-    const { unmount } = renderApp(
-      <FreshAppProvider>
-        <Probe />
-      </FreshAppProvider>,
-    );
-    // Default waitFor timeout (1000ms) has been observed to be too tight for
-    // this file's very first bootstrap under a loaded CI run (full-suite +
-    // coverage instrumentation contending with other jobs on a shared
-    // runner) -- give it the same headroom as the second waitFor below.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+      // A normal login establishes a real session (session.userId in the mock),
+      // which persists across remounts within this module instance.
+      await act(async () => {
+        await actions!.doLogin('google');
+      });
+      await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+      unmount();
 
-    // A normal login establishes a real session (session.userId in the mock),
-    // which persists across remounts within this module instance.
-    await act(async () => {
-      await actions!.doLogin('google');
-    });
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
-    unmount();
+      // Simulate the team list becoming permanently unreachable (e.g. a
+      // backend outage) for the next session-restore attempt.
+      api.teams.listForCurrentUser = vi.fn().mockRejectedValue(new NetworkError());
 
-    // Simulate the team list becoming permanently unreachable (e.g. a
-    // backend outage) for the next session-restore attempt.
-    api.teams.listForCurrentUser = vi.fn().mockRejectedValue(new NetworkError());
+      renderApp(
+        <FreshAppProvider>
+          <Probe />
+        </FreshAppProvider>,
+      );
 
-    renderApp(
-      <FreshAppProvider>
-        <Probe />
-      </FreshAppProvider>,
-    );
-
-    // retryable's backoff (300ms + 600ms) plus the mock's own randomized
-    // per-call latency pushes this well past the default 1000ms waitFor --
-    // give it extra headroom under a loaded full-suite/coverage run, where
-    // this file now shares the process with many more React Query-backed
-    // renders than before.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
-    await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
-  });
+      // retryable's backoff (300ms + 600ms) plus the mock's own randomized
+      // per-call latency pushes this well past the default 1000ms waitFor --
+      // give it extra headroom under a loaded full-suite/coverage run, where
+      // this file now shares the process with many more React Query-backed
+      // renders than before.
+      await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+      await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
+    },
+    20000,
+  );
 
   // Regression test: React.StrictMode double-invokes effects on initial
   // mount in dev, and the session-restore effect had no guard against that --

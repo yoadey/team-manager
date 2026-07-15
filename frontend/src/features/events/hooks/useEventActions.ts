@@ -250,7 +250,6 @@ export type EventActionDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  teamId: string | null;
   loadNotifications: () => Promise<void>;
   askConfirm: (cfg: {
     title: string;
@@ -269,14 +268,13 @@ export function useEventActionFeatures({
   S,
   setState,
   askConfirm,
-  teamId,
   loadNotifications,
   openEventDetail,
   toastMsg,
   logout,
 }: EventActionDeps) {
-  const { mutateAsync: setEventStatusAsync } = useEventStatusMutation(api, teamId);
-  const { mutateAsync: deleteEventAsync } = useDeleteEventMutation(api, teamId);
+  const { mutateAsync: setEventStatusAsync } = useEventStatusMutation(api);
+  const { mutateAsync: deleteEventAsync } = useDeleteEventMutation(api);
 
   const runEventAction = useCallback(
     async (action: 'cancel' | 'delete' | 'reactivate', event: TeamEvent, scope: 'single' | 'series') => {
@@ -290,7 +288,7 @@ export function useEventActionFeatures({
           onConfirm: async () => {
             const sh = S().sheet;
             try {
-              await deleteEventAsync({ eventId: event.id, scope });
+              await deleteEventAsync({ eventId: event.id, scope, teamId: event.teamId });
               loadNotifications();
               // Don't close a sheet the user has since opened for a different
               // team after switching away mid-request, or one they've since
@@ -308,7 +306,7 @@ export function useEventActionFeatures({
       const sh = S().sheet;
       const status = action === 'cancel' ? 'cancelled' : 'active';
       try {
-        await setEventStatusAsync({ eventId: event.id, status, scope });
+        await setEventStatusAsync({ eventId: event.id, status, scope, teamId: event.teamId });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a different
         // team after switching away mid-request, or one they've since opened

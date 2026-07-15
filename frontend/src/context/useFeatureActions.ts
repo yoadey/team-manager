@@ -96,7 +96,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    teamId,
     loadNotifications,
     toastMsg,
     logout,

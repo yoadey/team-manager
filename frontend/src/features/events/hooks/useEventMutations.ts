@@ -20,7 +20,13 @@ type EventPayload = {
 
 /**
  * Invalidates the team's event list and (when given) one event's detail
- * cache. The returned function is stable (useCallback) since it's used as a
+ * cache, returning a promise that resolves once the invalidated queries have
+ * actually refetched -- mutation `onSuccess` handlers below return this
+ * promise so `mutateAsync()` (and thus any success toast/sheet-close that
+ * follows it) only resolves once the cache is genuinely fresh, not merely
+ * once invalidation was requested.
+ *
+ * The returned function is stable (useCallback) since it's used as a
  * dependency outside this file too (useFeatureActions.ts's `refreshEvents`
  * bridge for the not-yet-migrated absences vertical) -- an unmemoized
  * closure here would recreate that callback (and everything depending on
@@ -31,9 +37,11 @@ export function useInvalidateEvents(teamId: string | null) {
   const qc = useQueryClient();
   return useCallback(
     (eventId?: string) => {
-      if (!teamId) return;
-      void qc.invalidateQueries({ queryKey: queryKeys.events(teamId) });
-      if (eventId) void qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) });
+      if (!teamId) return Promise.resolve();
+      return Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.events(teamId) }),
+        eventId ? qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) }) : Promise.resolve(),
+      ]);
     },
     [qc, teamId],
   );
@@ -100,19 +108,44 @@ export function useSaveEventMutation(api: typeof defaultApi, teamId: string | nu
   });
 }
 
-export function useEventStatusMutation(api: typeof defaultApi, teamId: string | null) {
-  const invalidate = useInvalidateEvents(teamId);
+/**
+ * Unlike the other mutations in this file, cancel/reactivate/delete take the
+ * event's OWN team id per call rather than the hook-bound active team id: the
+ * confirm sheet that triggers these can still be open after the user has
+ * switched to a different active team, and the event must still be mutated
+ * (and its cache invalidated) under the team it actually belongs to.
+ */
+export function useEventStatusMutation(api: typeof defaultApi) {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ eventId, status, scope }: { eventId: string; status: 'active' | 'cancelled'; scope: 'single' | 'series' }) =>
-      api.events.setStatus(eventId, status, scope, teamId!),
-    onSuccess: (_data, { eventId }) => invalidate(eventId),
+    mutationFn: ({
+      eventId,
+      status,
+      scope,
+      teamId,
+    }: {
+      eventId: string;
+      status: 'active' | 'cancelled';
+      scope: 'single' | 'series';
+      teamId: string;
+    }) => api.events.setStatus(eventId, status, scope, teamId),
+    onSuccess: (_data, { eventId, teamId }) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.events(teamId) }),
+        qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) }),
+      ]),
   });
 }
 
-export function useDeleteEventMutation(api: typeof defaultApi, teamId: string | null) {
-  const invalidate = useInvalidateEvents(teamId);
+export function useDeleteEventMutation(api: typeof defaultApi) {
+  const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ eventId, scope }: { eventId: string; scope: 'single' | 'series' }) => api.events.remove(eventId, scope, teamId!),
-    onSuccess: (_data, { eventId }) => invalidate(eventId),
+    mutationFn: ({ eventId, scope, teamId }: { eventId: string; scope: 'single' | 'series'; teamId: string }) =>
+      api.events.remove(eventId, scope, teamId),
+    onSuccess: (_data, { eventId, teamId }) =>
+      Promise.all([
+        qc.invalidateQueries({ queryKey: queryKeys.events(teamId) }),
+        qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) }),
+      ]),
   });
 }
