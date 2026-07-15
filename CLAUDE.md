@@ -2,6 +2,37 @@
 
 This is a monorepo containing the React frontend and Go backend for the Teamverwaltung sports-club management application.
 
+## Spec-Driven Development with OpenSpec (MANDATORY)
+
+**This repository uses [OpenSpec](https://github.com/Fission-AI/OpenSpec) for all work. Every non-trivial change MUST start as an OpenSpec change proposal — no exceptions.** Do not begin implementing a feature, refactor, bugfix, or dependency change by editing source directly; first capture it as a change under `openspec/changes/`, then implement against its tasks.
+
+The `openspec/` directory is the source of truth for *planned* work; the OpenSpec `specs/` capture *built* capabilities. Convention lives in `openspec/config.yaml`.
+
+Directory layout:
+
+```
+openspec/
+├── config.yaml                     Project context + per-artifact rules (spec-driven schema)
+├── specs/<capability>/spec.md      Current built capabilities (populated on archive)
+└── changes/<change-name>/          One folder per proposed change
+    ├── proposal.md                 Why / What Changes / Capabilities / Impact
+    ├── design.md                   Context / Goals / Decisions / Risks
+    ├── tasks.md                    Numbered, checkboxed implementation steps
+    └── specs/<capability>/spec.md  Delta: ## ADDED|MODIFIED|REMOVED Requirements
+```
+
+Workflow (CLI: `npx @fission-ai/openspec@latest <cmd>`; Claude Code slash commands: `/opsx:propose`, `/opsx:apply`, `/opsx:archive`):
+
+1. **Propose** — `openspec new change "<kebab-name>"`, then author `proposal.md`, `design.md`, delta `specs/`, and `tasks.md`. Every requirement needs at least one `#### Scenario:` (WHEN/THEN). Keep tasks' final group a **Verification** checklist of the CI gates it must keep green.
+2. **Validate** — `openspec validate <name> --strict` (or `--all`) MUST pass before implementation.
+3. **Apply** — implement the change, ticking `tasks.md` checkboxes as you go.
+4. **Archive** — `openspec archive <name>` once merged, folding the deltas into `openspec/specs/` and moving the change to `changes/archive/`.
+
+Notes:
+- The `.claude/` OpenSpec skills/commands are git-ignored (regenerate with `openspec init --tools claude`); the versioned artifacts live under `openspec/`.
+- Open change proposals seeded from the architecture audit live in `openspec/changes/` (MSW, TanStack Query, object storage, sqlc, spec-generated RBAC, React Hook Form). See each change's `proposal.md`/`tasks.md`.
+- OpenSpec sits *above* the existing spec-first OpenAPI workflow — it does not replace it. `backend/openapi/openapi.yaml` remains the API contract; a change that touches the API still runs `make generate` / `make generate-ts`.
+
 ## Quick Start
 
 ```bash

@@ -1,0 +1,35 @@
+schema: spec-driven
+
+# Project context shown to AI when creating OpenSpec artifacts.
+context: |
+  Teamverwaltung — a sports-club management app. Monorepo.
+  Frontend: React 19 + TypeScript (strict), Vite 8, Vitest 4, MUI v9, Emotion,
+    in-house i18n (de/en), state-based routing (no router lib), openapi-fetch client
+    generated from the OpenAPI spec. State in src/context/AppContext.tsx.
+  Backend: Go 1.25+, Chi v5, PostgreSQL 17 via pgx/v5, goose migrations, River job queue,
+    JWT RS256 sessions, RBAC (none|read|write per module). Spec-first:
+    backend/openapi/openapi.yaml -> oapi-codegen (internal/gen) and openapi-typescript
+    (frontend/src/api). Layered per feature: handler.go -> service.go -> repository.go.
+  Deployment: Docker + Helm (helm/team-manager), GitHub Actions CI, ghcr.io images.
+
+  Conventions:
+  - Spec-first: openapi.yaml is the source of truth; after editing it run
+    `cd backend && make generate` AND repo-root `make generate-ts`, then commit generated code.
+    CI job backend-openapi-drift fails on drift.
+  - Keep generated code checked in and drift-free.
+  - CI gates that must stay green: frontend lint/typecheck/test (coverage 80/65/75/80),
+    build + check:bundle (250 KB/chunk, 600 KB total gzipped), e2e; backend openapi-drift,
+    golangci-lint + tool-pin-sync, test, coverage (>=35% business logic), govulncheck,
+    migration-rollback (up->down->up), migration-safety (unsafe-DDL lint).
+  - Pin new tool dependencies identically across go.mod / Makefile / ci.yml / Dockerfile.
+  - Preserve team-scoping (`AND team_id = $N`) on every by-id query; wrap errors with
+    origin prefix; map to RFC 9457 problem+json.
+  - Deliberately dependency-light; justify new runtime deps and keep dev/test tooling
+    out of the production bundle.
+
+# Per-artifact rules applied when generating OpenSpec artifacts.
+rules:
+  proposal:
+    - State the concrete problem and cite affected files/paths in the Impact section.
+  tasks:
+    - End every change with a Verification group listing the CI gates it must keep green.

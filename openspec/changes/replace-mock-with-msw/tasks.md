@@ -1,0 +1,26 @@
+## 1. Dependency & scaffolding
+- [ ] 1.1 Add `msw@^2` as a `devDependency`; run `npx msw init public/ --save`
+- [ ] 1.2 Create `src/mocks/` with `db.ts`, `handlers.ts`, `browser.ts`, `server.ts`, `seedControls.ts`
+
+## 2. Mock domain in MSW handlers
+- [ ] 2.1 Port the seed data from `serviceLayer.ts:161-708` into `mocks/db.ts`, decoupled from internal mock types
+- [ ] 2.2 Write one `http.<method>` handler per OpenAPI operation, typing responses from `@/api/types.gen.ts`
+- [ ] 2.3 While porting, fix drift bugs: penalty `label`/`amount` snapshot on assignment; stats use effective status; single-choice poll with >1 option returns 422; `scope=upcoming` includes today's events
+- [ ] 2.4 Add `GET /auth/providers` handler returning a `password` provider; implement a clearly-marked demo `POST /auth/login` that sets a cookie/token
+
+## 3. Switch & fail-safe
+- [ ] 3.1 Reduce `serviceLayer.ts` to `export { realApi as api } from './serviceLayerReal'`; delete `_mockApi`, `seed`, `resetDemoData`, `todayKey`, provider list
+- [ ] 3.2 In `main.tsx`, start MSW before render only when `!config.apiBaseUrl`; throw in prod builds without `VITE_ALLOW_MOCK`
+- [ ] 3.3 Verify MSW matches the relative `/api/v1` baseUrl from `api/client.ts`
+
+## 4. Tests
+- [ ] 4.1 Start MSW `server` in `src/test/setup.ts` (`listen`/`resetHandlers`/`close`, unhandled → error)
+- [ ] 4.2 Replace `serviceLayer.test.ts` with `mocks/handlers.test.ts` (handler behavior)
+- [ ] 4.3 Replace `serviceContract.test.ts` with behavioral scenarios (penalty snapshot, opt_out stats quote, single-choice reject, today upcoming)
+- [ ] 4.4 Update component/hook tests that relied on localStorage/`_mockApi`
+- [ ] 4.5 Wire E2E (`frontend-e2e`) to run against `realApi` + MSW under `VITE_ALLOW_MOCK`
+
+## 5. Verification
+- [ ] 5.1 `npm run typecheck`, `npm run lint`, `npm run test` green
+- [ ] 5.2 `npm run build` + `npm run check:bundle` under budget; grep `dist/` confirms no seed names / no `msw`
+- [ ] 5.3 Dev smoke without `API_BASE_URL`: DevTools shows intercepted `/api/v1/...`; prod build without URL throws
