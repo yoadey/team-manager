@@ -18,18 +18,21 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const eventId = sheet.eventId ?? null;
   const detail = useEventDetailQuery(app.api, state.activeTeamId, eventId);
 
-  // A thrown fetch (a genuine network failure, or events:none after a
+  // A thrown INITIAL fetch (a genuine network failure, or events:none after a
   // permission downgrade) never resolves to a `{ event: null }` success --
   // without this, the sheet was stuck spinning forever; close it instead of
-  // leaving a permanently-loading sheet open, after surfacing why.
+  // leaving a permanently-loading sheet open, after surfacing why. A failed
+  // BACKGROUND refetch (e.g. the invalidation after an unrelated attendance
+  // mutation hitting a transient blip) must not do this -- `detail.data` is
+  // still the last good response, so the sheet keeps showing it rather than
+  // discarding valid, already-rendered content over a momentary hiccup.
   useEffect(() => {
-    if (!detail.isError) return;
+    if (!detail.isError || detail.data) return;
     reportActionError({ setState: app.setState, toastMsg: app.toastMsg, onAuthError: app.logout }, detail.error, 'error.load');
     app.setState((s) => (s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId ? { sheet: null } : {}));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [detail.isError]);
+  }, [detail.isError, detail.error, detail.data, eventId, app]);
 
-  if (detail.isError) return null;
+  if (detail.isError && !detail.data) return null;
   if (detail.isLoading) return <SpinnerBox />;
 
   // event === null once the query has resolved is a confirmed-missing event

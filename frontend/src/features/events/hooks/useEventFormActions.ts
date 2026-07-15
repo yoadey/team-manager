@@ -93,7 +93,6 @@ export function useEventFormActions({
         return;
       }
       const back = sh.back;
-      const currentTeamId = teamId;
       const payload = {
         type: f.type,
         title: f.title.trim(),
@@ -123,7 +122,7 @@ export function useEventFormActions({
         // otherwise a slow save for event A would silently close and replace
         // whatever the user is now looking at (e.g. an edit form for event B)
         // with A's detail view, discarding B's unsaved edits without warning.
-        if (S().activeTeamId === currentTeamId && S().sheet === sh) {
+        if (S().activeTeamId === teamId && S().sheet === sh) {
           setState({ sheet: null });
           if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
         }

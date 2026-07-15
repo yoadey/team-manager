@@ -246,7 +246,12 @@ export function useEventDetailActions({
   };
 }
 
-export type EventActionDeps = EventFeatureDeps & {
+export type EventActionDeps = {
+  api: typeof defaultApi;
+  S: () => AppState;
+  setState: SetState;
+  teamId: string | null;
+  loadNotifications: () => Promise<void>;
   askConfirm: (cfg: {
     title: string;
     message: string;
@@ -255,6 +260,8 @@ export type EventActionDeps = EventFeatureDeps & {
     onConfirm: () => void | Promise<void>;
   }) => void;
   openEventDetail: (eventId: string) => void;
+  toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
+  logout: () => void;
 };
 
 export function useEventActionFeatures({

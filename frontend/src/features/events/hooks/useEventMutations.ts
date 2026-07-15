@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import { queryKeys } from '@/query/keys';
@@ -17,14 +18,25 @@ type EventPayload = {
   nominatedRoleIds?: string[];
 };
 
-/** Invalidates the team's event list and (when given) one event's detail cache. */
-function useInvalidateEvents(teamId: string | null) {
+/**
+ * Invalidates the team's event list and (when given) one event's detail
+ * cache. The returned function is stable (useCallback) since it's used as a
+ * dependency outside this file too (useFeatureActions.ts's `refreshEvents`
+ * bridge for the not-yet-migrated absences vertical) -- an unmemoized
+ * closure here would recreate that callback (and everything depending on
+ * it) on every render, breaking the app-wide "actions object identity is
+ * stable" invariant.
+ */
+export function useInvalidateEvents(teamId: string | null) {
   const qc = useQueryClient();
-  return (eventId?: string) => {
-    if (!teamId) return;
-    void qc.invalidateQueries({ queryKey: queryKeys.events(teamId) });
-    if (eventId) void qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) });
-  };
+  return useCallback(
+    (eventId?: string) => {
+      if (!teamId) return;
+      void qc.invalidateQueries({ queryKey: queryKeys.events(teamId) });
+      if (eventId) void qc.invalidateQueries({ queryKey: queryKeys.eventDetail(teamId, eventId) });
+    },
+    [qc, teamId],
+  );
 }
 
 export function useSetAttendanceMutation(api: typeof defaultApi, teamId: string | null) {
@@ -74,7 +86,7 @@ export function useRemoveEventCommentMutation(api: typeof defaultApi, teamId: st
 }
 
 export type SaveEventArgs =
-  | { mode: 'create'; scope?: 'single' | 'series'; payload: EventPayload & { recurring?: boolean; repeatWeeks?: number } }
+  | { mode: 'create'; payload: EventPayload & { recurring?: boolean; repeatWeeks?: number } }
   | { mode: 'edit'; eventId: string; scope: 'single' | 'series'; payload: EventPayload };
 
 export function useSaveEventMutation(api: typeof defaultApi, teamId: string | null) {

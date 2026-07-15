@@ -431,10 +431,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setRaw] = useState<AppState>(initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Tracks the same merged value handed to AppStateContext (state plus the
+  // per-render mutation-pending fields) so useAppSelector sees savingEvent/
+  // savingComment too, not just the useState-managed slice. Updated in
+  // render (see `exposedState` near the bottom), read only from effects/
+  // handlers that run after render commits.
+  const exposedStateRef = useRef<AppState>(initialState);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fine-grained subscription store backing useAppSelector. Listeners are
-  // notified after each committed state change (see effect below).
+  // notified after each committed state change (see effects below).
   const listeners = useRef(new Set<() => void>());
   const store = useMemo<AppStore>(
     () => ({
@@ -442,7 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         listeners.current.add(cb);
         return () => listeners.current.delete(cb);
       },
-      get: () => stateRef.current,
+      get: () => exposedStateRef.current,
     }),
     [],
   );
@@ -1524,10 +1530,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Per-operation mutation pending flags (React Query `isPending`) merged in
   // fresh every render -- see the AppState doc comment. Unlike every other
-  // field on `state`, these never go through `setState`/`stateRef`, so they
-  // are NOT visible to `useAppSelector` (nothing selects them today; a future
-  // caller needing that would have to route them through the store instead).
-  const exposedState: AppState = { ...state, savingEvent, savingComment };
+  // field on `state`, these never go through `setState` -- memoized so the
+  // merged object's identity (and thus AppStateContext's value, and thus
+  // every useApp() consumer's re-render) only changes when state or one of
+  // these flags actually changes, not on every unrelated AppProvider render.
+  const exposedState = useMemo<AppState>(
+    () => ({ ...state, savingEvent, savingComment }),
+    [state, savingEvent, savingComment],
+  );
+  exposedStateRef.current = exposedState;
+  useEffect(() => {
+    listeners.current.forEach((l) => l());
+  }, [savingEvent, savingComment]);
 
   return (
     <AppStoreContext.Provider value={store}>

@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   useEventActionFeatures,
   useEventDetailActions,
   useAbsenceActions,
   useCalExportActions,
   useEventFormActions,
+  useInvalidateEvents,
 } from '@/features/events';
 import { useFinanceActions } from '@/features/finances';
 import { useMemberActions } from '@/features/members';
@@ -16,7 +16,6 @@ import { useTeamActions, useRoleActions } from '@/features/team';
 import type { AppState, ConfirmConfig } from './AppContext';
 import type { api as defaultApi } from '@/services';
 import type { DateRange, Role, TeamForUser } from '@/types';
-import { queryKeys } from '@/query/keys';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -71,11 +70,14 @@ export function useFeatureActions(deps: FeatureActionDeps) {
   // The absences vertical isn't migrated yet and still triggers an events
   // refresh after a save/removal (an absence overlapping an upcoming event
   // auto-marks attendance as absent). Bridge it to the events query cache
-  // instead of a manual refetch so it keeps working unchanged.
-  const queryClient = useQueryClient();
+  // instead of a manual refetch so it keeps working unchanged -- including
+  // the old loader's loadNotifications() call, since an absence changing an
+  // event's auto-attendance can also flip a "pending RSVP" notification.
+  const invalidateEvents = useInvalidateEvents(teamId);
   const refreshEvents = useCallback(async () => {
-    if (teamId) await queryClient.invalidateQueries({ queryKey: queryKeys.events(teamId) });
-  }, [queryClient, teamId]);
+    invalidateEvents();
+    loadNotifications();
+  }, [invalidateEvents, loadNotifications]);
 
   const eventDetailActions = useEventDetailActions({
     api,
@@ -94,11 +96,8 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    activeTeam,
-    myRoles,
     teamId,
     loadNotifications,
-    setFormVal,
     toastMsg,
     logout,
     askConfirm,

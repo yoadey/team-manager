@@ -131,6 +131,9 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     },
     can: vi.fn().mockReturnValue(false),
     canSeeComment: vi.fn().mockReturnValue(true),
+    setState: vi.fn(),
+    toastMsg: vi.fn(),
+    logout: vi.fn(),
     setMyStatus: vi.fn(),
     setStatusFor: vi.fn(),
     openEventForm: vi.fn(),
@@ -616,5 +619,26 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     expect(screen.getByText('events.meetTime')).toBeTruthy();
+  });
+
+  // Regression test: a failed BACKGROUND refetch (e.g. the query invalidation
+  // after an unrelated attendance mutation hitting a transient network blip)
+  // used to close the sheet and discard whatever was already showing, even
+  // though React Query keeps the last successful `data` around during a
+  // failed refetch. The sheet must keep rendering the still-valid cached
+  // event instead of treating this the same as an initial-load failure.
+  it('keeps showing the cached event when a background refetch fails, instead of closing the sheet', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    const event = makeEvent();
+    mockUseEventDetailQuery.mockReturnValue({
+      data: { event, rows: [], comments: [] },
+      isLoading: false,
+      isError: true,
+      error: new Error('transient'),
+    } as never);
+    render(<RealEventDetailSheet app={app as never} sheet={{ type: 'eventDetail', eventId: 'ev1' } as never} />);
+    expect(screen.getByText('1. Juli 2026')).toBeTruthy();
+    expect(app.setState).not.toHaveBeenCalled();
   });
 });
