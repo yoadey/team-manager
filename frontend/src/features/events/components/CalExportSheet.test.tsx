@@ -7,14 +7,22 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+vi.mock('../hooks/useEventQueries', () => ({
+  useEventsQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useEventsQuery } from '../hooks/useEventQueries';
 const mockUseApp = vi.mocked(useApp);
+const mockUseEventsQuery = vi.mocked(useEventsQuery);
 
 function makeApp(eventsOverrides: unknown[] = []) {
+  mockUseEventsQuery.mockReturnValue({ data: eventsOverrides } as never);
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
-      events: eventsOverrides,
+      activeTeamId: 'team1',
     },
     activeTeam: vi.fn().mockReturnValue({ id: 'team1', name: 'SG Muster' }),
     downloadIcs: vi.fn(),

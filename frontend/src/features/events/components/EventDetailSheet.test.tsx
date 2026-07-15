@@ -1,11 +1,56 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { EventDetailSheet } from './EventDetailSheet';
+import { EventDetailSheet as RealEventDetailSheet } from './EventDetailSheet';
+import type { SheetProps } from '@/sheets/types';
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
   useAppActions: vi.fn().mockReturnValue({}),
 }));
+
+vi.mock('../hooks/useEventQueries', () => ({
+  useEventDetailQuery: vi.fn(),
+}));
+
+import { useEventDetailQuery } from '../hooks/useEventQueries';
+const mockUseEventDetailQuery = vi.mocked(useEventDetailQuery);
+
+/**
+ * EventDetailSheet fetches its own data via `useEventDetailQuery` now
+ * (mocked above) instead of reading it off `sheet` -- this shadow component
+ * keeps every existing test's `sheet={{ event, rows, comments, eventNotFound }}`
+ * fixture working unchanged by translating it into the mocked query's return
+ * value, then rendering the real component with just a bare `eventId`.
+ */
+function deriveQueryResult(s: {
+  event?: { id: string } | null;
+  rows?: unknown[];
+  comments?: unknown[];
+  eventNotFound?: boolean;
+}) {
+  if (s.event === undefined) return { data: undefined, isLoading: true, isError: false, error: null };
+  if (s.event === null) {
+    if (s.eventNotFound) return { data: { event: null, rows: [], comments: [] }, isLoading: false, isError: false, error: null };
+    return { data: undefined, isLoading: true, isError: false, error: null };
+  }
+  return {
+    data: { event: s.event, rows: s.rows ?? [], comments: s.comments ?? [] },
+    isLoading: false,
+    isError: false,
+    error: null,
+  };
+}
+
+function EventDetailSheet({ app, sheet }: SheetProps) {
+  const s = sheet as unknown as {
+    event?: { id: string } | null;
+    rows?: unknown[];
+    comments?: unknown[];
+    eventNotFound?: boolean;
+  };
+  mockUseEventDetailQuery.mockReturnValue(deriveQueryResult(s) as never);
+  return <RealEventDetailSheet app={app} sheet={{ type: 'eventDetail', eventId: s.event?.id ?? 'ev1' }} />;
+}
 
 vi.mock('@/styles/tokens', () => ({
   buildTokens: vi.fn().mockReturnValue({
@@ -460,7 +505,7 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     fireEvent.click(screen.getByText('events.rsvpYes'));
-    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'yes');
+    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'yes', '');
   });
 
   it('clicking RSVP no calls setMyStatus with no', () => {
@@ -471,7 +516,7 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     fireEvent.click(screen.getByText('events.rsvpNo'));
-    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'no');
+    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'no', '');
   });
 
   it('renders attendance rows when provided', () => {

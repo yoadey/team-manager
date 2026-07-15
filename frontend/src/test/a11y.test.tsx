@@ -30,6 +30,7 @@ vi.mock('@/features/events', async (importOriginal) => {
     ...mod,
     EventCalendar: () => <div>Calendar</div>,
     EventAbsences: () => <div>Absences</div>,
+    useEventsQuery: vi.fn().mockReturnValue({ data: [] }),
   };
 });
 
@@ -55,8 +56,9 @@ function makeBaseApp(overrides: Record<string, unknown> = {}) {
 
 function makeEventsApp() {
   return {
+    api: {},
     ...makeBaseApp({
-      events: [],
+      activeTeamId: 't1',
       eventsView: 'list',
       eventScope: 'upcoming',
       eventsOnlyPending: false,

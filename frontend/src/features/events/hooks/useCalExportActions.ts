@@ -1,20 +1,25 @@
 import { useCallback } from 'react';
+import type { api as defaultApi } from '@/services';
 import type { TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import { hhmm } from '@/styles/tokens';
 import { zonedTimeToUtc } from '@/utils/date';
+import { useEventsQuery } from './useEventQueries';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
 type CalExportDeps = {
+  api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
   activeTeam: () => TeamForUser | null;
+  teamId: string | null;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
 };
 
-export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalExportDeps) {
+export function useCalExportActions({ api, S, setState, activeTeam, teamId, toastMsg }: CalExportDeps) {
+  const { data: events } = useEventsQuery(api, teamId);
   const openCalExport = useCallback(() => setState({ sheet: { type: 'calExport' } }), [setState]);
 
   const buildIcs = useCallback(() => {
@@ -37,7 +42,7 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
         .replace(/,/g, '\\,')
         .replace(/;/g, '\\;');
     const fold = (l: string) => (l.length <= 73 ? l : (l.match(/.{1,73}/g) || []).join('\r\n '));
-    const evs = (S().events || []).filter((e) => e.status !== 'cancelled');
+    const evs = (events || []).filter((e) => e.status !== 'cancelled');
     const lines = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -81,7 +86,7 @@ export function useCalExportActions({ S, setState, activeTeam, toastMsg }: CalEx
     });
     lines.push('END:VCALENDAR');
     return { text: lines.join('\r\n'), count: evs.length };
-  }, [activeTeam, S]);
+  }, [activeTeam, events]);
 
   const downloadIcs = useCallback(() => {
     const team = activeTeam();

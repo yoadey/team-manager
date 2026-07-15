@@ -2,11 +2,12 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
 import type { EventFormValues, TeamEvent } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { formValues, clearBusyIfOwned } from '@/utils/forms';
+import { formValues } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
 import { validateEventForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
+import { useSaveEventMutation } from './useEventMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -14,8 +15,9 @@ type EventFormDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  refreshEvents: () => Promise<void>;
-  openEventDetail: (eventId: string) => Promise<void>;
+  teamId: string | null;
+  loadNotifications: () => Promise<void>;
+  openEventDetail: (eventId: string) => void;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
@@ -24,11 +26,14 @@ export function useEventFormActions({
   api,
   S,
   setState,
-  refreshEvents,
+  teamId,
+  loadNotifications,
   openEventDetail,
   toastMsg,
   logout,
 }: EventFormDeps) {
+  const { mutateAsync: saveEventAsync, isPending: savingEvent } = useSaveEventMutation(api, teamId);
+
   const openEventForm = useCallback(
     (event: TeamEvent | null) => {
       const f: EventFormValues = event
@@ -88,8 +93,7 @@ export function useEventFormActions({
         return;
       }
       const back = sh.back;
-      const teamId = S().activeTeamId!;
-      setState({ busy: 'save' });
+      const currentTeamId = teamId;
       const payload = {
         type: f.type,
         title: f.title.trim(),
@@ -104,16 +108,13 @@ export function useEventFormActions({
         nominatedRoleIds: f.nominatedRoleIds,
       };
       try {
-        if (mode === 'edit') await api.events.update(f.id!, payload, scope, teamId);
+        if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: f.id!, scope, payload });
         else
-          await api.events.create(teamId, {
-            ...payload,
-            recurring: f.recurring,
-            repeatWeeks: validation.value!.repeatWeeks,
-            nominatedRoleIds: f.nominatedRoleIds,
+          await saveEventAsync({
+            mode: 'create',
+            payload: { ...payload, recurring: f.recurring, repeatWeeks: validation.value!.repeatWeeks },
           });
-        await refreshEvents();
-        clearBusyIfOwned(S, setState, 'save');
+        loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail
         // would look up f.id in the new team's event list and find nothing.
@@ -122,7 +123,7 @@ export function useEventFormActions({
         // otherwise a slow save for event A would silently close and replace
         // whatever the user is now looking at (e.g. an edit form for event B)
         // with A's detail view, discarding B's unsaved edits without warning.
-        if (S().activeTeamId === teamId && S().sheet === sh) {
+        if (S().activeTeamId === currentTeamId && S().sheet === sh) {
           setState({ sheet: null });
           if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
         }
@@ -134,10 +135,10 @@ export function useEventFormActions({
             : t('events.toastEventCreated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       }
     },
-    [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout],
+    [S, setState, teamId, saveEventAsync, openEventDetail, loadNotifications, toastMsg, logout],
   );
 
   const toggleFormNomRole = useCallback(
@@ -150,5 +151,5 @@ export function useEventFormActions({
     [setState],
   );
 
-  return { openEventForm, saveEvent, toggleFormNomRole };
+  return { openEventForm, saveEvent, toggleFormNomRole, savingEvent };
 }

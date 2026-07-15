@@ -320,7 +320,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
             <ButtonBase
               key="one"
               onClick={() => app.saveEvent('single')}
-              disabled={app.state.busy === 'save' || !canSubmit}
+              disabled={app.state.savingEvent || !canSubmit}
               sx={{
                 flex: 1,
                 display: 'flex',
@@ -343,7 +343,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
             <ButtonBase
               key="all"
               onClick={() => app.saveEvent('series')}
-              disabled={app.state.busy === 'save' || !canSubmit}
+              disabled={app.state.savingEvent || !canSubmit}
               sx={{
                 flex: 1,
                 display: 'flex',
@@ -369,7 +369,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         <PrimaryButton
           label={sheet.mode === 'edit' ? t('events.saveChanges') : t('events.createEvent')}
           onClick={() => app.saveEvent('single')}
-          busy={app.state.busy === 'save'}
+          busy={app.state.savingEvent}
           disabled={!canSubmit}
         />
       )}

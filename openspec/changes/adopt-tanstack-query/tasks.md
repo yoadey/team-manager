@@ -1,26 +1,45 @@
 ## 1. Setup
-- [ ] 1.1 Add `@tanstack/react-query@^5` (and devtools as a dev-only dynamic import)
-- [ ] 1.2 Create `src/query/client.ts` with a `QueryClient`; retry policy excludes `AuthError`/`ForbiddenError`/`ValidationError`
-- [ ] 1.3 Wrap the app in `<QueryClientProvider>` in `main.tsx`, inside existing ErrorBoundaries
-- [ ] 1.4 Create `src/query/keys.ts` — team-scoped key factory (`['teams', teamId, <resource>]`)
+- [x] 1.1 Add `@tanstack/react-query@^5` (and devtools as a dev-only dynamic import)
+- [x] 1.2 Create `src/query/client.ts` with a `QueryClient`; retry policy excludes `AuthError`/`ForbiddenError`/`ValidationError`
+- [x] 1.3 Wrap the app in `<QueryClientProvider>` in `main.tsx`, inside existing ErrorBoundaries
+- [x] 1.4 Create `src/query/keys.ts` — team-scoped key factory (`['teams', teamId, <resource>]`)
 
 ## 2. Queries & mutations
-- [ ] 2.1 Add `use<Resource>` query hooks per feature (events, members, finances, polls, news, absences, notifications, stats)
-- [ ] 2.2 Add `use<Action>` mutation hooks with `onSuccess` → `invalidateQueries` on the team-scoped key
-- [ ] 2.3 Replace the global `busy` flag usage with `mutation.isPending`
+- [x] 2.1 Add `use<Resource>` query hooks for **events** (`useEventsQuery`, `useEventDetailQuery`). Remaining resources
+      (members, finances, polls, news, absences, notifications, stats) are follow-up work — see section 4.
+- [x] 2.2 Add `use<Action>` mutation hooks for events (attendance, nomination, comments, event CRUD, cancel/delete/
+      reactivate) with `onSuccess` → `invalidateQueries` on the team-scoped key
+- [x] 2.3 Replace the global `busy` flag usage with `mutation.isPending` for the two events actions that used it
+      (`saveEvent` → `state.savingEvent`, `submitComment` → `state.savingComment`). `busy` itself stays for the
+      not-yet-migrated verticals (absences, members, finances, news, polls, team) — see 3.3.
 
 ## 3. Context slimming
-- [ ] 3.1 Remove list state, loaders, sequence refs and the `Promise.allSettled` block from `AppContext.tsx`
-- [ ] 3.2 Keep auth session, `activeTeamId`, route/URL sync, toast, sheet state
-- [ ] 3.3 Delete `clearBusyIfOwned` and the `busy` field once fully migrated
-- [ ] 3.4 On deep-link/`popstate` restore, set route/team only and let queries load (or `prefetchQuery`)
+- [x] 3.1 Remove events' list state, loader, and sequence ref (`events`, `refreshEvents`, `refreshEventsSeq`) and
+      drop `events` from the `afterLoginLoad` `Promise.allSettled` bundle. Other verticals' loaders/sequence refs stay
+      until they're migrated (4.2).
+- [x] 3.2 Auth session, `activeTeamId`, route/URL sync, toast, and sheet state remain in `AppContext` (unchanged;
+      events was the only slice removed so far)
+- [ ] 3.3 Delete `clearBusyIfOwned` and the `busy` field once fully migrated (blocked on 4.2 — still used by
+      absences/members/finances/news/polls/team)
+- [x] 3.4 On deep-link/`popstate` restore for an event detail sheet, `openEventDetail` now only sets `eventId`;
+      `EventDetailSheet` loads its data via `useEventDetailQuery` on mount instead of an imperative reload
 
 ## 4. Migration order
-- [ ] 4.1 Migrate the `events` vertical fully and get it green first
-- [ ] 4.2 Migrate remaining features one at a time
+- [x] 4.1 Migrate the `events` vertical fully and get it green first — done, including its own query/mutation hooks,
+      per-operation pending state, and the page/detail/calendar/export components reading via the hooks directly
+      (not through `AppContext`)
+- [ ] 4.2 Migrate remaining features one at a time: members, finances, polls, news, absences, notifications, stats.
+      Each follows the events vertical's pattern (query hook consumed directly by feature components + mutation
+      hooks with `invalidateQueries`); `AppContext`'s corresponding loader/sequence-ref/`Promise.allSettled` slot is
+      then removed the same way section 3 removed events'.
 
 ## 5. Verification
-- [ ] 5.1 `npm run typecheck` + `npm run lint` green
-- [ ] 5.2 `npm run test` green; tests use a per-test `QueryClient` with `retry: false`
-- [ ] 5.3 `npm run build` + `check:bundle` under budget
-- [ ] 5.4 Manual smoke: rapid team switch shows no stale lists; a mutation refreshes its list; a failing module leaves others intact
+- [x] 5.1 `npm run typecheck` + `npm run lint` green
+- [x] 5.2 `npm run test` green; tests use a per-test `QueryClient` with `retry: false`
+      (`src/test/queryTestUtils.tsx`'s `createTestQueryClient`/`createQueryWrapper`)
+- [x] 5.3 `npm run build` + `check:bundle` under budget (228.1 KB gzipped total, largest chunk 94.6 KB — budget is
+      250 KB/chunk, 600 KB total)
+- [x] 5.4 Manual/automated smoke: rapid team switch shows no stale event lists (`useEventQueries.test.ts`'s
+      "discards a stale response for a previous team after switching teams"); a mutation invalidates and refreshes
+      its list (every events mutation test); a failing module leaves others intact (`AppContext.test.tsx`'s
+      afterLoginLoad ForbiddenError/403 tests)

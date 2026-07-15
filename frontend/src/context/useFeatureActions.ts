@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   useEventActionFeatures,
   useEventDetailActions,
@@ -14,6 +16,7 @@ import { useTeamActions, useRoleActions } from '@/features/team';
 import type { AppState, ConfirmConfig } from './AppContext';
 import type { api as defaultApi } from '@/services';
 import type { DateRange, Role, TeamForUser } from '@/types';
+import { queryKeys } from '@/query/keys';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -23,7 +26,8 @@ type FeatureActionDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
-  refreshEvents: () => Promise<void>;
+  /** Reactive active team id, for the events vertical's query/mutation hooks. */
+  teamId: string | null;
   refreshMembers: () => Promise<void>;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
@@ -47,7 +51,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     setState,
     activeTeam,
     myRoles,
-    refreshEvents,
+    teamId,
     refreshMembers,
     refreshRoles,
     refreshTeams,
@@ -64,13 +68,23 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     logout,
   } = deps;
 
+  // The absences vertical isn't migrated yet and still triggers an events
+  // refresh after a save/removal (an absence overlapping an upcoming event
+  // auto-marks attendance as absent). Bridge it to the events query cache
+  // instead of a manual refetch so it keeps working unchanged.
+  const queryClient = useQueryClient();
+  const refreshEvents = useCallback(async () => {
+    if (teamId) await queryClient.invalidateQueries({ queryKey: queryKeys.events(teamId) });
+  }, [queryClient, teamId]);
+
   const eventDetailActions = useEventDetailActions({
     api,
     S,
     setState,
     activeTeam,
     myRoles,
-    refreshEvents,
+    teamId,
+    loadNotifications,
     setFormVal,
     askConfirm,
     toastMsg,
@@ -82,7 +96,8 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     setState,
     activeTeam,
     myRoles,
-    refreshEvents,
+    teamId,
+    loadNotifications,
     setFormVal,
     toastMsg,
     logout,
@@ -133,7 +148,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     toastMsg,
     logout,
   });
-  const calExportActions = useCalExportActions({ S, setState, activeTeam, toastMsg });
+  const calExportActions = useCalExportActions({ api, S, setState, activeTeam, teamId, toastMsg });
   const newsActions = useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg, logout });
   const financeActions = useFinanceActions({
     api,
@@ -151,7 +166,8 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    refreshEvents,
+    teamId,
+    loadNotifications,
     openEventDetail: eventDetailActions.openEventDetail,
     toastMsg,
     logout,
