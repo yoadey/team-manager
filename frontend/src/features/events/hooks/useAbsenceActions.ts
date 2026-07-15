@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { api as defaultApi } from '@/services/serviceLayer';
+import type { api as defaultApi } from '@/services';
 import type { AppState } from '@/context/AppContext';
 import type { AbsenceFormValues } from '../types';
 import { validateDateRange } from '@/utils/validation';

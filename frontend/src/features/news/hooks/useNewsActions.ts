@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { api as defaultApi } from '@/services/serviceLayer';
+import type { api as defaultApi } from '@/services';
 import type { NewsItem, NewsFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';

@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import type { api as defaultApi } from '@/services/serviceLayer';
+import type { api as defaultApi } from '@/services';
 import type { ModuleKey, PermLevel, Role, TeamForUser } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
 import type { RoleFormValues } from '../types';

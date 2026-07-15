@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react';
-import type { api as defaultApi } from '@/services/serviceLayer';
+import type { api as defaultApi } from '@/services';
 import type { AttendanceRow, AttendanceCommentFormValues, EventCommentFormValues, TeamEvent } from '../types';
 import type { AttendanceStatus, Role, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
@@ -76,7 +76,9 @@ export function useEventDetailActions({
         // wrong, so just close the sheet instead of showing a misleading
         // "this event was deleted" empty state for what may just be a
         // transient failure.
-        setState((s) => (s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId ? { sheet: null } : {}));
+        setState((s) =>
+          s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId ? { sheet: null } : {},
+        );
       }
     },
     [api, S, setState, toastMsg, logout],
