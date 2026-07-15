@@ -1067,7 +1067,11 @@ describe('AppProvider / session-restore resilience', () => {
         <Probe />
       </FreshAppProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    // Default waitFor timeout (1000ms) has been observed to be too tight for
+    // this file's very first bootstrap under a loaded CI run (full-suite +
+    // coverage instrumentation contending with other jobs on a shared
+    // runner) -- give it the same headroom as the second waitFor below.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
 
     // A normal login establishes a real session (session.userId in the mock),
     // which persists across remounts within this module instance.
