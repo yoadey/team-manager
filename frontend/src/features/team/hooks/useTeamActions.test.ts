@@ -16,7 +16,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     toast: null,
     route: 'home',
     events: [],
-    members: [],
     finances: null,
     stats: null,
     statsRange: null,
@@ -68,7 +67,7 @@ describe('useTeamActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
   let refreshTeams: ReturnType<typeof vi.fn>;
-  let refreshMembers: ReturnType<typeof vi.fn>;
+  let invalidateMembers: ReturnType<typeof vi.fn>;
   let setFormVal: ReturnType<typeof vi.fn>;
   let afterLoginLoad: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
@@ -87,7 +86,7 @@ describe('useTeamActions', () => {
     });
     toastMsg = vi.fn();
     refreshTeams = vi.fn().mockResolvedValue(undefined);
-    refreshMembers = vi.fn().mockResolvedValue(undefined);
+    invalidateMembers = vi.fn().mockResolvedValue(undefined);
     setFormVal = vi.fn();
     afterLoginLoad = vi.fn().mockResolvedValue(undefined);
     logout = vi.fn();
@@ -102,7 +101,7 @@ describe('useTeamActions', () => {
         setState: setState as never,
         activeTeam: () => makeActiveTeam() as never,
         refreshTeams: refreshTeams as never,
-        refreshMembers: refreshMembers as never,
+        invalidateMembers: invalidateMembers as never,
         setFormVal: setFormVal as never,
         afterLoginLoad: afterLoginLoad as never,
         toastMsg: toastMsg as never,
@@ -676,7 +675,7 @@ describe('useTeamActions', () => {
     });
     expect(api.auth.setPhoto).toHaveBeenCalledWith('data:image/png;base64,photo');
     expect(refreshTeams).toHaveBeenCalled();
-    expect(refreshMembers).toHaveBeenCalled();
+    expect(invalidateMembers).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Profilfoto aktualisiert');
   });
 

@@ -347,7 +347,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={t('members.saveProfile')}
         onClick={() => app.saveMember()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingMember}
         disabled={!canSubmit}
       />
     </Box>

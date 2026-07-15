@@ -1,11 +1,14 @@
 import { useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import type { Member, MemberFormValues } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { formValues, clearBusyIfOwned } from '@/utils/forms';
+import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { validateEmail, validatePhone, validateBirthday, validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
+import { queryKeys } from '@/query/keys';
+import { useSaveMemberMutation, useRemoveMemberMutation } from './useMemberMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -13,7 +16,10 @@ type MemberDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  refreshMembers: () => Promise<void>;
+  /** Reactive (render-time) active team id -- the query/mutation hooks key off this directly
+   * rather than through `S()`, since a `useQuery`/`useMutation` call must re-run on every
+   * render to pick up a team switch instead of only when some later callback fires. */
+  teamId: string | null;
   refreshTeams: () => Promise<void>;
   askConfirm: (cfg: {
     title: string;
@@ -26,16 +32,16 @@ type MemberDeps = {
   logout: () => void;
 };
 
-export function useMemberActions({
-  api,
-  S,
-  setState,
-  refreshMembers,
-  refreshTeams,
-  askConfirm,
-  toastMsg,
-  logout,
-}: MemberDeps) {
+export function useMemberActions({ api, S, setState, teamId, refreshTeams, askConfirm, toastMsg, logout }: MemberDeps) {
+  const queryClient = useQueryClient();
+  const membersOf = useCallback(
+    (): Member[] => queryClient.getQueryData<Member[]>(queryKeys.members(teamId ?? '')) ?? [],
+    [queryClient, teamId],
+  );
+
+  const { mutateAsync: saveMemberAsync, isPending: savingMember } = useSaveMemberMutation(api, teamId, refreshTeams);
+  const { mutateAsync: removeMemberAsync } = useRemoveMemberMutation(api);
+
   // Guards against a STALE stats response overwriting a NEWER one for the
   // SAME membershipId -- e.g. rapid double-clicks on the same member row (no
   // busy/disabled state blocks a second click here), or mashing browser
@@ -50,7 +56,7 @@ export function useMemberActions({
   const openMemberDetail = useCallback(
     async (membershipId: string) => {
       const seq = ++openMemberDetailSeq.current;
-      const m = (S().members ?? []).find((x) => x.membershipId === membershipId);
+      const m = membersOf().find((x) => x.membershipId === membershipId);
       setState({ sheet: { type: 'memberDetail', membershipId, member: m, stats: null } });
       // m can genuinely be missing (a stale bookmarked/back-forward URL for
       // a member who has since been removed) -- MemberDetailSheet renders a
@@ -70,7 +76,7 @@ export function useMemberActions({
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load');
       }
     },
-    [api, S, setState, toastMsg, logout],
+    [api, S, setState, toastMsg, logout, membersOf],
   );
 
   const openMemberForm = useCallback(
@@ -138,13 +144,7 @@ export function useMemberActions({
     const sh = S().sheet!;
     const back = sh.back;
     const self = sh.self;
-    // Role assignment is a separate write path (members.setRoles ->
-    // PUT .../roles, gated on settings:write) from the profile-field patch
-    // (members.update -> PATCH .../{membershipId}, gated on members:write) —
-    // the backend's UpdateMember handler never applies a roleIds field
-    // embedded in the PATCH body, so it must be sent via setRoles() whenever
-    // it actually changed, not folded into the profile update.
-    const original = (S().members ?? []).find((x) => x.membershipId === f.membershipId);
+    const original = membersOf().find((x) => x.membershipId === f.membershipId);
     const originalRoleIds = original ? original.roles.map((r) => r.id) : [];
     const nextRoleIds = f.roleIds ?? [];
     const rolesChanged =
@@ -156,12 +156,11 @@ export function useMemberActions({
     // (MemberSheets.tsx hides the control when editing someone else), so this
     // only ever fires for self.
     const photoChanged = self && !!f.photo && f.photo !== original?.photo;
-    const teamId = S().activeTeamId!;
-    setState({ busy: 'save' });
+    const savedTeamId = teamId;
     try {
-      await api.members.update(
-        f.membershipId,
-        {
+      const result = await saveMemberAsync({
+        membershipId: f.membershipId,
+        patch: {
           name: nameResult.value!,
           email: f.email,
           phone: f.phone,
@@ -169,21 +168,12 @@ export function useMemberActions({
           address: f.address,
           group: f.group,
         },
-        teamId,
-      );
-      if (rolesChanged) {
-        await api.members.setRoles(f.membershipId, nextRoleIds, teamId);
-      }
-      if (photoChanged) {
-        await api.auth.setPhoto(f.photo!);
-      }
-      await refreshMembers();
-      if (self) {
-        const u = await api.auth.currentUser();
-        await refreshTeams();
-        setState({ user: u });
-      }
-      clearBusyIfOwned(S, setState, 'save');
+        roleIds: nextRoleIds,
+        rolesChanged,
+        photo: photoChanged ? f.photo : undefined,
+        self,
+      });
+      if (result.user) setState({ user: result.user });
       // Only touch the sheet if the user is still on the team this save was
       // for -- otherwise closing/reopening it would clobber whatever sheet
       // they've since opened for the team they switched to, and
@@ -194,19 +184,19 @@ export function useMemberActions({
       // flight -- otherwise a slow save for one member would silently close
       // and replace whatever the user is now looking at with this member's
       // detail view.
-      if (S().activeTeamId === teamId && S().sheet === sh) {
+      if (S().activeTeamId === savedTeamId && S().sheet === sh) {
         setState({ sheet: null });
         if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId);
       }
       toastMsg(t('members.toastProfileSaved'));
     } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
     }
-  }, [api, S, setState, refreshMembers, refreshTeams, openMemberDetail, toastMsg, logout]);
+  }, [S, setState, saveMemberAsync, openMemberDetail, toastMsg, logout, membersOf, teamId]);
 
   const removeMember = useCallback(
     (membershipId: string) => {
-      const m = (S().members ?? []).find((x) => x.membershipId === membershipId);
+      const m = membersOf().find((x) => x.membershipId === membershipId);
       askConfirm({
         title: t('members.removeTitle'),
         message: t('members.removeMsg', { name: m ? m.name : '?' }),
@@ -214,15 +204,14 @@ export function useMemberActions({
         danger: true,
         onConfirm: async () => {
           const sh = S().sheet;
-          const teamId = S().activeTeamId!;
+          const removedTeamId = teamId;
           try {
-            await api.members.remove(membershipId, teamId);
-            await refreshMembers();
+            await removeMemberAsync({ membershipId, teamId: removedTeamId! });
             // Don't close a sheet the user has since opened for a different
             // team after switching away mid-request, or one they've since
             // opened for a different member (same team) while this delete
             // was in flight.
-            if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+            if (S().activeTeamId === removedTeamId && S().sheet === sh) setState({ sheet: null });
             toastMsg(t('members.toastMemberRemoved'));
           } catch (err) {
             reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
@@ -230,8 +219,8 @@ export function useMemberActions({
         },
       });
     },
-    [api, S, askConfirm, refreshMembers, setState, toastMsg, logout],
+    [S, askConfirm, removeMemberAsync, setState, toastMsg, logout, membersOf, teamId],
   );
 
-  return { openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember };
+  return { openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember, savingMember };
 }

@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, inputSx, labelSx } from '@/components/ui';
-import type { Member } from '@/features/members';
+import { useMembersQuery } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
 import type { PenaltyAssignFormValues } from '../types';
@@ -13,7 +13,7 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
   const tk = buildTokens(state.primaryColor);
   const F = formValues<PenaltyAssignFormValues>(app.state);
   const f = app.state.finances;
-  const members: Member[] = app.state.members || [];
+  const { data: members } = useMembersQuery(app.api, state.activeTeamId);
   const errs = state.formErrors;
 
   const validatePerson = () => {
@@ -94,7 +94,7 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
         <option key="_" value="">
           {t('finances.assignPersonPlaceholder')}
         </option>
-        {members.map((m) => (
+        {(members || []).map((m) => (
           <option key={m.userId} value={m.userId}>
             {m.name}
           </option>

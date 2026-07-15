@@ -15,7 +15,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     toast: null,
     route: 'home',
     events: [],
-    members: [],
     finances: { balance: 0, transactions: [], penalties: [], assignments: [], contributions: [] },
     stats: null,
     statsRange: null,
@@ -53,7 +52,6 @@ describe('useFinanceActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let loadFinances: ReturnType<typeof vi.fn>;
   let loadStats: ReturnType<typeof vi.fn>;
-  let refreshMembers: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
@@ -72,7 +70,6 @@ describe('useFinanceActions', () => {
     toastMsg = vi.fn();
     loadFinances = vi.fn().mockResolvedValue(undefined);
     loadStats = vi.fn().mockResolvedValue(undefined);
-    refreshMembers = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
     logout = vi.fn();
     api = makeApi();
@@ -86,7 +83,6 @@ describe('useFinanceActions', () => {
         setState: setState as never,
         loadFinances: loadFinances as never,
         loadStats: loadStats as never,
-        refreshMembers: refreshMembers as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
         logout: logout as never,
@@ -412,18 +408,8 @@ describe('useFinanceActions', () => {
     expect(stateRef.formErrors).toEqual({});
   });
 
-  it('openPenaltyAssign triggers refreshMembers when members empty', () => {
-    stateRef = makeState({ members: [], finances: { penalties: [{ id: 'p1' }] } as never });
-    const { result } = renderActions();
-    act(() => {
-      result.current.openPenaltyAssign();
-    });
-    expect(refreshMembers).toHaveBeenCalled();
-  });
-
   it('openPenaltyAssign clears a stale formErrors from a previous sheet', () => {
     stateRef = makeState({
-      members: [{ userId: 'u2' }] as never,
       finances: { penalties: [{ id: 'p1' }] } as never,
       formErrors: { userId: 'Person erforderlich.' },
     });

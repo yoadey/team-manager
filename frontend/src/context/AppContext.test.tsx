@@ -167,7 +167,6 @@ describe('AppProvider / actions (app phase)', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [{ id: 'r1', name: 'Member' }] as never,
-        members: [],
         news: [],
         polls: [],
       });
@@ -490,14 +489,14 @@ describe('AppProvider / team-switch race guards', () => {
 
   // Regression test: afterLoginLoad used to await all five initial-load
   // calls via Promise.all, so a single 403 (e.g. a member whose role lacks
-  // members:read) discarded every other successfully-loaded module too --
+  // roles:read) discarded every other successfully-loaded module too --
   // the whole dashboard was left blank. It must now degrade gracefully:
   // modules that succeeded still populate state even when a sibling module
   // fails.
   it('afterLoginLoad still populates modules that succeeded when a sibling module 403s', async () => {
     const svc = await import('@/services');
     const { ForbiddenError } = await import('@/utils/errors');
-    const membersSpy = vi.spyOn(svc.api.members, 'list').mockRejectedValue(new ForbiddenError());
+    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockRejectedValue(new ForbiddenError());
 
     let actions!: ReturnType<typeof useAppActions>;
     let state!: ReturnType<typeof useApp>['state'];
@@ -508,7 +507,7 @@ describe('AppProvider / team-switch race guards', () => {
         <div>
           <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
           <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
-          <div data-testid="members">{state.members ? 'loaded' : 'null'}</div>
+          <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>
         </div>
       );
     }
@@ -527,13 +526,13 @@ describe('AppProvider / team-switch race guards', () => {
     });
 
     // notifications is a sibling module in the same allSettled bundle --
-    // proves the members 403 didn't blank out everything else (events is no
-    // longer part of this bundle; see useEventQueries.test.ts for its own
-    // race coverage).
+    // proves the roles 403 didn't blank out everything else (events/members
+    // are no longer part of this bundle; see useEventQueries.test.ts/
+    // useMemberQueries.test.ts for their own race coverage).
     expect(screen.getByTestId('notifications').textContent).toBe('loaded');
-    expect(screen.getByTestId('members').textContent).toBe('null');
+    expect(screen.getByTestId('roles').textContent).toBe('empty');
 
-    membersSpy.mockRestore();
+    rolesSpy.mockRestore();
   });
 
   // Regression test: a ForbiddenError from afterLoginLoad's parallel fetch
@@ -586,57 +585,10 @@ describe('AppProvider / team-switch race guards', () => {
   });
 
   // Regression test: ensureRouteData (invoked by `go`) covered finances/
-  // stats/news/polls but not events/members, even though afterLoginLoad can
-  // leave either at null after a failed initial load (see the test above).
-  // Navigating to the Events or Members tab was previously a no-op in that
-  // case, leaving a permanent skeleton loader for the rest of the session.
-  it('go("members") retries the load when members is still null from a failed afterLoginLoad', async () => {
-    const svc = await import('@/services');
-    const { ForbiddenError } = await import('@/utils/errors');
-    const membersSpy = vi
-      .spyOn(svc.api.members, 'list')
-      .mockRejectedValueOnce(new ForbiddenError())
-      .mockResolvedValueOnce([]);
-
-    let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
-    function Probe() {
-      state = useApp().state;
-      actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="members">{state.members ? 'loaded' : 'null'}</div>
-        </div>
-      );
-    }
-
-    renderApp(
-      <AppProvider>
-        <Probe />
-      </AppProvider>,
-    );
-    await act(async () => {
-      actions.setState({
-        phase: 'app',
-        activeTeamId: 'other-team',
-        teams: [
-          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { members: 'read' } },
-        ] as never,
-      });
-    });
-    await act(async () => {
-      await actions.selectTeam('team1');
-    });
-    expect(screen.getByTestId('members').textContent).toBe('null');
-
-    await act(async () => {
-      actions.go('members');
-    });
-    expect(screen.getByTestId('members').textContent).toBe('loaded');
-    expect(membersSpy).toHaveBeenCalledTimes(2);
-
-    membersSpy.mockRestore();
-  });
+  // stats/news/polls but not events/members -- members no longer needs this
+  // branch at all: it's fetched via useMembersQuery, which retries/refetches
+  // on its own (see useMemberQueries.test.ts for that coverage), the same
+  // way events dropped its equivalent branch.
 
   // Regression test: goEventsAbsences called loadAbsences() unconditionally,
   // with no permission check -- unlike ensureRouteData('events'), which
@@ -758,7 +710,6 @@ describe('AppProvider / can() permission checks', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [],
-        members: [],
         news: [],
         polls: [],
       });

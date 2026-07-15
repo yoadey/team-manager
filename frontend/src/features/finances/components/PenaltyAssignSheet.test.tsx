@@ -7,8 +7,14 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+vi.mock('@/features/members/hooks/useMemberQueries', () => ({
+  useMembersQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useMembersQuery } from '@/features/members/hooks/useMemberQueries';
 const mockUseApp = vi.mocked(useApp);
+const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
 
 const makePenalty = (overrides = {}) => ({
   id: 'p1',
@@ -30,14 +36,16 @@ const makeMember = (overrides = {}) => ({
   ...overrides,
 });
 
-function makeApp(formOverrides: Record<string, unknown> = {}) {
+function makeApp(formOverrides: Record<string, unknown> = {}, members: unknown[] = [makeMember()]) {
+  mockUseMembersQuery.mockReturnValue({ data: members });
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
+      activeTeamId: 't1',
       form: { userId: '', penaltyId: '', ...formOverrides },
       formErrors: { userId: '', penaltyId: '' },
       busy: null,
-      members: [makeMember()],
       finances: { penalties: [makePenalty()] },
     },
     setFormErrors: vi.fn(),

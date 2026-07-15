@@ -5,21 +5,23 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Av, Chip, EmptyState, Sym, inputSx, SkeletonList } from '@/components/ui';
 import { t } from '@/i18n';
+import { useMembersQuery } from './hooks/useMemberQueries';
 
 export function MembersPage() {
   const app = useApp();
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const [search, setSearch] = useState('');
+  const { data: members } = useMembersQuery(app.api, state.activeTeamId);
 
-  if (!state.members) return <SkeletonList rows={6} rowHeight={64} />;
+  if (!members) return <SkeletonList rows={6} rowHeight={64} />;
 
   const query = search.trim().toLowerCase();
   const list = query
-    ? state.members.filter(
+    ? members.filter(
         (m) => m.name.toLowerCase().includes(query) || m.roles.some((r) => r.name.toLowerCase().includes(query)),
       )
-    : state.members;
+    : members;
 
   const rows = list.map((m) => {
     const isMe = m.userId === state.user!.id;

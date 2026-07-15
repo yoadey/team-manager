@@ -16,7 +16,10 @@ type TeamDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   refreshTeams: () => Promise<void>;
-  refreshMembers: () => Promise<void>;
+  /** Invalidates the members query cache (React Query) -- a photo change is
+   * visible in the member list too, so it needs to be refetched alongside
+   * the team list. */
+  invalidateMembers: () => Promise<void>;
   setFormVal: (patch: Record<string, unknown>) => void;
   afterLoginLoad: (teamId: string) => Promise<void>;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
@@ -29,7 +32,7 @@ export function useTeamActions({
   setState,
   activeTeam,
   refreshTeams,
-  refreshMembers,
+  invalidateMembers,
   setFormVal,
   afterLoginLoad,
   toastMsg,
@@ -288,7 +291,7 @@ export function useTeamActions({
       try {
         await api.auth.setPhoto(dataUrl);
         const user = await api.auth.currentUser();
-        await Promise.all([refreshTeams(), refreshMembers()]);
+        await Promise.all([refreshTeams(), invalidateMembers()]);
         setState({ user });
         toastMsg(t('team.toastMyPhotoSaved'));
       } catch (err) {
@@ -297,7 +300,7 @@ export function useTeamActions({
         photoLogoInFlight.current.delete(key);
       }
     },
-    [api, refreshTeams, refreshMembers, setState, toastMsg, logout],
+    [api, refreshTeams, invalidateMembers, setState, toastMsg, logout],
   );
 
   return {

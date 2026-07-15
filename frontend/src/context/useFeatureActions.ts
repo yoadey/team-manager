@@ -8,7 +8,7 @@ import {
   useInvalidateEvents,
 } from '@/features/events';
 import { useFinanceActions } from '@/features/finances';
-import { useMemberActions } from '@/features/members';
+import { useMemberActions, useInvalidateMembers } from '@/features/members';
 import { useNewsActions } from '@/features/news';
 import { useNotificationActions } from '@/features/notifications';
 import { usePollActions } from '@/features/polls';
@@ -25,9 +25,8 @@ type FeatureActionDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
-  /** Reactive active team id, for the events vertical's query/mutation hooks. */
+  /** Reactive active team id, for the events/members verticals' query/mutation hooks. */
   teamId: string | null;
-  refreshMembers: () => Promise<void>;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
   loadAbsences: () => Promise<void>;
@@ -51,7 +50,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     activeTeam,
     myRoles,
     teamId,
-    refreshMembers,
     refreshRoles,
     refreshTeams,
     loadAbsences,
@@ -78,6 +76,10 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     invalidateEvents();
     loadNotifications();
   }, [invalidateEvents, loadNotifications]);
+
+  // Used by useTeamActions' uploadMyPhoto (not migrated yet), whose own-photo
+  // change is visible in the member list too.
+  const invalidateMembers = useInvalidateMembers(teamId);
 
   const eventDetailActions = useEventDetailActions({
     api,
@@ -107,7 +109,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    refreshMembers,
+    teamId,
     refreshTeams,
     askConfirm,
     toastMsg,
@@ -130,7 +132,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     setState,
     activeTeam,
     refreshTeams,
-    refreshMembers,
+    invalidateMembers,
     setFormVal,
     afterLoginLoad,
     toastMsg,
@@ -154,7 +156,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     setState,
     loadFinances,
     loadStats,
-    refreshMembers,
     askConfirm,
     toastMsg,
     logout,

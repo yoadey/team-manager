@@ -7,6 +7,7 @@ import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
 import { useEventsQuery, useEventDetailQuery } from '@/features/events';
+import { useMembersQuery } from '@/features/members';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
@@ -49,6 +50,7 @@ export function Shell() {
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
   const detailEventId = pageSheet && pageSheet.type === 'eventDetail' ? (pageSheet.eventId ?? null) : null;
   const { data: detailData } = useEventDetailQuery(app.api, state.activeTeamId, detailEventId);
+  const { data: members } = useMembersQuery(app.api, state.activeTeamId);
   if (!team || !state.user) return null;
 
   const today = todayLocalDate();
@@ -56,7 +58,7 @@ export function Shell() {
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
-  const pm = pageMeta(app, detailData?.event);
+  const pm = pageMeta(app, detailData?.event, members?.length);
 
   // ---- shared chrome bits ----
   const teamIcon = (

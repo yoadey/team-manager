@@ -41,8 +41,16 @@ vi.mock('@/features/events/hooks/useEventQueries', () => ({
   useEventsQuery: vi.fn().mockReturnValue({ data: [] }),
 }));
 
+// Same rationale as the events mock above -- MembersPage.tsx imports
+// useMembersQuery via a relative path to this module.
+vi.mock('@/features/members/hooks/useMemberQueries', () => ({
+  useMembersQuery: vi.fn().mockReturnValue({ data: [] }),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useMembersQuery } from '@/features/members/hooks/useMemberQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
+const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
 
 // ─── Shared app state builders ───────────────────────────────────────────────
 
@@ -85,9 +93,11 @@ function makeEventsApp() {
 }
 
 function makeMembersApp(members: unknown[] = []) {
+  mockUseMembersQuery.mockReturnValue({ data: members });
   return {
+    api: {},
     ...makeBaseApp({
-      members,
+      activeTeamId: 't1',
       user: { id: 'u1', name: 'Test User' },
     }),
     openMemberDetail: vi.fn(),

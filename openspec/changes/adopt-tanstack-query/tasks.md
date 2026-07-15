@@ -32,6 +32,18 @@
       Each follows the events vertical's pattern (query hook consumed directly by feature components + mutation
       hooks with `invalidateQueries`); `AppContext`'s corresponding loader/sequence-ref/`Promise.allSettled` slot is
       then removed the same way section 3 removed events'.
+  - [x] 4.2.1 `members` — `useMembersQuery`/`useSaveMemberMutation`/`useRemoveMemberMutation`
+        (`useMemberMutations.ts`); `MembersPage`, `AppShell`, and `PenaltyAssignSheet` read the query directly;
+        `saveMember`'s `busy === 'save'` replaced by `mutation.isPending` (`state.savingMember`, mirroring
+        `savingEvent`); `members` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`; still-unmigrated
+        callers (`useTeamActions.uploadMyPhoto`, `useFinanceActions.openPenaltyAssign`) bridged to
+        `useInvalidateMembers`/the sheet's own query instead of the old `refreshMembers` loader.
+  - [ ] 4.2.2 `finances`
+  - [ ] 4.2.3 `polls`
+  - [ ] 4.2.4 `news`
+  - [ ] 4.2.5 `absences`
+  - [ ] 4.2.6 `notifications`
+  - [ ] 4.2.7 `stats`
 
 ## 5. Verification
 - [x] 5.1 `npm run typecheck` + `npm run lint` green

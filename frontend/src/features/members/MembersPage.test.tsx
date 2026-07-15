@@ -8,16 +8,29 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+// Mocked directly on the hooks module (not just a `@/features/members`
+// barrel re-export) -- MembersPage.tsx imports `useMembersQuery` via a
+// relative import, so this must match that module path (see the identical
+// comment/pattern in EventsPage.test.tsx).
+vi.mock('./hooks/useMemberQueries', () => ({
+  useMembersQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useMembersQuery } from './hooks/useMemberQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
+const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
 
 function makeApp(overrides: Record<string, unknown> = {}) {
+  const { members, ...stateOverrides } = overrides;
+  mockUseMembersQuery.mockReturnValue({ data: members ?? [] });
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
-      members: [],
+      activeTeamId: 't1',
       user: { id: 'u1', name: 'Test User' },
-      ...overrides,
+      ...stateOverrides,
     },
     can: vi.fn().mockReturnValue(false),
     isStaff: vi.fn().mockReturnValue(false),
@@ -153,10 +166,9 @@ describe('MembersPage', () => {
     expect(screen.getByText('Kein Mitglied gefunden.')).toBeTruthy();
   });
 
-  // Regression test: the header count used to always read
-  // state.members.length (the unfiltered total), so searching "Anna" and
-  // seeing one matching row still showed the full team count -- the count
-  // and the visible rows disagreed.
+  // Regression test: the header count used to always read the unfiltered
+  // total, so searching "Anna" and seeing one matching row still showed the
+  // full team count -- the count and the visible rows disagreed.
   it('updates the header count to reflect the active search filter', async () => {
     const members = [
       makeMember({ name: 'Anna Müller' }),

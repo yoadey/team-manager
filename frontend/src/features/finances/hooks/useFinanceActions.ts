@@ -24,7 +24,6 @@ type FinanceFeatureDeps = {
   setState: SetState;
   loadFinances: () => Promise<void>;
   loadStats: (range?: DateRange | null) => Promise<void>;
-  refreshMembers: () => Promise<void>;
   askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
@@ -36,7 +35,6 @@ export function useFinanceActions({
   setState,
   loadFinances,
   loadStats,
-  refreshMembers,
   askConfirm,
   toastMsg,
   logout,
@@ -190,13 +188,14 @@ export function useFinanceActions({
   );
 
   const openPenaltyAssign = useCallback(() => {
-    const members = S().members;
-    if (!members || !members.length) refreshMembers();
+    // The member picker is populated by PenaltyAssignSheet's own
+    // useMembersQuery, which fetches/retries on its own -- no manual
+    // refresh needed here.
     const f = S().finances;
     const first = f && f.penalties[0] ? f.penalties[0].id : null;
     const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };
     setState({ sheet: { type: 'penaltyAssign' }, form, formErrors: {} });
-  }, [S, refreshMembers, setState]);
+  }, [S, setState]);
 
   const savePenaltyAssign = useCallback(async () => {
     const f = S().form as PenaltyAssignFormValues;
