@@ -58,6 +58,7 @@
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "lint-staged": "^17.0.7",
+    "msw": "^2.15.0",
     "openapi-typescript": "^7.13.0",
     "prettier": "^3.8.4",
     "rollup-plugin-visualizer": "^7.0.1",
@@ -73,5 +74,10 @@
       "prettier --write"
     ],
     "*.{js,json,css,md}": "prettier --write"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

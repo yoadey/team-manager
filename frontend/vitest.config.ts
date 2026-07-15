@@ -40,6 +40,12 @@ export default defineConfig({
         'src/api/client.ts',
         // Top-level app shell — layout-only, requires E2E tests for meaningful coverage
         'src/layouts/AppShell.tsx',
+        // Demo/test backend infrastructure (MSW handlers + in-memory seed DB),
+        // not application logic — exercised indirectly by every test that
+        // calls `api`, but excluded from the floors so a large, straight-line
+        // fixture file can't inflate the overall percentage and mask thin
+        // coverage elsewhere. mocks/handlers.test.ts still exercises it directly.
+        'src/mocks/**',
       ],
       // Enterprise-ready coverage floors.
       thresholds: { statements: 80, branches: 65, functions: 75, lines: 80 },
