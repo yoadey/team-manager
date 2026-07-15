@@ -9,7 +9,7 @@
 - [x] 2.4 Add `GET /auth/providers` handler returning a `password` provider; implement a clearly-marked demo `POST /auth/login` that sets a cookie/token
 
 ## 3. Switch & fail-safe
-- [x] 3.1 Reduce `serviceLayer.ts` to `export { realApi as api } from './serviceLayerReal'`; delete `_mockApi`, `seed`, `resetDemoData`, `todayKey`, provider list
+- [x] 3.1 Reduce `serviceLayer.ts` to re-export `realApi` as `api`; delete `_mockApi`, `seed`, `todayKey`, provider list. `resetDemoData` is kept as an intentional no-op (see `src/services/index.ts`) — `AppContext`'s "reset demo data" action still calls it and always follows with `location.reload()`, which alone re-seeds `src/mocks/db.ts`'s module-level in-memory DB from scratch.
 - [x] 3.2 In `main.tsx`, start MSW before render only when `!config.apiBaseUrl`; throw in prod builds without `VITE_ALLOW_MOCK`
 - [x] 3.3 Verify MSW matches the relative `/api/v1` baseUrl from `api/client.ts`
 

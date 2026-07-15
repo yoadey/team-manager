@@ -19,7 +19,7 @@ import type { Contribution, Penalty, PenaltyAssignment, Transaction } from '@/fe
 import type { NewsItem } from '@/features/news';
 import type { AppNotification } from '@/features/notifications';
 import type { PollDto } from '@/features/polls';
-import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
+import { formatDateOnly, monthsAgoLocal, todayLocalDate } from '@/utils/date';
 
 export const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
 const DAY = 86400000;
@@ -71,6 +71,12 @@ export function primaryRole(roles: RoleDto[]): RoleDto | null {
   return [...roles].sort((a, b) => score(b) - score(a))[0] || null;
 }
 
+// The seeded default role newly-accepted invitees get (see handlers.ts's
+// POST /invites/:code/accept) — a stable name, not derived by excluding the
+// admin role, so it still resolves correctly even if a team has several
+// non-admin system roles.
+export const DEFAULT_MEMBER_ROLE_NAME = 'Tänzer / Mitglied';
+
 function defaultRoles(teamId: string): RoleDto[] {
   return [
     {
@@ -84,7 +90,7 @@ function defaultRoles(teamId: string): RoleDto[] {
     {
       id: rid('role'),
       teamId,
-      name: 'Tänzer / Mitglied',
+      name: DEFAULT_MEMBER_ROLE_NAME,
       system: true,
       color: '#5B6470',
       permissions: perms('read', 'read', 'read', 'read', 'read', 'none'),
@@ -629,9 +635,7 @@ export function rawCountedStatus(eventId: string, userId: string): 'yes' | 'no' 
 }
 
 export function threeMonthsBeforeLocal(dateStr: string): string {
-  const d = parseDateOnlyLocal(dateStr);
-  d.setMonth(d.getMonth() - 3);
-  return formatDateOnly(d);
+  return monthsAgoLocal(dateStr, 3);
 }
 
 export function applyNominations(event: EventDto, nominatedRoleIds: string[]): void {

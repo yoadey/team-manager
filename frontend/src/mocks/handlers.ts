@@ -17,6 +17,7 @@ import {
   threeMonthsBeforeLocal,
   applyNominations,
   pushNotif,
+  DEFAULT_MEMBER_ROLE_NAME,
   DEMO_PASSWORD,
   DEMO_LOGIN_EMAIL,
   DEMO_LOGIN_USER_ID,
@@ -103,6 +104,7 @@ function toWireTeamForUser(t: TeamRow, userId: string): S['TeamForUser'] {
 function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
   const u = requireUser(m.userId);
   const roles = rolesOf(m);
+  const pr = primaryRole(roles);
   return {
     membershipId: m.id,
     userId: u.id,
@@ -115,7 +117,7 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
     hasPhoto: u.hasPhoto,
     group: m.group || undefined,
     roles: roles.map(toWireRole),
-    primaryRole: primaryRole(roles) ? toWireRole(primaryRole(roles)!) : undefined,
+    primaryRole: pr ? toWireRole(pr) : undefined,
     perms: mergePerms(roles),
     joinedAt: m.joinedAt,
   };
@@ -291,7 +293,6 @@ export const handlers = [
   //     `api.auth.login(providerId)`; kept working here as a demo
   //     convenience distinct from (and not weakening) the password path.
   http.post(P('/auth/login'), async ({ request }) => {
-    await mockDelay();
     const body = (await request.json()) as S['LoginRequest'];
     await loginDelay();
     if (DEMO_SSO_PROVIDER_IDS.includes(body.email)) {
@@ -472,7 +473,12 @@ export const handlers = [
     const existing = db.memberships.find((m) => m.teamId === inv.teamId && m.userId === auth);
     const alreadyMember = !!existing;
     if (!existing) {
-      const memberRole = db.roles.find((r) => r.teamId === inv.teamId && r.name !== 'Admin / Trainer');
+      // Matches backend/internal/teams/repository.go's AcceptInvite: look up
+      // the seeded default member role by its stable name, not "any role
+      // that isn't Admin" — a team with several non-admin system roles
+      // (Kassenwart, Teamkapitän, ...) would otherwise risk handing a new
+      // member a privileged role if the true default role were ever deleted.
+      const memberRole = db.roles.find((r) => r.teamId === inv.teamId && r.name === DEFAULT_MEMBER_ROLE_NAME);
       db.memberships.push({ id: rid('mem'), teamId: inv.teamId, userId: auth, roleIds: memberRole ? [memberRole.id] : [], group: '', joinedAt: new Date().toISOString() });
     }
     const t = db.teams.find((x) => x.id === inv.teamId)!;
@@ -499,7 +505,10 @@ export const handlers = [
     if (body.birthday !== undefined) u.birthday = body.birthday;
     if (body.address !== undefined) u.address = body.address;
     if (body.group !== undefined) m.group = body.group;
-    if (body.roleIds !== undefined && body.roleIds.length) m.roleIds = body.roleIds;
+    // An explicitly empty array clears all roles (matches the real backend's
+    // SetRoles, only guarded by ErrLastSettingsAdmin server-side) — only an
+    // absent field should be a no-op, not an empty one.
+    if (body.roleIds !== undefined) m.roleIds = body.roleIds;
     return HttpResponse.json(toWireMember(m));
   }),
 
@@ -508,12 +517,13 @@ export const handlers = [
     const m = db.memberships.find((x) => x.id === params.membershipId);
     if (!m) return problem(404, 'Member not found');
     const body = (await request.json()) as S['SetRolesRequest'];
-    if (body.roleIds.length) m.roleIds = body.roleIds;
+    m.roleIds = body.roleIds;
     return HttpResponse.json(toWireMember(m));
   }),
 
   http.delete(P('/teams/:teamId/members/:membershipId'), async ({ params }) => {
     await mockDelay();
+    if (!db.memberships.some((x) => x.id === params.membershipId)) return problem(404, 'Member not found');
     db.memberships = db.memberships.filter((x) => x.id !== params.membershipId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -547,6 +557,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/roles/:roleId'), async ({ params }) => {
     await mockDelay();
+    if (!db.roles.some((x) => x.id === params.roleId)) return problem(404, 'Role not found');
     db.roles = db.roles.filter((x) => x.id !== params.roleId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -733,7 +744,11 @@ export const handlers = [
     const eventId = params.eventId as string;
     const body = (await request.json()) as S['SetNominationRequest'];
     if (body.nominated) {
-      db.attendance = db.attendance.filter((x) => !(x.eventId === eventId && x.userId === body.userId));
+      // Only clear the synthetic "not_nominated" placeholder — mirrors
+      // applyNominations() in db.ts. A member who already has a real RSVP
+      // ('yes'/'no'/'maybe') keeps it; re-nominating them must not silently
+      // revert an actual response back to pending.
+      db.attendance = db.attendance.filter((x) => !(x.eventId === eventId && x.userId === body.userId && x.status === 'not_nominated'));
     } else {
       let a = db.attendance.find((x) => x.eventId === eventId && x.userId === body.userId);
       if (!a) {
@@ -786,6 +801,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/absences/:absenceId'), async ({ params }) => {
     await mockDelay();
+    if (!db.absences.some((x) => x.id === params.absenceId)) return problem(404, 'Absence not found');
     db.absences = db.absences.filter((x) => x.id !== params.absenceId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -825,6 +841,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/news/:newsId'), async ({ params }) => {
     await mockDelay();
+    if (!db.news.some((x) => x.id === params.newsId)) return problem(404, 'News not found');
     db.news = db.news.filter((x) => x.id !== params.newsId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -857,6 +874,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/polls/:pollId'), async ({ params }) => {
     await mockDelay();
+    if (!db.polls.some((x) => x.id === params.pollId)) return problem(404, 'Poll not found');
     db.polls = db.polls.filter((x) => x.id !== params.pollId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -956,6 +974,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/transactions/:transactionId'), async ({ params }) => {
     await mockDelay();
+    if (!db.transactions.some((x) => x.id === params.transactionId)) return problem(404, 'Transaction not found');
     db.transactions = db.transactions.filter((x) => x.id !== params.transactionId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -986,6 +1005,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/penalties/:penaltyId'), async ({ params }) => {
     await mockDelay();
+    if (!db.penalties.some((x) => x.id === params.penaltyId)) return problem(404, 'Penalty not found');
     db.penalties = db.penalties.filter((x) => x.id !== params.penaltyId);
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.penaltyId !== params.penaltyId);
     return new HttpResponse(null, { status: 204 });
@@ -1005,6 +1025,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/penalty-assignments/:assignmentId'), async ({ params }) => {
     await mockDelay();
+    if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId)) return problem(404, 'Penalty assignment not found');
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.id !== params.assignmentId);
     return new HttpResponse(null, { status: 204 });
   }),

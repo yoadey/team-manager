@@ -1,5 +1,7 @@
-// Real backend service layer — replaces localStorage mock with HTTP API calls.
-// Only activated when config.apiBaseUrl is set (see src/config.ts).
+// Real backend service layer — the sole API-contract implementation, for
+// production, dev-demo, and tests alike (see src/services/index.ts). In
+// dev-demo (no config.apiBaseUrl) its HTTP calls are intercepted by MSW
+// (src/mocks/) rather than a second in-code implementation.
 
 import { apiClient, apiOrigin } from '@/api/client';
 import {

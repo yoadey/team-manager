@@ -79,6 +79,21 @@ describe('teams', () => {
   it('rejects fetching a non-existent team', async () => {
     await expect(api.teams.get('does-not-exist')).rejects.toThrow();
   });
+
+  it('rejects accepting an unknown invite code', async () => {
+    await expect(api.teams.acceptInvite('DOES-NOT-EXIST')).rejects.toThrow();
+  });
+
+  it('assigns the seeded default member role, not a privileged one, on accept', async () => {
+    const invite = await api.teams.createInvite('t_a');
+    const before = await api.members.list('t_a');
+    const self = before.find((m) => m.userId === DEMO_LOGIN_USER_ID)!;
+    await api.members.remove(self.membershipId, 't_a');
+    await api.teams.acceptInvite(invite.code);
+    const after = await api.members.list('t_a');
+    const rejoined = after.find((m) => m.userId === DEMO_LOGIN_USER_ID)!;
+    expect(rejoined.roles.every((r) => r.permissions.finances !== 'write' && r.permissions.settings !== 'write')).toBe(true);
+  });
 });
 
 describe('members & roles', () => {
@@ -105,6 +120,24 @@ describe('members & roles', () => {
     await api.members.remove(target.membershipId, 't_a');
     const reloaded = await api.members.list('t_a');
     expect(reloaded.some((m) => m.membershipId === target.membershipId)).toBe(false);
+  });
+
+  it('rejects updating an unknown member', async () => {
+    await expect(api.members.update('does-not-exist', { phone: '+49 1' }, 't_a')).rejects.toThrow();
+  });
+
+  it('rejects removing an already-removed member', async () => {
+    const members = await api.members.list('t_a');
+    const target = members[0];
+    await api.members.remove(target.membershipId, 't_a');
+    await expect(api.members.remove(target.membershipId, 't_a')).rejects.toThrow();
+  });
+
+  it('clears all of a member roles when roleIds is set to an empty array', async () => {
+    const members = await api.members.list('t_a');
+    const target = members.find((m) => m.roles.length > 0)!;
+    const updated = await api.members.setRoles(target.membershipId, [], 't_a');
+    expect(updated.roles).toEqual([]);
   });
 
   it('creates, updates and removes a custom role', async () => {
