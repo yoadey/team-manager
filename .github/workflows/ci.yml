@@ -249,7 +249,13 @@ jobs:
       - name: Install Playwright OS dependencies (cache hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
+      # No backend service runs in this job, so the build has no API_BASE_URL
+      # configured; VITE_ALLOW_MOCK opts the build into the MSW demo backend
+      # (see src/main.tsx's production fail-safe) instead of the build
+      # refusing to boot, so Playwright drives the app against demo data.
       - run: npm run build
+        env:
+          VITE_ALLOW_MOCK: 'true'
       - name: Run Playwright E2E tests
         run: npx playwright test --reporter=html
         env:

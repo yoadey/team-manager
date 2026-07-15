@@ -637,6 +637,14 @@ describe('AppProvider / team-switch race guards', () => {
       .spyOn(svc.api.events, 'list')
       .mockRejectedValueOnce(new ForbiddenError())
       .mockResolvedValueOnce([]);
+    // loadAbsences (triggered by goEventsAbsences below) also fetches
+    // absences, which -- like every other team route -- requires a real
+    // session against the MSW demo backend; this test never logs in (its
+    // synthetic "team1"/"other-team" fixture isn't a seeded team either), so
+    // stub those calls directly rather than authenticating just to satisfy
+    // an assertion this test isn't about.
+    vi.spyOn(svc.api.absences, 'listForTeam').mockResolvedValue([]);
+    vi.spyOn(svc.api.absences, 'listMine').mockResolvedValue([]);
 
     let actions!: ReturnType<typeof useAppActions>;
     let state!: ReturnType<typeof useApp>['state'];
