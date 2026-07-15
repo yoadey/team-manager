@@ -1,9 +1,11 @@
+import { useCallback } from 'react';
 import {
   useEventActionFeatures,
   useEventDetailActions,
   useAbsenceActions,
   useCalExportActions,
   useEventFormActions,
+  useInvalidateEvents,
 } from '@/features/events';
 import { useFinanceActions } from '@/features/finances';
 import { useMemberActions } from '@/features/members';
@@ -23,7 +25,8 @@ type FeatureActionDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
-  refreshEvents: () => Promise<void>;
+  /** Reactive active team id, for the events vertical's query/mutation hooks. */
+  teamId: string | null;
   refreshMembers: () => Promise<void>;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
@@ -47,7 +50,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     setState,
     activeTeam,
     myRoles,
-    refreshEvents,
+    teamId,
     refreshMembers,
     refreshRoles,
     refreshTeams,
@@ -64,13 +67,26 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     logout,
   } = deps;
 
+  // The absences vertical isn't migrated yet and still triggers an events
+  // refresh after a save/removal (an absence overlapping an upcoming event
+  // auto-marks attendance as absent). Bridge it to the events query cache
+  // instead of a manual refetch so it keeps working unchanged -- including
+  // the old loader's loadNotifications() call, since an absence changing an
+  // event's auto-attendance can also flip a "pending RSVP" notification.
+  const invalidateEvents = useInvalidateEvents(teamId);
+  const refreshEvents = useCallback(async () => {
+    invalidateEvents();
+    loadNotifications();
+  }, [invalidateEvents, loadNotifications]);
+
   const eventDetailActions = useEventDetailActions({
     api,
     S,
     setState,
     activeTeam,
     myRoles,
-    refreshEvents,
+    teamId,
+    loadNotifications,
     setFormVal,
     askConfirm,
     toastMsg,
@@ -80,10 +96,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    activeTeam,
-    myRoles,
-    refreshEvents,
-    setFormVal,
+    loadNotifications,
     toastMsg,
     logout,
     askConfirm,
@@ -133,7 +146,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     toastMsg,
     logout,
   });
-  const calExportActions = useCalExportActions({ S, setState, activeTeam, toastMsg });
+  const calExportActions = useCalExportActions({ api, S, setState, activeTeam, teamId, toastMsg });
   const newsActions = useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg, logout });
   const financeActions = useFinanceActions({
     api,
@@ -151,7 +164,8 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    refreshEvents,
+    teamId,
+    loadNotifications,
     openEventDetail: eventDetailActions.openEventDetail,
     toastMsg,
     logout,
