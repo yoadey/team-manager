@@ -4,6 +4,7 @@ import { useAbsenceActions } from './useAbsenceActions';
 import { useCalExportActions } from './useCalExportActions';
 import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
+import type { AbsenceFormValues } from '../components/absenceFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -108,19 +109,6 @@ describe('useAbsenceActions', () => {
     );
   });
 
-  it('saveAbsence shows toast when date range is invalid', async () => {
-    stateRef = makeState({
-      form: { from: '2026-02-01', to: '2026-01-01', reason: 'Test' },
-      sheet: { type: 'absenceForm', mode: 'create' } as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveAbsence();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.absences.create).not.toHaveBeenCalled();
-  });
-
   it('saveAbsence creates absence in create mode', async () => {
     stateRef = makeState({
       form: { from: '2026-01-10', to: '2026-01-15', reason: 'Urlaub' },
@@ -128,7 +116,7 @@ describe('useAbsenceActions', () => {
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveAbsence();
+      await result.current.saveAbsence(stateRef.form as AbsenceFormValues);
     });
     expect(api.absences.create).toHaveBeenCalledWith(
       expect.objectContaining({ from: '2026-01-10', to: '2026-01-15', userId: 'u1' }),
@@ -143,7 +131,7 @@ describe('useAbsenceActions', () => {
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveAbsence();
+      await result.current.saveAbsence(stateRef.form as AbsenceFormValues);
     });
     expect(api.absences.update).toHaveBeenCalledWith('ab1', expect.objectContaining({ reason: 'Krank' }), 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Abwesenheit aktualisiert');

@@ -22,9 +22,17 @@ import type {
   User,
 } from '@/types';
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
+import type { EventFormValues } from '@/features/events/components/eventFormSchema';
+import type { AbsenceFormValues } from '@/features/events/components/absenceFormSchema';
 import type { Contribution, FinanceOverview, Penalty, Transaction } from '@/features/finances';
+import type { ContribFormValues } from '@/features/finances/components/contribFormSchema';
+import type { PenaltyFormValues } from '@/features/finances/components/penaltyFormSchema';
+import type { PenaltyAssignFormValues } from '@/features/finances/components/penaltyAssignFormSchema';
+import type { TxFormValues } from '@/features/finances/components/txFormSchema';
 import type { Member } from '@/features/members';
+import type { MemberFormValues } from '@/features/members/components/memberFormSchema';
 import type { NewsItem } from '@/features/news';
+import type { NewsFormValues } from '@/features/news/components/newsFormSchema';
 import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
@@ -305,13 +313,13 @@ export interface AppContextValue {
   ) => Promise<void>;
   openEventDetail: (eventId: string) => void;
   openEventForm: (event: TeamEvent | null) => void;
-  saveEvent: (scope?: 'single' | 'series') => Promise<void>;
+  saveEvent: (fOrScope?: EventFormValues | 'single' | 'series', scope?: 'single' | 'series') => Promise<void>;
   toggleFormNomRole: (roleId: string) => void;
   // members
   openMemberDetail: (membershipId: string) => Promise<void>;
   openMemberForm: (member: Member) => void;
   toggleFormRole: (roleId: string) => void;
-  saveMember: () => Promise<void>;
+  saveMember: (f?: MemberFormValues) => Promise<void>;
   removeMember: (membershipId: string) => void;
   // roles
   openRoles: () => void;
@@ -338,7 +346,7 @@ export interface AppContextValue {
   uploadMyPhoto: (dataUrl: string) => Promise<void>;
   // absences
   openAbsenceForm: (absence?: Absence | null) => void;
-  saveAbsence: () => Promise<void>;
+  saveAbsence: (f: AbsenceFormValues) => Promise<void>;
   removeAbsence: (id: string) => void;
   // calendar export
   openCalExport: () => void;
@@ -346,21 +354,21 @@ export interface AppContextValue {
   copyCalUrl: () => void;
   // news
   openNewsForm: (n?: import('@/features/news').NewsItem) => void;
-  saveNews: () => Promise<void>;
+  saveNews: (f: NewsFormValues) => Promise<void>;
   removeNews: (id: string) => void;
   // finances
   openTxForm: (tx?: Transaction) => void;
-  saveTx: () => Promise<void>;
+  saveTx: (f: TxFormValues) => Promise<void>;
   deleteTx: (id: string) => Promise<void>;
   openPenaltyCatalog: () => void;
   openPenaltyForm: (p?: Penalty) => void;
-  savePenalty: () => Promise<void>;
+  savePenalty: (f: PenaltyFormValues) => Promise<void>;
   deletePenaltyDef: (id: string) => void;
   openPenaltyAssign: () => void;
-  savePenaltyAssign: () => Promise<void>;
+  savePenaltyAssign: (f: PenaltyAssignFormValues) => Promise<void>;
   deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
-  saveContrib: () => Promise<void>;
+  saveContrib: (f: ContribFormValues) => Promise<void>;
   togglePenalty: (id: string) => Promise<void>;
   toggleContribution: (id: string) => Promise<void>;
   setStatsRange: (range: DateRange | null) => void;

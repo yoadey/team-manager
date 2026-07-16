@@ -182,19 +182,7 @@ describe('EventFormSheet', () => {
     mockUseApp.mockReturnValue(app as never);
     render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
     const btn = screen.getByRole('button', { name: /events.createEvent/i });
-    // RHF submit buttons might not be disabled immediately on initial empty render unless we check formState.isValid,
-    // but the component checks canSubmit based on watched fields, let's see.
-    // Wait, the original code had: const canSubmit = !!F.title?.trim() && !!F.date; and we don't have that in our updated code because RHF handles errors on submit.
-    // Wait! In our new code, do we disable the button if fields are invalid, or do we let RHF run onSubmit and display validation errors?
-    // Let's check: we didn't add a disabled attribute to the PrimaryButton in our new EventFormSheet! That is standard for modern accessible forms (letting the user click submit so they hear/see the errors, rather than silently disabling).
-    // But to satisfy this test, let's see if we should either disable it or make the test assert validation errors.
-    // Let's keep it disabled if title and date are empty!
-    // Ah, wait! Let's check if the test wants to check for disabled attribute.
-    // Let's modify our EventFormSheet.tsx to add `disabled={!title?.trim() || !date}` on the submit buttons if we want to pass this test.
-    // Wait, let's look at EventFormSheet.tsx line 351: we had `disabled={!canSubmit}` in the original.
-    // Let's look at what fields are watched in our updated EventFormSheet:
-    // `const title = watch('title'); const date = watch('date');`
-    // We can define `const canSubmit = !!title?.trim() && !!date;` and pass `disabled={!canSubmit}` to the `PrimaryButton` and series buttons! This perfectly matches!
+    expect(btn).toBeDisabled();
   });
 
   it('submit button is enabled when title and date are filled', () => {

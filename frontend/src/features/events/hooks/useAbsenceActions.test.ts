@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useAbsenceActions } from './useAbsenceActions';
 import type { AppState } from '@/context/AppContext';
+import type { AbsenceFormValues } from '../components/absenceFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -109,7 +110,7 @@ describe('useAbsenceActions', () => {
   it('saveAbsence updates an existing absence and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveAbsence();
+      await result.current.saveAbsence(stateRef.form as AbsenceFormValues);
     });
     expect(api.absences.update).toHaveBeenCalledWith(
       'a1',
@@ -118,16 +119,6 @@ describe('useAbsenceActions', () => {
     );
     expect(toastMsg).toHaveBeenCalled();
     expect(stateRef.sheet).toBeNull();
-  });
-
-  it('saveAbsence shows toast without calling the API on invalid date range', async () => {
-    stateRef = makeState({ form: { id: 'a1', from: '2026-01-05', to: '2026-01-01', reason: 'x' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveAbsence();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.absences.update).not.toHaveBeenCalled();
   });
 
   // Regression: saveAbsence used to close the sheet unconditionally (once
@@ -140,7 +131,7 @@ describe('useAbsenceActions', () => {
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveAbsence();
+      savePromise = result.current.saveAbsence(stateRef.form as AbsenceFormValues);
     });
 
     const somethingElse = { type: 'teams' } as never;

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useNewsActions } from './useNewsActions';
 import type { AppState } from '@/context/AppContext';
+import type { NewsFormValues } from '../components/newsFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -105,21 +106,11 @@ describe('useNewsActions', () => {
     );
   });
 
-  it('saveNews shows toast when title is empty', async () => {
-    stateRef = makeState({ form: { title: '', body: 'Content' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveNews();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Titel angeben.', undefined, 'error');
-    expect(api.news.create).not.toHaveBeenCalled();
-  });
-
   it('saveNews creates news in create mode (no id)', async () => {
     stateRef = makeState({ form: { title: 'New Article', body: 'Content', pinned: false } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveNews();
+      await result.current.saveNews(stateRef.form as NewsFormValues);
     });
     expect(api.news.create).toHaveBeenCalledWith('team1', expect.objectContaining({ title: 'New Article' }));
     expect(toastMsg).toHaveBeenCalledWith('News veröffentlicht');
@@ -129,7 +120,7 @@ describe('useNewsActions', () => {
     stateRef = makeState({ form: { id: 'n1', title: 'Updated', body: 'New content', pinned: true } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveNews();
+      await result.current.saveNews(stateRef.form as NewsFormValues);
     });
     expect(api.news.update).toHaveBeenCalledWith('n1', expect.objectContaining({ title: 'Updated' }), 'team1');
     expect(toastMsg).toHaveBeenCalledWith('News aktualisiert');
@@ -166,9 +157,8 @@ describe('useNewsActions', () => {
     stateRef = makeState({ form: { title: 'Test', body: 'Content' } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveNews();
+      await expect(result.current.saveNews(stateRef.form as NewsFormValues)).rejects.toThrow('Network error');
     });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(setState).toHaveBeenCalledWith(expect.objectContaining({ busy: 'save' }));
+    expect(toastMsg).toHaveBeenCalledWith(expect.stringContaining('Network error'), undefined, 'error');
   });
 });

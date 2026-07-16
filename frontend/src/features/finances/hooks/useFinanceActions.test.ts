@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useFinanceActions } from './useFinanceActions';
 import type { AppState } from '@/context/AppContext';
+import type { TxFormValues } from '../components/txFormSchema';
+import type { PenaltyFormValues } from '../components/penaltyFormSchema';
+import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
+import type { ContribFormValues } from '../components/contribFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -133,26 +137,6 @@ describe('useFinanceActions', () => {
     );
   });
 
-  it('saveTx shows toast when title is empty', async () => {
-    stateRef = makeState({ form: { title: '', amount: '10', type: 'income', category: 'Test' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveTx();
-    });
-    expect(toastMsg).toHaveBeenCalledWith(expect.stringContaining('fehlt'), undefined, 'error');
-    expect(api.finances.addTransaction).not.toHaveBeenCalled();
-  });
-
-  it('saveTx shows toast when amount is invalid', async () => {
-    stateRef = makeState({ form: { title: 'Test', amount: 'abc', type: 'income', category: 'Test' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveTx();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.finances.addTransaction).not.toHaveBeenCalled();
-  });
-
   it('saveTx creates transaction in create mode', async () => {
     stateRef = makeState({
       sheet: { type: 'txForm', mode: 'create' } as never,
@@ -160,7 +144,7 @@ describe('useFinanceActions', () => {
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTx();
+      await result.current.saveTx(stateRef.form as TxFormValues);
     });
     expect(api.finances.addTransaction).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Buchung gespeichert');
@@ -173,7 +157,7 @@ describe('useFinanceActions', () => {
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTx();
+      await result.current.saveTx(stateRef.form as TxFormValues);
     });
     expect(api.finances.updateTransaction).toHaveBeenCalledWith(
       'tx1',
@@ -198,7 +182,7 @@ describe('useFinanceActions', () => {
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveTx();
+      savePromise = result.current.saveTx(stateRef.form as TxFormValues);
     });
     expect(api.finances.updateTransaction).toHaveBeenCalled();
 
@@ -252,19 +236,6 @@ describe('useFinanceActions', () => {
     expect(stateRef.formErrors).toEqual({});
   });
 
-  it('savePenalty shows toast when label is empty', async () => {
-    stateRef = makeState({
-      form: { label: '', amount: '10' },
-      sheet: { type: 'penaltyForm', mode: 'create' } as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePenalty();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.finances.createPenalty).not.toHaveBeenCalled();
-  });
-
   it('savePenalty creates penalty in create mode', async () => {
     stateRef = makeState({
       sheet: { type: 'penaltyForm', mode: 'create', back: null } as never,
@@ -272,7 +243,7 @@ describe('useFinanceActions', () => {
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.savePenalty();
+      await result.current.savePenalty(stateRef.form as PenaltyFormValues);
     });
     expect(api.finances.createPenalty).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Strafe hinzugefügt');
@@ -286,29 +257,11 @@ describe('useFinanceActions', () => {
     expect(askConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
   });
 
-  it('savePenaltyAssign shows toast when userId is missing', async () => {
-    stateRef = makeState({ form: { userId: '', penaltyId: 'p1' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePenaltyAssign();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Person wählen.', undefined, 'error');
-  });
-
-  it('savePenaltyAssign shows toast when penaltyId is missing', async () => {
-    stateRef = makeState({ form: { userId: 'u1', penaltyId: '' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePenaltyAssign();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Strafe wählen.', undefined, 'error');
-  });
-
   it('savePenaltyAssign assigns penalty when valid', async () => {
     stateRef = makeState({ form: { userId: 'u1', penaltyId: 'p1' } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.savePenaltyAssign();
+      await result.current.savePenaltyAssign(stateRef.form as PenaltyAssignFormValues);
     });
     expect(api.finances.assignPenalty).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Strafe erfasst');
@@ -339,21 +292,11 @@ describe('useFinanceActions', () => {
     expect(api.finances.deleteAssignment).toHaveBeenCalledWith('a1', 'team1');
   });
 
-  it('saveContrib validates label', async () => {
-    stateRef = makeState({ form: { label: '', amount: '10', id: 'c1' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveContrib();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.finances.updateContribution).not.toHaveBeenCalled();
-  });
-
   it('saveContrib updates contribution when valid', async () => {
     stateRef = makeState({ form: { label: 'Monatsbeitrag', amount: '20', id: 'c1' } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveContrib();
+      await result.current.saveContrib(stateRef.form as ContribFormValues);
     });
     expect(api.finances.updateContribution).toHaveBeenCalledWith(
       'c1',
