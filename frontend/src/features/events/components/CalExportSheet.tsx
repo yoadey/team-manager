@@ -3,13 +3,15 @@ import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from '@/sheets/types';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, PrimaryButton } from '@/components/ui';
+import { useEventsQuery } from '../hooks/useEventQueries';
 import { t } from '@/i18n';
 
 export function CalExportSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
-  const cnt = (state.events || []).filter((e) => e.status !== 'cancelled').length;
+  const { data: events } = useEventsQuery(app.api, state.activeTeamId);
+  const cnt = (events || []).filter((e) => e.status !== 'cancelled').length;
   const url = 'https://teamverwaltung.app/cal/' + ((team && team.id) || 'team') + '.ics';
 
   const hint = (icon: string, title: string, text: string) => (

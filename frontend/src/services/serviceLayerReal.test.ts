@@ -19,6 +19,7 @@ vi.mock('@/api/client', () => ({
     PATCH: vi.fn(),
     DELETE: vi.fn(),
   },
+  apiOrigin: '',
 }));
 
 // ── Mock the mappers with tagged identity stubs ──────────────────────────────
@@ -187,14 +188,20 @@ describe('auth', () => {
   });
 
   it('setPhoto throws AuthError when the session expired (401)', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401, clone: () => ({ json: () => Promise.resolve({}) }) }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 401, clone: () => ({ json: () => Promise.resolve({}) }) }),
+    );
     const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
     await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow(AuthError);
     vi.unstubAllGlobals();
   });
 
   it('setPhoto throws when the upload fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, clone: () => ({ json: () => Promise.resolve({}) }) }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 500, clone: () => ({ json: () => Promise.resolve({}) }) }),
+    );
     const dataUrl = 'data:image/jpeg;base64,' + btoa('x');
     await expect(realApi.auth.setPhoto(dataUrl)).rejects.toThrow('HTTP 500');
     vi.unstubAllGlobals();
@@ -248,7 +255,9 @@ describe('teams', () => {
   it('create posts the team body', async () => {
     client.POST.mockResolvedValueOnce(ok({ id: 't1' }));
     await realApi.teams.create({ name: 'A', icon: 'i' });
-    expect(client.POST).toHaveBeenCalledWith('/teams', { body: { name: 'A', icon: 'i', iconBg: undefined, iconFg: undefined } });
+    expect(client.POST).toHaveBeenCalledWith('/teams', {
+      body: { name: 'A', icon: 'i', iconBg: undefined, iconFg: undefined },
+    });
   });
 
   it('create does not attempt a photo upload when no photo was picked', async () => {
@@ -365,16 +374,18 @@ describe('members', () => {
   });
 
   it('list walks every keyset page and forwards the cursor', async () => {
-    client.GET
-      .mockResolvedValueOnce(ok({ items: [{ id: 'm1' }], nextCursor: 'c1' }))
-      .mockResolvedValueOnce(ok({ items: [{ id: 'm2' }], nextCursor: null }));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'm1' }], nextCursor: 'c1' })).mockResolvedValueOnce(
+      ok({ items: [{ id: 'm2' }], nextCursor: null }),
+    );
     const res = await realApi.members.list('t1');
     expect(res).toHaveLength(2);
     expect(client.GET).toHaveBeenCalledTimes(2);
     // second request must carry the cursor returned by the first page
     expect(client.GET).toHaveBeenLastCalledWith(
       '/teams/{teamId}/members',
-      expect.objectContaining({ params: expect.objectContaining({ query: expect.objectContaining({ cursor: 'c1' }) }) }),
+      expect.objectContaining({
+        params: expect.objectContaining({ query: expect.objectContaining({ cursor: 'c1' }) }),
+      }),
     );
   });
 
@@ -437,7 +448,9 @@ describe('events', () => {
     await realApi.events.list('t1', 'upcoming');
     expect(client.GET).toHaveBeenCalledWith(
       '/teams/{teamId}/events',
-      expect.objectContaining({ params: expect.objectContaining({ query: expect.objectContaining({ scope: 'upcoming' }) }) }),
+      expect.objectContaining({
+        params: expect.objectContaining({ query: expect.objectContaining({ scope: 'upcoming' }) }),
+      }),
     );
   });
 
@@ -600,7 +613,9 @@ describe('absences', () => {
     expect((await realApi.absences.listMine('t1'))[0]).toMatchObject({ __mapped: 'absence' });
 
     client.POST.mockResolvedValueOnce(ok({ id: 'ab1' }));
-    expect(await realApi.absences.create({ teamId: 't1', userId: 'u1', from: 'a', to: 'b' })).toMatchObject({ __mapped: 'absence' });
+    expect(await realApi.absences.create({ teamId: 't1', userId: 'u1', from: 'a', to: 'b' })).toMatchObject({
+      __mapped: 'absence',
+    });
 
     client.PATCH.mockResolvedValueOnce(ok({ id: 'ab1' }));
     expect(await realApi.absences.update('ab1', { reason: 'r' }, 't1')).toMatchObject({ __mapped: 'absence' });
@@ -669,7 +684,9 @@ describe('polls', () => {
     await expect(realApi.polls.vote('p1', ['o1'], 't1')).resolves.toBeUndefined();
 
     client.POST.mockResolvedValueOnce(ok({ id: 'p1' }));
-    expect(await realApi.polls.create('t1', { question: 'Q?', options: ['a', 'b'] })).toMatchObject({ __mapped: 'poll' });
+    expect(await realApi.polls.create('t1', { question: 'Q?', options: ['a', 'b'] })).toMatchObject({
+      __mapped: 'poll',
+    });
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.polls.remove('p1', 't1')).resolves.toBeUndefined();
@@ -691,9 +708,7 @@ describe('finances', () => {
     // fed an ascending array — passing the backend's descending order straight
     // through would get reversed a second time and show the oldest
     // assignment on top.
-    client.GET.mockResolvedValueOnce(
-      ok({ balance: 0, assignments: [{ id: 'a-newest' }, { id: 'a-oldest' }] }),
-    );
+    client.GET.mockResolvedValueOnce(ok({ balance: 0, assignments: [{ id: 'a-newest' }, { id: 'a-oldest' }] }));
     const overview = (await realApi.finances.overview('t1')) as unknown as {
       input: { assignments: { id: string }[] };
     };
@@ -702,10 +717,14 @@ describe('finances', () => {
 
   it('transaction lifecycle', async () => {
     client.POST.mockResolvedValueOnce(ok({ id: 'tx1' }));
-    expect(await realApi.finances.addTransaction('t1', { type: 'income', title: 'T', amount: 5 })).toMatchObject({ __mapped: 'transaction' });
+    expect(await realApi.finances.addTransaction('t1', { type: 'income', title: 'T', amount: 5 })).toMatchObject({
+      __mapped: 'transaction',
+    });
 
     client.PATCH.mockResolvedValueOnce(ok({ id: 'tx1' }));
-    expect(await realApi.finances.updateTransaction('tx1', { amount: 9 }, 't1')).toMatchObject({ __mapped: 'transaction' });
+    expect(await realApi.finances.updateTransaction('tx1', { amount: 9 }, 't1')).toMatchObject({
+      __mapped: 'transaction',
+    });
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.finances.deleteTransaction('tx1', 't1')).resolves.toBeUndefined();
@@ -718,7 +737,9 @@ describe('finances', () => {
 
   it('penalty lifecycle', async () => {
     client.POST.mockResolvedValueOnce(ok({ id: 'pe1' }));
-    expect(await realApi.finances.createPenalty('t1', { label: 'Late', amount: 2 })).toMatchObject({ __mapped: 'penalty' });
+    expect(await realApi.finances.createPenalty('t1', { label: 'Late', amount: 2 })).toMatchObject({
+      __mapped: 'penalty',
+    });
 
     client.PATCH.mockResolvedValueOnce(ok({ id: 'pe1' }));
     expect(await realApi.finances.updatePenalty('pe1', { amount: 3 }, 't1')).toMatchObject({ __mapped: 'penalty' });
@@ -742,7 +763,9 @@ describe('finances', () => {
 
   it('contributions', async () => {
     client.PATCH.mockResolvedValueOnce(ok({ id: 'co1' }));
-    expect(await realApi.finances.updateContribution('co1', { amount: 1 }, 't1')).toMatchObject({ __mapped: 'contribution' });
+    expect(await realApi.finances.updateContribution('co1', { amount: 1 }, 't1')).toMatchObject({
+      __mapped: 'contribution',
+    });
 
     client.POST.mockResolvedValueOnce(ok({ id: 'co1' }));
     expect(await realApi.finances.toggleContribution('co1', 't1')).toMatchObject({ __mapped: 'contribution' });

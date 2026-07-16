@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCalExportActions } from './useCalExportActions';
+import { createQueryWrapper } from '@/test/queryTestUtils';
 import { setLocale } from '@/i18n';
 import type { AppState } from '@/context/AppContext';
 import type { TeamEvent } from '../types';
@@ -32,7 +33,6 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
-    events: [makeEvent()],
     activeTeamId: 'team1',
     ...overrides,
   } as unknown as AppState;
@@ -43,13 +43,17 @@ describe('useCalExportActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
   let activeTeam: ReturnType<typeof vi.fn>;
+  let api: { events: { list: ReturnType<typeof vi.fn> } };
+  let events: TeamEvent[];
   let capturedIcsText: string;
 
   beforeEach(() => {
+    events = [makeEvent()];
     stateRef = makeState();
     setState = vi.fn();
     toastMsg = vi.fn();
     activeTeam = vi.fn(() => ({ id: 'team1', name: 'Test Team', short: 'tt' }) as never);
+    api = { events: { list: vi.fn(() => Promise.resolve(events)) } };
     capturedIcsText = '';
     vi.stubGlobal(
       'Blob',
@@ -68,13 +72,17 @@ describe('useCalExportActions', () => {
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useCalExportActions({
-        S: () => stateRef,
-        setState: setState as never,
-        activeTeam: activeTeam as never,
-        toastMsg: toastMsg as never,
-      }),
+    return renderHook(
+      () =>
+        useCalExportActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          activeTeam: activeTeam as never,
+          teamId: stateRef.activeTeamId,
+          toastMsg: toastMsg as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
   }
 
@@ -84,10 +92,14 @@ describe('useCalExportActions', () => {
   // (e.g. src/styles/tokens.ts already uses t('eventType.*') for the same
   // event types). An English-locale user downloading their calendar got
   // German words baked permanently into every exported event description.
-  it('uses the active locale for event-type and field labels in the exported ICS', () => {
+  it('uses the active locale for event-type and field labels in the exported ICS', async () => {
     setLocale('en');
-    stateRef = makeState({ events: [makeEvent({ type: 'auftritt', meetTime: '17:30' })] });
-    const { result } = renderActions();
+    events = [makeEvent({ type: 'auftritt', meetTime: '17:30' })];
+    const { result, rerender } = renderActions();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rerender();
     act(() => {
       result.current.downloadIcs();
     });
@@ -98,10 +110,14 @@ describe('useCalExportActions', () => {
     expect(capturedIcsText).not.toContain('Typ:');
   });
 
-  it('uses German labels when the locale is de', () => {
+  it('uses German labels when the locale is de', async () => {
     setLocale('de');
-    stateRef = makeState({ events: [makeEvent({ type: 'auftritt', meetTime: '17:30' })] });
-    const { result } = renderActions();
+    events = [makeEvent({ type: 'auftritt', meetTime: '17:30' })];
+    const { result, rerender } = renderActions();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rerender();
     act(() => {
       result.current.downloadIcs();
     });

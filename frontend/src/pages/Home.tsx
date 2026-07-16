@@ -5,6 +5,7 @@ import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Av, EmptyState, SectionTitle, Sym } from '@/components/ui';
 import { EventCard, NewsCard } from '@/components/cards';
+import { useEventsQuery } from '@/features/events';
 import { t as tr } from '@/i18n';
 
 export function Home() {
@@ -13,10 +14,11 @@ export function Home() {
   const t = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   const today = todayLocalDate();
+  const { data: events } = useEventsQuery(app.api, state.activeTeamId);
 
-  const next = (state.events ?? []).filter((e) => e.date >= today).slice(0, 3);
+  const next = (events ?? []).filter((e) => e.date >= today).slice(0, 3);
   const news = (state.news || []).slice(0, 3);
-  const myPending = (state.events ?? []).filter(
+  const myPending = (events ?? []).filter(
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
@@ -92,7 +94,7 @@ export function Home() {
         {canSeeEvents &&
           quickStat(
             tr('home.statUpcoming'),
-            (state.events ?? []).filter((e) => e.date >= today && e.status !== 'cancelled').length,
+            (events ?? []).filter((e) => e.date >= today && e.status !== 'cancelled').length,
             'event',
             t.primary,
             () => app.go('events'),
@@ -107,10 +109,7 @@ export function Home() {
         <Box sx={{ mb: '22px' }}>
           <SectionTitle
             right={
-              <ButtonBase
-                onClick={() => app.go('events')}
-                sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}
-              >
+              <ButtonBase onClick={() => app.go('events')} sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}>
                 {tr('home.viewAll')}
               </ButtonBase>
             }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useAbsenceActions } from './useAbsenceActions';
 import { useCalExportActions } from './useCalExportActions';
+import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -15,7 +16,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     busy: null,
     toast: null,
     route: 'home',
-    events: [],
     members: [],
     finances: null,
     stats: null,
@@ -180,36 +180,37 @@ describe('useCalExportActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
   let stateRef: AppState;
+  let api: { events: { list: ReturnType<typeof vi.fn> } };
+
+  const events = [
+    {
+      id: 'ev1',
+      title: 'Training',
+      date: '2026-03-01',
+      type: 'training',
+      status: 'active',
+      startTime: null,
+      endTime: null,
+      meetTime: null,
+      location: 'Halle',
+      note: 'Bring boots',
+    },
+    {
+      id: 'ev2',
+      title: 'Cancelled',
+      date: '2026-03-05',
+      type: 'event',
+      status: 'cancelled',
+      startTime: null,
+      endTime: null,
+      meetTime: null,
+      location: null,
+      note: null,
+    },
+  ] as never[];
 
   beforeEach(() => {
-    stateRef = makeState({
-      events: [
-        {
-          id: 'ev1',
-          title: 'Training',
-          date: '2026-03-01',
-          type: 'training',
-          status: 'active',
-          startTime: null,
-          endTime: null,
-          meetTime: null,
-          location: 'Halle',
-          note: 'Bring boots',
-        },
-        {
-          id: 'ev2',
-          title: 'Cancelled',
-          date: '2026-03-05',
-          type: 'event',
-          status: 'cancelled',
-          startTime: null,
-          endTime: null,
-          meetTime: null,
-          location: null,
-          note: null,
-        },
-      ] as never,
-    });
+    stateRef = makeState();
     setState = vi.fn((patch) => {
       if (typeof patch === 'function') {
         const result = patch(stateRef);
@@ -219,17 +220,23 @@ describe('useCalExportActions', () => {
       }
     });
     toastMsg = vi.fn();
+    api = { events: { list: vi.fn(() => Promise.resolve(events)) } };
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useCalExportActions({
-        S: () => stateRef,
-        setState: setState as never,
-        activeTeam: () => ({ id: 'team1', name: 'Test Team', short: 'TT' }) as never,
-        toastMsg: toastMsg as never,
-      }),
+    const rendered = renderHook(
+      () =>
+        useCalExportActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          activeTeam: () => ({ id: 'team1', name: 'Test Team', short: 'TT' }) as never,
+          teamId: stateRef.activeTeamId,
+          toastMsg: toastMsg as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
+    return rendered;
   }
 
   it('openCalExport sets calExport sheet', () => {
@@ -240,10 +247,16 @@ describe('useCalExportActions', () => {
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'calExport' } });
   });
 
-  it('downloadIcs filters cancelled events and shows toast', () => {
+  it('downloadIcs filters cancelled events and shows toast', async () => {
     URL.createObjectURL = vi.fn().mockReturnValue('blob:test');
     URL.revokeObjectURL = vi.fn();
-    const { result } = renderActions();
+    const { result, rerender } = renderActions();
+    // Let useEventsQuery's fetch resolve and re-render before downloadIcs
+    // closes over the fetched events.
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rerender();
     act(() => {
       result.current.downloadIcs();
     });
@@ -276,7 +289,7 @@ describe('useCalExportActions', () => {
   // slow clipboard write for the old team resolved, the stale resolution
   // would show "Copied!" on the new team's sheet even though nothing was
   // copied for it.
-  it('does not mark a different team\'s calExport sheet as copied after a slow clipboard write resolves', async () => {
+  it("does not mark a different team's calExport sheet as copied after a slow clipboard write resolves", async () => {
     let resolveWrite!: () => void;
     Object.assign(navigator, {
       clipboard: { writeText: vi.fn(() => new Promise<void>((resolve) => (resolveWrite = resolve))) },

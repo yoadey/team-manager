@@ -1,9 +1,19 @@
-import { StrictMode } from 'react';
+import { StrictMode, type ReactElement } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { createTestQueryClient } from '@/test/queryTestUtils';
 import { AppProvider, useApp, useAppActions, useAppSelector, sheetErrorBoundaryKey } from './AppContext';
 
 beforeEach(() => localStorage.clear());
+
+// AppProvider fetches the events vertical through TanStack Query internally
+// now, so every render needs a QueryClientProvider ancestor -- a fresh client
+// per render (retries disabled) keeps one test's query cache from leaking
+// into the next.
+function renderApp(ui: ReactElement) {
+  return render(<QueryClientProvider client={createTestQueryClient()}>{ui}</QueryClientProvider>);
+}
 
 function Probe({ onActions }: { onActions: (ref: object) => void }) {
   const { state } = useApp();
@@ -64,7 +74,7 @@ describe('sheetErrorBoundaryKey', () => {
 
 describe('AppProvider / context split', () => {
   it('boots through the mock service layer to the login phase', async () => {
-    render(
+    renderApp(
       <AppProvider>
         <Probe onActions={() => {}} />
       </AppProvider>,
@@ -75,7 +85,7 @@ describe('AppProvider / context split', () => {
 
   it('keeps the actions object identity stable across state-driven re-renders', async () => {
     const seen: object[] = [];
-    render(
+    renderApp(
       <AppProvider>
         <Probe onActions={(ref) => seen.push(ref)} />
       </AppProvider>,
@@ -98,7 +108,7 @@ describe('AppProvider / context split', () => {
       renders++;
       return <div data-testid="fld">{String(v ?? '')}</div>;
     }
-    render(
+    renderApp(
       <AppProvider>
         <Capture />
         <FieldProbe />
@@ -122,7 +132,7 @@ describe('AppProvider / actions (app phase)', () => {
   let capturedActions: ReturnType<typeof useAppActions>;
 
   async function renderAndBootstrap() {
-    render(
+    renderApp(
       <AppProvider>
         <PhaseAndSheet
           onMount={(a) => {
@@ -157,7 +167,6 @@ describe('AppProvider / actions (app phase)', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [{ id: 'r1', name: 'Member' }] as never,
-        events: [],
         members: [],
         news: [],
         polls: [],
@@ -435,7 +444,7 @@ describe('AppProvider / team-switch race guards', () => {
       );
     }
 
-    render(
+    renderApp(
       <AppProvider>
         <Probe />
       </AppProvider>,
@@ -498,13 +507,13 @@ describe('AppProvider / team-switch race guards', () => {
       return (
         <div>
           <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
-          <div data-testid="events">{state.events ? 'loaded' : 'null'}</div>
+          <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
           <div data-testid="members">{state.members ? 'loaded' : 'null'}</div>
         </div>
       );
     }
 
-    render(
+    renderApp(
       <AppProvider>
         <Probe />
       </AppProvider>,
@@ -517,7 +526,11 @@ describe('AppProvider / team-switch race guards', () => {
       await actions.selectTeam('team1');
     });
 
-    expect(screen.getByTestId('events').textContent).toBe('loaded');
+    // notifications is a sibling module in the same allSettled bundle --
+    // proves the members 403 didn't blank out everything else (events is no
+    // longer part of this bundle; see useEventQueries.test.ts for its own
+    // race coverage).
+    expect(screen.getByTestId('notifications').textContent).toBe('loaded');
     expect(screen.getByTestId('members').textContent).toBe('null');
 
     membersSpy.mockRestore();
@@ -548,13 +561,13 @@ describe('AppProvider / team-switch race guards', () => {
       actions = useAppActions();
       return (
         <div>
-          <div data-testid="events">{state.events ? 'loaded' : 'null'}</div>
+          <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
           <div data-testid="news">{state.news ? 'loaded' : 'null'}</div>
         </div>
       );
     }
 
-    render(
+    renderApp(
       <AppProvider>
         <Probe />
       </AppProvider>,
@@ -566,7 +579,7 @@ describe('AppProvider / team-switch race guards', () => {
       await actions.selectTeam('team1');
     });
 
-    expect(screen.getByTestId('events').textContent).toBe('loaded');
+    expect(screen.getByTestId('notifications').textContent).toBe('loaded');
     expect(screen.getByTestId('news').textContent).toBe('null');
 
     newsSpy.mockRestore();
@@ -597,7 +610,7 @@ describe('AppProvider / team-switch race guards', () => {
       );
     }
 
-    render(
+    renderApp(
       <AppProvider>
         <Probe />
       </AppProvider>,
@@ -625,61 +638,6 @@ describe('AppProvider / team-switch race guards', () => {
     membersSpy.mockRestore();
   });
 
-  // Regression test: the absence-notification click handler
-  // (NotificationsSheet.tsx) used to call app.setState/app.loadAbsences
-  // directly instead of going through ensureRouteData like every other nav
-  // action -- so a null state.events left over from a failed afterLoginLoad
-  // never retried when the user navigated to Events > Absences this way.
-  it('goEventsAbsences retries the events load when events is still null from a failed afterLoginLoad', async () => {
-    const svc = await import('@/services');
-    const { ForbiddenError } = await import('@/utils/errors');
-    const eventsSpy = vi
-      .spyOn(svc.api.events, 'list')
-      .mockRejectedValueOnce(new ForbiddenError())
-      .mockResolvedValueOnce([]);
-
-    let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
-    function Probe() {
-      state = useApp().state;
-      actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="events">{state.events ? 'loaded' : 'null'}</div>
-          <div data-testid="eventsView">{state.eventsView}</div>
-        </div>
-      );
-    }
-
-    render(
-      <AppProvider>
-        <Probe />
-      </AppProvider>,
-    );
-    await act(async () => {
-      actions.setState({
-        phase: 'app',
-        activeTeamId: 'other-team',
-        teams: [
-          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { events: 'read' } },
-        ] as never,
-      });
-    });
-    await act(async () => {
-      await actions.selectTeam('team1');
-    });
-    expect(screen.getByTestId('events').textContent).toBe('null');
-
-    await act(async () => {
-      actions.goEventsAbsences();
-    });
-    expect(screen.getByTestId('events').textContent).toBe('loaded');
-    expect(screen.getByTestId('eventsView').textContent).toBe('absences');
-    expect(eventsSpy).toHaveBeenCalledTimes(2);
-
-    eventsSpy.mockRestore();
-  });
-
   // Regression test: goEventsAbsences called loadAbsences() unconditionally,
   // with no permission check -- unlike ensureRouteData('events'), which
   // already skips its own fetches when the caller can't read events. The one
@@ -699,7 +657,7 @@ describe('AppProvider / team-switch race guards', () => {
       return null;
     }
 
-    render(
+    renderApp(
       <AppProvider>
         <Probe />
       </AppProvider>,
@@ -731,72 +689,14 @@ describe('AppProvider / team-switch race guards', () => {
     listMineSpy.mockRestore();
   });
 
-  // Regression test: the activeTeamId check alone only guards against a TEAM
-  // SWITCH completing while a loader is in flight -- it does NOT catch two
-  // same-team calls to the SAME loader racing each other (e.g. two
-  // attendance updates in quick succession both triggering refreshEvents).
-  // If the network responds out of request order, the OLDER call's response
-  // could still land second and overwrite the newer one's fresher data.
-  // refreshEvents itself isn't exposed from useAppActions (it's an internal
-  // loader used by ensureRouteData/goEventsPending), so this drives it
-  // indirectly via go('events'), which calls refreshEvents whenever
-  // state.events is still null -- true for both calls here, since the
-  // first's still-pending response hasn't set it yet.
-  it('refreshEvents (via go) discards a stale response when a newer call has since resolved', async () => {
-    const svc = await import('@/services');
-    type Events = Awaited<ReturnType<typeof svc.api.events.list>>;
-    let resolveFirst!: (v: Events) => void;
-    const listSpy = vi
-      .spyOn(svc.api.events, 'list')
-      .mockReturnValueOnce(new Promise<Events>((resolve) => (resolveFirst = resolve)))
-      .mockResolvedValueOnce([{ id: 'fresh-event' }] as unknown as Events);
-
-    let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
-    function Probe() {
-      state = useApp().state;
-      actions = useAppActions();
-      return <div data-testid="events">{state.events ? JSON.stringify(state.events) : 'null'}</div>;
-    }
-
-    render(
-      <AppProvider>
-        <Probe />
-      </AppProvider>,
-    );
-    await act(async () => {
-      actions.setState({
-        phase: 'app',
-        activeTeamId: 'team1',
-        teams: [
-          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { events: 'write' } },
-        ] as never,
-        events: null,
-      });
-    });
-
-    // First call kicks off with a still-pending response.
-    act(() => {
-      actions.go('events');
-    });
-    // Second (newer) call resolves immediately -- state.events is still
-    // null at this point, so ensureRouteData fires refreshEvents again.
-    await act(async () => {
-      actions.go('events');
-      await Promise.resolve();
-    });
-    expect(screen.getByTestId('events').textContent).toContain('fresh-event');
-
-    // The first call's stale response now arrives -- it must NOT overwrite
-    // the second, fresher call's already-applied result.
-    await act(async () => {
-      resolveFirst([{ id: 'stale-event' }] as unknown as Events);
-    });
-    expect(screen.getByTestId('events').textContent).toContain('fresh-event');
-    expect(screen.getByTestId('events').textContent).not.toContain('stale-event');
-
-    listSpy.mockRestore();
-  });
+  // The old refreshEvents loader needed its own sequence-ref guard against
+  // two same-team calls racing each other (e.g. two attendance updates in
+  // quick succession both triggering a refresh). useEventsQuery has no
+  // equivalent test here because React Query de-duplicates concurrent
+  // fetches for the same key by design -- two components (or the same one,
+  // re-rendered) calling it for the same team share one in-flight request
+  // instead of racing two; see useEventQueries.test.ts for the team-switch
+  // (different key) case this file's old test suite covered separately.
 });
 
 // The bootstrap sets: events=write, members=read, finances=none
@@ -811,7 +711,7 @@ describe('AppProvider / can() permission checks', () => {
 
   async function renderWithPerms() {
     let capturedActions!: ReturnType<typeof useAppActions>;
-    render(
+    renderApp(
       <AppProvider>
         <PhaseAndSheet
           onMount={(a) => {
@@ -858,7 +758,6 @@ describe('AppProvider / can() permission checks', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [],
-        events: [],
         members: [],
         news: [],
         polls: [],
@@ -948,7 +847,7 @@ describe('AppProvider / invite-redemption join flow', () => {
       );
     }
 
-    render(
+    renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
@@ -994,7 +893,7 @@ describe('AppProvider / invite-redemption join flow', () => {
       );
     }
 
-    render(
+    renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
@@ -1030,7 +929,7 @@ describe('AppProvider / invite-redemption join flow', () => {
       );
     }
 
-    render(
+    renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
@@ -1091,7 +990,7 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
         </div>
       );
     }
-    render(
+    renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
@@ -1163,12 +1062,16 @@ describe('AppProvider / session-restore resilience', () => {
       );
     }
 
-    const { unmount } = render(
+    const { unmount } = renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
     );
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    // Default waitFor timeout (1000ms) has been observed to be too tight for
+    // this file's very first bootstrap under a loaded CI run (full-suite +
+    // coverage instrumentation contending with other jobs on a shared
+    // runner) -- give it the same headroom as the second waitFor below.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
 
     // A normal login establishes a real session (session.userId in the mock),
     // which persists across remounts within this module instance.
@@ -1182,17 +1085,20 @@ describe('AppProvider / session-restore resilience', () => {
     // backend outage) for the next session-restore attempt.
     api.teams.listForCurrentUser = vi.fn().mockRejectedValue(new NetworkError());
 
-    render(
+    renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
     );
 
     // retryable's backoff (300ms + 600ms) plus the mock's own randomized
-    // per-call latency pushes this well past the default 1000ms waitFor.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 5000 });
+    // per-call latency pushes this well past the default 1000ms waitFor --
+    // give it extra headroom under a loaded full-suite/coverage run, where
+    // this file now shares the process with many more React Query-backed
+    // renders than before.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
     await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
-  });
+  }, 20000);
 
   // Regression test: React.StrictMode double-invokes effects on initial
   // mount in dev, and the session-restore effect had no guard against that --
@@ -1209,7 +1115,7 @@ describe('AppProvider / session-restore resilience', () => {
       return <div data-testid="phase">{state.phase}</div>;
     }
 
-    render(
+    renderApp(
       <StrictMode>
         <FreshAppProvider>
           <Probe />
@@ -1246,7 +1152,7 @@ describe('AppProvider / session-restore resilience', () => {
       );
     }
 
-    const first = render(
+    const first = renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
@@ -1265,7 +1171,7 @@ describe('AppProvider / session-restore resilience', () => {
     // opened) while pointed at /finances?tab=strafen.
     window.history.pushState({}, '', '/finances?tab=strafen');
 
-    render(
+    renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
@@ -1309,7 +1215,7 @@ describe('AppProvider / session-restore resilience', () => {
       );
     }
 
-    const first = render(
+    const first = renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,
@@ -1324,7 +1230,7 @@ describe('AppProvider / session-restore resilience', () => {
     // Simulate the browser being reloaded while /events/<id> was open.
     window.history.pushState({}, '', '/events/' + eventId);
 
-    render(
+    renderApp(
       <FreshAppProvider>
         <Probe />
       </FreshAppProvider>,

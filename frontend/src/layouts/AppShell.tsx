@@ -6,6 +6,7 @@ import { ROUTE_MODULE } from '@/context/urlState';
 import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
+import { useEventsQuery, useEventDetailQuery } from '@/features/events';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
@@ -40,15 +41,22 @@ export function Shell() {
   const compact = useCompact();
   const t = buildTokens(state.primaryColor);
   const team = app.activeTeam();
+  const pageSheet = app.activePageSheet();
+  // Hooks must run unconditionally on every render (before the `!team` early
+  // return below), so the events queries are called here regardless of
+  // whether a team/user is present yet -- `enabled` on each query gates the
+  // actual fetch.
+  const { data: events } = useEventsQuery(app.api, state.activeTeamId);
+  const detailEventId = pageSheet && pageSheet.type === 'eventDetail' ? (pageSheet.eventId ?? null) : null;
+  const { data: detailData } = useEventDetailQuery(app.api, state.activeTeamId, detailEventId);
   if (!team || !state.user) return null;
 
   const today = todayLocalDate();
-  const pending = (state.events ?? []).filter(
+  const pending = (events ?? []).filter(
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
-  const pageSheet = app.activePageSheet();
-  const pm = pageMeta(app);
+  const pm = pageMeta(app, detailData?.event);
 
   // ---- shared chrome bits ----
   const teamIcon = (
@@ -104,7 +112,9 @@ export function Shell() {
         {renderSheet(app, pageSheet)}
       </ErrorBoundary>
     </Box>
-  ) : <RouteScreen />;
+  ) : (
+    <RouteScreen />
+  );
 
   // Derives each nav entry's gate from the shared ROUTE_MODULE map (same one
   // RouteScreen's per-route content gate uses) rather than hand-rolling
@@ -330,63 +340,70 @@ export function Shell() {
           {bottomDefs
             .filter((d) => !d.gate || d.gate())
             .map((n) => {
-            const isMore = n.key === '__more';
-            const active = !isMore && state.route === n.key;
-            const badge = n.badge || 0;
-            return (
-              <ButtonBase
-                key={n.key}
-                onClick={() => (isMore ? app.openMore() : app.go(n.key as Route))}
-                aria-current={active ? 'page' : undefined}
-                sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', p: '4px 0' }}
-              >
-                <Box
-                  component="span"
+              const isMore = n.key === '__more';
+              const active = !isMore && state.route === n.key;
+              const badge = n.badge || 0;
+              return (
+                <ButtonBase
+                  key={n.key}
+                  onClick={() => (isMore ? app.openMore() : app.go(n.key as Route))}
+                  aria-current={active ? 'page' : undefined}
                   sx={{
-                    position: 'relative',
+                    flex: 1,
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 58,
-                    height: 30,
-                    borderRadius: '16px',
-                    background: active ? t.secondaryContainer : 'transparent',
-                    color: active ? t.onSecondaryContainer : NEUTRAL.onSurfaceVariant,
+                    gap: '4px',
+                    p: '4px 0',
                   }}
                 >
-                  <Sym name={n.icon} size={24} />
-                  {badge > 0 ? (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: -2,
-                        right: 8,
-                        minWidth: 18,
-                        height: 18,
-                        borderRadius: '10px',
-                        background: t.primary,
-                        color: t.onPrimary,
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        px: '5px',
-                      }}
-                    >
-                      {badge}
-                    </Box>
-                  ) : null}
-                </Box>
-                <Box
-                  component="span"
-                  sx={{ fontSize: '11px', fontWeight: 600, color: active ? NEUTRAL.onSurface : NEUTRAL.secondary }}
-                >
-                  {n.label}
-                </Box>
-              </ButtonBase>
-            );
-          })}
+                  <Box
+                    component="span"
+                    sx={{
+                      position: 'relative',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 58,
+                      height: 30,
+                      borderRadius: '16px',
+                      background: active ? t.secondaryContainer : 'transparent',
+                      color: active ? t.onSecondaryContainer : NEUTRAL.onSurfaceVariant,
+                    }}
+                  >
+                    <Sym name={n.icon} size={24} />
+                    {badge > 0 ? (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -2,
+                          right: 8,
+                          minWidth: 18,
+                          height: 18,
+                          borderRadius: '10px',
+                          background: t.primary,
+                          color: t.onPrimary,
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          px: '5px',
+                        }}
+                      >
+                        {badge}
+                      </Box>
+                    ) : null}
+                  </Box>
+                  <Box
+                    component="span"
+                    sx={{ fontSize: '11px', fontWeight: 600, color: active ? NEUTRAL.onSurface : NEUTRAL.secondary }}
+                  >
+                    {n.label}
+                  </Box>
+                </ButtonBase>
+              );
+            })}
         </Box>
       </Box>
     );

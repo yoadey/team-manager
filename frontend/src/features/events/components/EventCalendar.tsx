@@ -7,6 +7,8 @@ import { buildTokens, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
+import { useEventsQuery } from '../hooks/useEventQueries';
+import type { TeamEvent } from '../types';
 
 export function EventCalendar() {
   const app = useApp();
@@ -14,6 +16,7 @@ export function EventCalendar() {
   const tk = buildTokens(state.primaryColor);
   const compact = useCompact();
   const mobile = compact;
+  const { data: events } = useEventsQuery(app.api, state.activeTeamId);
 
   const cur = state.calMonth || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const year = cur.getFullYear();
@@ -22,8 +25,8 @@ export function EventCalendar() {
   const startDow = (first.getDay() + 6) % 7;
   const today = todayLocalDate();
 
-  const evByDate: Record<string, NonNullable<typeof state.events>> = {};
-  (state.events ?? []).forEach((e) => {
+  const evByDate: Record<string, TeamEvent[]> = {};
+  (events ?? []).forEach((e) => {
     (evByDate[e.date] = evByDate[e.date] || []).push(e);
   });
 
@@ -224,7 +227,10 @@ export function EventCalendar() {
             <Sym name="chevron_right" size={22} color={NEUTRAL.onSurfaceVariant} />
           </ButtonBase>
         </Box>
-        <Box data-testid="calendar-grid" sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}>
+        <Box
+          data-testid="calendar-grid"
+          sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}
+        >
           {cells}
         </Box>
       </Card>

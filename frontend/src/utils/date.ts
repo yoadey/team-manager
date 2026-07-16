@@ -31,6 +31,22 @@ export function formatDateOnly(date: Date): string {
   return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
 }
 
+/**
+ * Returns the calendar date `months` months before `date`, clamping the day
+ * to the target month's length. `Date.setMonth` silently rolls over into the
+ * following month when the target month has fewer days than the source
+ * day-of-month (e.g. May 31 minus 3 months would land on "Feb 31", which JS
+ * normalizes to Mar 3), silently narrowing whatever range this is meant to
+ * express.
+ */
+export function monthsAgoLocal(date: string, months: number): string {
+  const d = parseDateOnlyLocal(date);
+  const x = new Date(d.getFullYear(), d.getMonth() - months, 1);
+  const daysInTargetMonth = new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
+  x.setDate(Math.min(d.getDate(), daysInTargetMonth));
+  return formatDateOnly(x);
+}
+
 /** Combines a YYYY-MM-DD date and HH:mm local time into a local Date. */
 export function combineDateAndTimeLocal(date: string, hhmm: string): Date {
   const day = parseDateOnlyLocal(date);

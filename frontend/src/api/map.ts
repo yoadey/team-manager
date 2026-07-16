@@ -7,7 +7,7 @@
 // per-arbitrary-user photo endpoint on the backend, so they stay null
 // (initials/avatar fallback) until such an endpoint exists.
 
-import { config } from '@/config';
+import { apiOrigin } from './client';
 import type { components } from './types.gen';
 import type {
   User,
@@ -22,23 +22,11 @@ import type {
   Provider,
 } from '@/types';
 import type { Member, MemberDto } from '@/features/members';
-import type {
-  TeamEvent,
-  AttendanceRow,
-  EventSummary,
-  EventComment,
-  Absence,
-} from '@/features/events';
+import type { TeamEvent, AttendanceRow, EventSummary, EventComment, Absence } from '@/features/events';
 import type { NewsItem } from '@/features/news';
 import type { Poll } from '@/features/polls';
 import type { AppNotification, NotificationsResult } from '@/features/notifications';
-import type {
-  FinanceOverview,
-  Transaction,
-  Penalty,
-  PenaltyAssignment,
-  Contribution,
-} from '@/features/finances';
+import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribution } from '@/features/finances';
 
 type S = components['schemas'];
 
@@ -64,7 +52,7 @@ export function eurosToCents(euros: number): number {
 // between unrelated re-renders of the same mapped object.
 function photoUrl(hasPhoto: boolean | undefined, path: string): string | null {
   if (!hasPhoto) return null;
-  return `${config.apiBaseUrl}/api/v1${path}?v=${Date.now()}`;
+  return `${apiOrigin}/api/v1${path}?v=${Date.now()}`;
 }
 
 // The backend's attendance-quote fields (MemberStat.quote, EventStat.pct,
@@ -172,7 +160,14 @@ export function mapMember(m: S['Member']): Member {
   return {
     ...dto,
     primaryRole: m.primaryRole ? mapRole(m.primaryRole) : null,
-    perms: (m.perms ?? { events: 'none', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' }) as Permissions,
+    perms: (m.perms ?? {
+      events: 'none',
+      members: 'none',
+      finances: 'none',
+      news: 'none',
+      polls: 'none',
+      settings: 'none',
+    }) as Permissions,
   };
 }
 

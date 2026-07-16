@@ -71,3 +71,11 @@ export const config = {
   mockDelayMax,
   sentryDsn: resolveSentryDsn(),
 } as const;
+
+// NOTE: `VITE_ALLOW_MOCK` (production fail-safe opt-in for the MSW demo
+// backend) is deliberately NOT surfaced here as a `config.*` value. It must
+// be read as the literal `import.meta.env.VITE_ALLOW_MOCK` expression at
+// its call site (see main.tsx) so Vite/Rollup can statically prove it false
+// and dead-code-eliminate the demo backend's dynamic import — and every
+// mock/seed module it pulls in — out of a genuine production build. Reading
+// it through this module first would erase that static-analysis guarantee.

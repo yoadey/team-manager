@@ -1,8 +1,9 @@
-// Real backend service layer — replaces localStorage mock with HTTP API calls.
-// Only activated when config.apiBaseUrl is set (see src/config.ts).
+// Real backend service layer — the sole API-contract implementation, for
+// production, dev-demo, and tests alike (see src/services/index.ts). In
+// dev-demo (no config.apiBaseUrl) its HTTP calls are intercepted by MSW
+// (src/mocks/) rather than a second in-code implementation.
 
-import { apiClient } from '@/api/client';
-import { config } from '@/config';
+import { apiClient, apiOrigin } from '@/api/client';
 import {
   mapUser,
   mapProvider,
@@ -56,9 +57,7 @@ function errorFor(status: number, body?: { detail?: string; title?: string } | n
 // react to the failure class — notably AuthError (401), which the app's
 // reportActionError/onAuthError wiring turns into a logout + redirect to the
 // login screen when a session expires mid-use.
-async function check<T>(
-  result: { data?: T; error?: unknown; response: Response },
-): Promise<T> {
+async function check<T>(result: { data?: T; error?: unknown; response: Response }): Promise<T> {
   if (result.error || !result.data) {
     const err = result.error as { detail?: string; title?: string } | undefined;
     throw errorFor(result.response.status, err);
@@ -94,16 +93,16 @@ async function uploadImage(path: string, fieldName: string, dataUrl: string): Pr
   const formData = new FormData();
   formData.append(fieldName, blob, fieldName + '.jpg');
 
-  const resp = await fetch(config.apiBaseUrl + path, {
+  const resp = await fetch(apiOrigin + path, {
     method: 'PUT',
     credentials: 'include',
     body: formData,
   });
   if (!resp.ok) {
-    const body = await resp
+    const body = (await resp
       .clone()
       .json()
-      .catch(() => undefined) as { detail?: string; title?: string } | undefined;
+      .catch(() => undefined)) as { detail?: string; title?: string } | undefined;
     throw errorFor(resp.status, body);
   }
   return resp;
@@ -227,7 +226,13 @@ export const realApi = {
       return mapTeam(t);
     },
 
-    async create(opts: { name: string; icon?: string; iconBg?: string; iconFg?: string; photo?: string | null }): Promise<Team> {
+    async create(opts: {
+      name: string;
+      icon?: string;
+      iconBg?: string;
+      iconFg?: string;
+      photo?: string | null;
+    }): Promise<Team> {
       const res = await apiClient.POST('/teams', {
         body: { name: opts.name, icon: opts.icon, iconBg: opts.iconBg, iconFg: opts.iconFg },
       });
@@ -318,10 +323,18 @@ export const realApi = {
       return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
     },
 
-    async update(membershipId: string, patch: {
-      name?: string; email?: string; phone?: string | null; birthday?: string | null;
-      address?: string | null; group?: string | null;
-    }, teamId: string): Promise<Member> {
+    async update(
+      membershipId: string,
+      patch: {
+        name?: string;
+        email?: string;
+        phone?: string | null;
+        birthday?: string | null;
+        address?: string | null;
+        group?: string | null;
+      },
+      teamId: string,
+    ): Promise<Member> {
       const res = await apiClient.PATCH('/teams/{teamId}/members/{membershipId}', {
         params: { path: { teamId, membershipId } },
         body: {
@@ -361,7 +374,10 @@ export const realApi = {
       return roles.map(mapRole);
     },
 
-    async create(teamId: string, payload: { name: string; color?: string; permissions: Role['permissions'] }): Promise<Role> {
+    async create(
+      teamId: string,
+      payload: { name: string; color?: string; permissions: Role['permissions'] },
+    ): Promise<Role> {
       const res = await apiClient.POST('/teams/{teamId}/roles', {
         params: { path: { teamId } },
         body: { name: payload.name, color: payload.color, permissions: payload.permissions },
@@ -416,12 +432,24 @@ export const realApi = {
     // `payload.meetTime` here (as this used to) is always undefined given
     // the caller's actual payload shape, silently dropping every meet/start/
     // end time on event creation against the real backend.
-    async create(teamId: string, payload: {
-      type: string; title: string; date: string; location?: string; note?: string;
-      meetT?: string | null; startT?: string | null; endT?: string | null;
-      meetTimeMandatory?: boolean; responseMode?: string; nominatedRoleIds?: string[];
-      recurring?: boolean; repeatWeeks?: number;
-    }): Promise<TeamEvent> {
+    async create(
+      teamId: string,
+      payload: {
+        type: string;
+        title: string;
+        date: string;
+        location?: string;
+        note?: string;
+        meetT?: string | null;
+        startT?: string | null;
+        endT?: string | null;
+        meetTimeMandatory?: boolean;
+        responseMode?: string;
+        nominatedRoleIds?: string[];
+        recurring?: boolean;
+        repeatWeeks?: number;
+      },
+    ): Promise<TeamEvent> {
       const res = await apiClient.POST('/teams/{teamId}/events', {
         params: { path: { teamId } },
         body: {
@@ -457,11 +485,24 @@ export const realApi = {
     // plain (non-DisallowUnknownFields) json.Decode silently ignores — the
     // PATCH still returns 200 and the UI still shows a success toast, but
     // edited meet/start/end times never persisted.
-    async update(eventId: string, patch: {
-      type?: string; title?: string; date?: string; location?: string; note?: string;
-      meetT?: string | null; startT?: string | null; endT?: string | null;
-      meetTimeMandatory?: boolean; responseMode?: string; nominatedRoleIds?: string[];
-    }, scope: 'single' | 'series', teamId: string): Promise<TeamEvent> {
+    async update(
+      eventId: string,
+      patch: {
+        type?: string;
+        title?: string;
+        date?: string;
+        location?: string;
+        note?: string;
+        meetT?: string | null;
+        startT?: string | null;
+        endT?: string | null;
+        meetTimeMandatory?: boolean;
+        responseMode?: string;
+        nominatedRoleIds?: string[];
+      },
+      scope: 'single' | 'series',
+      teamId: string,
+    ): Promise<TeamEvent> {
       const res = await apiClient.PATCH('/teams/{teamId}/events/{eventId}', {
         params: { path: { teamId, eventId }, query: { scope } },
         body: {
@@ -482,7 +523,12 @@ export const realApi = {
       return mapTeamEvent(e);
     },
 
-    async setStatus(eventId: string, status: 'active' | 'cancelled', scope: 'single' | 'series', teamId: string): Promise<TeamEvent> {
+    async setStatus(
+      eventId: string,
+      status: 'active' | 'cancelled',
+      scope: 'single' | 'series',
+      teamId: string,
+    ): Promise<TeamEvent> {
       const res = await apiClient.POST('/teams/{teamId}/events/{eventId}/status', {
         params: { path: { teamId, eventId }, query: { scope } },
         body: { status },
@@ -543,7 +589,8 @@ export const realApi = {
       // re-sort), so without this the participant list order silently
       // differed depending on which backend served the request.
       const sorted = [...rows].sort(
-        (a, b) => ATTENDANCE_STATUS_ORDER[a.status] - ATTENDANCE_STATUS_ORDER[b.status] || a.name.localeCompare(b.name, 'de'),
+        (a, b) =>
+          ATTENDANCE_STATUS_ORDER[a.status] - ATTENDANCE_STATUS_ORDER[b.status] || a.name.localeCompare(b.name, 'de'),
       );
       return sorted.map(mapAttendanceRow);
     },
@@ -603,7 +650,13 @@ export const realApi = {
       return [...items].sort((a, b) => a.from.localeCompare(b.from)).map(mapAbsence);
     },
 
-    async create(payload: { teamId: string; userId: string; from: string; to: string; reason?: string }): Promise<Absence> {
+    async create(payload: {
+      teamId: string;
+      userId: string;
+      from: string;
+      to: string;
+      reason?: string;
+    }): Promise<Absence> {
       const res = await apiClient.POST('/teams/{teamId}/absences', {
         params: { path: { teamId: payload.teamId } },
         body: {
@@ -617,7 +670,11 @@ export const realApi = {
       return mapAbsence(a);
     },
 
-    async update(absenceId: string, patch: { from?: string; to?: string; reason?: string }, teamId: string): Promise<Absence> {
+    async update(
+      absenceId: string,
+      patch: { from?: string; to?: string; reason?: string },
+      teamId: string,
+    ): Promise<Absence> {
       const res = await apiClient.PATCH('/teams/{teamId}/absences/{absenceId}', {
         params: { path: { teamId, absenceId } },
         body: patch,
@@ -655,7 +712,11 @@ export const realApi = {
       return mapNewsItem(n);
     },
 
-    async update(id: string, patch: { title?: string; body?: string; pinned?: boolean }, teamId: string): Promise<NewsItem> {
+    async update(
+      id: string,
+      patch: { title?: string; body?: string; pinned?: boolean },
+      teamId: string,
+    ): Promise<NewsItem> {
       const res = await apiClient.PATCH('/teams/{teamId}/news/{newsId}', {
         params: { path: { teamId, newsId: id } },
         body: patch,
@@ -692,9 +753,15 @@ export const realApi = {
       await checkOk(res);
     },
 
-    async create(teamId: string, payload: {
-      question: string; options: string[]; multiple?: boolean; anonymous?: boolean;
-    }): Promise<Poll> {
+    async create(
+      teamId: string,
+      payload: {
+        question: string;
+        options: string[];
+        multiple?: boolean;
+        anonymous?: boolean;
+      },
+    ): Promise<Poll> {
       const res = await apiClient.POST('/teams/{teamId}/polls', {
         params: { path: { teamId } },
         body: {
@@ -731,9 +798,16 @@ export const realApi = {
       return mapFinanceOverview({ ...o, assignments: [...o.assignments].reverse() });
     },
 
-    async addTransaction(teamId: string, payload: {
-      type: 'income' | 'expense'; title: string; amount: number; category?: string; date?: string;
-    }): Promise<Transaction> {
+    async addTransaction(
+      teamId: string,
+      payload: {
+        type: 'income' | 'expense';
+        title: string;
+        amount: number;
+        category?: string;
+        date?: string;
+      },
+    ): Promise<Transaction> {
       const res = await apiClient.POST('/teams/{teamId}/finances/transactions', {
         params: { path: { teamId } },
         body: {
@@ -796,7 +870,10 @@ export const realApi = {
       await checkOk(res);
     },
 
-    async assignPenalty(teamId: string, { userId, penaltyId }: { userId: string; penaltyId: string }): Promise<PenaltyAssignment> {
+    async assignPenalty(
+      teamId: string,
+      { userId, penaltyId }: { userId: string; penaltyId: string },
+    ): Promise<PenaltyAssignment> {
       const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments', {
         params: { path: { teamId } },
         body: { userId, penaltyId },
@@ -821,7 +898,11 @@ export const realApi = {
       return mapPenaltyAssignment(a);
     },
 
-    async updateContribution(id: string, patch: { label?: string; amount?: number }, teamId: string): Promise<Contribution> {
+    async updateContribution(
+      id: string,
+      patch: { label?: string; amount?: number },
+      teamId: string,
+    ): Promise<Contribution> {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/contributions/{contributionId}', {
         params: { path: { teamId, contributionId: id } },
         body: {
@@ -843,7 +924,10 @@ export const realApi = {
   },
 
   stats: {
-    async attendanceFor(teamId: string, userId: string): Promise<{ quote: number | null; counted: number; yes: number }> {
+    async attendanceFor(
+      teamId: string,
+      userId: string,
+    ): Promise<{ quote: number | null; counted: number; yes: number }> {
       const res = await apiClient.GET('/teams/{teamId}/stats/members/{userId}', {
         params: { path: { teamId, userId } },
       });

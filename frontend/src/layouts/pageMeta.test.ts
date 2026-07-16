@@ -136,9 +136,11 @@ describe('pageMeta()', () => {
     const app = makeApp('events');
     (app.activePageSheet as ReturnType<typeof vi.fn>).mockReturnValue({
       type: 'eventDetail',
-      event: mockEvent,
+      eventId: 'e1',
     });
-    const meta = pageMeta(app as never);
+    // The eventDetail sheet no longer carries its event -- the caller (AppShell)
+    // fetches it via useEventDetailQuery and passes it through explicitly.
+    const meta = pageMeta(app as never, mockEvent as never);
     expect(meta.title).toBe('Sommerball');
   });
 
