@@ -8,6 +8,7 @@ import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
 import { useEventsQuery, useEventDetailQuery } from '@/features/events';
 import { useMembersQuery } from '@/features/members';
+import { useNotificationsQuery } from '@/features/notifications';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
@@ -51,6 +52,7 @@ export function Shell() {
   const detailEventId = pageSheet && pageSheet.type === 'eventDetail' ? (pageSheet.eventId ?? null) : null;
   const { data: detailData } = useEventDetailQuery(app.api, state.activeTeamId, detailEventId);
   const { data: members } = useMembersQuery(app.api, state.activeTeamId);
+  const { data: notifData } = useNotificationsQuery(app.api, state.activeTeamId);
   if (!team || !state.user) return null;
 
   const today = todayLocalDate();
@@ -105,8 +107,9 @@ export function Shell() {
       {state.user.photo ? '' : initials(state.user.name)}
     </Box>
   );
-  const notifBadge = state.notifUnread > 9 ? '9+' : String(state.notifUnread);
-  const hasUnread = state.notifUnread > 0;
+  const notifUnread = notifData?.unreadCount ?? 0;
+  const notifBadge = notifUnread > 9 ? '9+' : String(notifUnread);
+  const hasUnread = notifUnread > 0;
 
   const content = pageSheet ? (
     <Box sx={{ maxWidth: '860px' }}>
@@ -114,7 +117,9 @@ export function Shell() {
         {renderSheet(app, pageSheet)}
       </ErrorBoundary>
     </Box>
-  ) : <RouteScreen />;
+  ) : (
+    <RouteScreen />
+  );
 
   // Derives each nav entry's gate from the shared ROUTE_MODULE map (same one
   // RouteScreen's per-route content gate uses) rather than hand-rolling
@@ -242,7 +247,7 @@ export function Shell() {
             onClick={app.openNotifications}
             aria-label={
               hasUnread
-                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                ? tl('shell.unreadNotifications', { n: notifUnread, count: notifUnread })
                 : tl('shell.openNotifications')
             }
             sx={{
@@ -340,63 +345,70 @@ export function Shell() {
           {bottomDefs
             .filter((d) => !d.gate || d.gate())
             .map((n) => {
-            const isMore = n.key === '__more';
-            const active = !isMore && state.route === n.key;
-            const badge = n.badge || 0;
-            return (
-              <ButtonBase
-                key={n.key}
-                onClick={() => (isMore ? app.openMore() : app.go(n.key as Route))}
-                aria-current={active ? 'page' : undefined}
-                sx={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', p: '4px 0' }}
-              >
-                <Box
-                  component="span"
+              const isMore = n.key === '__more';
+              const active = !isMore && state.route === n.key;
+              const badge = n.badge || 0;
+              return (
+                <ButtonBase
+                  key={n.key}
+                  onClick={() => (isMore ? app.openMore() : app.go(n.key as Route))}
+                  aria-current={active ? 'page' : undefined}
                   sx={{
-                    position: 'relative',
+                    flex: 1,
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    width: 58,
-                    height: 30,
-                    borderRadius: '16px',
-                    background: active ? t.secondaryContainer : 'transparent',
-                    color: active ? t.onSecondaryContainer : NEUTRAL.onSurfaceVariant,
+                    gap: '4px',
+                    p: '4px 0',
                   }}
                 >
-                  <Sym name={n.icon} size={24} />
-                  {badge > 0 ? (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: -2,
-                        right: 8,
-                        minWidth: 18,
-                        height: 18,
-                        borderRadius: '10px',
-                        background: t.primary,
-                        color: t.onPrimary,
-                        fontSize: '10px',
-                        fontWeight: 700,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        px: '5px',
-                      }}
-                    >
-                      {badge}
-                    </Box>
-                  ) : null}
-                </Box>
-                <Box
-                  component="span"
-                  sx={{ fontSize: '11px', fontWeight: 600, color: active ? NEUTRAL.onSurface : NEUTRAL.secondary }}
-                >
-                  {n.label}
-                </Box>
-              </ButtonBase>
-            );
-          })}
+                  <Box
+                    component="span"
+                    sx={{
+                      position: 'relative',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 58,
+                      height: 30,
+                      borderRadius: '16px',
+                      background: active ? t.secondaryContainer : 'transparent',
+                      color: active ? t.onSecondaryContainer : NEUTRAL.onSurfaceVariant,
+                    }}
+                  >
+                    <Sym name={n.icon} size={24} />
+                    {badge > 0 ? (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: -2,
+                          right: 8,
+                          minWidth: 18,
+                          height: 18,
+                          borderRadius: '10px',
+                          background: t.primary,
+                          color: t.onPrimary,
+                          fontSize: '10px',
+                          fontWeight: 700,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          px: '5px',
+                        }}
+                      >
+                        {badge}
+                      </Box>
+                    ) : null}
+                  </Box>
+                  <Box
+                    component="span"
+                    sx={{ fontSize: '11px', fontWeight: 600, color: active ? NEUTRAL.onSurface : NEUTRAL.secondary }}
+                  >
+                    {n.label}
+                  </Box>
+                </ButtonBase>
+              );
+            })}
         </Box>
       </Box>
     );
@@ -605,7 +617,7 @@ export function Shell() {
             onClick={app.openNotifications}
             aria-label={
               hasUnread
-                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                ? tl('shell.unreadNotifications', { n: notifUnread, count: notifUnread })
                 : tl('shell.openNotifications')
             }
             sx={{

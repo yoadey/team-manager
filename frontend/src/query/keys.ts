@@ -14,4 +14,5 @@ export const queryKeys = {
   news: (teamId: string) => ['teams', teamId, 'news'] as const,
   absences: (teamId: string) => ['teams', teamId, 'absences'] as const,
   myAbsences: (teamId: string) => ['teams', teamId, 'myAbsences'] as const,
+  notifications: (teamId: string) => ['teams', teamId, 'notifications'] as const,
 };

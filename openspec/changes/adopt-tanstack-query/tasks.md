@@ -81,7 +81,23 @@
         Query cache via `queryClient.prefetchQuery` in `useTeamActions.openProfile` instead of dropped, preserving the
         same on-demand trigger for whenever a future consumer starts reading it — its team-scoped key also makes the
         old manual `activeTeamId` staleness guard unnecessary.
-  - [ ] 4.2.6 `notifications`
+  - [x] 4.2.6 `notifications` — `useNotificationsQuery` (`useNotificationQueries.ts`); `useMarkNotificationsSeenMutation`
+        (`useNotificationMutations.ts`, writes the "all read" result straight into the query cache via
+        `queryClient.setQueryData` instead of invalidating/refetching, since markSeen doesn't change which
+        notifications exist, only their `unread` flag); `AppShell` (badge count) and `NotificationsSheet` (feed) read
+        the query directly instead of `state.notifications`/`state.notifUnread`. Unlike every other migrated
+        vertical, `loadNotifications` itself is NOT removed -- it's the one dependency threaded through all six other
+        verticals' action hooks (events/members/finances/polls/news/absences call it after a mutation that can flip a
+        notification's read-worthy state), so its name/signature (`() => Promise<void>`) is kept and its
+        implementation swapped from a manual fetch+setState to `useInvalidateTeamQuery(activeTeamId,
+        queryKeys.notifications)`, meaning none of those six call sites needed to change. `notifications`/`notifUnread`
+        dropped from `AppState`/`afterLoginLoad`'s bundle; roles is now the only fetch left there, so its
+        `Promise.allSettled` was simplified to a plain try/catch (no more sibling-module ForbiddenError filtering
+        needed with only one item). Fixed a real (pre-existing, not introduced by this change) bug surfaced while
+        writing this vertical's tests: `afterLoginLoad`'s success-path re-check used an imperative `S().activeTeamId
+        === teamId` read, which isn't reliably fresh mid-async-chain in React's batched updates -- switched to the
+        functional `setState((s) => ...)` form (reading React's own commit-time state), matching the pattern already
+        used by every other loader's *data-application* check in this file.
   - [ ] 4.2.7 `stats`
 
 ## 5. Verification

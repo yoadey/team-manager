@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createTestQueryClient } from '@/test/queryTestUtils';
+import { useNotificationsQuery } from '@/features/notifications';
 import { AppProvider, useApp, useAppActions, useAppSelector, sheetErrorBoundaryKey } from './AppContext';
 
 beforeEach(() => localStorage.clear());
@@ -422,89 +423,26 @@ describe('AppProvider / actions (app phase)', () => {
 // coverage in useEventQueries.test.ts/useMemberQueries.test.ts/
 // useFinanceQueries.test.ts/usePollQueries.test.ts/useNewsQueries.test.ts.)
 describe('AppProvider / team-switch race guards', () => {
-  // Regression test: afterLoginLoad used to await all five initial-load
-  // calls via Promise.all, so a single 403 (e.g. a member whose role lacks
-  // roles:read) discarded every other successfully-loaded module too --
-  // the whole dashboard was left blank. It must now degrade gracefully:
-  // modules that succeeded still populate state even when a sibling module
-  // fails.
-  it('afterLoginLoad still populates modules that succeeded when a sibling module 403s', async () => {
+  // Regression test: afterLoginLoad used to await roles/notifications
+  // together via Promise.allSettled, so a genuine (non-permission) failure
+  // needed its own reporting path independent of ForbiddenError filtering.
+  // Now that notifications is fetched via useNotificationsQuery (React
+  // Query) instead, roles is the only fetch left in this bundle -- this
+  // covers the success path (a fetched, non-empty roles list is applied).
+  it('afterLoginLoad populates roles on a successful fetch', async () => {
     const svc = await import('@/services');
-    const { ForbiddenError } = await import('@/utils/errors');
-    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockRejectedValue(new ForbiddenError());
-
-    let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
-    function Probe() {
-      state = useApp().state;
-      actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
-          <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
-          <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>
-        </div>
-      );
-    }
-
-    renderApp(
-      <AppProvider>
-        <Probe />
-      </AppProvider>,
-    );
-    await act(async () => {
-      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
-    });
-
-    await act(async () => {
-      await actions.selectTeam('team1');
-    });
-
-    // notifications is a sibling module in the same allSettled bundle --
-    // proves the roles 403 didn't blank out everything else (events/members
-    // are no longer part of this bundle; see useEventQueries.test.ts/
-    // useMemberQueries.test.ts for their own race coverage).
-    expect(screen.getByTestId('notifications').textContent).toBe('loaded');
-    expect(screen.getByTestId('roles').textContent).toBe('empty');
-
-    rolesSpy.mockRestore();
-  });
-
-  // Regression test: a ForbiddenError from afterLoginLoad's parallel fetch
-  // used to always surface a "you don't have permission" toast via
-  // reportLoad(failures[0].reason) -- even though a role having e.g.
-  // roles:none is completely ordinary and expected, not a real failure. This
-  // fired on every single login/team-switch for such a role. Verified via the
-  // module-populate side effect (not state.toast): afterLoginLoad's S().
-  // activeTeamId guard around reportLoad only ever settles once this whole
-  // act() block returns (React's test-mode batching defers the commit of the
-  // activeTeamId update queued earlier in the same callback), so a toast
-  // assertion taken mid-callback is unreliable here in a way a real network
-  // round-trip never is -- the ForbiddenError-filtering logic itself is
-  // simple enough (one .find() predicate) to trust from inspection plus this
-  // side-effect check.
-  it('afterLoginLoad leaves other modules populated when the only failure is a ForbiddenError', async () => {
-    const svc = await import('@/services');
-    const { ForbiddenError } = await import('@/utils/errors');
     // team1 isn't a seeded team in the MSW demo db, so roles.list would
-    // resolve to an empty array either way -- spy it to a known non-empty
-    // value so a successful fetch is actually distinguishable from the
-    // initial (also-empty) state, unlike the length-based check this
-    // replaced.
+    // resolve to an empty array either way -- mock a known non-empty value
+    // so a successful fetch is actually distinguishable from the initial
+    // (also-empty) state.
     const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockResolvedValue([{ id: 'r1', name: 'Member' } as never]);
-    const notifSpy = vi.spyOn(svc.api.notifications, 'list').mockRejectedValue(new ForbiddenError());
 
     let actions!: ReturnType<typeof useAppActions>;
     let state!: ReturnType<typeof useApp>['state'];
     function Probe() {
       state = useApp().state;
       actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>
-          <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
-        </div>
-      );
+      return <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>;
     }
 
     renderApp(
@@ -520,10 +458,82 @@ describe('AppProvider / team-switch race guards', () => {
     });
 
     expect(screen.getByTestId('roles').textContent).toBe('loaded');
-    expect(screen.getByTestId('notifications').textContent).toBe('null');
 
     rolesSpy.mockRestore();
-    notifSpy.mockRestore();
+  });
+
+  // Regression test: a genuine (non-permission) roles-fetch failure must not
+  // silently populate state.roles -- it should stay at its initial empty
+  // value. Verified via the data-population side effect (not state.toast):
+  // afterLoginLoad's S().activeTeamId guard around reportLoad only ever
+  // settles once this whole act() block returns (React's test-mode batching
+  // defers the commit of the activeTeamId update queued earlier in the same
+  // callback), so a toast assertion taken mid-callback is unreliable here in
+  // a way a real network round-trip never is -- the error-handling logic
+  // itself is simple enough (one instanceof check) to trust from inspection
+  // plus this side-effect check (same rationale as the
+  // ForbiddenError-suppression test below).
+  it('afterLoginLoad leaves roles empty on a genuine (non-Forbidden) fetch failure', async () => {
+    const svc = await import('@/services');
+    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockRejectedValue(new Error('boom'));
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>;
+    }
+
+    renderApp(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    expect(screen.getByTestId('roles').textContent).toBe('empty');
+
+    rolesSpy.mockRestore();
+  });
+
+  // Regression test: a ForbiddenError from afterLoginLoad's roles fetch used
+  // to always surface a "you don't have permission" toast -- even though a
+  // role having roles:none is completely ordinary and expected, not a real
+  // failure. This fired on every single login/team-switch for such a role.
+  it('afterLoginLoad silently ignores a ForbiddenError from the roles fetch (no toast)', async () => {
+    const svc = await import('@/services');
+    const { ForbiddenError } = await import('@/utils/errors');
+    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockRejectedValue(new ForbiddenError());
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return <div data-testid="toast">{state.toast?.message ?? ''}</div>;
+    }
+
+    renderApp(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    expect(screen.getByTestId('toast').textContent).toBe('');
+
+    rolesSpy.mockRestore();
   });
 
   // Regression test: ensureRouteData (invoked by `go`) covered finances/
@@ -539,8 +549,15 @@ describe('AppProvider / team-switch race guards', () => {
     const notifSpy = vi.spyOn(svc.api.notifications, 'list');
 
     let actions!: ReturnType<typeof useAppActions>;
+    let notifStatus: string = 'pending';
     function Probe() {
+      const { state, api } = useApp();
       actions = useAppActions();
+      // Mirrors AppShell keeping a live subscriber on the notifications query
+      // in the real app -- loadNotifications() (ensureRouteData's
+      // invalidateQueries call, below) only forces an actual network refetch
+      // when at least one component is actively observing the query.
+      notifStatus = useNotificationsQuery(api, state.activeTeamId).status;
       return null;
     }
 
@@ -561,6 +578,11 @@ describe('AppProvider / team-switch race guards', () => {
     await act(async () => {
       await actions.selectTeam('team1');
     });
+    // selectTeam's own awaited chain (afterLoginLoad) doesn't include this
+    // query's fetch -- wait for it to actually settle before invalidating,
+    // or the invalidation lands mid-fetch and gets absorbed into the
+    // already-in-flight request instead of producing a second, observable one.
+    await waitFor(() => expect(notifStatus).toBe('success'));
 
     notifSpy.mockClear();
 
@@ -568,7 +590,10 @@ describe('AppProvider / team-switch race guards', () => {
       actions.go('polls');
     });
 
-    expect(notifSpy).toHaveBeenCalledWith('team1');
+    // loadNotifications() (invalidateQueries) isn't awaited by ensureRouteData
+    // itself -- its refetch runs as a separate promise chain, so this needs
+    // its own wait rather than settling within the act() block above.
+    await waitFor(() => expect(notifSpy).toHaveBeenCalledWith('team1'));
     notifSpy.mockRestore();
   });
 

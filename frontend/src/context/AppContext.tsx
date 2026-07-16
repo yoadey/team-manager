@@ -25,8 +25,9 @@ import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
 import type { Contribution, Penalty, Transaction } from '@/features/finances';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
-import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
+import { queryKeys } from '@/query/keys';
+import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
 import { ForbiddenError, reportActionError, retryable } from '@/utils/errors';
@@ -131,8 +132,6 @@ export interface AppState {
   calMonth: Date | null;
   roles: Role[];
   stats: StatsOverview | null;
-  notifications: AppNotification[] | null;
-  notifUnread: number;
   notifFilter: 'all' | 'attendance' | 'events' | 'other';
   statsRange: DateRange | null;
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
@@ -193,8 +192,6 @@ const initialState: AppState = {
   calMonth: null,
   roles: [],
   stats: null,
-  notifications: null,
-  notifUnread: 0,
   notifFilter: 'all',
   statsRange: null,
   finTab: initialLocation.finTab,
@@ -671,18 +668,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (err: unknown) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load'),
     [setState, toastMsg, logout],
   );
-  const loadNotifications = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    try {
-      const r = await api.notifications.list(teamId);
-      // Discard a stale response if the user switched teams while this was
-      // in flight -- otherwise the previous team's notifications would
-      // clobber the newly selected team's already-cleared state.
-      setState((s) => (s.activeTeamId === teamId ? { notifications: r.items, notifUnread: r.unreadCount } : {}));
-    } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
-    }
-  }, [api, S, setState, reportLoad]);
+  // notifications itself is fetched via useNotificationsQuery (React Query,
+  // consumed directly by AppShell/NotificationsSheet); `loadNotifications` is
+  // kept as the SAME name/signature every other vertical's action hooks
+  // already depend on (events/absences/news/polls call it after a save/vote/
+  // delete that can flip a notification's read-worthy state), now
+  // implemented as a cache invalidation instead of a manual fetch+setState --
+  // none of those call sites needed to change when notifications itself
+  // migrated.
+  const invalidateNotifications = useInvalidateTeamQuery(state.activeTeamId, queryKeys.notifications);
+  const loadNotifications = useCallback(() => invalidateNotifications(), [invalidateNotifications]);
   // Monotonically increasing call counter so that, if afterLoginLoad is invoked
   // again (even for the same teamId) before an earlier call has finished, only
   // the most recently invoked call's results are ever applied. The activeTeamId
@@ -697,52 +692,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState({
         roles: [],
         stats: null,
-        notifications: null,
         eventsOnlyPending: false,
       });
-      // events, members, finances, polls and news are deliberately not part
-      // of this bundle -- their respective useXQuery hooks refetch on their
-      // own the moment activeTeamId (part of their query key) changes.
+      // events, members, finances, polls, news, absences, and notifications
+      // are deliberately not part of this bundle -- their respective
+      // useXQuery hooks refetch on their own the moment activeTeamId (part of
+      // their query key) changes. roles is the only server-state fetch left
+      // here.
       //
       // Retry on transient network failures — this is the initial-load read
       // path for the whole app, so a single dropped connection shouldn't
       // fail the entire team switch/login when a retry would likely
-      // succeed. Both calls are idempotent reads.
-      //
-      // allSettled (not all): a member whose role permits some but not all
-      // of these modules (e.g. finances:none is the default) must still see
-      // everything they DO have access to — one 403 shouldn't blank out
-      // notifications that already loaded successfully. Each slot keeps
-      // its previous value on failure rather than being forced to null, so a
-      // permission-denied module just doesn't overwrite whatever was already
-      // there (typically null on first load).
-      const [roles, notif] = await Promise.allSettled([
-        retryable(() => api.roles.list(teamId)),
-        retryable(() => api.notifications.list(teamId)),
-      ]);
-      const failures = [roles, notif].filter((r) => r.status === 'rejected');
-      // A ForbiddenError here just means the caller's role has that module set
-      // to 'none' -- an entirely ordinary, expected state (e.g. notifications:none),
-      // not a real failure. Surfacing it as a toast on every single login/team
-      // switch for such a role would be a false alarm; only report a genuine
-      // (non-permission) failure.
-      const reportable = failures.find((r) => !(r.reason instanceof ForbiddenError));
-      if (reportable && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
-        reportLoad(reportable.reason);
-      }
-      // Discard results if the user switched to a different team while loading,
-      // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
-      // team) has since been invoked.
-      setState((s) => {
-        if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
-        const patch: Partial<AppState> = {};
-        if (roles.status === 'fulfilled') patch.roles = roles.value;
-        if (notif.status === 'fulfilled') {
-          patch.notifications = notif.value.items;
-          patch.notifUnread = notif.value.unreadCount;
+      // succeed. This is an idempotent read.
+      try {
+        const roles = await retryable(() => api.roles.list(teamId));
+        // Discard the result if the user switched to a different team while
+        // loading, or if a newer afterLoginLoad call (e.g. rapid re-entry
+        // into the same team) has since been invoked. Uses the functional
+        // updater form (reading `s`, the state React actually commits this
+        // update against) rather than S() -- S() reads a ref that isn't
+        // guaranteed to reflect an activeTeamId change made earlier in this
+        // same async call chain until React actually processes that pending
+        // update, which can still be outstanding at this point.
+        setState((s) => (s.activeTeamId === teamId && afterLoginLoadSeq.current === seq ? { roles } : {}));
+      } catch (err) {
+        // A ForbiddenError here just means the caller's role has roles:none --
+        // an entirely ordinary, expected state, not a real failure. Surfacing
+        // it as a toast on every single login/team switch for such a role
+        // would be a false alarm; only report a genuine (non-permission)
+        // failure.
+        if (!(err instanceof ForbiddenError) && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
+          reportLoad(err);
         }
-        return patch;
-      });
+      }
     },
     [api, S, setState, reportLoad],
   );
@@ -887,9 +869,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // parsePendingInvite above) rather than trust the module-load-time
         // initialLocation/initialState snapshot, then fetch that route's
         // data the same way the popstate handler below does -- afterLoginLoad
-        // only covers roles/notifications (events/members/finances/polls/news
-        // fetch via their own query hooks), so without this a deep link into
-        // stats would render the right route with no data,
+        // only covers roles (events/members/finances/polls/news/absences/
+        // notifications fetch via their own query hooks), so without this a
+        // deep link into stats would render the right route with no data,
         // ever (the same "permanent skeleton loader" class events/members
         // no longer need a manual fix for). Left as `detail: null` here
         // deliberately --

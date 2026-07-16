@@ -6,6 +6,7 @@ import type { AppNotification } from '../types';
 import { buildTokens, statusMeta, fmtDate, relTime, NEUTRAL } from '@/styles/tokens';
 import { getIntlLocale, t } from '@/i18n';
 import { Av, EmptyState, SpinnerBox } from '@/components/ui';
+import { useNotificationsQuery } from '../hooks/useNotificationQueries';
 
 interface NotifMeta {
   col: string;
@@ -36,6 +37,7 @@ export function NotificationsSheet({ app }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const S = state;
+  const { data: notifData } = useNotificationsQuery(app.api, state.activeTeamId);
 
   const notifMeta = (n: AppNotification): NotifMeta => {
     if (n.type === 'attendance') {
@@ -118,7 +120,7 @@ export function NotificationsSheet({ app }: SheetProps) {
     };
   };
 
-  if (!S.notifications) return <SpinnerBox />;
+  if (!notifData) return <SpinnerBox />;
 
   const filt = S.notifFilter || 'all';
   const chips: Array<[string, string]> = [
@@ -153,7 +155,7 @@ export function NotificationsSheet({ app }: SheetProps) {
     </Box>
   );
 
-  const list = (S.notifications || []).filter((n) => filt === 'all' || notifMeta(n).group === filt);
+  const list = notifData.items.filter((n) => filt === 'all' || notifMeta(n).group === filt);
   if (!list.length) {
     return (
       <Box>
