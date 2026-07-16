@@ -933,8 +933,9 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
     });
     await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:google'));
 
+    let applePromise!: Promise<void>;
     act(() => {
-      void actions!.doLogin('apple');
+      applePromise = actions!.doLogin('apple');
     });
     await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:apple'));
 
@@ -947,6 +948,23 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
     expect(screen.getByTestId('busy').textContent).toBe('login:apple');
     // The error message still surfaces regardless of busy ownership.
     expect(screen.getByTestId('error').textContent).toContain('google unreachable');
+
+    // Let apple's login run to completion (a REAL login against the mock
+    // backend, unlike google's which is stubbed out above) before the test
+    // ends. `doLogin`'s promise only resolves once login -> currentUser ->
+    // establishSession's whole chain (including the team-list fetch and
+    // afterLoginLoad) has settled -- left dangling, this in-flight promise
+    // keeps running in the background after the test returns and
+    // `afterEach`'s resetDb() clears session.userId, since MSW's session
+    // singleton (mocks/db.ts) is shared for the whole file and isn't part of
+    // any test's own vi.resetModules() reset. Under CI's slower/more
+    // contended scheduling this occasionally landed during a LATER test's own
+    // fresh-boot check (e.g. session-restore resilience below), making a
+    // brand-new "no session yet" render see apple's now-established session
+    // and jump straight to the app phase instead of login.
+    await act(async () => {
+      await applePromise;
+    });
   });
 });
 
@@ -1001,15 +1019,7 @@ describe('AppProvider / session-restore resilience', () => {
     // Default waitFor timeout (1000ms) has been observed to be too tight for
     // this file's very first bootstrap under a loaded CI run (full-suite +
     // coverage instrumentation contending with other jobs on a shared
-    // runner) -- give it the same headroom as the second waitFor below. Even
-    // 20000ms has intermittently timed out in CI as this file has grown more
-    // React Query-backed test suites (members/finances/polls/news and
-    // counting) -- this test is unusually exposed to that growth because
-    // `freshModules()` calls `vi.resetModules()`, forcing a full re-evaluation
-    // (and re-instrumentation, under `test:coverage`) of the entire app's
-    // module graph on every render in this test, unlike ordinary tests that
-    // reuse already-loaded modules. So this needs a wide margin rather than
-    // the tightest value that happened to pass locally.
+    // runner) -- give it the same headroom as the second waitFor below.
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 30000 });
 
     // A normal login establishes a real session (session.userId in the mock),
