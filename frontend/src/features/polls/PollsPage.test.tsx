@@ -8,16 +8,29 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+// Mocked directly on the hooks module (not just a `@/features/polls` barrel
+// re-export) -- PollsPage.tsx imports `usePollsQuery` via a relative import,
+// so this must match that module path (see the identical comment/pattern in
+// EventsPage.test.tsx/MembersPage.test.tsx).
+vi.mock('./hooks/usePollQueries', () => ({
+  usePollsQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { usePollsQuery } from './hooks/usePollQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
+const mockUsePollsQuery = usePollsQuery as ReturnType<typeof vi.fn>;
 
 function makeApp(overrides: Record<string, unknown> = {}) {
+  const { polls, ...stateOverrides } = overrides;
+  mockUsePollsQuery.mockReturnValue({ data: 'polls' in overrides ? polls : [] });
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
-      polls: [],
+      activeTeamId: 't1',
       user: { id: 'u1' },
-      ...overrides,
+      ...stateOverrides,
     },
     can: vi.fn().mockReturnValue(false),
     openPollForm: vi.fn(),

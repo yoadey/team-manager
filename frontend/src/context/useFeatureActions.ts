@@ -25,14 +25,13 @@ type FeatureActionDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
-  /** Reactive active team id, for the events/members verticals' query/mutation hooks. */
+  /** Reactive active team id, for the events/members/finances/polls verticals' query/mutation hooks. */
   teamId: string | null;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
   loadAbsences: () => Promise<void>;
   loadStats: (range?: DateRange | null) => Promise<void>;
   loadNews: () => Promise<void>;
-  loadPolls: () => Promise<void>;
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
@@ -54,7 +53,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     loadAbsences,
     loadStats,
     loadNews,
-    loadPolls,
     loadNotifications,
     afterLoginLoad,
     toastMsg,
@@ -158,7 +156,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     toastMsg,
     logout,
   });
-  const pollActions = usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm, logout });
+  const pollActions = usePollActions({ api, S, setState, teamId, loadNotifications, toastMsg, askConfirm, logout });
   const eventFormActions = useEventFormActions({
     api,
     S,

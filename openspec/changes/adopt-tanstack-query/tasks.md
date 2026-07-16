@@ -47,7 +47,15 @@
         `savingContrib`, mirroring `savingMember`); the three confirm-gated deletes (tx/penalty/assignment) take
         `teamId` per call rather than a hook-bound reactive value, mirroring `useDeleteEventMutation`/
         `useRemoveMemberMutation`; `finances` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`.
-  - [ ] 4.2.3 `polls`
+  - [x] 4.2.3 `polls` — `usePollsQuery` (`usePollQueries.ts`); `useSavePollMutation`/`useVotePollMutation`/
+        `useDeletePollMutation` (`usePollMutations.ts`); `PollsPage` reads the query directly; `savePoll`'s
+        `busy === 'save'` replaced by `mutation.isPending` (`state.savingPoll`); `removePoll` (confirm-gated) takes
+        `teamId` per call, mirroring `useDeleteEventMutation`/`useRemoveMemberMutation`; the old loader's paired
+        `loadNotifications()` refresh is preserved both per-action (`votePoll`/`savePoll`/`removePoll` each still
+        call it after success, mirroring the events vertical) and per-navigation (`ensureRouteData`'s existing
+        route-dispatch mechanism now has a `polls` branch calling `loadNotifications()`, reusing the same
+        internal-only loader `loadStats`/`loadNews` already use there instead of exposing it publicly); `polls`
+        dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches.
   - [ ] 4.2.4 `news`
   - [ ] 4.2.5 `absences`
   - [ ] 4.2.6 `notifications`

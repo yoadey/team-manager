@@ -168,7 +168,6 @@ describe('AppProvider / actions (app phase)', () => {
         activeTeamId: 'team1',
         roles: [{ id: 'r1', name: 'Member' }] as never,
         news: [],
-        polls: [],
       });
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -415,13 +414,14 @@ describe('AppProvider / actions (app phase)', () => {
 });
 
 // Regression test: on-demand per-route loaders (loadStats, loadNews,
-// loadPolls, loadAbsences, refreshRoles, loadNotifications) used to apply
-// their response unconditionally, with no check that activeTeamId was still
-// the same team when the response landed -- unlike afterLoginLoad, which has
+// loadAbsences, refreshRoles, loadNotifications) used to apply their
+// response unconditionally, with no check that activeTeamId was still the
+// same team when the response landed -- unlike afterLoginLoad, which has
 // always had this guard. A slow request for the team the user just navigated
 // away from could clobber the newly selected team's state with the previous
-// team's data. (events/members/finances have their own equivalent coverage
-// in useEventQueries.test.ts/useMemberQueries.test.ts/useFinanceQueries.test.ts.)
+// team's data. (events/members/finances/polls have their own equivalent
+// coverage in useEventQueries.test.ts/useMemberQueries.test.ts/
+// useFinanceQueries.test.ts/usePollQueries.test.ts.)
 describe('AppProvider / team-switch race guards', () => {
   // Regression test: afterLoginLoad used to await all five initial-load
   // calls via Promise.all, so a single 403 (e.g. a member whose role lacks
@@ -524,7 +524,47 @@ describe('AppProvider / team-switch race guards', () => {
   // stats/news/polls but not events/members -- members no longer needs this
   // branch at all: it's fetched via useMembersQuery, which retries/refetches
   // on its own (see useMemberQueries.test.ts for that coverage), the same
-  // way events dropped its equivalent branch.
+  // way events dropped its equivalent branch. polls' own list is likewise
+  // fetched by usePollsQuery, but ensureRouteData still refreshes
+  // notifications on every navigation to the route -- a new poll clears its
+  // own "pending vote" notification once the user has viewed it.
+  it('go("polls") refreshes notifications', async () => {
+    const svc = await import('@/services');
+    const notifSpy = vi.spyOn(svc.api.notifications, 'list');
+
+    let actions!: ReturnType<typeof useAppActions>;
+    function Probe() {
+      actions = useAppActions();
+      return null;
+    }
+
+    renderApp(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({
+        phase: 'app',
+        activeTeamId: 'other-team',
+        teams: [
+          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { polls: 'read' } },
+        ] as never,
+      });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    notifSpy.mockClear();
+
+    await act(async () => {
+      actions.go('polls');
+    });
+
+    expect(notifSpy).toHaveBeenCalledWith('team1');
+    notifSpy.mockRestore();
+  });
 
   // Regression test: goEventsAbsences called loadAbsences() unconditionally,
   // with no permission check -- unlike ensureRouteData('events'), which
@@ -647,7 +687,6 @@ describe('AppProvider / can() permission checks', () => {
         activeTeamId: 'team1',
         roles: [],
         news: [],
-        polls: [],
       });
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));

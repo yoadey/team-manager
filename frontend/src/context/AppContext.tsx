@@ -132,7 +132,6 @@ export interface AppState {
   roles: Role[];
   news: NewsItem[] | null;
   stats: StatsOverview | null;
-  polls: Poll[] | null;
   absences: Absence[] | null;
   myAbsences: Absence[] | null;
   notifications: AppNotification[] | null;
@@ -167,6 +166,7 @@ export interface AppState {
   savingPenalty: boolean;
   savingPenaltyAssign: boolean;
   savingContrib: boolean;
+  savingPoll: boolean;
 }
 
 function loadColorScheme(): AppState['colorScheme'] {
@@ -195,7 +195,6 @@ const initialState: AppState = {
   roles: [],
   news: null,
   stats: null,
-  polls: null,
   absences: null,
   myAbsences: null,
   notifications: null,
@@ -218,6 +217,7 @@ const initialState: AppState = {
   savingPenalty: false,
   savingPenaltyAssign: false,
   savingContrib: false,
+  savingPoll: false,
 };
 
 // Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
@@ -701,7 +701,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         roles: [],
         news: null,
         stats: null,
-        polls: null,
         absences: null,
         myAbsences: null,
         notifications: null,
@@ -833,18 +832,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (S().activeTeamId === teamId && loadNewsSeq.current === seq) reportLoad(err);
     }
   }, [api, S, setState, loadNotifications, reportLoad]);
-  const loadPollsSeq = useRef(0);
-  const loadPolls = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadPollsSeq.current;
-    try {
-      const polls = await api.polls.list(teamId);
-      setState((s) => (s.activeTeamId === teamId && loadPollsSeq.current === seq ? { polls } : {}));
-      loadNotifications();
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadPollsSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, loadNotifications, reportLoad]);
+  // polls has no such loader here -- it's fetched via usePollsQuery (React
+  // Query), whose team-scoped key makes this class of race structurally
+  // impossible instead of needing a manual sequence guard (same as
+  // events/members/finances). The old loader's paired loadNotifications()
+  // refresh now lives in PollsPage itself (see its own comment).
   const loadAbsencesSeq = useRef(0);
   const loadAbsences = useCallback(async () => {
     const teamId = S().activeTeamId!;
@@ -861,9 +853,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(
     (route: Route) => {
-      // events, members, and finances have no branch here: they're fetched by
-      // useEventsQuery/useMembersQuery/useFinanceOverviewQuery, which
-      // retry/refetch on their own.
+      // events, members, finances, and polls have no data-fetch branch here:
+      // they're fetched by useEventsQuery/useMembersQuery/
+      // useFinanceOverviewQuery/usePollsQuery, which retry/refetch on their
+      // own.
       //
       // Skip entirely for a module the caller can't read (nav already hides
       // these routes, but a stale bookmark/URL or browser back/forward can
@@ -874,9 +867,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (module && !can(module, 'read')) return;
       if (route === 'stats' && !S().stats) loadStats();
       if (route === 'news' && !S().news) loadNews();
-      if (route === 'polls' && !S().polls) loadPolls();
+      // polls' own list is fetched by usePollsQuery, but the pre-migration
+      // loadPolls loader also refreshed notifications on every (re-)navigation
+      // here -- e.g. a new poll clears its own "pending vote" notification
+      // once the user has viewed it -- so that pairing stays, just without
+      // the list-fetch half.
+      if (route === 'polls') loadNotifications();
     },
-    [S, can, loadStats, loadNews, loadPolls],
+    [S, can, loadStats, loadNews, loadNotifications],
   );
 
   // ---------- auth ----------
@@ -1171,6 +1169,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingPenalty,
     savingPenaltyAssign,
     savingContrib,
+    savingPoll,
   } = useFeatureActions({
     api,
     S,
@@ -1183,7 +1182,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadAbsences,
     loadStats,
     loadNews,
-    loadPolls,
     loadNotifications,
     afterLoginLoad,
     toastMsg,
@@ -1523,13 +1521,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savingPenalty,
       savingPenaltyAssign,
       savingContrib,
+      savingPoll,
     }),
-    [state, savingEvent, savingComment, savingMember, savingTx, savingPenalty, savingPenaltyAssign, savingContrib],
+    [
+      state,
+      savingEvent,
+      savingComment,
+      savingMember,
+      savingTx,
+      savingPenalty,
+      savingPenaltyAssign,
+      savingContrib,
+      savingPoll,
+    ],
   );
   exposedStateRef.current = exposedState;
   useEffect(() => {
     listeners.current.forEach((l) => l());
-  }, [savingEvent, savingComment, savingMember, savingTx, savingPenalty, savingPenaltyAssign, savingContrib]);
+  }, [
+    savingEvent,
+    savingComment,
+    savingMember,
+    savingTx,
+    savingPenalty,
+    savingPenaltyAssign,
+    savingContrib,
+    savingPoll,
+  ]);
 
   return (
     <AppStoreContext.Provider value={store}>
