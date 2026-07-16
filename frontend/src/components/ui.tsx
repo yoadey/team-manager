@@ -360,8 +360,14 @@ export const TextInput = React.forwardRef<HTMLInputElement, TextInputProps>(
     const onFormInput = useAppActions().onFormInput;
     const v = useAppSelector((s) => (s.form ? s.form[name] : undefined));
 
-    const finalValue = value !== undefined ? value : v == null ? '' : String(v);
-    const finalOnChange = onChange !== undefined ? onChange : onFormInput;
+    // A caller-supplied `onChange` (e.g. react-hook-form's `register()` spread)
+    // means this field owns its own value tracking uncontrolled, via `ref` --
+    // it must NOT also be forced into a React-controlled `value` bound to the
+    // (unrelated) global form bag, or every keystroke gets immediately
+    // overwritten back to the stale global value on the next render.
+    const isExternallyManaged = onChange !== undefined;
+    const finalValue = value !== undefined ? value : isExternallyManaged ? undefined : v == null ? '' : String(v);
+    const finalOnChange = isExternallyManaged ? onChange : onFormInput;
 
     return (
       <input
@@ -370,7 +376,7 @@ export const TextInput = React.forwardRef<HTMLInputElement, TextInputProps>(
         type={type}
         min={min}
         max={max}
-        value={finalValue == null ? '' : String(finalValue)}
+        value={finalValue == null ? undefined : String(finalValue)}
         placeholder={placeholder || ''}
         onChange={finalOnChange}
         onBlur={onBlur}
@@ -392,14 +398,19 @@ export const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
     const onFormInput = useAppActions().onFormInput;
     const v = useAppSelector((s) => (s.form ? s.form[name] : undefined));
 
-    const finalValue = value !== undefined ? value : v == null ? '' : String(v);
-    const finalOnChange = onChange !== undefined ? onChange : onFormInput;
+    // See TextInput above: a caller-supplied `onChange` (react-hook-form's
+    // `register()`) means this field tracks its own value uncontrolled via
+    // `ref` -- it must not also be pinned to a React-controlled `value` from
+    // the unrelated global form bag, or typing gets reverted every render.
+    const isExternallyManaged = onChange !== undefined;
+    const finalValue = value !== undefined ? value : isExternallyManaged ? undefined : v == null ? '' : String(v);
+    const finalOnChange = isExternallyManaged ? onChange : onFormInput;
 
     return (
       <textarea
         ref={ref}
         name={name}
-        value={finalValue == null ? '' : String(finalValue)}
+        value={finalValue == null ? undefined : String(finalValue)}
         placeholder={placeholder || ''}
         onChange={finalOnChange}
         onBlur={onBlur}

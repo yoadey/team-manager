@@ -25,7 +25,11 @@ export const memberFormSchema = z
     birthday: z.string().trim().optional().or(z.literal('')),
     address: z.string().trim().max(500).optional().or(z.literal('')),
     photo: z.string().optional().nullable(),
-    roleIds: z.array(z.string().uuid()).optional(),
+    // Not `.uuid()` -- opaque, server-issued ids toggled via UI chips, never
+    // typed by the user; the MSW demo backend's role ids (e.g. "role_xyz")
+    // aren't RFC4122 UUIDs, so a strict uuid() check here would silently
+    // block every profile save.
+    roleIds: z.array(z.string()).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.email && !EMAIL_RE.test(data.email)) {

@@ -12,7 +12,11 @@ const validDate = (value: string) => {
 
 export const absenceFormSchema = z
   .object({
-    id: z.string().uuid().optional(),
+    // Not `.uuid()` -- this is an opaque, server-issued id never typed by the
+    // user (only present in edit mode, round-tripped unchanged), and the
+    // MSW demo backend's ids (e.g. "abs_xyz") aren't RFC4122 UUIDs, so a
+    // strict uuid() check here would silently block every edit against it.
+    id: z.string().optional(),
     from: z
       .string()
       .trim()

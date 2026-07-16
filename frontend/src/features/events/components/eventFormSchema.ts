@@ -35,12 +35,16 @@ export const eventFormSchema = z
     endT: z.string().trim().optional().or(z.literal('')),
     meetTimeMandatory: z.boolean().optional(),
     responseMode: z.enum(['opt_in', 'opt_out']).optional(),
-    nominatedRoleIds: z.array(z.string().uuid()).optional(),
+    // Not `.uuid()` -- these are opaque, server-issued ids chosen via UI
+    // toggles, never typed by the user, and the MSW demo backend's ids
+    // (e.g. "role_xyz", "series_tue_thu") aren't RFC4122 UUIDs, so a strict
+    // uuid() check here would silently fail validation on every submit.
+    nominatedRoleIds: z.array(z.string()).optional(),
     location: z.string().max(255).optional().or(z.literal('')),
     note: z.string().max(10000).optional().or(z.literal('')),
     recurring: z.boolean().optional(),
     repeatWeeks: z.coerce.number().optional(),
-    seriesId: z.string().uuid().optional().nullable(),
+    seriesId: z.string().optional().nullable(),
   })
   .superRefine((data, ctx) => {
     // Validate date

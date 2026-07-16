@@ -69,6 +69,7 @@ export function AbsenceFormSheet({ app, sheet }: SheetProps) {
       </Field>
       <PrimaryButton
         label={sheet.mode === 'edit' ? t('events.absenceSaveEdit') : t('events.absenceSave')}
+        onClick={handleSubmit(onSubmit)}
         busy={isSubmitting}
       />
     </Box>
