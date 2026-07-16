@@ -34,6 +34,7 @@ import type { NewsItem } from '@/features/news';
 import type { NewsFormValues } from '@/features/news/components/newsFormSchema';
 import type { Poll } from '@/features/polls';
 import type { PollFormValues } from '@/features/polls/components/pollFormSchema';
+import type { RoleFormValues } from '@/features/team/components/roleFormSchema';
 import { queryKeys } from '@/query/keys';
 import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
@@ -319,8 +320,7 @@ export interface AppContextValue {
   // roles
   openRoles: () => void;
   openRoleForm: (role?: Role) => void;
-  setRolePerm: (module: ModuleKey, level: PermLevel) => void;
-  saveRole: () => Promise<void>;
+  saveRole: (f: RoleFormValues) => Promise<void>;
   removeRole: (roleId: string) => void;
   toggleMyRole: (roleId: string) => Promise<void>;
   // team
@@ -1041,7 +1041,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removeMember,
     openRoles,
     openRoleForm,
-    setRolePerm,
     saveRole,
     removeRole,
     toggleMyRole,
@@ -1277,7 +1276,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeMember,
       openRoles,
       openRoleForm,
-      setRolePerm,
       saveRole,
       removeRole,
       toggleMyRole,
@@ -1379,7 +1377,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeMember,
       openRoles,
       openRoleForm,
-      setRolePerm,
       saveRole,
       removeRole,
       toggleMyRole,

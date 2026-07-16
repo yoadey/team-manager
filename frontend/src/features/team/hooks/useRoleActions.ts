@@ -1,11 +1,10 @@
 import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { ModuleKey, PermLevel, Role, TeamForUser } from '@/types';
+import type { Role, TeamForUser } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
-import type { RoleFormValues } from '../types';
-import { formValues, clearBusyIfOwned } from '@/utils/forms';
+import type { RoleFormValues } from '../components/roleFormSchema';
+import { clearBusyIfOwned } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
-import { validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -48,46 +47,35 @@ export function useRoleActions({
     [setState],
   );
 
-  const setRolePerm = useCallback(
-    (module: ModuleKey, level: PermLevel) =>
-      setState((s) => {
-        const perms = formValues<RoleFormValues>(s).perms;
-        return { form: { ...s.form, perms: { ...perms, [module]: level } } };
-      }),
-    [setState],
-  );
-
-  const saveRole = useCallback(async () => {
-    const f = S().form as RoleFormValues;
-    const nameResult = validateRequiredText(f.name, t('team.roleNameRequired'));
-    if (!nameResult.ok) {
-      toastMsg(nameResult.message!, undefined, 'error');
-      return;
-    }
-    const teamId = S().activeTeamId!;
-    const sh = S().sheet;
-    setState({ busy: 'save' });
-    try {
-      if (f.id) {
-        await api.roles.update(f.id, { name: nameResult.value!, permissions: f.perms }, teamId);
-        await refreshRoles();
-        clearBusyIfOwned(S, setState, 'save');
-        // Don't navigate to the roles sheet for a different team than the
-        // one the user has since switched to, or clobber a different sheet
-        // the user has since opened while this save was in flight.
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
-        toastMsg(t('team.toastRoleUpdated'));
-      } else {
-        await api.roles.create(teamId, { name: nameResult.value!, permissions: f.perms });
-        await refreshRoles();
-        clearBusyIfOwned(S, setState, 'save');
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
-        toastMsg(t('team.toastRoleCreated'));
+  const saveRole = useCallback(
+    async (f: RoleFormValues) => {
+      const teamId = S().activeTeamId!;
+      const sh = S().sheet;
+      setState({ busy: 'save' });
+      try {
+        if (f.id) {
+          await api.roles.update(f.id, { name: f.name.trim(), permissions: f.perms }, teamId);
+          await refreshRoles();
+          clearBusyIfOwned(S, setState, 'save');
+          // Don't navigate to the roles sheet for a different team than the
+          // one the user has since switched to, or clobber a different sheet
+          // the user has since opened while this save was in flight.
+          if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
+          toastMsg(t('team.toastRoleUpdated'));
+        } else {
+          await api.roles.create(teamId, { name: f.name.trim(), permissions: f.perms });
+          await refreshRoles();
+          clearBusyIfOwned(S, setState, 'save');
+          if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
+          toastMsg(t('team.toastRoleCreated'));
+        }
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+        throw err;
       }
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
-    }
-  }, [api, S, setState, refreshRoles, toastMsg, logout]);
+    },
+    [api, S, setState, refreshRoles, toastMsg, logout],
+  );
 
   const removeRole = useCallback(
     (roleId: string) =>
@@ -142,5 +130,5 @@ export function useRoleActions({
     [api, activeTeam, refreshTeams, setState, toastMsg, logout],
   );
 
-  return { openRoles, openRoleForm, setRolePerm, saveRole, removeRole, toggleMyRole };
+  return { openRoles, openRoleForm, saveRole, removeRole, toggleMyRole };
 }
