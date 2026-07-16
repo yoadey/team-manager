@@ -1002,11 +1002,15 @@ describe('AppProvider / session-restore resilience', () => {
     // this file's very first bootstrap under a loaded CI run (full-suite +
     // coverage instrumentation contending with other jobs on a shared
     // runner) -- give it the same headroom as the second waitFor below. Even
-    // 10000ms has intermittently timed out in CI as this file has grown more
-    // React Query-backed test suites (members/finances/polls and counting),
-    // so this needs a wide margin rather than the tightest value that
-    // happened to pass locally.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 20000 });
+    // 20000ms has intermittently timed out in CI as this file has grown more
+    // React Query-backed test suites (members/finances/polls/news and
+    // counting) -- this test is unusually exposed to that growth because
+    // `freshModules()` calls `vi.resetModules()`, forcing a full re-evaluation
+    // (and re-instrumentation, under `test:coverage`) of the entire app's
+    // module graph on every render in this test, unlike ordinary tests that
+    // reuse already-loaded modules. So this needs a wide margin rather than
+    // the tightest value that happened to pass locally.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 30000 });
 
     // A normal login establishes a real session (session.userId in the mock),
     // which persists across remounts within this module instance.
@@ -1030,10 +1034,12 @@ describe('AppProvider / session-restore resilience', () => {
     // per-call latency pushes this well past the default 1000ms waitFor --
     // give it extra headroom under a loaded full-suite/coverage run, where
     // this file now shares the process with many more React Query-backed
-    // renders than before.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 20000 });
+    // renders than before (see the first waitFor's comment above re:
+    // freshModules()/vi.resetModules() making this test uniquely sensitive to
+    // that growth).
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 30000 });
     await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
-  }, 40000);
+  }, 60000);
 
   // Regression test: React.StrictMode double-invokes effects on initial
   // mount in dev, and the session-restore effect had no guard against that --
