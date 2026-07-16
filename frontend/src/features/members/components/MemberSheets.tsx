@@ -191,7 +191,13 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
   const canRoles = app.can('settings', 'write');
   const canEditPhoto = !!sheet.self;
 
-  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<MemberFormValues>({
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors },
+  } = useForm<MemberFormValues>({
     resolver: zodResolver(memberFormSchema),
     mode: 'onBlur',
     defaultValues: {
@@ -376,7 +382,8 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
             onBlur: (e) => {
               const val = e.target.value;
               const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-              const isOk = !val || (DATE_RE.test(val) && new Date(val + 'T00:00:00') <= new Date() && val >= '1900-01-01');
+              const isOk =
+                !val || (DATE_RE.test(val) && new Date(val + 'T00:00:00') <= new Date() && val >= '1900-01-01');
               app.setFormErrors({ birthday: isOk ? '' : t('members.fieldBirthdayError') });
             },
           })}

@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '@/styles/tokens';
-import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
+import { ALL_TIME_FROM_DATE, formatDateOnly, parseDateOnlyLocal } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
 import type { DateRange } from '@/types';
@@ -14,7 +14,18 @@ export function Stats() {
   const st = state.stats;
 
   const today = todayStr();
-  const ago = (months: number) => monthsAgoLocal(today, months);
+  const d = parseDateOnlyLocal(today);
+  const ago = (months: number) => {
+    // Date.setMonth silently rolls over into the following month when the
+    // target month has fewer days than today's day-of-month (e.g. May 31
+    // minus 3 months would land on "Feb 31", which JS normalizes to Mar 3),
+    // silently narrowing the range the preset label promises. Build the
+    // target month directly and clamp the day instead.
+    const x = new Date(d.getFullYear(), d.getMonth() - months, 1);
+    const daysInTargetMonth = new Date(x.getFullYear(), x.getMonth() + 1, 0).getDate();
+    x.setDate(Math.min(d.getDate(), daysInTargetMonth));
+    return formatDateOnly(x);
+  };
   const R: DateRange = state.statsRange || { from: null, to: null };
   // 'all' passes an explicit far-past `from` rather than null: the service
   // layers treat a null/omitted `from` as "no range selected yet" and apply

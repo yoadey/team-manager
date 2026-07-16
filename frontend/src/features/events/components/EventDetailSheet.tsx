@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { todayLocalDate } from '@/utils/date';
@@ -8,37 +7,17 @@ import type { AttendanceRow, EventComment, EventCommentFormValues, TeamEvent } f
 import type { AttendanceStatus } from '@/types';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
-import { reportActionError } from '@/utils/errors';
-import { useEventDetailQuery } from '../hooks/useEventQueries';
 import { t } from '@/i18n';
 
 export function EventDetailSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const eventId = sheet.eventId ?? null;
-  const detail = useEventDetailQuery(app.api, state.activeTeamId, eventId);
 
-  // A thrown INITIAL fetch (a genuine network failure, or events:none after a
-  // permission downgrade) never resolves to a `{ event: null }` success --
-  // without this, the sheet was stuck spinning forever; close it instead of
-  // leaving a permanently-loading sheet open, after surfacing why. A failed
-  // BACKGROUND refetch (e.g. the invalidation after an unrelated attendance
-  // mutation hitting a transient blip) must not do this -- `detail.data` is
-  // still the last good response, so the sheet keeps showing it rather than
-  // discarding valid, already-rendered content over a momentary hiccup.
-  useEffect(() => {
-    if (!detail.isError || detail.data) return;
-    reportActionError({ setState: app.setState, toastMsg: app.toastMsg, onAuthError: app.logout }, detail.error, 'error.load');
-    app.setState((s) => (s.sheet && s.sheet.type === 'eventDetail' && s.sheet.eventId === eventId ? { sheet: null } : {}));
-  }, [detail.isError, detail.error, detail.data, eventId, app]);
-
-  if (detail.isError && !detail.data) return null;
-  if (detail.isLoading) return <SpinnerBox />;
-
-  // event === null once the query has resolved is a confirmed-missing event
-  // (deleted or inaccessible), distinct from still-loading above.
-  const e: TeamEvent | null = detail.data?.event ?? null;
-  if (!e) return <EmptyState icon="event_busy" text={t('events.detailNotFound')} />;
+  const e: TeamEvent | null = sheet.event ?? null;
+  if (!e) {
+    if (sheet.eventNotFound) return <EmptyState icon="event_busy" text={t('events.detailNotFound')} />;
+    return <SpinnerBox />;
+  }
 
   const tm = typeMeta(e.type);
   const today = todayLocalDate();
@@ -228,7 +207,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       ) => (
         <ButtonBase
           key={st}
-          onClick={() => app.setMyStatus(e.id, st, e.myReason)}
+          onClick={() => app.setMyStatus(e.id, st)}
           sx={{
             flex: 1,
             display: 'flex',
@@ -415,7 +394,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
     );
   };
 
-  const rows = (detail.data?.rows || []).map((r: AttendanceRow) => {
+  const rows = (sheet.rows || []).map((r: AttendanceRow) => {
     const rsm = statusMeta(r.status);
     const mine = r.userId === me;
     const editable = (canEdit || mine) && !isPast;
@@ -604,7 +583,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   ) : null;
 
   // Comment thread
-  const cms: EventComment[] = detail.data?.comments || [];
+  const cms: EventComment[] = sheet.comments || [];
   const thread = (
     <Box key="th" sx={{ mt: '22px' }}>
       <SectionTitle>{t('events.comments') + (cms.length ? ' (' + cms.length + ')' : '')}</SectionTitle>

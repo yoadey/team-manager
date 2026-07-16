@@ -13,8 +13,14 @@ const validDate = (value: string) => {
 export const absenceFormSchema = z
   .object({
     id: z.string().uuid().optional(),
-    from: z.string().trim().min(1, { message: t('validation.dateRangeStartMissing') }),
-    to: z.string().trim().min(1, { message: t('validation.dateRangeEndMissing') }),
+    from: z
+      .string()
+      .trim()
+      .min(1, { message: t('validation.dateRangeStartMissing') }),
+    to: z
+      .string()
+      .trim()
+      .min(1, { message: t('validation.dateRangeEndMissing') }),
     reason: z.string().max(500).optional().or(z.literal('')),
   })
   .superRefine((data, ctx) => {

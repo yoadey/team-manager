@@ -11,14 +11,8 @@ vi.mock('@/layouts/useCompact', () => ({
   useCompact: vi.fn(() => false),
 }));
 
-vi.mock('../hooks/useEventQueries', () => ({
-  useEventsQuery: vi.fn(),
-}));
-
 import { useApp } from '@/context/AppContext';
-import { useEventsQuery } from '../hooks/useEventQueries';
 const mockUseApp = vi.mocked(useApp);
-const mockUseEventsQuery = vi.mocked(useEventsQuery);
 
 function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
   return {
@@ -57,12 +51,11 @@ function makeApp(
   const setState = vi.fn();
   const toggleCalAbsences = vi.fn();
   const app = {
-    api: {},
     state: {
       primaryColor: 'blue',
-      activeTeamId: 't1',
       calMonth: overrides.calMonth ?? new Date(2026, 2, 1), // March 2026
       calShowAbsences: overrides.calShowAbsences ?? false,
+      events: overrides.events ?? [],
       absences: overrides.absences ?? [],
     },
     openEventDetail,
@@ -70,7 +63,6 @@ function makeApp(
     toggleCalAbsences,
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
-  mockUseEventsQuery.mockReturnValue({ data: overrides.events ?? [] } as never);
   return app;
 }
 

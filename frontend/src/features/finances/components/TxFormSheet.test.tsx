@@ -88,7 +88,7 @@ describe('TxFormSheet', () => {
     expect(categoryInput.maxLength).toBe(255);
   });
 
-  it('renders the category input as Field\'s direct cloned child, not wrapped in an intermediate element', () => {
+  it("renders the category input as Field's direct cloned child, not wrapped in an intermediate element", () => {
     const app = makeApp();
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);

@@ -3,7 +3,6 @@ import type { api as defaultApi } from '@/services';
 import type { NewsItem } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
-import { clearBusyIfOwned } from '@/utils/forms';
 import { t } from '@/i18n';
 import type { NewsFormValues } from '../components/newsFormSchema';
 
@@ -40,34 +39,29 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
     [setState],
   );
 
-  const saveNews = useCallback(async (fProp?: any) => {
-    const f = fProp !== undefined ? fProp : (S().form as NewsFormValues);
-    if (!f.title || !f.title.trim()) {
-      toastMsg(t('news.titleRequired'), undefined, 'error');
-      return;
-    }
-    const sh = S().sheet;
-    const teamId = S().activeTeamId!;
-    setState({ busy: 'save' });
-    try {
-      if (f.id) {
-        await api.news.update(f.id, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned }, teamId);
-        await loadNews();
-        clearBusyIfOwned(S, setState, 'save');
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
-        toastMsg(t('news.toastUpdated'));
-      } else {
-        await api.news.create(teamId, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned });
-        await loadNews();
-        clearBusyIfOwned(S, setState, 'save');
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
-        toastMsg(t('news.toastPublished'));
+  const saveNews = useCallback(
+    async (f: NewsFormValues) => {
+      const sh = S().sheet;
+      const teamId = S().activeTeamId!;
+      try {
+        if (f.id) {
+          await api.news.update(f.id, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned }, teamId);
+          await loadNews();
+          if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+          toastMsg(t('news.toastUpdated'));
+        } else {
+          await api.news.create(teamId, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned });
+          await loadNews();
+          if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+          toastMsg(t('news.toastPublished'));
+        }
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        throw err;
       }
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
-      if (fProp !== undefined) throw err;
-    }
-  }, [api, S, setState, loadNews, toastMsg, logout]);
+    },
+    [api, S, setState, loadNews, toastMsg, logout],
+  );
 
   const removeNews = useCallback(
     (id: string) =>

@@ -5,7 +5,11 @@ import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation'
 export const txFormSchema = z.object({
   id: z.string().optional(),
   type: z.enum(['income', 'expense']),
-  title: z.string().trim().min(1, { message: t('finances.txFieldTitleError') }).max(255),
+  title: z
+    .string()
+    .trim()
+    .min(1, { message: t('finances.txFieldTitleError') })
+    .max(255),
   amount: z.string().superRefine((val, ctx) => {
     const res = validateMoneyAmount(val, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
     if (!res.ok) {

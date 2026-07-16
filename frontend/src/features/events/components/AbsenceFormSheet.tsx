@@ -35,7 +35,11 @@ export function AbsenceFormSheet({ app, sheet }: SheetProps) {
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
       <Box
         sx={{
           display: 'flex',

@@ -19,18 +19,3 @@
 # 1-alpine3.23 (or 1-alpine) digest and re-pin frontend/Dockerfile then;
 # remove this entry once that happens.
 CVE-2026-33630
-
-# CVE-2026-5773 (wrong file transfer via incorrect SMB connection reuse) and
-# CVE-2026-6276 (cookie leak via connection reuse) are curl/libcurl
-# vulnerabilities in the pinned 1-alpine3.23 base image (Alpine 3.23.5,
-# curl/libcurl 8.19.0-r0; fixed upstream in 8.20.0-r0). Both bugs require
-# curl/libcurl to actually make outbound HTTP(S) requests -- this image never
-# does: it only serves static built assets via nginx (frontend/nginx.conf has
-# no proxy_pass or other upstream call), and the container's own scripts
-# (docker-entrypoint-runtime-config.sh, the HEALTHCHECK) use `wget` and
-# `envsubst`, never `curl`. curl ships here only as a base-image OS package,
-# unreachable in this deployment. Re-pin frontend/Dockerfile to a rebuilt
-# 1-alpine3.23 digest carrying curl 8.20.0-r0+ once nginxinc publishes one,
-# and remove these two entries then.
-CVE-2026-5773
-CVE-2026-6276

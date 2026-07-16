@@ -40,7 +40,11 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
   const errs = state.formErrors || {};
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
       <Box
         sx={{
           display: 'flex',
@@ -57,10 +61,20 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         <Sym name="gavel" size={20} color={tk.primary} />
         {create ? t('finances.penaltyFormHintCreate') : t('finances.penaltyFormHintEdit')}
       </Box>
-      <Field label={t('finances.penaltyFieldLabel')} required error={!!errors.label || !!errs.label} errorText={errors.label?.message || errs.label}>
+      <Field
+        label={t('finances.penaltyFieldLabel')}
+        required
+        error={!!errors.label || !!errs.label}
+        errorText={errors.label?.message || errs.label}
+      >
         <TextInput placeholder={t('finances.penaltyFieldLabelPlaceholder')} maxLength={255} {...register('label')} />
       </Field>
-      <Field label={t('finances.penaltyFieldAmount')} required error={!!errors.amount || !!errs.amount} errorText={errors.amount?.message || errs.amount}>
+      <Field
+        label={t('finances.penaltyFieldAmount')}
+        required
+        error={!!errors.amount || !!errs.amount}
+        errorText={errors.amount?.message || errs.amount}
+      >
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
       <PrimaryButton

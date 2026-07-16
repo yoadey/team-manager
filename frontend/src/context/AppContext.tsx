@@ -100,10 +100,14 @@ export interface SheetState {
   mode?: 'edit' | 'create';
   self?: boolean;
   action?: 'cancel' | 'delete' | 'reactivate';
-  /** Used by the `seriesAction` confirm sheet only -- the `eventDetail` sheet
-   * fetches its event via `useEventDetailQuery(eventId)` instead of carrying it. */
   event?: TeamEvent | null;
+  /** True once a reload has resolved with a confirmed-missing event (deleted
+   * or inaccessible) -- distinguishes that from `event` still being null
+   * because the initial load hasn't resolved yet. */
+  eventNotFound?: boolean;
   eventId?: string;
+  rows?: AttendanceRow[];
+  comments?: import('@/features/events').EventComment[];
   membershipId?: string;
   member?: Member | null;
   stats?: MemberAttendanceStats | null;
@@ -129,6 +133,7 @@ export interface AppState {
   eventsOnlyPending: boolean;
   calShowAbsences: boolean;
   calMonth: Date | null;
+  events: TeamEvent[] | null;
   members: Member[] | null;
   roles: Role[];
   news: NewsItem[] | null;
@@ -154,16 +159,6 @@ export interface AppState {
    */
   toast: { message: string; action?: { label: string; fn: () => void }; kind?: 'success' | 'error' } | null;
   error: string | null;
-  /**
-   * Per-operation mutation pending flags for the events vertical (React Query
-   * `mutation.isPending`), merged into the exposed context value every render
-   * -- NOT part of the `useState` slice `setState` manages, unlike every
-   * other field above. Replaces the shared `busy` string for these two
-   * actions so a concurrent save-event and save-comment can't clear each
-   * other's spinner/disabled state.
-   */
-  savingEvent: boolean;
-  savingComment: boolean;
 }
 
 function loadColorScheme(): AppState['colorScheme'] {
@@ -189,6 +184,7 @@ const initialState: AppState = {
   eventsOnlyPending: initialLocation.eventsOnlyPending,
   calShowAbsences: false,
   calMonth: null,
+  events: null,
   members: null,
   roles: [],
   news: null,
@@ -208,10 +204,6 @@ const initialState: AppState = {
   formErrors: {},
   toast: null,
   error: null,
-  // Overwritten every render by AppProvider's merged context value (see the
-  // AppState doc comment above); these defaults are never actually read.
-  savingEvent: false,
-  savingComment: false,
 };
 
 // Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
@@ -278,7 +270,7 @@ export interface AppContextValue {
   loadFinances: () => Promise<void>;
   loadStats: (range?: DateRange | null) => Promise<void>;
   // attendance
-  setMyStatus: (eventId: string, status: AttendanceStatus, currentReason?: string) => Promise<void>;
+  setMyStatus: (eventId: string, status: AttendanceStatus) => Promise<void>;
   setStatusFor: (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => void;
   canSeeComment: (row: AttendanceRow) => boolean;
   openComment: (e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => void;
@@ -303,21 +295,22 @@ export interface AppContextValue {
     event: TeamEvent,
     scope: 'single' | 'series',
   ) => Promise<void>;
-  openEventDetail: (eventId: string) => void;
+  openEventDetail: (eventId: string) => Promise<void>;
+  reloadDetail: (eventId: string) => Promise<void>;
   openEventForm: (event: TeamEvent | null) => void;
-  saveEvent: (fProp?: any, scope?: 'single' | 'series') => Promise<void>;
+  saveEvent: (scope?: 'single' | 'series') => Promise<void>;
   toggleFormNomRole: (roleId: string) => void;
   // members
   openMemberDetail: (membershipId: string) => Promise<void>;
   openMemberForm: (member: Member) => void;
   toggleFormRole: (roleId: string) => void;
-  saveMember: (fProp?: any) => Promise<void>;
+  saveMember: () => Promise<void>;
   removeMember: (membershipId: string) => void;
   // roles
   openRoles: () => void;
   openRoleForm: (role?: Role) => void;
   setRolePerm: (module: ModuleKey, level: PermLevel) => void;
-  saveRole: (fProp?: any) => Promise<void>;
+  saveRole: () => Promise<void>;
   removeRole: (roleId: string) => void;
   toggleMyRole: (roleId: string) => Promise<void>;
   // team
@@ -330,15 +323,15 @@ export interface AppContextValue {
   saveTeamLogo: (dataUrl: string, teamId: string) => Promise<void>;
   setTeamIcon: (em: string) => void;
   toggleReasonRole: (roleId: string) => void;
-  saveTeamSettings: (fProp?: any) => Promise<void>;
+  saveTeamSettings: () => Promise<void>;
   openCreateTeam: () => void;
-  createTeam: (fProp?: any) => Promise<void>;
+  createTeam: () => Promise<void>;
   openInvite: () => Promise<void>;
   copyInvite: () => void;
   uploadMyPhoto: (dataUrl: string) => Promise<void>;
   // absences
   openAbsenceForm: (absence?: Absence | null) => void;
-  saveAbsence: (fProp?: any) => Promise<void>;
+  saveAbsence: () => Promise<void>;
   removeAbsence: (id: string) => void;
   // calendar export
   openCalExport: () => void;
@@ -346,21 +339,21 @@ export interface AppContextValue {
   copyCalUrl: () => void;
   // news
   openNewsForm: (n?: import('@/features/news').NewsItem) => void;
-  saveNews: (fProp?: any) => Promise<void>;
+  saveNews: () => Promise<void>;
   removeNews: (id: string) => void;
   // finances
   openTxForm: (tx?: Transaction) => void;
-  saveTx: (fProp?: any) => Promise<void>;
+  saveTx: () => Promise<void>;
   deleteTx: (id: string) => Promise<void>;
   openPenaltyCatalog: () => void;
   openPenaltyForm: (p?: Penalty) => void;
-  savePenalty: (fProp?: any) => Promise<void>;
+  savePenalty: () => Promise<void>;
   deletePenaltyDef: (id: string) => void;
   openPenaltyAssign: () => void;
-  savePenaltyAssign: (fProp?: any) => Promise<void>;
+  savePenaltyAssign: () => Promise<void>;
   deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
-  saveContrib: (fProp?: any) => Promise<void>;
+  saveContrib: () => Promise<void>;
   togglePenalty: (id: string) => Promise<void>;
   toggleContribution: (id: string) => Promise<void>;
   setStatsRange: (range: DateRange | null) => void;
@@ -431,16 +424,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setRaw] = useState<AppState>(initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
-  // Tracks the same merged value handed to AppStateContext (state plus the
-  // per-render mutation-pending fields) so useAppSelector sees savingEvent/
-  // savingComment too, not just the useState-managed slice. Updated in
-  // render (see `exposedState` near the bottom), read only from effects/
-  // handlers that run after render commits.
-  const exposedStateRef = useRef<AppState>(initialState);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fine-grained subscription store backing useAppSelector. Listeners are
-  // notified after each committed state change (see effects below).
+  // notified after each committed state change (see effect below).
   const listeners = useRef(new Set<() => void>());
   const store = useMemo<AppStore>(
     () => ({
@@ -448,7 +435,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         listeners.current.add(cb);
         return () => listeners.current.delete(cb);
       },
-      get: () => exposedStateRef.current,
+      get: () => stateRef.current,
     }),
     [],
   );
@@ -535,6 +522,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       teams: [],
       activeTeamId: null,
       sheet: null,
+      events: null,
       members: null,
       roles: [],
     });
@@ -694,6 +682,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (teamId: string) => {
       const seq = ++afterLoginLoadSeq.current;
       setState({
+        events: null,
         members: null,
         roles: [],
         news: null,
@@ -705,29 +694,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         notifications: null,
         eventsOnlyPending: false,
       });
-      // events is deliberately not part of this bundle -- useEventsQuery
-      // refetches on its own the moment activeTeamId (part of its query key)
-      // changes, below.
-      //
       // Retry on transient network failures — this is the initial-load read
       // path for the whole app, so a single dropped connection shouldn't
       // fail the entire team switch/login when a retry would likely
-      // succeed. All four calls are idempotent reads.
+      // succeed. All five calls are idempotent reads.
       //
       // allSettled (not all): a member whose role permits some but not all
       // of these modules (e.g. finances:none is the default) must still see
       // everything they DO have access to — one 403 shouldn't blank out
-      // news/notifications that already loaded successfully. Each slot keeps
-      // its previous value on failure rather than being forced to null, so a
-      // permission-denied module just doesn't overwrite whatever was already
-      // there (typically null on first load).
-      const [members, roles, news, notif] = await Promise.allSettled([
+      // events/news/notifications that already loaded successfully. Each
+      // slot keeps its previous value on failure rather than being forced
+      // to null, so a permission-denied module just doesn't overwrite
+      // whatever was already there (typically null on first load).
+      const [events, members, roles, news, notif] = await Promise.allSettled([
+        retryable(() => api.events.list(teamId, 'all')),
         retryable(() => api.members.list(teamId)),
         retryable(() => api.roles.list(teamId)),
         retryable(() => api.news.list(teamId)),
         retryable(() => api.notifications.list(teamId)),
       ]);
-      const failures = [members, roles, news, notif].filter((r) => r.status === 'rejected');
+      const failures = [events, members, roles, news, notif].filter((r) => r.status === 'rejected');
       // A ForbiddenError here just means the caller's role has that module set
       // to 'none' -- an entirely ordinary, expected state (e.g. news:none),
       // not a real failure. Surfacing it as a toast on every single login/team
@@ -743,6 +729,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState((s) => {
         if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
         const patch: Partial<AppState> = {};
+        if (events.status === 'fulfilled') patch.events = events.value;
         if (members.status === 'fulfilled') patch.members = members.value;
         if (roles.status === 'fulfilled') patch.roles = roles.value;
         if (news.status === 'fulfilled') patch.news = news.value;
@@ -758,15 +745,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Each loader below gets its own monotonic call-sequence ref, mirroring
   // afterLoginLoadSeq above: the activeTeamId check alone only guards
   // against a TEAM SWITCH completing while a call is in flight, not against
-  // two same-team refreshes of the SAME loader racing each other (e.g.
-  // rapidly switching the stats date range). If the network responds
+  // two same-team refreshes of the SAME loader racing each other (e.g. two
+  // attendance updates in quick succession both triggering refreshEvents,
+  // or rapidly switching the stats date range). If the network responds
   // out of request order, an unguarded loader would apply whichever
   // response happened to arrive last, silently reverting to stale data
   // even though a newer request was already in flight.
-  //
-  // events has no such loader here -- it's fetched via useEventsQuery
-  // (React Query), whose team-scoped key makes this class of race
-  // structurally impossible instead of needing a manual sequence guard.
+  const refreshEventsSeq = useRef(0);
+  const refreshEvents = useCallback(async () => {
+    const teamId = S().activeTeamId!;
+    const seq = ++refreshEventsSeq.current;
+    try {
+      const events = await retryable(() => api.events.list(teamId, 'all'));
+      setState((s) => (s.activeTeamId === teamId && refreshEventsSeq.current === seq ? { events } : {}));
+      loadNotifications();
+    } catch (err) {
+      if (S().activeTeamId === teamId && refreshEventsSeq.current === seq) reportLoad(err);
+    }
+  }, [api, S, setState, loadNotifications, reportLoad]);
   const refreshMembersSeq = useRef(0);
   const refreshMembers = useCallback(async () => {
     const teamId = S().activeTeamId!;
@@ -878,13 +874,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(
     (route: Route) => {
-      // members is normally populated by afterLoginLoad, but that
+      // events/members are normally populated by afterLoginLoad, but that
       // Promise.allSettled leaves a slot at its previous value (null, right
       // after login) if its fetch fails and every retry is exhausted -- with
-      // no re-fetch trigger, MembersPage would show a permanent skeleton
-      // loader for the rest of the session, since navigating to the route
-      // was previously a no-op here. events has no equivalent branch: it's
-      // fetched by useEventsQuery, which retries/refetches on its own.
+      // no re-fetch trigger, EventsPage/MembersPage would show a permanent
+      // skeleton loader for the rest of the session, since navigating to
+      // either route was previously a no-op here.
       //
       // Skip entirely for a module the caller can't read (nav already hides
       // these routes, but a stale bookmark/URL or browser back/forward can
@@ -893,13 +888,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // that reportLoad would then surface as a spurious forbidden toast.
       const module = ROUTE_MODULE[route];
       if (module && !can(module, 'read')) return;
+      if (route === 'events' && !S().events) refreshEvents();
       if (route === 'members' && !S().members) refreshMembers();
       if (route === 'finances' && !S().finances) loadFinances();
       if (route === 'stats' && !S().stats) loadStats();
       if (route === 'news' && !S().news) loadNews();
       if (route === 'polls' && !S().polls) loadPolls();
     },
-    [S, can, refreshMembers, loadFinances, loadStats, loadNews, loadPolls],
+    [S, can, refreshEvents, refreshMembers, loadFinances, loadStats, loadNews, loadPolls],
   );
 
   // ---------- auth ----------
@@ -1047,11 +1043,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [setState, ensureRouteData]);
   // Dedicated nav action (rather than a raw setState) so an absence
   // notification's "jump to the Events > Absences tab" click goes through
-  // ensureRouteData like every other route change, keeping this route
-  // change consistent with how every other route arrives at the page
-  // (permission pre-check below, plus events data now lives in
-  // useEventsQuery's own React Query cache rather than gating on
-  // state.events here).
+  // ensureRouteData like every other route change -- without it, a null
+  // state.events left over from a failed afterLoginLoad (see round 46's
+  // ensureRouteData fix) would never retry, leaving EventsPage stuck on a
+  // skeleton loader forever, since it gates on state.events before it ever
+  // reaches the eventsView === 'absences' branch.
   const goEventsAbsences = useCallback(() => {
     setState({ route: 'events', sheet: null, eventsView: 'absences' });
     ensureRouteData('events');
@@ -1116,6 +1112,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---------- feature hooks ----------
   const {
+    reloadDetail,
     openEventDetail,
     setMyStatus,
     setStatusFor,
@@ -1186,15 +1183,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openEventForm,
     saveEvent,
     toggleFormNomRole,
-    savingEvent,
-    savingComment,
   } = useFeatureActions({
     api,
     S,
     setState,
     activeTeam,
     myRoles,
-    teamId: state.activeTeamId,
+    refreshEvents,
     refreshMembers,
     refreshRoles,
     refreshTeams,
@@ -1363,6 +1358,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       askEventAction,
       runEventAction,
       openEventDetail,
+      reloadDetail,
       openEventForm,
       saveEvent,
       toggleFormNomRole,
@@ -1468,6 +1464,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       askEventAction,
       runEventAction,
       openEventDetail,
+      reloadDetail,
       openEventForm,
       saveEvent,
       toggleFormNomRole,
@@ -1528,25 +1525,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ],
   );
 
-  // Per-operation mutation pending flags (React Query `isPending`) merged in
-  // fresh every render -- see the AppState doc comment. Unlike every other
-  // field on `state`, these never go through `setState` -- memoized so the
-  // merged object's identity (and thus AppStateContext's value, and thus
-  // every useApp() consumer's re-render) only changes when state or one of
-  // these flags actually changes, not on every unrelated AppProvider render.
-  const exposedState = useMemo<AppState>(
-    () => ({ ...state, savingEvent, savingComment }),
-    [state, savingEvent, savingComment],
-  );
-  exposedStateRef.current = exposedState;
-  useEffect(() => {
-    listeners.current.forEach((l) => l());
-  }, [savingEvent, savingComment]);
-
   return (
     <AppStoreContext.Provider value={store}>
       <AppActionsContext.Provider value={actions}>
-        <AppStateContext.Provider value={exposedState}>{children}</AppStateContext.Provider>
+        <AppStateContext.Provider value={state}>{children}</AppStateContext.Provider>
       </AppActionsContext.Provider>
     </AppStoreContext.Provider>
   );

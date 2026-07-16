@@ -1,56 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { EventDetailSheet as RealEventDetailSheet } from './EventDetailSheet';
-import type { SheetProps } from '@/sheets/types';
+import { EventDetailSheet } from './EventDetailSheet';
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
   useAppActions: vi.fn().mockReturnValue({}),
 }));
-
-vi.mock('../hooks/useEventQueries', () => ({
-  useEventDetailQuery: vi.fn(),
-}));
-
-import { useEventDetailQuery } from '../hooks/useEventQueries';
-const mockUseEventDetailQuery = vi.mocked(useEventDetailQuery);
-
-/**
- * EventDetailSheet fetches its own data via `useEventDetailQuery` now
- * (mocked above) instead of reading it off `sheet` -- this shadow component
- * keeps every existing test's `sheet={{ event, rows, comments, eventNotFound }}`
- * fixture working unchanged by translating it into the mocked query's return
- * value, then rendering the real component with just a bare `eventId`.
- */
-function deriveQueryResult(s: {
-  event?: { id: string } | null;
-  rows?: unknown[];
-  comments?: unknown[];
-  eventNotFound?: boolean;
-}) {
-  if (s.event === undefined) return { data: undefined, isLoading: true, isError: false, error: null };
-  if (s.event === null) {
-    if (s.eventNotFound) return { data: { event: null, rows: [], comments: [] }, isLoading: false, isError: false, error: null };
-    return { data: undefined, isLoading: true, isError: false, error: null };
-  }
-  return {
-    data: { event: s.event, rows: s.rows ?? [], comments: s.comments ?? [] },
-    isLoading: false,
-    isError: false,
-    error: null,
-  };
-}
-
-function EventDetailSheet({ app, sheet }: SheetProps) {
-  const s = sheet as unknown as {
-    event?: { id: string } | null;
-    rows?: unknown[];
-    comments?: unknown[];
-    eventNotFound?: boolean;
-  };
-  mockUseEventDetailQuery.mockReturnValue(deriveQueryResult(s) as never);
-  return <RealEventDetailSheet app={app} sheet={{ type: 'eventDetail', eventId: s.event?.id ?? 'ev1' }} />;
-}
 
 vi.mock('@/styles/tokens', () => ({
   buildTokens: vi.fn().mockReturnValue({
@@ -131,9 +86,6 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     },
     can: vi.fn().mockReturnValue(false),
     canSeeComment: vi.fn().mockReturnValue(true),
-    setState: vi.fn(),
-    toastMsg: vi.fn(),
-    logout: vi.fn(),
     setMyStatus: vi.fn(),
     setStatusFor: vi.fn(),
     openEventForm: vi.fn(),
@@ -508,7 +460,7 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     fireEvent.click(screen.getByText('events.rsvpYes'));
-    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'yes', '');
+    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'yes');
   });
 
   it('clicking RSVP no calls setMyStatus with no', () => {
@@ -519,7 +471,7 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     fireEvent.click(screen.getByText('events.rsvpNo'));
-    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'no', '');
+    expect(app.setMyStatus).toHaveBeenCalledWith('ev1', 'no');
   });
 
   it('renders attendance rows when provided', () => {
@@ -619,26 +571,5 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     expect(screen.getByText('events.meetTime')).toBeTruthy();
-  });
-
-  // Regression test: a failed BACKGROUND refetch (e.g. the query invalidation
-  // after an unrelated attendance mutation hitting a transient network blip)
-  // used to close the sheet and discard whatever was already showing, even
-  // though React Query keeps the last successful `data` around during a
-  // failed refetch. The sheet must keep rendering the still-valid cached
-  // event instead of treating this the same as an initial-load failure.
-  it('keeps showing the cached event when a background refetch fails, instead of closing the sheet', () => {
-    const app = makeApp();
-    mockUseApp.mockReturnValue(app as never);
-    const event = makeEvent();
-    mockUseEventDetailQuery.mockReturnValue({
-      data: { event, rows: [], comments: [] },
-      isLoading: false,
-      isError: true,
-      error: new Error('transient'),
-    } as never);
-    render(<RealEventDetailSheet app={app as never} sheet={{ type: 'eventDetail', eventId: 'ev1' } as never} />);
-    expect(screen.getByText('1. Juli 2026')).toBeTruthy();
-    expect(app.setState).not.toHaveBeenCalled();
   });
 });

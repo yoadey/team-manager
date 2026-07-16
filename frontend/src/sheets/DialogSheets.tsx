@@ -180,7 +180,7 @@ export function CommentSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={t('attendance.saveComment')}
         onClick={() => app.submitComment()}
-        busy={state.savingComment}
+        busy={state.busy === 'save'}
       />
     </Box>
   );

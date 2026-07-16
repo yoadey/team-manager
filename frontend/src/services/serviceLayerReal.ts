@@ -1,9 +1,8 @@
-// Real backend service layer — the sole API-contract implementation, for
-// production, dev-demo, and tests alike (see src/services/index.ts). In
-// dev-demo (no config.apiBaseUrl) its HTTP calls are intercepted by MSW
-// (src/mocks/) rather than a second in-code implementation.
+// Real backend service layer — replaces localStorage mock with HTTP API calls.
+// Only activated when config.apiBaseUrl is set (see src/config.ts).
 
-import { apiClient, apiOrigin } from '@/api/client';
+import { apiClient } from '@/api/client';
+import { config } from '@/config';
 import {
   mapUser,
   mapProvider,
@@ -95,7 +94,7 @@ async function uploadImage(path: string, fieldName: string, dataUrl: string): Pr
   const formData = new FormData();
   formData.append(fieldName, blob, fieldName + '.jpg');
 
-  const resp = await fetch(apiOrigin + path, {
+  const resp = await fetch(config.apiBaseUrl + path, {
     method: 'PUT',
     credentials: 'include',
     body: formData,

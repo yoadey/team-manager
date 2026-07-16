@@ -36,11 +36,25 @@ export function ContribFormSheet({ app }: SheetProps) {
   const errs = state.formErrors || {};
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Field label={t('finances.contribFieldLabel')} required error={!!errors.label || !!errs.label} errorText={errors.label?.message || errs.label}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
+      <Field
+        label={t('finances.contribFieldLabel')}
+        required
+        error={!!errors.label || !!errs.label}
+        errorText={errors.label?.message || errs.label}
+      >
         <TextInput placeholder={t('finances.contribFieldLabelPlaceholder')} maxLength={255} {...register('label')} />
       </Field>
-      <Field label={t('finances.contribFieldAmount')} required error={!!errors.amount || !!errs.amount} errorText={errors.amount?.message || errs.amount}>
+      <Field
+        label={t('finances.contribFieldAmount')}
+        required
+        error={!!errors.amount || !!errs.amount}
+        errorText={errors.amount?.message || errs.amount}
+      >
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
       <PrimaryButton

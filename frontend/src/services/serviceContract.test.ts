@@ -1,92 +1,56 @@
-// Behavioral regression coverage for the four drift bugs the localStorage
-// mock carried relative to the real backend's intended semantics (see
-// openspec/changes/replace-mock-with-msw/design.md's "Decisions" and
-// tasks.md item 2.3). The old serviceContract.test.ts only diffed method
-// signatures between the mock and `realApi`; now that the mock is gone and
-// `realApi` is the only implementation, these scenarios instead pin the
-// fixed behavior directly against the MSW demo backend.
-import { describe, it, expect, beforeEach } from 'vitest';
-import { realApi as api } from './serviceLayerReal';
-import { DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
-import { todayLocalDate } from '@/utils/date';
-import { ValidationError } from '@/utils/errors';
+// Contract test guarding the dual service-layer implementation. The app ships
+// two implementations of the same `api` surface — the localStorage mock
+// (mock/serviceLayerMock.ts) and the real HTTP client (serviceLayerReal.ts) — and they
+// must stay in lockstep: any namespace/method added to one but not the other is
+// a latent bug (the mock passes tests while production 404s, or vice versa).
+//
+// In the test environment VITE_API_BASE_URL is unset, so the exported `api`
+// resolves to the mock; realApi is imported directly. This test fails loudly if
+// their shapes diverge.
+import { describe, it, expect } from 'vitest';
+import { mockApi } from './mock/serviceLayerMock';
+import { realApi } from './serviceLayerReal';
 
-beforeEach(async () => {
-  await api.auth.login(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
-});
+type Shape = Record<string, string[]>;
 
-describe('drift-bug fix: penalty amount/label is snapshotted at assignment time', () => {
-  it('keeps an existing assignment at its original amount after the penalty template changes', async () => {
-    const penalty = await api.finances.createPenalty('t_a', { label: 'Zu spät', amount: 5 });
-    const assignment = await api.finances.assignPenalty('t_a', { userId: 'u4', penaltyId: penalty.id });
-    expect(assignment.amount).toBe(5);
-    expect(assignment.label).toBe('Zu spät');
+/**
+ * Maps each namespace to its sorted list of public method names. Underscore-
+ * prefixed members are implementation-private helpers (e.g. the mock's `_mk`)
+ * and are excluded — only the public, app-facing surface is part of the contract.
+ */
+function shapeOf(obj: Record<string, unknown>): Shape {
+  const shape: Shape = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      shape[key] = Object.entries(value as Record<string, unknown>)
+        .filter(([k, v]) => typeof v === 'function' && !k.startsWith('_'))
+        .map(([k]) => k)
+        .sort();
+    }
+  }
+  return shape;
+}
 
-    await api.finances.updatePenalty(penalty.id, { label: 'Sehr zu spät', amount: 50 }, 't_a');
+describe('service-layer contract (mock vs real)', () => {
+  const mock = shapeOf(mockApi as unknown as Record<string, unknown>);
+  const real = shapeOf(realApi as unknown as Record<string, unknown>);
 
-    const overview = await api.finances.overview('t_a');
-    const stillAssigned = overview.assignments.find((a) => a.id === assignment.id)!;
-    expect(stillAssigned.amount).toBe(5);
-    expect(stillAssigned.label).toBe('Zu spät');
-
-    // A newly-created assignment against the same (now-updated) template does
-    // pick up the new amount — only already-assigned instances are frozen.
-    const second = await api.finances.assignPenalty('t_a', { userId: 'u5', penaltyId: penalty.id });
-    expect(second.amount).toBe(50);
-    expect(second.label).toBe('Sehr zu spät');
+  it('exposes the same namespaces', () => {
+    expect(Object.keys(mock).sort()).toEqual(Object.keys(real).sort());
   });
-});
 
-describe('drift-bug fix: stats count only explicit attendance responses, not opt_out/absence defaults', () => {
-  it('does not count a non-responder to an opt-out event toward a member quota', async () => {
-    const today = todayLocalDate();
-    const event = await api.events.create('t_a', { type: 'training', title: 'OptOut stats test', date: today, responseMode: 'opt_out' });
-    // u4 explicitly responds; u5 never responds (auto-"yes" for the event
-    // summary, but must NOT be counted for stats — see
-    // backend/internal/stats/repository.go's raw `a.status IN (...)` filter,
-    // which has no opt_out/absence defaulting unlike events.computeEffectiveAttendance).
-    await api.attendance.set(event.id, 'u4', { status: 'yes' }, 't_a');
-
-    const statU4 = await api.stats.attendanceFor('t_a', 'u4');
-    expect(statU4.counted).toBeGreaterThanOrEqual(1);
-
-    const overview = await api.stats.teamOverview('t_a');
-    const eventStat = overview.events.find((e) => e.id === event.id)!;
-    // Only u4 explicitly responded; every other member (including u5, who is
-    // implicitly "yes" for the roster/summary view) is excluded from the
-    // stats denominator.
-    expect(eventStat.nominated).toBe(1);
-    expect(eventStat.yes).toBe(1);
+  it.each(Object.keys(real))('namespace "%s" exposes the same methods', (ns) => {
+    expect(mock[ns]).toEqual(real[ns]);
   });
-});
 
-describe('drift-bug fix: single-choice polls reject multiple selected options', () => {
-  it('rejects (422) a vote selecting >1 option on a non-multiple poll instead of silently truncating', async () => {
-    const created = await api.polls.create('t_a', { question: 'Single choice?', options: ['A', 'B', 'C'], multiple: false });
-    const [a, b] = created.options;
-
-    await expect(api.polls.vote(created.id, [a.id, b.id], 't_a')).rejects.toThrow(ValidationError);
-
-    // No vote was recorded at all (not even a truncated single-option one).
-    const reloaded = (await api.polls.list('t_a')).find((p) => p.id === created.id)!;
-    expect(reloaded.totalVotes).toBe(0);
-
-    // A genuinely single-option vote still succeeds.
-    await api.polls.vote(created.id, [a.id], 't_a');
-    const afterValidVote = (await api.polls.list('t_a')).find((p) => p.id === created.id)!;
-    expect(afterValidVote.totalVotes).toBe(1);
-  });
-});
-
-describe('drift-bug fix: scope=upcoming includes today\'s events', () => {
-  it('includes a today-dated event under scope=upcoming, not just strictly-future ones', async () => {
-    const today = todayLocalDate();
-    const event = await api.events.create('t_a', { type: 'training', title: 'Today event', date: today });
-
-    const upcoming = await api.events.list('t_a', 'upcoming');
-    const past = await api.events.list('t_a', 'past');
-
-    expect(upcoming.some((e) => e.id === event.id)).toBe(true);
-    expect(past.some((e) => e.id === event.id)).toBe(false);
+  // Beyond method names, guard the parameter count so the two layers cannot
+  // drift in signature (e.g. the real client requiring a teamId the mock omits,
+  // which would 404 against the real backend). fn.length counts params up to
+  // the first default/rest param — sufficient for our required-arg signatures.
+  const mockNs = mockApi as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>>;
+  const realNs = realApi as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>>;
+  const arityCases = Object.keys(real).flatMap((ns) => real[ns].map((method) => ({ ns, method })));
+  it.each(arityCases)('$ns.$method takes the same number of arguments', ({ ns, method }) => {
+    expect(mockNs[ns][method].length).toBe(realNs[ns][method].length);
   });
 });

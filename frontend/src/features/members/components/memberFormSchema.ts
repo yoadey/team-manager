@@ -15,7 +15,11 @@ const validDate = (value: string) => {
 
 export const memberFormSchema = z
   .object({
-    name: z.string().trim().min(1, { message: t('members.fieldNameError') }).max(255),
+    name: z
+      .string()
+      .trim()
+      .min(1, { message: t('members.fieldNameError') })
+      .max(255),
     email: z.string().trim().optional().or(z.literal('')),
     phone: z.string().trim().optional().or(z.literal('')),
     birthday: z.string().trim().optional().or(z.literal('')),
@@ -41,7 +45,12 @@ export const memberFormSchema = z
     }
 
     if (data.birthday) {
-      if (!DATE_RE.test(data.birthday) || !validDate(data.birthday) || data.birthday < MIN_BIRTHDAY || new Date(data.birthday + 'T00:00:00') > new Date()) {
+      if (
+        !DATE_RE.test(data.birthday) ||
+        !validDate(data.birthday) ||
+        data.birthday < MIN_BIRTHDAY ||
+        new Date(data.birthday + 'T00:00:00') > new Date()
+      ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['birthday'],

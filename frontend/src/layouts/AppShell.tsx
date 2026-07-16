@@ -6,7 +6,6 @@ import { ROUTE_MODULE } from '@/context/urlState';
 import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
-import { useEventsQuery, useEventDetailQuery } from '@/features/events';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
@@ -41,22 +40,15 @@ export function Shell() {
   const compact = useCompact();
   const t = buildTokens(state.primaryColor);
   const team = app.activeTeam();
-  const pageSheet = app.activePageSheet();
-  // Hooks must run unconditionally on every render (before the `!team` early
-  // return below), so the events queries are called here regardless of
-  // whether a team/user is present yet -- `enabled` on each query gates the
-  // actual fetch.
-  const { data: events } = useEventsQuery(app.api, state.activeTeamId);
-  const detailEventId = pageSheet && pageSheet.type === 'eventDetail' ? (pageSheet.eventId ?? null) : null;
-  const { data: detailData } = useEventDetailQuery(app.api, state.activeTeamId, detailEventId);
   if (!team || !state.user) return null;
 
   const today = todayLocalDate();
-  const pending = (events ?? []).filter(
+  const pending = (state.events ?? []).filter(
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
-  const pm = pageMeta(app, detailData?.event);
+  const pageSheet = app.activePageSheet();
+  const pm = pageMeta(app);
 
   // ---- shared chrome bits ----
   const teamIcon = (

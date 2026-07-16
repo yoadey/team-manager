@@ -25,23 +25,13 @@ export async function gotoFresh(page: Page) {
   await page.reload();
 }
 
-// Demo credentials the MSW mock backend accepts (see frontend/src/mocks/db.ts's
-// DEMO_LOGIN_EMAIL/DEMO_PASSWORD) — /auth/providers only advertises "password"
-// now, matching the real backend, so login goes through the password form
-// rather than a one-tap SSO button.
-const DEMO_LOGIN_EMAIL = 'lena.bergmann@example.de';
-const DEMO_PASSWORD = 'demo-tanzsport';
-
-/** Open the app fresh, log in with the demo password provider and wait for the app shell. */
+/** Open the app fresh, click the first login provider and wait for the app shell. */
 export async function login(page: Page) {
   await gotoFresh(page);
-  // Wait for providers to load and click the password provider.
-  const providerBtn = page.locator('button, [role="button"]').filter({ hasText: 'Passwort' }).first();
+  // Wait for providers to load and click the first one (Vereins-SSO / mock)
+  const providerBtn = page.locator('button, [role="button"]').filter({ hasText: 'Vereins-SSO' }).first();
   await providerBtn.waitFor({ timeout: 10_000 });
   await providerBtn.click();
-  await page.locator('#login-email').fill(DEMO_LOGIN_EMAIL);
-  await page.locator('#login-password').fill(DEMO_PASSWORD);
-  await page.getByRole('button', { name: /anmelden|sign in/i }).click();
   // App shell is ready when the main nav is visible
   await page.locator('[aria-label="Hauptnavigation"], [aria-label="Main navigation"]').first().waitFor({
     state: 'visible',

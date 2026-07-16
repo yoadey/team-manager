@@ -44,7 +44,9 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
       <Box key="l" sx={labelSx}>
         {t('finances.assignPenalty')}
       </Box>
-      {errors.penaltyId ? <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }}>{errors.penaltyId.message}</Box> : null}
+      {errors.penaltyId ? (
+        <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }}>{errors.penaltyId.message}</Box>
+      ) : null}
       <Box
         key="b"
         role="radiogroup"
@@ -121,7 +123,11 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
   );
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
       {memSel}
       {penOpts}
       <PrimaryButton

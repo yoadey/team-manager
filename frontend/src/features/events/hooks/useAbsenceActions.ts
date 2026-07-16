@@ -45,37 +45,35 @@ export function useAbsenceActions({
     [setState],
   );
 
-  const saveAbsence = useCallback(async (fProp?: any) => {
-    const f = fProp !== undefined ? fProp : (S().form as AbsenceFormValues);
-    if (!f.from || !f.to || f.from > f.to) {
-      toastMsg(t('validation.dateRangeOrder'), undefined, 'error');
-      return;
-    }
-    const mode = S().sheet!.mode;
-    const sh = S().sheet;
-    try {
-      const teamId = S().activeTeamId!;
-      if (mode === 'edit')
-        await api.absences.update(f.id!, { from: f.from, to: f.to, reason: f.reason || '' }, teamId);
-      else
-        await api.absences.create({
-          teamId,
-          userId: S().user!.id,
-          from: f.from,
-          to: f.to,
-          reason: f.reason || '',
-        });
-      await Promise.all([refreshEvents(), loadAbsences()]);
-      // Don't close a sheet the user has since opened for a different team
-      // after switching away mid-request, or one they've since opened while
-      // this save was in flight.
-      if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
-      toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
-      if (fProp !== undefined) throw err;
-    }
-  }, [api, S, setState, refreshEvents, loadAbsences, toastMsg, logout]);
+  const saveAbsence = useCallback(
+    async (f: AbsenceFormValues) => {
+      const mode = S().sheet!.mode;
+      const sh = S().sheet;
+      try {
+        const teamId = S().activeTeamId!;
+        if (mode === 'edit')
+          await api.absences.update(f.id!, { from: f.from, to: f.to, reason: f.reason || '' }, teamId);
+        else
+          await api.absences.create({
+            teamId,
+            userId: S().user!.id,
+            from: f.from,
+            to: f.to,
+            reason: f.reason || '',
+          });
+        await Promise.all([refreshEvents(), loadAbsences()]);
+        // Don't close a sheet the user has since opened for a different team
+        // after switching away mid-request, or one they've since opened while
+        // this save was in flight.
+        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+        toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        throw err;
+      }
+    },
+    [api, S, setState, refreshEvents, loadAbsences, toastMsg, logout],
+  );
 
   const removeAbsence = useCallback(
     (id: string) => {

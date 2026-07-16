@@ -3,11 +3,9 @@ import type { api as defaultApi } from '@/services';
 import type { TeamEvent } from '../types';
 import type { EventFormValues } from '../components/eventFormSchema';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
-import { useSaveEventMutation } from './useEventMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -15,9 +13,8 @@ type EventFormDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  teamId: string | null;
-  loadNotifications: () => Promise<void>;
-  openEventDetail: (eventId: string) => void;
+  refreshEvents: () => Promise<void>;
+  openEventDetail: (eventId: string) => Promise<void>;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
@@ -26,17 +23,14 @@ export function useEventFormActions({
   api,
   S,
   setState,
-  teamId,
-  loadNotifications,
+  refreshEvents,
   openEventDetail,
   toastMsg,
   logout,
 }: EventFormDeps) {
-  const { mutateAsync: saveEventAsync, isPending: savingEvent } = useSaveEventMutation(api, teamId);
-
   const openEventForm = useCallback(
     (event: TeamEvent | null) => {
-      const f: any = event
+      const f: EventFormValues = event
         ? {
             id: event.id,
             seriesId: event.seriesId || null,
@@ -75,7 +69,7 @@ export function useEventFormActions({
           mode: event ? 'edit' : 'create',
           back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
         },
-        form: f as any,
+        form: f,
         formErrors: {},
       }));
     },
@@ -83,19 +77,11 @@ export function useEventFormActions({
   );
 
   const saveEvent = useCallback(
-    async (fProp?: any, scopeProp: 'single' | 'series' = 'single') => {
-      const isLegacy = typeof fProp === 'string';
-      const f = isLegacy || fProp === undefined ? (S().form as EventFormValues) : fProp;
-      const scope = (isLegacy ? fProp : scopeProp) as 'single' | 'series';
-
-      if (!f.title || !f.title.trim()) {
-        toastMsg(t('validation.eventTitleMissing'), undefined, 'error');
-        return;
-      }
-
+    async (f: EventFormValues, scope: 'single' | 'series' = 'single') => {
       const sh = S().sheet!;
       const mode = sh.mode;
       const back = sh.back;
+      const teamId = S().activeTeamId!;
       const payload = {
         type: f.type,
         title: f.title.trim(),
@@ -110,15 +96,14 @@ export function useEventFormActions({
         nominatedRoleIds: f.nominatedRoleIds || [],
       };
       try {
-        if (mode === 'edit') {
-          await saveEventAsync({ mode: 'edit', eventId: f.id!, scope, payload });
-        } else {
-          await saveEventAsync({
-            mode: 'create',
-            payload: { ...payload, recurring: f.recurring, repeatWeeks: f.repeatWeeks || 8 },
+        if (mode === 'edit') await api.events.update(f.id!, payload, scope, teamId);
+        else
+          await api.events.create(teamId, {
+            ...payload,
+            recurring: f.recurring,
+            repeatWeeks: f.repeatWeeks || 8,
           });
-        }
-        await loadNotifications();
+        await refreshEvents();
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail
         // would look up f.id in the new team's event list and find nothing.
@@ -140,21 +125,11 @@ export function useEventFormActions({
         );
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
-        if (fProp !== undefined) throw err;
+        throw err; // propagates error to let react-hook-form handle submission state
       }
     },
-    [S, setState, teamId, saveEventAsync, openEventDetail, loadNotifications, toastMsg, logout],
+    [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout],
   );
 
-  const toggleFormNomRole = useCallback(
-    (roleId: string) =>
-      setState((s) => {
-        const cur = formValues<EventFormValues>(s).nominatedRoleIds ?? [];
-        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-        return { form: { ...s.form, nominatedRoleIds: next } };
-      }),
-    [setState],
-  );
-
-  return { openEventForm, saveEvent, toggleFormNomRole, savingEvent };
+  return { openEventForm, saveEvent };
 }

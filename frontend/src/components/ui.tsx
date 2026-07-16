@@ -358,9 +358,9 @@ export const TextInput = React.forwardRef<HTMLInputElement, TextInputProps>(
     // Subscribe only to this field so typing doesn't re-render via the whole
     // app-state context (useApp); dispatch comes from the stable actions context.
     const onFormInput = useAppActions().onFormInput;
-    const v = useAppSelector((s) => s.form ? s.form[name] : undefined);
+    const v = useAppSelector((s) => (s.form ? s.form[name] : undefined));
 
-    const finalValue = value !== undefined ? value : (v == null ? '' : String(v));
+    const finalValue = value !== undefined ? value : v == null ? '' : String(v);
     const finalOnChange = onChange !== undefined ? onChange : onFormInput;
 
     return (
@@ -378,7 +378,7 @@ export const TextInput = React.forwardRef<HTMLInputElement, TextInputProps>(
         {...rest}
       />
     );
-  }
+  },
 );
 TextInput.displayName = 'TextInput';
 
@@ -390,9 +390,9 @@ type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
 export const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
   ({ name, placeholder, minHeight = 80, onBlur, maxLength, style: styleProp, value, onChange, ...rest }, ref) => {
     const onFormInput = useAppActions().onFormInput;
-    const v = useAppSelector((s) => s.form ? s.form[name] : undefined);
+    const v = useAppSelector((s) => (s.form ? s.form[name] : undefined));
 
-    const finalValue = value !== undefined ? value : (v == null ? '' : String(v));
+    const finalValue = value !== undefined ? value : v == null ? '' : String(v);
     const finalOnChange = onChange !== undefined ? onChange : onFormInput;
 
     return (
@@ -412,7 +412,7 @@ export const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
         {...rest}
       />
     );
-  }
+  },
 );
 TextArea.displayName = 'TextArea';
 

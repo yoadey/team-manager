@@ -8,17 +8,14 @@ const mockGoEventsPending = vi.fn();
 const mockOpenEventForm = vi.fn();
 
 function makeApp(overrides: Record<string, unknown> = {}) {
-  const { events, ...stateOverrides } = overrides;
-  mockUseEventsQuery.mockReturnValue({ data: events ?? [] });
   return {
-    api: {},
     state: {
       phase: 'app',
       primaryColor: '#4285F4',
-      activeTeamId: 't1',
+      events: [],
       news: [],
       user: { id: 'u1', name: 'Max Mustermann', avatarColor: '#000', photo: null },
-      ...stateOverrides,
+      ...overrides,
     },
     activeTeam: () => ({
       id: 'team1',
@@ -38,14 +35,8 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn() }),
 }));
 
-vi.mock('@/features/events', () => ({
-  useEventsQuery: vi.fn(),
-}));
-
 import { useApp } from '@/context/AppContext';
-import { useEventsQuery } from '@/features/events';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
-const mockUseEventsQuery = useEventsQuery as ReturnType<typeof vi.fn>;
 
 describe('Home', () => {
   beforeEach(() => {

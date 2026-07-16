@@ -1,15 +1,13 @@
-// In-memory demo backend database for MSW handlers. Ported from the deleted
-// src/services/mock/serviceLayerMock.ts + src/demo/seedData.ts, decoupled
-// from that file's mock-only helper types. Rows are modeled on the frontend
-// DTO types (which already mirror the OpenAPI wire shapes closely); handlers.ts
-// is responsible for converting a row into the exact `components['schemas']`
-// response shape.
+// Demo seed data for the local mock service layer.
+
 import type {
+  AttendanceStatus,
   Invite,
   Membership,
-  ModuleKey,
   Permissions,
   PermLevel,
+  ReasonVisibility,
+  Role,
   RoleDto,
   Team,
   User,
@@ -19,13 +17,13 @@ import type { Contribution, Penalty, PenaltyAssignment, Transaction } from '@/fe
 import type { NewsItem } from '@/features/news';
 import type { AppNotification } from '@/features/notifications';
 import type { PollDto } from '@/features/polls';
-import { formatDateOnly, monthsAgoLocal, todayLocalDate } from '@/utils/date';
+import { formatDateOnly, todayLocalDate } from '@/utils/date';
 
-export const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
+const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
 const DAY = 86400000;
 const iso = (d: Date) => d.toISOString();
 const dstr = formatDateOnly;
-export function atTime(h: number, m: number) {
+function atTime(_base: Date | string, h: number, m: number) {
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 function nextWeekday(weekday: number, weeks = 0) {
@@ -42,7 +40,7 @@ function plusDays(n: number) {
   return formatDateOnly(d);
 }
 
-export function perms(
+function perms(
   events: PermLevel,
   members: PermLevel,
   finances: PermLevel,
@@ -52,32 +50,7 @@ export function perms(
 ): Permissions {
   return { events, members, finances, news, polls, settings };
 }
-
-export const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings'];
-const LEVEL: Record<PermLevel, number> = { none: 0, read: 1, write: 2 };
-
-export function mergePerms(roles: RoleDto[]): Permissions {
-  const out = perms('none', 'none', 'none', 'none', 'none', 'none');
-  roles.forEach((r) =>
-    MODULES.forEach((m) => {
-      if (LEVEL[r.permissions[m]] > LEVEL[out[m]]) out[m] = r.permissions[m];
-    }),
-  );
-  return out;
-}
-
-export function primaryRole(roles: RoleDto[]): RoleDto | null {
-  const score = (r: RoleDto) => MODULES.reduce((s, m) => s + LEVEL[r.permissions[m]], 0);
-  return [...roles].sort((a, b) => score(b) - score(a))[0] || null;
-}
-
-// The seeded default role newly-accepted invitees get (see handlers.ts's
-// POST /invites/:code/accept) — a stable name, not derived by excluding the
-// admin role, so it still resolves correctly even if a team has several
-// non-admin system roles.
-export const DEFAULT_MEMBER_ROLE_NAME = 'Tänzer / Mitglied';
-
-function defaultRoles(teamId: string): RoleDto[] {
+function defaultRoles(teamId: string): Role[] {
   return [
     {
       id: rid('role'),
@@ -90,7 +63,7 @@ function defaultRoles(teamId: string): RoleDto[] {
     {
       id: rid('role'),
       teamId,
-      name: DEFAULT_MEMBER_ROLE_NAME,
+      name: 'Tänzer / Mitglied',
       system: true,
       color: '#5B6470',
       permissions: perms('read', 'read', 'read', 'read', 'read', 'none'),
@@ -122,29 +95,16 @@ function defaultRoles(teamId: string): RoleDto[] {
   ];
 }
 
-export interface UserRow extends User {
-  hasPhoto: boolean;
-}
-
-export interface TeamRow extends Team {
-  hasPhoto: boolean;
-  hasLogo: boolean;
-}
-
-export interface NewsRow extends NewsItem {
-  teamId: string;
-}
-
 export interface DemoDb {
-  users: UserRow[];
-  teams: TeamRow[];
+  users: User[];
+  teams: Team[];
   memberships: Membership[];
   roles: RoleDto[];
   events: EventDto[];
   attendance: AttendanceDto[];
   invites: Invite[];
   absences: Absence[];
-  news: NewsRow[];
+  news: NewsItem[];
   transactions: Transaction[];
   penalties: Penalty[];
   penaltyAssignments: PenaltyAssignment[];
@@ -153,20 +113,10 @@ export interface DemoDb {
   eventComments: EventComment[];
   notifications: AppNotification[];
   notifSeen: Record<string, string>;
+  meta?: { seededAt: string; version: number };
 }
 
-// Fixed demo credentials for the MSW-only demo login (POST /auth/login).
-// Deliberately NOT "any password works" — a mistyped/wrong password is
-// rejected with 401, unlike the previous localStorage mock which ignored
-// the password entirely. Documented here since there's no real user store.
-export const DEMO_PASSWORD = 'demo-tanzsport';
-export const DEMO_LOGIN_EMAIL = 'lena.bergmann@example.de';
-export const DEMO_LOGIN_USER_ID = 'u1';
-// Legacy one-tap "SSO" login ids, accepted with no password as a demo
-// convenience (see handlers.ts's POST /auth/login) — distinct from, and not
-// a weakening of, the DEMO_PASSWORD-gated email+password path.
-export const DEMO_SSO_PROVIDER_IDS = ['google', 'apple', 'microsoft', 'vereins-sso'];
-
+// ---- Seed -------------------------------------------------------------------
 export function createSeedData(): DemoDb {
   const db: DemoDb = {
     users: [],
@@ -188,14 +138,13 @@ export function createSeedData(): DemoDb {
     notifSeen: {},
   };
 
-  const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({
+  const U = (id: string, name: string, email: string, phone: string, color: string): User => ({
     id,
     name,
     email,
     phone,
     avatarColor: color,
     photo: null,
-    hasPhoto: false,
     birthday: '',
     address: '',
   });
@@ -218,7 +167,7 @@ export function createSeedData(): DemoDb {
     U('u23', 'Ben Schulz', 'ben.schulz@example.de', '+49 176 1010102', '#1B5E20'),
   ];
 
-  const tA: TeamRow = {
+  const tA: Team = {
     id: 't_a',
     name: 'A-Team TSC Schwarz-Gelb Aachen',
     short: 'A',
@@ -227,11 +176,9 @@ export function createSeedData(): DemoDb {
     iconFg: '#F5C518',
     photo: null,
     logo: null,
-    hasPhoto: false,
-    hasLogo: false,
     description: '',
   };
-  const tB: TeamRow = {
+  const tB: Team = {
     id: 't_b',
     name: 'B-Team TSC Schwarz-Gelb Aachen',
     short: 'B',
@@ -240,8 +187,6 @@ export function createSeedData(): DemoDb {
     iconFg: '#F5C518',
     photo: null,
     logo: null,
-    hasPhoto: false,
-    hasLogo: false,
     description: '',
   };
   db.teams = [tA, tB];
@@ -253,8 +198,19 @@ export function createSeedData(): DemoDb {
   const RB = (n: string) => rolesB.find((r) => r.name === n)!.id;
   tA.reasonVisibilityRoles = [RA('Admin / Trainer'), RA('Teamkapitän')];
   tB.reasonVisibilityRoles = [RB('Admin / Trainer'), RB('Teamkapitän')];
-  tA.description = 'A-Formation Latein – aktuell in der NRW-Liga. Training Di & Do.';
+  tA.description = 'A-Formation Latein – aktuell in der NRW-Liga. Training Di & Do in Eilendorf.';
   tB.description = 'B-Formation – Nachwuchs & Aufbau. Wir freuen uns über jede neue Tänzerin und jeden neuen Tänzer.';
+  const setProfile = (uid: string, bd: string, addr: string) => {
+    const u = db.users.find((x) => x.id === uid);
+    if (u) {
+      u.birthday = bd;
+      u.address = addr;
+    }
+  };
+  setProfile('u1', '1998-04-12', 'Jülicher Straße 12, 52070 Aachen');
+  setProfile('u2', '1996-09-30', 'Adalbertsteinweg 88, 52070 Aachen');
+  setProfile('u3', '2000-01-23', 'Pontstraße 45, 52062 Aachen');
+  setProfile('u4', '1999-07-08', 'Vaalser Straße 210, 52074 Aachen');
 
   const M = (teamId: string, userId: string, roleIds: string[], group: string): Membership => ({
     id: rid('mem'),
@@ -284,6 +240,7 @@ export function createSeedData(): DemoDb {
     M('t_b', 'u23', [RB('Tänzer / Mitglied')], 'B-Formation'),
   ];
 
+  // ---- Termine A-Team ----
   const ev: EventDto[] = [];
   const E = (o: Partial<EventDto>): EventDto => {
     const e = Object.assign(
@@ -296,10 +253,6 @@ export function createSeedData(): DemoDb {
         note: '',
         responseMode: 'opt_in' as ResponseMode,
         status: 'active' as const,
-        meetTime: null,
-        startTime: null,
-        endTime: null,
-        seriesId: null,
       },
       o,
     ) as EventDto;
@@ -313,11 +266,11 @@ export function createSeedData(): DemoDb {
         type: 'training',
         title: 'Lateinformation – Training',
         date: dstr(d),
-        meetTime: atTime(19, 15),
-        startTime: atTime(19, 30),
-        endTime: atTime(21, 30),
+        meetTime: atTime(d, 19, 15),
+        startTime: atTime(d, 19, 30),
+        endTime: atTime(d, 21, 30),
         meetTimeMandatory: true,
-        location: 'Tanzsporthalle',
+        location: 'Tanzsporthalle Eilendorf',
         recurring: true,
         seriesId: 'series_tue_thu',
         responseMode: 'opt_out',
@@ -329,9 +282,9 @@ export function createSeedData(): DemoDb {
     type: 'auftritt',
     title: 'NRW-Liga Lateinformationen – 2. Wertung',
     date: dstr(turnierD),
-    meetTime: atTime(9, 0),
-    startTime: atTime(11, 0),
-    endTime: atTime(18, 0),
+    meetTime: atTime(turnierD, 9, 0),
+    startTime: atTime(turnierD, 11, 0),
+    endTime: atTime(turnierD, 18, 0),
     meetTimeMandatory: true,
     location: 'Castello Düsseldorf',
     responseMode: 'opt_in',
@@ -342,11 +295,11 @@ export function createSeedData(): DemoDb {
     type: 'event',
     title: 'Saison-Kickoff Grillen',
     date: dstr(grillD),
-    meetTime: atTime(18, 0),
-    startTime: atTime(18, 0),
-    endTime: atTime(23, 0),
+    meetTime: atTime(grillD, 18, 0),
+    startTime: atTime(grillD, 18, 0),
+    endTime: atTime(grillD, 23, 0),
     meetTimeMandatory: false,
-    location: 'Vereinsheim',
+    location: 'Vereinsheim, Aachen-Brand',
     responseMode: 'opt_in',
     note: 'Bitte Salate/Beilagen in der Umfrage eintragen.',
   });
@@ -355,9 +308,9 @@ export function createSeedData(): DemoDb {
     type: 'auftritt',
     title: 'DM-Qualifikation Latein – 1. Wertung',
     date: dstr(pastTurnier),
-    meetTime: atTime(8, 30),
-    startTime: atTime(10, 30),
-    endTime: atTime(17, 0),
+    meetTime: atTime(pastTurnier, 8, 30),
+    startTime: atTime(pastTurnier, 10, 30),
+    endTime: atTime(pastTurnier, 17, 0),
     meetTimeMandatory: true,
     location: 'Stadthalle Braunschweig',
     responseMode: 'opt_in',
@@ -365,14 +318,15 @@ export function createSeedData(): DemoDb {
   });
   db.events = ev;
 
-  const att: AttendanceDto[] = [];
+  // ---- Anwesenheit ----
+  const att: any[] = [];
   const A = (
     eventId: string,
     userId: string,
-    status: AttendanceDto['status'],
+    status: AttendanceStatus,
     reason?: string,
     reasonId?: string | null,
-    vis?: AttendanceDto['reasonVisibility'],
+    vis?: ReasonVisibility,
   ) =>
     att.push({
       id: rid('att'),
@@ -426,18 +380,41 @@ export function createSeedData(): DemoDb {
     );
   db.attendance = att;
 
+  // ---- Abwesenheiten (geplant) ----
   db.absences = [
-    { id: rid('abs'), userId: 'u6', from: plusDays(5), to: plusDays(12), reason: 'Urlaub (Italien)', createdAt: iso(new Date()) },
-    { id: rid('abs'), userId: 'u10', from: plusDays(1), to: plusDays(3), reason: 'Klassenfahrt', createdAt: iso(new Date()) },
-    { id: rid('abs'), userId: 'u3', from: plusDays(20), to: plusDays(27), reason: 'Urlaub', createdAt: iso(new Date()) },
+    {
+      id: rid('abs'),
+      userId: 'u6',
+      from: plusDays(5),
+      to: plusDays(12),
+      reason: 'Urlaub (Italien)',
+      createdAt: iso(new Date()),
+    },
+    {
+      id: rid('abs'),
+      userId: 'u10',
+      from: plusDays(1),
+      to: plusDays(3),
+      reason: 'Klassenfahrt',
+      createdAt: iso(new Date()),
+    },
+    {
+      id: rid('abs'),
+      userId: 'u3',
+      from: plusDays(20),
+      to: plusDays(27),
+      reason: 'Urlaub',
+      createdAt: iso(new Date()),
+    },
   ];
 
+  // ---- News ----
   db.news = [
     {
       id: rid('news'),
       teamId: 't_a',
       title: 'Aufstieg in die NRW-Liga! 🎉',
-      body: 'Mit Platz 3 bei der DM-Qualifikation haben wir den Aufstieg sicher.',
+      body: 'Mit Platz 3 bei der DM-Qualifikation haben wir den Aufstieg sicher. Riesen Kompliment an die ganze Formation – jetzt greifen wir in der NRW-Liga an!',
       authorId: 'u1',
       pinned: true,
       createdAt: iso(new Date(Date.now() - 2 * DAY)),
@@ -446,42 +423,56 @@ export function createSeedData(): DemoDb {
       id: rid('news'),
       teamId: 't_a',
       title: 'Neue Trainingszeiten ab Juli',
-      body: 'Ab Juli trainieren wir zusätzlich freitags.',
+      body: 'Ab Juli trainieren wir zusätzlich freitags. Details folgen, bitte Kalender im Blick behalten.',
       authorId: 'u2',
       pinned: false,
       createdAt: iso(new Date(Date.now() - 5 * DAY)),
     },
+    {
+      id: rid('news'),
+      teamId: 't_a',
+      title: 'Turnieranmeldung Düsseldorf abgeschlossen',
+      body: 'Alle gemeldeten Paare sind bestätigt. Treffpunkt und Ablauf stehen im Termin zur 2. Wertung.',
+      authorId: 'u1',
+      pinned: false,
+      createdAt: iso(new Date(Date.now() - 8 * DAY)),
+    },
   ];
 
-  const T = (type: 'income' | 'expense', title: string, amountCents: number, daysAgo: number, cat: string) =>
-    db.transactions.push({ id: rid('tx'), teamId: 't_a', type, title, amount: amountCents, date: plusDays(-daysAgo), category: cat });
-  T('income', 'Mitgliedsbeiträge Mai', 30000, 30, 'Beiträge');
-  T('income', 'Mitgliedsbeiträge Juni', 30000, 2, 'Beiträge');
-  T('expense', 'Turnieranmeldung Düsseldorf', 18000, 6, 'Turniere');
-  T('expense', 'Trikot-Nachbestellung', 24000, 15, 'Ausstattung');
-  T('income', 'Spende Sponsor', 50000, 22, 'Spenden');
-  T('expense', 'Hallenmiete Q2', 42000, 40, 'Halle');
-  T('income', 'Strafenkasse', 4700, 3, 'Strafen');
+  // ---- Finanzen ----
+  const T = (type: 'income' | 'expense', title: string, amount: number, daysAgo: number, cat: string) =>
+    db.transactions.push({
+      id: rid('tx'),
+      teamId: 't_a',
+      type,
+      title,
+      amount,
+      date: plusDays(-daysAgo),
+      category: cat,
+    });
+  T('income', 'Mitgliedsbeiträge Mai', 300, 30, 'Beiträge');
+  T('income', 'Mitgliedsbeiträge Juni', 300, 2, 'Beiträge');
+  T('expense', 'Turnieranmeldung Düsseldorf', 180, 6, 'Turniere');
+  T('expense', 'Trikot-Nachbestellung', 240, 15, 'Ausstattung');
+  T('income', 'Spende Sponsor „Tanzhaus"', 500, 22, 'Spenden');
+  T('expense', 'Hallenmiete Q2', 420, 40, 'Halle');
+  T('income', 'Strafenkasse', 47, 3, 'Strafen');
   db.penalties = [
-    { id: rid('pen'), teamId: 't_a', label: 'Zu spät zum Training', amount: 500 },
-    { id: rid('pen'), teamId: 't_a', label: 'Training unentschuldigt verpasst', amount: 1000 },
-    { id: rid('pen'), teamId: 't_a', label: 'Handy während Training', amount: 200 },
-    { id: rid('pen'), teamId: 't_a', label: 'Tanzschuhe vergessen', amount: 300 },
+    { id: rid('pen'), teamId: 't_a', label: 'Zu spät zum Training', amount: 5 },
+    { id: rid('pen'), teamId: 't_a', label: 'Training unentschuldigt verpasst', amount: 10 },
+    { id: rid('pen'), teamId: 't_a', label: 'Handy während Training', amount: 2 },
+    { id: rid('pen'), teamId: 't_a', label: 'Tanzschuhe vergessen', amount: 3 },
   ];
-  const pen = (i: number) => db.penalties[i];
-  const PA = (userId: string, penIdx: number, paid: boolean, daysAgo: number) => {
-    const p = pen(penIdx);
+  const pid = (i: number) => db.penalties[i].id;
+  const PA = (userId: string, penIdx: number, paid: boolean, daysAgo: number) =>
     db.penaltyAssignments.push({
       id: rid('pa'),
       teamId: 't_a',
       userId,
-      penaltyId: p.id,
+      penaltyId: pid(penIdx),
       paid,
       date: plusDays(-daysAgo),
-      label: p.label,
-      amount: p.amount,
     });
-  };
   PA('u4', 0, false, 2);
   PA('u7', 1, false, 9);
   PA('u5', 2, true, 4);
@@ -495,7 +486,15 @@ export function createSeedData(): DemoDb {
     return formatDateOnly(d).slice(0, 7);
   };
   const CO = (userId: string, month: string, paid: boolean) =>
-    db.contributions.push({ id: rid('co'), teamId: 't_a', userId, month, label: 'Mitgliedsbeitrag', amount: 2500, status: paid ? 'paid' : 'open' });
+    db.contributions.push({
+      id: rid('co'),
+      teamId: 't_a',
+      userId,
+      month,
+      label: 'Mitgliedsbeitrag',
+      amount: 25,
+      status: paid ? 'paid' : 'open',
+    });
   aMembers.forEach((uid, i) => {
     for (let off = 0; off < 6; off++) {
       const month = monthKeyOff(off);
@@ -507,6 +506,7 @@ export function createSeedData(): DemoDb {
     }
   });
 
+  // ---- Umfragen ----
   db.polls = [
     {
       id: rid('poll'),
@@ -552,114 +552,116 @@ export function createSeedData(): DemoDb {
     },
   ];
 
-  const ft = ev.find((e) => e.type === 'training' && e.date >= todayLocalDate());
-  if (ft) {
+  const _ft = ev.find((e) => e.type === 'training' && e.date >= todayLocalDate());
+  if (_ft) {
     db.eventComments = [
-      { id: rid('cm'), eventId: ft.id, userId: 'u2', text: 'Bringe die neue Musik für die Kür mit.', createdAt: iso(new Date(Date.now() - 2 * 3600 * 1000)) },
-      { id: rid('cm'), eventId: ft.id, userId: 'u1', text: 'Perfekt – wir starten mit der Eröffnung, bitte pünktlich.', createdAt: iso(new Date(Date.now() - 1 * 3600 * 1000)) },
+      {
+        id: rid('cm'),
+        eventId: _ft.id,
+        userId: 'u2',
+        text: 'Bringe die neue Musik für die Kür mit.',
+        createdAt: iso(new Date(Date.now() - 2 * 3600 * 1000)),
+      },
+      {
+        id: rid('cm'),
+        eventId: _ft.id,
+        userId: 'u1',
+        text: 'Perfekt – wir starten mit der Eröffnung, bitte pünktlich.',
+        createdAt: iso(new Date(Date.now() - 1 * 3600 * 1000)),
+      },
     ];
   }
 
+  // ---- Benachrichtigungen (letzte ~2 Monate) ----
   const ntf: AppNotification[] = [];
   const hAgo = (h: number) => iso(new Date(Date.now() - h * 3600 * 1000));
   const dAgo = (d: number) => iso(new Date(Date.now() - d * DAY));
-  const N = (o: Partial<AppNotification>) => ntf.push(Object.assign({ id: rid('ntf'), teamId: 't_a' }, o) as AppNotification);
+  const N = (o: Partial<AppNotification>) =>
+    ntf.push(Object.assign({ id: rid('ntf'), teamId: 't_a' }, o) as AppNotification);
+  const upTrain = ev
+    .filter((e) => e.type === 'training' && e.date >= todayLocalDate())
+    .sort((a, b) => a.date.localeCompare(b.date))[0];
   const trn = ev.find((e) => e.title.startsWith('NRW-Liga'));
+  const grl = ev.find((e) => e.type === 'event');
   N({ type: 'event_created', actorId: 'u1', title: 'Lateinformation – Training (Serie Di & Do)', createdAt: dAgo(48) });
-  if (trn) N({ type: 'event_created', actorId: 'u1', title: trn.title, eventId: trn.id, eventTitle: trn.title, eventDate: trn.date, createdAt: dAgo(11) });
+  N({
+    type: 'event_created',
+    actorId: 'u1',
+    title: trn ? trn.title : 'NRW-Liga',
+    eventId: trn ? trn.id : null,
+    eventTitle: trn ? trn.title : '',
+    eventDate: trn ? trn.date : '',
+    createdAt: dAgo(11),
+  });
+  N({
+    type: 'event_updated',
+    actorId: 'u2',
+    title: 'Lateinformation – Training',
+    createdAt: dAgo(9),
+    note: 'Treffzeit auf 19:15 vorgezogen',
+  });
+  N({
+    type: 'event_created',
+    actorId: 'u1',
+    title: grl ? grl.title : 'Saison-Kickoff Grillen',
+    eventId: grl ? grl.id : null,
+    eventTitle: grl ? grl.title : '',
+    eventDate: grl ? grl.date : '',
+    createdAt: dAgo(6),
+  });
   db.news.forEach((n) => N({ type: 'news', actorId: n.authorId, title: n.title, createdAt: n.createdAt }));
   N({ type: 'poll', actorId: 'u1', title: 'Neue Turnierkleidung – welche Farbe?', createdAt: dAgo(4) });
+  N({ type: 'poll', actorId: 'u2', title: 'Was bringst du zum Grillen mit?', createdAt: dAgo(1) });
   N({ type: 'absence', actorId: 'u6', title: 'Urlaub (Italien)', createdAt: dAgo(7) });
+  N({ type: 'absence', actorId: 'u10', title: 'Klassenfahrt', createdAt: dAgo(3) });
+  if (trn) {
+    const trnResp: [string, AttendanceStatus, number][] = [
+      ['u2', 'yes', 30],
+      ['u3', 'yes', 28],
+      ['u4', 'yes', 26],
+      ['u5', 'yes', 22],
+      ['u8', 'no', 20],
+      ['u9', 'maybe', 14],
+      ['u7', 'yes', 10],
+      ['u12', 'yes', 6],
+      ['u8', 'yes', 4],
+    ];
+    trnResp.forEach(([uid, st, h]) =>
+      N({
+        type: 'attendance',
+        actorId: uid,
+        status: st,
+        eventId: trn.id,
+        eventTitle: trn.title,
+        eventDate: trn.date,
+        createdAt: hAgo(h),
+      }),
+    );
+  }
+  if (upTrain) {
+    const trResp: [string, AttendanceStatus, number][] = [
+      ['u4', 'yes', 18],
+      ['u5', 'no', 16],
+      ['u7', 'maybe', 12],
+      ['u8', 'yes', 5],
+      ['u9', 'maybe', 3],
+      ['u12', 'yes', 2],
+    ];
+    trResp.forEach(([uid, st, h]) =>
+      N({
+        type: 'attendance',
+        actorId: uid,
+        status: st,
+        eventId: upTrain.id,
+        eventTitle: upTrain.title,
+        eventDate: upTrain.date,
+        createdAt: hAgo(h),
+      }),
+    );
+  }
   db.notifications = ntf;
   db.notifSeen = { t_a: hAgo(30) };
 
+  db.meta = { seededAt: iso(new Date()), version: 6 };
   return db;
-}
-
-// Mutable singleton, replaced in-place by resetDb() so existing references
-// (captured at handler-registration time) keep working.
-export const db: DemoDb = createSeedData();
-
-// Demo auth session — a single logged-in-user singleton (MSW is one demo
-// backend per page load, not a multi-client server), reset alongside the DB.
-export const session: { userId: string | null } = { userId: null };
-
-export function resetDb(): void {
-  Object.assign(db, createSeedData());
-  session.userId = null;
-}
-
-// ---- shared query helpers, used by handlers.ts ----
-
-export function rolesOf(membership: Membership): RoleDto[] {
-  return membership.roleIds.map((id) => db.roles.find((r) => r.id === id)).filter(Boolean) as RoleDto[];
-}
-
-export function absenceCovers(userId: string, date: string): boolean {
-  return db.absences.some((a) => a.userId === userId && date >= a.from && date <= a.to);
-}
-
-export interface EffectiveAttendance {
-  status: AttendanceDto['status'];
-  reason: string;
-  reasonId: string | null;
-  reasonVisibility: AttendanceDto['reasonVisibility'];
-  auto: boolean;
-  absent: boolean;
-}
-
-// Mirrors backend events.computeEffectiveAttendance: an explicit row wins;
-// otherwise a covering planned absence defaults to "no" (auto, absent); an
-// opt_out event with no record defaults to "yes" (auto); everything else is
-// "pending". Used for event summaries/attendance rows/roster views — NOT for
-// stats (see rawCountedStatus below, drift-bug fix #2).
-export function effectiveStatus(event: EventDto, userId: string | null): EffectiveAttendance {
-  const rec = db.attendance.find((a) => a.eventId === event.id && a.userId === userId);
-  if (rec) return { status: rec.status, reason: rec.reason, reasonId: rec.reasonId, reasonVisibility: rec.reasonVisibility, auto: false, absent: absenceCovers(userId!, event.date) };
-  if (userId && absenceCovers(userId, event.date))
-    return { status: 'no', reason: '', reasonId: null, reasonVisibility: null, auto: true, absent: true };
-  if (event.responseMode === 'opt_out') return { status: 'yes', reason: '', reasonId: null, reasonVisibility: null, auto: true, absent: false };
-  return { status: 'pending', reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false };
-}
-
-// Drift-bug fix #2: stats.Repository (backend/internal/stats/repository.go)
-// joins the raw `attendance` table directly (`a.status IN ('yes','no','maybe')`)
-// with no opt_out/absence defaulting — unlike the event-summary/roster views,
-// a member who never explicitly responded to an opt_out event or who is
-// auto-marked absent does NOT count toward a stats quota. Only an explicit
-// attendance record counts.
-export function rawCountedStatus(eventId: string, userId: string): 'yes' | 'no' | 'maybe' | null {
-  const rec = db.attendance.find((a) => a.eventId === eventId && a.userId === userId);
-  if (rec && (rec.status === 'yes' || rec.status === 'no' || rec.status === 'maybe')) return rec.status;
-  return null;
-}
-
-export function threeMonthsBeforeLocal(dateStr: string): string {
-  return monthsAgoLocal(dateStr, 3);
-}
-
-export function applyNominations(event: EventDto, nominatedRoleIds: string[]): void {
-  event.nominatedRoleIds = [...nominatedRoleIds];
-  const nomSet = new Set(nominatedRoleIds);
-  const members = db.memberships.filter((m) => m.teamId === event.teamId);
-  members.forEach((m) => {
-    const nominated = m.roleIds.some((roleId) => nomSet.has(roleId));
-    const a = db.attendance.find((x) => x.eventId === event.id && x.userId === m.userId);
-    if (nominated) {
-      if (a && a.status === 'not_nominated') db.attendance = db.attendance.filter((x) => x !== a);
-      return;
-    }
-    if (!a) {
-      db.attendance.push({ id: rid('att'), eventId: event.id, userId: m.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null, at: iso(new Date()) });
-    } else if (a.status === 'not_nominated') {
-      a.reason = '';
-      a.reasonId = null;
-      a.reasonVisibility = null;
-      a.at = iso(new Date());
-    }
-  });
-}
-
-export function pushNotif(o: Partial<AppNotification>): void {
-  db.notifications.push(Object.assign({ id: rid('ntf'), createdAt: iso(new Date()) }, o) as AppNotification);
 }

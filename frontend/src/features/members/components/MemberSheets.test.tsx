@@ -129,9 +129,7 @@ describe('MemberDetailSheet', () => {
   // render-time crash instead of a graceful empty state.
   it('renders a not-found state instead of crashing when member is undefined', () => {
     const app = makeApp();
-    expect(() =>
-      render(<MemberDetailSheet app={app} sheet={makeSheet({ member: undefined })} />),
-    ).not.toThrow();
+    expect(() => render(<MemberDetailSheet app={app} sheet={makeSheet({ member: undefined })} />)).not.toThrow();
     expect(screen.getByText('Dieses Mitglied wurde nicht gefunden. Es könnte entfernt worden sein.')).toBeTruthy();
   });
 
@@ -434,7 +432,7 @@ describe('MemberFormSheet', () => {
     expect(screen.getByText(/Foto ändern/i)).toBeTruthy();
   });
 
-  it('hides the photo control when an admin edits someone else\'s profile', () => {
+  it("hides the photo control when an admin edits someone else's profile", () => {
     // No backend endpoint exists to set another member's photo, so the
     // control must not be shown at all when self is false.
     const app = makeFormApp({ photo: null }, {}, true);
@@ -463,9 +461,7 @@ describe('MemberFormSheet', () => {
     onFileCb('data:image/png;base64,photodata');
 
     expect(app.setState).toHaveBeenCalledTimes(1);
-    const updater = (app.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as (
-      s: AppState,
-    ) => Partial<AppState>;
+    const updater = (app.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as (s: AppState) => Partial<AppState>;
 
     // Sheet unchanged (still this memberForm): the update applies.
     expect(updater({ ...app.state, sheet: formSheet } as never)).toEqual({

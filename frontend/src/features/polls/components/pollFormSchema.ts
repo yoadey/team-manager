@@ -3,7 +3,11 @@ import { t } from '@/i18n';
 
 export const pollFormSchema = z
   .object({
-    question: z.string().trim().min(1, { message: t('polls.fieldQuestionError') }).max(1000),
+    question: z
+      .string()
+      .trim()
+      .min(1, { message: t('polls.fieldQuestionError') })
+      .max(1000),
     opt0: z.string().trim().max(500).optional().or(z.literal('')),
     opt1: z.string().trim().max(500).optional().or(z.literal('')),
     opt2: z.string().trim().max(500).optional().or(z.literal('')),

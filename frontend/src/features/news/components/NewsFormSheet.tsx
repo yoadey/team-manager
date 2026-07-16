@@ -92,11 +92,25 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
   const errs = state.formErrors || {};
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Field label={t('news.fieldTitle')} required error={!!errors.title || !!errs.title} errorText={errors.title?.message || errs.title}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
+      <Field
+        label={t('news.fieldTitle')}
+        required
+        error={!!errors.title || !!errs.title}
+        errorText={errors.title?.message || errs.title}
+      >
         <TextInput placeholder={t('news.fieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
-      <Field label={t('news.fieldBody')} required error={!!errors.body || !!errs.body} errorText={errors.body?.message || errs.body}>
+      <Field
+        label={t('news.fieldBody')}
+        required
+        error={!!errors.body || !!errs.body}
+        errorText={errors.body?.message || errs.body}
+      >
         <TextArea
           placeholder={t('news.fieldBodyPlaceholder')}
           minHeight={120}

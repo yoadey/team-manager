@@ -6,8 +6,7 @@ import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym, EmptyState, SkeletonList } from '@/components/ui';
 import { EventCard } from '@/components/cards';
-import { EventCalendar, EventAbsences, useEventsQuery } from '@/features/events';
-import type { TeamEvent } from '@/features/events';
+import { EventCalendar, EventAbsences } from '@/features/events';
 import { t } from '@/i18n';
 
 export function EventsPage() {
@@ -15,10 +14,9 @@ export function EventsPage() {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const today = todayLocalDate();
-  const { data: events } = useEventsQuery(app.api, state.activeTeamId);
 
   const scoped = useMemo(() => {
-    let list = (events ?? []).filter((e: TeamEvent) =>
+    let list = (state.events ?? []).filter((e) =>
       state.eventScope === 'upcoming' ? e.date >= today : e.date < today,
     );
     if (state.eventsOnlyPending && state.eventScope === 'upcoming')
@@ -26,9 +24,9 @@ export function EventsPage() {
     return list
       .slice()
       .sort((a, b) => (state.eventScope === 'upcoming' ? a.date.localeCompare(b.date) : b.date.localeCompare(a.date)));
-  }, [events, state.eventScope, state.eventsOnlyPending, today]);
+  }, [state.events, state.eventScope, state.eventsOnlyPending, today]);
 
-  if (!events) return <SkeletonList rows={4} rowHeight={110} />;
+  if (!state.events) return <SkeletonList rows={4} rowHeight={110} />;
 
   const seg = <T extends string>(label: string, val: T, cur: string, fn: (v: T) => void, flex?: string) => (
     <ButtonBase

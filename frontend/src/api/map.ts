@@ -7,7 +7,7 @@
 // per-arbitrary-user photo endpoint on the backend, so they stay null
 // (initials/avatar fallback) until such an endpoint exists.
 
-import { apiOrigin } from './client';
+import { config } from '@/config';
 import type { components } from './types.gen';
 import type {
   User,
@@ -64,7 +64,7 @@ export function eurosToCents(euros: number): number {
 // between unrelated re-renders of the same mapped object.
 function photoUrl(hasPhoto: boolean | undefined, path: string): string | null {
   if (!hasPhoto) return null;
-  return `${apiOrigin}/api/v1${path}?v=${Date.now()}`;
+  return `${config.apiBaseUrl}/api/v1${path}?v=${Date.now()}`;
 }
 
 // The backend's attendance-quote fields (MemberStat.quote, EventStat.pct,

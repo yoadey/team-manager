@@ -1,5 +1,4 @@
 import type { useApp, SheetState } from '@/context/AppContext';
-import type { TeamEvent } from '@/features/events';
 import { fmtDateLong } from '@/styles/tokens';
 import { t as tl } from '@/i18n';
 import { shortName } from './useCompact';
@@ -13,15 +12,10 @@ export interface PM {
   primaryAction: () => void;
 }
 
-/**
- * `eventDetailEvent` is the currently-open `eventDetail` page sheet's event
- * (fetched by the caller via `useEventDetailQuery`, since the sheet itself no
- * longer carries it) -- undefined/null while that query is still loading.
- */
-export function pageMeta(app: ReturnType<typeof useApp>, eventDetailEvent?: TeamEvent | null): PM {
+export function pageMeta(app: ReturnType<typeof useApp>): PM {
   const { state } = app;
   const pageSheet = app.activePageSheet();
-  if (pageSheet) return pageSheetMeta(app, pageSheet, eventDetailEvent);
+  if (pageSheet) return pageSheetMeta(app, pageSheet);
   const noop = () => {};
   type M = [string, string, boolean, string?, string?, (() => void)?];
   const defs: Record<string, M> = {
@@ -83,7 +77,7 @@ export function pageMeta(app: ReturnType<typeof useApp>, eventDetailEvent?: Team
   };
 }
 
-function pageSheetMeta(app: ReturnType<typeof useApp>, s: SheetState, eventDetailEvent?: TeamEvent | null): PM {
+function pageSheetMeta(app: ReturnType<typeof useApp>, s: SheetState): PM {
   const team = app.activeTeam();
   const base = (title: string, subtitle: string): PM => ({
     title,
@@ -94,7 +88,7 @@ function pageSheetMeta(app: ReturnType<typeof useApp>, s: SheetState, eventDetai
     primaryAction: () => {},
   });
   if (s.type === 'eventDetail') {
-    const e = eventDetailEvent;
+    const e = s.event;
     return base(e ? e.title : tl('sheet.eventDetail'), e ? fmtDateLong(e.date) : tl('sheet.eventDetailSubtitle'));
   }
   if (s.type === 'eventForm')
