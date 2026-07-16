@@ -6,6 +6,7 @@ import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { txFormSchema, type TxFormValues } from './txFormSchema';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { getIntlLocale, t } from '@/i18n';
 
@@ -13,6 +14,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const errs = state.formErrors || {};
   const tk = buildTokens(state.primaryColor);
+  const { data: finances } = useFinanceOverviewQuery(app.api, state.activeTeamId);
   const edit = sheet.mode === 'edit';
 
   const {
@@ -75,9 +77,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
     );
   });
 
-  const cats = [
-    ...new Set(((app.state.finances && app.state.finances.transactions) || []).map((x) => x.category).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b, getIntlLocale()));
+  const cats = [...new Set(((finances && finances.transactions) || []).map((x) => x.category).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, getIntlLocale()),
+  );
 
   const catField = (
     <Box>
@@ -196,7 +198,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={edit ? t('finances.txSaveEdit') : t('finances.txSave')}
         onClick={handleSubmit(onSubmit)}
-        busy={isSubmitting}
+        busy={isSubmitting || app.state.savingTx}
         disabled={!canSubmit}
       />
       {del}

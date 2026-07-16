@@ -1,15 +1,27 @@
 import { useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import type { DateRange } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
-import type { Penalty, Contribution, Transaction } from '../types';
-import { reportActionError } from '@/utils/errors';
-import { t } from '@/i18n';
+import type { Contribution, FinanceOverview, Penalty, Transaction } from '../types';
 import type { TxFormValues } from '../components/txFormSchema';
 import type { PenaltyFormValues } from '../components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
 import type { ContribFormValues } from '../components/contribFormSchema';
-import { validateMoneyAmount, MAX_MONEY_AMOUNT_EUROS } from '@/utils/validation';
+import { reportActionError } from '@/utils/errors';
+import { t } from '@/i18n';
+import { queryKeys } from '@/query/keys';
+import {
+  useDeleteAssignmentMutation,
+  useDeletePenaltyMutation,
+  useDeleteTxMutation,
+  useSaveContribMutation,
+  useSavePenaltyAssignMutation,
+  useSavePenaltyMutation,
+  useSaveTxMutation,
+  useTogglePenaltyMutation,
+  useToggleContributionMutation,
+} from './useFinanceMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -17,25 +29,30 @@ type FinanceFeatureDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  loadFinances: () => Promise<void>;
-  loadStats: (range?: DateRange | null) => Promise<void>;
-  refreshMembers: () => Promise<void>;
+  /** Reactive (render-time) active team id -- the query/mutation hooks key off this directly
+   * rather than through `S()`, since a `useQuery`/`useMutation` call must re-run on every
+   * render to pick up a team switch instead of only when some later callback fires. */
+  teamId: string | null;
   askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
-export function useFinanceActions({
-  api,
-  S,
-  setState,
-  loadFinances,
-  loadStats,
-  refreshMembers,
-  askConfirm,
-  toastMsg,
-  logout,
-}: FinanceFeatureDeps) {
+export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastMsg, logout }: FinanceFeatureDeps) {
+  const queryClient = useQueryClient();
+  const { mutateAsync: saveTxAsync, isPending: savingTx } = useSaveTxMutation(api, teamId);
+  const { mutateAsync: deleteTxAsync } = useDeleteTxMutation(api);
+  const { mutateAsync: savePenaltyAsync, isPending: savingPenalty } = useSavePenaltyMutation(api, teamId);
+  const { mutateAsync: deletePenaltyAsync } = useDeletePenaltyMutation(api);
+  const { mutateAsync: savePenaltyAssignAsync, isPending: savingPenaltyAssign } = useSavePenaltyAssignMutation(
+    api,
+    teamId,
+  );
+  const { mutateAsync: deleteAssignmentAsync } = useDeleteAssignmentMutation(api);
+  const { mutateAsync: saveContribAsync, isPending: savingContrib } = useSaveContribMutation(api, teamId);
+  const { mutateAsync: togglePenaltyAsync } = useTogglePenaltyMutation(api, teamId);
+  const { mutateAsync: toggleContributionAsync } = useToggleContributionMutation(api, teamId);
+
   const openTxForm = useCallback(
     (tx?: Transaction) => {
       const f: TxFormValues = tx
@@ -49,61 +66,40 @@ export function useFinanceActions({
   const saveTx = useCallback(
     async (f: TxFormValues) => {
       const sh = S().sheet;
-      const teamId = S().activeTeamId!;
-      setState({ busy: 'save' });
-      const amountVal = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).value!;
+      const savedTeamId = teamId;
       try {
-        if (S().sheet!.mode === 'edit')
-          await api.finances.updateTransaction(
-            f.id!,
-            {
-              type: f.type,
-              title: f.title.trim(),
-              amount: amountVal,
-              category: f.category || '',
-            },
-            teamId,
-          );
-        else
-          await api.finances.addTransaction(teamId, {
-            type: f.type,
-            title: f.title.trim(),
-            amount: amountVal,
-            category: f.category || '',
-          });
-        await loadFinances();
+        const mode = S().sheet!.mode === 'edit' ? 'edit' : 'create';
+        await saveTxAsync({
+          mode,
+          id: f.id,
+          payload: { type: f.type, title: f.title.trim(), amount: Number(f.amount), category: f.category || '' },
+        });
         // Don't close a sheet the user has since opened for a different team
         // after switching away mid-request, or one they've since opened for a
         // different entity (same team) while this save was in flight.
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastTxSaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
-      } finally {
-        setState({ busy: null });
       }
     },
-    [api, S, setState, loadFinances, toastMsg, logout],
+    [S, setState, saveTxAsync, teamId, toastMsg, logout],
   );
 
   const deleteTx = useCallback(
     async (id: string) => {
       const sh = S().sheet;
-      const teamId = S().activeTeamId!;
-      setState({ busy: 'delete' });
+      const deletedTeamId = teamId!;
       try {
-        await api.finances.deleteTransaction(id, teamId);
-        await loadFinances();
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+        await deleteTxAsync({ id, teamId: deletedTeamId });
+        if (S().activeTeamId === deletedTeamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastTxDeleted'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.delete');
-      } finally {
-        setState({ busy: null });
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
       }
     },
-    [api, S, loadFinances, setState, toastMsg, logout],
+    [S, deleteTxAsync, setState, teamId, toastMsg, logout],
   );
 
   const openPenaltyCatalog = useCallback(() => setState({ sheet: { type: 'penaltyCatalog' } }), [setState]);
@@ -129,27 +125,30 @@ export function useFinanceActions({
       const sh = S().sheet!;
       const back = sh.back || null;
       const create = sh.mode === 'create';
-      const teamId = S().activeTeamId!;
-      setState({ busy: 'save' });
-      const amountVal = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).value!;
+      const savedTeamId = teamId;
       try {
-        if (create) await api.finances.createPenalty(teamId, { label: f.label.trim(), amount: amountVal });
-        else await api.finances.updatePenalty(f.id!, { label: f.label.trim(), amount: amountVal }, teamId);
-        await loadFinances();
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: back });
+        await savePenaltyAsync({
+          mode: create ? 'create' : 'edit',
+          id: f.id,
+          payload: { label: f.label.trim(), amount: Number(f.amount) },
+        });
+        // Don't navigate away from a sheet the user has since opened for a
+        // different team after switching away mid-request, or one they've
+        // since opened for a different entity (same team) while this save was
+        // in flight.
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: back });
         toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
-      } finally {
-        setState({ busy: null });
       }
     },
-    [api, S, setState, loadFinances, toastMsg, logout],
+    [S, setState, savePenaltyAsync, teamId, toastMsg, logout],
   );
 
   const deletePenaltyDef = useCallback(
-    (id: string) =>
+    (id: string) => {
+      const deletedTeamId = teamId!;
       askConfirm({
         title: t('finances.penaltyDeleteTitle'),
         message: t('finances.penaltyDeleteMsg'),
@@ -157,51 +156,48 @@ export function useFinanceActions({
         danger: true,
         onConfirm: async () => {
           const sh = S().sheet;
-          const teamId = S().activeTeamId!;
           try {
-            await api.finances.deletePenalty(id, teamId);
-            await loadFinances();
-            if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'penaltyCatalog' } });
+            await deletePenaltyAsync({ id, teamId: deletedTeamId });
+            if (S().activeTeamId === deletedTeamId && S().sheet === sh) setState({ sheet: { type: 'penaltyCatalog' } });
             toastMsg(t('finances.toastPenaltyRemoved'));
           } catch (err) {
             reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
-      }),
-    [api, S, askConfirm, loadFinances, setState, toastMsg, logout],
+      });
+    },
+    [S, askConfirm, deletePenaltyAsync, setState, teamId, toastMsg, logout],
   );
 
   const openPenaltyAssign = useCallback(() => {
-    const members = S().members;
-    if (!members || !members.length) refreshMembers();
-    const f = S().finances;
+    // The member picker and penalty catalog are populated by
+    // PenaltyAssignSheet's own useMembersQuery/useFinanceOverviewQuery, which
+    // fetch/retry on their own -- no manual refresh needed here.
+    const f = queryClient.getQueryData<FinanceOverview>(queryKeys.finances(teamId ?? ''));
     const first = f && f.penalties[0] ? f.penalties[0].id : '';
     const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };
     setState({ sheet: { type: 'penaltyAssign' }, form, formErrors: {} });
-  }, [S, refreshMembers, setState]);
+  }, [queryClient, teamId, setState]);
 
   const savePenaltyAssign = useCallback(
     async (f: PenaltyAssignFormValues) => {
       const sh = S().sheet;
-      const teamId = S().activeTeamId!;
-      setState({ busy: 'save' });
+      const savedTeamId = teamId;
       try {
-        await api.finances.assignPenalty(teamId, { userId: f.userId, penaltyId: f.penaltyId });
-        await loadFinances();
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+        await savePenaltyAssignAsync({ userId: f.userId, penaltyId: f.penaltyId });
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastPenaltyAssigned'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
-      } finally {
-        setState({ busy: null });
       }
     },
-    [api, S, setState, loadFinances, toastMsg, logout],
+    [S, setState, savePenaltyAssignAsync, teamId, toastMsg, logout],
   );
 
   const deleteAssignment = useCallback(
-    (id: string) =>
+    (id: string) => {
+      const deletedTeamId = teamId!;
       askConfirm({
         title: t('finances.assignmentDeleteTitle'),
         message: t('finances.assignmentDeleteMsg'),
@@ -209,15 +205,15 @@ export function useFinanceActions({
         danger: true,
         onConfirm: async () => {
           try {
-            await api.finances.deleteAssignment(id, S().activeTeamId!);
-            await loadFinances();
+            await deleteAssignmentAsync({ id, teamId: deletedTeamId });
             toastMsg(t('finances.toastPenaltyAssignDeleted'));
           } catch (err) {
             reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
-      }),
-    [api, S, askConfirm, loadFinances, setState, toastMsg, logout],
+      });
+    },
+    [askConfirm, deleteAssignmentAsync, setState, teamId, toastMsg, logout],
   );
 
   const openContribForm = useCallback(
@@ -231,22 +227,17 @@ export function useFinanceActions({
   const saveContrib = useCallback(
     async (f: ContribFormValues) => {
       const sh = S().sheet;
-      const teamId = S().activeTeamId!;
-      setState({ busy: 'save' });
-      const amountVal = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).value!;
+      const savedTeamId = teamId;
       try {
-        await api.finances.updateContribution(f.id, { label: f.label.trim(), amount: amountVal }, teamId);
-        await loadFinances();
-        if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
+        await saveContribAsync({ id: f.id, payload: { label: f.label.trim(), amount: Number(f.amount) } });
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastContribSaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
-      } finally {
-        setState({ busy: null });
       }
     },
-    [api, S, setState, loadFinances, toastMsg, logout],
+    [S, setState, saveContribAsync, teamId, toastMsg, logout],
   );
 
   const toggleInFlight = useRef(new Set<string>());
@@ -257,15 +248,14 @@ export function useFinanceActions({
       if (toggleInFlight.current.has(key)) return;
       toggleInFlight.current.add(key);
       try {
-        await api.finances.togglePenaltyPaid(id, S().activeTeamId!);
-        await loadFinances();
+        await togglePenaltyAsync(id);
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       } finally {
         toggleInFlight.current.delete(key);
       }
     },
-    [api, S, loadFinances, setState, toastMsg, logout],
+    [togglePenaltyAsync, setState, toastMsg, logout],
   );
 
   const toggleContribution = useCallback(
@@ -274,24 +264,20 @@ export function useFinanceActions({
       if (toggleInFlight.current.has(key)) return;
       toggleInFlight.current.add(key);
       try {
-        await api.finances.toggleContribution(id, S().activeTeamId!);
-        await loadFinances();
+        await toggleContributionAsync(id);
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       } finally {
         toggleInFlight.current.delete(key);
       }
     },
-    [api, S, loadFinances, setState, toastMsg, logout],
+    [toggleContributionAsync, setState, toastMsg, logout],
   );
 
-  const setStatsRange = useCallback(
-    (range: DateRange | null) => {
-      setState({ statsRange: range, stats: null });
-      loadStats(range);
-    },
-    [setState, loadStats],
-  );
+  // Stats itself is fetched via useStatsQuery (React Query), whose
+  // team-and-range-scoped key refetches on its own the moment statsRange
+  // changes -- this is now a pure UI state update.
+  const setStatsRange = useCallback((range: DateRange | null) => setState({ statsRange: range }), [setState]);
 
   return {
     openTxForm,
@@ -309,5 +295,9 @@ export function useFinanceActions({
     togglePenalty,
     toggleContribution,
     setStatsRange,
+    savingTx,
+    savingPenalty,
+    savingPenaltyAssign,
+    savingContrib,
   };
 }

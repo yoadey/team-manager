@@ -4,13 +4,14 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { SkeletonList, Sym } from '@/components/ui';
 import { FinancesTransactions, FinancesPenalties, FinancesContributions } from '@/features/finances';
+import { useFinanceOverviewQuery } from './hooks/useFinanceQueries';
 import { t } from '@/i18n';
 
 export function FinancesPage() {
   const app = useApp();
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const f = state.finances;
+  const { data: f } = useFinanceOverviewQuery(app.api, state.activeTeamId);
   if (!f) return <SkeletonList rows={5} rowHeight={64} />;
   const canFin = app.can('finances', 'write');
 

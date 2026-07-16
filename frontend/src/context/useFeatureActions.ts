@@ -1,21 +1,19 @@
-import { useCallback } from 'react';
 import {
   useEventActionFeatures,
   useEventDetailActions,
   useAbsenceActions,
   useCalExportActions,
   useEventFormActions,
-  useInvalidateEvents,
 } from '@/features/events';
 import { useFinanceActions } from '@/features/finances';
-import { useMemberActions } from '@/features/members';
+import { useMemberActions, useInvalidateMembers } from '@/features/members';
 import { useNewsActions } from '@/features/news';
 import { useNotificationActions } from '@/features/notifications';
 import { usePollActions } from '@/features/polls';
 import { useTeamActions, useRoleActions } from '@/features/team';
 import type { AppState, ConfirmConfig } from './AppContext';
 import type { api as defaultApi } from '@/services';
-import type { DateRange, Role, TeamForUser } from '@/types';
+import type { Role, TeamForUser } from '@/types';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -25,16 +23,10 @@ type FeatureActionDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
-  /** Reactive active team id, for the events vertical's query/mutation hooks. */
+  /** Reactive active team id, for the events/members/finances/polls/news/absences/stats verticals' query/mutation hooks. */
   teamId: string | null;
-  refreshMembers: () => Promise<void>;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
-  loadAbsences: () => Promise<void>;
-  loadFinances: () => Promise<void>;
-  loadStats: (range?: DateRange | null) => Promise<void>;
-  loadNews: () => Promise<void>;
-  loadPolls: () => Promise<void>;
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
@@ -51,14 +43,8 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     activeTeam,
     myRoles,
     teamId,
-    refreshMembers,
     refreshRoles,
     refreshTeams,
-    loadAbsences,
-    loadFinances,
-    loadStats,
-    loadNews,
-    loadPolls,
     loadNotifications,
     afterLoginLoad,
     toastMsg,
@@ -67,17 +53,9 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     logout,
   } = deps;
 
-  // The absences vertical isn't migrated yet and still triggers an events
-  // refresh after a save/removal (an absence overlapping an upcoming event
-  // auto-marks attendance as absent). Bridge it to the events query cache
-  // instead of a manual refetch so it keeps working unchanged -- including
-  // the old loader's loadNotifications() call, since an absence changing an
-  // event's auto-attendance can also flip a "pending RSVP" notification.
-  const invalidateEvents = useInvalidateEvents(teamId);
-  const refreshEvents = useCallback(async () => {
-    invalidateEvents();
-    loadNotifications();
-  }, [invalidateEvents, loadNotifications]);
+  // Used by useTeamActions' uploadMyPhoto (not migrated yet), whose own-photo
+  // change is visible in the member list too.
+  const invalidateMembers = useInvalidateMembers(teamId);
 
   const eventDetailActions = useEventDetailActions({
     api,
@@ -102,12 +80,12 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     askConfirm,
     openEventDetail: eventDetailActions.openEventDetail,
   });
-  const notifActions = useNotificationActions({ api, S, setState, loadNotifications, toastMsg, logout });
+  const notifActions = useNotificationActions({ api, setState, teamId, toastMsg, logout });
   const memberActions = useMemberActions({
     api,
     S,
     setState,
-    refreshMembers,
+    teamId,
     refreshTeams,
     askConfirm,
     toastMsg,
@@ -130,7 +108,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     setState,
     activeTeam,
     refreshTeams,
-    refreshMembers,
+    invalidateMembers,
     setFormVal,
     afterLoginLoad,
     toastMsg,
@@ -140,26 +118,24 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    refreshEvents,
-    loadAbsences,
+    teamId,
+    loadNotifications,
     askConfirm,
     toastMsg,
     logout,
   });
   const calExportActions = useCalExportActions({ api, S, setState, activeTeam, teamId, toastMsg });
-  const newsActions = useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg, logout });
+  const newsActions = useNewsActions({ api, S, setState, teamId, loadNotifications, askConfirm, toastMsg, logout });
   const financeActions = useFinanceActions({
     api,
     S,
     setState,
-    loadFinances,
-    loadStats,
-    refreshMembers,
+    teamId,
     askConfirm,
     toastMsg,
     logout,
   });
-  const pollActions = usePollActions({ api, S, setState, loadPolls, toastMsg, askConfirm, logout });
+  const pollActions = usePollActions({ api, S, setState, teamId, loadNotifications, toastMsg, askConfirm, logout });
   const eventFormActions = useEventFormActions({
     api,
     S,

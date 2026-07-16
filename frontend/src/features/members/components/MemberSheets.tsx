@@ -400,7 +400,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
         label={t('members.saveProfile')}
         onClick={handleSubmit(onSubmit)}
         disabled={!watch('name')?.trim()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingMember}
       />
     </Box>
   );

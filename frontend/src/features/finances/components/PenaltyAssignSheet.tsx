@@ -4,16 +4,17 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, inputSx, labelSx } from '@/components/ui';
-import type { Member } from '@/features/members';
+import { useMembersQuery } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
 import { penaltyAssignFormSchema, type PenaltyAssignFormValues } from './penaltyAssignFormSchema';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { t } from '@/i18n';
 
 export function PenaltyAssignSheet({ app }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const f = state.finances;
-  const members: Member[] = state.members || [];
+  const { data: f } = useFinanceOverviewQuery(app.api, state.activeTeamId);
+  const { data: members } = useMembersQuery(app.api, state.activeTeamId);
 
   const {
     register,
@@ -113,7 +114,7 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
         <option key="_" value="">
           {t('finances.assignPersonPlaceholder')}
         </option>
-        {members.map((m) => (
+        {(members || []).map((m) => (
           <option key={m.userId} value={m.userId}>
             {m.name}
           </option>
@@ -133,7 +134,7 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
       <PrimaryButton
         label={t('finances.assignSave')}
         onClick={handleSubmit(onSubmit)}
-        busy={isSubmitting}
+        busy={isSubmitting || app.state.savingPenaltyAssign}
         disabled={!canSubmit}
       />
     </Box>

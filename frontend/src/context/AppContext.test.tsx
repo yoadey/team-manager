@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { createTestQueryClient } from '@/test/queryTestUtils';
+import { useNotificationsQuery } from '@/features/notifications';
 import { AppProvider, useApp, useAppActions, useAppSelector, sheetErrorBoundaryKey } from './AppContext';
 
 beforeEach(() => localStorage.clear());
@@ -167,9 +168,6 @@ describe('AppProvider / actions (app phase)', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [{ id: 'r1', name: 'Member' }] as never,
-        members: [],
-        news: [],
-        polls: [],
       });
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -415,156 +413,37 @@ describe('AppProvider / actions (app phase)', () => {
   });
 });
 
-// Regression test: on-demand per-route loaders (loadFinances, loadStats,
-// loadNews, loadPolls, loadAbsences, refreshEvents/Members/Roles,
+// Regression test: on-demand per-route loaders (refreshRoles,
 // loadNotifications) used to apply their response unconditionally, with no
 // check that activeTeamId was still the same team when the response landed
 // -- unlike afterLoginLoad, which has always had this guard. A slow request
 // for the team the user just navigated away from could clobber the newly
-// selected team's state with the previous team's data.
+// selected team's state with the previous team's data. (events/members/
+// finances/polls/news/absences/stats have their own equivalent coverage in
+// useEventQueries.test.ts/useMemberQueries.test.ts/useFinanceQueries.test.ts/
+// usePollQueries.test.ts/useNewsQueries.test.ts/useAbsenceQueries.test.ts/
+// useStatsQueries.test.ts.)
 describe('AppProvider / team-switch race guards', () => {
-  it('loadFinances discards a stale response after the user has switched teams', async () => {
+  // Regression test: afterLoginLoad used to await roles/notifications
+  // together via Promise.allSettled, so a genuine (non-permission) failure
+  // needed its own reporting path independent of ForbiddenError filtering.
+  // Now that notifications is fetched via useNotificationsQuery (React
+  // Query) instead, roles is the only fetch left in this bundle -- this
+  // covers the success path (a fetched, non-empty roles list is applied).
+  it('afterLoginLoad populates roles on a successful fetch', async () => {
     const svc = await import('@/services');
-    type Overview = Awaited<ReturnType<typeof svc.api.finances.overview>>;
-    let resolveOverview!: (v: Overview) => void;
-    const overviewSpy = vi
-      .spyOn(svc.api.finances, 'overview')
-      .mockReturnValueOnce(new Promise<Overview>((resolve) => (resolveOverview = resolve)));
+    // team1 isn't a seeded team in the MSW demo db, so roles.list would
+    // resolve to an empty array either way -- mock a known non-empty value
+    // so a successful fetch is actually distinguishable from the initial
+    // (also-empty) state.
+    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockResolvedValue([{ id: 'r1', name: 'Member' } as never]);
 
     let actions!: ReturnType<typeof useAppActions>;
     let state!: ReturnType<typeof useApp>['state'];
     function Probe() {
       state = useApp().state;
       actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
-          <div data-testid="finances">{state.finances ? JSON.stringify(state.finances) : 'null'}</div>
-        </div>
-      );
-    }
-
-    renderApp(
-      <AppProvider>
-        <Probe />
-      </AppProvider>,
-    );
-    await act(async () => {
-      actions.setState({ phase: 'app', activeTeamId: 'team1', teams: [] as never });
-    });
-
-    // Kick off loadFinances for team1; the mocked promise stays pending.
-    act(() => {
-      actions.loadFinances();
-    });
-    expect(overviewSpy).toHaveBeenCalledWith('team1');
-
-    // User switches to team2 before team1's response arrives. selectTeam
-    // resets finances to null via afterLoginLoad's initial reset.
-    await act(async () => {
-      await actions.selectTeam('team2');
-    });
-    expect(screen.getByTestId('activeTeamId').textContent).toBe('team2');
-    expect(screen.getByTestId('finances').textContent).toBe('null');
-
-    // team1's stale response now arrives -- it must NOT overwrite team2's state.
-    await act(async () => {
-      resolveOverview({
-        balance: 0,
-        income: 0,
-        expense: 0,
-        transactions: [],
-        penalties: [],
-        assignments: [],
-        openPenalties: [],
-        openPenaltySum: 0,
-        contributions: [],
-        contribOpen: 0,
-      });
-    });
-    expect(screen.getByTestId('activeTeamId').textContent).toBe('team2');
-    expect(screen.getByTestId('finances').textContent).toBe('null');
-
-    overviewSpy.mockRestore();
-  });
-
-  // Regression test: afterLoginLoad used to await all five initial-load
-  // calls via Promise.all, so a single 403 (e.g. a member whose role lacks
-  // members:read) discarded every other successfully-loaded module too --
-  // the whole dashboard was left blank. It must now degrade gracefully:
-  // modules that succeeded still populate state even when a sibling module
-  // fails.
-  it('afterLoginLoad still populates modules that succeeded when a sibling module 403s', async () => {
-    const svc = await import('@/services');
-    const { ForbiddenError } = await import('@/utils/errors');
-    const membersSpy = vi.spyOn(svc.api.members, 'list').mockRejectedValue(new ForbiddenError());
-
-    let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
-    function Probe() {
-      state = useApp().state;
-      actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
-          <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
-          <div data-testid="members">{state.members ? 'loaded' : 'null'}</div>
-        </div>
-      );
-    }
-
-    renderApp(
-      <AppProvider>
-        <Probe />
-      </AppProvider>,
-    );
-    await act(async () => {
-      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
-    });
-
-    await act(async () => {
-      await actions.selectTeam('team1');
-    });
-
-    // notifications is a sibling module in the same allSettled bundle --
-    // proves the members 403 didn't blank out everything else (events is no
-    // longer part of this bundle; see useEventQueries.test.ts for its own
-    // race coverage).
-    expect(screen.getByTestId('notifications').textContent).toBe('loaded');
-    expect(screen.getByTestId('members').textContent).toBe('null');
-
-    membersSpy.mockRestore();
-  });
-
-  // Regression test: a ForbiddenError from afterLoginLoad's parallel fetch
-  // used to always surface a "you don't have permission" toast via
-  // reportLoad(failures[0].reason) -- even though a role having e.g.
-  // news:none is completely ordinary and expected, not a real failure. This
-  // fired on every single login/team-switch for such a role. Verified via the
-  // module-populate side effect (not state.toast): afterLoginLoad's S().
-  // activeTeamId guard around reportLoad only ever settles once this whole
-  // act() block returns (React's test-mode batching defers the commit of the
-  // activeTeamId update queued earlier in the same callback), so a toast
-  // assertion taken mid-callback is unreliable here in a way a real network
-  // round-trip never is -- the ForbiddenError-filtering logic itself is
-  // simple enough (one .find() predicate) to trust from inspection plus this
-  // side-effect check.
-  it('afterLoginLoad leaves other modules populated when the only failure is a ForbiddenError', async () => {
-    const svc = await import('@/services');
-    const { ForbiddenError } = await import('@/utils/errors');
-    const newsSpy = vi.spyOn(svc.api.news, 'list').mockRejectedValue(new ForbiddenError());
-
-    let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
-    function Probe() {
-      state = useApp().state;
-      actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
-          <div data-testid="news">{state.news ? 'loaded' : 'null'}</div>
-        </div>
-      );
+      return <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>;
     }
 
     renderApp(
@@ -579,35 +458,108 @@ describe('AppProvider / team-switch race guards', () => {
       await actions.selectTeam('team1');
     });
 
-    expect(screen.getByTestId('notifications').textContent).toBe('loaded');
-    expect(screen.getByTestId('news').textContent).toBe('null');
+    expect(screen.getByTestId('roles').textContent).toBe('loaded');
 
-    newsSpy.mockRestore();
+    rolesSpy.mockRestore();
+  });
+
+  // Regression test: a genuine (non-permission) roles-fetch failure must not
+  // silently populate state.roles -- it should stay at its initial empty
+  // value. Verified via the data-population side effect (not state.toast):
+  // afterLoginLoad's S().activeTeamId guard around reportLoad only ever
+  // settles once this whole act() block returns (React's test-mode batching
+  // defers the commit of the activeTeamId update queued earlier in the same
+  // callback), so a toast assertion taken mid-callback is unreliable here in
+  // a way a real network round-trip never is -- the error-handling logic
+  // itself is simple enough (one instanceof check) to trust from inspection
+  // plus this side-effect check (same rationale as the
+  // ForbiddenError-suppression test below).
+  it('afterLoginLoad leaves roles empty on a genuine (non-Forbidden) fetch failure', async () => {
+    const svc = await import('@/services');
+    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockRejectedValue(new Error('boom'));
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>;
+    }
+
+    renderApp(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    expect(screen.getByTestId('roles').textContent).toBe('empty');
+
+    rolesSpy.mockRestore();
+  });
+
+  // Regression test: a ForbiddenError from afterLoginLoad's roles fetch used
+  // to always surface a "you don't have permission" toast -- even though a
+  // role having roles:none is completely ordinary and expected, not a real
+  // failure. This fired on every single login/team-switch for such a role.
+  it('afterLoginLoad silently ignores a ForbiddenError from the roles fetch (no toast)', async () => {
+    const svc = await import('@/services');
+    const { ForbiddenError } = await import('@/utils/errors');
+    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockRejectedValue(new ForbiddenError());
+
+    let actions!: ReturnType<typeof useAppActions>;
+    let state!: ReturnType<typeof useApp>['state'];
+    function Probe() {
+      state = useApp().state;
+      actions = useAppActions();
+      return <div data-testid="toast">{state.toast?.message ?? ''}</div>;
+    }
+
+    renderApp(
+      <AppProvider>
+        <Probe />
+      </AppProvider>,
+    );
+    await act(async () => {
+      actions.setState({ phase: 'app', activeTeamId: 'other-team', teams: [] as never });
+    });
+    await act(async () => {
+      await actions.selectTeam('team1');
+    });
+
+    expect(screen.getByTestId('toast').textContent).toBe('');
+
+    rolesSpy.mockRestore();
   });
 
   // Regression test: ensureRouteData (invoked by `go`) covered finances/
-  // stats/news/polls but not events/members, even though afterLoginLoad can
-  // leave either at null after a failed initial load (see the test above).
-  // Navigating to the Events or Members tab was previously a no-op in that
-  // case, leaving a permanent skeleton loader for the rest of the session.
-  it('go("members") retries the load when members is still null from a failed afterLoginLoad', async () => {
+  // stats/news/polls but not events/members -- members no longer needs this
+  // branch at all: it's fetched via useMembersQuery, which retries/refetches
+  // on its own (see useMemberQueries.test.ts for that coverage), the same
+  // way events dropped its equivalent branch. polls' own list is likewise
+  // fetched by usePollsQuery, but ensureRouteData still refreshes
+  // notifications on every navigation to the route -- a new poll clears its
+  // own "pending vote" notification once the user has viewed it.
+  it('go("polls") refreshes notifications', async () => {
     const svc = await import('@/services');
-    const { ForbiddenError } = await import('@/utils/errors');
-    const membersSpy = vi
-      .spyOn(svc.api.members, 'list')
-      .mockRejectedValueOnce(new ForbiddenError())
-      .mockResolvedValueOnce([]);
+    const notifSpy = vi.spyOn(svc.api.notifications, 'list');
 
     let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
+    let notifStatus: string = 'pending';
     function Probe() {
-      state = useApp().state;
+      const { state, api } = useApp();
       actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="members">{state.members ? 'loaded' : 'null'}</div>
-        </div>
-      );
+      // Mirrors AppShell keeping a live subscriber on the notifications query
+      // in the real app -- loadNotifications() (ensureRouteData's
+      // invalidateQueries call, below) only forces an actual network refetch
+      // when at least one component is actively observing the query.
+      notifStatus = useNotificationsQuery(api, state.activeTeamId).status;
+      return null;
     }
 
     renderApp(
@@ -620,22 +572,30 @@ describe('AppProvider / team-switch race guards', () => {
         phase: 'app',
         activeTeamId: 'other-team',
         teams: [
-          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { members: 'read' } },
+          { id: 'team1', name: 'Test Team', membershipId: 'ms1', myRoles: [], myPerms: { polls: 'read' } },
         ] as never,
       });
     });
     await act(async () => {
       await actions.selectTeam('team1');
     });
-    expect(screen.getByTestId('members').textContent).toBe('null');
+    // selectTeam's own awaited chain (afterLoginLoad) doesn't include this
+    // query's fetch -- wait for it to actually settle before invalidating,
+    // or the invalidation lands mid-fetch and gets absorbed into the
+    // already-in-flight request instead of producing a second, observable one.
+    await waitFor(() => expect(notifStatus).toBe('success'));
+
+    notifSpy.mockClear();
 
     await act(async () => {
-      actions.go('members');
+      actions.go('polls');
     });
-    expect(screen.getByTestId('members').textContent).toBe('loaded');
-    expect(membersSpy).toHaveBeenCalledTimes(2);
 
-    membersSpy.mockRestore();
+    // loadNotifications() (invalidateQueries) isn't awaited by ensureRouteData
+    // itself -- its refetch runs as a separate promise chain, so this needs
+    // its own wait rather than settling within the act() block above.
+    await waitFor(() => expect(notifSpy).toHaveBeenCalledWith('team1'));
+    notifSpy.mockRestore();
   });
 
   // Regression test: goEventsAbsences called loadAbsences() unconditionally,
@@ -758,9 +718,6 @@ describe('AppProvider / can() permission checks', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [],
-        members: [],
-        news: [],
-        polls: [],
       });
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -1002,8 +959,9 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
     });
     await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:google'));
 
+    let applePromise!: Promise<void>;
     act(() => {
-      void actions!.doLogin('apple');
+      applePromise = actions!.doLogin('apple');
     });
     await waitFor(() => expect(screen.getByTestId('busy').textContent).toBe('login:apple'));
 
@@ -1016,6 +974,23 @@ describe('AppProvider / overlapping login does not clobber a different in-flight
     expect(screen.getByTestId('busy').textContent).toBe('login:apple');
     // The error message still surfaces regardless of busy ownership.
     expect(screen.getByTestId('error').textContent).toContain('google unreachable');
+
+    // Let apple's login run to completion (a REAL login against the mock
+    // backend, unlike google's which is stubbed out above) before the test
+    // ends. `doLogin`'s promise only resolves once login -> currentUser ->
+    // establishSession's whole chain (including the team-list fetch and
+    // afterLoginLoad) has settled -- left dangling, this in-flight promise
+    // keeps running in the background after the test returns and
+    // `afterEach`'s resetDb() clears session.userId, since MSW's session
+    // singleton (mocks/db.ts) is shared for the whole file and isn't part of
+    // any test's own vi.resetModules() reset. Under CI's slower/more
+    // contended scheduling this occasionally landed during a LATER test's own
+    // fresh-boot check (e.g. session-restore resilience below), making a
+    // brand-new "no session yet" render see apple's now-established session
+    // and jump straight to the app phase instead of login.
+    await act(async () => {
+      await applePromise;
+    });
   });
 });
 
@@ -1071,7 +1046,7 @@ describe('AppProvider / session-restore resilience', () => {
     // this file's very first bootstrap under a loaded CI run (full-suite +
     // coverage instrumentation contending with other jobs on a shared
     // runner) -- give it the same headroom as the second waitFor below.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 30000 });
 
     // A normal login establishes a real session (session.userId in the mock),
     // which persists across remounts within this module instance.
@@ -1095,10 +1070,12 @@ describe('AppProvider / session-restore resilience', () => {
     // per-call latency pushes this well past the default 1000ms waitFor --
     // give it extra headroom under a loaded full-suite/coverage run, where
     // this file now shares the process with many more React Query-backed
-    // renders than before.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+    // renders than before (see the first waitFor's comment above re:
+    // freshModules()/vi.resetModules() making this test uniquely sensitive to
+    // that growth).
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 30000 });
     await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
-  }, 20000);
+  }, 60000);
 
   // Regression test: React.StrictMode double-invokes effects on initial
   // mount in dev, and the session-restore effect had no guard against that --
@@ -1147,7 +1124,6 @@ describe('AppProvider / session-restore resilience', () => {
           <div data-testid="phase">{state.phase}</div>
           <div data-testid="route">{state.route}</div>
           <div data-testid="finTab">{state.finTab}</div>
-          <div data-testid="finances">{state.finances ? 'loaded' : 'null'}</div>
         </div>
       );
     }
@@ -1180,9 +1156,10 @@ describe('AppProvider / session-restore resilience', () => {
     expect(screen.getByTestId('route').textContent).toBe('finances');
     expect(screen.getByTestId('finTab').textContent).toBe('strafen');
     expect(window.location.pathname).toBe('/finances');
-    // afterLoginLoad alone doesn't cover finances -- ensureRouteData must
-    // have fetched it, or this would be stuck on a skeleton loader forever.
-    await waitFor(() => expect(screen.getByTestId('finances').textContent).toBe('loaded'));
+    // Finances data itself is now fetched by FinancesPage's own
+    // useFinanceOverviewQuery (which retries/refetches on its own -- see
+    // useFinanceQueries.test.ts), not by ensureRouteData; this test only
+    // covers the route/tab/URL restoration.
   });
 
   // Regression test: the fix above only restored route/eventScope/eventsView/

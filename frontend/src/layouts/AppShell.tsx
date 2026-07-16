@@ -7,6 +7,8 @@ import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Sym } from '@/components/ui';
 import { useEventsQuery, useEventDetailQuery } from '@/features/events';
+import { useMembersQuery } from '@/features/members';
+import { useNotificationsQuery } from '@/features/notifications';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
 import { useCompact, shortName } from './useCompact';
@@ -49,6 +51,8 @@ export function Shell() {
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
   const detailEventId = pageSheet && pageSheet.type === 'eventDetail' ? (pageSheet.eventId ?? null) : null;
   const { data: detailData } = useEventDetailQuery(app.api, state.activeTeamId, detailEventId);
+  const { data: members } = useMembersQuery(app.api, state.activeTeamId);
+  const { data: notifData } = useNotificationsQuery(app.api, state.activeTeamId);
   if (!team || !state.user) return null;
 
   const today = todayLocalDate();
@@ -56,7 +60,7 @@ export function Shell() {
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
-  const pm = pageMeta(app, detailData?.event);
+  const pm = pageMeta(app, detailData?.event, members?.length);
 
   // ---- shared chrome bits ----
   const teamIcon = (
@@ -103,8 +107,9 @@ export function Shell() {
       {state.user.photo ? '' : initials(state.user.name)}
     </Box>
   );
-  const notifBadge = state.notifUnread > 9 ? '9+' : String(state.notifUnread);
-  const hasUnread = state.notifUnread > 0;
+  const notifUnread = notifData?.unreadCount ?? 0;
+  const notifBadge = notifUnread > 9 ? '9+' : String(notifUnread);
+  const hasUnread = notifUnread > 0;
 
   const content = pageSheet ? (
     <Box sx={{ maxWidth: '860px' }}>
@@ -242,7 +247,7 @@ export function Shell() {
             onClick={app.openNotifications}
             aria-label={
               hasUnread
-                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                ? tl('shell.unreadNotifications', { n: notifUnread, count: notifUnread })
                 : tl('shell.openNotifications')
             }
             sx={{
@@ -612,7 +617,7 @@ export function Shell() {
             onClick={app.openNotifications}
             aria-label={
               hasUnread
-                ? tl('shell.unreadNotifications', { n: state.notifUnread, count: state.notifUnread })
+                ? tl('shell.unreadNotifications', { n: notifUnread, count: notifUnread })
                 : tl('shell.openNotifications')
             }
             sx={{

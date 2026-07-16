@@ -21,7 +21,6 @@ function makeApp(formOverrides: Record<string, unknown> = {}, errOverrides: Reco
       primaryColor: '#1565C0',
       form: { id: 'c1', label: '', amount: '', ...formOverrides },
       formErrors: { label: '', amount: '', ...errOverrides },
-      busy: null,
     },
     setFormErrors,
     setFormVal: vi.fn(),

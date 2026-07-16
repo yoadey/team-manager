@@ -1,7 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useMemberActions } from './useMemberActions';
+import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
+import { queryKeys } from '@/query/keys';
 import type { AppState } from '@/context/AppContext';
+import type { Member } from '../types';
+import type { QueryClient } from '@tanstack/react-query';
+
+function makeMember(overrides: Partial<Member> = {}): Member {
+  return {
+    membershipId: 'ms1',
+    userId: 'u2',
+    name: 'Alice',
+    email: 'alice@test.com',
+    phone: '',
+    birthday: '',
+    address: '',
+    group: '',
+    photo: null,
+    roles: [{ id: 'r1', name: 'Mitglied' }] as never,
+    avatarColor: '#aaa',
+    joinedAt: '2026-01-01',
+    primaryRole: null,
+    perms: {} as never,
+    ...overrides,
+  };
+}
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -15,21 +39,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     toast: null,
     route: 'home',
     events: [],
-    members: [
-      {
-        membershipId: 'ms1',
-        userId: 'u2',
-        name: 'Alice',
-        email: 'alice@test.com',
-        phone: '',
-        birthday: '',
-        address: '',
-        group: '',
-        photo: null,
-        roles: [{ id: 'r1', name: 'Mitglied' }],
-        avatarColor: '#aaa',
-      },
-    ],
     finances: null,
     stats: null,
     statsRange: null,
@@ -64,12 +73,12 @@ function makeApi() {
 describe('useMemberActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
-  let refreshMembers: ReturnType<typeof vi.fn>;
   let refreshTeams: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
+  let client: QueryClient;
 
   beforeEach(() => {
     stateRef = makeState();
@@ -82,25 +91,28 @@ describe('useMemberActions', () => {
       }
     });
     toastMsg = vi.fn();
-    refreshMembers = vi.fn().mockResolvedValue(undefined);
     refreshTeams = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
     logout = vi.fn();
     api = makeApi();
+    client = createTestQueryClient();
+    client.setQueryData(queryKeys.members('team1'), [makeMember()]);
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useMemberActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        refreshMembers: refreshMembers as never,
-        refreshTeams: refreshTeams as never,
-        askConfirm: askConfirm as never,
-        toastMsg: toastMsg as never,
-        logout: logout as never,
-      }),
+    return renderHook(
+      () =>
+        useMemberActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          refreshTeams: refreshTeams as never,
+          askConfirm: askConfirm as never,
+          toastMsg: toastMsg as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper(client) },
     );
   }
 
@@ -186,10 +198,10 @@ describe('useMemberActions', () => {
   });
 
   it('openMemberForm sets memberForm sheet with member data', () => {
-    const member = stateRef.members![0];
+    const member = makeMember();
     const { result } = renderActions();
     act(() => {
-      result.current.openMemberForm(member as never);
+      result.current.openMemberForm(member);
     });
     expect(setState).toHaveBeenCalled();
     const call = setState.mock.calls[0][0];
@@ -204,10 +216,10 @@ describe('useMemberActions', () => {
   // phone field with Member A's stale error underneath it.
   it('openMemberForm clears a stale formErrors from a previous sheet', () => {
     stateRef = makeState({ formErrors: { phone: 'Ungültige Telefonnummer.' } });
-    const member = stateRef.members![0];
+    const member = makeMember();
     const { result } = renderActions();
     act(() => {
-      result.current.openMemberForm(member as never);
+      result.current.openMemberForm(member);
     });
     expect(stateRef.formErrors).toEqual({});
   });
@@ -291,7 +303,7 @@ describe('useMemberActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Profil gespeichert');
   });
 
-  it('saveMember calls setRoles when the form roleIds differ from the member\'s current roles', async () => {
+  it("saveMember calls setRoles when the form roleIds differ from the member's current roles", async () => {
     stateRef = makeState({
       form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1', 'r2'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
@@ -303,26 +315,16 @@ describe('useMemberActions', () => {
     expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1', 'r2'], 'team1');
   });
 
-  it('saveMember does not call setRoles when the form roleIds match the member\'s current roles (order-independent)', async () => {
+  it("saveMember does not call setRoles when the form roleIds match the member's current roles (order-independent)", async () => {
+    client.setQueryData(queryKeys.members('team1'), [
+      makeMember({
+        roles: [
+          { id: 'r1', name: 'Mitglied' },
+          { id: 'r2', name: 'Trainer' },
+        ] as never,
+      }),
+    ]);
     stateRef = makeState({
-      members: [
-        {
-          membershipId: 'ms1',
-          userId: 'u2',
-          name: 'Alice',
-          email: 'alice@test.com',
-          phone: '',
-          birthday: '',
-          address: '',
-          group: '',
-          photo: null,
-          roles: [
-            { id: 'r1', name: 'Mitglied' },
-            { id: 'r2', name: 'Trainer' },
-          ],
-          avatarColor: '#aaa',
-        },
-      ] as never,
       form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r2', 'r1'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
     });
@@ -354,6 +356,47 @@ describe('useMemberActions', () => {
       expect.not.objectContaining({ photo: expect.anything() }),
       'team1',
     );
+  });
+
+  // Regression test: savingMember (mutation.isPending) must stay true for the
+  // ENTIRE save, including the self-photo upload and the self-profile
+  // session refresh (auth.currentUser + refreshTeams) that run after the
+  // profile/roles write -- otherwise the Save button re-enables while those
+  // are still in flight, letting a second click fire an overlapping save.
+  it('savingMember stays true until the self-photo upload and session refresh both finish', async () => {
+    let resolveCurrentUser!: (u: { id: string; name: string }) => void;
+    api.auth.currentUser = vi.fn(
+      () => new Promise<{ id: string; name: string }>((resolve) => (resolveCurrentUser = resolve)),
+    );
+    stateRef = makeState({
+      form: {
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+        photo: 'data:image/png;base64,newphoto',
+      },
+      sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
+    });
+    const { result } = renderActions();
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = result.current.saveMember();
+    });
+    await waitFor(() => expect(result.current.savingMember).toBe(true));
+    await waitFor(() => expect(api.auth.setPhoto).toHaveBeenCalled());
+    // The profile patch, role check, and photo upload are done, but the
+    // self-session refresh (auth.currentUser) is still pending -- the button
+    // must still read busy here, not just up to saveMemberAsync's own resolution.
+    expect(result.current.savingMember).toBe(true);
+
+    await act(async () => {
+      resolveCurrentUser({ id: 'u1', name: 'Alice' });
+      await savePromise;
+    });
+    expect(refreshTeams).toHaveBeenCalled();
+    await waitFor(() => expect(result.current.savingMember).toBe(false));
   });
 
   it('saveMember does not call auth.setPhoto when your own photo is unchanged', async () => {
@@ -433,7 +476,7 @@ describe('useMemberActions', () => {
     act(() => {
       savePromise = result.current.saveMember();
     });
-    expect(api.members.update).toHaveBeenCalled();
+    await waitFor(() => expect(api.members.update).toHaveBeenCalled());
 
     // User switches teams and opens a different sheet before the save resolves.
     stateRef = { ...stateRef, activeTeamId: 'team2', sheet: { type: 'teams' } as never };
@@ -452,7 +495,7 @@ describe('useMemberActions', () => {
   // member's form (same team) while the save was still in flight would get
   // silently clobbered by the stale save once it finally resolved, discarding
   // whatever the user was now doing.
-  it('saveMember does not touch the sheet if the user opened a different member\'s form while the save was in flight', async () => {
+  it("saveMember does not touch the sheet if the user opened a different member's form while the save was in flight", async () => {
     let resolveUpdate!: () => void;
     api.members.update = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
     stateRef = makeState({
@@ -465,7 +508,7 @@ describe('useMemberActions', () => {
     act(() => {
       savePromise = result.current.saveMember();
     });
-    expect(api.members.update).toHaveBeenCalled();
+    await waitFor(() => expect(api.members.update).toHaveBeenCalled());
 
     // User closes Alice's form and opens a different member's form (same
     // team) before Alice's save resolves.
@@ -478,6 +521,28 @@ describe('useMemberActions', () => {
     });
 
     expect(stateRef.sheet).toBe(otherMembersForm);
+  });
+
+  // Regression test: mirrors useDeleteEventMutation's per-call teamId
+  // safeguard. The confirm sheet can still be open (and get confirmed) after
+  // the user has switched to a different active team; the delete must still
+  // target the team the member/confirm dialog belonged to, not whatever team
+  // is active by the time the user actually confirms.
+  it('removeMember onConfirm deletes against the team the confirm dialog was opened for, even after a team switch', async () => {
+    const { result, rerender } = renderActions();
+    act(() => {
+      result.current.removeMember('ms1');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+
+    // User switches the active team while the confirm dialog is still open.
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    rerender();
+
+    await act(async () => {
+      await cfg.onConfirm();
+    });
+    expect(api.members.remove).toHaveBeenCalledWith('ms1', 'team1');
   });
 
   it('removeMember calls askConfirm with member name', () => {
@@ -527,6 +592,7 @@ describe('useMemberActions', () => {
     act(() => {
       confirmPromise = cfg.onConfirm();
     });
+    await waitFor(() => expect(api.members.remove).toHaveBeenCalled());
 
     const somethingElse = { type: 'teams' } as never;
     stateRef = { ...stateRef, sheet: somethingElse };

@@ -8,7 +8,8 @@ import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date
 import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
 import { useEventsQuery } from '../hooks/useEventQueries';
-import type { TeamEvent } from '../types';
+import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
+import type { Absence, TeamEvent } from '../types';
 
 export function EventCalendar() {
   const app = useApp();
@@ -17,6 +18,7 @@ export function EventCalendar() {
   const compact = useCompact();
   const mobile = compact;
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
+  const { data: absences } = useAbsencesQuery(app.api, state.activeTeamId, state.calShowAbsences);
 
   const cur = state.calMonth || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const year = cur.getFullYear();
@@ -30,9 +32,9 @@ export function EventCalendar() {
     (evByDate[e.date] = evByDate[e.date] || []).push(e);
   });
 
-  const absByDate: Record<string, NonNullable<typeof state.absences>> = {};
-  if (state.calShowAbsences && state.absences) {
-    state.absences.forEach((a) => {
+  const absByDate: Record<string, Absence[]> = {};
+  if (state.calShowAbsences && absences) {
+    absences.forEach((a) => {
       let d = parseDateOnlyLocal(a.from);
       const end = parseDateOnlyLocal(a.to);
       while (d <= end) {

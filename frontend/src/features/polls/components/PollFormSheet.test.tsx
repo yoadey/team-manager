@@ -32,7 +32,6 @@ function makeApp(formOverrides: Record<string, unknown> = {}, errOverrides: Reco
         ...formOverrides,
       },
       formErrors: { question: '', options: '', ...errOverrides },
-      busy: null,
     },
     setFormErrors,
     setFormVal: vi.fn(),

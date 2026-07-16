@@ -80,7 +80,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={create ? t('finances.penaltySaveCreate') : t('finances.penaltySaveEdit')}
         onClick={handleSubmit(onSubmit)}
-        busy={isSubmitting}
+        busy={isSubmitting || app.state.savingPenalty}
         disabled={!canSubmit}
       />
       {create ? null : (

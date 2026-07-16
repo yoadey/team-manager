@@ -20,7 +20,6 @@ function makeApp(routeOverride = 'home', extras: Record<string, unknown> = {}) {
   return {
     state: {
       route: routeOverride,
-      members: [],
       primaryColor: '#4285F4',
       ...((extras.state as Record<string, unknown>) ?? {}),
     },
@@ -111,9 +110,9 @@ describe('pageMeta()', () => {
   // 9. Returns subtitle with member count for members route
   it('returns subtitle containing member count for members route', () => {
     const app = makeApp('members', {
-      state: { route: 'members', members: [{ id: 'm1' }, { id: 'm2' }, { id: 'm3' }], primaryColor: '#4285F4' },
+      state: { route: 'members', primaryColor: '#4285F4' },
     });
-    const meta = pageMeta(app as never);
+    const meta = pageMeta(app as never, undefined, 3);
     expect(meta.subtitle).toContain('3');
   });
 
@@ -123,9 +122,9 @@ describe('pageMeta()', () => {
   // "1 Person".
   it('uses the singular member-count form in the members subtitle for a one-member team', () => {
     const app = makeApp('members', {
-      state: { route: 'members', members: [{ id: 'm1' }], primaryColor: '#4285F4' },
+      state: { route: 'members', primaryColor: '#4285F4' },
     });
-    const meta = pageMeta(app as never);
+    const meta = pageMeta(app as never, undefined, 1);
     expect(meta.subtitle).toContain('1 Person ');
     expect(meta.subtitle).not.toContain('1 Personen');
   });

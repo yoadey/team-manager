@@ -2,39 +2,34 @@ import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
+import { useMarkNotificationsSeenMutation } from './useNotificationMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
 type NotifDeps = {
   api: typeof defaultApi;
-  S: () => AppState;
   setState: SetState;
-  loadNotifications: () => Promise<void>;
+  /** Reactive (render-time) active team id -- the mutation hook keys off this directly
+   * rather than through `S()`, since a `useMutation` call must re-run on every render to
+   * pick up a team switch instead of only when some later callback fires. */
+  teamId: string | null;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
-export function useNotificationActions({ api, S, setState, loadNotifications, toastMsg, logout }: NotifDeps) {
+export function useNotificationActions({ api, setState, teamId, toastMsg, logout }: NotifDeps) {
+  const { mutateAsync: markSeenAsync } = useMarkNotificationsSeenMutation(api, teamId);
+
   const openNotifications = useCallback(() => {
-    const teamId = S().activeTeamId;
     if (!teamId) return;
     setState({ sheet: { type: 'notifications' }, notifFilter: 'all' });
-    void (async () => {
-      try {
-        if (!S().notifications) await loadNotifications();
-        await api.notifications.markSeen(teamId);
-        setState((s) => {
-          if (s.activeTeamId !== teamId) return {};
-          return {
-            notifications: s.notifications ? s.notifications.map((n) => ({ ...n, unread: false })) : s.notifications,
-            notifUnread: 0,
-          };
-        });
-      } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'notifications.markReadError');
-      }
-    })();
-  }, [api, S, setState, loadNotifications, toastMsg, logout]);
+    // Fire-and-forget: the sheet renders from useNotificationsQuery's own
+    // cache (already warm from AppShell's badge, or loading its own spinner
+    // if not) regardless of when this resolves.
+    markSeenAsync().catch((err) =>
+      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'notifications.markReadError'),
+    );
+  }, [teamId, setState, markSeenAsync, toastMsg, logout]);
 
   const setNotifFilter = useCallback((f: AppState['notifFilter']) => setState({ notifFilter: f }), [setState]);
 

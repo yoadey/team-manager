@@ -15,6 +15,11 @@ const validDate = (value: string) => {
 
 export const memberFormSchema = z
   .object({
+    // Carried through unchanged from the member being edited (never
+    // rendered as an input) so saveMember can identify/patch the right
+    // record -- not user input, so no validation beyond being a string.
+    membershipId: z.string().optional(),
+    group: z.string().optional(),
     name: z
       .string()
       .trim()

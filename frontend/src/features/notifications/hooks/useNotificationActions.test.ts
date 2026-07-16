@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useNotificationActions } from './useNotificationActions';
+import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
+import { queryKeys } from '@/query/keys';
 import { AuthError } from '@/utils/errors';
 import type { AppState } from '@/context/AppContext';
+import type { NotificationsResult } from '../types';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -15,17 +18,11 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     busy: null,
     toast: null,
     route: 'home',
-    events: [],
-    members: [],
     finances: null,
     stats: null,
     statsRange: null,
-    news: [],
-    polls: [],
     teams: [],
     roles: [],
-    notifUnread: 3,
-    notifications: null,
     primaryColor: '#000',
     ...overrides,
   } as unknown as AppState;
@@ -34,7 +31,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
 describe('useNotificationActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
-  let loadNotifications: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: { notifications: { markSeen: ReturnType<typeof vi.fn> } };
   let stateRef: AppState;
@@ -50,7 +46,6 @@ describe('useNotificationActions', () => {
       }
     });
     toastMsg = vi.fn();
-    loadNotifications = vi.fn().mockResolvedValue(undefined);
     logout = vi.fn();
     api = {
       notifications: {
@@ -60,25 +55,25 @@ describe('useNotificationActions', () => {
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useNotificationActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        loadNotifications: loadNotifications as never,
-        toastMsg: toastMsg as never,
-        logout: logout as never,
-      }),
+    return renderHook(
+      () =>
+        useNotificationActions({
+          api: api as never,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          toastMsg: toastMsg as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
   }
 
-  it('openNotifications sets sheet and loads notifications when not loaded', async () => {
+  it('openNotifications sets sheet and marks notifications seen', async () => {
     const { result } = renderActions();
     await act(async () => {
       result.current.openNotifications();
     });
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'notifications' }, notifFilter: 'all' });
-    expect(loadNotifications).toHaveBeenCalled();
     expect(api.notifications.markSeen).toHaveBeenCalledWith('team1');
   });
 
@@ -89,29 +84,7 @@ describe('useNotificationActions', () => {
       result.current.openNotifications();
     });
     expect(setState).not.toHaveBeenCalled();
-  });
-
-  it('openNotifications skips loadNotifications when already loaded', async () => {
-    stateRef = makeState({
-      notifications: [{ id: 'n1', title: 'Test', unread: true }] as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      result.current.openNotifications();
-    });
-    expect(loadNotifications).not.toHaveBeenCalled();
-    expect(api.notifications.markSeen).toHaveBeenCalled();
-  });
-
-  it('openNotifications marks notifications as read', async () => {
-    stateRef = makeState({
-      notifications: [{ id: 'n1', title: 'Test', unread: true }] as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      result.current.openNotifications();
-    });
-    expect(stateRef.notifUnread).toBe(0);
+    expect(api.notifications.markSeen).not.toHaveBeenCalled();
   });
 
   it('openNotifications shows toast on error', async () => {
@@ -132,6 +105,41 @@ describe('useNotificationActions', () => {
     });
     await new Promise((r) => setTimeout(r, 10));
     expect(logout).toHaveBeenCalled();
+  });
+
+  // The pre-migration behavior marked notifications read in-memory without a
+  // refetch (markSeen doesn't change which notifications exist, only their
+  // `unread` flag), so this asserts the mutation writes that result directly
+  // into the query cache rather than merely invalidating it.
+  it('openNotifications marks every cached notification as read and zeroes the unread count', async () => {
+    const client = createTestQueryClient();
+    const seeded: NotificationsResult = {
+      items: [
+        { id: 'n1', teamId: 'team1', type: 'news', createdAt: '2026-01-01', unread: true },
+        { id: 'n2', teamId: 'team1', type: 'poll', createdAt: '2026-01-02', unread: true },
+      ],
+      unreadCount: 2,
+    };
+    client.setQueryData(queryKeys.notifications('team1'), seeded);
+
+    const { result } = renderHook(
+      () =>
+        useNotificationActions({
+          api: api as never,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          toastMsg: toastMsg as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper(client) },
+    );
+    await act(async () => {
+      result.current.openNotifications();
+    });
+
+    const cached = client.getQueryData<NotificationsResult>(queryKeys.notifications('team1'));
+    expect(cached?.unreadCount).toBe(0);
+    expect(cached?.items.every((n) => !n.unread)).toBe(true);
   });
 
   it('setNotifFilter updates notifFilter in state', () => {

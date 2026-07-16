@@ -93,7 +93,7 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={t('polls.create')}
         onClick={() => app.savePoll()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingPoll}
         disabled={!canSubmit}
       />
     </Box>

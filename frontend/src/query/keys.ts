@@ -1,3 +1,5 @@
+import type { DateRange } from '@/types';
+
 /**
  * Team-scoped query key factory. Every server-state key is prefixed with the
  * owning team id so that switching the active team changes the key -- React
@@ -8,4 +10,16 @@
 export const queryKeys = {
   events: (teamId: string) => ['teams', teamId, 'events'] as const,
   eventDetail: (teamId: string, eventId: string) => ['teams', teamId, 'events', eventId] as const,
+  members: (teamId: string) => ['teams', teamId, 'members'] as const,
+  finances: (teamId: string) => ['teams', teamId, 'finances'] as const,
+  polls: (teamId: string) => ['teams', teamId, 'polls'] as const,
+  news: (teamId: string) => ['teams', teamId, 'news'] as const,
+  absences: (teamId: string) => ['teams', teamId, 'absences'] as const,
+  myAbsences: (teamId: string) => ['teams', teamId, 'myAbsences'] as const,
+  notifications: (teamId: string) => ['teams', teamId, 'notifications'] as const,
+  // Also varies by date range (unlike every other key here): a range change
+  // must swap to a different cache entry the same way a team switch does,
+  // rather than reusing/overwriting the previous range's cached data.
+  stats: (teamId: string, range: DateRange | null) =>
+    ['teams', teamId, 'stats', range?.from ?? null, range?.to ?? null] as const,
 };

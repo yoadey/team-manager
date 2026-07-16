@@ -5,6 +5,7 @@ import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import type { NewsFormValues } from '../components/newsFormSchema';
+import { useDeleteNewsMutation, useSaveNewsMutation } from './useNewsMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -12,7 +13,14 @@ type NewsDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  loadNews: () => Promise<void>;
+  /** Reactive (render-time) active team id -- the query/mutation hooks key off this directly
+   * rather than through `S()`, since a `useQuery`/`useMutation` call must re-run on every
+   * render to pick up a team switch instead of only when some later callback fires. */
+  teamId: string | null;
+  /** A successful save/delete can flip a notification's read-worthy state
+   * (e.g. a "new post" reminder), so each mutation also refreshes the
+   * notification badge, mirroring the pre-migration loadNews(). */
+  loadNotifications: () => Promise<void>;
   askConfirm: (cfg: {
     title: string;
     message: string;
@@ -24,7 +32,19 @@ type NewsDeps = {
   logout: () => void;
 };
 
-export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMsg, logout }: NewsDeps) {
+export function useNewsActions({
+  api,
+  S,
+  setState,
+  teamId,
+  loadNotifications,
+  askConfirm,
+  toastMsg,
+  logout,
+}: NewsDeps) {
+  const { mutateAsync: saveNewsAsync, isPending: savingNews } = useSaveNewsMutation(api, teamId);
+  const { mutateAsync: deleteNewsAsync } = useDeleteNewsMutation(api);
+
   const openNewsForm = useCallback(
     (n?: NewsItem) => {
       const form: NewsFormValues = n
@@ -42,29 +62,31 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
   const saveNews = useCallback(
     async (f: NewsFormValues) => {
       const sh = S().sheet;
-      const teamId = S().activeTeamId!;
+      const savedTeamId = teamId;
+      const editing = !!f.id;
       try {
-        if (f.id) {
-          await api.news.update(f.id, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned }, teamId);
-          await loadNews();
-          if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
-          toastMsg(t('news.toastUpdated'));
-        } else {
-          await api.news.create(teamId, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned });
-          await loadNews();
-          if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
-          toastMsg(t('news.toastPublished'));
-        }
+        await saveNewsAsync({
+          id: f.id,
+          payload: { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned },
+        });
+        loadNotifications();
+        // Don't close a sheet the user has since opened for a different
+        // team after switching away mid-request, or one they've since
+        // opened for a different entity (same team) while this save was in
+        // flight.
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
+        toastMsg(editing ? t('news.toastUpdated') : t('news.toastPublished'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
       }
     },
-    [api, S, setState, loadNews, toastMsg, logout],
+    [S, setState, saveNewsAsync, loadNotifications, teamId, toastMsg, logout],
   );
 
   const removeNews = useCallback(
-    (id: string) =>
+    (id: string) => {
+      const deletedTeamId = teamId!;
       askConfirm({
         title: t('news.deleteConfirmTitle'),
         message: t('news.deleteConfirmMsg'),
@@ -72,16 +94,17 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
         danger: true,
         onConfirm: async () => {
           try {
-            await api.news.remove(id, S().activeTeamId!);
-            await loadNews();
+            await deleteNewsAsync({ id, teamId: deletedTeamId });
+            loadNotifications();
             toastMsg(t('news.toastDeleted'));
           } catch (err) {
             reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
           }
         },
-      }),
-    [api, S, askConfirm, loadNews, setState, toastMsg, logout],
+      });
+    },
+    [askConfirm, deleteNewsAsync, loadNotifications, setState, teamId, toastMsg, logout],
   );
 
-  return { openNewsForm, saveNews, removeNews };
+  return { openNewsForm, saveNews, removeNews, savingNews };
 }

@@ -15,10 +15,16 @@ vi.mock('../hooks/useEventQueries', () => ({
   useEventsQuery: vi.fn(),
 }));
 
+vi.mock('../hooks/useAbsenceQueries', () => ({
+  useAbsencesQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
 import { useEventsQuery } from '../hooks/useEventQueries';
+import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 const mockUseApp = vi.mocked(useApp);
 const mockUseEventsQuery = vi.mocked(useEventsQuery);
+const mockUseAbsencesQuery = vi.mocked(useAbsencesQuery);
 
 function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
   return {
@@ -63,7 +69,6 @@ function makeApp(
       activeTeamId: 't1',
       calMonth: overrides.calMonth ?? new Date(2026, 2, 1), // March 2026
       calShowAbsences: overrides.calShowAbsences ?? false,
-      absences: overrides.absences ?? [],
     },
     openEventDetail,
     setState,
@@ -71,6 +76,7 @@ function makeApp(
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   mockUseEventsQuery.mockReturnValue({ data: overrides.events ?? [] } as never);
+  mockUseAbsencesQuery.mockReturnValue({ data: overrides.absences ?? [] } as never);
   return app;
 }
 

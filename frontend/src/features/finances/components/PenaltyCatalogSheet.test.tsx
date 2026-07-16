@@ -7,18 +7,26 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+vi.mock('../hooks/useFinanceQueries', () => ({
+  useFinanceOverviewQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 const mockUseApp = vi.mocked(useApp);
+const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
 function makePenalty(overrides = {}) {
   return { id: 'p1', label: 'Versäumtes Training', amount: 10, ...overrides };
 }
 
-function makeApp(penalties: unknown[] = [], canWrite = false) {
+function makeApp(penalties: unknown[] | null = [], canWrite = false) {
+  mockUseFinanceOverviewQuery.mockReturnValue({ data: penalties === null ? null : { penalties } });
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
-      finances: { penalties },
+      activeTeamId: 't1',
     },
     can: vi.fn().mockReturnValue(canWrite),
     openPenaltyForm: vi.fn(),
@@ -94,12 +102,7 @@ describe('PenaltyCatalogSheet', () => {
   });
 
   it('handles null finances gracefully', () => {
-    const app = {
-      ...makeApp([]),
-      state: { primaryColor: '#4285F4', finances: null },
-      can: vi.fn().mockReturnValue(false),
-      openPenaltyForm: vi.fn(),
-    };
+    const app = makeApp(null);
     mockUseApp.mockReturnValue(app as never);
     render(<PenaltyCatalogSheet app={app as never} sheet={sheet} />);
     expect(screen.getByText(/Noch keine Strafen/i)).toBeTruthy();

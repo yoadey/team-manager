@@ -8,8 +8,18 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+// Mocked directly on the hooks module (not just a `@/features/events` barrel
+// re-export) -- EventAbsences.tsx imports `useAbsencesQuery` via this exact
+// relative path, so this must match it (see the identical comment/pattern in
+// PollsPage.test.tsx/NewsPage.test.tsx).
+vi.mock('../hooks/useAbsenceQueries', () => ({
+  useAbsencesQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 const mockUseApp = vi.mocked(useApp);
+const mockUseAbsencesQuery = vi.mocked(useAbsencesQuery);
 
 function makeAbsence(overrides: Record<string, unknown> = {}) {
   return {
@@ -27,12 +37,15 @@ function makeAbsence(overrides: Record<string, unknown> = {}) {
 }
 
 function makeApp(overrides: Record<string, unknown> = {}) {
+  const { absences, ...stateOverrides } = overrides;
+  mockUseAbsencesQuery.mockReturnValue({ data: 'absences' in overrides ? absences : [] } as never);
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
-      absences: null,
+      activeTeamId: 't1',
       user: { id: 'u1' },
-      ...overrides,
+      ...stateOverrides,
     },
     openAbsenceForm: vi.fn(),
     removeAbsence: vi.fn(),
@@ -45,7 +58,7 @@ describe('EventAbsences', () => {
   });
 
   it('shows spinner when absences is null', () => {
-    mockUseApp.mockReturnValue(makeApp() as never);
+    mockUseApp.mockReturnValue(makeApp({ absences: null }) as never);
     const { container } = render(<EventAbsences />);
     // SpinnerBox renders a role="status" element
     expect(container.querySelector('[role="status"]')).toBeTruthy();

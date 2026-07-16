@@ -60,7 +60,7 @@ export function ContribFormSheet({ app }: SheetProps) {
       <PrimaryButton
         label={t('finances.contribSave')}
         onClick={handleSubmit(onSubmit)}
-        busy={isSubmitting}
+        busy={isSubmitting || app.state.savingContrib}
         disabled={!canSubmit}
       />
     </Box>

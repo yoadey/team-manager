@@ -7,8 +7,18 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+// Mocked directly on the hooks module (not just a `@/features/finances`
+// barrel re-export) -- FinancesPage.tsx imports `useFinanceOverviewQuery` via
+// a relative import, so this must match that module path (see the identical
+// comment/pattern in EventsPage.test.tsx/MembersPage.test.tsx).
+vi.mock('./hooks/useFinanceQueries', () => ({
+  useFinanceOverviewQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useFinanceOverviewQuery } from './hooks/useFinanceQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
+const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
 function makeFinances() {
   return {
@@ -26,15 +36,17 @@ function makeFinances() {
 }
 
 function makeApp(overrides: Record<string, unknown> = {}) {
+  const { finances, ...stateOverrides } = overrides;
+  mockUseFinanceOverviewQuery.mockReturnValue({ data: finances ?? null });
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
-      finances: null,
+      activeTeamId: 't1',
       finTab: 'umsaetze',
       user: { id: 'u1' },
-      members: [],
       roles: [],
-      ...overrides,
+      ...stateOverrides,
     },
     can: vi.fn().mockReturnValue(false),
     setState: vi.fn(),
