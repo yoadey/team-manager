@@ -6,12 +6,13 @@ import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
 import type { DateRange } from '@/types';
+import { useStatsQuery } from './hooks/useStatsQueries';
 
 export function Stats() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);
-  const st = state.stats;
+  const { data: st } = useStatsQuery(app.api, state.activeTeamId, state.statsRange);
 
   const today = todayStr();
   const ago = (months: number) => monthsAgoLocal(today, months);

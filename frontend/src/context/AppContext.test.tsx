@@ -413,15 +413,16 @@ describe('AppProvider / actions (app phase)', () => {
   });
 });
 
-// Regression test: on-demand per-route loaders (loadStats, loadAbsences,
-// refreshRoles, loadNotifications) used to apply their response
-// unconditionally, with no check that activeTeamId was still the same team
-// when the response landed -- unlike afterLoginLoad, which has always had
-// this guard. A slow request for the team the user just navigated away from
-// could clobber the newly selected team's state with the previous team's
-// data. (events/members/finances/polls/news have their own equivalent
-// coverage in useEventQueries.test.ts/useMemberQueries.test.ts/
-// useFinanceQueries.test.ts/usePollQueries.test.ts/useNewsQueries.test.ts.)
+// Regression test: on-demand per-route loaders (refreshRoles,
+// loadNotifications) used to apply their response unconditionally, with no
+// check that activeTeamId was still the same team when the response landed
+// -- unlike afterLoginLoad, which has always had this guard. A slow request
+// for the team the user just navigated away from could clobber the newly
+// selected team's state with the previous team's data. (events/members/
+// finances/polls/news/absences/stats have their own equivalent coverage in
+// useEventQueries.test.ts/useMemberQueries.test.ts/useFinanceQueries.test.ts/
+// usePollQueries.test.ts/useNewsQueries.test.ts/useAbsenceQueries.test.ts/
+// useStatsQueries.test.ts.)
 describe('AppProvider / team-switch race guards', () => {
   // Regression test: afterLoginLoad used to await roles/notifications
   // together via Promise.allSettled, so a genuine (non-permission) failure

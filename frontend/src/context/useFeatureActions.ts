@@ -13,7 +13,7 @@ import { usePollActions } from '@/features/polls';
 import { useTeamActions, useRoleActions } from '@/features/team';
 import type { AppState, ConfirmConfig } from './AppContext';
 import type { api as defaultApi } from '@/services';
-import type { DateRange, Role, TeamForUser } from '@/types';
+import type { Role, TeamForUser } from '@/types';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -23,11 +23,10 @@ type FeatureActionDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
-  /** Reactive active team id, for the events/members/finances/polls/news/absences verticals' query/mutation hooks. */
+  /** Reactive active team id, for the events/members/finances/polls/news/absences/stats verticals' query/mutation hooks. */
   teamId: string | null;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
-  loadStats: (range?: DateRange | null) => Promise<void>;
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
@@ -46,7 +45,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     teamId,
     refreshRoles,
     refreshTeams,
-    loadStats,
     loadNotifications,
     afterLoginLoad,
     toastMsg,
@@ -133,7 +131,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     S,
     setState,
     teamId,
-    loadStats,
     askConfirm,
     toastMsg,
     logout,

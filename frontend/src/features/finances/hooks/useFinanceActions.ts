@@ -39,22 +39,12 @@ type FinanceFeatureDeps = {
    * rather than through `S()`, since a `useQuery`/`useMutation` call must re-run on every
    * render to pick up a team switch instead of only when some later callback fires. */
   teamId: string | null;
-  loadStats: (range?: DateRange | null) => Promise<void>;
   askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
-export function useFinanceActions({
-  api,
-  S,
-  setState,
-  teamId,
-  loadStats,
-  askConfirm,
-  toastMsg,
-  logout,
-}: FinanceFeatureDeps) {
+export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastMsg, logout }: FinanceFeatureDeps) {
   const queryClient = useQueryClient();
   const { mutateAsync: saveTxAsync, isPending: savingTx } = useSaveTxMutation(api, teamId);
   const { mutateAsync: deleteTxAsync } = useDeleteTxMutation(api);
@@ -316,13 +306,10 @@ export function useFinanceActions({
     [toggleContributionAsync, setState, toastMsg, logout],
   );
 
-  const setStatsRange = useCallback(
-    (range: DateRange | null) => {
-      setState({ statsRange: range, stats: null });
-      loadStats(range);
-    },
-    [setState, loadStats],
-  );
+  // Stats itself is fetched via useStatsQuery (React Query), whose
+  // team-and-range-scoped key refetches on its own the moment statsRange
+  // changes -- this is now a pure UI state update.
+  const setStatsRange = useCallback((range: DateRange | null) => setState({ statsRange: range }), [setState]);
 
   return {
     openTxForm,

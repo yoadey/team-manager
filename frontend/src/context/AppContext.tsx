@@ -17,7 +17,6 @@ import type {
   PermLevel,
   Provider,
   Role,
-  StatsOverview,
   TeamForUser,
   User,
 } from '@/types';
@@ -131,7 +130,6 @@ export interface AppState {
   calShowAbsences: boolean;
   calMonth: Date | null;
   roles: Role[];
-  stats: StatsOverview | null;
   notifFilter: 'all' | 'attendance' | 'events' | 'other';
   statsRange: DateRange | null;
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
@@ -191,7 +189,6 @@ const initialState: AppState = {
   calShowAbsences: false,
   calMonth: null,
   roles: [],
-  stats: null,
   notifFilter: 'all',
   statsRange: null,
   finTab: initialLocation.finTab,
@@ -274,8 +271,6 @@ export interface AppContextValue {
   // notifications
   openNotifications: () => void;
   setNotifFilter: (f: AppState['notifFilter']) => void;
-  // data refresh
-  loadStats: (range?: DateRange | null) => Promise<void>;
   // attendance
   setMyStatus: (eventId: string, status: AttendanceStatus, currentReason?: string) => Promise<void>;
   setStatusFor: (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => void;
@@ -691,11 +686,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const seq = ++afterLoginLoadSeq.current;
       setState({
         roles: [],
-        stats: null,
         eventsOnlyPending: false,
       });
-      // events, members, finances, polls, news, absences, and notifications
-      // are deliberately not part of this bundle -- their respective
+      // events, members, finances, polls, news, absences, notifications, and
+      // stats are deliberately not part of this bundle -- their respective
       // useXQuery hooks refetch on their own the moment activeTeamId (part of
       // their query key) changes. roles is the only server-state fetch left
       // here.
@@ -732,10 +726,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // afterLoginLoadSeq above: the activeTeamId check alone only guards
   // against a TEAM SWITCH completing while a call is in flight, not against
   // two same-team refreshes of the SAME loader racing each other (e.g.
-  // rapidly switching the stats date range). If the network responds
-  // out of request order, an unguarded loader would apply whichever
-  // response happened to arrive last, silently reverting to stale data
-  // even though a newer request was already in flight.
+  // saving one role then quickly deleting another, both of which call
+  // refreshRoles). If the network responds out of request order, an
+  // unguarded loader would apply whichever response happened to arrive
+  // last, silently reverting to stale data even though a newer request was
+  // already in flight.
   //
   // events and members have no such loader here -- they're fetched via
   // useEventsQuery/useMembersQuery (React Query), whose team-scoped key
@@ -775,39 +770,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (refreshTeamsSeq.current === seq) reportLoad(err);
     }
   }, [api, setState, reportLoad]);
-  // finances has no such loader here -- it's fetched via
-  // useFinanceOverviewQuery (React Query), whose team-scoped key makes this
-  // class of race structurally impossible instead of needing a manual
-  // sequence guard (same as events/members).
-  const loadStatsSeq = useRef(0);
-  const loadStats = useCallback(
-    async (range?: DateRange | null) => {
-      const teamId = S().activeTeamId!;
-      const seq = ++loadStatsSeq.current;
-      try {
-        const r = range !== undefined ? range : S().statsRange;
-        const stats = await api.stats.teamOverview(teamId, r);
-        setState((s) => (s.activeTeamId === teamId && loadStatsSeq.current === seq ? { stats } : {}));
-      } catch (err) {
-        if (S().activeTeamId === teamId && loadStatsSeq.current === seq) reportLoad(err);
-      }
-    },
-    [api, S, setState, reportLoad],
-  );
-  // news, polls, and absences have no such loader here -- they're fetched via
-  // useNewsQuery/usePollsQuery/useAbsencesQuery (React Query), whose
-  // team-scoped key makes this class of race structurally impossible instead
-  // of needing a manual sequence guard (same as events/members/finances).
-  // Each old loader's paired loadNotifications() refresh now lives in
-  // ensureRouteData below (news/polls) or directly in the mutation's own
-  // action (absences, whose data only ever changes via its own save/delete,
-  // never merely by navigating to it).
+  // finances/stats have no such loader here -- they're fetched via
+  // useFinanceOverviewQuery/useStatsQuery (React Query), whose team-scoped
+  // (and, for stats, also range-scoped) key makes this class of race
+  // structurally impossible instead of needing a manual sequence guard (same
+  // as events/members).
+  //
+  // news, polls, and absences have no such loader here either -- they're
+  // fetched via useNewsQuery/usePollsQuery/useAbsencesQuery (React Query),
+  // for the same reason. Each old loader's paired loadNotifications()
+  // refresh now lives in ensureRouteData below (news/polls) or directly in
+  // the mutation's own action (absences, whose data only ever changes via
+  // its own save/delete, never merely by navigating to it).
   const ensureRouteData = useCallback(
     (route: Route) => {
-      // events, members, finances, polls, news, and absences have no
+      // events, members, finances, polls, news, absences, and stats have no
       // data-fetch branch here: they're fetched by useEventsQuery/
       // useMembersQuery/useFinanceOverviewQuery/usePollsQuery/useNewsQuery/
-      // useAbsencesQuery, which retry/refetch on their own.
+      // useAbsencesQuery/useStatsQuery, which retry/refetch on their own.
       //
       // Skip entirely for a module the caller can't read (nav already hides
       // these routes, but a stale bookmark/URL or browser back/forward can
@@ -816,7 +796,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // that reportLoad would then surface as a spurious forbidden toast.
       const module = ROUTE_MODULE[route];
       if (module && !can(module, 'read')) return;
-      if (route === 'stats' && !S().stats) loadStats();
       // polls'/news' own lists are fetched by usePollsQuery/useNewsQuery, but
       // the pre-migration loadPolls/loadNews loaders also refreshed
       // notifications on every (re-)navigation here -- e.g. a new poll/news
@@ -824,7 +803,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // it -- so that pairing stays, just without the list-fetch half.
       if (route === 'polls' || route === 'news') loadNotifications();
     },
-    [S, can, loadStats, loadNotifications],
+    [can, loadNotifications],
   );
 
   // ---------- auth ----------
@@ -1122,7 +1101,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     teamId: state.activeTeamId,
     refreshRoles,
     refreshTeams,
-    loadStats,
     loadNotifications,
     afterLoginLoad,
     toastMsg,
@@ -1266,7 +1244,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleCalAbsences,
       openNotifications,
       setNotifFilter,
-      loadStats,
       setMyStatus,
       setStatusFor,
       canSeeComment,
@@ -1369,7 +1346,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleCalAbsences,
       openNotifications,
       setNotifFilter,
-      loadStats,
       setMyStatus,
       setStatusFor,
       canSeeComment,

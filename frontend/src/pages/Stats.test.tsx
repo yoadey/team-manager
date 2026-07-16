@@ -22,11 +22,13 @@ function makeStats() {
 }
 
 function makeApp(statsOverride: unknown = null, statsRange: { from: string; to: string } | null = null) {
+  mockUseStatsQuery.mockReturnValue({ data: statsOverride ?? undefined } as never);
   return {
+    api: {},
     state: {
       phase: 'app',
       primaryColor: '#4285F4',
-      stats: statsOverride,
+      activeTeamId: 't1',
       statsRange,
       user: { id: 'u1', name: 'Test User', avatarColor: '#000', photo: null },
     },
@@ -39,8 +41,18 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn() }),
 }));
 
+// Mocked directly on the hooks module (not just a barrel re-export) --
+// Stats.tsx imports `useStatsQuery` via this exact relative path, so this
+// must match it (see the identical comment/pattern in PollsPage.test.tsx/
+// NewsPage.test.tsx).
+vi.mock('./hooks/useStatsQueries', () => ({
+  useStatsQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useStatsQuery } from './hooks/useStatsQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
+const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
   beforeEach(() => {

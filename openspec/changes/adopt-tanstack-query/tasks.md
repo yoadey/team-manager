@@ -19,8 +19,13 @@
       until they're migrated (4.2).
 - [x] 3.2 Auth session, `activeTeamId`, route/URL sync, toast, and sheet state remain in `AppContext` (unchanged;
       events was the only slice removed so far)
-- [ ] 3.3 Delete `clearBusyIfOwned` and the `busy` field once fully migrated (blocked on 4.2 — still used by
-      absences/members/finances/news/polls/team)
+- [ ] 3.3 Delete `clearBusyIfOwned` and the `busy` field once fully migrated. Now that 4.2 is complete, `busy` is no
+      longer read or set by any of the seven migrated verticals (each replaced it with its own `savingX` /
+      `mutation.isPending` flag) -- the remaining consumers are `auth` (`Login.tsx`'s in-flight login state) and
+      `team`/`roles` (`useTeamActions.ts`/`useRoleActions.ts`), neither of which was ever part of 4.2's enumerated
+      scope (members/finances/polls/news/absences/notifications/stats). Deleting `busy` entirely is therefore a
+      separate, additional migration (team/roles, and possibly auth) beyond what this change covers -- out of scope
+      here unless/until that work is explicitly taken on.
 - [x] 3.4 On deep-link/`popstate` restore for an event detail sheet, `openEventDetail` now only sets `eventId`;
       `EventDetailSheet` loads its data via `useEventDetailQuery` on mount instead of an imperative reload
 
@@ -28,7 +33,7 @@
 - [x] 4.1 Migrate the `events` vertical fully and get it green first — done, including its own query/mutation hooks,
       per-operation pending state, and the page/detail/calendar/export components reading via the hooks directly
       (not through `AppContext`)
-- [ ] 4.2 Migrate remaining features one at a time: members, finances, polls, news, absences, notifications, stats.
+- [x] 4.2 Migrate remaining features one at a time: members, finances, polls, news, absences, notifications, stats.
       Each follows the events vertical's pattern (query hook consumed directly by feature components + mutation
       hooks with `invalidateQueries`); `AppContext`'s corresponding loader/sequence-ref/`Promise.allSettled` slot is
       then removed the same way section 3 removed events'.
@@ -98,7 +103,16 @@
         === teamId` read, which isn't reliably fresh mid-async-chain in React's batched updates -- switched to the
         functional `setState((s) => ...)` form (reading React's own commit-time state), matching the pattern already
         used by every other loader's *data-application* check in this file.
-  - [ ] 4.2.7 `stats`
+  - [x] 4.2.7 `stats` — `useStatsQuery` (`pages/hooks/useStatsQueries.ts` -- stats has no dedicated `features/`
+        folder, so this is co-located under `pages/` alongside `Stats.tsx`, the only consumer); unlike every other
+        migrated query hook, its cache key (`queryKeys.stats(teamId, range)`) also varies by the selected date range
+        (`state.statsRange`), not just `teamId`, so a range change swaps to a different cache entry the same way a
+        team switch does — covered by its own dedicated stale-response-on-range-switch test alongside the standard
+        stale-response-on-team-switch one. `Stats.tsx` reads the query directly instead of `state.stats`;
+        `setStatsRange` (in `useFinanceActions.ts`, where stats' date-range control has always lived) is now a pure UI
+        state update (`setState({ statsRange: range })`) instead of also calling the old imperative `loadStats(range)`
+        loader; `stats` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches. This was the
+        last item in 4.2 -- `afterLoginLoad` now fetches only `roles` (no other vertical left in its bundle).
 
 ## 5. Verification
 - [x] 5.1 `npm run typecheck` + `npm run lint` green

@@ -69,7 +69,6 @@ function makeApi() {
 describe('useFinanceActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
-  let loadStats: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
@@ -87,7 +86,6 @@ describe('useFinanceActions', () => {
       }
     });
     toastMsg = vi.fn();
-    loadStats = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
     logout = vi.fn();
     api = makeApi();
@@ -103,7 +101,6 @@ describe('useFinanceActions', () => {
           S: () => stateRef,
           setState: setState as never,
           teamId: stateRef.activeTeamId,
-          loadStats: loadStats as never,
           askConfirm: askConfirm as never,
           toastMsg: toastMsg as never,
           logout: logout as never,
@@ -417,14 +414,13 @@ describe('useFinanceActions', () => {
     expect(api.finances.toggleContribution).toHaveBeenCalledWith('c1', 'team1');
   });
 
-  it('setStatsRange updates state and calls loadStats', () => {
+  it('setStatsRange updates state', () => {
     const { result } = renderActions();
-    const range = { start: '2026-01-01', end: '2026-12-31' } as never;
+    const range = { from: '2026-01-01', to: '2026-12-31' } as never;
     act(() => {
       result.current.setStatsRange(range);
     });
-    expect(setState).toHaveBeenCalledWith({ statsRange: range, stats: null });
-    expect(loadStats).toHaveBeenCalledWith(range);
+    expect(setState).toHaveBeenCalledWith({ statsRange: range });
   });
 
   it('openContribForm sets contribForm sheet', () => {
