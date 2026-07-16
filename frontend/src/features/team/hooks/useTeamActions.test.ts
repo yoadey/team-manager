@@ -31,21 +31,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
   } as unknown as AppState;
 }
 
-function makeActiveTeam() {
-  return {
-    id: 'team1',
-    name: 'Test Team',
-    description: 'A test team',
-    icon: '⚽',
-    iconBg: '#000',
-    iconFg: '#fff',
-    logo: null,
-    photo: null,
-    memberCount: 5,
-    reasonVisibilityRoles: [],
-  };
-}
-
 function makeApi() {
   return {
     absences: {
@@ -69,7 +54,6 @@ describe('useTeamActions', () => {
   let toastMsg: ReturnType<typeof vi.fn>;
   let refreshTeams: ReturnType<typeof vi.fn>;
   let invalidateMembers: ReturnType<typeof vi.fn>;
-  let setFormVal: ReturnType<typeof vi.fn>;
   let afterLoginLoad: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
@@ -88,7 +72,6 @@ describe('useTeamActions', () => {
     toastMsg = vi.fn();
     refreshTeams = vi.fn().mockResolvedValue(undefined);
     invalidateMembers = vi.fn().mockResolvedValue(undefined);
-    setFormVal = vi.fn();
     afterLoginLoad = vi.fn().mockResolvedValue(undefined);
     logout = vi.fn();
     api = makeApi();
@@ -101,10 +84,8 @@ describe('useTeamActions', () => {
           api: api as never,
           S: () => stateRef,
           setState: setState as never,
-          activeTeam: () => makeActiveTeam() as never,
           refreshTeams: refreshTeams as never,
           invalidateMembers: invalidateMembers as never,
-          setFormVal: setFormVal as never,
           afterLoginLoad: afterLoginLoad as never,
           toastMsg: toastMsg as never,
           logout: logout as never,
@@ -142,17 +123,12 @@ describe('useTeamActions', () => {
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'more' } });
   });
 
-  it('openTeamSettings sets teamSettings sheet with team form data', () => {
+  it('openTeamSettings sets teamSettings sheet', () => {
     const { result } = renderActions();
     act(() => {
       result.current.openTeamSettings();
     });
-    expect(setState).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sheet: { type: 'teamSettings' },
-        form: expect.objectContaining({ name: 'Test Team', icon: '⚽' }),
-      }),
-    );
+    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'teamSettings' } });
   });
 
   it('saveTeamPhoto calls updateSettings and shows toast', async () => {
@@ -165,45 +141,13 @@ describe('useTeamActions', () => {
   });
 
   it('removeTeamPhoto calls updateSettings with null and shows toast', async () => {
-    // setFormVal is only applied while still on the teamSettings sheet for
-    // the same team the removal was issued for -- see the team-switch race
-    // regression test below.
     stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
     const { result } = renderActions();
     await act(async () => {
       await result.current.removeTeamPhoto();
     });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { photo: null });
-    expect(setFormVal).toHaveBeenCalledWith({ photo: null });
     expect(toastMsg).toHaveBeenCalledWith('Gruppenbild entfernt');
-  });
-
-  // Regression test: setFormVal writes into the single shared, untyped form
-  // buffer regardless of which sheet is open. A slow photo upload for team1
-  // used to unconditionally apply its result even after the user had since
-  // switched away from the teamSettings sheet (e.g. to CreateTeamSheet,
-  // which reads the same form.photo field for its own, unrelated preview).
-  it('saveTeamPhoto does not touch the form if the user left the teamSettings sheet while the save was in flight', async () => {
-    let resolveUpdate!: () => void;
-    api.teams.updateSettings = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
-    stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
-    const { result } = renderActions();
-
-    let savePromise!: Promise<void>;
-    act(() => {
-      savePromise = result.current.saveTeamPhoto('data:image/png;base64,fromTeam1', 'team1');
-    });
-    expect(api.teams.updateSettings).toHaveBeenCalled();
-
-    // User navigates away to a different sheet before the upload resolves.
-    stateRef = { ...stateRef, sheet: { type: 'createTeam' } as never };
-
-    await act(async () => {
-      resolveUpdate();
-      await savePromise;
-    });
-
-    expect(setFormVal).not.toHaveBeenCalled();
   });
 
   it('removeTeamPhoto ignores a second call while the first is still in flight', async () => {
@@ -355,77 +299,41 @@ describe('useTeamActions', () => {
     });
   });
 
-  it('setTeamIcon calls setFormVal and updateSettings', async () => {
+  it('setTeamIcon calls updateSettings', async () => {
     stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
     const { result } = renderActions();
     await act(async () => {
       await result.current.setTeamIcon('🏆');
     });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', { icon: '🏆', logo: null });
-    expect(setFormVal).toHaveBeenCalledWith({ icon: '🏆', logo: null });
   });
 
-  // Regression test: setTeamIcon used to write { icon, logo: null } into the
-  // form BEFORE the API call, with no rollback if updateSettings failed --
-  // unlike every other photo/logo mutation in this file, which all await
-  // first and only touch form state on success. A failed save left the
-  // settings sheet showing the new icon as selected even though the backend
-  // still had the old one.
-  it('setTeamIcon does not touch the form if updateSettings fails', async () => {
+  it('setTeamIcon reports an error without crashing when updateSettings fails', async () => {
     stateRef = makeState({ sheet: { type: 'teamSettings' } as never });
     vi.mocked(api.teams.updateSettings).mockRejectedValueOnce(new Error('boom'));
     const { result } = renderActions();
     await act(async () => {
       await result.current.setTeamIcon('🏆');
     });
-    expect(setFormVal).not.toHaveBeenCalled();
-  });
-
-  it('toggleReasonRole adds role to reasonRoles', () => {
-    stateRef = makeState({ form: { reasonRoles: ['r1'] } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.toggleReasonRole('r2');
-    });
-    expect(stateRef.form.reasonRoles).toContain('r2');
-    expect(stateRef.form.reasonRoles).toContain('r1');
-  });
-
-  it('toggleReasonRole removes role from reasonRoles', () => {
-    stateRef = makeState({ form: { reasonRoles: ['r1', 'r2'] } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.toggleReasonRole('r2');
-    });
-    expect(stateRef.form.reasonRoles).not.toContain('r2');
-  });
-
-  it('saveTeamSettings shows toast when name is empty', async () => {
-    stateRef = makeState({ form: { name: '' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveTeamSettings();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.', undefined, 'error');
-    expect(api.teams.updateSettings).not.toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalled();
   });
 
   it('saveTeamSettings updates settings and shows toast', async () => {
-    stateRef = makeState({ form: { name: 'Updated Team', description: 'Desc', reasonRoles: [] } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTeamSettings();
+      await result.current.saveTeamSettings({ name: 'Updated Team', description: 'Desc', reasonRoles: [] } as never);
     });
     expect(api.teams.updateSettings).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Updated Team' }));
     expect(toastMsg).toHaveBeenCalledWith('Team-Einstellungen gespeichert');
   });
 
   it('saveTeamSettings triggers logout on a 401 (expired session)', async () => {
-    stateRef = makeState({ form: { name: 'Updated Team', description: 'Desc', reasonRoles: [] } });
     api.teams.updateSettings.mockRejectedValueOnce(new AuthError());
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTeamSettings();
+      await expect(
+        result.current.saveTeamSettings({ name: 'Updated Team', description: 'Desc', reasonRoles: [] } as never),
+      ).rejects.toThrow();
     });
     expect(logout).toHaveBeenCalled();
   });
@@ -435,27 +343,13 @@ describe('useTeamActions', () => {
     act(() => {
       result.current.openCreateTeam();
     });
-    expect(setState).toHaveBeenCalledWith({
-      sheet: { type: 'createTeam' },
-      form: { name: '', icon: '⭐', photo: null },
-    });
-  });
-
-  it('createTeam shows toast when name is empty', async () => {
-    stateRef = makeState({ form: { name: '' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.createTeam();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Team-Namen angeben.', undefined, 'error');
-    expect(api.teams.create).not.toHaveBeenCalled();
+    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'createTeam' } });
   });
 
   it('createTeam creates team and shows toast', async () => {
-    stateRef = makeState({ form: { name: 'My New Team', icon: '⭐', photo: null } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.createTeam();
+      await result.current.createTeam({ name: 'My New Team', icon: '⭐', photo: null } as never);
     });
     expect(api.teams.create).toHaveBeenCalledWith(expect.objectContaining({ name: 'My New Team' }));
     expect(toastMsg).toHaveBeenCalledWith('Team angelegt – du bist Admin');
@@ -472,14 +366,13 @@ describe('useTeamActions', () => {
     let resolveCreate!: (v: { id: string; name: string }) => void;
     api.teams.create = vi.fn(() => new Promise((resolve) => (resolveCreate = resolve)));
     stateRef = makeState({
-      form: { name: 'My New Team', icon: '⭐', photo: null },
       sheet: { type: 'createTeam' } as never,
     });
     const { result } = renderActions();
 
     let createPromise!: Promise<void>;
     act(() => {
-      createPromise = result.current.createTeam();
+      createPromise = result.current.createTeam({ name: 'My New Team', icon: '⭐', photo: null } as never);
     });
 
     const somethingElse = { type: 'teams' } as never;

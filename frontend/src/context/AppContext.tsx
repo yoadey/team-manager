@@ -35,6 +35,8 @@ import type { NewsFormValues } from '@/features/news/components/newsFormSchema';
 import type { Poll } from '@/features/polls';
 import type { PollFormValues } from '@/features/polls/components/pollFormSchema';
 import type { RoleFormValues } from '@/features/team/components/roleFormSchema';
+import type { CreateTeamFormValues } from '@/features/team/components/createTeamSchema';
+import type { TeamSettingsFormValues } from '@/features/team/components/teamSettingsSchema';
 import { queryKeys } from '@/query/keys';
 import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
@@ -332,10 +334,9 @@ export interface AppContextValue {
   removeTeamPhoto: () => Promise<void>;
   saveTeamLogo: (dataUrl: string, teamId: string) => Promise<void>;
   setTeamIcon: (em: string) => void;
-  toggleReasonRole: (roleId: string) => void;
-  saveTeamSettings: () => Promise<void>;
+  saveTeamSettings: (f: TeamSettingsFormValues) => Promise<void>;
   openCreateTeam: () => void;
-  createTeam: () => Promise<void>;
+  createTeam: (f: CreateTeamFormValues) => Promise<void>;
   openInvite: () => Promise<void>;
   copyInvite: () => void;
   uploadMyPhoto: (dataUrl: string) => Promise<void>;
@@ -1052,7 +1053,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removeTeamPhoto,
     saveTeamLogo,
     setTeamIcon,
-    toggleReasonRole,
     saveTeamSettings,
     openCreateTeam,
     createTeam,
@@ -1287,7 +1287,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
-      toggleReasonRole,
       saveTeamSettings,
       openCreateTeam,
       createTeam,
@@ -1388,7 +1387,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
-      toggleReasonRole,
       saveTeamSettings,
       openCreateTeam,
       createTeam,
