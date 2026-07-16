@@ -50,17 +50,8 @@ export function useInvalidateEvents(teamId: string | null) {
 export function useSetAttendanceMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateEvents(teamId);
   return useMutation({
-    mutationFn: ({
-      eventId,
-      userId,
-      status,
-      reason,
-    }: {
-      eventId: string;
-      userId: string;
-      status: AttendanceStatus;
-      reason?: string;
-    }) => api.attendance.set(eventId, userId, { status, reason: reason || '' }, teamId!),
+    mutationFn: ({ eventId, userId, status, reason }: { eventId: string; userId: string; status: AttendanceStatus; reason?: string }) =>
+      api.attendance.set(eventId, userId, { status, reason: reason || '' }, teamId!),
     onSuccess: (_data, { eventId }) => invalidate(eventId),
   });
 }
@@ -70,17 +61,8 @@ export function useSetAttendanceMutation(api: typeof defaultApi, teamId: string 
 export function useSubmitCommentMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateEvents(teamId);
   return useMutation({
-    mutationFn: ({
-      eventId,
-      userId,
-      status,
-      reason,
-    }: {
-      eventId: string;
-      userId: string;
-      status: AttendanceStatus;
-      reason: string;
-    }) => api.attendance.set(eventId, userId, { status, reason }, teamId!),
+    mutationFn: ({ eventId, userId, status, reason }: { eventId: string; userId: string; status: AttendanceStatus; reason: string }) =>
+      api.attendance.set(eventId, userId, { status, reason }, teamId!),
     onSuccess: (_data, { eventId }) => invalidate(eventId),
   });
 }

@@ -53,9 +53,7 @@ describe('useEventsQuery', () => {
     const teamAPromise = new Promise<TeamEvent[]>((resolve) => (resolveTeamA = resolve));
     const api = {
       events: {
-        list: vi.fn((teamId: string) =>
-          teamId === 'teamA' ? teamAPromise : Promise.resolve([makeEvent({ id: 'ev-b', teamId: 'teamB' })]),
-        ),
+        list: vi.fn((teamId: string) => (teamId === 'teamA' ? teamAPromise : Promise.resolve([makeEvent({ id: 'ev-b', teamId: 'teamB' })]))),
       },
     };
     const client = createTestQueryClient();

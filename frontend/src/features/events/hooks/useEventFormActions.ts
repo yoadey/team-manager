@@ -110,15 +110,13 @@ export function useEventFormActions({
         nominatedRoleIds: f.nominatedRoleIds || [],
       };
       try {
-        if (mode === 'edit') {
-          await saveEventAsync({ mode: 'edit', eventId: f.id!, scope, payload });
-        } else {
+        if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: f.id!, scope, payload });
+        else
           await saveEventAsync({
             mode: 'create',
             payload: { ...payload, recurring: f.recurring, repeatWeeks: f.repeatWeeks || 8 },
           });
-        }
-        await loadNotifications();
+        loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail
         // would look up f.id in the new team's event list and find nothing.
@@ -139,7 +137,7 @@ export function useEventFormActions({
             : t('events.toastEventCreated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         if (fProp !== undefined) throw err;
       }
     },

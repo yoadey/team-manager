@@ -92,9 +92,7 @@ describe('teams', () => {
     await api.teams.acceptInvite(invite.code);
     const after = await api.members.list('t_a');
     const rejoined = after.find((m) => m.userId === DEMO_LOGIN_USER_ID)!;
-    expect(rejoined.roles.every((r) => r.permissions.finances !== 'write' && r.permissions.settings !== 'write')).toBe(
-      true,
-    );
+    expect(rejoined.roles.every((r) => r.permissions.finances !== 'write' && r.permissions.settings !== 'write')).toBe(true);
   });
 });
 
@@ -167,13 +165,7 @@ describe('events & attendance', () => {
   });
 
   it('creates a recurring series with one event per week', async () => {
-    await api.events.create('t_a', {
-      type: 'training',
-      title: 'Serie',
-      date: '2099-01-05',
-      recurring: true,
-      repeatWeeks: 4,
-    });
+    await api.events.create('t_a', { type: 'training', title: 'Serie', date: '2099-01-05', recurring: true, repeatWeeks: 4 });
     const after = await api.events.list('t_a', 'all');
     expect(after.filter((e) => e.title === 'Serie')).toHaveLength(4);
   });
@@ -206,13 +198,7 @@ describe('absences', () => {
 
   it('creates an absence and lists it among personal absences', async () => {
     const me = await api.auth.currentUser();
-    const created = await api.absences.create({
-      teamId: 't_a',
-      userId: me!.id,
-      from: '2099-05-01',
-      to: '2099-05-05',
-      reason: 'Urlaub',
-    });
+    const created = await api.absences.create({ teamId: 't_a', userId: me!.id, from: '2099-05-01', to: '2099-05-05', reason: 'Urlaub' });
     expect(created.reason).toBe('Urlaub');
     const mine = await api.absences.listMine('t_a');
     expect(mine.some((a) => a.id === created.id)).toBe(true);

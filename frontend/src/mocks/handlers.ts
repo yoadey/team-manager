@@ -67,16 +67,7 @@ function requireUser(id: string): UserRow {
 }
 
 function toWireUser(u: UserRow): S['User'] {
-  return {
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    phone: u.phone || undefined,
-    avatarColor: u.avatarColor,
-    birthday: u.birthday || undefined,
-    address: u.address || undefined,
-    hasPhoto: u.hasPhoto,
-  };
+  return { id: u.id, name: u.name, email: u.email, phone: u.phone || undefined, avatarColor: u.avatarColor, birthday: u.birthday || undefined, address: u.address || undefined, hasPhoto: u.hasPhoto };
 }
 
 function toWireRole(r: RoleDto): S['Role'] {
@@ -134,11 +125,7 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
 
 function eventSummary(e: EventDto, teamId: string): S['EventSummary'] {
   const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-  let yes = 0,
-    no = 0,
-    maybe = 0,
-    pending = 0,
-    notNom = 0;
+  let yes = 0, no = 0, maybe = 0, pending = 0, notNom = 0;
   memberIds.forEach((uid) => {
     const s = effectiveStatus(e, uid).status;
     if (s === 'yes') yes++;
@@ -147,15 +134,7 @@ function eventSummary(e: EventDto, teamId: string): S['EventSummary'] {
     else if (s === 'not_nominated') notNom++;
     else pending++;
   });
-  return {
-    yes,
-    no,
-    maybe,
-    pending,
-    notNominated: notNom,
-    nominated: memberIds.length - notNom,
-    total: memberIds.length,
-  };
+  return { yes, no, maybe, pending, notNominated: notNom, nominated: memberIds.length - notNom, total: memberIds.length };
 }
 
 function toWireEvent(e: EventDto): S['TeamEvent'] {
@@ -208,64 +187,26 @@ function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S
 
 function toWireComment(c: (typeof db.eventComments)[number]): S['EventComment'] {
   const u = db.users.find((x) => x.id === c.userId);
-  return {
-    id: c.id,
-    eventId: c.eventId,
-    userId: c.userId,
-    text: c.text,
-    createdAt: c.createdAt,
-    authorName: u?.name,
-    authorColor: u?.avatarColor,
-    hasAuthorPhoto: u?.hasPhoto,
-  };
+  return { id: c.id, eventId: c.eventId, userId: c.userId, text: c.text, createdAt: c.createdAt, authorName: u?.name, authorColor: u?.avatarColor, hasAuthorPhoto: u?.hasPhoto };
 }
 
 function toWireAbsence(a: (typeof db.absences)[number], teamId: string): S['Absence'] {
   const u = db.users.find((x) => x.id === a.userId);
   const m = db.memberships.find((x) => x.teamId === teamId && x.userId === a.userId);
   const pr = m ? primaryRole(rolesOf(m)) : null;
-  return {
-    id: a.id,
-    userId: a.userId,
-    from: a.from,
-    to: a.to,
-    reason: a.reason || undefined,
-    createdAt: a.createdAt,
-    memberName: u?.name,
-    memberAvatarColor: u?.avatarColor,
-    hasPhoto: u?.hasPhoto,
-    roleColor: pr?.color,
-    roleName: pr?.name,
-  };
+  return { id: a.id, userId: a.userId, from: a.from, to: a.to, reason: a.reason || undefined, createdAt: a.createdAt, memberName: u?.name, memberAvatarColor: u?.avatarColor, hasPhoto: u?.hasPhoto, roleColor: pr?.color, roleName: pr?.name };
 }
 
 function toWireNews(n: (typeof db.news)[number]): S['NewsItem'] {
   const u = db.users.find((x) => x.id === n.authorId);
-  return {
-    id: n.id,
-    teamId: n.teamId,
-    authorId: n.authorId,
-    title: n.title,
-    body: n.body,
-    pinned: n.pinned,
-    createdAt: n.createdAt,
-    authorName: u?.name,
-    authorColor: u?.avatarColor,
-    hasAuthorPhoto: u?.hasPhoto,
-  };
+  return { id: n.id, teamId: n.teamId, authorId: n.authorId, title: n.title, body: n.body, pinned: n.pinned, createdAt: n.createdAt, authorName: u?.name, authorColor: u?.avatarColor, hasAuthorPhoto: u?.hasPhoto };
 }
 
 function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
   const total = p.votes.length;
   const counts: Record<string, number> = {};
-  p.options.forEach((o) => {
-    counts[o.id] = 0;
-  });
-  p.votes.forEach((v) =>
-    v.optionIds.forEach((oid) => {
-      if (counts[oid] !== undefined) counts[oid]++;
-    }),
-  );
+  p.options.forEach((o) => { counts[o.id] = 0; });
+  p.votes.forEach((v) => v.optionIds.forEach((oid) => { if (counts[oid] !== undefined) counts[oid]++; }));
   const mine = p.votes.find((v) => v.userId === session.userId);
   return {
     id: p.id,
@@ -282,12 +223,10 @@ function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
       pct: total ? Math.round((counts[o.id] / total) * 100) : 0,
       voters: p.anonymous
         ? []
-        : p.votes
-            .filter((v) => v.optionIds.includes(o.id))
-            .map((v) => {
-              const u = db.users.find((x) => x.id === v.userId);
-              return { name: u?.name, color: u?.avatarColor, hasPhoto: u?.hasPhoto };
-            }),
+        : p.votes.filter((v) => v.optionIds.includes(o.id)).map((v) => {
+            const u = db.users.find((x) => x.id === v.userId);
+            return { name: u?.name, color: u?.avatarColor, hasPhoto: u?.hasPhoto };
+          }),
     })),
   };
 }
@@ -314,49 +253,18 @@ function toWireNotification(n: (typeof db.notifications)[number], seen: string |
 }
 
 function toWireTransaction(t: (typeof db.transactions)[number]): S['Transaction'] {
-  return {
-    id: t.id,
-    teamId: t.teamId,
-    type: t.type,
-    title: t.title,
-    amount: t.amount,
-    date: t.date,
-    category: t.category || undefined,
-  };
+  return { id: t.id, teamId: t.teamId, type: t.type, title: t.title, amount: t.amount, date: t.date, category: t.category || undefined };
 }
 function toWirePenalty(p: (typeof db.penalties)[number]): S['Penalty'] {
   return { id: p.id, teamId: p.teamId, label: p.label, amount: p.amount };
 }
 function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['PenaltyAssignment'] {
   const u = db.users.find((x) => x.id === a.userId);
-  return {
-    id: a.id,
-    teamId: a.teamId,
-    userId: a.userId,
-    penaltyId: a.penaltyId,
-    paid: a.paid,
-    date: a.date,
-    memberName: u?.name,
-    memberAvatarColor: u?.avatarColor,
-    hasPhoto: u?.hasPhoto,
-    label: a.label,
-    amount: a.amount,
-  };
+  return { id: a.id, teamId: a.teamId, userId: a.userId, penaltyId: a.penaltyId, paid: a.paid, date: a.date, memberName: u?.name, memberAvatarColor: u?.avatarColor, hasPhoto: u?.hasPhoto, label: a.label, amount: a.amount };
 }
 function toWireContribution(c: (typeof db.contributions)[number]): S['Contribution'] {
   const u = db.users.find((x) => x.id === c.userId);
-  return {
-    id: c.id,
-    teamId: c.teamId,
-    userId: c.userId,
-    month: c.month,
-    label: c.label || undefined,
-    amount: c.amount,
-    status: c.status,
-    memberName: u?.name,
-    memberAvatarColor: u?.avatarColor,
-    hasPhoto: u?.hasPhoto,
-  };
+  return { id: c.id, teamId: c.teamId, userId: c.userId, month: c.month, label: c.label || undefined, amount: c.amount, status: c.status, memberName: u?.name, memberAvatarColor: u?.avatarColor, hasPhoto: u?.hasPhoto };
 }
 
 function eventDate(id: string): EventDto | undefined {
@@ -368,14 +276,7 @@ export const handlers = [
   http.get(P('/auth/providers'), async () => {
     await mockDelay();
     const body: S['Provider'][] = [
-      {
-        id: 'password',
-        name: 'Passwort',
-        sub: DEMO_LOGIN_EMAIL + ' / ' + DEMO_PASSWORD,
-        glyph: 'P',
-        bg: '#1565C0',
-        fg: '#FFFFFF',
-      },
+      { id: 'password', name: 'Passwort', sub: DEMO_LOGIN_EMAIL + ' / ' + DEMO_PASSWORD, glyph: 'P', bg: '#1565C0', fg: '#FFFFFF' },
     ];
     return HttpResponse.json(body);
   }),
@@ -465,9 +366,7 @@ export const handlers = [
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
     const teamIds = db.memberships.filter((m) => m.userId === auth).map((m) => m.teamId);
-    const body: S['TeamForUser'][] = db.teams
-      .filter((t) => teamIds.includes(t.id))
-      .map((t) => toWireTeamForUser(t, auth));
+    const body: S['TeamForUser'][] = db.teams.filter((t) => teamIds.includes(t.id)).map((t) => toWireTeamForUser(t, auth));
     return HttpResponse.json(body);
   }),
 
@@ -491,47 +390,12 @@ export const handlers = [
     };
     db.teams.push(team);
     const roles: RoleDto[] = [
-      {
-        id: rid('role'),
-        teamId: team.id,
-        name: 'Admin / Trainer',
-        system: true,
-        color: '#1565C0',
-        permissions: {
-          events: 'write',
-          members: 'write',
-          finances: 'write',
-          news: 'write',
-          polls: 'write',
-          settings: 'write',
-        },
-      },
-      {
-        id: rid('role'),
-        teamId: team.id,
-        name: 'Mitglied',
-        system: true,
-        color: '#5B6470',
-        permissions: {
-          events: 'read',
-          members: 'read',
-          finances: 'read',
-          news: 'read',
-          polls: 'read',
-          settings: 'none',
-        },
-      },
+      { id: rid('role'), teamId: team.id, name: 'Admin / Trainer', system: true, color: '#1565C0', permissions: { events: 'write', members: 'write', finances: 'write', news: 'write', polls: 'write', settings: 'write' } },
+      { id: rid('role'), teamId: team.id, name: 'Mitglied', system: true, color: '#5B6470', permissions: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'none' } },
     ];
     db.roles.push(...roles);
     team.reasonVisibilityRoles = [roles[0].id];
-    db.memberships.push({
-      id: rid('mem'),
-      teamId: team.id,
-      userId: auth,
-      roleIds: [roles[0].id],
-      group: '',
-      joinedAt: new Date().toISOString(),
-    });
+    db.memberships.push({ id: rid('mem'), teamId: team.id, userId: auth, roleIds: [roles[0].id], group: '', joinedAt: new Date().toISOString() });
     return HttpResponse.json(toWireTeamForUser(team, auth), { status: 201 });
   }),
 
@@ -615,14 +479,7 @@ export const handlers = [
       // (Kassenwart, Teamkapitän, ...) would otherwise risk handing a new
       // member a privileged role if the true default role were ever deleted.
       const memberRole = db.roles.find((r) => r.teamId === inv.teamId && r.name === DEFAULT_MEMBER_ROLE_NAME);
-      db.memberships.push({
-        id: rid('mem'),
-        teamId: inv.teamId,
-        userId: auth,
-        roleIds: memberRole ? [memberRole.id] : [],
-        group: '',
-        joinedAt: new Date().toISOString(),
-      });
+      db.memberships.push({ id: rid('mem'), teamId: inv.teamId, userId: auth, roleIds: memberRole ? [memberRole.id] : [], group: '', joinedAt: new Date().toISOString() });
     }
     const t = db.teams.find((x) => x.id === inv.teamId)!;
     const body: S['AcceptInviteResponse'] = { ...toWireTeamForUser(t, auth), alreadyMember };
@@ -632,10 +489,7 @@ export const handlers = [
   // ---- members ----
   http.get(P('/teams/:teamId/members'), async ({ params }) => {
     await mockDelay();
-    const items = db.memberships
-      .filter((m) => m.teamId === params.teamId)
-      .map(toWireMember)
-      .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    const items = db.memberships.filter((m) => m.teamId === params.teamId).map(toWireMember).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -685,14 +539,7 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateRoleRequest'];
-    const r: RoleDto = {
-      id: rid('role'),
-      teamId,
-      name: body.name,
-      system: false,
-      color: body.color || '#888888',
-      permissions: body.permissions,
-    };
+    const r: RoleDto = { id: rid('role'), teamId, name: body.name, system: false, color: body.color || '#888888', permissions: body.permissions };
     db.roles.push(r);
     return HttpResponse.json(toWireRole(r), { status: 201 });
   }),
@@ -810,16 +657,7 @@ export const handlers = [
       if (body.endTime !== undefined) ev.endTime = body.endTime || null;
       if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
     });
-    pushNotif({
-      teamId: e.teamId,
-      type: 'event_updated',
-      actorId: session.userId ?? undefined,
-      title: e.title,
-      eventId: e.id,
-      eventTitle: e.title,
-      eventDate: e.date,
-      note: scope === 'series' ? 'ganze Serie' : '',
-    });
+    pushNotif({ teamId: e.teamId, type: 'event_updated', actorId: session.userId ?? undefined, title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
     return HttpResponse.json(toWireEvent(e));
   }),
 
@@ -831,19 +669,8 @@ export const handlers = [
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['SetEventStatusRequest'];
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
-    targets.forEach((ev) => {
-      ev.status = body.status;
-    });
-    pushNotif({
-      teamId: e.teamId,
-      type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated',
-      actorId: session.userId ?? undefined,
-      title: e.title,
-      eventId: e.id,
-      eventTitle: e.title,
-      eventDate: e.date,
-      note: scope === 'series' ? 'ganze Serie' : '',
-    });
+    targets.forEach((ev) => { ev.status = body.status; });
+    pushNotif({ teamId: e.teamId, type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated', actorId: session.userId ?? undefined, title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
     return HttpResponse.json(toWireEvent(e));
   }),
 
@@ -852,20 +679,8 @@ export const handlers = [
     const e = eventDate(params.eventId as string);
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
-    const ids =
-      e && scope === 'series' && e.seriesId
-        ? db.events.filter((x) => x.seriesId === e.seriesId).map((x) => x.id)
-        : [params.eventId as string];
-    if (e)
-      pushNotif({
-        teamId: e.teamId,
-        type: 'event_deleted',
-        actorId: session.userId ?? undefined,
-        title: e.title,
-        eventTitle: e.title,
-        eventDate: e.date,
-        note: scope === 'series' ? 'ganze Serie' : '',
-      });
+    const ids = e && scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId).map((x) => x.id) : [params.eventId as string];
+    if (e) pushNotif({ teamId: e.teamId, type: 'event_deleted', actorId: session.userId ?? undefined, title: e.title, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
     db.events = db.events.filter((x) => !ids.includes(x.id));
     db.attendance = db.attendance.filter((a) => !ids.includes(a.eventId));
     db.eventComments = db.eventComments.filter((c) => !ids.includes(c.eventId));
@@ -874,10 +689,7 @@ export const handlers = [
 
   http.get(P('/teams/:teamId/events/:eventId/comments'), async ({ params }) => {
     await mockDelay();
-    const body = db.eventComments
-      .filter((c) => c.eventId === params.eventId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(toWireComment);
+    const body = db.eventComments.filter((c) => c.eventId === params.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toWireComment);
     return HttpResponse.json(body);
   }),
 
@@ -886,13 +698,7 @@ export const handlers = [
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
     const body = (await request.json()) as S['AddCommentRequest'];
-    const c = {
-      id: rid('cm'),
-      eventId: params.eventId as string,
-      userId: auth,
-      text: body.text,
-      createdAt: new Date().toISOString(),
-    };
+    const c = { id: rid('cm'), eventId: params.eventId as string, userId: auth, text: body.text, createdAt: new Date().toISOString() };
     db.eventComments.push(c);
     return HttpResponse.json(toWireComment(c), { status: 201 });
   }),
@@ -917,15 +723,7 @@ export const handlers = [
     const body = (await request.json()) as S['SetAttendanceRequest'];
     let a = db.attendance.find((x) => x.eventId === eventId && x.userId === body.userId);
     if (!a) {
-      a = {
-        id: rid('att'),
-        eventId,
-        userId: body.userId,
-        status: body.status,
-        reason: '',
-        reasonId: null,
-        reasonVisibility: null,
-      };
+      a = { id: rid('att'), eventId, userId: body.userId, status: body.status, reason: '', reasonId: null, reasonVisibility: null };
       db.attendance.push(a);
     }
     a.status = body.status;
@@ -935,26 +733,9 @@ export const handlers = [
     a.at = new Date().toISOString();
     const e = eventDate(eventId);
     if (e && (body.status === 'yes' || body.status === 'no' || body.status === 'maybe')) {
-      pushNotif({
-        teamId: e.teamId,
-        type: 'attendance',
-        actorId: body.userId,
-        status: body.status,
-        eventId: e.id,
-        eventTitle: e.title,
-        eventDate: e.date,
-      });
+      pushNotif({ teamId: e.teamId, type: 'attendance', actorId: body.userId, status: body.status, eventId: e.id, eventTitle: e.title, eventDate: e.date });
     }
-    const record: S['AttendanceRecord'] = {
-      id: a.id,
-      eventId: a.eventId,
-      userId: a.userId,
-      status: a.status,
-      reason: a.reason || undefined,
-      reasonId: a.reasonId ?? undefined,
-      reasonVisibility: a.reasonVisibility ?? undefined,
-      at: a.at,
-    };
+    const record: S['AttendanceRecord'] = { id: a.id, eventId: a.eventId, userId: a.userId, status: a.status, reason: a.reason || undefined, reasonId: a.reasonId ?? undefined, reasonVisibility: a.reasonVisibility ?? undefined, at: a.at };
     return HttpResponse.json(record);
   }),
 
@@ -967,21 +748,11 @@ export const handlers = [
       // applyNominations() in db.ts. A member who already has a real RSVP
       // ('yes'/'no'/'maybe') keeps it; re-nominating them must not silently
       // revert an actual response back to pending.
-      db.attendance = db.attendance.filter(
-        (x) => !(x.eventId === eventId && x.userId === body.userId && x.status === 'not_nominated'),
-      );
+      db.attendance = db.attendance.filter((x) => !(x.eventId === eventId && x.userId === body.userId && x.status === 'not_nominated'));
     } else {
       let a = db.attendance.find((x) => x.eventId === eventId && x.userId === body.userId);
       if (!a) {
-        a = {
-          id: rid('att'),
-          eventId,
-          userId: body.userId,
-          status: 'not_nominated',
-          reason: '',
-          reasonId: null,
-          reasonVisibility: null,
-        };
+        a = { id: rid('att'), eventId, userId: body.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null };
         db.attendance.push(a);
       }
       a.status = 'not_nominated';
@@ -995,9 +766,7 @@ export const handlers = [
   http.get(P('/teams/:teamId/absences'), async ({ params }) => {
     await mockDelay();
     const memberIds = db.memberships.filter((m) => m.teamId === params.teamId).map((m) => m.userId);
-    const items = db.absences
-      .filter((a) => memberIds.includes(a.userId))
-      .map((a) => toWireAbsence(a, params.teamId as string));
+    const items = db.absences.filter((a) => memberIds.includes(a.userId)).map((a) => toWireAbsence(a, params.teamId as string));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -1012,14 +781,7 @@ export const handlers = [
   http.post(P('/teams/:teamId/absences'), async ({ params, request }) => {
     await mockDelay();
     const body = (await request.json()) as S['CreateAbsenceRequest'];
-    const a = {
-      id: rid('abs'),
-      userId: body.userId,
-      from: body.from,
-      to: body.to,
-      reason: body.reason || '',
-      createdAt: new Date().toISOString(),
-    };
+    const a = { id: rid('abs'), userId: body.userId, from: body.from, to: body.to, reason: body.reason || '', createdAt: new Date().toISOString() };
     db.absences.push(a);
     const mem = db.memberships.find((m) => m.userId === body.userId && m.teamId === params.teamId);
     if (mem) pushNotif({ teamId: mem.teamId, type: 'absence', actorId: body.userId, title: a.reason });
@@ -1060,15 +822,7 @@ export const handlers = [
     if (typeof auth !== 'string') return auth;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateNewsRequest'];
-    const n = {
-      id: rid('news'),
-      teamId,
-      authorId: auth,
-      title: body.title,
-      body: body.body,
-      pinned: !!body.pinned,
-      createdAt: new Date().toISOString(),
-    };
+    const n = { id: rid('news'), teamId, authorId: auth, title: body.title, body: body.body, pinned: !!body.pinned, createdAt: new Date().toISOString() };
     db.news.push(n);
     pushNotif({ teamId, type: 'news', actorId: auth, title: body.title });
     return HttpResponse.json(toWireNews(n), { status: 201 });
@@ -1095,10 +849,7 @@ export const handlers = [
   // ---- polls ----
   http.get(P('/teams/:teamId/polls'), async ({ params }) => {
     await mockDelay();
-    const items = db.polls
-      .filter((p) => p.teamId === params.teamId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(toWirePoll);
+    const items = db.polls.filter((p) => p.teamId === params.teamId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toWirePoll);
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -1177,11 +928,7 @@ export const handlers = [
     const penalties = db.penalties.filter((p) => p.teamId === teamId);
     const assignments = db.penaltyAssignments.filter((p) => p.teamId === teamId);
     const openByUser: Record<string, number> = {};
-    assignments
-      .filter((a) => !a.paid)
-      .forEach((a) => {
-        openByUser[a.userId] = (openByUser[a.userId] || 0) + (a.amount || 0);
-      });
+    assignments.filter((a) => !a.paid).forEach((a) => { openByUser[a.userId] = (openByUser[a.userId] || 0) + (a.amount || 0); });
     const openPenalties: S['OpenPenalty'][] = Object.keys(openByUser)
       .map((uid) => {
         const u = requireUser(uid);
@@ -1208,15 +955,7 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
-    const t = {
-      id: rid('tx'),
-      teamId,
-      type: body.type,
-      title: body.title,
-      amount: body.amount,
-      date: todayLocalDate(),
-      category: body.category || '',
-    };
+    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: todayLocalDate(), category: body.category || '' };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
   }),
@@ -1279,24 +1018,14 @@ export const handlers = [
     const penalty = db.penalties.find((p) => p.id === body.penaltyId);
     if (!penalty) return problem(404, 'Penalty not found');
     // Snapshot label/amount at assignment time (drift-bug fix #1).
-    const a = {
-      id: rid('pa'),
-      teamId,
-      userId: body.userId,
-      penaltyId: body.penaltyId,
-      paid: false,
-      date: todayLocalDate(),
-      label: penalty.label,
-      amount: penalty.amount,
-    };
+    const a = { id: rid('pa'), teamId, userId: body.userId, penaltyId: body.penaltyId, paid: false, date: todayLocalDate(), label: penalty.label, amount: penalty.amount };
     db.penaltyAssignments.push(a);
     return HttpResponse.json(toWireAssignment(a), { status: 201 });
   }),
 
   http.delete(P('/teams/:teamId/finances/penalty-assignments/:assignmentId'), async ({ params }) => {
     await mockDelay();
-    if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId))
-      return problem(404, 'Penalty assignment not found');
+    if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId)) return problem(404, 'Penalty assignment not found');
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.id !== params.assignmentId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -1336,37 +1065,25 @@ export const handlers = [
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
     const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-    const events = db.events
-      .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to)
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
 
     const memberStats: S['MemberStat'][] = memberIds
       .map((uid) => {
         const u = requireUser(uid);
-        let yes = 0,
-          counted = 0;
+        let yes = 0, counted = 0;
         events.forEach((e) => {
           const s = rawCountedStatus(e.id, uid);
           if (!s) return;
           counted++;
           if (s === 'yes') yes++;
         });
-        return {
-          userId: u.id,
-          name: u.name,
-          avatarColor: u.avatarColor,
-          hasPhoto: u.hasPhoto,
-          quote: counted ? yes / counted : 0,
-          counted,
-          yes,
-        };
+        return { userId: u.id, name: u.name, avatarColor: u.avatarColor, hasPhoto: u.hasPhoto, quote: counted ? yes / counted : 0, counted, yes };
       })
       .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de'));
     const avg = memberStats.length ? memberStats.reduce((s, m) => s + m.quote, 0) / memberStats.length : 0;
 
     const eventStats: S['EventStat'][] = events.map((e) => {
-      let yes = 0,
-        counted = 0;
+      let yes = 0, counted = 0;
       memberIds.forEach((uid) => {
         const s = rawCountedStatus(e.id, uid);
         if (!s) return;
@@ -1377,14 +1094,7 @@ export const handlers = [
       return { id: e.id, title: e.title, type: e.type, date: e.date, yes, nominated: counted, pct, enough: pct >= 0.5 };
     });
 
-    const body: S['StatsOverview'] = {
-      avg,
-      members: memberStats,
-      events: eventStats,
-      pastCount: events.length,
-      from,
-      to,
-    };
+    const body: S['StatsOverview'] = { avg, members: memberStats, events: eventStats, pastCount: events.length, from, to };
     return HttpResponse.json(body);
   }),
 
@@ -1394,11 +1104,8 @@ export const handlers = [
     const userId = params.userId as string;
     const to = todayLocalDate();
     const from = threeMonthsBeforeLocal(to);
-    const events = db.events.filter(
-      (e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to,
-    );
-    let yes = 0,
-      counted = 0;
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to);
+    let yes = 0, counted = 0;
     events.forEach((e) => {
       const s = rawCountedStatus(e.id, userId);
       if (!s) return;
