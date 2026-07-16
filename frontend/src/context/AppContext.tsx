@@ -33,6 +33,7 @@ import type { MemberFormValues } from '@/features/members/components/memberFormS
 import type { NewsItem } from '@/features/news';
 import type { NewsFormValues } from '@/features/news/components/newsFormSchema';
 import type { Poll } from '@/features/polls';
+import type { PollFormValues } from '@/features/polls/components/pollFormSchema';
 import { queryKeys } from '@/query/keys';
 import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
@@ -368,7 +369,7 @@ export interface AppContextValue {
   setStatsRange: (range: DateRange | null) => void;
   // polls
   openPollForm: () => void;
-  savePoll: () => Promise<void>;
+  savePoll: (f: PollFormValues) => Promise<void>;
   togglePollOption: (poll: Poll, optId: string) => void;
   removePoll: (id: string) => void;
 }

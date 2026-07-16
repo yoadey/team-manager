@@ -3,6 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { usePollActions } from './usePollActions';
 import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
+import type { PollFormValues } from '../components/pollFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -93,26 +94,6 @@ describe('usePollActions', () => {
     );
   });
 
-  it('savePoll shows toast when form is invalid (no question)', async () => {
-    stateRef = makeState({ form: { question: '', opt0: 'A', opt1: 'B' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePoll();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.polls.create).not.toHaveBeenCalled();
-  });
-
-  it('savePoll shows toast when less than 2 options', async () => {
-    stateRef = makeState({ form: { question: 'Which?', opt0: 'A', opt1: '' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePoll();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.polls.create).not.toHaveBeenCalled();
-  });
-
   it('savePoll creates poll when valid', async () => {
     stateRef = makeState({
       form: {
@@ -127,7 +108,7 @@ describe('usePollActions', () => {
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.savePoll();
+      await result.current.savePoll(stateRef.form as PollFormValues);
     });
     expect(api.polls.create).toHaveBeenCalledWith(
       'team1',

@@ -12,8 +12,8 @@ export const pollFormSchema = z
     opt1: z.string().trim().max(500).optional().or(z.literal('')),
     opt2: z.string().trim().max(500).optional().or(z.literal('')),
     opt3: z.string().trim().max(500).optional().or(z.literal('')),
-    multiple: z.boolean().default(false),
-    anonymous: z.boolean().default(false),
+    multiple: z.boolean(),
+    anonymous: z.boolean(),
   })
   .superRefine((data, ctx) => {
     const opts = [data.opt0, data.opt1, data.opt2, data.opt3].map((o) => String(o ?? '').trim()).filter(Boolean);

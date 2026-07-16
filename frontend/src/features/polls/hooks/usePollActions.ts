@@ -1,8 +1,8 @@
 import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { Poll, PollFormValues } from '../types';
+import type { Poll } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { validatePollForm } from '@/utils/validation';
+import type { PollFormValues } from '../components/pollFormSchema';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import { useDeletePollMutation, useSavePollMutation, useVotePollMutation } from './usePollMutations';
@@ -84,32 +84,31 @@ export function usePollActions({
     [voteAsync, loadNotifications, setState, toastMsg, logout],
   );
 
-  const savePoll = useCallback(async () => {
-    const f = S().form as PollFormValues;
-    const poll = validatePollForm(f);
-    if (!poll.ok) {
-      toastMsg(poll.message!, undefined, 'error');
-      return;
-    }
-    const sh = S().sheet;
-    const savedTeamId = teamId;
-    try {
-      await savePollAsync({
-        question: poll.value!.question,
-        options: poll.value!.options,
-        multiple: f.multiple,
-        anonymous: f.anonymous,
-      });
-      loadNotifications();
-      // Don't close a sheet the user has since opened for a different team
-      // after switching away mid-request, or one they've since opened for a
-      // different entity (same team) while this save was in flight.
-      if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
-      toastMsg(t('polls.toastCreated'));
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
-    }
-  }, [S, setState, savePollAsync, loadNotifications, teamId, toastMsg, logout]);
+  const savePoll = useCallback(
+    async (f: PollFormValues) => {
+      const sh = S().sheet;
+      const savedTeamId = teamId;
+      const options = [f.opt0, f.opt1, f.opt2, f.opt3].map((o) => String(o ?? '').trim()).filter(Boolean);
+      try {
+        await savePollAsync({
+          question: f.question.trim(),
+          options,
+          multiple: f.multiple,
+          anonymous: f.anonymous,
+        });
+        loadNotifications();
+        // Don't close a sheet the user has since opened for a different team
+        // after switching away mid-request, or one they've since opened for a
+        // different entity (same team) while this save was in flight.
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
+        toastMsg(t('polls.toastCreated'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        throw err;
+      }
+    },
+    [S, setState, savePollAsync, loadNotifications, teamId, toastMsg, logout],
+  );
 
   const togglePollOption = useCallback(
     (poll: Poll, optId: string) => {
