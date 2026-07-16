@@ -6,13 +6,14 @@ import { useMembersQuery } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
 import type { PenaltyAssignFormValues } from '../types';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { t } from '@/i18n';
 
 export function PenaltyAssignSheet({ app }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const F = formValues<PenaltyAssignFormValues>(app.state);
-  const f = app.state.finances;
+  const { data: f } = useFinanceOverviewQuery(app.api, state.activeTeamId);
   const { data: members } = useMembersQuery(app.api, state.activeTeamId);
   const errs = state.formErrors;
 
@@ -110,7 +111,7 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
       <PrimaryButton
         label={t('finances.assignSave')}
         onClick={() => app.savePenaltyAssign()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingPenaltyAssign}
         disabled={!canSubmit}
       />
     </Box>

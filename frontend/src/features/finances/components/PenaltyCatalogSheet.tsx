@@ -4,13 +4,14 @@ import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { EmptyState, Sym } from '@/components/ui';
 import type { Penalty } from '../types';
 import type { SheetProps } from '@/sheets/types';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { t } from '@/i18n';
 
 export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   void sheet;
-  const f = app.state.finances;
+  const { data: f } = useFinanceOverviewQuery(app.api, state.activeTeamId);
   const canFin = app.can('finances', 'write');
   const pens: Penalty[] = f ? f.penalties : [];
 

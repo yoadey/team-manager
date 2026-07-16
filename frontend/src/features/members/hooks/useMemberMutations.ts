@@ -1,17 +1,13 @@
-import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import { queryKeys } from '@/query/keys';
+import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import type { Member } from '../types';
 import type { User } from '@/types';
 
 /** Invalidates the team's member list, returning a promise that resolves once the invalidated query has refetched. */
 export function useInvalidateMembers(teamId: string | null) {
-  const qc = useQueryClient();
-  return useCallback(() => {
-    if (!teamId) return Promise.resolve();
-    return qc.invalidateQueries({ queryKey: queryKeys.members(teamId) });
-  }, [qc, teamId]);
+  return useInvalidateTeamQuery(teamId, queryKeys.members);
 }
 
 export interface SaveMemberInput {
@@ -38,7 +34,11 @@ export interface SaveMemberResult {
 // false while that step is still in flight, re-enabling the Save button and
 // allowing a double-submit -- exactly what the pre-migration shared `busy`
 // flag stayed set through.
-export function useSaveMemberMutation(api: typeof defaultApi, teamId: string | null, refreshTeams: () => Promise<void>) {
+export function useSaveMemberMutation(
+  api: typeof defaultApi,
+  teamId: string | null,
+  refreshTeams: () => Promise<void>,
+) {
   const invalidate = useInvalidateMembers(teamId);
   return useMutation({
     mutationFn: async ({

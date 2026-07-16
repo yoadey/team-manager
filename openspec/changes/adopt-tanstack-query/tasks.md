@@ -38,7 +38,15 @@
         `savingEvent`); `members` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`; still-unmigrated
         callers (`useTeamActions.uploadMyPhoto`, `useFinanceActions.openPenaltyAssign`) bridged to
         `useInvalidateMembers`/the sheet's own query instead of the old `refreshMembers` loader.
-  - [ ] 4.2.2 `finances`
+  - [x] 4.2.2 `finances` — `useFinanceOverviewQuery` (`useFinanceQueries.ts`); `useSaveTxMutation`/
+        `useDeleteTxMutation`/`useSavePenaltyMutation`/`useDeletePenaltyMutation`/`useSavePenaltyAssignMutation`/
+        `useDeleteAssignmentMutation`/`useSaveContribMutation`/`useTogglePenaltyMutation`/
+        `useToggleContributionMutation` (`useFinanceMutations.ts`); `FinancesPage`, `PenaltyCatalogSheet`,
+        `TxFormSheet`, and `PenaltyAssignSheet` read the query directly; the four save flows' `busy === 'save'`
+        replaced by per-mutation `isPending` (`state.savingTx`/`savingPenalty`/`savingPenaltyAssign`/
+        `savingContrib`, mirroring `savingMember`); the three confirm-gated deletes (tx/penalty/assignment) take
+        `teamId` per call rather than a hook-bound reactive value, mirroring `useDeleteEventMutation`/
+        `useRemoveMemberMutation`; `finances` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`.
   - [ ] 4.2.3 `polls`
   - [ ] 4.2.4 `news`
   - [ ] 4.2.5 `absences`

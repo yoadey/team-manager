@@ -30,7 +30,6 @@ type FeatureActionDeps = {
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
   loadAbsences: () => Promise<void>;
-  loadFinances: () => Promise<void>;
   loadStats: (range?: DateRange | null) => Promise<void>;
   loadNews: () => Promise<void>;
   loadPolls: () => Promise<void>;
@@ -53,7 +52,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     refreshRoles,
     refreshTeams,
     loadAbsences,
-    loadFinances,
     loadStats,
     loadNews,
     loadPolls,
@@ -154,7 +152,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    loadFinances,
+    teamId,
     loadStats,
     askConfirm,
     toastMsg,

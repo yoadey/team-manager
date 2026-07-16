@@ -24,3 +24,4 @@ export { FinancesTransactions } from './components/FinancesTransactions';
 export { FinancesPenalties } from './components/FinancesPenalties';
 export { FinancesContributions } from './components/FinancesContributions';
 export { useFinanceActions } from './hooks/useFinanceActions';
+export { useFinanceOverviewQuery } from './hooks/useFinanceQueries';

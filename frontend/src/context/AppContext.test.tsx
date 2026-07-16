@@ -414,79 +414,15 @@ describe('AppProvider / actions (app phase)', () => {
   });
 });
 
-// Regression test: on-demand per-route loaders (loadFinances, loadStats,
-// loadNews, loadPolls, loadAbsences, refreshEvents/Members/Roles,
-// loadNotifications) used to apply their response unconditionally, with no
-// check that activeTeamId was still the same team when the response landed
-// -- unlike afterLoginLoad, which has always had this guard. A slow request
-// for the team the user just navigated away from could clobber the newly
-// selected team's state with the previous team's data.
+// Regression test: on-demand per-route loaders (loadStats, loadNews,
+// loadPolls, loadAbsences, refreshRoles, loadNotifications) used to apply
+// their response unconditionally, with no check that activeTeamId was still
+// the same team when the response landed -- unlike afterLoginLoad, which has
+// always had this guard. A slow request for the team the user just navigated
+// away from could clobber the newly selected team's state with the previous
+// team's data. (events/members/finances have their own equivalent coverage
+// in useEventQueries.test.ts/useMemberQueries.test.ts/useFinanceQueries.test.ts.)
 describe('AppProvider / team-switch race guards', () => {
-  it('loadFinances discards a stale response after the user has switched teams', async () => {
-    const svc = await import('@/services');
-    type Overview = Awaited<ReturnType<typeof svc.api.finances.overview>>;
-    let resolveOverview!: (v: Overview) => void;
-    const overviewSpy = vi
-      .spyOn(svc.api.finances, 'overview')
-      .mockReturnValueOnce(new Promise<Overview>((resolve) => (resolveOverview = resolve)));
-
-    let actions!: ReturnType<typeof useAppActions>;
-    let state!: ReturnType<typeof useApp>['state'];
-    function Probe() {
-      state = useApp().state;
-      actions = useAppActions();
-      return (
-        <div>
-          <div data-testid="activeTeamId">{state.activeTeamId ?? ''}</div>
-          <div data-testid="finances">{state.finances ? JSON.stringify(state.finances) : 'null'}</div>
-        </div>
-      );
-    }
-
-    renderApp(
-      <AppProvider>
-        <Probe />
-      </AppProvider>,
-    );
-    await act(async () => {
-      actions.setState({ phase: 'app', activeTeamId: 'team1', teams: [] as never });
-    });
-
-    // Kick off loadFinances for team1; the mocked promise stays pending.
-    act(() => {
-      actions.loadFinances();
-    });
-    expect(overviewSpy).toHaveBeenCalledWith('team1');
-
-    // User switches to team2 before team1's response arrives. selectTeam
-    // resets finances to null via afterLoginLoad's initial reset.
-    await act(async () => {
-      await actions.selectTeam('team2');
-    });
-    expect(screen.getByTestId('activeTeamId').textContent).toBe('team2');
-    expect(screen.getByTestId('finances').textContent).toBe('null');
-
-    // team1's stale response now arrives -- it must NOT overwrite team2's state.
-    await act(async () => {
-      resolveOverview({
-        balance: 0,
-        income: 0,
-        expense: 0,
-        transactions: [],
-        penalties: [],
-        assignments: [],
-        openPenalties: [],
-        openPenaltySum: 0,
-        contributions: [],
-        contribOpen: 0,
-      });
-    });
-    expect(screen.getByTestId('activeTeamId').textContent).toBe('team2');
-    expect(screen.getByTestId('finances').textContent).toBe('null');
-
-    overviewSpy.mockRestore();
-  });
-
   // Regression test: afterLoginLoad used to await all five initial-load
   // calls via Promise.all, so a single 403 (e.g. a member whose role lacks
   // roles:read) discarded every other successfully-loaded module too --
@@ -992,68 +928,64 @@ describe('AppProvider / session-restore resilience', () => {
     };
   }
 
-  it(
-    'recovers to a usable login screen when the post-restore team fetch keeps failing',
-    async () => {
-      const {
-        api,
-        NetworkError,
-        AppProvider: FreshAppProvider,
-        useApp: freshUseApp,
-        useAppActions: freshUseAppActions,
-      } = await freshModules();
+  it('recovers to a usable login screen when the post-restore team fetch keeps failing', async () => {
+    const {
+      api,
+      NetworkError,
+      AppProvider: FreshAppProvider,
+      useApp: freshUseApp,
+      useAppActions: freshUseAppActions,
+    } = await freshModules();
 
-      let actions: ReturnType<typeof freshUseAppActions>;
-      function Probe() {
-        const { state } = freshUseApp();
-        actions = freshUseAppActions();
-        return (
-          <div>
-            <div data-testid="phase">{state.phase}</div>
-            <div data-testid="providerCount">{state.providers.length}</div>
-          </div>
-        );
-      }
-
-      const { unmount } = renderApp(
-        <FreshAppProvider>
-          <Probe />
-        </FreshAppProvider>,
+    let actions: ReturnType<typeof freshUseAppActions>;
+    function Probe() {
+      const { state } = freshUseApp();
+      actions = freshUseAppActions();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="providerCount">{state.providers.length}</div>
+        </div>
       );
-      // Default waitFor timeout (1000ms) has been observed to be too tight for
-      // this file's very first bootstrap under a loaded CI run (full-suite +
-      // coverage instrumentation contending with other jobs on a shared
-      // runner) -- give it the same headroom as the second waitFor below.
-      await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+    }
 
-      // A normal login establishes a real session (session.userId in the mock),
-      // which persists across remounts within this module instance.
-      await act(async () => {
-        await actions!.doLogin('google');
-      });
-      await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
-      unmount();
+    const { unmount } = renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+    // Default waitFor timeout (1000ms) has been observed to be too tight for
+    // this file's very first bootstrap under a loaded CI run (full-suite +
+    // coverage instrumentation contending with other jobs on a shared
+    // runner) -- give it the same headroom as the second waitFor below.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
 
-      // Simulate the team list becoming permanently unreachable (e.g. a
-      // backend outage) for the next session-restore attempt.
-      api.teams.listForCurrentUser = vi.fn().mockRejectedValue(new NetworkError());
+    // A normal login establishes a real session (session.userId in the mock),
+    // which persists across remounts within this module instance.
+    await act(async () => {
+      await actions!.doLogin('google');
+    });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
+    unmount();
 
-      renderApp(
-        <FreshAppProvider>
-          <Probe />
-        </FreshAppProvider>,
-      );
+    // Simulate the team list becoming permanently unreachable (e.g. a
+    // backend outage) for the next session-restore attempt.
+    api.teams.listForCurrentUser = vi.fn().mockRejectedValue(new NetworkError());
 
-      // retryable's backoff (300ms + 600ms) plus the mock's own randomized
-      // per-call latency pushes this well past the default 1000ms waitFor --
-      // give it extra headroom under a loaded full-suite/coverage run, where
-      // this file now shares the process with many more React Query-backed
-      // renders than before.
-      await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
-      await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
-    },
-    20000,
-  );
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+
+    // retryable's backoff (300ms + 600ms) plus the mock's own randomized
+    // per-call latency pushes this well past the default 1000ms waitFor --
+    // give it extra headroom under a loaded full-suite/coverage run, where
+    // this file now shares the process with many more React Query-backed
+    // renders than before.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+    await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
+  }, 20000);
 
   // Regression test: React.StrictMode double-invokes effects on initial
   // mount in dev, and the session-restore effect had no guard against that --
@@ -1102,7 +1034,6 @@ describe('AppProvider / session-restore resilience', () => {
           <div data-testid="phase">{state.phase}</div>
           <div data-testid="route">{state.route}</div>
           <div data-testid="finTab">{state.finTab}</div>
-          <div data-testid="finances">{state.finances ? 'loaded' : 'null'}</div>
         </div>
       );
     }
@@ -1135,9 +1066,10 @@ describe('AppProvider / session-restore resilience', () => {
     expect(screen.getByTestId('route').textContent).toBe('finances');
     expect(screen.getByTestId('finTab').textContent).toBe('strafen');
     expect(window.location.pathname).toBe('/finances');
-    // afterLoginLoad alone doesn't cover finances -- ensureRouteData must
-    // have fetched it, or this would be stuck on a skeleton loader forever.
-    await waitFor(() => expect(screen.getByTestId('finances').textContent).toBe('loaded'));
+    // Finances data itself is now fetched by FinancesPage's own
+    // useFinanceOverviewQuery (which retries/refetches on its own -- see
+    // useFinanceQueries.test.ts), not by ensureRouteData; this test only
+    // covers the route/tab/URL restoration.
   });
 
   // Regression test: the fix above only restored route/eventScope/eventsView/

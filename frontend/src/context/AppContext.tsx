@@ -22,7 +22,7 @@ import type {
   User,
 } from '@/types';
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
-import type { Contribution, FinanceOverview, Penalty, Transaction } from '@/features/finances';
+import type { Contribution, Penalty, Transaction } from '@/features/finances';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
 import type { AppNotification } from '@/features/notifications';
@@ -131,7 +131,6 @@ export interface AppState {
   calMonth: Date | null;
   roles: Role[];
   news: NewsItem[] | null;
-  finances: FinanceOverview | null;
   stats: StatsOverview | null;
   polls: Poll[] | null;
   absences: Absence[] | null;
@@ -154,16 +153,20 @@ export interface AppState {
   toast: { message: string; action?: { label: string; fn: () => void }; kind?: 'success' | 'error' } | null;
   error: string | null;
   /**
-   * Per-operation mutation pending flags for the events/members verticals
-   * (React Query `mutation.isPending`), merged into the exposed context
-   * value every render -- NOT part of the `useState` slice `setState`
-   * manages, unlike every other field above. Replaces the shared `busy`
-   * string for these actions so concurrent saves in different verticals
-   * can't clear each other's spinner/disabled state.
+   * Per-operation mutation pending flags for the events/members/finances
+   * verticals (React Query `mutation.isPending`), merged into the exposed
+   * context value every render -- NOT part of the `useState` slice
+   * `setState` manages, unlike every other field above. Replaces the shared
+   * `busy` string for these actions so concurrent saves in different
+   * verticals can't clear each other's spinner/disabled state.
    */
   savingEvent: boolean;
   savingComment: boolean;
   savingMember: boolean;
+  savingTx: boolean;
+  savingPenalty: boolean;
+  savingPenaltyAssign: boolean;
+  savingContrib: boolean;
 }
 
 function loadColorScheme(): AppState['colorScheme'] {
@@ -191,7 +194,6 @@ const initialState: AppState = {
   calMonth: null,
   roles: [],
   news: null,
-  finances: null,
   stats: null,
   polls: null,
   absences: null,
@@ -212,6 +214,10 @@ const initialState: AppState = {
   savingEvent: false,
   savingComment: false,
   savingMember: false,
+  savingTx: false,
+  savingPenalty: false,
+  savingPenaltyAssign: false,
+  savingContrib: false,
 };
 
 // Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
@@ -275,7 +281,6 @@ export interface AppContextValue {
   setNotifFilter: (f: AppState['notifFilter']) => void;
   loadAbsences: () => Promise<void>;
   // data refresh
-  loadFinances: () => Promise<void>;
   loadStats: (range?: DateRange | null) => Promise<void>;
   // attendance
   setMyStatus: (eventId: string, status: AttendanceStatus, currentReason?: string) => Promise<void>;
@@ -695,7 +700,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState({
         roles: [],
         news: null,
-        finances: null,
         stats: null,
         polls: null,
         absences: null,
@@ -798,17 +802,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (refreshTeamsSeq.current === seq) reportLoad(err);
     }
   }, [api, setState, reportLoad]);
-  const loadFinancesSeq = useRef(0);
-  const loadFinances = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadFinancesSeq.current;
-    try {
-      const finances = await api.finances.overview(teamId);
-      setState((s) => (s.activeTeamId === teamId && loadFinancesSeq.current === seq ? { finances } : {}));
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadFinancesSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, reportLoad]);
+  // finances has no such loader here -- it's fetched via
+  // useFinanceOverviewQuery (React Query), whose team-scoped key makes this
+  // class of race structurally impossible instead of needing a manual
+  // sequence guard (same as events/members).
   const loadStatsSeq = useRef(0);
   const loadStats = useCallback(
     async (range?: DateRange | null) => {
@@ -864,8 +861,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(
     (route: Route) => {
-      // events and members have no branch here: they're fetched by
-      // useEventsQuery/useMembersQuery, which retry/refetch on their own.
+      // events, members, and finances have no branch here: they're fetched by
+      // useEventsQuery/useMembersQuery/useFinanceOverviewQuery, which
+      // retry/refetch on their own.
       //
       // Skip entirely for a module the caller can't read (nav already hides
       // these routes, but a stale bookmark/URL or browser back/forward can
@@ -874,12 +872,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // that reportLoad would then surface as a spurious forbidden toast.
       const module = ROUTE_MODULE[route];
       if (module && !can(module, 'read')) return;
-      if (route === 'finances' && !S().finances) loadFinances();
       if (route === 'stats' && !S().stats) loadStats();
       if (route === 'news' && !S().news) loadNews();
       if (route === 'polls' && !S().polls) loadPolls();
     },
-    [S, can, loadFinances, loadStats, loadNews, loadPolls],
+    [S, can, loadStats, loadNews, loadPolls],
   );
 
   // ---------- auth ----------
@@ -1170,6 +1167,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingEvent,
     savingComment,
     savingMember,
+    savingTx,
+    savingPenalty,
+    savingPenaltyAssign,
+    savingContrib,
   } = useFeatureActions({
     api,
     S,
@@ -1180,7 +1181,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshRoles,
     refreshTeams,
     loadAbsences,
-    loadFinances,
     loadStats,
     loadNews,
     loadPolls,
@@ -1328,7 +1328,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openNotifications,
       setNotifFilter,
       loadAbsences,
-      loadFinances,
       loadStats,
       setMyStatus,
       setStatusFor,
@@ -1433,7 +1432,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openNotifications,
       setNotifFilter,
       loadAbsences,
-      loadFinances,
       loadStats,
       setMyStatus,
       setStatusFor,
@@ -1516,13 +1514,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // every useApp() consumer's re-render) only changes when state or one of
   // these flags actually changes, not on every unrelated AppProvider render.
   const exposedState = useMemo<AppState>(
-    () => ({ ...state, savingEvent, savingComment, savingMember }),
-    [state, savingEvent, savingComment, savingMember],
+    () => ({
+      ...state,
+      savingEvent,
+      savingComment,
+      savingMember,
+      savingTx,
+      savingPenalty,
+      savingPenaltyAssign,
+      savingContrib,
+    }),
+    [state, savingEvent, savingComment, savingMember, savingTx, savingPenalty, savingPenaltyAssign, savingContrib],
   );
   exposedStateRef.current = exposedState;
   useEffect(() => {
     listeners.current.forEach((l) => l());
-  }, [savingEvent, savingComment, savingMember]);
+  }, [savingEvent, savingComment, savingMember, savingTx, savingPenalty, savingPenaltyAssign, savingContrib]);
 
   return (
     <AppStoreContext.Provider value={store}>

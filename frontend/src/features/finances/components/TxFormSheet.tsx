@@ -5,6 +5,7 @@ import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { formValues } from '@/utils/forms';
 import type { TxFormValues } from '../types';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { getIntlLocale, t } from '@/i18n';
 
@@ -12,6 +13,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const F = formValues<TxFormValues>(app.state);
+  const { data: finances } = useFinanceOverviewQuery(app.api, state.activeTeamId);
   const errs = state.formErrors;
   const edit = sheet.mode === 'edit';
 
@@ -48,9 +50,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
     );
   });
 
-  const cats = [
-    ...new Set(((app.state.finances && app.state.finances.transactions) || []).map((x) => x.category).filter(Boolean)),
-  ].sort((a, b) => a.localeCompare(b, getIntlLocale()));
+  const cats = [...new Set(((finances && finances.transactions) || []).map((x) => x.category).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b, getIntlLocale()),
+  );
 
   const catField = (
     <Box>
@@ -150,7 +152,12 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box sx={{ display: 'flex', gap: '8px' }}>{typeBtns}</Box>
       <Field label={t('finances.txFieldTitle')} required error={!!errs.title} errorText={errs.title}>
-        <TextInput name="title" placeholder={t('finances.txFieldTitlePlaceholder')} onBlur={validateTitle} maxLength={255} />
+        <TextInput
+          name="title"
+          placeholder={t('finances.txFieldTitlePlaceholder')}
+          onBlur={validateTitle}
+          maxLength={255}
+        />
       </Field>
       <Field label={t('finances.txFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
         <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
@@ -159,7 +166,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={edit ? t('finances.txSaveEdit') : t('finances.txSave')}
         onClick={() => app.saveTx()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingTx}
         disabled={!canSubmit}
       />
       {del}

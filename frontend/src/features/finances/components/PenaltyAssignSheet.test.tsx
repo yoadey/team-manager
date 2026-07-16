@@ -11,10 +11,16 @@ vi.mock('@/features/members/hooks/useMemberQueries', () => ({
   useMembersQuery: vi.fn(),
 }));
 
+vi.mock('../hooks/useFinanceQueries', () => ({
+  useFinanceOverviewQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
 import { useMembersQuery } from '@/features/members/hooks/useMemberQueries';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 const mockUseApp = vi.mocked(useApp);
 const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
+const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
 const makePenalty = (overrides = {}) => ({
   id: 'p1',
@@ -36,8 +42,13 @@ const makeMember = (overrides = {}) => ({
   ...overrides,
 });
 
-function makeApp(formOverrides: Record<string, unknown> = {}, members: unknown[] = [makeMember()]) {
+function makeApp(
+  formOverrides: Record<string, unknown> = {},
+  members: unknown[] = [makeMember()],
+  finances: unknown = { penalties: [makePenalty()] },
+) {
   mockUseMembersQuery.mockReturnValue({ data: members });
+  mockUseFinanceOverviewQuery.mockReturnValue({ data: finances });
   return {
     api: {},
     state: {
@@ -45,8 +56,6 @@ function makeApp(formOverrides: Record<string, unknown> = {}, members: unknown[]
       activeTeamId: 't1',
       form: { userId: '', penaltyId: '', ...formOverrides },
       formErrors: { userId: '', penaltyId: '' },
-      busy: null,
-      finances: { penalties: [makePenalty()] },
     },
     setFormErrors: vi.fn(),
     setFormVal: vi.fn(),
@@ -115,7 +124,7 @@ describe('PenaltyAssignSheet', () => {
   });
 
   it('handles empty finances (no penalties)', () => {
-    const app = { ...makeApp(), state: { ...makeApp().state, finances: null } };
+    const app = makeApp({}, [makeMember()], null);
     mockUseApp.mockReturnValue(app as never);
     render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
     // Should still render without crash
