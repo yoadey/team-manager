@@ -167,7 +167,6 @@ describe('AppProvider / actions (app phase)', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [{ id: 'r1', name: 'Member' }] as never,
-        news: [],
       });
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -413,15 +412,15 @@ describe('AppProvider / actions (app phase)', () => {
   });
 });
 
-// Regression test: on-demand per-route loaders (loadStats, loadNews,
-// loadAbsences, refreshRoles, loadNotifications) used to apply their
-// response unconditionally, with no check that activeTeamId was still the
-// same team when the response landed -- unlike afterLoginLoad, which has
-// always had this guard. A slow request for the team the user just navigated
-// away from could clobber the newly selected team's state with the previous
-// team's data. (events/members/finances/polls have their own equivalent
+// Regression test: on-demand per-route loaders (loadStats, loadAbsences,
+// refreshRoles, loadNotifications) used to apply their response
+// unconditionally, with no check that activeTeamId was still the same team
+// when the response landed -- unlike afterLoginLoad, which has always had
+// this guard. A slow request for the team the user just navigated away from
+// could clobber the newly selected team's state with the previous team's
+// data. (events/members/finances/polls/news have their own equivalent
 // coverage in useEventQueries.test.ts/useMemberQueries.test.ts/
-// useFinanceQueries.test.ts/usePollQueries.test.ts.)
+// useFinanceQueries.test.ts/usePollQueries.test.ts/useNewsQueries.test.ts.)
 describe('AppProvider / team-switch race guards', () => {
   // Regression test: afterLoginLoad used to await all five initial-load
   // calls via Promise.all, so a single 403 (e.g. a member whose role lacks
@@ -474,7 +473,7 @@ describe('AppProvider / team-switch race guards', () => {
   // Regression test: a ForbiddenError from afterLoginLoad's parallel fetch
   // used to always surface a "you don't have permission" toast via
   // reportLoad(failures[0].reason) -- even though a role having e.g.
-  // news:none is completely ordinary and expected, not a real failure. This
+  // roles:none is completely ordinary and expected, not a real failure. This
   // fired on every single login/team-switch for such a role. Verified via the
   // module-populate side effect (not state.toast): afterLoginLoad's S().
   // activeTeamId guard around reportLoad only ever settles once this whole
@@ -487,7 +486,13 @@ describe('AppProvider / team-switch race guards', () => {
   it('afterLoginLoad leaves other modules populated when the only failure is a ForbiddenError', async () => {
     const svc = await import('@/services');
     const { ForbiddenError } = await import('@/utils/errors');
-    const newsSpy = vi.spyOn(svc.api.news, 'list').mockRejectedValue(new ForbiddenError());
+    // team1 isn't a seeded team in the MSW demo db, so roles.list would
+    // resolve to an empty array either way -- spy it to a known non-empty
+    // value so a successful fetch is actually distinguishable from the
+    // initial (also-empty) state, unlike the length-based check this
+    // replaced.
+    const rolesSpy = vi.spyOn(svc.api.roles, 'list').mockResolvedValue([{ id: 'r1', name: 'Member' } as never]);
+    const notifSpy = vi.spyOn(svc.api.notifications, 'list').mockRejectedValue(new ForbiddenError());
 
     let actions!: ReturnType<typeof useAppActions>;
     let state!: ReturnType<typeof useApp>['state'];
@@ -496,8 +501,8 @@ describe('AppProvider / team-switch race guards', () => {
       actions = useAppActions();
       return (
         <div>
+          <div data-testid="roles">{state.roles.length ? 'loaded' : 'empty'}</div>
           <div data-testid="notifications">{state.notifications ? 'loaded' : 'null'}</div>
-          <div data-testid="news">{state.news ? 'loaded' : 'null'}</div>
         </div>
       );
     }
@@ -514,10 +519,11 @@ describe('AppProvider / team-switch race guards', () => {
       await actions.selectTeam('team1');
     });
 
-    expect(screen.getByTestId('notifications').textContent).toBe('loaded');
-    expect(screen.getByTestId('news').textContent).toBe('null');
+    expect(screen.getByTestId('roles').textContent).toBe('loaded');
+    expect(screen.getByTestId('notifications').textContent).toBe('null');
 
-    newsSpy.mockRestore();
+    rolesSpy.mockRestore();
+    notifSpy.mockRestore();
   });
 
   // Regression test: ensureRouteData (invoked by `go`) covered finances/
@@ -686,7 +692,6 @@ describe('AppProvider / can() permission checks', () => {
         ] as never,
         activeTeamId: 'team1',
         roles: [],
-        news: [],
       });
     });
     await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('app'));
@@ -996,8 +1001,12 @@ describe('AppProvider / session-restore resilience', () => {
     // Default waitFor timeout (1000ms) has been observed to be too tight for
     // this file's very first bootstrap under a loaded CI run (full-suite +
     // coverage instrumentation contending with other jobs on a shared
-    // runner) -- give it the same headroom as the second waitFor below.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+    // runner) -- give it the same headroom as the second waitFor below. Even
+    // 10000ms has intermittently timed out in CI as this file has grown more
+    // React Query-backed test suites (members/finances/polls and counting),
+    // so this needs a wide margin rather than the tightest value that
+    // happened to pass locally.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 20000 });
 
     // A normal login establishes a real session (session.userId in the mock),
     // which persists across remounts within this module instance.
@@ -1022,9 +1031,9 @@ describe('AppProvider / session-restore resilience', () => {
     // give it extra headroom under a loaded full-suite/coverage run, where
     // this file now shares the process with many more React Query-backed
     // renders than before.
-    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 10000 });
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'), { timeout: 20000 });
     await waitFor(() => expect(Number(screen.getByTestId('providerCount').textContent)).toBeGreaterThan(0));
-  }, 20000);
+  }, 40000);
 
   // Regression test: React.StrictMode double-invokes effects on initial
   // mount in dev, and the session-restore effect had no guard against that --

@@ -11,4 +11,5 @@ export const queryKeys = {
   members: (teamId: string) => ['teams', teamId, 'members'] as const,
   finances: (teamId: string) => ['teams', teamId, 'finances'] as const,
   polls: (teamId: string) => ['teams', teamId, 'polls'] as const,
+  news: (teamId: string) => ['teams', teamId, 'news'] as const,
 };

@@ -56,7 +56,14 @@
         route-dispatch mechanism now has a `polls` branch calling `loadNotifications()`, reusing the same
         internal-only loader `loadStats`/`loadNews` already use there instead of exposing it publicly); `polls`
         dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches.
-  - [ ] 4.2.4 `news`
+  - [x] 4.2.4 `news` — `useNewsQuery` (`useNewsQueries.ts`); `useSaveNewsMutation`/`useDeleteNewsMutation`
+        (`useNewsMutations.ts`); `NewsPage` and `Home` (dashboard preview) read the query directly; `saveNews`'s
+        `busy === 'save'` replaced by `mutation.isPending` (`state.savingNews`); `removeNews` (confirm-gated) takes
+        `teamId` per call, mirroring `useDeleteEventMutation`/`useRemoveMemberMutation`; the old loader's paired
+        `loadNotifications()` refresh is preserved both per-action (`saveNews`/`removeNews` each still call it after
+        success) and per-navigation (`ensureRouteData`'s `news` branch now calls `loadNotifications()` instead of the
+        removed `loadNews()`, sharing the same branch as `polls`); `news` dropped from
+        `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches.
   - [ ] 4.2.5 `absences`
   - [ ] 4.2.6 `notifications`
   - [ ] 4.2.7 `stats`

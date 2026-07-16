@@ -87,7 +87,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={sheet.mode === 'edit' ? t('news.saveChanges') : t('news.publish')}
         onClick={() => app.saveNews()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingNews}
         disabled={!canSubmit}
       />
     </Box>

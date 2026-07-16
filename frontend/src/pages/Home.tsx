@@ -6,6 +6,7 @@ import { todayLocalDate } from '@/utils/date';
 import { Av, EmptyState, SectionTitle, Sym } from '@/components/ui';
 import { EventCard, NewsCard } from '@/components/cards';
 import { useEventsQuery } from '@/features/events';
+import { useNewsQuery } from '@/features/news/hooks/useNewsQueries';
 import { t as tr } from '@/i18n';
 
 export function Home() {
@@ -15,9 +16,10 @@ export function Home() {
   const team = app.activeTeam()!;
   const today = todayLocalDate();
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
+  const { data: newsItems } = useNewsQuery(app.api, state.activeTeamId);
 
   const next = (events ?? []).filter((e) => e.date >= today).slice(0, 3);
-  const news = (state.news || []).slice(0, 3);
+  const news = (newsItems || []).slice(0, 3);
   const myPending = (events ?? []).filter(
     (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
@@ -109,10 +111,7 @@ export function Home() {
         <Box sx={{ mb: '22px' }}>
           <SectionTitle
             right={
-              <ButtonBase
-                onClick={() => app.go('events')}
-                sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}
-              >
+              <ButtonBase onClick={() => app.go('events')} sx={{ color: t.primary, fontWeight: 600, fontSize: '13px' }}>
                 {tr('home.viewAll')}
               </ButtonBase>
             }

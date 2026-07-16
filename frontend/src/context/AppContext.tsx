@@ -130,7 +130,6 @@ export interface AppState {
   calShowAbsences: boolean;
   calMonth: Date | null;
   roles: Role[];
-  news: NewsItem[] | null;
   stats: StatsOverview | null;
   absences: Absence[] | null;
   myAbsences: Absence[] | null;
@@ -167,6 +166,7 @@ export interface AppState {
   savingPenaltyAssign: boolean;
   savingContrib: boolean;
   savingPoll: boolean;
+  savingNews: boolean;
 }
 
 function loadColorScheme(): AppState['colorScheme'] {
@@ -193,7 +193,6 @@ const initialState: AppState = {
   calShowAbsences: false,
   calMonth: null,
   roles: [],
-  news: null,
   stats: null,
   absences: null,
   myAbsences: null,
@@ -218,6 +217,7 @@ const initialState: AppState = {
   savingPenaltyAssign: false,
   savingContrib: false,
   savingPoll: false,
+  savingNews: false,
 };
 
 // Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
@@ -350,7 +350,7 @@ export interface AppContextValue {
   downloadIcs: () => void;
   copyCalUrl: () => void;
   // news
-  openNewsForm: (n?: import('@/features/news').NewsItem) => void;
+  openNewsForm: (n?: NewsItem) => void;
   saveNews: () => Promise<void>;
   removeNews: (id: string) => void;
   // finances
@@ -699,37 +699,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const seq = ++afterLoginLoadSeq.current;
       setState({
         roles: [],
-        news: null,
         stats: null,
         absences: null,
         myAbsences: null,
         notifications: null,
         eventsOnlyPending: false,
       });
-      // events and members are deliberately not part of this bundle --
-      // useEventsQuery/useMembersQuery refetch on their own the moment
-      // activeTeamId (part of their query key) changes.
+      // events, members, finances, polls and news are deliberately not part
+      // of this bundle -- their respective useXQuery hooks refetch on their
+      // own the moment activeTeamId (part of their query key) changes.
       //
       // Retry on transient network failures — this is the initial-load read
       // path for the whole app, so a single dropped connection shouldn't
       // fail the entire team switch/login when a retry would likely
-      // succeed. All three calls are idempotent reads.
+      // succeed. Both calls are idempotent reads.
       //
       // allSettled (not all): a member whose role permits some but not all
       // of these modules (e.g. finances:none is the default) must still see
       // everything they DO have access to — one 403 shouldn't blank out
-      // news/notifications that already loaded successfully. Each slot keeps
+      // notifications that already loaded successfully. Each slot keeps
       // its previous value on failure rather than being forced to null, so a
       // permission-denied module just doesn't overwrite whatever was already
       // there (typically null on first load).
-      const [roles, news, notif] = await Promise.allSettled([
+      const [roles, notif] = await Promise.allSettled([
         retryable(() => api.roles.list(teamId)),
-        retryable(() => api.news.list(teamId)),
         retryable(() => api.notifications.list(teamId)),
       ]);
-      const failures = [roles, news, notif].filter((r) => r.status === 'rejected');
+      const failures = [roles, notif].filter((r) => r.status === 'rejected');
       // A ForbiddenError here just means the caller's role has that module set
-      // to 'none' -- an entirely ordinary, expected state (e.g. news:none),
+      // to 'none' -- an entirely ordinary, expected state (e.g. notifications:none),
       // not a real failure. Surfacing it as a toast on every single login/team
       // switch for such a role would be a false alarm; only report a genuine
       // (non-permission) failure.
@@ -744,7 +742,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
         const patch: Partial<AppState> = {};
         if (roles.status === 'fulfilled') patch.roles = roles.value;
-        if (news.status === 'fulfilled') patch.news = news.value;
         if (notif.status === 'fulfilled') {
           patch.notifications = notif.value.items;
           patch.notifUnread = notif.value.unreadCount;
@@ -820,23 +817,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [api, S, setState, reportLoad],
   );
-  const loadNewsSeq = useRef(0);
-  const loadNews = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadNewsSeq.current;
-    try {
-      const news = await api.news.list(teamId);
-      setState((s) => (s.activeTeamId === teamId && loadNewsSeq.current === seq ? { news } : {}));
-      loadNotifications();
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadNewsSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, loadNotifications, reportLoad]);
-  // polls has no such loader here -- it's fetched via usePollsQuery (React
-  // Query), whose team-scoped key makes this class of race structurally
-  // impossible instead of needing a manual sequence guard (same as
-  // events/members/finances). The old loader's paired loadNotifications()
-  // refresh now lives in PollsPage itself (see its own comment).
+  // news and polls have no such loader here -- they're fetched via
+  // useNewsQuery/usePollsQuery (React Query), whose team-scoped key makes
+  // this class of race structurally impossible instead of needing a manual
+  // sequence guard (same as events/members/finances). Each old loader's
+  // paired loadNotifications() refresh now lives in ensureRouteData below.
   const loadAbsencesSeq = useRef(0);
   const loadAbsences = useCallback(async () => {
     const teamId = S().activeTeamId!;
@@ -853,10 +838,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [api, S, setState, reportLoad]);
   const ensureRouteData = useCallback(
     (route: Route) => {
-      // events, members, finances, and polls have no data-fetch branch here:
-      // they're fetched by useEventsQuery/useMembersQuery/
-      // useFinanceOverviewQuery/usePollsQuery, which retry/refetch on their
-      // own.
+      // events, members, finances, polls, and news have no data-fetch branch
+      // here: they're fetched by useEventsQuery/useMembersQuery/
+      // useFinanceOverviewQuery/usePollsQuery/useNewsQuery, which
+      // retry/refetch on their own.
       //
       // Skip entirely for a module the caller can't read (nav already hides
       // these routes, but a stale bookmark/URL or browser back/forward can
@@ -866,15 +851,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const module = ROUTE_MODULE[route];
       if (module && !can(module, 'read')) return;
       if (route === 'stats' && !S().stats) loadStats();
-      if (route === 'news' && !S().news) loadNews();
-      // polls' own list is fetched by usePollsQuery, but the pre-migration
-      // loadPolls loader also refreshed notifications on every (re-)navigation
-      // here -- e.g. a new poll clears its own "pending vote" notification
-      // once the user has viewed it -- so that pairing stays, just without
-      // the list-fetch half.
-      if (route === 'polls') loadNotifications();
+      // polls'/news' own lists are fetched by usePollsQuery/useNewsQuery, but
+      // the pre-migration loadPolls/loadNews loaders also refreshed
+      // notifications on every (re-)navigation here -- e.g. a new poll/news
+      // item clears its own "pending" notification once the user has viewed
+      // it -- so that pairing stays, just without the list-fetch half.
+      if (route === 'polls' || route === 'news') loadNotifications();
     },
-    [S, can, loadStats, loadNews, loadNotifications],
+    [S, can, loadStats, loadNotifications],
   );
 
   // ---------- auth ----------
@@ -919,9 +903,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // parsePendingInvite above) rather than trust the module-load-time
         // initialLocation/initialState snapshot, then fetch that route's
         // data the same way the popstate handler below does -- afterLoginLoad
-        // only covers roles/news/notifications (events/members fetch via
-        // their own query hooks), so without this a deep link into
-        // finances/stats/polls would render the right route with no data,
+        // only covers roles/notifications (events/members/finances/polls/news
+        // fetch via their own query hooks), so without this a deep link into
+        // stats would render the right route with no data,
         // ever (the same "permanent skeleton loader" class events/members
         // no longer need a manual fix for). Left as `detail: null` here
         // deliberately --
@@ -1170,6 +1154,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingPenaltyAssign,
     savingContrib,
     savingPoll,
+    savingNews,
   } = useFeatureActions({
     api,
     S,
@@ -1181,7 +1166,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshTeams,
     loadAbsences,
     loadStats,
-    loadNews,
     loadNotifications,
     afterLoginLoad,
     toastMsg,
@@ -1522,6 +1506,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savingPenaltyAssign,
       savingContrib,
       savingPoll,
+      savingNews,
     }),
     [
       state,
@@ -1533,6 +1518,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savingPenaltyAssign,
       savingContrib,
       savingPoll,
+      savingNews,
     ],
   );
   exposedStateRef.current = exposedState;
@@ -1547,6 +1533,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingPenaltyAssign,
     savingContrib,
     savingPoll,
+    savingNews,
   ]);
 
   return (
