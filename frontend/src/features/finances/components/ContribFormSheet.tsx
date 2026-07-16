@@ -1,42 +1,52 @@
 import Box from '@mui/material/Box';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { Field, PrimaryButton, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
-import type { ContribFormValues } from '../types';
+import { contribFormSchema, type ContribFormValues } from './contribFormSchema';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { t } from '@/i18n';
 
 export function ContribFormSheet({ app }: SheetProps) {
   const { state } = app;
-  const F = formValues<ContribFormValues>(state);
-  const errs = state.formErrors;
 
-  const validateLabel = () => {
-    const v = String(F.label ?? '').trim();
-    app.setFormErrors({ label: v ? '' : t('finances.contribFieldLabelError') });
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<ContribFormValues>({
+    resolver: zodResolver(contribFormSchema),
+    defaultValues: state.form as ContribFormValues,
+    mode: 'onBlur',
+  });
+
+  const label = watch('label');
+  const amount = watch('amount');
+  const canSubmit = !!label?.trim() && validateMoneyAmount(amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
+
+  const onSubmit = async (values: ContribFormValues) => {
+    try {
+      await app.saveContrib(values);
+    } catch {
+      // Ignored
+    }
   };
 
-  const validateAmount = () => {
-    const r = validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
-    app.setFormErrors({ amount: r.ok ? '' : r.message! });
-  };
-
-  const canSubmit =
-    !!String(F.label ?? '').trim() &&
-    validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
+  const errs = state.formErrors || {};
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Field label={t('finances.contribFieldLabel')} required error={!!errs.label} errorText={errs.label}>
-        <TextInput name="label" placeholder={t('finances.contribFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
+    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <Field label={t('finances.contribFieldLabel')} required error={!!errors.label || !!errs.label} errorText={errors.label?.message || errs.label}>
+        <TextInput placeholder={t('finances.contribFieldLabelPlaceholder')} maxLength={255} {...register('label')} />
       </Field>
-      <Field label={t('finances.contribFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
-        <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
+      <Field label={t('finances.contribFieldAmount')} required error={!!errors.amount || !!errs.amount} errorText={errors.amount?.message || errs.amount}>
+        <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
       <PrimaryButton
         label={t('finances.contribSave')}
-        onClick={() => app.saveContrib()}
-        busy={app.state.busy === 'save'}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting}
         disabled={!canSubmit}
       />
     </Box>

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { PenaltyAssignSheet } from './PenaltyAssignSheet';
 
 vi.mock('@/context/AppContext', () => ({
@@ -90,27 +90,29 @@ describe('PenaltyAssignSheet', () => {
     expect(screen.getByRole('button', { name: /Strafe erfassen/i })).not.toBeDisabled();
   });
 
-  it('clicking penalty button calls setFormVal', () => {
-    const app = makeApp();
+  it('clicking penalty button updates selection', () => {
+    const app = makeApp({ penaltyId: '' });
     mockUseApp.mockReturnValue(app as never);
     render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
-    fireEvent.click(screen.getByText('Versäumtes Training').closest('button')!);
-    expect(app.setFormVal).toHaveBeenCalledWith({ penaltyId: 'p1' });
+    const btn = screen.getByText('Versäumtes Training').closest('button')!;
+    fireEvent.click(btn);
+    expect(btn.getAttribute('aria-checked')).toBe('true');
   });
 
-  it('validates userId field on blur', () => {
+  it('validates userId field on blur', async () => {
     const app = makeApp({ userId: '' });
     mockUseApp.mockReturnValue(app as never);
     render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
     fireEvent.blur(screen.getByRole('combobox'));
-    expect(app.setFormErrors).toHaveBeenCalledWith({ userId: expect.stringMatching(/\S+/) });
+    await waitFor(() => {
+      expect(screen.getByText('Bitte Person wählen.')).toBeTruthy();
+    });
   });
 
   it('handles empty finances (no penalties)', () => {
     const app = { ...makeApp(), state: { ...makeApp().state, finances: null } };
     mockUseApp.mockReturnValue(app as never);
     render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
-    // Should still render without crash
     expect(screen.getByRole('combobox')).toBeTruthy();
   });
 });

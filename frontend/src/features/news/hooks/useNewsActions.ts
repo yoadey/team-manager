@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { NewsItem, NewsFormValues } from '../types';
+import type { NewsItem } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
 import { clearBusyIfOwned } from '@/utils/forms';
-import { validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
+import type { NewsFormValues } from '../components/newsFormSchema';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -40,11 +40,10 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
     [setState],
   );
 
-  const saveNews = useCallback(async () => {
-    const f = S().form as NewsFormValues;
-    const titleResult = validateRequiredText(f.title, t('news.titleRequired'));
-    if (!titleResult.ok) {
-      toastMsg(titleResult.message!, undefined, 'error');
+  const saveNews = useCallback(async (fProp?: any) => {
+    const f = fProp !== undefined ? fProp : (S().form as NewsFormValues);
+    if (!f.title || !f.title.trim()) {
+      toastMsg(t('news.titleRequired'), undefined, 'error');
       return;
     }
     const sh = S().sheet;
@@ -52,17 +51,13 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
     setState({ busy: 'save' });
     try {
       if (f.id) {
-        await api.news.update(f.id, { title: titleResult.value!, body: f.body, pinned: f.pinned }, teamId);
+        await api.news.update(f.id, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned }, teamId);
         await loadNews();
         clearBusyIfOwned(S, setState, 'save');
-        // Don't close a sheet the user has since opened for a different
-        // team after switching away mid-request, or one they've since
-        // opened for a different entity (same team) while this save was in
-        // flight.
         if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('news.toastUpdated'));
       } else {
-        await api.news.create(teamId, { title: titleResult.value!, body: f.body, pinned: f.pinned });
+        await api.news.create(teamId, { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned });
         await loadNews();
         clearBusyIfOwned(S, setState, 'save');
         if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
@@ -70,6 +65,7 @@ export function useNewsActions({ api, S, setState, loadNews, askConfirm, toastMs
       }
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+      if (fProp !== undefined) throw err;
     }
   }, [api, S, setState, loadNews, toastMsg, logout]);
 

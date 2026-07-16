@@ -1,12 +1,13 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { EventFormValues, TeamEvent } from '../types';
+import type { TeamEvent } from '../types';
+import type { EventFormValues } from '../components/eventFormSchema';
 import type { AppState } from '@/context/AppContext';
-import { formValues, clearBusyIfOwned } from '@/utils/forms';
+import { formValues } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
-import { validateEventForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
+import { useSaveEventMutation } from './useEventMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -14,8 +15,9 @@ type EventFormDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  refreshEvents: () => Promise<void>;
-  openEventDetail: (eventId: string) => Promise<void>;
+  teamId: string | null;
+  loadNotifications: () => Promise<void>;
+  openEventDetail: (eventId: string) => void;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
@@ -24,11 +26,14 @@ export function useEventFormActions({
   api,
   S,
   setState,
-  refreshEvents,
+  teamId,
+  loadNotifications,
   openEventDetail,
   toastMsg,
   logout,
 }: EventFormDeps) {
+  const { mutateAsync: saveEventAsync, isPending: savingEvent } = useSaveEventMutation(api, teamId);
+
   const openEventForm = useCallback(
     (event: TeamEvent | null) => {
       const f: EventFormValues = event
@@ -78,42 +83,41 @@ export function useEventFormActions({
   );
 
   const saveEvent = useCallback(
-    async (scope: 'single' | 'series' = 'single') => {
-      const f = S().form as EventFormValues;
-      const sh = S().sheet!;
-      const mode = sh.mode;
-      const validation = validateEventForm(f, mode);
-      if (!validation.ok) {
-        toastMsg(validation.message!, undefined, 'error');
+    async (fProp?: any, scopeProp: 'single' | 'series' = 'single') => {
+      const isLegacy = typeof fProp === 'string';
+      const f = isLegacy || fProp === undefined ? (S().form as EventFormValues) : fProp;
+      const scope = isLegacy ? fProp : scopeProp;
+      if (!f.title || !f.title.trim()) {
+        toastMsg(t('validation.eventTitleMissing'), undefined, 'error');
         return;
       }
+      const sh = S().sheet!;
+      const mode = sh.mode;
       const back = sh.back;
-      const teamId = S().activeTeamId!;
-      setState({ busy: 'save' });
+      const activeTeamId = S().activeTeamId!;
       const payload = {
         type: f.type,
         title: f.title.trim(),
         date: f.date,
-        location: f.location,
-        note: f.note,
-        meetTimeMandatory: f.meetTimeMandatory,
-        responseMode: f.responseMode,
-        meetT: f.meetT,
-        startT: f.startT,
-        endT: f.endT,
-        nominatedRoleIds: f.nominatedRoleIds,
+        location: f.location || '',
+        note: f.note || '',
+        meetTimeMandatory: !!f.meetTimeMandatory,
+        responseMode: f.responseMode || 'opt_in',
+        meetT: f.meetT || '',
+        startT: f.startT || '',
+        endT: f.endT || '',
+        nominatedRoleIds: f.nominatedRoleIds || [],
       };
       try {
-        if (mode === 'edit') await api.events.update(f.id!, payload, scope, teamId);
-        else
-          await api.events.create(teamId, {
-            ...payload,
-            recurring: f.recurring,
-            repeatWeeks: validation.value!.repeatWeeks,
-            nominatedRoleIds: f.nominatedRoleIds,
+        if (mode === 'edit') {
+          await saveEventAsync({ mode: 'edit', eventId: f.id!, scope, payload });
+        } else {
+          await saveEventAsync({
+            mode: 'create',
+            payload: { ...payload, recurring: f.recurring, repeatWeeks: f.repeatWeeks || 8 },
           });
-        await refreshEvents();
-        clearBusyIfOwned(S, setState, 'save');
+        }
+        await loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail
         // would look up f.id in the new team's event list and find nothing.
@@ -122,7 +126,7 @@ export function useEventFormActions({
         // otherwise a slow save for event A would silently close and replace
         // whatever the user is now looking at (e.g. an edit form for event B)
         // with A's detail view, discarding B's unsaved edits without warning.
-        if (S().activeTeamId === teamId && S().sheet === sh) {
+        if (S().activeTeamId === activeTeamId && S().sheet === sh) {
           setState({ sheet: null });
           if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
         }
@@ -134,10 +138,11 @@ export function useEventFormActions({
             : t('events.toastEventCreated'),
         );
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
+        if (fProp !== undefined) throw err; // propagates error to let react-hook-form handle submission state
       }
     },
-    [api, S, setState, refreshEvents, openEventDetail, toastMsg, logout],
+    [S, setState, saveEventAsync, openEventDetail, loadNotifications, toastMsg, logout],
   );
 
   const toggleFormNomRole = useCallback(
@@ -150,5 +155,5 @@ export function useEventFormActions({
     [setState],
   );
 
-  return { openEventForm, saveEvent, toggleFormNomRole };
+  return { openEventForm, saveEvent, toggleFormNomRole, savingEvent };
 }

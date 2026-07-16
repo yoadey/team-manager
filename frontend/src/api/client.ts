@@ -3,10 +3,20 @@ import type { paths } from './types.gen';
 import { NetworkError } from '@/utils/errors';
 import { config } from '@/config';
 
+// When no real backend is configured (dev-demo / tests — see src/mocks/),
+// config.apiBaseUrl is empty and requests must still resolve to an absolute
+// URL: browsers resolve a relative fetch() against location.origin
+// automatically, but Node's fetch (used by Vitest's jsdom environment, which
+// itself has no fetch implementation) throws "Invalid URL" on a bare path.
+// Falling back to window.location.origin keeps requests same-origin (so the
+// MSW browser worker/node server both still intercept them) while fixing
+// that failure mode.
+export const apiOrigin = config.apiBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+
 // The session is carried by an HttpOnly, encrypted cookie set by the backend.
 // `credentials: 'include'` ensures the cookie is sent on every request.
 export const apiClient = createClient<paths>({
-  baseUrl: config.apiBaseUrl + '/api/v1',
+  baseUrl: apiOrigin + '/api/v1',
   credentials: 'include',
 });
 

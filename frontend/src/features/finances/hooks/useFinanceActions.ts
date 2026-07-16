@@ -2,19 +2,15 @@ import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services';
 import type { DateRange } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
-import type {
-  Contribution,
-  ContribFormValues,
-  Penalty,
-  PenaltyAssignFormValues,
-  PenaltyFormValues,
-  Transaction,
-  TxFormValues,
-} from '../types';
-import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount, validateRequiredText } from '@/utils/validation';
+import type { Penalty, Contribution, Transaction } from '../types';
 import { reportActionError } from '@/utils/errors';
 import { clearBusyIfOwned } from '@/utils/forms';
 import { t } from '@/i18n';
+import type { TxFormValues } from '../components/txFormSchema';
+import type { PenaltyFormValues } from '../components/penaltyFormSchema';
+import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
+import type { ContribFormValues } from '../components/contribFormSchema';
+import { validateMoneyAmount, MAX_MONEY_AMOUNT_EUROS } from '@/utils/validation';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -51,39 +47,40 @@ export function useFinanceActions({
     [setState],
   );
 
-  const saveTx = useCallback(async () => {
-    const f = S().form as TxFormValues;
-    const title = validateRequiredText(f.title, t('finances.txFieldTitleError'));
-    if (!title.ok) {
-      toastMsg(title.message!, undefined, 'error');
+  const saveTx = useCallback(async (fProp?: any) => {
+    const f = fProp !== undefined ? fProp : (S().form as TxFormValues);
+    if (!f.title || !f.title.trim()) {
+      toastMsg(t('finances.txFieldTitleError'), undefined, 'error');
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
-    if (!amount.ok) {
-      toastMsg(amount.message!, undefined, 'error');
+    const amountRes = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
+    if (!amountRes.ok) {
+      toastMsg(amountRes.message!, undefined, 'error');
       return;
     }
+    const amountVal = amountRes.value!;
     const sh = S().sheet;
+    const mode = sh ? sh.mode : 'create';
     const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
-      if (S().sheet!.mode === 'edit')
+      if (mode === 'edit')
         await api.finances.updateTransaction(
           f.id!,
           {
             type: f.type,
-            title: title.value!,
-            amount: amount.value!,
-            category: f.category,
+            title: f.title.trim(),
+            amount: amountVal,
+            category: f.category || '',
           },
           teamId,
         );
       else
         await api.finances.addTransaction(teamId, {
           type: f.type,
-          title: title.value!,
-          amount: amount.value!,
-          category: f.category,
+          title: f.title.trim(),
+          amount: amountVal,
+          category: f.category || '',
         });
       await loadFinances();
       clearBusyIfOwned(S, setState, 'save');
@@ -94,6 +91,9 @@ export function useFinanceActions({
       toastMsg(t('finances.toastTxSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+      if (fProp !== undefined) throw err;
+    } finally {
+      setState({ busy: null });
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 
@@ -105,11 +105,12 @@ export function useFinanceActions({
       try {
         await api.finances.deleteTransaction(id, teamId);
         await loadFinances();
-        clearBusyIfOwned(S, setState, 'delete');
         if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastTxDeleted'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'delete' }, err, 'error.delete');
+        reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.delete');
+      } finally {
+        setState({ busy: null });
       }
     },
     [api, S, loadFinances, setState, toastMsg, logout],
@@ -133,36 +134,35 @@ export function useFinanceActions({
     [setState],
   );
 
-  const savePenalty = useCallback(async () => {
-    const f = S().form as PenaltyFormValues;
-    const label = validateRequiredText(f.label, t('finances.penaltyFieldLabelError'));
-    if (!label.ok) {
-      toastMsg(label.message!, undefined, 'error');
+  const savePenalty = useCallback(async (fProp?: any) => {
+    const f = fProp !== undefined ? fProp : (S().form as PenaltyFormValues);
+    if (!f.label || !f.label.trim()) {
+      toastMsg(t('finances.penaltyFieldLabelError'), undefined, 'error');
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
-    if (!amount.ok) {
-      toastMsg(amount.message!, undefined, 'error');
+    const amountRes = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
+    if (!amountRes.ok) {
+      toastMsg(amountRes.message!, undefined, 'error');
       return;
     }
+    const amountVal = amountRes.value!;
     const sh = S().sheet!;
     const back = sh.back || null;
     const create = sh.mode === 'create';
     const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
-      if (create) await api.finances.createPenalty(teamId, { label: label.value!, amount: amount.value! });
-      else await api.finances.updatePenalty(f.id!, { label: label.value!, amount: amount.value! }, teamId);
+      if (create) await api.finances.createPenalty(teamId, { label: f.label.trim(), amount: amountVal });
+      else await api.finances.updatePenalty(f.id!, { label: f.label.trim(), amount: amountVal }, teamId);
       await loadFinances();
       clearBusyIfOwned(S, setState, 'save');
-      // Don't navigate away from a sheet the user has since opened for a
-      // different team after switching away mid-request, or one they've
-      // since opened for a different entity (same team) while this save was
-      // in flight.
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: back });
       toastMsg(create ? t('finances.toastPenaltyAdded') : t('finances.toastPenaltySaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+      if (fProp !== undefined) throw err;
+    } finally {
+      setState({ busy: null });
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 
@@ -193,13 +193,13 @@ export function useFinanceActions({
     const members = S().members;
     if (!members || !members.length) refreshMembers();
     const f = S().finances;
-    const first = f && f.penalties[0] ? f.penalties[0].id : null;
+    const first = f && f.penalties[0] ? f.penalties[0].id : '';
     const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };
     setState({ sheet: { type: 'penaltyAssign' }, form, formErrors: {} });
   }, [S, refreshMembers, setState]);
 
-  const savePenaltyAssign = useCallback(async () => {
-    const f = S().form as PenaltyAssignFormValues;
+  const savePenaltyAssign = useCallback(async (fProp?: any) => {
+    const f = fProp !== undefined ? fProp : (S().form as PenaltyAssignFormValues);
     if (!f.userId) {
       toastMsg(t('finances.assignPersonError'), undefined, 'error');
       return;
@@ -219,6 +219,9 @@ export function useFinanceActions({
       toastMsg(t('finances.toastPenaltyAssigned'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+      if (fProp !== undefined) throw err;
+    } finally {
+      setState({ busy: null });
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 
@@ -250,29 +253,32 @@ export function useFinanceActions({
     [setState],
   );
 
-  const saveContrib = useCallback(async () => {
-    const f = S().form as ContribFormValues;
-    const label = validateRequiredText(f.label, t('finances.contribFieldLabelError'));
-    if (!label.ok) {
-      toastMsg(label.message!, undefined, 'error');
+  const saveContrib = useCallback(async (fProp?: any) => {
+    const f = fProp !== undefined ? fProp : (S().form as ContribFormValues);
+    if (!f.label || !f.label.trim()) {
+      toastMsg(t('finances.contribFieldLabelError'), undefined, 'error');
       return;
     }
-    const amount = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
-    if (!amount.ok) {
-      toastMsg(amount.message!, undefined, 'error');
+    const amountRes = validateMoneyAmount(f.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
+    if (!amountRes.ok) {
+      toastMsg(amountRes.message!, undefined, 'error');
       return;
     }
+    const amountVal = amountRes.value!;
     const sh = S().sheet;
     const teamId = S().activeTeamId!;
     setState({ busy: 'save' });
     try {
-      await api.finances.updateContribution(f.id, { label: label.value!, amount: amount.value! }, teamId);
+      await api.finances.updateContribution(f.id, { label: f.label.trim(), amount: amountVal }, teamId);
       await loadFinances();
       clearBusyIfOwned(S, setState, 'save');
       if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: null });
       toastMsg(t('finances.toastContribSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+      if (fProp !== undefined) throw err;
+    } finally {
+      setState({ busy: null });
     }
   }, [api, S, setState, loadFinances, toastMsg, logout]);
 

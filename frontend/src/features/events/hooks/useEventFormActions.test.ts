@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useEventFormActions } from './useEventFormActions';
+import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -14,7 +15,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     busy: null,
     toast: null,
     route: 'home',
-    events: [],
     members: [],
     finances: null,
     stats: null,
@@ -47,16 +47,19 @@ describe('useEventFormActions', () => {
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useEventFormActions({
-        api: {} as never,
-        S: () => stateRef,
-        setState: setState as never,
-        refreshEvents: vi.fn().mockResolvedValue(undefined) as never,
-        openEventDetail: vi.fn().mockResolvedValue(undefined) as never,
-        toastMsg: vi.fn() as never,
-        logout: vi.fn() as never,
-      }),
+    return renderHook(
+      () =>
+        useEventFormActions({
+          api: {} as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: vi.fn().mockResolvedValue(undefined) as never,
+          openEventDetail: vi.fn() as never,
+          toastMsg: vi.fn() as never,
+          logout: vi.fn() as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
   }
 
@@ -71,5 +74,41 @@ describe('useEventFormActions', () => {
       result.current.openEventForm(null);
     });
     expect(stateRef.form).toMatchObject({ location: '' });
+  });
+
+  it('saveEvent creates the event and reports savingEvent while the mutation is in flight', async () => {
+    let resolveCreate!: (v: unknown) => void;
+    const api = { events: { create: vi.fn(() => new Promise((resolve) => (resolveCreate = resolve))) } };
+    stateRef = makeState({
+      form: { type: 'training', title: 'Test', date: '2026-01-01', nominatedRoleIds: ['r1'] } as never,
+      sheet: { type: 'eventForm', mode: 'create' } as never,
+    });
+    const { result } = renderHook(
+      () =>
+        useEventFormActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: vi.fn().mockResolvedValue(undefined) as never,
+          openEventDetail: vi.fn() as never,
+          toastMsg: vi.fn() as never,
+          logout: vi.fn() as never,
+        }),
+      { wrapper: createQueryWrapper() },
+    );
+
+    let savePromise!: Promise<void>;
+    act(() => {
+      savePromise = (result.current.saveEvent as any)();
+    });
+    await waitFor(() => expect(result.current.savingEvent).toBe(true));
+
+    await act(async () => {
+      resolveCreate({ id: 'ev1' });
+      await savePromise;
+    });
+    expect(api.events.create).toHaveBeenCalledWith('team1', expect.objectContaining({ title: 'Test' }));
+    await waitFor(() => expect(result.current.savingEvent).toBe(false));
   });
 });

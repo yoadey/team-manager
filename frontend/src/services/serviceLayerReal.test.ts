@@ -19,6 +19,7 @@ vi.mock('@/api/client', () => ({
     PATCH: vi.fn(),
     DELETE: vi.fn(),
   },
+  apiOrigin: '',
 }));
 
 // ── Mock the mappers with tagged identity stubs ──────────────────────────────

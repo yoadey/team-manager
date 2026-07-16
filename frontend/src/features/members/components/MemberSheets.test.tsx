@@ -346,11 +346,13 @@ describe('MemberFormSheet', () => {
     expect(screen.getByRole('button', { name: /Profil speichern/i })).toBeTruthy();
   });
 
-  it('calls saveMember when save button is clicked', () => {
+  it('calls saveMember when save button is clicked', async () => {
     const app = makeFormApp({ name: 'Alice' });
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     fireEvent.click(screen.getByRole('button', { name: /Profil speichern/i }));
-    expect(app.saveMember).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(app.saveMember).toHaveBeenCalled();
+    });
   });
 
   it('disables the save button when the name is empty', () => {

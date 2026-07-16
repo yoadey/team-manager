@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TxFormSheet } from './TxFormSheet';
 
 vi.mock('@/context/AppContext', () => {
   const useApp = vi.fn();
   return {
     useApp,
-    // Actions + selector derive from the per-test useApp mock so migrated
-    // atoms (TextInput/TextArea via useAppActions/useAppSelector) resolve.
     useAppActions: vi.fn(() => useApp()),
     useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel(useApp().state),
   };
@@ -50,7 +48,6 @@ describe('TxFormSheet', () => {
     const app = makeApp();
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
-    // German locale is the default
     expect(screen.getByText('Einnahme')).toBeTruthy();
     expect(screen.getByText('Ausgabe')).toBeTruthy();
   });
@@ -63,24 +60,24 @@ describe('TxFormSheet', () => {
     expect(screen.getByText('Ausgabe').closest('button')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('clicking income type button calls setFormVal with type income', () => {
+  it('clicking income type button selects income', () => {
     const app = makeApp({ type: 'expense' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
-    fireEvent.click(screen.getByText('Einnahme'));
-    expect(app.setFormVal).toHaveBeenCalledWith({ type: 'income' });
+    const btn = screen.getByText('Einnahme').closest('button')!;
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('clicking expense type button calls setFormVal with type expense', () => {
+  it('clicking expense type button selects expense', () => {
     const app = makeApp({ type: 'income' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
-    fireEvent.click(screen.getByText('Ausgabe'));
-    expect(app.setFormVal).toHaveBeenCalledWith({ type: 'expense' });
+    const btn = screen.getByText('Ausgabe').closest('button')!;
+    fireEvent.click(btn);
+    expect(btn).toHaveAttribute('aria-pressed', 'true');
   });
 
-  // Regression test: title/category had no client-side maxLength, matching
-  // the backend's 255-char validate.MaxLen bound for both fields.
   it('caps title and category inputs at 255 characters matching the backend limit', () => {
     const app = makeApp();
     const sheet = { mode: 'create' } as never;
@@ -91,11 +88,6 @@ describe('TxFormSheet', () => {
     expect(categoryInput.maxLength).toBe(255);
   });
 
-  // Regression test: the category field's <Field> used to wrap a <Box> that
-  // in turn wrapped the real <input> (plus the datalist/quick-pick chips/hint
-  // text), so Field's cloneElement-injected aria-required/aria-invalid/
-  // aria-describedby landed on that wrapper Box, not the input a screen
-  // reader actually focuses. Field must clone the <input> directly.
   it('renders the category input as Field\'s direct cloned child, not wrapped in an intermediate element', () => {
     const app = makeApp();
     const sheet = { mode: 'create' } as never;
@@ -104,73 +96,82 @@ describe('TxFormSheet', () => {
     expect(categoryInput.parentElement?.tagName).toBe('LABEL');
   });
 
-  it('shows title error when title is blank on blur', () => {
+  it('shows title error when title is blank on blur', async () => {
     const app = makeApp({ title: '' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     const titleInput = screen.getByPlaceholderText('z. B. Mitgliedsbeiträge');
     fireEvent.blur(titleInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ title: expect.stringMatching(/\S+/) });
+    await waitFor(() => {
+      expect(screen.getByText('Bezeichnung fehlt.')).toBeTruthy();
+    });
   });
 
-  it('clears title error when title has value on blur', () => {
+  it('clears title error when title has value on blur', async () => {
     const app = makeApp({ title: 'Mitgliedsbeiträge' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     const titleInput = screen.getByPlaceholderText('z. B. Mitgliedsbeiträge');
     fireEvent.blur(titleInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ title: '' });
+    await waitFor(() => {
+      expect(screen.queryByText('Bezeichnung fehlt.')).toBeNull();
+    });
   });
 
-  it('shows amount error when amount is blank on blur', () => {
+  it('shows amount error when amount is blank on blur', async () => {
     const app = makeApp({ title: 'Test', amount: '' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     const amountInput = screen.getByRole('spinbutton');
     fireEvent.blur(amountInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ amount: expect.stringMatching(/\S+/) });
+    await waitFor(() => {
+      expect(screen.getByText('Betrag fehlt.')).toBeTruthy();
+    });
   });
 
-  it('shows amount error when amount is negative', () => {
+  it('shows amount error when amount is negative', async () => {
     const app = makeApp({ title: 'Test', amount: '-5' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     const amountInput = screen.getByRole('spinbutton');
     fireEvent.blur(amountInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ amount: expect.stringMatching(/\S+/) });
+    await waitFor(() => {
+      expect(screen.getByText('Betrag muss größer als 0 € sein.')).toBeTruthy();
+    });
   });
 
-  it('shows amount error when amount is zero', () => {
+  it('shows amount error when amount is zero', async () => {
     const app = makeApp({ title: 'Test', amount: '0' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     const amountInput = screen.getByRole('spinbutton');
     fireEvent.blur(amountInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ amount: expect.stringMatching(/\S+/) });
+    await waitFor(() => {
+      expect(screen.getByText('Betrag muss größer als 0 € sein.')).toBeTruthy();
+    });
   });
 
-  it('clears amount error when amount is a valid positive number', () => {
+  it('clears amount error when amount is a valid positive number', async () => {
     const app = makeApp({ title: 'Test', amount: '50' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     const amountInput = screen.getByRole('spinbutton');
     fireEvent.blur(amountInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ amount: '' });
+    await waitFor(() => {
+      expect(screen.queryByText('Betrag muss größer als 0 € sein.')).toBeNull();
+    });
   });
 
-  // Regression test: the inline blur validator and canSubmit only checked
-  // "positive number", unlike the backend's €1,000,000 amount cap enforced
-  // at submit time (useFinanceActions.ts's saveTx) -- so typing an over-cap
-  // amount showed no inline error and left Save enabled, only failing with a
-  // raw toast after clicking it.
-  it('shows amount error and disables submit when amount exceeds the €1,000,000 cap', () => {
+  it('shows amount error and disables submit when amount exceeds the €1,000,000 cap', async () => {
     const app = makeApp({ title: 'Test', amount: '5000000' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
     const amountInput = screen.getByRole('spinbutton');
     fireEvent.blur(amountInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ amount: expect.stringMatching(/\S+/) });
-    expect(screen.getByText(/erfassen|speichern/i).closest('button')).toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getByText('Betrag darf höchstens 1.000.000 € betragen.')).toBeTruthy();
+      expect(screen.getByText(/erfassen/i).closest('button')).toBeDisabled();
+    });
   });
 
   it('exposes a max attribute on the amount input matching the backend cap', () => {
@@ -184,7 +185,6 @@ describe('TxFormSheet', () => {
     const app = makeApp({ title: '', amount: '' });
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
-    // In create mode the button label is "Buchung erfassen"
     const btn = screen.getByRole('button', { name: /Buchung erfassen/i });
     expect(btn).toBeDisabled();
   });
@@ -233,24 +233,20 @@ describe('TxFormSheet', () => {
     ]);
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
-    // Unique categories should appear as chips
     expect(screen.getByText('Mitgliedsbeiträge')).toBeTruthy();
     expect(screen.getByText('Sponsoring')).toBeTruthy();
   });
 
-  it('clicking a category chip calls setFormVal with the category', () => {
+  it('clicking a category chip updates category value', () => {
     const app = makeApp({ title: '', amount: '', category: '' }, {}, [{ category: 'Sponsoring' }]);
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
-    fireEvent.click(screen.getByText('Sponsoring'));
-    expect(app.setFormVal).toHaveBeenCalledWith({ category: 'Sponsoring' });
+    const chip = screen.getByText('Sponsoring');
+    fireEvent.click(chip);
+    const input = document.querySelector('input[name="category"]') as HTMLInputElement;
+    expect(input.value).toBe('Sponsoring');
   });
 
-  // Regression test: the category chip sort used to hardcode localeCompare's
-  // locale argument to 'de' regardless of the active UI locale, unlike every
-  // other locale-aware sort/format helper in the app (which reads
-  // getIntlLocale()). Spy on getIntlLocale to prove the sort now consults
-  // it instead of a hardcoded value.
   it('sorts category chips using the current locale rather than a hardcoded one', async () => {
     const i18n = await import('@/i18n');
     const spy = vi.spyOn(i18n, 'getIntlLocale').mockReturnValue('en-US');
@@ -272,7 +268,6 @@ describe('TxFormSheet', () => {
     const app = makeApp({ title: '', amount: '' }, {}, []);
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);
-    // Only type buttons (Einnahme, Ausgabe) and the submit button should exist
     const buttons = screen.getAllByRole('button');
     expect(buttons).toHaveLength(3);
   });

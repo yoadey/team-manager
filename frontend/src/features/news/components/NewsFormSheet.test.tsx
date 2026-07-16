@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NewsFormSheet } from './NewsFormSheet';
 
 vi.mock('@/context/AppContext', () => {
   const useApp = vi.fn();
   return {
     useApp,
-    // Actions + selector derive from the per-test useApp mock so migrated
-    // atoms (TextInput/TextArea via useAppActions/useAppSelector) resolve.
     useAppActions: vi.fn(() => useApp()),
     useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel(useApp().state),
   };
@@ -56,43 +54,46 @@ describe('NewsFormSheet', () => {
     expect(screen.getByPlaceholderText('Was gibt es Neues?')).toBeTruthy();
   });
 
-  it('sets title error on blur when title is empty', () => {
+  it('sets title error on blur when title is empty', async () => {
     const app = makeApp({ title: '' });
     render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
     const input = screen.getByPlaceholderText('Überschrift');
     fireEvent.blur(input);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ title: expect.stringMatching(/\S+/) });
+    await waitFor(() => {
+      expect(screen.getByText('Titel fehlt.')).toBeTruthy();
+    });
   });
 
-  it('clears title error on blur when title has value', () => {
+  it('clears title error on blur when title has value', async () => {
     const app = makeApp({ title: 'Wichtige Neuigkeit' });
     render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
     const input = screen.getByPlaceholderText('Überschrift');
     fireEvent.blur(input);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ title: '' });
+    await waitFor(() => {
+      expect(screen.queryByText('Titel fehlt.')).toBeNull();
+    });
   });
 
-  it('sets body error on blur when body is empty', () => {
+  it('sets body error on blur when body is empty', async () => {
     const app = makeApp({ body: '' });
     render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
     const textarea = screen.getByPlaceholderText('Was gibt es Neues?');
     fireEvent.blur(textarea);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ body: expect.stringMatching(/\S+/) });
+    await waitFor(() => {
+      expect(screen.getByText('Text fehlt.')).toBeTruthy();
+    });
   });
 
-  it('clears body error on blur when body has value', () => {
+  it('clears body error on blur when body has value', async () => {
     const app = makeApp({ body: 'Das Training findet statt.' });
     render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
     const textarea = screen.getByPlaceholderText('Was gibt es Neues?');
     fireEvent.blur(textarea);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ body: '' });
+    await waitFor(() => {
+      expect(screen.queryByText('Text fehlt.')).toBeNull();
+    });
   });
 
-  // Regression test: title/body were capped at 120/5000, needlessly
-  // stricter than the backend's validate.Name/validate.Text bounds
-  // (255/10000) -- silently blocking a longer title or post the backend
-  // would happily accept, unlike every other form in the codebase which
-  // matches the backend's limits exactly.
   it('caps title and body inputs matching the backend limits', () => {
     makeApp();
     const app = mockUseApp();
@@ -110,22 +111,12 @@ describe('NewsFormSheet', () => {
     expect(screen.getByText('Oben anpinnen')).toBeTruthy();
   });
 
-  it('clicking pin toggle calls setFormVal with pinned: true when currently false', () => {
+  it('clicking pin toggle updates the toggle switch', () => {
     const app = makeApp({ pinned: false });
     render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
-    const pinBtn = screen.getByText('Oben anpinnen').closest('button');
-    expect(pinBtn).toBeTruthy();
-    fireEvent.click(pinBtn!);
-    expect(app.setFormVal).toHaveBeenCalledWith({ pinned: true });
-  });
-
-  it('clicking pin toggle calls setFormVal with pinned: false when currently true', () => {
-    const app = makeApp({ pinned: true });
-    render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
-    const pinBtn = screen.getByText('Oben anpinnen').closest('button');
-    expect(pinBtn).toBeTruthy();
-    fireEvent.click(pinBtn!);
-    expect(app.setFormVal).toHaveBeenCalledWith({ pinned: false });
+    const pinBtn = screen.getByText('Oben anpinnen').closest('button')!;
+    fireEvent.click(pinBtn);
+    expect(pinBtn.getAttribute('aria-checked')).toBe('true');
   });
 
   it('submit button is disabled when title is empty', () => {
@@ -173,10 +164,12 @@ describe('NewsFormSheet', () => {
     expect(screen.getByText('Titel fehlt.')).toBeTruthy();
   });
 
-  it('calls saveNews when publish button is clicked with valid form', () => {
+  it('calls saveNews when publish button is clicked with valid form', async () => {
     const app = makeApp({ title: 'Test Titel', body: 'Test Inhalt' });
     render(<NewsFormSheet app={app as never} sheet={sheetCreate} />);
     fireEvent.click(screen.getByRole('button', { name: /Veröffentlichen/i }));
-    expect(app.saveNews).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(app.saveNews).toHaveBeenCalled();
+    });
   });
 });

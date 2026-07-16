@@ -1,33 +1,50 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, inputSx, labelSx } from '@/components/ui';
 import type { Member } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
-import type { PenaltyAssignFormValues } from '../types';
+import { penaltyAssignFormSchema, type PenaltyAssignFormValues } from './penaltyAssignFormSchema';
 import { t } from '@/i18n';
 
 export function PenaltyAssignSheet({ app }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const F = formValues<PenaltyAssignFormValues>(app.state);
-  const f = app.state.finances;
-  const members: Member[] = app.state.members || [];
-  const errs = state.formErrors;
+  const f = state.finances;
+  const members: Member[] = state.members || [];
 
-  const validatePerson = () => {
-    app.setFormErrors({ userId: F.userId ? '' : t('finances.assignPersonError') });
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<PenaltyAssignFormValues>({
+    resolver: zodResolver(penaltyAssignFormSchema),
+    defaultValues: state.form as PenaltyAssignFormValues,
+    mode: 'onBlur',
+  });
+
+  const userId = watch('userId');
+  const penaltyId = watch('penaltyId');
+  const canSubmit = !!userId && !!penaltyId;
+
+  const onSubmit = async (values: PenaltyAssignFormValues) => {
+    try {
+      await app.savePenaltyAssign(values);
+    } catch {
+      // Ignored
+    }
   };
-
-  const canSubmit = !!F.userId && !!F.penaltyId;
 
   const penOpts = (
     <Box key="po">
       <Box key="l" sx={labelSx}>
         {t('finances.assignPenalty')}
       </Box>
-      {errs.penaltyId ? <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }}>{errs.penaltyId}</Box> : null}
+      {errors.penaltyId ? <Box sx={{ fontSize: '12px', color: NEUTRAL.error, mb: '6px' }}>{errors.penaltyId.message}</Box> : null}
       <Box
         key="b"
         role="radiogroup"
@@ -35,15 +52,15 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
         sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
         {(f ? f.penalties : []).map((p) => {
-          const sel = F.penaltyId === p.id;
+          const sel = penaltyId === p.id;
           return (
             <ButtonBase
               key={p.id}
+              type="button"
               role="radio"
               aria-checked={sel}
               onClick={() => {
-                app.setFormVal({ penaltyId: p.id });
-                app.setFormErrors({ penaltyId: '' });
+                setValue('penaltyId', p.id, { shouldValidate: true });
               }}
               sx={{
                 display: 'flex',
@@ -89,8 +106,8 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
   );
 
   const memSel = (
-    <Field label={t('finances.assignPerson')} required error={!!errs.userId} errorText={errs.userId}>
-      <select name="userId" value={F.userId || ''} onChange={app.onFormInput} onBlur={validatePerson} style={inputSx}>
+    <Field label={t('finances.assignPerson')} required error={!!errors.userId} errorText={errors.userId?.message}>
+      <select style={inputSx} {...register('userId')}>
         <option key="_" value="">
           {t('finances.assignPersonPlaceholder')}
         </option>
@@ -104,13 +121,13 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
   );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       {memSel}
       {penOpts}
       <PrimaryButton
         label={t('finances.assignSave')}
-        onClick={() => app.savePenaltyAssign()}
-        busy={app.state.busy === 'save'}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting}
         disabled={!canSubmit}
       />
     </Box>

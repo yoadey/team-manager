@@ -40,3 +40,6 @@ export { useEventActionFeatures, useEventDetailActions } from './hooks/useEventA
 export { useAbsenceActions } from './hooks/useAbsenceActions';
 export { useCalExportActions } from './hooks/useCalExportActions';
 export { useEventFormActions } from './hooks/useEventFormActions';
+export { useEventsQuery, useEventDetailQuery } from './hooks/useEventQueries';
+export type { EventDetailData } from './hooks/useEventQueries';
+export { useInvalidateEvents } from './hooks/useEventMutations';

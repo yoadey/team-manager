@@ -1,10 +1,11 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
-import type { PenaltyFormValues } from '../types';
+import { penaltyFormSchema, type PenaltyFormValues } from './penaltyFormSchema';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { t } from '@/i18n';
 
@@ -12,25 +13,34 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const create = sheet.mode === 'create';
-  const F = formValues<PenaltyFormValues>(state);
-  const errs = state.formErrors;
 
-  const validateLabel = () => {
-    const v = String(F.label ?? '').trim();
-    app.setFormErrors({ label: v ? '' : t('finances.penaltyFieldLabelError') });
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<PenaltyFormValues>({
+    resolver: zodResolver(penaltyFormSchema),
+    defaultValues: state.form as PenaltyFormValues,
+    mode: 'onBlur',
+  });
+
+  const label = watch('label');
+  const amount = watch('amount');
+  const canSubmit = !!label?.trim() && validateMoneyAmount(amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
+
+  const onSubmit = async (values: PenaltyFormValues) => {
+    try {
+      await app.savePenalty(values);
+    } catch {
+      // Ignored
+    }
   };
 
-  const validateAmount = () => {
-    const r = validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
-    app.setFormErrors({ amount: r.ok ? '' : r.message! });
-  };
-
-  const canSubmit =
-    !!String(F.label ?? '').trim() &&
-    validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
+  const errs = state.formErrors || {};
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Box
         sx={{
           display: 'flex',
@@ -47,22 +57,23 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         <Sym name="gavel" size={20} color={tk.primary} />
         {create ? t('finances.penaltyFormHintCreate') : t('finances.penaltyFormHintEdit')}
       </Box>
-      <Field label={t('finances.penaltyFieldLabel')} required error={!!errs.label} errorText={errs.label}>
-        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
+      <Field label={t('finances.penaltyFieldLabel')} required error={!!errors.label || !!errs.label} errorText={errors.label?.message || errs.label}>
+        <TextInput placeholder={t('finances.penaltyFieldLabelPlaceholder')} maxLength={255} {...register('label')} />
       </Field>
-      <Field label={t('finances.penaltyFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
-        <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
+      <Field label={t('finances.penaltyFieldAmount')} required error={!!errors.amount || !!errs.amount} errorText={errors.amount?.message || errs.amount}>
+        <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
       <PrimaryButton
         label={create ? t('finances.penaltySaveCreate') : t('finances.penaltySaveEdit')}
-        onClick={() => app.savePenalty()}
-        busy={app.state.busy === 'save'}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting}
         disabled={!canSubmit}
       />
       {create ? null : (
         <ButtonBase
           key="del"
-          onClick={() => app.deletePenaltyDef(F.id!)}
+          type="button"
+          onClick={() => app.deletePenaltyDef((state.form as PenaltyFormValues).id!)}
           sx={{
             display: 'flex',
             alignItems: 'center',

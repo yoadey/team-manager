@@ -33,6 +33,14 @@ vi.mock('@/features/events', async (importOriginal) => {
   };
 });
 
+// Mocked directly on the hooks module (not just the `@/features/events`
+// barrel's re-export above) -- EventsPage.tsx imports `useEventsQuery` via
+// the barrel, but mocking the underlying module here is what actually proved
+// reliable in CI for the other event components' tests.
+vi.mock('@/features/events/hooks/useEventQueries', () => ({
+  useEventsQuery: vi.fn().mockReturnValue({ data: [] }),
+}));
+
 import { useApp } from '@/context/AppContext';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 
@@ -55,8 +63,9 @@ function makeBaseApp(overrides: Record<string, unknown> = {}) {
 
 function makeEventsApp() {
   return {
+    api: {},
     ...makeBaseApp({
-      events: [],
+      activeTeamId: 't1',
       eventsView: 'list',
       eventScope: 'upcoming',
       eventsOnlyPending: false,

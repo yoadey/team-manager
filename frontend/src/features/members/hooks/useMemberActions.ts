@@ -1,11 +1,12 @@
 import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { Member, MemberFormValues } from '../types';
+import type { Member } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { validateEmail, validatePhone, validateBirthday, validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
+import type { MemberFormValues } from '../components/memberFormSchema';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -85,7 +86,7 @@ export function useMemberActions({
         roleIds: member.roles.map((r) => r.id),
         group: member.group,
         photo: member.photo,
-      };
+      } as any;
       setState((st) => ({
         sheet: {
           type: 'memberForm',
@@ -113,8 +114,8 @@ export function useMemberActions({
     [S, setState, toastMsg],
   );
 
-  const saveMember = useCallback(async () => {
-    const f = S().form as MemberFormValues;
+  const saveMember = useCallback(async (fProp?: any) => {
+    const f = fProp !== undefined ? fProp : (S().form as any);
     const nameResult = validateRequiredText(f.name, t('members.fieldNameError'));
     if (!nameResult.ok) {
       toastMsg(nameResult.message!, undefined, 'error');
@@ -201,6 +202,7 @@ export function useMemberActions({
       toastMsg(t('members.toastProfileSaved'));
     } catch (err) {
       reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+      if (fProp !== undefined) throw err;
     }
   }, [api, S, setState, refreshMembers, refreshTeams, openMemberDetail, toastMsg, logout]);
 
