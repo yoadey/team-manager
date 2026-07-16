@@ -131,8 +131,6 @@ export interface AppState {
   calMonth: Date | null;
   roles: Role[];
   stats: StatsOverview | null;
-  absences: Absence[] | null;
-  myAbsences: Absence[] | null;
   notifications: AppNotification[] | null;
   notifUnread: number;
   notifFilter: 'all' | 'attendance' | 'events' | 'other';
@@ -167,6 +165,7 @@ export interface AppState {
   savingContrib: boolean;
   savingPoll: boolean;
   savingNews: boolean;
+  savingAbsence: boolean;
 }
 
 function loadColorScheme(): AppState['colorScheme'] {
@@ -194,8 +193,6 @@ const initialState: AppState = {
   calMonth: null,
   roles: [],
   stats: null,
-  absences: null,
-  myAbsences: null,
   notifications: null,
   notifUnread: 0,
   notifFilter: 'all',
@@ -218,6 +215,7 @@ const initialState: AppState = {
   savingContrib: false,
   savingPoll: false,
   savingNews: false,
+  savingAbsence: false,
 };
 
 // Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
@@ -279,7 +277,6 @@ export interface AppContextValue {
   // notifications
   openNotifications: () => void;
   setNotifFilter: (f: AppState['notifFilter']) => void;
-  loadAbsences: () => Promise<void>;
   // data refresh
   loadStats: (range?: DateRange | null) => Promise<void>;
   // attendance
@@ -700,8 +697,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState({
         roles: [],
         stats: null,
-        absences: null,
-        myAbsences: null,
         notifications: null,
         eventsOnlyPending: false,
       });
@@ -817,31 +812,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [api, S, setState, reportLoad],
   );
-  // news and polls have no such loader here -- they're fetched via
-  // useNewsQuery/usePollsQuery (React Query), whose team-scoped key makes
-  // this class of race structurally impossible instead of needing a manual
-  // sequence guard (same as events/members/finances). Each old loader's
-  // paired loadNotifications() refresh now lives in ensureRouteData below.
-  const loadAbsencesSeq = useRef(0);
-  const loadAbsences = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadAbsencesSeq.current;
-    try {
-      const [absences, myAbsences] = await Promise.all([
-        api.absences.listForTeam(teamId),
-        api.absences.listMine(teamId),
-      ]);
-      setState((s) => (s.activeTeamId === teamId && loadAbsencesSeq.current === seq ? { absences, myAbsences } : {}));
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadAbsencesSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, reportLoad]);
+  // news, polls, and absences have no such loader here -- they're fetched via
+  // useNewsQuery/usePollsQuery/useAbsencesQuery (React Query), whose
+  // team-scoped key makes this class of race structurally impossible instead
+  // of needing a manual sequence guard (same as events/members/finances).
+  // Each old loader's paired loadNotifications() refresh now lives in
+  // ensureRouteData below (news/polls) or directly in the mutation's own
+  // action (absences, whose data only ever changes via its own save/delete,
+  // never merely by navigating to it).
   const ensureRouteData = useCallback(
     (route: Route) => {
-      // events, members, finances, polls, and news have no data-fetch branch
-      // here: they're fetched by useEventsQuery/useMembersQuery/
-      // useFinanceOverviewQuery/usePollsQuery/useNewsQuery, which
-      // retry/refetch on their own.
+      // events, members, finances, polls, news, and absences have no
+      // data-fetch branch here: they're fetched by useEventsQuery/
+      // useMembersQuery/useFinanceOverviewQuery/usePollsQuery/useNewsQuery/
+      // useAbsencesQuery, which retry/refetch on their own.
       //
       // Skip entirely for a module the caller can't read (nav already hides
       // these routes, but a stale bookmark/URL or browser back/forward can
@@ -1009,22 +993,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // notification's "jump to the Events > Absences tab" click goes through
   // ensureRouteData like every other route change, keeping this route
   // change consistent with how every other route arrives at the page
-  // (permission pre-check below, plus events data now lives in
-  // useEventsQuery's own React Query cache rather than gating on
-  // state.events here).
+  // (permission pre-check below, plus events/absences data now lives in
+  // useEventsQuery's/useAbsencesQuery's own React Query cache rather than
+  // gating on state.events/state.absences here). RouteScreen itself bounces
+  // to Home if the caller can't read events (a stale absence notification,
+  // cached from before a permission downgrade, is the one way this route is
+  // reachable without events:read), so EventAbsences never mounts -- and
+  // thus never fetches -- in that case either.
   const goEventsAbsences = useCallback(() => {
     setState({ route: 'events', sheet: null, eventsView: 'absences' });
     ensureRouteData('events');
-    // ensureRouteData already skips its own fetches when the caller can't
-    // read events (a stale absence notification, cached from before a
-    // permission downgrade, is the one way this route is reachable without
-    // events:read -- RouteScreen bounces the resulting navigation to Home
-    // either way). loadAbsences has no such built-in guard, so without this
-    // check it would still fire two now-forbidden requests in the
-    // background, producing exactly the spurious "no permission" toast
-    // ensureRouteData's own permission pre-check exists to prevent.
-    if (can('events', 'read')) loadAbsences();
-  }, [setState, ensureRouteData, loadAbsences, can]);
+  }, [setState, ensureRouteData]);
   const activePageSheet = useCallback(() => {
     let s = S().sheet;
     while (s) {
@@ -1044,18 +1023,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [S, setState, closeSheet, afterLoginLoad],
   );
-  const setEventsView = useCallback(
-    (v: 'list' | 'calendar' | 'absences') => {
-      setState({ eventsView: v });
-      if (v === 'absences' && !S().absences) loadAbsences();
-    },
-    [S, setState, loadAbsences],
-  );
+  // Absences data is now fetched by useAbsencesQuery directly in
+  // EventAbsences/EventCalendar (enabled while the absences tab/overlay is
+  // actually shown), so switching the view/toggle here is a pure state
+  // update -- no imperative fetch trigger needed.
+  const setEventsView = useCallback((v: 'list' | 'calendar' | 'absences') => setState({ eventsView: v }), [setState]);
   const toggleCalAbsences = useCallback(() => {
-    const nv = !S().calShowAbsences;
-    setState({ calShowAbsences: nv });
-    if (nv && !S().absences) loadAbsences();
-  }, [S, setState, loadAbsences]);
+    setState((s) => ({ calShowAbsences: !s.calShowAbsences }));
+  }, [setState]);
 
   // ---------- confirm ----------
   const askConfirm = useCallback(
@@ -1155,6 +1130,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingContrib,
     savingPoll,
     savingNews,
+    savingAbsence,
   } = useFeatureActions({
     api,
     S,
@@ -1164,7 +1140,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     teamId: state.activeTeamId,
     refreshRoles,
     refreshTeams,
-    loadAbsences,
     loadStats,
     loadNotifications,
     afterLoginLoad,
@@ -1309,7 +1284,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleCalAbsences,
       openNotifications,
       setNotifFilter,
-      loadAbsences,
       loadStats,
       setMyStatus,
       setStatusFor,
@@ -1413,7 +1387,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleCalAbsences,
       openNotifications,
       setNotifFilter,
-      loadAbsences,
       loadStats,
       setMyStatus,
       setStatusFor,
@@ -1507,6 +1480,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savingContrib,
       savingPoll,
       savingNews,
+      savingAbsence,
     }),
     [
       state,
@@ -1519,6 +1493,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savingContrib,
       savingPoll,
       savingNews,
+      savingAbsence,
     ],
   );
   exposedStateRef.current = exposedState;
@@ -1534,6 +1509,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingContrib,
     savingPoll,
     savingNews,
+    savingAbsence,
   ]);
 
   return (

@@ -1,11 +1,9 @@
-import { useCallback } from 'react';
 import {
   useEventActionFeatures,
   useEventDetailActions,
   useAbsenceActions,
   useCalExportActions,
   useEventFormActions,
-  useInvalidateEvents,
 } from '@/features/events';
 import { useFinanceActions } from '@/features/finances';
 import { useMemberActions, useInvalidateMembers } from '@/features/members';
@@ -25,11 +23,10 @@ type FeatureActionDeps = {
   setState: SetState;
   activeTeam: () => TeamForUser | null;
   myRoles: () => Role[];
-  /** Reactive active team id, for the events/members/finances/polls/news verticals' query/mutation hooks. */
+  /** Reactive active team id, for the events/members/finances/polls/news/absences verticals' query/mutation hooks. */
   teamId: string | null;
   refreshRoles: () => Promise<void>;
   refreshTeams: () => Promise<void>;
-  loadAbsences: () => Promise<void>;
   loadStats: (range?: DateRange | null) => Promise<void>;
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
@@ -49,7 +46,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     teamId,
     refreshRoles,
     refreshTeams,
-    loadAbsences,
     loadStats,
     loadNotifications,
     afterLoginLoad,
@@ -58,18 +54,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     askConfirm,
     logout,
   } = deps;
-
-  // The absences vertical isn't migrated yet and still triggers an events
-  // refresh after a save/removal (an absence overlapping an upcoming event
-  // auto-marks attendance as absent). Bridge it to the events query cache
-  // instead of a manual refetch so it keeps working unchanged -- including
-  // the old loader's loadNotifications() call, since an absence changing an
-  // event's auto-attendance can also flip a "pending RSVP" notification.
-  const invalidateEvents = useInvalidateEvents(teamId);
-  const refreshEvents = useCallback(async () => {
-    invalidateEvents();
-    loadNotifications();
-  }, [invalidateEvents, loadNotifications]);
 
   // Used by useTeamActions' uploadMyPhoto (not migrated yet), whose own-photo
   // change is visible in the member list too.
@@ -136,8 +120,8 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    refreshEvents,
-    loadAbsences,
+    teamId,
+    loadNotifications,
     askConfirm,
     toastMsg,
     logout,

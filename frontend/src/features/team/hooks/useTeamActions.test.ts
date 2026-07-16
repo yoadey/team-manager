@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useTeamActions } from './useTeamActions';
+import { createQueryWrapper } from '@/test/queryTestUtils';
 import { AuthError } from '@/utils/errors';
 import type { AppState } from '@/context/AppContext';
 
@@ -94,19 +95,21 @@ describe('useTeamActions', () => {
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useTeamActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        activeTeam: () => makeActiveTeam() as never,
-        refreshTeams: refreshTeams as never,
-        invalidateMembers: invalidateMembers as never,
-        setFormVal: setFormVal as never,
-        afterLoginLoad: afterLoginLoad as never,
-        toastMsg: toastMsg as never,
-        logout: logout as never,
-      }),
+    return renderHook(
+      () =>
+        useTeamActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          activeTeam: () => makeActiveTeam() as never,
+          refreshTeams: refreshTeams as never,
+          invalidateMembers: invalidateMembers as never,
+          setFormVal: setFormVal as never,
+          afterLoginLoad: afterLoginLoad as never,
+          toastMsg: toastMsg as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
   }
 
@@ -118,38 +121,17 @@ describe('useTeamActions', () => {
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'teams' } });
   });
 
-  it('openProfile sets profile sheet and loads absences', async () => {
+  // No component currently reads this prefetched data (see useTeamActions.ts's
+  // doc comment) -- the assertion here is that opening the profile still
+  // warms the React Query cache the same way the pre-migration
+  // state.myAbsences fetch did, not that anything renders from it.
+  it('openProfile sets profile sheet and prefetches absences into the query cache', async () => {
     const { result } = renderActions();
-    await act(async () => {
-      result.current.openProfile();
-    });
-    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'profile' } });
-    expect(api.absences.listMine).toHaveBeenCalled();
-  });
-
-  // Regression test: the .then handler used to call setState({ myAbsences })
-  // unconditionally, with no re-check of activeTeamId (unlike every other
-  // loader in this codebase). A slow listMine() for team1, if the user
-  // switched to team2 before it resolved, would overwrite state.myAbsences
-  // with team1's data while the user is looking at team2.
-  it('does not apply a stale absences response after the user switched teams', async () => {
-    let resolveListMine!: (v: never[]) => void;
-    api.absences.listMine = vi.fn(() => new Promise((resolve) => (resolveListMine = resolve)));
-    const { result } = renderActions();
-
     act(() => {
       result.current.openProfile();
     });
-    expect(api.absences.listMine).toHaveBeenCalledWith('team1');
-
-    stateRef = { ...stateRef, activeTeamId: 'team2' };
-
-    await act(async () => {
-      resolveListMine([]);
-      await Promise.resolve();
-    });
-
-    expect(stateRef).not.toHaveProperty('myAbsences');
+    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'profile' } });
+    await waitFor(() => expect(api.absences.listMine).toHaveBeenCalledWith('team1'));
   });
 
   it('openMore sets more sheet', () => {
@@ -529,7 +511,7 @@ describe('useTeamActions', () => {
   // resolved, would inject team1's invite link/code into the sheet the user
   // believes belongs to the new team -- a cross-team invite-token leak, not
   // just stale data.
-  it('does not inject a stale invite into a different team\'s invite sheet opened afterward', async () => {
+  it("does not inject a stale invite into a different team's invite sheet opened afterward", async () => {
     let resolveCreate!: (v: { link: string; code: string }) => void;
     api.teams.createInvite = vi.fn(() => new Promise((resolve) => (resolveCreate = resolve)));
     const { result } = renderActions();

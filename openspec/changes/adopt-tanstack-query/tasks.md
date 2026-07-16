@@ -64,7 +64,23 @@
         success) and per-navigation (`ensureRouteData`'s `news` branch now calls `loadNotifications()` instead of the
         removed `loadNews()`, sharing the same branch as `polls`); `news` dropped from
         `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches.
-  - [ ] 4.2.5 `absences`
+  - [x] 4.2.5 `absences` — `useAbsencesQuery` (`useAbsenceQueries.ts`, in the `events` feature); `useSaveAbsenceMutation`/
+        `useDeleteAbsenceMutation` (`useAbsenceMutations.ts`); `EventAbsences` reads the query directly (always
+        enabled, since it only mounts for the Absences tab), `EventCalendar` reads it gated on its own
+        `calShowAbsences` toggle (`useAbsencesQuery(api, teamId, enabled)`), matching the pre-migration on-demand
+        fetch triggers without any imperative loader; `saveAbsence`'s `busy === 'save'` replaced by
+        `mutation.isPending` (`state.savingAbsence`); `removeAbsence` (confirm-gated) takes `teamId` per call,
+        mirroring `useDeleteEventMutation`/`useRemoveMemberMutation`; an absence overlapping an event auto-marks
+        attendance, so both mutations also invalidate the events cache (`useInvalidateEvents`), replacing the old
+        `refreshEvents` bridge in `useFeatureActions.ts` (absences was its only caller, now removed); `loadNotifications()`
+        is preserved per-action only (no per-navigation branch needed, since absences data only ever changes via its
+        own save/delete, never merely by navigating to it); `absences`/`myAbsences` dropped from
+        `AppState`/`afterLoginLoad`/the old `loadAbsences` loader. `state.myAbsences` (fetched on profile-open, but
+        never actually rendered anywhere — confirmed dead since its introduction, "closed for consistency... to avoid
+        it becoming a live bug the moment something starts reading that field") is now prefetched into the React
+        Query cache via `queryClient.prefetchQuery` in `useTeamActions.openProfile` instead of dropped, preserving the
+        same on-demand trigger for whenever a future consumer starts reading it — its team-scoped key also makes the
+        old manual `activeTeamId` staleness guard unnecessary.
   - [ ] 4.2.6 `notifications`
   - [ ] 4.2.7 `stats`
 

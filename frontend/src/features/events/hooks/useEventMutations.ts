@@ -27,11 +27,11 @@ type EventPayload = {
  * once invalidation was requested.
  *
  * The returned function is stable (useCallback) since it's used as a
- * dependency outside this file too (useFeatureActions.ts's `refreshEvents`
- * bridge for the not-yet-migrated absences vertical) -- an unmemoized
- * closure here would recreate that callback (and everything depending on
- * it) on every render, breaking the app-wide "actions object identity is
- * stable" invariant.
+ * dependency outside this file too (useAbsenceMutations.ts's
+ * useSaveAbsenceMutation, since an absence overlapping an upcoming event
+ * auto-marks attendance) -- an unmemoized closure here would recreate that
+ * callback (and everything depending on it) on every render, breaking the
+ * app-wide "actions object identity is stable" invariant.
  */
 export function useInvalidateEvents(teamId: string | null) {
   const qc = useQueryClient();
@@ -50,8 +50,17 @@ export function useInvalidateEvents(teamId: string | null) {
 export function useSetAttendanceMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateEvents(teamId);
   return useMutation({
-    mutationFn: ({ eventId, userId, status, reason }: { eventId: string; userId: string; status: AttendanceStatus; reason?: string }) =>
-      api.attendance.set(eventId, userId, { status, reason: reason || '' }, teamId!),
+    mutationFn: ({
+      eventId,
+      userId,
+      status,
+      reason,
+    }: {
+      eventId: string;
+      userId: string;
+      status: AttendanceStatus;
+      reason?: string;
+    }) => api.attendance.set(eventId, userId, { status, reason: reason || '' }, teamId!),
     onSuccess: (_data, { eventId }) => invalidate(eventId),
   });
 }
@@ -61,8 +70,17 @@ export function useSetAttendanceMutation(api: typeof defaultApi, teamId: string 
 export function useSubmitCommentMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateEvents(teamId);
   return useMutation({
-    mutationFn: ({ eventId, userId, status, reason }: { eventId: string; userId: string; status: AttendanceStatus; reason: string }) =>
-      api.attendance.set(eventId, userId, { status, reason }, teamId!),
+    mutationFn: ({
+      eventId,
+      userId,
+      status,
+      reason,
+    }: {
+      eventId: string;
+      userId: string;
+      status: AttendanceStatus;
+      reason: string;
+    }) => api.attendance.set(eventId, userId, { status, reason }, teamId!),
     onSuccess: (_data, { eventId }) => invalidate(eventId),
   });
 }

@@ -1,8 +1,10 @@
 import { useCallback, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import type { Invite, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import type { CreateTeamFormValues, TeamSettingsFormValues } from '../types';
+import { queryKeys } from '@/query/keys';
 import { formValues, clearBusyIfOwned } from '@/utils/forms';
 import { validateRequiredText } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
@@ -40,14 +42,21 @@ export function useTeamActions({
 }: TeamDeps) {
   const openTeamSwitcher = useCallback(() => setState({ sheet: { type: 'teams' } }), [setState]);
 
+  const qc = useQueryClient();
+
+  // No component currently reads this -- kept prefetched into the React
+  // Query cache (rather than dropped) on the same "profile opened" trigger
+  // the pre-migration state.myAbsences fetch used, so the data is a cache-hit
+  // away the moment something starts reading it. A team-scoped query key
+  // makes the pre-migration activeTeamId re-check after the fetch resolves
+  // unnecessary -- a stale prefetch for a team the user has since switched
+  // away from just populates a cache entry nothing reads instead of racing to
+  // overwrite the new team's state.
   const openProfile = useCallback(() => {
     setState({ sheet: { type: 'profile' } });
     const teamId = S().activeTeamId!;
-    api.absences
-      .listMine(teamId)
-      .then((myAbsences) => setState((s) => (s.activeTeamId === teamId ? { myAbsences } : {})))
-      .catch((err) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load'));
-  }, [api, S, setState, toastMsg, logout]);
+    void qc.prefetchQuery({ queryKey: queryKeys.myAbsences(teamId), queryFn: () => api.absences.listMine(teamId) });
+  }, [api, S, setState, qc]);
 
   const openMore = useCallback(() => setState({ sheet: { type: 'more' } }), [setState]);
 
