@@ -1,7 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useFinanceActions } from './useFinanceActions';
+import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
+import { queryKeys } from '@/query/keys';
 import type { AppState } from '@/context/AppContext';
+import type { FinanceOverview } from '../types';
+import type { QueryClient } from '@tanstack/react-query';
+
+function makeOverview(overrides: Partial<FinanceOverview> = {}): FinanceOverview {
+  return {
+    balance: 0,
+    income: 0,
+    expense: 0,
+    transactions: [],
+    penalties: [],
+    assignments: [],
+    openPenalties: [],
+    openPenaltySum: 0,
+    contributions: [],
+    contribOpen: 0,
+    ...overrides,
+  };
+}
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -15,8 +35,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     toast: null,
     route: 'home',
     events: [],
-    members: [],
-    finances: { balance: 0, transactions: [], penalties: [], assignments: [], contributions: [] },
     stats: null,
     statsRange: null,
     news: [],
@@ -51,13 +69,11 @@ function makeApi() {
 describe('useFinanceActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
-  let loadFinances: ReturnType<typeof vi.fn>;
-  let loadStats: ReturnType<typeof vi.fn>;
-  let refreshMembers: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
   let stateRef: AppState;
+  let client: QueryClient;
 
   beforeEach(() => {
     stateRef = makeState();
@@ -70,27 +86,26 @@ describe('useFinanceActions', () => {
       }
     });
     toastMsg = vi.fn();
-    loadFinances = vi.fn().mockResolvedValue(undefined);
-    loadStats = vi.fn().mockResolvedValue(undefined);
-    refreshMembers = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
     logout = vi.fn();
     api = makeApi();
+    client = createTestQueryClient();
+    client.setQueryData(queryKeys.finances('team1'), makeOverview({ penalties: [{ id: 'p1' } as never] }));
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useFinanceActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        loadFinances: loadFinances as never,
-        loadStats: loadStats as never,
-        refreshMembers: refreshMembers as never,
-        askConfirm: askConfirm as never,
-        toastMsg: toastMsg as never,
-        logout: logout as never,
-      }),
+    return renderHook(
+      () =>
+        useFinanceActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          askConfirm: askConfirm as never,
+          toastMsg: toastMsg as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper(client) },
     );
   }
 
@@ -200,7 +215,7 @@ describe('useFinanceActions', () => {
     act(() => {
       savePromise = result.current.saveTx();
     });
-    expect(api.finances.updateTransaction).toHaveBeenCalled();
+    await waitFor(() => expect(api.finances.updateTransaction).toHaveBeenCalled());
 
     const otherTxForm = { type: 'txForm', mode: 'edit' } as never;
     stateRef = { ...stateRef, sheet: otherTxForm };
@@ -339,6 +354,26 @@ describe('useFinanceActions', () => {
     expect(api.finances.deleteAssignment).toHaveBeenCalledWith('a1', 'team1');
   });
 
+  // Regression test: mirrors useDeleteEventMutation/useRemoveMemberMutation's
+  // per-call teamId safeguard. The confirm sheet can still be open (and get
+  // confirmed) after the user has switched to a different active team; the
+  // delete must still target the team the confirm dialog was opened for.
+  it('deleteAssignment deletes against the team the confirm dialog was opened for, even after a team switch', async () => {
+    const { result, rerender } = renderActions();
+    act(() => {
+      result.current.deleteAssignment('a1');
+    });
+    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
+
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    rerender();
+
+    await act(async () => {
+      await onConfirm();
+    });
+    expect(api.finances.deleteAssignment).toHaveBeenCalledWith('a1', 'team1');
+  });
+
   it('saveContrib validates label', async () => {
     stateRef = makeState({ form: { label: '', amount: '10', id: 'c1' } });
     const { result } = renderActions();
@@ -379,14 +414,13 @@ describe('useFinanceActions', () => {
     expect(api.finances.toggleContribution).toHaveBeenCalledWith('c1', 'team1');
   });
 
-  it('setStatsRange updates state and calls loadStats', () => {
+  it('setStatsRange updates state', () => {
     const { result } = renderActions();
-    const range = { start: '2026-01-01', end: '2026-12-31' } as never;
+    const range = { from: '2026-01-01', to: '2026-12-31' } as never;
     act(() => {
       result.current.setStatsRange(range);
     });
-    expect(setState).toHaveBeenCalledWith({ statsRange: range, stats: null });
-    expect(loadStats).toHaveBeenCalledWith(range);
+    expect(setState).toHaveBeenCalledWith({ statsRange: range });
   });
 
   it('openContribForm sets contribForm sheet', () => {
@@ -412,21 +446,8 @@ describe('useFinanceActions', () => {
     expect(stateRef.formErrors).toEqual({});
   });
 
-  it('openPenaltyAssign triggers refreshMembers when members empty', () => {
-    stateRef = makeState({ members: [], finances: { penalties: [{ id: 'p1' }] } as never });
-    const { result } = renderActions();
-    act(() => {
-      result.current.openPenaltyAssign();
-    });
-    expect(refreshMembers).toHaveBeenCalled();
-  });
-
   it('openPenaltyAssign clears a stale formErrors from a previous sheet', () => {
-    stateRef = makeState({
-      members: [{ userId: 'u2' }] as never,
-      finances: { penalties: [{ id: 'p1' }] } as never,
-      formErrors: { userId: 'Person erforderlich.' },
-    });
+    stateRef = makeState({ formErrors: { userId: 'Person erforderlich.' } });
     const { result } = renderActions();
     act(() => {
       result.current.openPenaltyAssign();

@@ -26,8 +26,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
   };
 
   const canSubmit =
-    !!String(F.label ?? '').trim() &&
-    validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
+    !!String(F.label ?? '').trim() && validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -48,7 +47,12 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         {create ? t('finances.penaltyFormHintCreate') : t('finances.penaltyFormHintEdit')}
       </Box>
       <Field label={t('finances.penaltyFieldLabel')} required error={!!errs.label} errorText={errs.label}>
-        <TextInput name="label" placeholder={t('finances.penaltyFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
+        <TextInput
+          name="label"
+          placeholder={t('finances.penaltyFieldLabelPlaceholder')}
+          onBlur={validateLabel}
+          maxLength={255}
+        />
       </Field>
       <Field label={t('finances.penaltyFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
         <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
@@ -56,7 +60,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={create ? t('finances.penaltySaveCreate') : t('finances.penaltySaveEdit')}
         onClick={() => app.savePenalty()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingPenalty}
         disabled={!canSubmit}
       />
       {create ? null : (

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { useAbsenceActions } from './useAbsenceActions';
+import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -14,13 +15,9 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     busy: null,
     toast: null,
     route: 'home',
-    events: [],
-    members: [],
     finances: null,
     stats: null,
     statsRange: null,
-    news: [],
-    polls: [],
     teams: [],
     roles: [],
     notifUnread: 0,
@@ -34,7 +31,7 @@ function makeApi() {
   return {
     absences: {
       update: vi.fn().mockResolvedValue(undefined),
-      create: vi.fn().mockResolvedValue(undefined),
+      create: vi.fn().mockResolvedValue({ id: 'a1' }),
       remove: vi.fn().mockResolvedValue(undefined),
     },
   };
@@ -43,8 +40,7 @@ function makeApi() {
 describe('useAbsenceActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
-  let refreshEvents: ReturnType<typeof vi.fn>;
-  let loadAbsences: ReturnType<typeof vi.fn>;
+  let loadNotifications: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
@@ -61,25 +57,26 @@ describe('useAbsenceActions', () => {
       }
     });
     toastMsg = vi.fn();
-    refreshEvents = vi.fn().mockResolvedValue(undefined);
-    loadAbsences = vi.fn().mockResolvedValue(undefined);
+    loadNotifications = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn((cfg) => cfg.onConfirm());
     logout = vi.fn();
     api = makeApi();
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useAbsenceActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        refreshEvents: refreshEvents as never,
-        loadAbsences: loadAbsences as never,
-        askConfirm: askConfirm as never,
-        toastMsg: toastMsg as never,
-        logout: logout as never,
-      }),
+    return renderHook(
+      () =>
+        useAbsenceActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: loadNotifications as never,
+          askConfirm: askConfirm as never,
+          toastMsg: toastMsg as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
   }
 
@@ -117,7 +114,23 @@ describe('useAbsenceActions', () => {
       'team1',
     );
     expect(toastMsg).toHaveBeenCalled();
+    expect(loadNotifications).toHaveBeenCalled();
     expect(stateRef.sheet).toBeNull();
+  });
+
+  it('saveAbsence creates a new absence in create mode', async () => {
+    stateRef = makeState({
+      sheet: { type: 'absenceForm', mode: 'create' } as never,
+      form: { from: '2026-01-10', to: '2026-01-15', reason: 'Ski trip' },
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveAbsence();
+    });
+    expect(api.absences.create).toHaveBeenCalledWith(
+      expect.objectContaining({ teamId: 'team1', userId: 'u1', from: '2026-01-10', to: '2026-01-15' }),
+    );
+    expect(toastMsg).toHaveBeenCalled();
   });
 
   it('saveAbsence shows toast without calling the API on invalid date range', async () => {
@@ -142,6 +155,7 @@ describe('useAbsenceActions', () => {
     act(() => {
       savePromise = result.current.saveAbsence();
     });
+    await waitFor(() => expect(api.absences.update).toHaveBeenCalled());
 
     const somethingElse = { type: 'teams' } as never;
     stateRef = { ...stateRef, sheet: somethingElse };
@@ -163,6 +177,7 @@ describe('useAbsenceActions', () => {
     expect(askConfirm).toHaveBeenCalledWith(expect.objectContaining({ danger: true }));
     expect(api.absences.remove).toHaveBeenCalledWith('a1', 'team1');
     expect(toastMsg).toHaveBeenCalled();
+    expect(loadNotifications).toHaveBeenCalled();
   });
 
   it('removeAbsence reports an error without removing on API failure', async () => {
@@ -173,6 +188,26 @@ describe('useAbsenceActions', () => {
       await Promise.resolve();
     });
     expect(toastMsg).toHaveBeenCalled();
-    expect(refreshEvents).not.toHaveBeenCalled();
+  });
+
+  // Regression test: mirrors useDeleteEventMutation/useRemoveMemberMutation's
+  // per-call teamId safeguard. The confirm sheet can still be open (and get
+  // confirmed) after the user has switched to a different active team; the
+  // delete must still target the team the confirm dialog was opened for.
+  it('removeAbsence onConfirm deletes against the team the confirm dialog was opened for, even after a team switch', async () => {
+    askConfirm = vi.fn();
+    const { result, rerender } = renderActions();
+    act(() => {
+      result.current.removeAbsence('a1');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    rerender();
+
+    await act(async () => {
+      await cfg.onConfirm();
+    });
+    expect(api.absences.remove).toHaveBeenCalledWith('a1', 'team1');
   });
 });

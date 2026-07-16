@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { usePollActions } from './usePollActions';
+import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -15,12 +16,10 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     toast: null,
     route: 'home',
     events: [],
-    members: [],
     finances: null,
     stats: null,
     statsRange: null,
     news: [],
-    polls: [],
     teams: [],
     roles: [],
     notifUnread: 0,
@@ -33,8 +32,8 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
 describe('usePollActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
-  let loadPolls: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let loadNotifications: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: {
     polls: { vote: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
@@ -52,8 +51,8 @@ describe('usePollActions', () => {
       }
     });
     toastMsg = vi.fn();
-    loadPolls = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    loadNotifications = vi.fn().mockResolvedValue(undefined);
     logout = vi.fn();
     api = {
       polls: {
@@ -65,16 +64,19 @@ describe('usePollActions', () => {
   });
 
   function renderActions() {
-    return renderHook(() =>
-      usePollActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        loadPolls: loadPolls as never,
-        toastMsg: toastMsg as never,
-        askConfirm: askConfirm as never,
-        logout: logout as never,
-      }),
+    return renderHook(
+      () =>
+        usePollActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: loadNotifications as never,
+          toastMsg: toastMsg as never,
+          askConfirm: askConfirm as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
   }
 
@@ -135,6 +137,7 @@ describe('usePollActions', () => {
       }),
     );
     expect(toastMsg).toHaveBeenCalledWith('Umfrage erstellt');
+    expect(loadNotifications).toHaveBeenCalled();
   });
 
   it('togglePollOption sets single option for non-multiple poll', async () => {
@@ -144,6 +147,7 @@ describe('usePollActions', () => {
       result.current.togglePollOption(poll, 'opt2');
     });
     expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt2'], 'team1');
+    expect(loadNotifications).toHaveBeenCalled();
   });
 
   it('togglePollOption toggles multiple options for multiple poll', async () => {
@@ -182,7 +186,7 @@ describe('usePollActions', () => {
       result.current.togglePollOption(poll, 'opt2');
       result.current.togglePollOption(poll, 'opt3');
       resolveFirstVote();
-      // Flush the pending vote/loadPolls microtasks.
+      // Flush the pending vote mutation's microtasks.
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
@@ -214,5 +218,26 @@ describe('usePollActions', () => {
     });
     expect(api.polls.remove).toHaveBeenCalledWith('poll1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('Umfrage gelöscht');
+    expect(loadNotifications).toHaveBeenCalled();
+  });
+
+  // Regression test: mirrors useDeleteEventMutation/useRemoveMemberMutation's
+  // per-call teamId safeguard. The confirm sheet can still be open (and get
+  // confirmed) after the user has switched to a different active team; the
+  // delete must still target the team the confirm dialog was opened for.
+  it('removePoll onConfirm deletes against the team the confirm dialog was opened for, even after a team switch', async () => {
+    const { result, rerender } = renderActions();
+    act(() => {
+      result.current.removePoll('poll1');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    rerender();
+
+    await act(async () => {
+      await cfg.onConfirm();
+    });
+    expect(api.polls.remove).toHaveBeenCalledWith('poll1', 'team1');
   });
 });

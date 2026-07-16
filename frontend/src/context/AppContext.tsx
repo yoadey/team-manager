@@ -17,16 +17,16 @@ import type {
   PermLevel,
   Provider,
   Role,
-  StatsOverview,
   TeamForUser,
   User,
 } from '@/types';
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
-import type { Contribution, FinanceOverview, Penalty, Transaction } from '@/features/finances';
+import type { Contribution, Penalty, Transaction } from '@/features/finances';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
-import type { AppNotification } from '@/features/notifications';
 import type { Poll } from '@/features/polls';
+import { queryKeys } from '@/query/keys';
+import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
 import { canForTeam, isStaffForTeam } from '@/utils/permissions';
 import { ForbiddenError, reportActionError, retryable } from '@/utils/errors';
@@ -129,16 +129,7 @@ export interface AppState {
   eventsOnlyPending: boolean;
   calShowAbsences: boolean;
   calMonth: Date | null;
-  members: Member[] | null;
   roles: Role[];
-  news: NewsItem[] | null;
-  finances: FinanceOverview | null;
-  stats: StatsOverview | null;
-  polls: Poll[] | null;
-  absences: Absence[] | null;
-  myAbsences: Absence[] | null;
-  notifications: AppNotification[] | null;
-  notifUnread: number;
   notifFilter: 'all' | 'attendance' | 'events' | 'other';
   statsRange: DateRange | null;
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
@@ -155,15 +146,23 @@ export interface AppState {
   toast: { message: string; action?: { label: string; fn: () => void }; kind?: 'success' | 'error' } | null;
   error: string | null;
   /**
-   * Per-operation mutation pending flags for the events vertical (React Query
-   * `mutation.isPending`), merged into the exposed context value every render
-   * -- NOT part of the `useState` slice `setState` manages, unlike every
-   * other field above. Replaces the shared `busy` string for these two
-   * actions so a concurrent save-event and save-comment can't clear each
-   * other's spinner/disabled state.
+   * Per-operation mutation pending flags for the events/members/finances
+   * verticals (React Query `mutation.isPending`), merged into the exposed
+   * context value every render -- NOT part of the `useState` slice
+   * `setState` manages, unlike every other field above. Replaces the shared
+   * `busy` string for these actions so concurrent saves in different
+   * verticals can't clear each other's spinner/disabled state.
    */
   savingEvent: boolean;
   savingComment: boolean;
+  savingMember: boolean;
+  savingTx: boolean;
+  savingPenalty: boolean;
+  savingPenaltyAssign: boolean;
+  savingContrib: boolean;
+  savingPoll: boolean;
+  savingNews: boolean;
+  savingAbsence: boolean;
 }
 
 function loadColorScheme(): AppState['colorScheme'] {
@@ -189,16 +188,7 @@ const initialState: AppState = {
   eventsOnlyPending: initialLocation.eventsOnlyPending,
   calShowAbsences: false,
   calMonth: null,
-  members: null,
   roles: [],
-  news: null,
-  finances: null,
-  stats: null,
-  polls: null,
-  absences: null,
-  myAbsences: null,
-  notifications: null,
-  notifUnread: 0,
   notifFilter: 'all',
   statsRange: null,
   finTab: initialLocation.finTab,
@@ -212,6 +202,14 @@ const initialState: AppState = {
   // AppState doc comment above); these defaults are never actually read.
   savingEvent: false,
   savingComment: false,
+  savingMember: false,
+  savingTx: false,
+  savingPenalty: false,
+  savingPenaltyAssign: false,
+  savingContrib: false,
+  savingPoll: false,
+  savingNews: false,
+  savingAbsence: false,
 };
 
 // Photo/logo uploads (onFile) are read into a base64 data URL and sent as a
@@ -273,10 +271,6 @@ export interface AppContextValue {
   // notifications
   openNotifications: () => void;
   setNotifFilter: (f: AppState['notifFilter']) => void;
-  loadAbsences: () => Promise<void>;
-  // data refresh
-  loadFinances: () => Promise<void>;
-  loadStats: (range?: DateRange | null) => Promise<void>;
   // attendance
   setMyStatus: (eventId: string, status: AttendanceStatus, currentReason?: string) => Promise<void>;
   setStatusFor: (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => void;
@@ -345,7 +339,7 @@ export interface AppContextValue {
   downloadIcs: () => void;
   copyCalUrl: () => void;
   // news
-  openNewsForm: (n?: import('@/features/news').NewsItem) => void;
+  openNewsForm: (n?: NewsItem) => void;
   saveNews: () => Promise<void>;
   removeNews: (id: string) => void;
   // finances
@@ -535,7 +529,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       teams: [],
       activeTeamId: null,
       sheet: null,
-      members: null,
       roles: [],
     });
     // Providers may not have been loaded if the session was restored from a
@@ -670,18 +663,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     (err: unknown) => reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.load'),
     [setState, toastMsg, logout],
   );
-  const loadNotifications = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    try {
-      const r = await api.notifications.list(teamId);
-      // Discard a stale response if the user switched teams while this was
-      // in flight -- otherwise the previous team's notifications would
-      // clobber the newly selected team's already-cleared state.
-      setState((s) => (s.activeTeamId === teamId ? { notifications: r.items, notifUnread: r.unreadCount } : {}));
-    } catch (err) {
-      if (S().activeTeamId === teamId) reportLoad(err);
-    }
-  }, [api, S, setState, reportLoad]);
+  // notifications itself is fetched via useNotificationsQuery (React Query,
+  // consumed directly by AppShell/NotificationsSheet); `loadNotifications` is
+  // kept as the SAME name/signature every other vertical's action hooks
+  // already depend on (events/absences/news/polls call it after a save/vote/
+  // delete that can flip a notification's read-worthy state), now
+  // implemented as a cache invalidation instead of a manual fetch+setState --
+  // none of those call sites needed to change when notifications itself
+  // migrated.
+  const invalidateNotifications = useInvalidateTeamQuery(state.activeTeamId, queryKeys.notifications);
+  const loadNotifications = useCallback(() => invalidateNotifications(), [invalidateNotifications]);
   // Monotonically increasing call counter so that, if afterLoginLoad is invoked
   // again (even for the same teamId) before an earlier call has finished, only
   // the most recently invoked call's results are ever applied. The activeTeamId
@@ -694,64 +685,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     async (teamId: string) => {
       const seq = ++afterLoginLoadSeq.current;
       setState({
-        members: null,
         roles: [],
-        news: null,
-        finances: null,
-        stats: null,
-        polls: null,
-        absences: null,
-        myAbsences: null,
-        notifications: null,
         eventsOnlyPending: false,
       });
-      // events is deliberately not part of this bundle -- useEventsQuery
-      // refetches on its own the moment activeTeamId (part of its query key)
-      // changes, below.
+      // events, members, finances, polls, news, absences, notifications, and
+      // stats are deliberately not part of this bundle -- their respective
+      // useXQuery hooks refetch on their own the moment activeTeamId (part of
+      // their query key) changes. roles is the only server-state fetch left
+      // here.
       //
       // Retry on transient network failures — this is the initial-load read
       // path for the whole app, so a single dropped connection shouldn't
       // fail the entire team switch/login when a retry would likely
-      // succeed. All four calls are idempotent reads.
-      //
-      // allSettled (not all): a member whose role permits some but not all
-      // of these modules (e.g. finances:none is the default) must still see
-      // everything they DO have access to — one 403 shouldn't blank out
-      // news/notifications that already loaded successfully. Each slot keeps
-      // its previous value on failure rather than being forced to null, so a
-      // permission-denied module just doesn't overwrite whatever was already
-      // there (typically null on first load).
-      const [members, roles, news, notif] = await Promise.allSettled([
-        retryable(() => api.members.list(teamId)),
-        retryable(() => api.roles.list(teamId)),
-        retryable(() => api.news.list(teamId)),
-        retryable(() => api.notifications.list(teamId)),
-      ]);
-      const failures = [members, roles, news, notif].filter((r) => r.status === 'rejected');
-      // A ForbiddenError here just means the caller's role has that module set
-      // to 'none' -- an entirely ordinary, expected state (e.g. news:none),
-      // not a real failure. Surfacing it as a toast on every single login/team
-      // switch for such a role would be a false alarm; only report a genuine
-      // (non-permission) failure.
-      const reportable = failures.find((r) => !(r.reason instanceof ForbiddenError));
-      if (reportable && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
-        reportLoad(reportable.reason);
-      }
-      // Discard results if the user switched to a different team while loading,
-      // or if a newer afterLoginLoad call (e.g. rapid re-entry into the same
-      // team) has since been invoked.
-      setState((s) => {
-        if (s.activeTeamId !== teamId || afterLoginLoadSeq.current !== seq) return {};
-        const patch: Partial<AppState> = {};
-        if (members.status === 'fulfilled') patch.members = members.value;
-        if (roles.status === 'fulfilled') patch.roles = roles.value;
-        if (news.status === 'fulfilled') patch.news = news.value;
-        if (notif.status === 'fulfilled') {
-          patch.notifications = notif.value.items;
-          patch.notifUnread = notif.value.unreadCount;
+      // succeed. This is an idempotent read.
+      try {
+        const roles = await retryable(() => api.roles.list(teamId));
+        // Discard the result if the user switched to a different team while
+        // loading, or if a newer afterLoginLoad call (e.g. rapid re-entry
+        // into the same team) has since been invoked. Uses the functional
+        // updater form (reading `s`, the state React actually commits this
+        // update against) rather than S() -- S() reads a ref that isn't
+        // guaranteed to reflect an activeTeamId change made earlier in this
+        // same async call chain until React actually processes that pending
+        // update, which can still be outstanding at this point.
+        setState((s) => (s.activeTeamId === teamId && afterLoginLoadSeq.current === seq ? { roles } : {}));
+      } catch (err) {
+        // A ForbiddenError here just means the caller's role has roles:none --
+        // an entirely ordinary, expected state, not a real failure. Surfacing
+        // it as a toast on every single login/team switch for such a role
+        // would be a false alarm; only report a genuine (non-permission)
+        // failure.
+        if (!(err instanceof ForbiddenError) && afterLoginLoadSeq.current === seq && S().activeTeamId === teamId) {
+          reportLoad(err);
         }
-        return patch;
-      });
+      }
     },
     [api, S, setState, reportLoad],
   );
@@ -759,25 +726,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // afterLoginLoadSeq above: the activeTeamId check alone only guards
   // against a TEAM SWITCH completing while a call is in flight, not against
   // two same-team refreshes of the SAME loader racing each other (e.g.
-  // rapidly switching the stats date range). If the network responds
-  // out of request order, an unguarded loader would apply whichever
-  // response happened to arrive last, silently reverting to stale data
-  // even though a newer request was already in flight.
+  // saving one role then quickly deleting another, both of which call
+  // refreshRoles). If the network responds out of request order, an
+  // unguarded loader would apply whichever response happened to arrive
+  // last, silently reverting to stale data even though a newer request was
+  // already in flight.
   //
-  // events has no such loader here -- it's fetched via useEventsQuery
-  // (React Query), whose team-scoped key makes this class of race
-  // structurally impossible instead of needing a manual sequence guard.
-  const refreshMembersSeq = useRef(0);
-  const refreshMembers = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++refreshMembersSeq.current;
-    try {
-      const members = await api.members.list(teamId);
-      setState((s) => (s.activeTeamId === teamId && refreshMembersSeq.current === seq ? { members } : {}));
-    } catch (err) {
-      if (S().activeTeamId === teamId && refreshMembersSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, reportLoad]);
+  // events and members have no such loader here -- they're fetched via
+  // useEventsQuery/useMembersQuery (React Query), whose team-scoped key
+  // makes this class of race structurally impossible instead of needing a
+  // manual sequence guard.
   const refreshRolesSeq = useRef(0);
   const refreshRoles = useCallback(async () => {
     const teamId = S().activeTeamId!;
@@ -812,79 +770,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (refreshTeamsSeq.current === seq) reportLoad(err);
     }
   }, [api, setState, reportLoad]);
-  const loadFinancesSeq = useRef(0);
-  const loadFinances = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadFinancesSeq.current;
-    try {
-      const finances = await api.finances.overview(teamId);
-      setState((s) => (s.activeTeamId === teamId && loadFinancesSeq.current === seq ? { finances } : {}));
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadFinancesSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, reportLoad]);
-  const loadStatsSeq = useRef(0);
-  const loadStats = useCallback(
-    async (range?: DateRange | null) => {
-      const teamId = S().activeTeamId!;
-      const seq = ++loadStatsSeq.current;
-      try {
-        const r = range !== undefined ? range : S().statsRange;
-        const stats = await api.stats.teamOverview(teamId, r);
-        setState((s) => (s.activeTeamId === teamId && loadStatsSeq.current === seq ? { stats } : {}));
-      } catch (err) {
-        if (S().activeTeamId === teamId && loadStatsSeq.current === seq) reportLoad(err);
-      }
-    },
-    [api, S, setState, reportLoad],
-  );
-  const loadNewsSeq = useRef(0);
-  const loadNews = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadNewsSeq.current;
-    try {
-      const news = await api.news.list(teamId);
-      setState((s) => (s.activeTeamId === teamId && loadNewsSeq.current === seq ? { news } : {}));
-      loadNotifications();
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadNewsSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, loadNotifications, reportLoad]);
-  const loadPollsSeq = useRef(0);
-  const loadPolls = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadPollsSeq.current;
-    try {
-      const polls = await api.polls.list(teamId);
-      setState((s) => (s.activeTeamId === teamId && loadPollsSeq.current === seq ? { polls } : {}));
-      loadNotifications();
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadPollsSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, loadNotifications, reportLoad]);
-  const loadAbsencesSeq = useRef(0);
-  const loadAbsences = useCallback(async () => {
-    const teamId = S().activeTeamId!;
-    const seq = ++loadAbsencesSeq.current;
-    try {
-      const [absences, myAbsences] = await Promise.all([
-        api.absences.listForTeam(teamId),
-        api.absences.listMine(teamId),
-      ]);
-      setState((s) => (s.activeTeamId === teamId && loadAbsencesSeq.current === seq ? { absences, myAbsences } : {}));
-    } catch (err) {
-      if (S().activeTeamId === teamId && loadAbsencesSeq.current === seq) reportLoad(err);
-    }
-  }, [api, S, setState, reportLoad]);
+  // finances/stats have no such loader here -- they're fetched via
+  // useFinanceOverviewQuery/useStatsQuery (React Query), whose team-scoped
+  // (and, for stats, also range-scoped) key makes this class of race
+  // structurally impossible instead of needing a manual sequence guard (same
+  // as events/members).
+  //
+  // news, polls, and absences have no such loader here either -- they're
+  // fetched via useNewsQuery/usePollsQuery/useAbsencesQuery (React Query),
+  // for the same reason. Each old loader's paired loadNotifications()
+  // refresh now lives in ensureRouteData below (news/polls) or directly in
+  // the mutation's own action (absences, whose data only ever changes via
+  // its own save/delete, never merely by navigating to it).
   const ensureRouteData = useCallback(
     (route: Route) => {
-      // members is normally populated by afterLoginLoad, but that
-      // Promise.allSettled leaves a slot at its previous value (null, right
-      // after login) if its fetch fails and every retry is exhausted -- with
-      // no re-fetch trigger, MembersPage would show a permanent skeleton
-      // loader for the rest of the session, since navigating to the route
-      // was previously a no-op here. events has no equivalent branch: it's
-      // fetched by useEventsQuery, which retries/refetches on its own.
+      // events, members, finances, polls, news, absences, and stats have no
+      // data-fetch branch here: they're fetched by useEventsQuery/
+      // useMembersQuery/useFinanceOverviewQuery/usePollsQuery/useNewsQuery/
+      // useAbsencesQuery/useStatsQuery, which retry/refetch on their own.
       //
       // Skip entirely for a module the caller can't read (nav already hides
       // these routes, but a stale bookmark/URL or browser back/forward can
@@ -893,13 +796,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // that reportLoad would then surface as a spurious forbidden toast.
       const module = ROUTE_MODULE[route];
       if (module && !can(module, 'read')) return;
-      if (route === 'members' && !S().members) refreshMembers();
-      if (route === 'finances' && !S().finances) loadFinances();
-      if (route === 'stats' && !S().stats) loadStats();
-      if (route === 'news' && !S().news) loadNews();
-      if (route === 'polls' && !S().polls) loadPolls();
+      // polls'/news' own lists are fetched by usePollsQuery/useNewsQuery, but
+      // the pre-migration loadPolls/loadNews loaders also refreshed
+      // notifications on every (re-)navigation here -- e.g. a new poll/news
+      // item clears its own "pending" notification once the user has viewed
+      // it -- so that pairing stays, just without the list-fetch half.
+      if (route === 'polls' || route === 'news') loadNotifications();
     },
-    [S, can, refreshMembers, loadFinances, loadStats, loadNews, loadPolls],
+    [can, loadNotifications],
   );
 
   // ---------- auth ----------
@@ -944,11 +848,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // parsePendingInvite above) rather than trust the module-load-time
         // initialLocation/initialState snapshot, then fetch that route's
         // data the same way the popstate handler below does -- afterLoginLoad
-        // only covers events/members/roles/news/notifications, so without
-        // this a deep link into finances/stats/polls would render the right
-        // route with no data, ever (the same "permanent skeleton loader"
-        // class fixed for refreshEvents/refreshMembers in round 46, but for
-        // the bootstrap path). Left as `detail: null` here deliberately --
+        // only covers roles (events/members/finances/polls/news/absences/
+        // notifications fetch via their own query hooks), so without this a
+        // deep link into stats would render the right route with no data,
+        // ever (the same "permanent skeleton loader" class events/members
+        // no longer need a manual fix for). Left as `detail: null` here
+        // deliberately --
         // the caller opens the detail sheet (see the bootstrap effect
         // below), and the state->URL sync effect restores the id segment
         // once state.sheet is set, so there's no need to duplicate that
@@ -1049,22 +954,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // notification's "jump to the Events > Absences tab" click goes through
   // ensureRouteData like every other route change, keeping this route
   // change consistent with how every other route arrives at the page
-  // (permission pre-check below, plus events data now lives in
-  // useEventsQuery's own React Query cache rather than gating on
-  // state.events here).
+  // (permission pre-check below, plus events/absences data now lives in
+  // useEventsQuery's/useAbsencesQuery's own React Query cache rather than
+  // gating on state.events/state.absences here). RouteScreen itself bounces
+  // to Home if the caller can't read events (a stale absence notification,
+  // cached from before a permission downgrade, is the one way this route is
+  // reachable without events:read), so EventAbsences never mounts -- and
+  // thus never fetches -- in that case either.
   const goEventsAbsences = useCallback(() => {
     setState({ route: 'events', sheet: null, eventsView: 'absences' });
     ensureRouteData('events');
-    // ensureRouteData already skips its own fetches when the caller can't
-    // read events (a stale absence notification, cached from before a
-    // permission downgrade, is the one way this route is reachable without
-    // events:read -- RouteScreen bounces the resulting navigation to Home
-    // either way). loadAbsences has no such built-in guard, so without this
-    // check it would still fire two now-forbidden requests in the
-    // background, producing exactly the spurious "no permission" toast
-    // ensureRouteData's own permission pre-check exists to prevent.
-    if (can('events', 'read')) loadAbsences();
-  }, [setState, ensureRouteData, loadAbsences, can]);
+  }, [setState, ensureRouteData]);
   const activePageSheet = useCallback(() => {
     let s = S().sheet;
     while (s) {
@@ -1084,18 +984,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     },
     [S, setState, closeSheet, afterLoginLoad],
   );
-  const setEventsView = useCallback(
-    (v: 'list' | 'calendar' | 'absences') => {
-      setState({ eventsView: v });
-      if (v === 'absences' && !S().absences) loadAbsences();
-    },
-    [S, setState, loadAbsences],
-  );
+  // Absences data is now fetched by useAbsencesQuery directly in
+  // EventAbsences/EventCalendar (enabled while the absences tab/overlay is
+  // actually shown), so switching the view/toggle here is a pure state
+  // update -- no imperative fetch trigger needed.
+  const setEventsView = useCallback((v: 'list' | 'calendar' | 'absences') => setState({ eventsView: v }), [setState]);
   const toggleCalAbsences = useCallback(() => {
-    const nv = !S().calShowAbsences;
-    setState({ calShowAbsences: nv });
-    if (nv && !S().absences) loadAbsences();
-  }, [S, setState, loadAbsences]);
+    setState((s) => ({ calShowAbsences: !s.calShowAbsences }));
+  }, [setState]);
 
   // ---------- confirm ----------
   const askConfirm = useCallback(
@@ -1188,6 +1084,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     toggleFormNomRole,
     savingEvent,
     savingComment,
+    savingMember,
+    savingTx,
+    savingPenalty,
+    savingPenaltyAssign,
+    savingContrib,
+    savingPoll,
+    savingNews,
+    savingAbsence,
   } = useFeatureActions({
     api,
     S,
@@ -1195,14 +1099,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     activeTeam,
     myRoles,
     teamId: state.activeTeamId,
-    refreshMembers,
     refreshRoles,
     refreshTeams,
-    loadAbsences,
-    loadFinances,
-    loadStats,
-    loadNews,
-    loadPolls,
     loadNotifications,
     afterLoginLoad,
     toastMsg,
@@ -1346,9 +1244,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleCalAbsences,
       openNotifications,
       setNotifFilter,
-      loadAbsences,
-      loadFinances,
-      loadStats,
       setMyStatus,
       setStatusFor,
       canSeeComment,
@@ -1451,9 +1346,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       toggleCalAbsences,
       openNotifications,
       setNotifFilter,
-      loadAbsences,
-      loadFinances,
-      loadStats,
       setMyStatus,
       setStatusFor,
       canSeeComment,
@@ -1535,13 +1427,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // every useApp() consumer's re-render) only changes when state or one of
   // these flags actually changes, not on every unrelated AppProvider render.
   const exposedState = useMemo<AppState>(
-    () => ({ ...state, savingEvent, savingComment }),
-    [state, savingEvent, savingComment],
+    () => ({
+      ...state,
+      savingEvent,
+      savingComment,
+      savingMember,
+      savingTx,
+      savingPenalty,
+      savingPenaltyAssign,
+      savingContrib,
+      savingPoll,
+      savingNews,
+      savingAbsence,
+    }),
+    [
+      state,
+      savingEvent,
+      savingComment,
+      savingMember,
+      savingTx,
+      savingPenalty,
+      savingPenaltyAssign,
+      savingContrib,
+      savingPoll,
+      savingNews,
+      savingAbsence,
+    ],
   );
   exposedStateRef.current = exposedState;
   useEffect(() => {
     listeners.current.forEach((l) => l());
-  }, [savingEvent, savingComment]);
+  }, [
+    savingEvent,
+    savingComment,
+    savingMember,
+    savingTx,
+    savingPenalty,
+    savingPenaltyAssign,
+    savingContrib,
+    savingPoll,
+    savingNews,
+    savingAbsence,
+  ]);
 
   return (
     <AppStoreContext.Provider value={store}>

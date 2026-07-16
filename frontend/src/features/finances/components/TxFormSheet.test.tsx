@@ -13,22 +13,29 @@ vi.mock('@/context/AppContext', () => {
   };
 });
 
+vi.mock('../hooks/useFinanceQueries', () => ({
+  useFinanceOverviewQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 const mockUseApp = vi.mocked(useApp);
+const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
 function makeApp(
   formOverrides: Record<string, unknown> = {},
   errOverrides: Record<string, string> = {},
   transactions: { category: string }[] = [],
 ) {
+  mockUseFinanceOverviewQuery.mockReturnValue({ data: { transactions } });
   const setFormErrors = vi.fn();
   const app = {
+    api: {},
     state: {
       primaryColor: '#4285F4',
+      activeTeamId: 't1',
       form: { type: 'income', title: '', amount: '', category: '', id: null, ...formOverrides },
       formErrors: { title: '', amount: '', ...errOverrides },
-      busy: null,
-      finances: { transactions },
     },
     setFormErrors,
     setFormVal: vi.fn(),
@@ -96,7 +103,7 @@ describe('TxFormSheet', () => {
   // text), so Field's cloneElement-injected aria-required/aria-invalid/
   // aria-describedby landed on that wrapper Box, not the input a screen
   // reader actually focuses. Field must clone the <input> directly.
-  it('renders the category input as Field\'s direct cloned child, not wrapped in an intermediate element', () => {
+  it("renders the category input as Field's direct cloned child, not wrapped in an intermediate element", () => {
     const app = makeApp();
     const sheet = { mode: 'create' } as never;
     render(<TxFormSheet app={app as never} sheet={sheet} />);

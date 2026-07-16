@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useNewsActions } from './useNewsActions';
+import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
@@ -19,8 +20,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     finances: null,
     stats: null,
     statsRange: null,
-    news: [],
-    polls: [],
     teams: [],
     roles: [],
     notifUnread: 0,
@@ -33,8 +32,8 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
 describe('useNewsActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
-  let loadNews: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
+  let loadNotifications: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: {
     news: { create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
@@ -52,8 +51,8 @@ describe('useNewsActions', () => {
       }
     });
     toastMsg = vi.fn();
-    loadNews = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn();
+    loadNotifications = vi.fn().mockResolvedValue(undefined);
     logout = vi.fn();
     api = {
       news: {
@@ -65,16 +64,19 @@ describe('useNewsActions', () => {
   });
 
   function renderActions() {
-    return renderHook(() =>
-      useNewsActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        loadNews: loadNews as never,
-        askConfirm: askConfirm as never,
-        toastMsg: toastMsg as never,
-        logout: logout as never,
-      }),
+    return renderHook(
+      () =>
+        useNewsActions({
+          api: api as never,
+          S: () => stateRef,
+          setState: setState as never,
+          teamId: stateRef.activeTeamId,
+          loadNotifications: loadNotifications as never,
+          askConfirm: askConfirm as never,
+          toastMsg: toastMsg as never,
+          logout: logout as never,
+        }),
+      { wrapper: createQueryWrapper() },
     );
   }
 
@@ -123,6 +125,7 @@ describe('useNewsActions', () => {
     });
     expect(api.news.create).toHaveBeenCalledWith('team1', expect.objectContaining({ title: 'New Article' }));
     expect(toastMsg).toHaveBeenCalledWith('News veröffentlicht');
+    expect(loadNotifications).toHaveBeenCalled();
   });
 
   it('saveNews updates news in edit mode (has id)', async () => {
@@ -133,6 +136,7 @@ describe('useNewsActions', () => {
     });
     expect(api.news.update).toHaveBeenCalledWith('n1', expect.objectContaining({ title: 'Updated' }), 'team1');
     expect(toastMsg).toHaveBeenCalledWith('News aktualisiert');
+    expect(loadNotifications).toHaveBeenCalled();
   });
 
   it('removeNews calls askConfirm', () => {
@@ -159,6 +163,7 @@ describe('useNewsActions', () => {
     });
     expect(api.news.remove).toHaveBeenCalledWith('n1', 'team1');
     expect(toastMsg).toHaveBeenCalledWith('News gelöscht');
+    expect(loadNotifications).toHaveBeenCalled();
   });
 
   it('saveNews handles API error gracefully', async () => {
@@ -169,6 +174,25 @@ describe('useNewsActions', () => {
       await result.current.saveNews();
     });
     expect(toastMsg).toHaveBeenCalled();
-    expect(setState).toHaveBeenCalledWith(expect.objectContaining({ busy: 'save' }));
+  });
+
+  // Regression test: mirrors useDeleteEventMutation/useRemoveMemberMutation's
+  // per-call teamId safeguard. The confirm sheet can still be open (and get
+  // confirmed) after the user has switched to a different active team; the
+  // delete must still target the team the confirm dialog was opened for.
+  it('removeNews onConfirm deletes against the team the confirm dialog was opened for, even after a team switch', async () => {
+    const { result, rerender } = renderActions();
+    act(() => {
+      result.current.removeNews('n1');
+    });
+    const cfg = askConfirm.mock.calls[0][0];
+
+    stateRef = { ...stateRef, activeTeamId: 'team2' };
+    rerender();
+
+    await act(async () => {
+      await cfg.onConfirm();
+    });
+    expect(api.news.remove).toHaveBeenCalledWith('n1', 'team1');
   });
 });

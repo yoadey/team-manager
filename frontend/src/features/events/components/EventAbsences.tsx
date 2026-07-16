@@ -4,17 +4,19 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtRange, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, Sym, SpinnerBox } from '@/components/ui';
+import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 import { t } from '@/i18n';
 
 export function EventAbsences() {
   const app = useApp();
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
+  const { data: absences } = useAbsencesQuery(app.api, state.activeTeamId);
 
-  if (!state.absences) return <SpinnerBox />;
+  if (!absences) return <SpinnerBox />;
 
   const today = todayLocalDate();
-  const list = state.absences.filter((a) => a.to >= today);
+  const list = absences.filter((a) => a.to >= today);
 
   const rows = list.map((a) => {
     const isMe = a.userId === state.user!.id;

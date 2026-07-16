@@ -22,13 +22,17 @@ export function ContribFormSheet({ app }: SheetProps) {
   };
 
   const canSubmit =
-    !!String(F.label ?? '').trim() &&
-    validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
+    !!String(F.label ?? '').trim() && validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
       <Field label={t('finances.contribFieldLabel')} required error={!!errs.label} errorText={errs.label}>
-        <TextInput name="label" placeholder={t('finances.contribFieldLabelPlaceholder')} onBlur={validateLabel} maxLength={255} />
+        <TextInput
+          name="label"
+          placeholder={t('finances.contribFieldLabelPlaceholder')}
+          onBlur={validateLabel}
+          maxLength={255}
+        />
       </Field>
       <Field label={t('finances.contribFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
         <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
@@ -36,7 +40,7 @@ export function ContribFormSheet({ app }: SheetProps) {
       <PrimaryButton
         label={t('finances.contribSave')}
         onClick={() => app.saveContrib()}
-        busy={app.state.busy === 'save'}
+        busy={app.state.savingContrib}
         disabled={!canSubmit}
       />
     </Box>

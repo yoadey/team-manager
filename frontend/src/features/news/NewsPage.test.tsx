@@ -8,16 +8,29 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+// Mocked directly on the hooks module (not just a `@/features/news` barrel
+// re-export) -- NewsPage.tsx imports `useNewsQuery` via a relative import,
+// so this must match that module path (see the identical comment/pattern in
+// PollsPage.test.tsx/EventsPage.test.tsx/MembersPage.test.tsx).
+vi.mock('./hooks/useNewsQueries', () => ({
+  useNewsQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useNewsQuery } from './hooks/useNewsQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
+const mockUseNewsQuery = useNewsQuery as ReturnType<typeof vi.fn>;
 
 function makeApp(overrides: Record<string, unknown> = {}) {
+  const { news, ...stateOverrides } = overrides;
+  mockUseNewsQuery.mockReturnValue({ data: 'news' in overrides ? news : [] });
   return {
+    api: {},
     state: {
       primaryColor: '#4285F4',
-      news: [],
+      activeTeamId: 't1',
       user: { id: 'u1' },
-      ...overrides,
+      ...stateOverrides,
     },
     can: vi.fn().mockReturnValue(false),
     openNewsForm: vi.fn(),

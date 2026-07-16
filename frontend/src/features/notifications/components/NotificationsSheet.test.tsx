@@ -8,8 +8,18 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+// Mocked directly on the hooks module (not just a `@/features/notifications`
+// barrel re-export) -- NotificationsSheet.tsx imports `useNotificationsQuery`
+// via this exact relative path, so this must match it (see the identical
+// comment/pattern in NewsPage.test.tsx/PollsPage.test.tsx).
+vi.mock('../hooks/useNotificationQueries', () => ({
+  useNotificationsQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useNotificationsQuery } from '../hooks/useNotificationQueries';
 const mockUseApp = vi.mocked(useApp);
+const mockUseNotificationsQuery = vi.mocked(useNotificationsQuery);
 
 vi.mock('@/styles/tokens', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@/styles/tokens')>();
@@ -31,7 +41,7 @@ import type { AppContextValue, AppState } from '@/context/AppContext';
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
     primaryColor: '#1565C0',
-    notifications: [],
+    activeTeamId: 't1',
     notifFilter: 'all',
     user: { id: 'u1', name: 'Test User', email: 'test@test.com' } as AppState['user'],
     busy: null,
@@ -39,9 +49,17 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
   } as AppState;
 }
 
-function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppContextValue> = {}): AppContextValue {
+function makeApp(
+  overrides: Partial<AppState> & { notifications?: AppNotification[] | null } = {},
+  methods: Partial<AppContextValue> = {},
+): AppContextValue {
+  const { notifications, ...stateOverrides } = overrides;
+  mockUseNotificationsQuery.mockReturnValue({
+    data: notifications === null || notifications === undefined ? undefined : { items: notifications, unreadCount: 0 },
+  } as never);
   const state = makeState(stateOverrides);
   const app = {
+    api: {},
     state,
     setNotifFilter: vi.fn(),
     openEventDetail: vi.fn(),

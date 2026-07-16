@@ -17,8 +17,14 @@ export interface PM {
  * `eventDetailEvent` is the currently-open `eventDetail` page sheet's event
  * (fetched by the caller via `useEventDetailQuery`, since the sheet itself no
  * longer carries it) -- undefined/null while that query is still loading.
+ * `membersCount` is the caller's `useMembersQuery` list length, similarly
+ * undefined while that query is still loading.
  */
-export function pageMeta(app: ReturnType<typeof useApp>, eventDetailEvent?: TeamEvent | null): PM {
+export function pageMeta(
+  app: ReturnType<typeof useApp>,
+  eventDetailEvent?: TeamEvent | null,
+  membersCount?: number,
+): PM {
   const { state } = app;
   const pageSheet = app.activePageSheet();
   if (pageSheet) return pageSheetMeta(app, pageSheet, eventDetailEvent);
@@ -37,8 +43,8 @@ export function pageMeta(app: ReturnType<typeof useApp>, eventDetailEvent?: Team
     members: [
       tl('nav.members'),
       tl('page.membersSubtitle', {
-        n: state.members?.length ?? 0,
-        count: state.members?.length ?? 0,
+        n: membersCount ?? 0,
+        count: membersCount ?? 0,
       }),
       app.can('settings', 'write'),
       tl('page.membersAction'),

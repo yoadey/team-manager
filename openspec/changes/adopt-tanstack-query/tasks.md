@@ -19,8 +19,13 @@
       until they're migrated (4.2).
 - [x] 3.2 Auth session, `activeTeamId`, route/URL sync, toast, and sheet state remain in `AppContext` (unchanged;
       events was the only slice removed so far)
-- [ ] 3.3 Delete `clearBusyIfOwned` and the `busy` field once fully migrated (blocked on 4.2 — still used by
-      absences/members/finances/news/polls/team)
+- [ ] 3.3 Delete `clearBusyIfOwned` and the `busy` field once fully migrated. Now that 4.2 is complete, `busy` is no
+      longer read or set by any of the seven migrated verticals (each replaced it with its own `savingX` /
+      `mutation.isPending` flag) -- the remaining consumers are `auth` (`Login.tsx`'s in-flight login state) and
+      `team`/`roles` (`useTeamActions.ts`/`useRoleActions.ts`), neither of which was ever part of 4.2's enumerated
+      scope (members/finances/polls/news/absences/notifications/stats). Deleting `busy` entirely is therefore a
+      separate, additional migration (team/roles, and possibly auth) beyond what this change covers -- out of scope
+      here unless/until that work is explicitly taken on.
 - [x] 3.4 On deep-link/`popstate` restore for an event detail sheet, `openEventDetail` now only sets `eventId`;
       `EventDetailSheet` loads its data via `useEventDetailQuery` on mount instead of an imperative reload
 
@@ -28,10 +33,86 @@
 - [x] 4.1 Migrate the `events` vertical fully and get it green first — done, including its own query/mutation hooks,
       per-operation pending state, and the page/detail/calendar/export components reading via the hooks directly
       (not through `AppContext`)
-- [ ] 4.2 Migrate remaining features one at a time: members, finances, polls, news, absences, notifications, stats.
+- [x] 4.2 Migrate remaining features one at a time: members, finances, polls, news, absences, notifications, stats.
       Each follows the events vertical's pattern (query hook consumed directly by feature components + mutation
       hooks with `invalidateQueries`); `AppContext`'s corresponding loader/sequence-ref/`Promise.allSettled` slot is
       then removed the same way section 3 removed events'.
+  - [x] 4.2.1 `members` — `useMembersQuery`/`useSaveMemberMutation`/`useRemoveMemberMutation`
+        (`useMemberMutations.ts`); `MembersPage`, `AppShell`, and `PenaltyAssignSheet` read the query directly;
+        `saveMember`'s `busy === 'save'` replaced by `mutation.isPending` (`state.savingMember`, mirroring
+        `savingEvent`); `members` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`; still-unmigrated
+        callers (`useTeamActions.uploadMyPhoto`, `useFinanceActions.openPenaltyAssign`) bridged to
+        `useInvalidateMembers`/the sheet's own query instead of the old `refreshMembers` loader.
+  - [x] 4.2.2 `finances` — `useFinanceOverviewQuery` (`useFinanceQueries.ts`); `useSaveTxMutation`/
+        `useDeleteTxMutation`/`useSavePenaltyMutation`/`useDeletePenaltyMutation`/`useSavePenaltyAssignMutation`/
+        `useDeleteAssignmentMutation`/`useSaveContribMutation`/`useTogglePenaltyMutation`/
+        `useToggleContributionMutation` (`useFinanceMutations.ts`); `FinancesPage`, `PenaltyCatalogSheet`,
+        `TxFormSheet`, and `PenaltyAssignSheet` read the query directly; the four save flows' `busy === 'save'`
+        replaced by per-mutation `isPending` (`state.savingTx`/`savingPenalty`/`savingPenaltyAssign`/
+        `savingContrib`, mirroring `savingMember`); the three confirm-gated deletes (tx/penalty/assignment) take
+        `teamId` per call rather than a hook-bound reactive value, mirroring `useDeleteEventMutation`/
+        `useRemoveMemberMutation`; `finances` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`.
+  - [x] 4.2.3 `polls` — `usePollsQuery` (`usePollQueries.ts`); `useSavePollMutation`/`useVotePollMutation`/
+        `useDeletePollMutation` (`usePollMutations.ts`); `PollsPage` reads the query directly; `savePoll`'s
+        `busy === 'save'` replaced by `mutation.isPending` (`state.savingPoll`); `removePoll` (confirm-gated) takes
+        `teamId` per call, mirroring `useDeleteEventMutation`/`useRemoveMemberMutation`; the old loader's paired
+        `loadNotifications()` refresh is preserved both per-action (`votePoll`/`savePoll`/`removePoll` each still
+        call it after success, mirroring the events vertical) and per-navigation (`ensureRouteData`'s existing
+        route-dispatch mechanism now has a `polls` branch calling `loadNotifications()`, reusing the same
+        internal-only loader `loadStats`/`loadNews` already use there instead of exposing it publicly); `polls`
+        dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches.
+  - [x] 4.2.4 `news` — `useNewsQuery` (`useNewsQueries.ts`); `useSaveNewsMutation`/`useDeleteNewsMutation`
+        (`useNewsMutations.ts`); `NewsPage` and `Home` (dashboard preview) read the query directly; `saveNews`'s
+        `busy === 'save'` replaced by `mutation.isPending` (`state.savingNews`); `removeNews` (confirm-gated) takes
+        `teamId` per call, mirroring `useDeleteEventMutation`/`useRemoveMemberMutation`; the old loader's paired
+        `loadNotifications()` refresh is preserved both per-action (`saveNews`/`removeNews` each still call it after
+        success) and per-navigation (`ensureRouteData`'s `news` branch now calls `loadNotifications()` instead of the
+        removed `loadNews()`, sharing the same branch as `polls`); `news` dropped from
+        `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches.
+  - [x] 4.2.5 `absences` — `useAbsencesQuery` (`useAbsenceQueries.ts`, in the `events` feature); `useSaveAbsenceMutation`/
+        `useDeleteAbsenceMutation` (`useAbsenceMutations.ts`); `EventAbsences` reads the query directly (always
+        enabled, since it only mounts for the Absences tab), `EventCalendar` reads it gated on its own
+        `calShowAbsences` toggle (`useAbsencesQuery(api, teamId, enabled)`), matching the pre-migration on-demand
+        fetch triggers without any imperative loader; `saveAbsence`'s `busy === 'save'` replaced by
+        `mutation.isPending` (`state.savingAbsence`); `removeAbsence` (confirm-gated) takes `teamId` per call,
+        mirroring `useDeleteEventMutation`/`useRemoveMemberMutation`; an absence overlapping an event auto-marks
+        attendance, so both mutations also invalidate the events cache (`useInvalidateEvents`), replacing the old
+        `refreshEvents` bridge in `useFeatureActions.ts` (absences was its only caller, now removed); `loadNotifications()`
+        is preserved per-action only (no per-navigation branch needed, since absences data only ever changes via its
+        own save/delete, never merely by navigating to it); `absences`/`myAbsences` dropped from
+        `AppState`/`afterLoginLoad`/the old `loadAbsences` loader. `state.myAbsences` (fetched on profile-open, but
+        never actually rendered anywhere — confirmed dead since its introduction, "closed for consistency... to avoid
+        it becoming a live bug the moment something starts reading that field") is now prefetched into the React
+        Query cache via `queryClient.prefetchQuery` in `useTeamActions.openProfile` instead of dropped, preserving the
+        same on-demand trigger for whenever a future consumer starts reading it — its team-scoped key also makes the
+        old manual `activeTeamId` staleness guard unnecessary.
+  - [x] 4.2.6 `notifications` — `useNotificationsQuery` (`useNotificationQueries.ts`); `useMarkNotificationsSeenMutation`
+        (`useNotificationMutations.ts`, writes the "all read" result straight into the query cache via
+        `queryClient.setQueryData` instead of invalidating/refetching, since markSeen doesn't change which
+        notifications exist, only their `unread` flag); `AppShell` (badge count) and `NotificationsSheet` (feed) read
+        the query directly instead of `state.notifications`/`state.notifUnread`. Unlike every other migrated
+        vertical, `loadNotifications` itself is NOT removed -- it's the one dependency threaded through all six other
+        verticals' action hooks (events/members/finances/polls/news/absences call it after a mutation that can flip a
+        notification's read-worthy state), so its name/signature (`() => Promise<void>`) is kept and its
+        implementation swapped from a manual fetch+setState to `useInvalidateTeamQuery(activeTeamId,
+        queryKeys.notifications)`, meaning none of those six call sites needed to change. `notifications`/`notifUnread`
+        dropped from `AppState`/`afterLoginLoad`'s bundle; roles is now the only fetch left there, so its
+        `Promise.allSettled` was simplified to a plain try/catch (no more sibling-module ForbiddenError filtering
+        needed with only one item). Fixed a real (pre-existing, not introduced by this change) bug surfaced while
+        writing this vertical's tests: `afterLoginLoad`'s success-path re-check used an imperative `S().activeTeamId
+        === teamId` read, which isn't reliably fresh mid-async-chain in React's batched updates -- switched to the
+        functional `setState((s) => ...)` form (reading React's own commit-time state), matching the pattern already
+        used by every other loader's *data-application* check in this file.
+  - [x] 4.2.7 `stats` — `useStatsQuery` (`pages/hooks/useStatsQueries.ts` -- stats has no dedicated `features/`
+        folder, so this is co-located under `pages/` alongside `Stats.tsx`, the only consumer); unlike every other
+        migrated query hook, its cache key (`queryKeys.stats(teamId, range)`) also varies by the selected date range
+        (`state.statsRange`), not just `teamId`, so a range change swaps to a different cache entry the same way a
+        team switch does — covered by its own dedicated stale-response-on-range-switch test alongside the standard
+        stale-response-on-team-switch one. `Stats.tsx` reads the query directly instead of `state.stats`;
+        `setStatsRange` (in `useFinanceActions.ts`, where stats' date-range control has always lived) is now a pure UI
+        state update (`setState({ statsRange: range })`) instead of also calling the old imperative `loadStats(range)`
+        loader; `stats` dropped from `AppState`/`afterLoginLoad`/`ensureRouteData`'s data-fetch branches. This was the
+        last item in 4.2 -- `afterLoginLoad` now fetches only `roles` (no other vertical left in its bundle).
 
 ## 5. Verification
 - [x] 5.1 `npm run typecheck` + `npm run lint` green

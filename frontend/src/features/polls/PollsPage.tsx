@@ -4,19 +4,21 @@ import { useApp } from '@/context/AppContext';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Card, Chip, EmptyState, SkeletonList, Sym } from '@/components/ui';
 import type { Poll } from './types';
+import { usePollsQuery } from './hooks/usePollQueries';
 import { t } from '@/i18n';
 
 export function PollsPage() {
   const app = useApp();
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  if (!state.polls) return <SkeletonList rows={4} rowHeight={100} />;
-  if (!state.polls.length) return <EmptyState icon="how_to_vote" text={t('polls.empty')} />;
+  const { data: polls } = usePollsQuery(app.api, state.activeTeamId);
+  if (!polls) return <SkeletonList rows={4} rowHeight={100} />;
+  if (!polls.length) return <EmptyState icon="how_to_vote" text={t('polls.empty')} />;
   const canDelete = app.can('polls', 'write');
 
   return (
     <Box sx={{ maxWidth: '680px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      {state.polls.map((p: Poll) => {
+      {polls.map((p: Poll) => {
         const voted = !!p.myVote;
         const opts = p.options.map((o) => {
           const sel = voted && p.myVote!.includes(o.id);
