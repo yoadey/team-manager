@@ -181,6 +181,7 @@ describe('EventFormSheet', () => {
     const app = makeApp({ title: '', date: '' });
     mockUseApp.mockReturnValue(app as never);
     render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    const btn = screen.getByRole('button', { name: /events.createEvent/i });
     // RHF submit buttons might not be disabled immediately on initial empty render unless we check formState.isValid,
     // but the component checks canSubmit based on watched fields, let's see.
     // Wait, the original code had: const canSubmit = !!F.title?.trim() && !!F.date; and we don't have that in our updated code because RHF handles errors on submit.

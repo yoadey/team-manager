@@ -100,7 +100,7 @@ describe('useEventFormActions', () => {
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = (result.current.saveEvent as any)();
+      savePromise = result.current.saveEvent();
     });
     await waitFor(() => expect(result.current.savingEvent).toBe(true));
 

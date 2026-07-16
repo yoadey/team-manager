@@ -3,7 +3,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
+import { Field, PrimaryButton, Sym, TextInput, TextArea, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { txFormSchema, type TxFormValues } from './txFormSchema';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';

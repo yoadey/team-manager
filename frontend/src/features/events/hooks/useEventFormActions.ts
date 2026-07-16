@@ -36,7 +36,7 @@ export function useEventFormActions({
 
   const openEventForm = useCallback(
     (event: TeamEvent | null) => {
-      const f: EventFormValues = event
+      const f: any = event
         ? {
             id: event.id,
             seriesId: event.seriesId || null,
@@ -75,7 +75,7 @@ export function useEventFormActions({
           mode: event ? 'edit' : 'create',
           back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
         },
-        form: f,
+        form: f as any,
         formErrors: {},
       }));
     },
@@ -86,15 +86,16 @@ export function useEventFormActions({
     async (fProp?: any, scopeProp: 'single' | 'series' = 'single') => {
       const isLegacy = typeof fProp === 'string';
       const f = isLegacy || fProp === undefined ? (S().form as EventFormValues) : fProp;
-      const scope = isLegacy ? fProp : scopeProp;
+      const scope = (isLegacy ? fProp : scopeProp) as 'single' | 'series';
+
       if (!f.title || !f.title.trim()) {
         toastMsg(t('validation.eventTitleMissing'), undefined, 'error');
         return;
       }
+
       const sh = S().sheet!;
       const mode = sh.mode;
       const back = sh.back;
-      const activeTeamId = S().activeTeamId!;
       const payload = {
         type: f.type,
         title: f.title.trim(),
@@ -126,7 +127,7 @@ export function useEventFormActions({
         // otherwise a slow save for event A would silently close and replace
         // whatever the user is now looking at (e.g. an edit form for event B)
         // with A's detail view, discarding B's unsaved edits without warning.
-        if (S().activeTeamId === activeTeamId && S().sheet === sh) {
+        if (S().activeTeamId === teamId && S().sheet === sh) {
           setState({ sheet: null });
           if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
         }
@@ -139,10 +140,10 @@ export function useEventFormActions({
         );
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout, S }, err, 'error.save');
-        if (fProp !== undefined) throw err; // propagates error to let react-hook-form handle submission state
+        if (fProp !== undefined) throw err;
       }
     },
-    [S, setState, saveEventAsync, openEventDetail, loadNotifications, toastMsg, logout],
+    [S, setState, teamId, saveEventAsync, openEventDetail, loadNotifications, toastMsg, logout],
   );
 
   const toggleFormNomRole = useCallback(

@@ -20,7 +20,6 @@ const minutes = (value: string) => {
 
 export const eventFormSchema = z
   .object({
-    id: z.string().optional(),
     type: z.enum(['training', 'auftritt', 'event']),
     title: z.string().trim().min(1, { message: t('validation.eventTitleMissing') }).max(255),
     date: z.string().trim().min(1, { message: t('validation.eventDateMissing') }),
