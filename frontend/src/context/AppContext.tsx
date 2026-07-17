@@ -124,6 +124,10 @@ export interface SheetState {
   status?: AttendanceStatus;
   invite?: import('@/types').Invite | null;
   copied?: boolean;
+  /** Per-sheet initial values for the form it opens with (e.g. `useForm({ defaultValues })`);
+   * each sheet's own typed FormValues shape, cast at the read site. Replaces the old shared
+   * `state.form` buffer -- scoped to the sheet instance instead of the whole app. */
+  formInitial?: unknown;
 }
 
 export interface AppState {
@@ -147,9 +151,6 @@ export interface AppState {
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
   contribMonth: string | null;
   sheet: SheetState | null;
-  /** Shared editing buffer for the active sheet; read typed via formValues<T>() (src/utils/forms.ts). */
-  form: Record<string, unknown>;
-  formErrors: Record<string, string>;
   /**
    * `kind` defaults to 'success' when omitted (Toast.tsx) -- most of the ~70
    * toastMsg call sites across the app are success confirmations, so only
@@ -206,8 +207,6 @@ const initialState: AppState = {
   finTab: initialLocation.finTab,
   contribMonth: null,
   sheet: null,
-  form: {},
-  formErrors: {},
   toast: null,
   error: null,
   // Overwritten every render by AppProvider's merged context value (see the
@@ -259,10 +258,6 @@ export interface AppContextValue {
   resetDemo: () => void;
   setPrimaryColor: (c: string) => void;
   setColorScheme: (scheme: AppState['colorScheme']) => void;
-  // form
-  onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
-  setFormVal: (patch: Record<string, unknown>) => void;
-  setFormErrors: (patch: Record<string, string>) => void;
   onFile: (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => void;
   setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
   // auth
@@ -288,8 +283,8 @@ export interface AppContextValue {
   setStatusFor: (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => void;
   canSeeComment: (row: AttendanceRow) => boolean;
   openComment: (e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => void;
-  submitComment: () => Promise<void>;
-  postEventComment: (eventId: string) => Promise<void>;
+  submitComment: (text: string) => Promise<void>;
+  postEventComment: (eventId: string, text: string) => Promise<boolean>;
   removeEventComment: (eventId: string, cid: string) => void;
   toggleNomination: (eventId: string, userId: string, currentlyNominated: boolean) => Promise<void>;
   // confirm
@@ -311,13 +306,11 @@ export interface AppContextValue {
   ) => Promise<void>;
   openEventDetail: (eventId: string) => void;
   openEventForm: (event: TeamEvent | null) => void;
-  saveEvent: (fOrScope?: EventFormValues | 'single' | 'series', scope?: 'single' | 'series') => Promise<void>;
-  toggleFormNomRole: (roleId: string) => void;
+  saveEvent: (f: EventFormValues, scope?: 'single' | 'series') => Promise<void>;
   // members
   openMemberDetail: (membershipId: string) => Promise<void>;
   openMemberForm: (member: Member) => void;
-  toggleFormRole: (roleId: string) => void;
-  saveMember: (f?: MemberFormValues) => Promise<void>;
+  saveMember: (f: MemberFormValues) => Promise<void>;
   removeMember: (membershipId: string) => void;
   // roles
   openRoles: () => void;
@@ -578,24 +571,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 1500);
   }, [api]);
 
-  // ---------- form ----------
-  const onFormInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-      const target = e.target as HTMLInputElement;
-      const name = target.name;
-      const val = target.type === 'checkbox' ? target.checked : target.value;
-      setState((s) => ({ form: { ...s.form, [name]: val } }));
-    },
-    [setState],
-  );
-  const setFormVal = useCallback(
-    (patch: Record<string, unknown>) => setState((s) => ({ form: { ...s.form, ...patch } })),
-    [setState],
-  );
-  const setFormErrors = useCallback(
-    (patch: Record<string, string>) => setState((s) => ({ formErrors: { ...s.formErrors, ...patch } })),
-    [setState],
-  );
   const onFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
       const f = e.target.files && e.target.files[0];
@@ -1037,7 +1012,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotifFilter,
     openMemberDetail,
     openMemberForm,
-    toggleFormRole,
     saveMember,
     removeMember,
     openRoles,
@@ -1089,7 +1063,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removePoll,
     openEventForm,
     saveEvent,
-    toggleFormNomRole,
     savingEvent,
     savingComment,
     savingMember,
@@ -1112,7 +1085,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadNotifications,
     afterLoginLoad,
     toastMsg,
-    setFormVal,
     askConfirm,
     logout,
   });
@@ -1232,9 +1204,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       resetDemo,
       setPrimaryColor,
       setColorScheme,
-      onFormInput,
-      setFormVal,
-      setFormErrors,
       onFile,
       setState,
       doLogin,
@@ -1268,10 +1237,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openEventDetail,
       openEventForm,
       saveEvent,
-      toggleFormNomRole,
       openMemberDetail,
       openMemberForm,
-      toggleFormRole,
       saveMember,
       removeMember,
       openRoles,
@@ -1332,9 +1299,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       resetDemo,
       setPrimaryColor,
       setColorScheme,
-      onFormInput,
-      setFormVal,
-      setFormErrors,
       onFile,
       setState,
       doLogin,
@@ -1368,10 +1332,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openEventDetail,
       openEventForm,
       saveEvent,
-      toggleFormNomRole,
       openMemberDetail,
       openMemberForm,
-      toggleFormRole,
       saveMember,
       removeMember,
       openRoles,

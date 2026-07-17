@@ -1,11 +1,10 @@
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import type { SheetProps } from './types';
 import { buildTokens, statusMeta, NEUTRAL } from '@/styles/tokens';
 import { Sym, Chip, PrimaryButton, inputSx } from '@/components/ui';
-import { formValues } from '@/utils/forms';
 import { t } from '@/i18n';
-import type { AttendanceCommentFormValues } from '@/features/events/types';
 
 export function ConfirmSheet({ app, sheet }: SheetProps) {
   const { state } = app;
@@ -148,7 +147,7 @@ export function SeriesActionSheet({ app, sheet }: SheetProps) {
 
 export function CommentSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const F = formValues<AttendanceCommentFormValues>(state);
+  const [text, setText] = useState((sheet.formInitial as string) || '');
   const sm = statusMeta(sheet.status!);
   const isMe = sheet.userId === state.user!.id;
   return (
@@ -165,8 +164,8 @@ export function CommentSheet({ app, sheet }: SheetProps) {
       <textarea
         key="t"
         name="commentText"
-        value={F.commentText || ''}
-        onChange={(e) => app.onFormInput(e)}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
         placeholder={t('attendance.commentPlaceholder')}
         maxLength={500}
         style={{ ...inputSx, minHeight: '100px', resize: 'vertical' }}
@@ -179,7 +178,7 @@ export function CommentSheet({ app, sheet }: SheetProps) {
       ) : null}
       <PrimaryButton
         label={t('attendance.saveComment')}
-        onClick={() => app.submitComment()}
+        onClick={() => app.submitComment(text)}
         busy={state.savingComment}
       />
     </Box>

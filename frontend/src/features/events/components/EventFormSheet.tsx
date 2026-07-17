@@ -6,15 +6,12 @@ import { buildTokens, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Field, labelSx, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { Role } from '@/types';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
 import { eventFormSchema, type EventFormValues } from './eventFormSchema';
 import { t } from '@/i18n';
 
 export function EventFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const F = formValues<EventFormValues>(app.state);
-  const errs = state.formErrors || {};
 
   const {
     register,
@@ -25,22 +22,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   } = useForm<EventFormValues>({
     resolver: zodResolver(eventFormSchema),
     mode: 'onBlur',
-    defaultValues: {
-      type: F.type || 'training',
-      title: F.title || '',
-      date: F.date || '',
-      meetT: F.meetT || '',
-      startT: F.startT || '',
-      endT: F.endT || '',
-      meetTimeMandatory: F.meetTimeMandatory !== undefined ? F.meetTimeMandatory : true,
-      responseMode: F.responseMode || 'opt_in',
-      nominatedRoleIds: F.nominatedRoleIds || [],
-      location: F.location || '',
-      note: F.note || '',
-      recurring: F.recurring || false,
-      repeatWeeks: F.repeatWeeks || 8,
-      seriesId: F.seriesId || null,
-    },
+    defaultValues: sheet.formInitial as EventFormValues,
   });
 
   const type = watch('type');
@@ -48,18 +30,18 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const meetTimeMandatory = watch('meetTimeMandatory');
   const recurring = watch('recurring');
   const nominatedRoleIds = watch('nominatedRoleIds') || [];
+  const seriesId = watch('seriesId');
 
   const toggleRole = (roleId: string) => {
     const next = nominatedRoleIds.includes(roleId)
       ? nominatedRoleIds.filter((id) => id !== roleId)
       : [...nominatedRoleIds, roleId];
     setValue('nominatedRoleIds', next, { shouldValidate: true });
-    app.toggleFormNomRole(roleId);
   };
 
   const onSubmit = async (values: EventFormValues, scope: 'single' | 'series' = 'single') => {
     try {
-      await app.saveEvent({ ...F, ...values }, scope);
+      await app.saveEvent(values, scope);
     } catch {
       // Ignored
     }
@@ -72,10 +54,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <ButtonBase
         key={tp}
         type="button"
-        onClick={() => {
-          setValue('type', tp, { shouldValidate: true });
-          app.setFormVal({ type: tp });
-        }}
+        onClick={() => setValue('type', tp, { shouldValidate: true })}
         aria-pressed={sel}
         sx={{
           flex: 1,
@@ -113,10 +92,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <ButtonBase
         key={v}
         type="button"
-        onClick={() => {
-          setValue('responseMode', v as 'opt_in' | 'opt_out', { shouldValidate: true });
-          app.setFormVal({ responseMode: v });
-        }}
+        onClick={() => setValue('responseMode', v as 'opt_in' | 'opt_out', { shouldValidate: true })}
         aria-pressed={sel}
         sx={{
           flex: 1,
@@ -160,10 +136,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       role="checkbox"
       aria-checked={!!meetTimeMandatory}
       aria-label={t('events.meetTimeMandatory')}
-      onClick={() => {
-        setValue('meetTimeMandatory', !meetTimeMandatory, { shouldValidate: true });
-        app.setFormVal({ meetTimeMandatory: !meetTimeMandatory });
-      }}
+      onClick={() => setValue('meetTimeMandatory', !meetTimeMandatory, { shouldValidate: true })}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -208,10 +181,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           role="switch"
           aria-checked={!!recurring}
           aria-label={t('events.recurWeekly')}
-          onClick={() => {
-            setValue('recurring', !recurring, { shouldValidate: true });
-            app.setFormVal({ recurring: !recurring });
-          }}
+          onClick={() => setValue('recurring', !recurring, { shouldValidate: true })}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -315,12 +285,6 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const dateVal = watch('date');
   const canSubmit = !!titleVal?.trim() && !!dateVal;
 
-  const hasTitleError = !!errors.title || !!errs.title;
-  const titleErrorText = errors.title?.message || errs.title;
-
-  const hasDateError = !!errors.date || !!errs.date;
-  const dateErrorText = errors.date?.message || errs.date;
-
   return (
     <Box
       component="form"
@@ -335,28 +299,11 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           {typeBtns}
         </Box>
       </Box>
-      <Field label={t('events.fieldTitle')} required error={hasTitleError} errorText={titleErrorText}>
-        <TextInput
-          placeholder={t('events.fieldTitlePlaceholder')}
-          maxLength={255}
-          {...register('title', {
-            onBlur: (e) => {
-              const val = e.target.value;
-              app.setFormErrors({ title: val.trim() ? '' : t('events.fieldTitleError') });
-            },
-          })}
-        />
+      <Field label={t('events.fieldTitle')} required error={!!errors.title} errorText={errors.title?.message}>
+        <TextInput placeholder={t('events.fieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
-      <Field label={t('events.fieldDate')} required error={hasDateError} errorText={dateErrorText}>
-        <TextInput
-          type="date"
-          {...register('date', {
-            onBlur: (e) => {
-              const val = e.target.value;
-              app.setFormErrors({ date: val.trim() ? '' : t('events.fieldDateError') });
-            },
-          })}
-        />
+      <Field label={t('events.fieldDate')} required error={!!errors.date} errorText={errors.date?.message}>
+        <TextInput type="date" {...register('date')} />
       </Field>
       <Box key="times" sx={{ display: 'flex', gap: '10px' }}>
         <Field label={t('events.fieldMeetTime')} error={!!errors.meetT} errorText={errors.meetT?.message}>
@@ -391,7 +338,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
         />
       </Field>
       {recur}
-      {sheet.mode === 'edit' && F.seriesId ? (
+      {sheet.mode === 'edit' && seriesId ? (
         <Box key="serbtn" sx={{ display: 'flex', flexDirection: 'column', gap: '9px', mt: '4px' }}>
           <Box
             key="h"

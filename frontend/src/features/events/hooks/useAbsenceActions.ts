@@ -50,7 +50,7 @@ export function useAbsenceActions({
       const f: AbsenceFormValues = absence
         ? { id: absence.id, from: absence.from, to: absence.to, reason: absence.reason }
         : { from: todayStr(), to: todayStr(), reason: '' };
-      setState({ sheet: { type: 'absenceForm', mode: absence ? 'edit' : 'create' }, form: f });
+      setState({ sheet: { type: 'absenceForm', mode: absence ? 'edit' : 'create', formInitial: f } });
     },
     [setState],
   );

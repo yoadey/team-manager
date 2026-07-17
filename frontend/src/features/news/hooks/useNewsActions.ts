@@ -51,9 +51,7 @@ export function useNewsActions({
         ? { id: n.id, title: n.title, body: n.body, pinned: n.pinned }
         : { title: '', body: '', pinned: false };
       setState({
-        sheet: { type: 'newsForm', mode: n ? 'edit' : 'create' },
-        form,
-        formErrors: {},
+        sheet: { type: 'newsForm', mode: n ? 'edit' : 'create', formInitial: form },
       });
     },
     [setState],

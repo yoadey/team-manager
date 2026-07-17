@@ -6,7 +6,6 @@ import type { AppState } from '@/context/AppContext';
 import type { CreateTeamFormValues } from '../components/createTeamSchema';
 import type { TeamSettingsFormValues } from '../components/teamSettingsSchema';
 import { queryKeys } from '@/query/keys';
-import { clearBusyIfOwned } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 
@@ -142,7 +141,6 @@ export function useTeamActions({
 
   const saveTeamSettings = useCallback(
     async (f: TeamSettingsFormValues) => {
-      setState({ busy: 'save' });
       try {
         await api.teams.updateSettings(S().activeTeamId!, {
           name: f.name.trim(),
@@ -150,10 +148,9 @@ export function useTeamActions({
           reasonVisibilityRoles: f.reasonRoles || [],
         });
         await refreshTeams();
-        clearBusyIfOwned(S, setState, 'save');
         toastMsg(t('team.toastSettingsSaved'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
       }
     },
@@ -167,7 +164,6 @@ export function useTeamActions({
   const createTeam = useCallback(
     async (f: CreateTeamFormValues) => {
       const sh = S().sheet;
-      setState({ busy: 'save' });
       try {
         const team = await api.teams.create({
           name: f.name.trim(),
@@ -177,7 +173,6 @@ export function useTeamActions({
           photo: f.photo ?? null,
         });
         await refreshTeams();
-        clearBusyIfOwned(S, setState, 'save');
         // Don't navigate the user into the new team, or clobber whatever
         // sheet they've since opened, if they closed the create-team sheet
         // (or opened something else) while this request was in flight -- the
@@ -188,7 +183,7 @@ export function useTeamActions({
         }
         toastMsg(t('team.toastTeamCreated'));
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
       }
     },

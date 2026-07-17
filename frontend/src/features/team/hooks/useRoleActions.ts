@@ -3,7 +3,6 @@ import type { api as defaultApi } from '@/services';
 import type { Role, TeamForUser } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
 import type { RoleFormValues } from '../components/roleFormSchema';
-import { clearBusyIfOwned } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 
@@ -42,7 +41,9 @@ export function useRoleActions({
             name: '',
             perms: { events: 'read', members: 'read', finances: 'none', news: 'read', polls: 'read', settings: 'none' },
           };
-      setState((st) => ({ sheet: { type: 'roleForm', mode: role ? 'edit' : 'create', back: st.sheet }, form }));
+      setState((st) => ({
+        sheet: { type: 'roleForm', mode: role ? 'edit' : 'create', back: st.sheet, formInitial: form },
+      }));
     },
     [setState],
   );
@@ -51,12 +52,10 @@ export function useRoleActions({
     async (f: RoleFormValues) => {
       const teamId = S().activeTeamId!;
       const sh = S().sheet;
-      setState({ busy: 'save' });
       try {
         if (f.id) {
           await api.roles.update(f.id, { name: f.name.trim(), permissions: f.perms }, teamId);
           await refreshRoles();
-          clearBusyIfOwned(S, setState, 'save');
           // Don't navigate to the roles sheet for a different team than the
           // one the user has since switched to, or clobber a different sheet
           // the user has since opened while this save was in flight.
@@ -65,12 +64,11 @@ export function useRoleActions({
         } else {
           await api.roles.create(teamId, { name: f.name.trim(), permissions: f.perms });
           await refreshRoles();
-          clearBusyIfOwned(S, setState, 'save');
           if (S().activeTeamId === teamId && S().sheet === sh) setState({ sheet: { type: 'roles' } });
           toastMsg(t('team.toastRoleCreated'));
         }
       } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout, S, busyOwner: 'save' }, err, 'error.save');
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
         throw err;
       }
     },

@@ -58,7 +58,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
       const f: TxFormValues = tx
         ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category }
         : { type: 'income', title: '', amount: '', category: '' };
-      setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create' }, form: f, formErrors: {} });
+      setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create', formInitial: f } });
     },
     [setState],
   );
@@ -111,11 +111,10 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
           type: 'penaltyForm',
           mode: p ? 'edit' : 'create',
           back: st.sheet && st.sheet.type === 'penaltyCatalog' ? st.sheet : null,
+          formInitial: (p
+            ? { id: p.id, label: p.label, amount: String(p.amount) }
+            : { label: '', amount: '' }) satisfies PenaltyFormValues,
         },
-        form: (p
-          ? { id: p.id, label: p.label, amount: String(p.amount) }
-          : { label: '', amount: '' }) satisfies PenaltyFormValues,
-        formErrors: {},
       })),
     [setState],
   );
@@ -176,7 +175,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     const f = queryClient.getQueryData<FinanceOverview>(queryKeys.finances(teamId ?? ''));
     const first = f && f.penalties[0] ? f.penalties[0].id : '';
     const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };
-    setState({ sheet: { type: 'penaltyAssign' }, form, formErrors: {} });
+    setState({ sheet: { type: 'penaltyAssign', formInitial: form } });
   }, [queryClient, teamId, setState]);
 
   const savePenaltyAssign = useCallback(
@@ -219,7 +218,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
   const openContribForm = useCallback(
     (c: Contribution) => {
       const form: ContribFormValues = { id: c.id, label: c.label, amount: String(c.amount) };
-      setState({ sheet: { type: 'contribForm' }, form, formErrors: {} });
+      setState({ sheet: { type: 'contribForm', formInitial: form } });
     },
     [setState],
   );

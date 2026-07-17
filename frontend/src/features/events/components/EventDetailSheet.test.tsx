@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { EventDetailSheet as RealEventDetailSheet } from './EventDetailSheet';
 import type { SheetProps } from '@/sheets/types';
 
@@ -141,9 +141,8 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     askEventAction: vi.fn(),
     openComment: vi.fn(),
     toggleNomination: vi.fn(),
-    postEventComment: vi.fn(),
+    postEventComment: vi.fn().mockResolvedValue(true),
     removeEventComment: vi.fn(),
-    onFormInput: vi.fn(),
   };
 }
 
@@ -600,7 +599,7 @@ describe('EventDetailSheet', () => {
     expect(screen.getByText('Mein Kommentar')).toBeTruthy();
   });
 
-  it('pressing Enter in comment input calls postEventComment', () => {
+  it('pressing Enter in comment input calls postEventComment', async () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
     const event = makeEvent();
@@ -608,8 +607,11 @@ describe('EventDetailSheet', () => {
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
     );
     const input = document.querySelector('input[name="newEventComment"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Tolles Spiel!' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(app.postEventComment).toHaveBeenCalledWith('ev1');
+    await waitFor(() => {
+      expect(app.postEventComment).toHaveBeenCalledWith('ev1', 'Tolles Spiel!');
+    });
   });
 
   it('renders meet time row when meetTime is present', () => {

@@ -11,7 +11,6 @@ import { t } from '@/i18n';
 export function PollFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  void sheet;
 
   const {
     register,
@@ -21,7 +20,7 @@ export function PollFormSheet({ app, sheet }: SheetProps) {
     formState: { errors, isSubmitting, touchedFields },
   } = useForm<PollFormValues>({
     resolver: zodResolver(pollFormSchema),
-    defaultValues: state.form as PollFormValues,
+    defaultValues: sheet.formInitial as PollFormValues,
     mode: 'onBlur',
   });
 

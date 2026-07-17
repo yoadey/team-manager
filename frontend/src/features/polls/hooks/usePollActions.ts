@@ -56,7 +56,7 @@ export function usePollActions({
       multiple: false,
       anonymous: false,
     };
-    setState({ sheet: { type: 'pollForm' }, form, formErrors: {} });
+    setState({ sheet: { type: 'pollForm', formInitial: form } });
   }, [setState]);
 
   // Guards against the lost-update race where two quick clicks on different

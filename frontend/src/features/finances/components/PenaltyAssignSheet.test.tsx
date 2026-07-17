@@ -4,7 +4,6 @@ import { PenaltyAssignSheet } from './PenaltyAssignSheet';
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
-  useAppActions: vi.fn().mockReturnValue({}),
 }));
 
 vi.mock('@/features/members/hooks/useMemberQueries', () => ({
@@ -49,20 +48,18 @@ function makeApp(
 ) {
   mockUseMembersQuery.mockReturnValue({ data: members });
   mockUseFinanceOverviewQuery.mockReturnValue({ data: finances });
-  return {
+  const app = {
     api: {},
     state: {
       primaryColor: '#4285F4',
       activeTeamId: 't1',
-      form: { userId: '', penaltyId: '', ...formOverrides },
-      formErrors: { userId: '', penaltyId: '' },
     },
-    setFormErrors: vi.fn(),
-    setFormVal: vi.fn(),
-    onFormInput: vi.fn(),
     savePenaltyAssign: vi.fn(),
     can: vi.fn().mockReturnValue(true),
   };
+  const formInitial = { userId: '', penaltyId: '', ...formOverrides };
+  mockUseApp.mockReturnValue(app as never);
+  return { app, formInitial };
 }
 
 describe('PenaltyAssignSheet', () => {
@@ -70,56 +67,47 @@ describe('PenaltyAssignSheet', () => {
     vi.clearAllMocks();
   });
 
-  const sheet = {} as never;
-
   it('renders person select dropdown', () => {
-    mockUseApp.mockReturnValue(makeApp() as never);
-    const app = mockUseApp();
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     expect(screen.getByRole('combobox')).toBeTruthy();
   });
 
   it('shows member name in select options', () => {
-    mockUseApp.mockReturnValue(makeApp() as never);
-    const app = mockUseApp();
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
 
   it('renders penalty option buttons', () => {
-    mockUseApp.mockReturnValue(makeApp() as never);
-    const app = mockUseApp();
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     expect(screen.getByText('Versäumtes Training')).toBeTruthy();
   });
 
   it('submit button is disabled when form is empty', () => {
-    mockUseApp.mockReturnValue(makeApp({ userId: '', penaltyId: '' }) as never);
-    const app = mockUseApp();
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ userId: '', penaltyId: '' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     expect(screen.getByRole('button', { name: /Strafe erfassen/i })).toBeDisabled();
   });
 
   it('submit button is enabled when userId and penaltyId set', () => {
-    mockUseApp.mockReturnValue(makeApp({ userId: 'u2', penaltyId: 'p1' }) as never);
-    const app = mockUseApp();
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ userId: 'u2', penaltyId: 'p1' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     expect(screen.getByRole('button', { name: /Strafe erfassen/i })).not.toBeDisabled();
   });
 
   it('clicking penalty button updates selection', () => {
-    const app = makeApp({ penaltyId: '' });
-    mockUseApp.mockReturnValue(app as never);
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ penaltyId: '' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     const btn = screen.getByText('Versäumtes Training').closest('button')!;
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-checked')).toBe('true');
   });
 
   it('validates userId field on blur', async () => {
-    const app = makeApp({ userId: '' });
-    mockUseApp.mockReturnValue(app as never);
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ userId: '' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     fireEvent.blur(screen.getByRole('combobox'));
     await waitFor(() => {
       expect(screen.getByText('Bitte Person wählen.')).toBeTruthy();
@@ -127,9 +115,8 @@ describe('PenaltyAssignSheet', () => {
   });
 
   it('handles empty finances (no penalties)', () => {
-    const app = makeApp({}, [makeMember()], null);
-    mockUseApp.mockReturnValue(app as never);
-    render(<PenaltyAssignSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({}, [makeMember()], null);
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     expect(screen.getByRole('combobox')).toBeTruthy();
   });
 });

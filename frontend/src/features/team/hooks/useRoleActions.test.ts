@@ -9,8 +9,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -110,7 +108,7 @@ describe('useRoleActions', () => {
     const patch = stateRef;
     expect(patch.sheet?.type).toBe('roleForm');
     expect(patch.sheet?.mode).toBe('create');
-    expect(patch.form).toMatchObject({
+    expect(patch.sheet?.formInitial).toMatchObject({
       name: '',
       perms: expect.objectContaining({ events: 'read', finances: 'none' }),
     });
@@ -129,11 +127,10 @@ describe('useRoleActions', () => {
     const patch = stateRef;
     expect(patch.sheet?.type).toBe('roleForm');
     expect(patch.sheet?.mode).toBe('edit');
-    expect(patch.form).toMatchObject({ id: 'r1', name: 'Trainer', perms: role.permissions });
+    expect(patch.sheet?.formInitial).toMatchObject({ id: 'r1', name: 'Trainer', perms: role.permissions });
   });
 
   it('saveRole creates role and shows toast', async () => {
-    stateRef = makeState({ form: {} });
     const { result } = renderActions();
     await act(async () => {
       await result.current.saveRole({ name: 'Trainer', perms: { events: 'write', finances: 'none' } } as never);
@@ -143,7 +140,6 @@ describe('useRoleActions', () => {
   });
 
   it('saveRole updates an existing role (form has id) instead of creating', async () => {
-    stateRef = makeState({ form: {} });
     const { result } = renderActions();
     await act(async () => {
       await result.current.saveRole({
@@ -162,7 +158,6 @@ describe('useRoleActions', () => {
   });
 
   it('saveRole trims leading/trailing whitespace from the name before saving', async () => {
-    stateRef = makeState({ form: {} });
     const { result } = renderActions();
     await act(async () => {
       await result.current.saveRole({
@@ -180,7 +175,6 @@ describe('useRoleActions', () => {
     let resolveUpdate!: (v: { id: string }) => void;
     api.roles.update = vi.fn(() => new Promise((resolve) => (resolveUpdate = resolve)));
     stateRef = makeState({
-      form: {},
       sheet: { type: 'roleForm', mode: 'edit' } as never,
     });
     const { result } = renderActions();

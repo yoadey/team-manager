@@ -33,8 +33,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -136,7 +134,11 @@ describe('useFinanceActions', () => {
     act(() => {
       result.current.openTxForm();
     });
-    expect(setState).toHaveBeenCalledWith(expect.objectContaining({ form: expect.objectContaining({ category: '' }) }));
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: expect.objectContaining({ formInitial: expect.objectContaining({ category: '' }) }),
+      }),
+    );
   });
 
   it('openTxForm sets edit sheet when transaction passed', () => {
@@ -153,26 +155,32 @@ describe('useFinanceActions', () => {
   });
 
   it('saveTx creates transaction in create mode', async () => {
+    const formValues = { title: 'Beitrag Jan', amount: '50', type: 'income', category: 'Beiträge' } as TxFormValues;
     stateRef = makeState({
-      sheet: { type: 'txForm', mode: 'create' } as never,
-      form: { title: 'Beitrag Jan', amount: '50', type: 'income', category: 'Beiträge' },
+      sheet: { type: 'txForm', mode: 'create', formInitial: formValues } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTx(stateRef.form as TxFormValues);
+      await result.current.saveTx(formValues);
     });
     expect(api.finances.addTransaction).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Buchung gespeichert');
   });
 
   it('saveTx updates transaction in edit mode', async () => {
+    const formValues = {
+      id: 'tx1',
+      title: 'Updated',
+      amount: '75',
+      type: 'expense',
+      category: 'Ausrüstung',
+    } as TxFormValues;
     stateRef = makeState({
-      sheet: { type: 'txForm', mode: 'edit' } as never,
-      form: { id: 'tx1', title: 'Updated', amount: '75', type: 'expense', category: 'Ausrüstung' },
+      sheet: { type: 'txForm', mode: 'edit', formInitial: formValues } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveTx(stateRef.form as TxFormValues);
+      await result.current.saveTx(formValues);
     });
     expect(api.finances.updateTransaction).toHaveBeenCalledWith(
       'tx1',
@@ -189,15 +197,21 @@ describe('useFinanceActions', () => {
   it('saveTx does not touch the sheet if the user opened something else while the save was in flight', async () => {
     let resolveUpdate!: () => void;
     api.finances.updateTransaction = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
+    const formValues = {
+      id: 'tx1',
+      title: 'Updated',
+      amount: '75',
+      type: 'expense',
+      category: 'Ausrüstung',
+    } as TxFormValues;
     stateRef = makeState({
-      sheet: { type: 'txForm', mode: 'edit' } as never,
-      form: { id: 'tx1', title: 'Updated', amount: '75', type: 'expense', category: 'Ausrüstung' },
+      sheet: { type: 'txForm', mode: 'edit', formInitial: formValues } as never,
     });
     const { result } = renderActions();
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveTx(stateRef.form as TxFormValues);
+      savePromise = result.current.saveTx(formValues);
     });
     await waitFor(() => expect(api.finances.updateTransaction).toHaveBeenCalled());
 
@@ -237,28 +251,14 @@ describe('useFinanceActions', () => {
     expect(setState).toHaveBeenCalled();
   });
 
-  // Regression test: openPenaltyForm/openPenaltyAssign/openContribForm used
-  // to leave a prior sheet's formErrors in place, unlike openTxForm/
-  // openEventForm/openNewsForm/openPollForm, which all reset it -- reopening
-  // any of these three after a validation error on a *different* record
-  // showed that stale error under a freshly-loaded, valid form.
-  it('openPenaltyForm clears a stale formErrors from a previous sheet', () => {
-    stateRef = makeState({ formErrors: { label: 'Bezeichnung fehlt.' } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.openPenaltyForm();
-    });
-    expect(stateRef.formErrors).toEqual({});
-  });
-
   it('savePenalty creates penalty in create mode', async () => {
+    const formValues = { label: 'Zu spät', amount: '5' } as PenaltyFormValues;
     stateRef = makeState({
-      sheet: { type: 'penaltyForm', mode: 'create', back: null } as never,
-      form: { label: 'Zu spät', amount: '5' },
+      sheet: { type: 'penaltyForm', mode: 'create', back: null, formInitial: formValues } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.savePenalty(stateRef.form as PenaltyFormValues);
+      await result.current.savePenalty(formValues);
     });
     expect(api.finances.createPenalty).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Strafe hinzugefügt');
@@ -273,10 +273,9 @@ describe('useFinanceActions', () => {
   });
 
   it('savePenaltyAssign assigns penalty when valid', async () => {
-    stateRef = makeState({ form: { userId: 'u1', penaltyId: 'p1' } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.savePenaltyAssign(stateRef.form as PenaltyAssignFormValues);
+      await result.current.savePenaltyAssign({ userId: 'u1', penaltyId: 'p1' } as PenaltyAssignFormValues);
     });
     expect(api.finances.assignPenalty).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Strafe erfasst');
@@ -329,10 +328,9 @@ describe('useFinanceActions', () => {
 
 
   it('saveContrib updates contribution when valid', async () => {
-    stateRef = makeState({ form: { label: 'Monatsbeitrag', amount: '20', id: 'c1' } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveContrib(stateRef.form as ContribFormValues);
+      await result.current.saveContrib({ label: 'Monatsbeitrag', amount: '20', id: 'c1' } as ContribFormValues);
     });
     expect(api.finances.updateContribution).toHaveBeenCalledWith(
       'c1',
@@ -375,27 +373,8 @@ describe('useFinanceActions', () => {
     });
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({
-        sheet: { type: 'contribForm' },
+        sheet: expect.objectContaining({ type: 'contribForm' }),
       }),
     );
-  });
-
-  it('openContribForm clears a stale formErrors from a previous sheet', () => {
-    stateRef = makeState({ formErrors: { label: 'Bezeichnung fehlt.' } });
-    const c = { id: 'c1', label: 'Beitrag', amount: 20 } as never;
-    const { result } = renderActions();
-    act(() => {
-      result.current.openContribForm(c);
-    });
-    expect(stateRef.formErrors).toEqual({});
-  });
-
-  it('openPenaltyAssign clears a stale formErrors from a previous sheet', () => {
-    stateRef = makeState({ formErrors: { userId: 'Person erforderlich.' } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.openPenaltyAssign();
-    });
-    expect(stateRef.formErrors).toEqual({});
   });
 });

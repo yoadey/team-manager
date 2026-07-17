@@ -21,7 +21,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
     formState: { errors, isSubmitting },
   } = useForm<PenaltyFormValues>({
     resolver: zodResolver(penaltyFormSchema),
-    defaultValues: state.form as PenaltyFormValues,
+    defaultValues: sheet.formInitial as PenaltyFormValues,
     mode: 'onBlur',
   });
 
@@ -36,8 +36,6 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
       // Ignored
     }
   };
-
-  const errs = state.formErrors || {};
 
   return (
     <Box
@@ -61,19 +59,14 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         <Sym name="gavel" size={20} color={tk.primary} />
         {create ? t('finances.penaltyFormHintCreate') : t('finances.penaltyFormHintEdit')}
       </Box>
-      <Field
-        label={t('finances.penaltyFieldLabel')}
-        required
-        error={!!errors.label || !!errs.label}
-        errorText={errors.label?.message || errs.label}
-      >
+      <Field label={t('finances.penaltyFieldLabel')} required error={!!errors.label} errorText={errors.label?.message}>
         <TextInput placeholder={t('finances.penaltyFieldLabelPlaceholder')} maxLength={255} {...register('label')} />
       </Field>
       <Field
         label={t('finances.penaltyFieldAmount')}
         required
-        error={!!errors.amount || !!errs.amount}
-        errorText={errors.amount?.message || errs.amount}
+        error={!!errors.amount}
+        errorText={errors.amount?.message}
       >
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
@@ -87,7 +80,7 @@ export function PenaltyFormSheet({ app, sheet }: SheetProps) {
         <ButtonBase
           key="del"
           type="button"
-          onClick={() => app.deletePenaltyDef((state.form as PenaltyFormValues).id!)}
+          onClick={() => app.deletePenaltyDef((sheet.formInitial as PenaltyFormValues).id!)}
           sx={{
             display: 'flex',
             alignItems: 'center',

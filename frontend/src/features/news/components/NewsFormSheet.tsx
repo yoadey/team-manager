@@ -20,7 +20,7 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
     formState: { errors, isSubmitting },
   } = useForm<NewsFormValues>({
     resolver: zodResolver(newsFormSchema),
-    defaultValues: state.form as NewsFormValues,
+    defaultValues: sheet.formInitial as NewsFormValues,
     mode: 'onBlur',
   });
 
@@ -89,28 +89,16 @@ export function NewsFormSheet({ app, sheet }: SheetProps) {
     </ButtonBase>
   );
 
-  const errs = state.formErrors || {};
-
   return (
     <Box
       component="form"
       onSubmit={handleSubmit(onSubmit)}
       sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
     >
-      <Field
-        label={t('news.fieldTitle')}
-        required
-        error={!!errors.title || !!errs.title}
-        errorText={errors.title?.message || errs.title}
-      >
+      <Field label={t('news.fieldTitle')} required error={!!errors.title} errorText={errors.title?.message}>
         <TextInput placeholder={t('news.fieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
-      <Field
-        label={t('news.fieldBody')}
-        required
-        error={!!errors.body || !!errs.body}
-        errorText={errors.body?.message || errs.body}
-      >
+      <Field label={t('news.fieldBody')} required error={!!errors.body} errorText={errors.body?.message}>
         <TextArea
           placeholder={t('news.fieldBodyPlaceholder')}
           minHeight={120}

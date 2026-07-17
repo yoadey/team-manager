@@ -77,14 +77,12 @@ function makeApp(overrides: Record<string, unknown> = {}) {
   return {
     state: {
       primaryColor: '#4285F4',
-      form: { commentText: '' },
       user: { id: 'u1' },
       busy: null,
     },
     cancelConfirm: vi.fn(),
     runConfirm: vi.fn(),
     runEventAction: vi.fn(),
-    onFormInput: vi.fn(),
     submitComment: vi.fn(),
     ...overrides,
   };

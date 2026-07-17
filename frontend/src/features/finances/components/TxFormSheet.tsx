@@ -12,7 +12,6 @@ import { getIntlLocale, t } from '@/i18n';
 
 export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const errs = state.formErrors || {};
   const tk = buildTokens(state.primaryColor);
   const { data: finances } = useFinanceOverviewQuery(app.api, state.activeTeamId);
   const edit = sheet.mode === 'edit';
@@ -25,7 +24,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
     formState: { errors, isSubmitting },
   } = useForm<TxFormValues>({
     resolver: zodResolver(txFormSchema),
-    defaultValues: state.form as TxFormValues,
+    defaultValues: sheet.formInitial as TxFormValues,
     mode: 'onBlur',
   });
 
@@ -83,11 +82,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
 
   const catField = (
     <Box>
-      <Field
-        label={t('finances.txFieldCategory')}
-        error={!!errors.category || !!errs.category}
-        errorText={errors.category?.message || errs.category}
-      >
+      <Field label={t('finances.txFieldCategory')} error={!!errors.category} errorText={errors.category?.message}>
         <input
           key="i"
           list="tvCatList"
@@ -143,12 +138,12 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
         app.askConfirm({
           title: t('finances.txDeleteConfirmTitle'),
           message: t('finances.txDeleteConfirmMsg', {
-            title: String((state.form as TxFormValues).title || t('finances.txDelete')),
+            title: String(title || t('finances.txDelete')),
           }),
           confirmLabel: t('common.delete'),
           danger: true,
           onConfirm: async () => {
-            await app.deleteTx((state.form as TxFormValues).id!);
+            await app.deleteTx((sheet.formInitial as TxFormValues).id!);
           },
         })
       }
@@ -178,20 +173,10 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
     >
       <Box sx={{ display: 'flex', gap: '8px' }}>{typeBtns}</Box>
-      <Field
-        label={t('finances.txFieldTitle')}
-        required
-        error={!!errors.title || !!errs.title}
-        errorText={errors.title?.message || errs.title}
-      >
+      <Field label={t('finances.txFieldTitle')} required error={!!errors.title} errorText={errors.title?.message}>
         <TextInput placeholder={t('finances.txFieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
-      <Field
-        label={t('finances.txFieldAmount')}
-        required
-        error={!!errors.amount || !!errs.amount}
-        errorText={errors.amount?.message || errs.amount}
-      >
+      <Field label={t('finances.txFieldAmount')} required error={!!errors.amount} errorText={errors.amount?.message}>
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
       {catField}

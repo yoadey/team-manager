@@ -141,7 +141,6 @@ export function RolesSheet({ app, sheet }: SheetProps) {
 }
 
 export function RoleFormSheet({ app, sheet }: SheetProps) {
-  void sheet;
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
@@ -155,7 +154,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
     formState: { errors, isSubmitting },
   } = useForm<RoleFormValues>({
     resolver: zodResolver(roleFormSchema),
-    defaultValues: state.form as RoleFormValues,
+    defaultValues: sheet.formInitial as RoleFormValues,
     mode: 'onBlur',
   });
 
@@ -249,7 +248,7 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={t('team.saveRole')}
         onClick={handleSubmit(onSubmit)}
-        busy={isSubmitting || app.state.busy === 'save'}
+        busy={isSubmitting}
         disabled={!canSubmit}
       />
     </Box>

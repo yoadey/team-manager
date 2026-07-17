@@ -1,13 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { todayLocalDate } from '@/utils/date';
 import { buildTokens, fmtDateLong, fmtDateTime, hhmm, statusMeta, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { Av, Chip, EmptyState, IconBtn, inputSx, SectionTitle, SpinnerBox, Sym } from '@/components/ui';
-import type { AttendanceRow, EventComment, EventCommentFormValues, TeamEvent } from '../types';
+import type { AttendanceRow, EventComment, TeamEvent } from '../types';
 import type { AttendanceStatus } from '@/types';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
 import { useEventDetailQuery } from '../hooks/useEventQueries';
 import { t } from '@/i18n';
@@ -17,6 +16,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const tk = buildTokens(state.primaryColor);
   const eventId = sheet.eventId ?? null;
   const detail = useEventDetailQuery(app.api, state.activeTeamId, eventId);
+  const [newComment, setNewComment] = useState('');
 
   // A thrown INITIAL fetch (a genuine network failure, or events:none after a
   // permission downgrade) never resolves to a `{ event: null }` success --
@@ -660,10 +660,16 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         <input
           key="i"
           name="newEventComment"
-          value={formValues<EventCommentFormValues>(app.state).newEventComment || ''}
-          onChange={(ev) => app.onFormInput(ev)}
+          value={newComment}
+          onChange={(ev) => setNewComment(ev.target.value)}
           onKeyDown={(ev) => {
-            if (ev.key === 'Enter') app.postEventComment(e.id);
+            if (ev.key === 'Enter') {
+              const txt = newComment;
+              setNewComment('');
+              app.postEventComment(e.id, txt).then((ok) => {
+                if (!ok) setNewComment(txt);
+              });
+            }
           }}
           placeholder={t('events.commentWrite')}
           maxLength={10000}
@@ -671,7 +677,13 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         />
         <ButtonBase
           key="b"
-          onClick={() => app.postEventComment(e.id)}
+          onClick={() => {
+            const txt = newComment;
+            setNewComment('');
+            app.postEventComment(e.id, txt).then((ok) => {
+              if (!ok) setNewComment(txt);
+            });
+          }}
           sx={{
             background: tk.primary,
             color: tk.onPrimary,

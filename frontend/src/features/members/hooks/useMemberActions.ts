@@ -3,9 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import type { Member } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
-import { validateEmail, validatePhone, validateBirthday, validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
 import type { MemberFormValues } from '../components/memberFormSchema';
 import { queryKeys } from '@/query/keys';
@@ -92,57 +90,22 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
         roleIds: member.roles.map((r) => r.id),
         group: member.group,
         photo: member.photo,
-      } as any;
+      };
       setState((st) => ({
         sheet: {
           type: 'memberForm',
           mode: 'edit',
           self: member.userId === st.user!.id,
           back: st.sheet && st.sheet.type === 'memberDetail' ? st.sheet : null,
+          formInitial: f,
         },
-        form: f,
-        formErrors: {},
       }));
     },
     [setState],
   );
 
-  const toggleFormRole = useCallback(
-    (roleId: string) => {
-      const cur = formValues<MemberFormValues>(S()).roleIds ?? [];
-      const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-      if (!next.length) {
-        toastMsg(t('team.roleAtLeastOne'), undefined, 'error');
-        return;
-      }
-      setState((s) => ({ form: { ...s.form, roleIds: next } }));
-    },
-    [S, setState, toastMsg],
-  );
-
   const saveMember = useCallback(
-    async (fProp?: MemberFormValues) => {
-      const f = fProp !== undefined ? fProp : (S().form as MemberFormValues);
-      const nameResult = validateRequiredText(f.name, t('members.fieldNameError'));
-      if (!nameResult.ok) {
-        toastMsg(nameResult.message!, undefined, 'error');
-        return;
-      }
-      const emailResult = validateEmail(f.email, t('validation.emailInvalid'));
-      if (!emailResult.ok) {
-        toastMsg(emailResult.message!, undefined, 'error');
-        return;
-      }
-      const phoneResult = validatePhone(f.phone, t('validation.phoneInvalid'));
-      if (!phoneResult.ok) {
-        toastMsg(phoneResult.message!, undefined, 'error');
-        return;
-      }
-      const birthdayResult = validateBirthday(f.birthday, t('validation.birthdayInvalid'));
-      if (!birthdayResult.ok) {
-        toastMsg(birthdayResult.message!, undefined, 'error');
-        return;
-      }
+    async (f: MemberFormValues) => {
       const sh = S().sheet!;
       const back = sh.back;
       const self = sh.self;
@@ -169,7 +132,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
         const result = await saveMemberAsync({
           membershipId: f.membershipId!,
           patch: {
-            name: nameResult.value!,
+            name: f.name.trim(),
             email: f.email || '',
             phone: f.phone || '',
             birthday: f.birthday || '',
@@ -199,7 +162,7 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
         toastMsg(t('members.toastProfileSaved'));
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
-        if (fProp !== undefined) throw err;
+        throw err;
       }
     },
     [S, setState, saveMemberAsync, openMemberDetail, toastMsg, logout, membersOf, teamId],
@@ -233,5 +196,5 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
     [S, askConfirm, removeMemberAsync, setState, toastMsg, logout, membersOf, teamId],
   );
 
-  return { openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember, savingMember };
+  return { openMemberDetail, openMemberForm, saveMember, removeMember, savingMember };
 }

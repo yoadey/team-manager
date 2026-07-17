@@ -71,16 +71,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
     primaryColor: '#4285F4',
     busy: null,
-    form: {
-      name: '',
-      icon: '🏆',
-      photo: null,
-      logo: null,
-      description: '',
-      reasonRoles: [],
-      ...((overrides.form as Record<string, unknown>) ?? {}),
-    },
-    formErrors: {},
     members: [],
     finances: null,
     roles: [],
@@ -94,9 +84,7 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     state,
     activeTeam: vi.fn().mockReturnValue(makeTeam()),
     can: vi.fn().mockReturnValue(true),
-    setFormVal: vi.fn(),
     setState: vi.fn(),
-    onFormInput: vi.fn(),
     onFile: vi.fn(),
     createTeam: vi.fn(),
     copyInvite: vi.fn(),
@@ -404,12 +392,17 @@ describe('TeamSettingsSheet', () => {
     });
   });
 
-  it('disables save button when busy is "save"', () => {
+  it('disables save button while saveTeamSettings is pending', async () => {
     const app = makeSettingsApp();
-    app.state.busy = 'save';
+    let resolveSave!: () => void;
+    (app.saveTeamSettings as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise<void>((resolve) => (resolveSave = resolve)),
+    );
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     const btn = screen.getByRole('button', { name: /Einstellungen speichern/i });
-    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn).toBeDisabled());
+    resolveSave();
   });
 
   it('renders 12 icon buttons in the logo section', () => {

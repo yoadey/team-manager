@@ -6,7 +6,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Av, Chip, EmptyState, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { Member } from '../types';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
 import { getIntlLocale, t } from '@/i18n';
 import { memberFormSchema, type MemberFormValues } from './memberFormSchema';
 
@@ -187,7 +186,6 @@ export function MemberDetailSheet({ app, sheet }: SheetProps) {
 
 export function MemberFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
-  const F = formValues<MemberFormValues>(app.state);
   const canRoles = app.can('settings', 'write');
   const canEditPhoto = !!sheet.self;
 
@@ -200,15 +198,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
   } = useForm<MemberFormValues>({
     resolver: zodResolver(memberFormSchema),
     mode: 'onBlur',
-    defaultValues: {
-      name: F.name || '',
-      email: F.email || '',
-      phone: F.phone || '',
-      birthday: F.birthday || '',
-      address: F.address || '',
-      photo: F.photo || null,
-      roleIds: F.roleIds || [],
-    },
+    defaultValues: sheet.formInitial as MemberFormValues,
   });
 
   const myIds = watch('roleIds') || [];
@@ -241,13 +231,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
           key="f"
           type="file"
           accept="image/*"
-          onChange={(e) => {
-            const sheetType = state.sheet?.type;
-            app.onFile(e, (d) => {
-              app.setState((s) => (s.sheet?.type === sheetType ? { form: { ...s.form, photo: d } } : {}));
-              setValue('photo', d);
-            });
-          }}
+          onChange={(e) => app.onFile(e, (d) => setValue('photo', d, { shouldValidate: true }))}
           hidden
         />
       </Box>
@@ -274,8 +258,7 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
                   app.toastMsg(t('team.roleAtLeastOne'), undefined, 'error');
                   return;
                 }
-                setValue('roleIds', nextIds);
-                app.toggleFormRole(r.id);
+                setValue('roleIds', nextIds, { shouldValidate: true });
               }}
               sx={{
                 display: 'inline-flex',
@@ -312,21 +295,13 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
     </Box>
   );
 
-  const onSubmit = (values: MemberFormValues) => {
-    app.saveMember({ ...F, ...values });
+  const onSubmit = async (values: MemberFormValues) => {
+    try {
+      await app.saveMember(values);
+    } catch {
+      // Ignored
+    }
   };
-
-  const hasNameError = !!errors.name || !!state.formErrors?.name;
-  const nameErrorText = errors.name?.message || state.formErrors?.name;
-
-  const hasEmailError = !!errors.email || !!state.formErrors?.email;
-  const emailErrorText = errors.email?.message || state.formErrors?.email;
-
-  const hasPhoneError = !!errors.phone || !!state.formErrors?.phone;
-  const phoneErrorText = errors.phone?.message || state.formErrors?.phone;
-
-  const hasBirthdayError = !!errors.birthday || !!state.formErrors?.birthday;
-  const birthdayErrorText = errors.birthday?.message || state.formErrors?.birthday;
 
   return (
     <Box
@@ -335,61 +310,22 @@ export function MemberFormSheet({ app, sheet }: SheetProps) {
       sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
     >
       {photoRow}
-      <Field label={t('members.fieldName')} required error={hasNameError} errorText={nameErrorText}>
-        <TextInput
-          {...register('name', {
-            onBlur: (e) => {
-              const val = e.target.value;
-              app.setFormErrors({ name: val.trim() ? '' : t('members.fieldNameError') });
-            },
-          })}
-          placeholder={t('members.fieldNamePlaceholder')}
-          maxLength={255}
-        />
+      <Field label={t('members.fieldName')} required error={!!errors.name} errorText={errors.name?.message}>
+        <TextInput {...register('name')} placeholder={t('members.fieldNamePlaceholder')} maxLength={255} />
       </Field>
-      <Field label={t('members.fieldEmail')} error={hasEmailError} errorText={emailErrorText}>
+      <Field label={t('members.fieldEmail')} error={!!errors.email} errorText={errors.email?.message}>
         <TextInput
-          {...register('email', {
-            onBlur: (e) => {
-              const val = e.target.value;
-              const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-              const isOk = !val || EMAIL_RE.test(val);
-              app.setFormErrors({ email: isOk ? '' : t('members.fieldEmailError') });
-            },
-          })}
+          {...register('email')}
           type="email"
           placeholder={t('members.fieldEmailPlaceholder')}
           maxLength={254}
         />
       </Field>
-      <Field label={t('members.fieldPhone')} error={hasPhoneError} errorText={phoneErrorText}>
-        <TextInput
-          {...register('phone', {
-            onBlur: (e) => {
-              const val = e.target.value;
-              const PHONE_RE = /^\+?[\d\s\-().]{6,20}$/;
-              const isOk = !val || PHONE_RE.test(val);
-              app.setFormErrors({ phone: isOk ? '' : t('members.fieldPhoneError') });
-            },
-          })}
-          placeholder={t('members.fieldPhonePlaceholder')}
-          maxLength={32}
-        />
+      <Field label={t('members.fieldPhone')} error={!!errors.phone} errorText={errors.phone?.message}>
+        <TextInput {...register('phone')} placeholder={t('members.fieldPhonePlaceholder')} maxLength={32} />
       </Field>
-      <Field label={t('members.fieldBirthday')} error={hasBirthdayError} errorText={birthdayErrorText}>
-        <TextInput
-          {...register('birthday', {
-            onBlur: (e) => {
-              const val = e.target.value;
-              const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-              const isOk =
-                !val || (DATE_RE.test(val) && new Date(val + 'T00:00:00') <= new Date() && val >= '1900-01-01');
-              app.setFormErrors({ birthday: isOk ? '' : t('members.fieldBirthdayError') });
-            },
-          })}
-          type="date"
-          min="1900-01-01"
-        />
+      <Field label={t('members.fieldBirthday')} error={!!errors.birthday} errorText={errors.birthday?.message}>
+        <TextInput {...register('birthday')} type="date" min="1900-01-01" />
       </Field>
       <Field label={t('members.fieldAddress')}>
         <TextInput {...register('address')} placeholder={t('members.fieldAddressPlaceholder')} maxLength={500} />

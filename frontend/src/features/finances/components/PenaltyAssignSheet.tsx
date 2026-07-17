@@ -10,7 +10,7 @@ import { penaltyAssignFormSchema, type PenaltyAssignFormValues } from './penalty
 import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { t } from '@/i18n';
 
-export function PenaltyAssignSheet({ app }: SheetProps) {
+export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const { data: f } = useFinanceOverviewQuery(app.api, state.activeTeamId);
@@ -24,7 +24,7 @@ export function PenaltyAssignSheet({ app }: SheetProps) {
     formState: { errors, isSubmitting },
   } = useForm<PenaltyAssignFormValues>({
     resolver: zodResolver(penaltyAssignFormSchema),
-    defaultValues: state.form as PenaltyAssignFormValues,
+    defaultValues: sheet.formInitial as PenaltyAssignFormValues,
     mode: 'onBlur',
   });
 

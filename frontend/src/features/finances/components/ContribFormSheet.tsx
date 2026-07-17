@@ -7,9 +7,7 @@ import { contribFormSchema, type ContribFormValues } from './contribFormSchema';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { t } from '@/i18n';
 
-export function ContribFormSheet({ app }: SheetProps) {
-  const { state } = app;
-
+export function ContribFormSheet({ app, sheet }: SheetProps) {
   const {
     register,
     handleSubmit,
@@ -17,7 +15,7 @@ export function ContribFormSheet({ app }: SheetProps) {
     formState: { errors, isSubmitting },
   } = useForm<ContribFormValues>({
     resolver: zodResolver(contribFormSchema),
-    defaultValues: state.form as ContribFormValues,
+    defaultValues: sheet.formInitial as ContribFormValues,
     mode: 'onBlur',
   });
 
@@ -33,27 +31,20 @@ export function ContribFormSheet({ app }: SheetProps) {
     }
   };
 
-  const errs = state.formErrors || {};
-
   return (
     <Box
       component="form"
       onSubmit={handleSubmit(onSubmit)}
       sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
     >
-      <Field
-        label={t('finances.contribFieldLabel')}
-        required
-        error={!!errors.label || !!errs.label}
-        errorText={errors.label?.message || errs.label}
-      >
+      <Field label={t('finances.contribFieldLabel')} required error={!!errors.label} errorText={errors.label?.message}>
         <TextInput placeholder={t('finances.contribFieldLabelPlaceholder')} maxLength={255} {...register('label')} />
       </Field>
       <Field
         label={t('finances.contribFieldAmount')}
         required
-        error={!!errors.amount || !!errs.amount}
-        errorText={errors.amount?.message || errs.amount}
+        error={!!errors.amount}
+        errorText={errors.amount?.message}
       >
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>

@@ -4,13 +4,7 @@ import { EventFormSheet } from './EventFormSheet';
 
 vi.mock('@/context/AppContext', () => {
   const useApp = vi.fn();
-  return {
-    useApp,
-    // Actions + selector derive from the per-test useApp mock so migrated
-    // atoms (TextInput/TextArea via useAppActions/useAppSelector) resolve.
-    useAppActions: vi.fn(() => useApp()),
-    useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel(useApp().state),
-  };
+  return { useApp };
 });
 
 vi.mock('@/styles/tokens', () => ({
@@ -53,7 +47,7 @@ vi.mock('@/i18n', () => ({
 import { useApp } from '@/context/AppContext';
 const mockUseApp = vi.mocked(useApp);
 
-function makeApp(formOverrides: Record<string, unknown> = {}, errOverrides: Record<string, string> = {}) {
+function makeApp(formOverrides: Record<string, unknown> = {}) {
   return {
     state: {
       primaryColor: '#4285F4',
@@ -74,15 +68,10 @@ function makeApp(formOverrides: Record<string, unknown> = {}, errOverrides: Reco
         note: '',
         ...formOverrides,
       },
-      formErrors: { title: '', date: '', ...errOverrides },
       roles: [],
       busy: null,
     },
-    setFormErrors: vi.fn(),
-    setFormVal: vi.fn(),
-    onFormInput: vi.fn(),
     saveEvent: vi.fn(),
-    toggleFormNomRole: vi.fn(),
   };
 }
 
@@ -94,7 +83,7 @@ describe('EventFormSheet', () => {
   it('renders event type buttons', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.typeTraining')).toBeTruthy();
     expect(screen.getByText('events.typeAuftritt')).toBeTruthy();
     expect(screen.getByText('events.typeEvent')).toBeTruthy();
@@ -103,21 +92,21 @@ describe('EventFormSheet', () => {
   it('renders title field', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.fieldTitle')).toBeTruthy();
   });
 
   it('renders date field', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.fieldDate')).toBeTruthy();
   });
 
   it('renders time fields', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.fieldMeetTime')).toBeTruthy();
     expect(screen.getByText('events.fieldStartTime')).toBeTruthy();
     expect(screen.getByText('events.fieldEndTime')).toBeTruthy();
@@ -126,7 +115,7 @@ describe('EventFormSheet', () => {
   it('renders response mode buttons', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.modeOptIn')).toBeTruthy();
     expect(screen.getByText('events.modeOptOut')).toBeTruthy();
   });
@@ -134,21 +123,21 @@ describe('EventFormSheet', () => {
   it('renders location field', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.fieldLocation')).toBeTruthy();
   });
 
   it('renders note field', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.fieldNote')).toBeTruthy();
   });
 
   it('caps location and note inputs matching the backend limits', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const location = document.querySelector('input[name="location"]') as HTMLInputElement;
     const note = document.querySelector('textarea[name="note"]') as HTMLTextAreaElement;
     expect(location.maxLength).toBe(255);
@@ -158,7 +147,7 @@ describe('EventFormSheet', () => {
   it('caps the title input matching the backend limit', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const title = document.querySelector('input[name="title"]') as HTMLInputElement;
     expect(title.maxLength).toBe(255);
   });
@@ -166,21 +155,21 @@ describe('EventFormSheet', () => {
   it('renders recurring toggle in create mode', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.recurWeekly')).toBeTruthy();
   });
 
   it('does not render recurring toggle in edit mode', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
     expect(screen.queryByText('events.recurWeekly')).toBeNull();
   });
 
   it('submit button is disabled when title and date are empty', () => {
     const app = makeApp({ title: '', date: '' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const btn = screen.getByRole('button', { name: /events.createEvent/i });
     expect(btn).toBeDisabled();
   });
@@ -188,7 +177,7 @@ describe('EventFormSheet', () => {
   it('submit button is enabled when title and date are filled', () => {
     const app = makeApp({ title: 'Sommerball', date: '2026-07-01' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const btn = screen.getByRole('button', { name: /events.createEvent/i });
     expect(btn).not.toBeDisabled();
   });
@@ -196,21 +185,21 @@ describe('EventFormSheet', () => {
   it('shows create label in create mode', () => {
     const app = makeApp({ title: 'Test', date: '2026-07-01' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.createEvent')).toBeTruthy();
   });
 
   it('shows save label in edit mode', () => {
     const app = makeApp({ title: 'Test', date: '2026-07-01' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.saveChanges')).toBeTruthy();
   });
 
   it('clicking type button updates the selected button', () => {
     const app = makeApp({ type: 'training' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const btn = screen.getByText('events.typeAuftritt').closest('button')!;
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
@@ -219,7 +208,7 @@ describe('EventFormSheet', () => {
   it('clicking opt_in mode button updates the selected button', () => {
     const app = makeApp({ responseMode: 'opt_out' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const btn = screen.getByText('events.modeOptIn').closest('button')!;
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
@@ -228,7 +217,7 @@ describe('EventFormSheet', () => {
   it('clicking recurring toggle updates the toggle switch', () => {
     const app = makeApp({ recurring: false });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const btn = screen.getByText('events.recurWeekly').closest('button')!;
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-checked')).toBe('true');
@@ -237,14 +226,14 @@ describe('EventFormSheet', () => {
   it('shows repeatWeeks field when recurring is true', () => {
     const app = makeApp({ recurring: true });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.recurWeeks')).toBeTruthy();
   });
 
   it('clicking meetTimeMandatory toggle updates the checkbox', () => {
     const app = makeApp({ meetTimeMandatory: false });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const btn = screen.getByText('events.meetTimeMandatory').closest('button')!;
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-checked')).toBe('true');
@@ -253,7 +242,7 @@ describe('EventFormSheet', () => {
   it('clicking submit calls saveEvent', async () => {
     const app = makeApp({ title: 'Test Event', date: '2026-07-01' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     fireEvent.click(screen.getByRole('button', { name: /events.createEvent/i }));
     await waitFor(() => {
       expect(app.saveEvent).toHaveBeenCalled();
@@ -263,7 +252,7 @@ describe('EventFormSheet', () => {
   it('renders nominated roles label', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.nominatedRoles')).toBeTruthy();
   });
 
@@ -279,7 +268,7 @@ describe('EventFormSheet', () => {
       },
     };
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('Musiker')).toBeTruthy();
     expect(screen.getByText('Dirigent')).toBeTruthy();
   });
@@ -293,7 +282,7 @@ describe('EventFormSheet', () => {
       },
     };
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const btn = screen.getByText('Musiker').closest('button')!;
     fireEvent.click(btn);
     expect(btn.getAttribute('aria-checked')).toBe('true');
@@ -302,7 +291,7 @@ describe('EventFormSheet', () => {
   it('shows series buttons in edit mode when seriesId is set', () => {
     const app = makeApp({ title: 'Test', date: '2026-07-01', seriesId: '123e4567-e89b-12d3-a456-426614174000' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.seriesSingle')).toBeTruthy();
     expect(screen.getByText('events.seriesAll')).toBeTruthy();
   });
@@ -310,7 +299,7 @@ describe('EventFormSheet', () => {
   it('clicking seriesSingle calls saveEvent with single', async () => {
     const app = makeApp({ title: 'Test', date: '2026-07-01', seriesId: '123e4567-e89b-12d3-a456-426614174000' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
     fireEvent.click(screen.getByText('events.seriesSingle').closest('button')!);
     await waitFor(() => {
       expect(app.saveEvent).toHaveBeenCalledWith(expect.any(Object), 'single');
@@ -320,7 +309,7 @@ describe('EventFormSheet', () => {
   it('clicking seriesAll calls saveEvent with series', async () => {
     const app = makeApp({ title: 'Test', date: '2026-07-01', seriesId: '123e4567-e89b-12d3-a456-426614174000' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
     fireEvent.click(screen.getByText('events.seriesAll').closest('button')!);
     await waitFor(() => {
       expect(app.saveEvent).toHaveBeenCalledWith(expect.any(Object), 'series');
@@ -330,7 +319,7 @@ describe('EventFormSheet', () => {
   it('validates title on blur when title is empty', async () => {
     const app = makeApp({ title: '' });
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     const titleInput = document.querySelector('input[name="title"]') as HTMLInputElement;
     fireEvent.blur(titleInput);
     await waitFor(() => {
@@ -341,14 +330,14 @@ describe('EventFormSheet', () => {
   it('renders event type section label', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.eventType')).toBeTruthy();
   });
 
   it('renders response mode section label', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create' } as never} />);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.responseMode')).toBeTruthy();
   });
 });

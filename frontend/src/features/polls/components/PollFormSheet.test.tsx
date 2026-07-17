@@ -4,13 +4,7 @@ import { PollFormSheet } from './PollFormSheet';
 
 vi.mock('@/context/AppContext', () => {
   const useApp = vi.fn();
-  return {
-    useApp,
-    // Actions + selector derive from the per-test useApp mock so migrated
-    // atoms (TextInput/TextArea via useAppActions/useAppSelector) resolve.
-    useAppActions: vi.fn(() => useApp()),
-    useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel(useApp().state),
-  };
+  return { useApp };
 });
 
 import { useApp } from '@/context/AppContext';
@@ -20,25 +14,27 @@ function makeApp(formOverrides: Record<string, unknown> = {}) {
   const app = {
     state: {
       primaryColor: '#4285F4',
-      form: {
-        question: '',
-        opt0: '',
-        opt1: '',
-        opt2: '',
-        opt3: '',
-        multiple: false,
-        anonymous: false,
-        ...formOverrides,
-      },
-      formErrors: {},
     },
-    setFormErrors: vi.fn(),
-    setFormVal: vi.fn(),
-    onFormInput: vi.fn(),
     savePoll: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
-  return app;
+  return {
+    app,
+    formInitial: {
+      question: '',
+      opt0: '',
+      opt1: '',
+      opt2: '',
+      opt3: '',
+      multiple: false,
+      anonymous: false,
+      ...formOverrides,
+    },
+  };
+}
+
+function makeSheet(formInitial: Record<string, unknown>) {
+  return { formInitial } as never;
 }
 
 describe('PollFormSheet', () => {
@@ -46,19 +42,15 @@ describe('PollFormSheet', () => {
     vi.clearAllMocks();
   });
 
-  const sheet = {} as never;
-
   it('renders question field', () => {
-    makeApp();
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     expect(screen.getByPlaceholderText('Worüber soll abgestimmt werden?')).toBeTruthy();
   });
 
   it('renders option fields (opt0, opt1, opt2, opt3)', () => {
-    makeApp();
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     expect(screen.getByPlaceholderText('Option 1')).toBeTruthy();
     expect(screen.getByPlaceholderText('Option 2')).toBeTruthy();
     expect(screen.getByPlaceholderText('Option 3 (optional)')).toBeTruthy();
@@ -66,8 +58,8 @@ describe('PollFormSheet', () => {
   });
 
   it('shows a question error on blur when question is empty', async () => {
-    const app = makeApp({ question: '' });
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ question: '' });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const input = screen.getByPlaceholderText('Worüber soll abgestimmt werden?');
     fireEvent.blur(input);
     await waitFor(() => {
@@ -76,47 +68,41 @@ describe('PollFormSheet', () => {
   });
 
   it('renders multiple toggle button', () => {
-    makeApp();
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     expect(screen.getByText('Mehrfachauswahl')).toBeTruthy();
   });
 
   it('renders anonymous toggle button', () => {
-    makeApp();
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     expect(screen.getByText('Anonym')).toBeTruthy();
   });
 
   it('submit button is disabled when question is empty', () => {
-    makeApp({ question: '', opt0: 'A', opt1: 'B' });
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ question: '', opt0: 'A', opt1: 'B' });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const btn = screen.getByRole('button', { name: /Umfrage erstellen/i });
     expect(btn).toBeDisabled();
   });
 
   it('submit button is disabled when fewer than 2 options are filled', () => {
-    makeApp({ question: 'Eine Frage?', opt0: 'Nur eine', opt1: '' });
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ question: 'Eine Frage?', opt0: 'Nur eine', opt1: '' });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const btn = screen.getByRole('button', { name: /Umfrage erstellen/i });
     expect(btn).toBeDisabled();
   });
 
   it('submit button is enabled when question and at least 2 options are filled', () => {
-    makeApp({ question: 'Welches Datum passt?', opt0: 'Samstag', opt1: 'Sonntag' });
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ question: 'Welches Datum passt?', opt0: 'Samstag', opt1: 'Sonntag' });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const btn = screen.getByRole('button', { name: /Umfrage erstellen/i });
     expect(btn).not.toBeDisabled();
   });
 
   it('clicking multiple toggle flips its pressed state', () => {
-    makeApp({ multiple: false });
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ multiple: false });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const multipleBtn = screen.getByText('Mehrfachauswahl').closest('button')!;
     fireEvent.click(multipleBtn);
     // Re-rendered with the toggled value reflected in the button's styling
@@ -127,8 +113,8 @@ describe('PollFormSheet', () => {
   });
 
   it('calls savePoll with the validated values when create button is clicked', async () => {
-    const app = makeApp({ question: 'Lieblingsfarbe?', opt0: 'Rot', opt1: 'Blau' });
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ question: 'Lieblingsfarbe?', opt0: 'Rot', opt1: 'Blau' });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     fireEvent.click(screen.getByRole('button', { name: /Umfrage erstellen/i }));
     await waitFor(() => {
       expect(app.savePoll).toHaveBeenCalledWith(
@@ -141,15 +127,15 @@ describe('PollFormSheet', () => {
   // could type far past the backend's limits (question: 1000, each option:
   // 500) and only find out via a generic server-error toast after submit.
   it('caps the question input at 1000 characters matching the backend limit', () => {
-    makeApp();
-    render(<PollFormSheet app={mockUseApp() as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const input = screen.getByPlaceholderText('Worüber soll abgestimmt werden?') as HTMLInputElement;
     expect(input.maxLength).toBe(1000);
   });
 
   it('caps each option input at 500 characters matching the backend limit', () => {
-    makeApp();
-    render(<PollFormSheet app={mockUseApp() as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp();
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     for (const placeholder of ['Option 1', 'Option 2', 'Option 3 (optional)', 'Option 4 (optional)']) {
       const input = screen.getByPlaceholderText(placeholder) as HTMLInputElement;
       expect(input.maxLength).toBe(500);
@@ -162,8 +148,8 @@ describe('PollFormSheet', () => {
   // component and gets this wiring for free) -- a screen reader user
   // focusing an option input got no indication it was the invalid field.
   it('wires the options error to the first two option inputs via aria-describedby/aria-invalid', async () => {
-    const app = makeApp({ question: 'Frage?', opt0: 'Nur eine Option', opt1: '' });
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ question: 'Frage?', opt0: 'Nur eine Option', opt1: '' });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const opt1 = screen.getByPlaceholderText('Option 2');
     fireEvent.blur(opt1);
 
@@ -180,9 +166,8 @@ describe('PollFormSheet', () => {
   });
 
   it('does not mark option inputs invalid when there is no options error', () => {
-    makeApp({ opt0: 'A', opt1: 'B' });
-    const app = mockUseApp();
-    render(<PollFormSheet app={app as never} sheet={sheet} />);
+    const { app, formInitial } = makeApp({ opt0: 'A', opt1: 'B' });
+    render(<PollFormSheet app={app as never} sheet={makeSheet(formInitial)} />);
     const opt0 = screen.getByPlaceholderText('Option 1');
     expect(opt0.getAttribute('aria-describedby')).toBeNull();
     expect(opt0.getAttribute('aria-invalid')).toBe('false');

@@ -10,8 +10,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -73,15 +71,15 @@ describe('useEventFormActions', () => {
     act(() => {
       result.current.openEventForm(null);
     });
-    expect(stateRef.form).toMatchObject({ location: '' });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ location: '' });
   });
 
   it('saveEvent creates the event and reports savingEvent while the mutation is in flight', async () => {
     let resolveCreate!: (v: unknown) => void;
     const api = { events: { create: vi.fn(() => new Promise((resolve) => (resolveCreate = resolve))) } };
+    const formValues = { type: 'training', title: 'Test', date: '2026-01-01', nominatedRoleIds: ['r1'] } as never;
     stateRef = makeState({
-      form: { type: 'training', title: 'Test', date: '2026-01-01', nominatedRoleIds: ['r1'] } as never,
-      sheet: { type: 'eventForm', mode: 'create' } as never,
+      sheet: { type: 'eventForm', mode: 'create', formInitial: formValues } as never,
     });
     const { result } = renderHook(
       () =>
@@ -100,7 +98,7 @@ describe('useEventFormActions', () => {
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveEvent();
+      savePromise = result.current.saveEvent(formValues);
     });
     await waitFor(() => expect(result.current.savingEvent).toBe(true));
 

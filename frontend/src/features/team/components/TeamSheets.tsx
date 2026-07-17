@@ -141,7 +141,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={t('team.createBtn')}
         onClick={handleSubmit(onSubmit)}
-        busy={isSubmitting || app.state.busy === 'save'}
+        busy={isSubmitting}
         disabled={!canSubmit}
       />
     </Box>
@@ -506,7 +506,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
       <PrimaryButton
         label={t('team.settingsSave')}
         onClick={handleSubmit(onSubmit)}
-        busy={isSubmitting || app.state.busy === 'save'}
+        busy={isSubmitting}
         disabled={!canSubmit}
       />
     </Box>

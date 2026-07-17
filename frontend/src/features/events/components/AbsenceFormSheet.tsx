@@ -19,7 +19,7 @@ export function AbsenceFormSheet({ app, sheet }: SheetProps) {
     formState: { errors, isSubmitting },
   } = useForm<AbsenceFormValues>({
     resolver: zodResolver(absenceFormSchema),
-    defaultValues: state.form as AbsenceFormValues,
+    defaultValues: sheet.formInitial as AbsenceFormValues,
     mode: 'onTouched',
   });
 

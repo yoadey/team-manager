@@ -31,16 +31,6 @@ export interface AbsenceFormValues extends Record<string, unknown> {
   reason: string;
 }
 
-/** Attendance-reason comment sheet (per member/event). */
-export interface AttendanceCommentFormValues extends Record<string, unknown> {
-  commentText: string;
-}
-
-/** New-event-comment input on the event detail sheet. */
-export interface EventCommentFormValues extends Record<string, unknown> {
-  newEventComment: string;
-}
-
 export interface EventSummary {
   yes: number;
   no: number;

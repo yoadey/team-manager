@@ -11,8 +11,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -88,15 +86,18 @@ describe('usePollActions', () => {
     });
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({
-        sheet: { type: 'pollForm' },
-        form: expect.objectContaining({ question: '', opt0: '', opt1: '' }),
+        sheet: expect.objectContaining({
+          type: 'pollForm',
+          formInitial: expect.objectContaining({ question: '', opt0: '', opt1: '' }),
+        }),
       }),
     );
   });
 
   it('savePoll creates poll when valid', async () => {
-    stateRef = makeState({
-      form: {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.savePoll({
         question: 'Treffen heute?',
         opt0: 'Ja',
         opt1: 'Nein',
@@ -104,11 +105,7 @@ describe('usePollActions', () => {
         opt3: '',
         multiple: false,
         anonymous: false,
-      },
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePoll(stateRef.form as PollFormValues);
+      } as PollFormValues);
     });
     expect(api.polls.create).toHaveBeenCalledWith(
       'team1',

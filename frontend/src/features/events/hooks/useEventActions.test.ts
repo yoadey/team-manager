@@ -10,8 +10,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -52,7 +50,6 @@ describe('useEventDetailActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
   let loadNotifications: ReturnType<typeof vi.fn>;
-  let setFormVal: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: ReturnType<typeof makeApi>;
@@ -70,7 +67,6 @@ describe('useEventDetailActions', () => {
     });
     toastMsg = vi.fn();
     loadNotifications = vi.fn().mockResolvedValue(undefined);
-    setFormVal = vi.fn();
     askConfirm = vi.fn();
     logout = vi.fn();
     api = makeApi();
@@ -87,7 +83,6 @@ describe('useEventDetailActions', () => {
           myRoles: () => [],
           teamId: stateRef.activeTeamId,
           loadNotifications: loadNotifications as never,
-          setFormVal: setFormVal as never,
           askConfirm: askConfirm as never,
           toastMsg: toastMsg as never,
           logout: logout as never,
@@ -173,28 +168,26 @@ describe('useEventDetailActions', () => {
     expect(setState).toHaveBeenCalledWith(expect.any(Function));
     const call = setState.mock.calls[0][0];
     const patch = typeof call === 'function' ? call(stateRef) : call;
-    expect(patch.sheet).toMatchObject({ type: 'comment', userId: 'u2' });
-    expect(patch.form).toMatchObject({ commentText: 'injured' });
+    expect(patch.sheet).toMatchObject({ type: 'comment', userId: 'u2', formInitial: 'injured' });
   });
 
-  it('postEventComment calls addComment and clears the form', async () => {
+  it('postEventComment calls addComment and returns true', async () => {
     stateRef = makeState({
-      form: { newEventComment: 'Great match!' },
       sheet: { type: 'eventDetail', eventId: 'ev1' } as never,
     });
     const { result } = renderActions();
+    let ok = false;
     await act(async () => {
-      await result.current.postEventComment('ev1');
+      ok = await result.current.postEventComment('ev1', 'Great match!');
     });
     expect(api.events.addComment).toHaveBeenCalledWith('ev1', 'Great match!', 'team1');
-    expect(setFormVal).toHaveBeenCalledWith({ newEventComment: '' });
+    expect(ok).toBe(true);
   });
 
   it('postEventComment does nothing when text is empty', async () => {
-    stateRef = makeState({ form: { newEventComment: '  ' } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.postEventComment('ev1');
+      await result.current.postEventComment('ev1', '  ');
     });
     expect(api.events.addComment).not.toHaveBeenCalled();
   });
@@ -272,11 +265,10 @@ describe('useEventDetailActions', () => {
   it('submitComment sets attendance and reopens event detail', async () => {
     stateRef = makeState({
       sheet: { type: 'comment', eventId: 'ev1', userId: 'u2', status: 'no' } as never,
-      form: { commentText: 'injured' },
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.submitComment();
+      await result.current.submitComment('injured');
     });
     expect(api.attendance.set).toHaveBeenCalledWith('ev1', 'u2', { status: 'no', reason: 'injured' }, 'team1');
     expect(loadNotifications).toHaveBeenCalled();
@@ -291,13 +283,12 @@ describe('useEventDetailActions', () => {
     api.attendance.set = vi.fn(() => new Promise((resolve) => (resolveSet = resolve)));
     stateRef = makeState({
       sheet: { type: 'comment', eventId: 'ev1', userId: 'u2', status: 'no' } as never,
-      form: { commentText: 'injured' },
     });
     const { result } = renderActions();
 
     let submitPromise!: Promise<void>;
     await act(async () => {
-      submitPromise = result.current.submitComment();
+      submitPromise = result.current.submitComment('injured');
       // Let the mutation's internal microtasks reach mutationFn (mutateAsync
       // doesn't invoke it synchronously) before resolveSet is assigned.
       await Promise.resolve();
