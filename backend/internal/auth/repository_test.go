@@ -265,7 +265,7 @@ func TestRepository_EraseUser_NullsPhotoObjectKey(t *testing.T) {
 	otherAdminID := "bbbbbbbb-6666-6666-6666-666666666666"
 	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Erase Photo Test Team')`, teamID)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color, photo_object_key) VALUES ($1, 'Leaving Admin', 'leaving-admin-photo@example.com', '#123456', 'users/'||$1||'/photo')`, userID)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color, photo_object_key) VALUES ($1, 'Leaving Admin', 'leaving-admin-photo@example.com', '#123456', $2)`, userID, "users/"+userID+"/photo")
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Admin', 'other-admin-photo@example.com', '#654321')`, otherAdminID)
 	require.NoError(t, err)
