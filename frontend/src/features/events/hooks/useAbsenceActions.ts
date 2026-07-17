@@ -1,11 +1,10 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
 import type { AppState } from '@/context/AppContext';
-import type { AbsenceFormValues } from '../types';
-import { validateDateRange } from '@/utils/validation';
 import { todayStr } from '@/styles/tokens';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
+import type { AbsenceFormValues } from '../components/absenceFormSchema';
 import { useDeleteAbsenceMutation, useSaveAbsenceMutation } from './useAbsenceMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -51,37 +50,35 @@ export function useAbsenceActions({
       const f: AbsenceFormValues = absence
         ? { id: absence.id, from: absence.from, to: absence.to, reason: absence.reason }
         : { from: todayStr(), to: todayStr(), reason: '' };
-      setState({ sheet: { type: 'absenceForm', mode: absence ? 'edit' : 'create' }, form: f });
+      setState({ sheet: { type: 'absenceForm', mode: absence ? 'edit' : 'create', formInitial: f } });
     },
     [setState],
   );
 
-  const saveAbsence = useCallback(async () => {
-    const f = S().form as AbsenceFormValues;
-    const range = validateDateRange(f.from, f.to);
-    if (!range.ok) {
-      toastMsg(range.message!, undefined, 'error');
-      return;
-    }
-    const mode = S().sheet!.mode;
-    const sh = S().sheet;
-    const savedTeamId = teamId;
-    try {
-      await saveAbsenceAsync({
-        id: mode === 'edit' ? f.id : undefined,
-        payload: { from: range.value!.from, to: range.value!.to, reason: f.reason },
-        userId: S().user!.id,
-      });
-      loadNotifications();
-      // Don't close a sheet the user has since opened for a different team
-      // after switching away mid-request, or one they've since opened while
-      // this save was in flight.
-      if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
-      toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
-    }
-  }, [S, setState, saveAbsenceAsync, loadNotifications, teamId, toastMsg, logout]);
+  const saveAbsence = useCallback(
+    async (f: AbsenceFormValues) => {
+      const mode = S().sheet!.mode;
+      const sh = S().sheet;
+      const savedTeamId = teamId;
+      try {
+        await saveAbsenceAsync({
+          id: mode === 'edit' ? f.id : undefined,
+          payload: { from: f.from, to: f.to, reason: f.reason || '' },
+          userId: S().user!.id,
+        });
+        loadNotifications();
+        // Don't close a sheet the user has since opened for a different team
+        // after switching away mid-request, or one they've since opened while
+        // this save was in flight.
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
+        toastMsg(mode === 'edit' ? t('events.toastAbsenceUpdated') : t('events.toastAbsenceCreated'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        throw err;
+      }
+    },
+    [S, setState, saveAbsenceAsync, loadNotifications, teamId, toastMsg, logout],
+  );
 
   const removeAbsence = useCallback(
     (id: string) => {

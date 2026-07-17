@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { MemberDetailSheet, MemberFormSheet } from './MemberSheets';
 
 vi.mock('@/context/AppContext', () => {
@@ -72,8 +72,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u-me', name: 'Ich', email: 'me@test.com' } as AppState['user'],
     busy: null,
     roles: [makeRole(), makeRole({ id: 'role-2', name: 'Trainer', color: '#00796B' })],
-    form: {},
-    formErrors: {},
     ...overrides,
   } as AppState;
 }
@@ -85,12 +83,8 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     can: vi.fn().mockReturnValue(false),
     openMemberForm: vi.fn(),
     removeMember: vi.fn(),
-    setFormErrors: vi.fn(),
-    setFormVal: vi.fn(),
     setState: vi.fn(),
-    onFormInput: vi.fn(),
     onFile: vi.fn(),
-    toggleFormRole: vi.fn(),
     saveMember: vi.fn(),
     ...methods,
   } as unknown as AppContextValue;
@@ -129,9 +123,7 @@ describe('MemberDetailSheet', () => {
   // render-time crash instead of a graceful empty state.
   it('renders a not-found state instead of crashing when member is undefined', () => {
     const app = makeApp();
-    expect(() =>
-      render(<MemberDetailSheet app={app} sheet={makeSheet({ member: undefined })} />),
-    ).not.toThrow();
+    expect(() => render(<MemberDetailSheet app={app} sheet={makeSheet({ member: undefined })} />)).not.toThrow();
     expect(screen.getByText('Dieses Mitglied wurde nicht gefunden. Es könnte entfernt worden sein.')).toBeTruthy();
   });
 
@@ -254,21 +246,17 @@ describe('MemberFormSheet', () => {
   // self: true by default since most of these tests exercise generic form
   // behavior, not the self-vs-admin-editing-someone-else distinction; the
   // photo-visibility tests below cover the self: false case explicitly.
-  const formSheet: SheetState = { type: 'memberForm', self: true } as SheetState;
+  function makeFormSheet(formOverrides: Record<string, unknown> = {}, self = true): SheetState {
+    return {
+      type: 'memberForm',
+      self,
+      formInitial: { name: '', email: '', phone: '', birthday: '', address: '', photo: null, roleIds: [], ...formOverrides },
+    } as SheetState;
+  }
+  const formSheet = makeFormSheet();
 
-  function makeFormApp(
-    formOverrides: Record<string, unknown> = {},
-    errOverrides: Record<string, string> = {},
-    canWrite = false,
-  ): AppContextValue {
-    return makeApp(
-      {
-        form: { name: '', email: '', phone: '', birthday: '', address: '', photo: null, roleIds: [], ...formOverrides },
-        formErrors: { name: '', email: '', phone: '', birthday: '', ...errOverrides },
-        busy: null,
-      },
-      { can: vi.fn().mockReturnValue(canWrite) as unknown as AppContextValue['can'] },
-    );
+  function makeFormApp(canWrite = false): AppContextValue {
+    return makeApp({ busy: null }, { can: vi.fn().mockReturnValue(canWrite) as unknown as AppContextValue['can'] });
   }
 
   it('renders the name input field', () => {
@@ -346,60 +334,44 @@ describe('MemberFormSheet', () => {
     expect(screen.getByRole('button', { name: /Profil speichern/i })).toBeTruthy();
   });
 
-  it('calls saveMember when save button is clicked', () => {
-    const app = makeFormApp({ name: 'Alice' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+  it('calls saveMember when save button is clicked', async () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ name: 'Alice' })} />);
     fireEvent.click(screen.getByRole('button', { name: /Profil speichern/i }));
-    expect(app.saveMember).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(app.saveMember).toHaveBeenCalled();
+    });
   });
 
   it('disables the save button when the name is empty', () => {
-    const app = makeFormApp({ name: '' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ name: '' })} />);
     fireEvent.click(screen.getByRole('button', { name: /Profil speichern/i }));
     expect(app.saveMember).not.toHaveBeenCalled();
   });
 
-  it('shows name validation error on blur when name is empty', () => {
-    const app = makeFormApp({ name: '' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+  it('shows name validation error on blur when name is empty', async () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ name: '' })} />);
     const nameInput = screen.getByPlaceholderText(/Vor- und Nachname/i);
     fireEvent.blur(nameInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ name: expect.stringMatching(/\S+/) });
+    await vi.waitFor(() => {
+      expect(screen.getByText(/Pflichtfeld|erforderlich|fehlt/i)).toBeTruthy();
+    });
   });
 
-  it('clears name error on blur when name has a value', () => {
-    const app = makeFormApp({ name: 'Max Muster' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
-    const nameInput = screen.getByPlaceholderText(/Vor- und Nachname/i);
-    fireEvent.blur(nameInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ name: '' });
-  });
-
-  it('shows email validation error on blur when email is invalid', () => {
-    const app = makeFormApp({ email: 'not-an-email' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+  it('shows email validation error on blur when email is invalid', async () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ name: 'Alice', email: 'not-an-email' })} />);
     const emailInput = screen.getByPlaceholderText('name@example.de');
     fireEvent.blur(emailInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ email: expect.stringMatching(/\S+/) });
-  });
-
-  it('clears email error when a valid email is provided on blur', () => {
-    const app = makeFormApp({ email: 'valid@example.com' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
-    const emailInput = screen.getByPlaceholderText('name@example.de');
-    fireEvent.blur(emailInput);
-    expect(app.setFormErrors).toHaveBeenCalledWith({ email: '' });
-  });
-
-  it('shows displayed name error text when error is set', () => {
-    const app = makeFormApp({}, { name: 'Pflichtfeld' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
-    expect(screen.getByText('Pflichtfeld')).toBeTruthy();
+    await vi.waitFor(() => {
+      expect(emailInput.getAttribute('aria-invalid')).toBe('true');
+    });
   });
 
   it('shows role chips when user has write permission (canWrite = true)', () => {
-    const app = makeFormApp({}, {}, true);
+    const app = makeFormApp(true);
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     // Roles list: "Spieler" and "Trainer"
     expect(screen.getByText('Spieler')).toBeTruthy();
@@ -407,101 +379,84 @@ describe('MemberFormSheet', () => {
   });
 
   it('does not show role chips when user lacks write permission', () => {
-    const app = makeFormApp({}, {}, false);
+    const app = makeFormApp(false);
     render(<MemberFormSheet app={app} sheet={formSheet} />);
     // Role chips should NOT appear
     expect(screen.queryByText('Spieler')).toBeNull();
   });
 
-  it('calls toggleFormRole when a role chip is clicked', () => {
-    const app = makeFormApp({ roleIds: [] }, {}, true);
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
-    fireEvent.click(screen.getByText('Spieler'));
-    expect(app.toggleFormRole).toHaveBeenCalledWith('role-1');
+  it('toggles a role chip selection when clicked', () => {
+    const app = makeFormApp(true);
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ roleIds: [] })} />);
+    const chip = screen.getByText('Spieler').closest('[role="checkbox"]')!;
+    expect(chip).toHaveAttribute('aria-checked', 'false');
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute('aria-checked', 'true');
   });
 
   it('shows photo upload button when no photo is set', () => {
-    const app = makeFormApp({ photo: null });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ photo: null })} />);
     expect(screen.getByText(/Foto hochladen/i)).toBeTruthy();
   });
 
   it('shows photo change button when a photo is already set', () => {
-    const app = makeFormApp({ photo: 'data:image/png;base64,abc' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ photo: 'data:image/png;base64,abc' })} />);
     expect(screen.getByText(/Foto ändern/i)).toBeTruthy();
   });
 
-  it('hides the photo control when an admin edits someone else\'s profile', () => {
+  it("hides the photo control when an admin edits someone else's profile", () => {
     // No backend endpoint exists to set another member's photo, so the
     // control must not be shown at all when self is false.
-    const app = makeFormApp({ photo: null }, {}, true);
-    const otherSheet: SheetState = { type: 'memberForm', self: false } as SheetState;
-    render(<MemberFormSheet app={app} sheet={otherSheet} />);
+    const app = makeFormApp(true);
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ photo: null }, false)} />);
     expect(screen.queryByText(/Foto hochladen/i)).toBeNull();
     expect(screen.queryByText(/Foto ändern/i)).toBeNull();
   });
 
-  // Regression test: the photo input's onChange used to call
-  // app.onFile(e, (d) => app.setFormVal({ photo: d })) unconditionally --
-  // setFormVal writes into the single shared, untyped form buffer regardless
-  // of which sheet is open. If the user closed this member form (or opened a
-  // different sheet reading the same form.photo field, e.g. team settings)
-  // before the FileReader read completed, the resolved callback would
-  // silently overwrite that other sheet's in-progress photo with this one.
-  it('does not apply the photo via setState if the member form is no longer open when the read completes', () => {
-    const app = makeFormApp({ photo: null });
-    app.state.sheet = formSheet;
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+  it('applies the picked photo to the preview via the form (no global state write)', () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ photo: null })} />);
     const fileInput = document.querySelector('input[type="file"]')!;
     fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
 
     expect(app.onFile).toHaveBeenCalledTimes(1);
     const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
-    onFileCb('data:image/png;base64,photodata');
+    act(() => onFileCb('data:image/png;base64,photodata'));
 
-    expect(app.setState).toHaveBeenCalledTimes(1);
-    const updater = (app.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as (
-      s: AppState,
-    ) => Partial<AppState>;
-
-    // Sheet unchanged (still this memberForm): the update applies.
-    expect(updater({ ...app.state, sheet: formSheet } as never)).toEqual({
-      form: { ...app.state.form, photo: 'data:image/png;base64,photodata' },
-    });
-    // User has since closed the sheet (or opened a different one): no-op.
-    expect(updater({ ...app.state, sheet: null } as never)).toEqual({});
-    expect(updater({ ...app.state, sheet: { type: 'teamSettings' } } as never)).toEqual({});
+    // The photo lives purely in this form's own RHF state now -- no
+    // app.setState() write, so there's no shared buffer for another sheet to race on.
+    expect(app.setState).not.toHaveBeenCalled();
+    expect(screen.getByText(/Foto ändern/i)).toBeTruthy();
   });
 
-  it('shows busy state on save button when busy is "save"', () => {
-    const app = makeFormApp();
-    app.state.busy = 'save';
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+  it('shows busy state on save button while saving', () => {
+    const app = makeApp({ busy: null, savingMember: true });
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ name: 'Alice' })} />);
     // PrimaryButton renders a disabled button when busy
     const btn = screen.getByRole('button', { name: /Profil speichern/i });
     expect(btn).toBeDisabled();
   });
 
-  it('shows birthday validation error on blur when birthday is invalid', () => {
-    const app = makeFormApp({ birthday: 'not-a-date' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
-    const inputs = document.querySelectorAll('input');
-    const birthdayInput = Array.from(inputs).find((i) => i.value === 'not-a-date');
-    if (birthdayInput) {
-      fireEvent.blur(birthdayInput);
-      expect(app.setFormErrors).toHaveBeenCalledWith({ birthday: expect.stringMatching(/\S+/) });
-    }
+  it('shows birthday validation error on blur when birthday is invalid', async () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ name: 'Alice', birthday: '2099-01-01' })} />);
+    const birthdayInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+    fireEvent.blur(birthdayInput);
+    await vi.waitFor(() => {
+      expect(birthdayInput.getAttribute('aria-invalid')).toBe('true');
+    });
   });
 
-  it('shows phone validation error on blur when phone is invalid', () => {
-    const app = makeFormApp({ phone: 'not!a@phone' });
-    render(<MemberFormSheet app={app} sheet={formSheet} />);
+  it('shows phone validation error on blur when phone is invalid', async () => {
+    const app = makeFormApp();
+    render(<MemberFormSheet app={app} sheet={makeFormSheet({ name: 'Alice', phone: 'not!a@phone' })} />);
     const inputs = document.querySelectorAll('input');
-    const phoneInput = Array.from(inputs).find((i) => i.value === 'not!a@phone');
-    if (phoneInput) {
-      fireEvent.blur(phoneInput);
-      expect(app.setFormErrors).toHaveBeenCalledWith({ phone: expect.stringMatching(/\S+/) });
-    }
+    const phoneInput = Array.from(inputs).find((i) => i.value === 'not!a@phone')!;
+    fireEvent.blur(phoneInput);
+    await vi.waitFor(() => {
+      expect(phoneInput.getAttribute('aria-invalid')).toBe('true');
+    });
   });
 });

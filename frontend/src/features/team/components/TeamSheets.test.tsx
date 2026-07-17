@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { CreateTeamSheet, InviteSheet, TeamSettingsSheet } from './TeamSheets';
 
 // ── mocks ─────────────────────────────────────────────────────────────────────
@@ -54,12 +54,15 @@ function makeTeam(overrides: Partial<TeamForUser> = {}): TeamForUser {
   return {
     id: 'team1',
     name: 'SG Muster',
+    description: '',
     memberCount: 5,
     myRoles: [],
     icon: '🏆',
     iconBg: '#E8F0FE',
     iconFg: '#4285F4',
+    logo: null,
     photo: null,
+    reasonVisibilityRoles: [],
     ...overrides,
   } as unknown as TeamForUser;
 }
@@ -68,16 +71,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
     primaryColor: '#4285F4',
     busy: null,
-    form: {
-      name: '',
-      icon: '🏆',
-      photo: null,
-      logo: null,
-      description: '',
-      reasonRoles: [],
-      ...((overrides.form as Record<string, unknown>) ?? {}),
-    },
-    formErrors: {},
     members: [],
     finances: null,
     roles: [],
@@ -91,9 +84,7 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     state,
     activeTeam: vi.fn().mockReturnValue(makeTeam()),
     can: vi.fn().mockReturnValue(true),
-    setFormVal: vi.fn(),
     setState: vi.fn(),
-    onFormInput: vi.fn(),
     onFile: vi.fn(),
     createTeam: vi.fn(),
     copyInvite: vi.fn(),
@@ -102,7 +93,6 @@ function makeApp(stateOverrides: Partial<AppState> = {}, methods: Partial<AppCon
     saveTeamPhoto: vi.fn(),
     removeTeamPhoto: vi.fn(),
     setTeamIcon: vi.fn(),
-    toggleReasonRole: vi.fn(),
     ...methods,
   } as unknown as AppContextValue;
   mockUseApp.mockReturnValue(app);
@@ -141,11 +131,14 @@ describe('CreateTeamSheet', () => {
     expect(screen.getByRole('button', { name: /Team anlegen/i })).toBeTruthy();
   });
 
-  it('calls createTeam when the create button is clicked', () => {
+  it('calls createTeam when the create button is clicked', async () => {
     const app = makeApp();
     render(<CreateTeamSheet app={app} sheet={sheet} />);
+    fireEvent.change(screen.getByPlaceholderText(/TSC/i), { target: { value: 'Neues Team' } });
     fireEvent.click(screen.getByRole('button', { name: /Team anlegen/i }));
-    expect(app.createTeam).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(app.createTeam).toHaveBeenCalledWith(expect.objectContaining({ name: 'Neues Team' }));
+    });
   });
 
   it('renders all 12 icon buttons', () => {
@@ -157,21 +150,22 @@ describe('CreateTeamSheet', () => {
     });
   });
 
-  it('calls setFormVal with the clicked icon', () => {
+  it('clicking an icon button marks it selected', () => {
     const app = makeApp();
     render(<CreateTeamSheet app={app} sheet={sheet} />);
-    fireEvent.click(screen.getByText('⭐'));
-    expect(app.setFormVal).toHaveBeenCalledWith({ icon: '⭐' });
+    const button = screen.getByText('👑').closest('button')!;
+    fireEvent.click(button);
+    expect(button).toHaveAttribute('aria-checked', 'true');
   });
 
   it('exposes icon selection as a radiogroup with aria-checked for screen-reader users', () => {
-    const app = makeApp(); // form.icon defaults to '🏆'
+    const app = makeApp(); // defaultValues.icon is '⭐'
     render(<CreateTeamSheet app={app} sheet={sheet} />);
-    const selected = screen.getByText('🏆').closest('button');
-    const unselected = screen.getByText('⭐').closest('button');
+    const selected = screen.getByText('⭐').closest('button');
+    const unselected = screen.getByText('🏆').closest('button');
     expect(selected).toHaveAttribute('role', 'radio');
     expect(selected).toHaveAttribute('aria-checked', 'true');
-    expect(selected).toHaveAttribute('aria-label', '🏆');
+    expect(selected).toHaveAttribute('aria-label', '⭐');
     expect(unselected).toHaveAttribute('aria-checked', 'false');
   });
 
@@ -182,9 +176,13 @@ describe('CreateTeamSheet', () => {
     expect(document.body.textContent).toContain('Teamfoto hochladen');
   });
 
-  it('shows photo selected label when a photo is set', () => {
-    const app = makeApp({ form: { icon: '🏆', photo: 'data:image/png;base64,abc' } });
+  it('shows photo selected label when a photo is picked', () => {
+    const app = makeApp();
     render(<CreateTeamSheet app={app} sheet={sheet} />);
+    const fileInput = document.querySelector('input[type="file"]')!;
+    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+    act(() => onFileCb('data:image/png;base64,abc'));
     // t('team.photoSelected') → 'Teamfoto ausgewählt'
     expect(document.body.textContent).toContain('Teamfoto ausgewählt');
   });
@@ -204,36 +202,6 @@ describe('CreateTeamSheet', () => {
     expect((fileInput as HTMLInputElement).accept).toBe('image/*');
   });
 
-  // Regression test: the photo input's onChange used to call
-  // app.onFile(e, (d) => app.setFormVal({ photo: d })) unconditionally --
-  // setFormVal writes into the single shared, untyped form buffer regardless
-  // of which sheet is open. If the user closed the create-team sheet (or
-  // opened a different one reading the same form.photo field) before the
-  // FileReader read completed, the resolved callback would silently
-  // overwrite that other sheet's in-progress photo with this stale one.
-  it('does not apply the photo via setState if the create-team sheet is no longer open when the read completes', () => {
-    const app = makeApp({ sheet: { type: 'createTeam' } as never });
-    render(<CreateTeamSheet app={app} sheet={sheet} />);
-    const fileInput = document.querySelector('input[type="file"]')!;
-    fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
-
-    expect(app.onFile).toHaveBeenCalledTimes(1);
-    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
-    onFileCb('data:image/png;base64,photodata');
-
-    expect(app.setState).toHaveBeenCalledTimes(1);
-    const updater = (app.setState as ReturnType<typeof vi.fn>).mock.calls[0][0] as (
-      s: AppState,
-    ) => Partial<AppState>;
-
-    // Sheet unchanged (still createTeam): the update applies.
-    expect(updater({ ...app.state, sheet: { type: 'createTeam' } } as never)).toEqual({
-      form: { ...app.state.form, photo: 'data:image/png;base64,photodata' },
-    });
-    // User has since closed the sheet (or opened a different one): no-op.
-    expect(updater({ ...app.state, sheet: null } as never)).toEqual({});
-    expect(updater({ ...app.state, sheet: { type: 'teamSettings' } } as never)).toEqual({});
-  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -357,11 +325,10 @@ describe('TeamSettingsSheet', () => {
 
   const sheet = {} as never;
 
-  function makeSettingsApp(formOverrides: Record<string, unknown> = {}, roles: Role[] = []): AppContextValue {
-    return makeApp({
-      form: { name: '', icon: '🏆', logo: null, description: '', reasonRoles: [], ...formOverrides },
-      roles,
-    });
+  function makeSettingsApp(teamOverrides: Partial<TeamForUser> = {}, roles: Role[] = []): AppContextValue {
+    const app = makeApp({ roles });
+    (app.activeTeam as ReturnType<typeof vi.fn>).mockReturnValue(makeTeam(teamOverrides));
+    return app;
   }
 
   it('renders the team name input field', () => {
@@ -416,21 +383,26 @@ describe('TeamSettingsSheet', () => {
     expect(screen.getByRole('button', { name: /Einstellungen speichern/i })).toBeTruthy();
   });
 
-  it('calls saveTeamSettings when save button is clicked', () => {
+  it('calls saveTeamSettings when save button is clicked', async () => {
     const app = makeSettingsApp();
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     fireEvent.click(screen.getByRole('button', { name: /Einstellungen speichern/i }));
-    expect(app.saveTeamSettings).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(app.saveTeamSettings).toHaveBeenCalledWith(expect.objectContaining({ name: 'SG Muster' }));
+    });
   });
 
-  it('disables save button when busy is "save"', () => {
-    const app = makeApp({
-      form: { name: '', icon: '🏆', logo: null, description: '', reasonRoles: [] },
-      busy: 'save',
-    });
+  it('disables save button while saveTeamSettings is pending', async () => {
+    const app = makeSettingsApp();
+    let resolveSave!: () => void;
+    (app.saveTeamSettings as ReturnType<typeof vi.fn>).mockImplementation(
+      () => new Promise<void>((resolve) => (resolveSave = resolve)),
+    );
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     const btn = screen.getByRole('button', { name: /Einstellungen speichern/i });
-    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn).toBeDisabled());
+    resolveSave();
   });
 
   it('renders 12 icon buttons in the logo section', () => {
@@ -472,10 +444,7 @@ describe('TeamSettingsSheet', () => {
   });
 
   it('renders photo change button when team already has a photo', () => {
-    const app = makeApp({
-      form: { name: '', icon: '🏆', logo: null, description: '', reasonRoles: [] },
-    });
-    (app.activeTeam as ReturnType<typeof vi.fn>).mockReturnValue(makeTeam({ photo: 'data:image/png;base64,xyz' }));
+    const app = makeSettingsApp({ photo: 'data:image/png;base64,xyz' });
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     // t('team.settingsPhotoChange') → 'Bild ändern'
     expect(document.body.textContent).toContain('Bild ändern');
@@ -489,10 +458,7 @@ describe('TeamSettingsSheet', () => {
   });
 
   it('renders a remove-photo button when the team has a photo, and calls removeTeamPhoto on click', () => {
-    const app = makeApp({
-      form: { name: '', icon: '🏆', logo: null, description: '', reasonRoles: [] },
-    });
-    (app.activeTeam as ReturnType<typeof vi.fn>).mockReturnValue(makeTeam({ photo: 'data:image/png;base64,xyz' }));
+    const app = makeSettingsApp({ photo: 'data:image/png;base64,xyz' });
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     const removeBtn = screen.getByLabelText('Bild entfernen');
     fireEvent.click(removeBtn);
@@ -504,23 +470,24 @@ describe('TeamSettingsSheet', () => {
       makeRole({ id: 'r1', name: 'Trainer', color: '#00796B' }),
       makeRole({ id: 'r2', name: 'Spieler', color: '#1565C0' }),
     ];
-    const app = makeSettingsApp({ reasonRoles: [] }, roles);
+    const app = makeSettingsApp({ reasonVisibilityRoles: [] }, roles);
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     expect(screen.getByText('Trainer')).toBeTruthy();
     expect(screen.getByText('Spieler')).toBeTruthy();
   });
 
-  it('calls toggleReasonRole when a role chip is clicked', () => {
+  it('clicking a role chip marks it checked', () => {
     const roles = [makeRole({ id: 'r1', name: 'Trainer', color: '#00796B' })];
-    const app = makeSettingsApp({ reasonRoles: [] }, roles);
+    const app = makeSettingsApp({ reasonVisibilityRoles: [] }, roles);
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
-    fireEvent.click(screen.getByText('Trainer'));
-    expect(app.toggleReasonRole).toHaveBeenCalledWith('r1');
+    const chip = screen.getByText('Trainer').closest('button')!;
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute('aria-checked', 'true');
   });
 
   it('renders check icon for roles already in reasonRoles', () => {
     const roles = [makeRole({ id: 'r1', name: 'Trainer', color: '#00796B' })];
-    const app = makeSettingsApp({ reasonRoles: ['r1'] }, roles);
+    const app = makeSettingsApp({ reasonVisibilityRoles: ['r1'] }, roles);
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     // When selected, Sym name="check" renders the text 'check' inside the button
     expect(document.body.textContent).toContain('check');
@@ -564,10 +531,7 @@ describe('TeamSettingsSheet', () => {
   // in onChange, before onFile/FileReader ever starts, and threads it
   // through explicitly.
   it('saves a logo upload to the team it was picked for, even if the team changed before the read completed', () => {
-    const app = makeApp({
-      form: { name: '', icon: '🏆', logo: null, description: '', reasonRoles: [] },
-      activeTeamId: 'team1',
-    });
+    const app = makeApp({ activeTeamId: 'team1' });
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     const [logoInput] = document.querySelectorAll('input[type="file"]');
     fireEvent.change(logoInput, { target: { files: [new File(['x'], 'logo.png', { type: 'image/png' })] } });

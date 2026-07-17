@@ -9,8 +9,6 @@ export type {
   Absence,
   EventFormValues,
   AbsenceFormValues,
-  AttendanceCommentFormValues,
-  EventCommentFormValues,
 } from './types';
 
 // The sheet components and `eventSheetMap` are declared FIRST — before the

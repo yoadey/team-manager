@@ -1,12 +1,11 @@
 import { useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
-import type { Member, MemberFormValues } from '../types';
+import type { Member } from '../types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
 import { reportActionError } from '@/utils/errors';
-import { validateEmail, validatePhone, validateBirthday, validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
+import type { MemberFormValues } from '../components/memberFormSchema';
 import { queryKeys } from '@/query/keys';
 import { useSaveMemberMutation, useRemoveMemberMutation } from './useMemberMutations';
 
@@ -98,101 +97,76 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
           mode: 'edit',
           self: member.userId === st.user!.id,
           back: st.sheet && st.sheet.type === 'memberDetail' ? st.sheet : null,
+          formInitial: f,
         },
-        form: f,
-        formErrors: {},
       }));
     },
     [setState],
   );
 
-  const toggleFormRole = useCallback(
-    (roleId: string) => {
-      const cur = formValues<MemberFormValues>(S()).roleIds ?? [];
-      const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-      if (!next.length) {
-        toastMsg(t('team.roleAtLeastOne'), undefined, 'error');
-        return;
+  const saveMember = useCallback(
+    async (f: MemberFormValues) => {
+      const sh = S().sheet!;
+      const back = sh.back;
+      const self = sh.self;
+      // Role assignment is a separate write path (members.setRoles ->
+      // PUT .../roles, gated on settings:write) from the profile-field patch
+      // (members.update -> PATCH .../{membershipId}, gated on members:write) —
+      // the backend's UpdateMember handler never applies a roleIds field
+      // embedded in the PATCH body, so it must be sent via setRoles() whenever
+      // it actually changed, not folded into the profile update.
+      const original = membersOf().find((x) => x.membershipId === f.membershipId);
+      const originalRoleIds = original ? original.roles.map((r) => r.id) : [];
+      const nextRoleIds = f.roleIds ?? [];
+      const rolesChanged =
+        originalRoleIds.length !== nextRoleIds.length ||
+        [...originalRoleIds].sort().some((id, i) => id !== [...nextRoleIds].sort()[i]);
+      // Photo has its own dedicated endpoint (auth.setPhoto, self-only — there
+      // is no backend endpoint to set another member's photo at all), not a
+      // members.update() field; the sheet only lets you change your own photo
+      // (MemberSheets.tsx hides the control when editing someone else), so this
+      // only ever fires for self.
+      const photoChanged = self && !!f.photo && f.photo !== original?.photo;
+      const savedTeamId = teamId;
+      try {
+        const result = await saveMemberAsync({
+          membershipId: f.membershipId!,
+          patch: {
+            name: f.name.trim(),
+            email: f.email || '',
+            phone: f.phone || '',
+            birthday: f.birthday || '',
+            address: f.address || '',
+            group: f.group || '',
+          },
+          roleIds: nextRoleIds,
+          rolesChanged,
+          photo: photoChanged ? f.photo : undefined,
+          self,
+        });
+        if (result.user) setState({ user: result.user });
+        // Only touch the sheet if the user is still on the team this save was
+        // for -- otherwise closing/reopening it would clobber whatever sheet
+        // they've since opened for the team they switched to, and
+        // openMemberDetail would look up f.membershipId in the NEW team's
+        // (already-refreshed) member list, finding nothing and rendering a
+        // broken detail sheet. Also skip it if the user has since closed this
+        // form and opened a different one (same team) while the save was in
+        // flight -- otherwise a slow save for one member would silently close
+        // and replace whatever the user is now looking at with this member's
+        // detail view.
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) {
+          setState({ sheet: null });
+          if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId!);
+        }
+        toastMsg(t('members.toastProfileSaved'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        throw err;
       }
-      setState((s) => ({ form: { ...s.form, roleIds: next } }));
     },
-    [S, setState, toastMsg],
+    [S, setState, saveMemberAsync, openMemberDetail, toastMsg, logout, membersOf, teamId],
   );
-
-  const saveMember = useCallback(async () => {
-    const f = S().form as MemberFormValues;
-    const nameResult = validateRequiredText(f.name, t('members.fieldNameError'));
-    if (!nameResult.ok) {
-      toastMsg(nameResult.message!, undefined, 'error');
-      return;
-    }
-    const emailResult = validateEmail(f.email, t('validation.emailInvalid'));
-    if (!emailResult.ok) {
-      toastMsg(emailResult.message!, undefined, 'error');
-      return;
-    }
-    const phoneResult = validatePhone(f.phone, t('validation.phoneInvalid'));
-    if (!phoneResult.ok) {
-      toastMsg(phoneResult.message!, undefined, 'error');
-      return;
-    }
-    const birthdayResult = validateBirthday(f.birthday, t('validation.birthdayInvalid'));
-    if (!birthdayResult.ok) {
-      toastMsg(birthdayResult.message!, undefined, 'error');
-      return;
-    }
-    const sh = S().sheet!;
-    const back = sh.back;
-    const self = sh.self;
-    const original = membersOf().find((x) => x.membershipId === f.membershipId);
-    const originalRoleIds = original ? original.roles.map((r) => r.id) : [];
-    const nextRoleIds = f.roleIds ?? [];
-    const rolesChanged =
-      originalRoleIds.length !== nextRoleIds.length ||
-      [...originalRoleIds].sort().some((id, i) => id !== [...nextRoleIds].sort()[i]);
-    // Photo has its own dedicated endpoint (auth.setPhoto, self-only — there
-    // is no backend endpoint to set another member's photo at all), not a
-    // members.update() field; the sheet only lets you change your own photo
-    // (MemberSheets.tsx hides the control when editing someone else), so this
-    // only ever fires for self.
-    const photoChanged = self && !!f.photo && f.photo !== original?.photo;
-    const savedTeamId = teamId;
-    try {
-      const result = await saveMemberAsync({
-        membershipId: f.membershipId,
-        patch: {
-          name: nameResult.value!,
-          email: f.email,
-          phone: f.phone,
-          birthday: f.birthday,
-          address: f.address,
-          group: f.group,
-        },
-        roleIds: nextRoleIds,
-        rolesChanged,
-        photo: photoChanged ? f.photo : undefined,
-        self,
-      });
-      if (result.user) setState({ user: result.user });
-      // Only touch the sheet if the user is still on the team this save was
-      // for -- otherwise closing/reopening it would clobber whatever sheet
-      // they've since opened for the team they switched to, and
-      // openMemberDetail would look up f.membershipId in the NEW team's
-      // (already-refreshed) member list, finding nothing and rendering a
-      // broken detail sheet. Also skip it if the user has since closed this
-      // form and opened a different one (same team) while the save was in
-      // flight -- otherwise a slow save for one member would silently close
-      // and replace whatever the user is now looking at with this member's
-      // detail view.
-      if (S().activeTeamId === savedTeamId && S().sheet === sh) {
-        setState({ sheet: null });
-        if (back && back.type === 'memberDetail') openMemberDetail(f.membershipId);
-      }
-      toastMsg(t('members.toastProfileSaved'));
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
-    }
-  }, [S, setState, saveMemberAsync, openMemberDetail, toastMsg, logout, membersOf, teamId]);
 
   const removeMember = useCallback(
     (membershipId: string) => {
@@ -222,5 +196,5 @@ export function useMemberActions({ api, S, setState, teamId, refreshTeams, askCo
     [S, askConfirm, removeMemberAsync, setState, toastMsg, logout, membersOf, teamId],
   );
 
-  return { openMemberDetail, openMemberForm, toggleFormRole, saveMember, removeMember, savingMember };
+  return { openMemberDetail, openMemberForm, saveMember, removeMember, savingMember };
 }

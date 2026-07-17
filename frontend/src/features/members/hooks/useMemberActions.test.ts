@@ -33,8 +33,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -207,93 +205,24 @@ describe('useMemberActions', () => {
     const call = setState.mock.calls[0][0];
     const patch = typeof call === 'function' ? call(stateRef) : call;
     expect(patch.sheet).toMatchObject({ type: 'memberForm', mode: 'edit' });
-    expect(patch.form).toMatchObject({ name: 'Alice', email: 'alice@test.com' });
-  });
-
-  // Regression test: openMemberForm used to leave a prior sheet's
-  // formErrors in place -- editing Member A with an invalid phone number,
-  // closing, then editing Member B showed Member B's valid, freshly-loaded
-  // phone field with Member A's stale error underneath it.
-  it('openMemberForm clears a stale formErrors from a previous sheet', () => {
-    stateRef = makeState({ formErrors: { phone: 'Ungültige Telefonnummer.' } });
-    const member = makeMember();
-    const { result } = renderActions();
-    act(() => {
-      result.current.openMemberForm(member);
+    expect((patch.sheet as never as { formInitial: unknown }).formInitial).toMatchObject({
+      name: 'Alice',
+      email: 'alice@test.com',
     });
-    expect(stateRef.formErrors).toEqual({});
-  });
-
-  it('toggleFormRole adds role to form', () => {
-    stateRef = makeState({ form: { roleIds: ['r1'] } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.toggleFormRole('r2');
-    });
-    // stateRef is updated by the mock setState
-    expect(stateRef.form.roleIds).toContain('r2');
-    expect(stateRef.form.roleIds).toContain('r1');
-  });
-
-  it('toggleFormRole removes role from form', () => {
-    stateRef = makeState({ form: { roleIds: ['r1', 'r2'] } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.toggleFormRole('r2');
-    });
-    expect(stateRef.form.roleIds).not.toContain('r2');
-    expect(stateRef.form.roleIds).toContain('r1');
-  });
-
-  // Regression test: removing a member's last role chip used to silently
-  // no-op (fall back to the unchanged list with no feedback), leaving the
-  // admin thinking the click did nothing. It must now surface the same
-  // "at least one role required" toast that toggleMyRole already shows for
-  // the equivalent self-service case.
-  it('toggleFormRole does not remove last role and shows a toast', () => {
-    stateRef = makeState({ form: { roleIds: ['r1'] } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.toggleFormRole('r1');
-    });
-    expect(stateRef.form.roleIds).toContain('r1');
-    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.', undefined, 'error');
-  });
-
-  it('saveMember shows toast when name is empty', async () => {
-    stateRef = makeState({
-      form: { name: '', membershipId: 'ms1' },
-      sheet: { type: 'memberForm', mode: 'edit', self: false } as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveMember();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.', undefined, 'error');
-    expect(api.members.update).not.toHaveBeenCalled();
-  });
-
-  it('saveMember shows toast when name is whitespace-only, without calling the API', async () => {
-    stateRef = makeState({
-      form: { name: '   ', membershipId: 'ms1' },
-      sheet: { type: 'memberForm', mode: 'edit', self: false } as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveMember();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Name fehlt.', undefined, 'error');
-    expect(api.members.update).not.toHaveBeenCalled();
   });
 
   it('saveMember updates member data and shows toast', async () => {
     stateRef = makeState({
-      form: { name: 'Alice Updated', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveMember();
+      await result.current.saveMember({
+        name: 'Alice Updated',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+      } as never);
     });
     expect(api.members.update).toHaveBeenCalledWith(
       'ms1',
@@ -305,12 +234,16 @@ describe('useMemberActions', () => {
 
   it("saveMember calls setRoles when the form roleIds differ from the member's current roles", async () => {
     stateRef = makeState({
-      form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1', 'r2'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveMember();
+      await result.current.saveMember({
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1', 'r2'],
+      } as never);
     });
     expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1', 'r2'], 'team1');
   });
@@ -325,30 +258,33 @@ describe('useMemberActions', () => {
       }),
     ]);
     stateRef = makeState({
-      form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r2', 'r1'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveMember();
+      await result.current.saveMember({
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r2', 'r1'],
+      } as never);
     });
     expect(api.members.setRoles).not.toHaveBeenCalled();
   });
 
   it('saveMember calls auth.setPhoto (not members.update) when saving your own changed photo', async () => {
     stateRef = makeState({
-      form: {
+      sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember({
         name: 'Alice',
         email: 'alice@test.com',
         membershipId: 'ms1',
         roleIds: ['r1'],
         photo: 'data:image/png;base64,newphoto',
-      },
-      sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveMember();
+      } as never);
     });
     expect(api.auth.setPhoto).toHaveBeenCalledWith('data:image/png;base64,newphoto');
     expect(api.members.update).toHaveBeenCalledWith(
@@ -369,20 +305,19 @@ describe('useMemberActions', () => {
       () => new Promise<{ id: string; name: string }>((resolve) => (resolveCurrentUser = resolve)),
     );
     stateRef = makeState({
-      form: {
-        name: 'Alice',
-        email: 'alice@test.com',
-        membershipId: 'ms1',
-        roleIds: ['r1'],
-        photo: 'data:image/png;base64,newphoto',
-      },
       sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
     });
     const { result } = renderActions();
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveMember();
+      savePromise = result.current.saveMember({
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+        photo: 'data:image/png;base64,newphoto',
+      } as never);
     });
     await waitFor(() => expect(result.current.savingMember).toBe(true));
     await waitFor(() => expect(api.auth.setPhoto).toHaveBeenCalled());
@@ -401,42 +336,50 @@ describe('useMemberActions', () => {
 
   it('saveMember does not call auth.setPhoto when your own photo is unchanged', async () => {
     stateRef = makeState({
-      form: { name: 'Alice', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'], photo: null },
       sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveMember();
+      await result.current.saveMember({
+        name: 'Alice',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+        photo: null,
+      } as never);
     });
     expect(api.auth.setPhoto).not.toHaveBeenCalled();
   });
 
   it('saveMember does not call auth.setPhoto when an admin edits someone else, even if the photo field changed', async () => {
     stateRef = makeState({
-      form: {
+      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveMember({
         name: 'Alice',
         email: 'alice@test.com',
         membershipId: 'ms1',
         roleIds: ['r1'],
         photo: 'data:image/png;base64,newphoto',
-      },
-      sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveMember();
+      } as never);
     });
     expect(api.auth.setPhoto).not.toHaveBeenCalled();
   });
 
   it('saveMember trims leading/trailing whitespace from the name before saving', async () => {
     stateRef = makeState({
-      form: { name: '  Alice Updated  ', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveMember();
+      await result.current.saveMember({
+        name: '  Alice Updated  ',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+      } as never);
     });
     expect(api.members.update).toHaveBeenCalledWith(
       'ms1',
@@ -447,12 +390,11 @@ describe('useMemberActions', () => {
 
   it('saveMember refreshes teams and user when saving own profile', async () => {
     stateRef = makeState({
-      form: { name: 'Self Updated', membershipId: 'ms1', roleIds: ['r1'] },
       sheet: { type: 'memberForm', mode: 'edit', self: true, back: null } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveMember();
+      await result.current.saveMember({ name: 'Self Updated', membershipId: 'ms1', roleIds: ['r1'] } as never);
     });
     expect(api.auth.currentUser).toHaveBeenCalled();
     expect(refreshTeams).toHaveBeenCalled();
@@ -467,14 +409,18 @@ describe('useMemberActions', () => {
     let resolveUpdate!: () => void;
     api.members.update = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
     stateRef = makeState({
-      form: { name: 'Alice Updated', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
     });
     const { result } = renderActions();
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveMember();
+      savePromise = result.current.saveMember({
+        name: 'Alice Updated',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+      } as never);
     });
     await waitFor(() => expect(api.members.update).toHaveBeenCalled());
 
@@ -499,14 +445,18 @@ describe('useMemberActions', () => {
     let resolveUpdate!: () => void;
     api.members.update = vi.fn(() => new Promise<void>((resolve) => (resolveUpdate = resolve)));
     stateRef = makeState({
-      form: { name: 'Alice Updated', email: 'alice@test.com', membershipId: 'ms1', roleIds: ['r1'] },
       sheet: { type: 'memberForm', mode: 'edit', self: false, back: null } as never,
     });
     const { result } = renderActions();
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveMember();
+      savePromise = result.current.saveMember({
+        name: 'Alice Updated',
+        email: 'alice@test.com',
+        membershipId: 'ms1',
+        roleIds: ['r1'],
+      } as never);
     });
     await waitFor(() => expect(api.members.update).toHaveBeenCalled());
 

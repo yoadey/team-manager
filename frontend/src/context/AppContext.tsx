@@ -21,10 +21,22 @@ import type {
   User,
 } from '@/types';
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
+import type { EventFormValues } from '@/features/events/components/eventFormSchema';
+import type { AbsenceFormValues } from '@/features/events/components/absenceFormSchema';
 import type { Contribution, Penalty, Transaction } from '@/features/finances';
+import type { ContribFormValues } from '@/features/finances/components/contribFormSchema';
+import type { PenaltyFormValues } from '@/features/finances/components/penaltyFormSchema';
+import type { PenaltyAssignFormValues } from '@/features/finances/components/penaltyAssignFormSchema';
+import type { TxFormValues } from '@/features/finances/components/txFormSchema';
 import type { Member } from '@/features/members';
+import type { MemberFormValues } from '@/features/members/components/memberFormSchema';
 import type { NewsItem } from '@/features/news';
+import type { NewsFormValues } from '@/features/news/components/newsFormSchema';
 import type { Poll } from '@/features/polls';
+import type { PollFormValues } from '@/features/polls/components/pollFormSchema';
+import type { RoleFormValues } from '@/features/team/components/roleFormSchema';
+import type { CreateTeamFormValues } from '@/features/team/components/createTeamSchema';
+import type { TeamSettingsFormValues } from '@/features/team/components/teamSettingsSchema';
 import { queryKeys } from '@/query/keys';
 import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import { DEFAULT_PRESET_KEY } from '@/styles/tokens';
@@ -112,6 +124,10 @@ export interface SheetState {
   status?: AttendanceStatus;
   invite?: import('@/types').Invite | null;
   copied?: boolean;
+  /** Per-sheet initial values for the form it opens with (e.g. `useForm({ defaultValues })`);
+   * each sheet's own typed FormValues shape, cast at the read site. Replaces the old shared
+   * `state.form` buffer -- scoped to the sheet instance instead of the whole app. */
+  formInitial?: unknown;
 }
 
 export interface AppState {
@@ -135,9 +151,6 @@ export interface AppState {
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
   contribMonth: string | null;
   sheet: SheetState | null;
-  /** Shared editing buffer for the active sheet; read typed via formValues<T>() (src/utils/forms.ts). */
-  form: Record<string, unknown>;
-  formErrors: Record<string, string>;
   /**
    * `kind` defaults to 'success' when omitted (Toast.tsx) -- most of the ~70
    * toastMsg call sites across the app are success confirmations, so only
@@ -194,8 +207,6 @@ const initialState: AppState = {
   finTab: initialLocation.finTab,
   contribMonth: null,
   sheet: null,
-  form: {},
-  formErrors: {},
   toast: null,
   error: null,
   // Overwritten every render by AppProvider's merged context value (see the
@@ -247,10 +258,6 @@ export interface AppContextValue {
   resetDemo: () => void;
   setPrimaryColor: (c: string) => void;
   setColorScheme: (scheme: AppState['colorScheme']) => void;
-  // form
-  onFormInput: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
-  setFormVal: (patch: Record<string, unknown>) => void;
-  setFormErrors: (patch: Record<string, string>) => void;
   onFile: (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => void;
   setState: (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
   // auth
@@ -276,8 +283,8 @@ export interface AppContextValue {
   setStatusFor: (e: TeamEvent, row: AttendanceRow, status: AttendanceStatus) => void;
   canSeeComment: (row: AttendanceRow) => boolean;
   openComment: (e: TeamEvent, row: { userId: string; name: string; status: AttendanceStatus; reason?: string }) => void;
-  submitComment: () => Promise<void>;
-  postEventComment: (eventId: string) => Promise<void>;
+  submitComment: (text: string) => Promise<void>;
+  postEventComment: (eventId: string, text: string) => Promise<boolean>;
   removeEventComment: (eventId: string, cid: string) => void;
   toggleNomination: (eventId: string, userId: string, currentlyNominated: boolean) => Promise<void>;
   // confirm
@@ -299,19 +306,16 @@ export interface AppContextValue {
   ) => Promise<void>;
   openEventDetail: (eventId: string) => void;
   openEventForm: (event: TeamEvent | null) => void;
-  saveEvent: (scope?: 'single' | 'series') => Promise<void>;
-  toggleFormNomRole: (roleId: string) => void;
+  saveEvent: (f: EventFormValues, scope?: 'single' | 'series') => Promise<void>;
   // members
   openMemberDetail: (membershipId: string) => Promise<void>;
   openMemberForm: (member: Member) => void;
-  toggleFormRole: (roleId: string) => void;
-  saveMember: () => Promise<void>;
+  saveMember: (f: MemberFormValues) => Promise<void>;
   removeMember: (membershipId: string) => void;
   // roles
   openRoles: () => void;
   openRoleForm: (role?: Role) => void;
-  setRolePerm: (module: ModuleKey, level: PermLevel) => void;
-  saveRole: () => Promise<void>;
+  saveRole: (f: RoleFormValues) => Promise<void>;
   removeRole: (roleId: string) => void;
   toggleMyRole: (roleId: string) => Promise<void>;
   // team
@@ -323,16 +327,15 @@ export interface AppContextValue {
   removeTeamPhoto: () => Promise<void>;
   saveTeamLogo: (dataUrl: string, teamId: string) => Promise<void>;
   setTeamIcon: (em: string) => void;
-  toggleReasonRole: (roleId: string) => void;
-  saveTeamSettings: () => Promise<void>;
+  saveTeamSettings: (f: TeamSettingsFormValues) => Promise<void>;
   openCreateTeam: () => void;
-  createTeam: () => Promise<void>;
+  createTeam: (f: CreateTeamFormValues) => Promise<void>;
   openInvite: () => Promise<void>;
   copyInvite: () => void;
   uploadMyPhoto: (dataUrl: string) => Promise<void>;
   // absences
   openAbsenceForm: (absence?: Absence | null) => void;
-  saveAbsence: () => Promise<void>;
+  saveAbsence: (f: AbsenceFormValues) => Promise<void>;
   removeAbsence: (id: string) => void;
   // calendar export
   openCalExport: () => void;
@@ -340,27 +343,27 @@ export interface AppContextValue {
   copyCalUrl: () => void;
   // news
   openNewsForm: (n?: NewsItem) => void;
-  saveNews: () => Promise<void>;
+  saveNews: (f: NewsFormValues) => Promise<void>;
   removeNews: (id: string) => void;
   // finances
   openTxForm: (tx?: Transaction) => void;
-  saveTx: () => Promise<void>;
+  saveTx: (f: TxFormValues) => Promise<void>;
   deleteTx: (id: string) => Promise<void>;
   openPenaltyCatalog: () => void;
   openPenaltyForm: (p?: Penalty) => void;
-  savePenalty: () => Promise<void>;
+  savePenalty: (f: PenaltyFormValues) => Promise<void>;
   deletePenaltyDef: (id: string) => void;
   openPenaltyAssign: () => void;
-  savePenaltyAssign: () => Promise<void>;
+  savePenaltyAssign: (f: PenaltyAssignFormValues) => Promise<void>;
   deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
-  saveContrib: () => Promise<void>;
+  saveContrib: (f: ContribFormValues) => Promise<void>;
   togglePenalty: (id: string) => Promise<void>;
   toggleContribution: (id: string) => Promise<void>;
   setStatsRange: (range: DateRange | null) => void;
   // polls
   openPollForm: () => void;
-  savePoll: () => Promise<void>;
+  savePoll: (f: PollFormValues) => Promise<void>;
   togglePollOption: (poll: Poll, optId: string) => void;
   removePoll: (id: string) => void;
 }
@@ -568,24 +571,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, 1500);
   }, [api]);
 
-  // ---------- form ----------
-  const onFormInput = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-      const target = e.target as HTMLInputElement;
-      const name = target.name;
-      const val = target.type === 'checkbox' ? target.checked : target.value;
-      setState((s) => ({ form: { ...s.form, [name]: val } }));
-    },
-    [setState],
-  );
-  const setFormVal = useCallback(
-    (patch: Record<string, unknown>) => setState((s) => ({ form: { ...s.form, ...patch } })),
-    [setState],
-  );
-  const setFormErrors = useCallback(
-    (patch: Record<string, string>) => setState((s) => ({ formErrors: { ...s.formErrors, ...patch } })),
-    [setState],
-  );
   const onFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>, cb: (dataUrl: string) => void) => {
       const f = e.target.files && e.target.files[0];
@@ -1027,12 +1012,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotifFilter,
     openMemberDetail,
     openMemberForm,
-    toggleFormRole,
     saveMember,
     removeMember,
     openRoles,
     openRoleForm,
-    setRolePerm,
     saveRole,
     removeRole,
     toggleMyRole,
@@ -1044,7 +1027,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removeTeamPhoto,
     saveTeamLogo,
     setTeamIcon,
-    toggleReasonRole,
     saveTeamSettings,
     openCreateTeam,
     createTeam,
@@ -1081,7 +1063,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     removePoll,
     openEventForm,
     saveEvent,
-    toggleFormNomRole,
     savingEvent,
     savingComment,
     savingMember,
@@ -1104,7 +1085,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     loadNotifications,
     afterLoginLoad,
     toastMsg,
-    setFormVal,
     askConfirm,
     logout,
   });
@@ -1224,9 +1204,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       resetDemo,
       setPrimaryColor,
       setColorScheme,
-      onFormInput,
-      setFormVal,
-      setFormErrors,
       onFile,
       setState,
       doLogin,
@@ -1260,15 +1237,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openEventDetail,
       openEventForm,
       saveEvent,
-      toggleFormNomRole,
       openMemberDetail,
       openMemberForm,
-      toggleFormRole,
       saveMember,
       removeMember,
       openRoles,
       openRoleForm,
-      setRolePerm,
       saveRole,
       removeRole,
       toggleMyRole,
@@ -1280,7 +1254,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
-      toggleReasonRole,
       saveTeamSettings,
       openCreateTeam,
       createTeam,
@@ -1326,9 +1299,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       resetDemo,
       setPrimaryColor,
       setColorScheme,
-      onFormInput,
-      setFormVal,
-      setFormErrors,
       onFile,
       setState,
       doLogin,
@@ -1362,15 +1332,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openEventDetail,
       openEventForm,
       saveEvent,
-      toggleFormNomRole,
       openMemberDetail,
       openMemberForm,
-      toggleFormRole,
       saveMember,
       removeMember,
       openRoles,
       openRoleForm,
-      setRolePerm,
       saveRole,
       removeRole,
       toggleMyRole,
@@ -1382,7 +1349,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       removeTeamPhoto,
       saveTeamLogo,
       setTeamIcon,
-      toggleReasonRole,
       saveTeamSettings,
       openCreateTeam,
       createTeam,

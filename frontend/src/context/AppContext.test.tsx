@@ -35,7 +35,8 @@ function PhaseAndSheet({
     <div>
       <div data-testid="phase">{state.phase}</div>
       <div data-testid="sheet">{state.sheet?.type || 'none'}</div>
-      <div data-testid="form">{JSON.stringify(state.form)}</div>
+      <div data-testid="sheetEventId">{state.sheet?.eventId ?? ''}</div>
+      <div data-testid="form">{JSON.stringify(state.sheet?.formInitial ?? null)}</div>
       <div data-testid="toast">{state.toast?.message ?? ''}</div>
     </div>
   );
@@ -105,7 +106,7 @@ describe('AppProvider / context split', () => {
       return null;
     }
     function FieldProbe() {
-      const v = useAppSelector((s) => s.form['x']);
+      const v = useAppSelector((s) => s.primaryColor);
       renders++;
       return <div data-testid="fld">{String(v ?? '')}</div>;
     }
@@ -123,7 +124,7 @@ describe('AppProvider / context split', () => {
     expect(renders).toBe(baseline);
 
     // Selected slice change re-renders and reflects the new value.
-    await act(async () => actions!.setFormVal({ x: 'abc' }));
+    await act(async () => actions!.setPrimaryColor('abc'));
     expect(screen.getByTestId('fld').textContent).toBe('abc');
     expect(renders).toBeGreaterThan(baseline);
   });
@@ -237,48 +238,11 @@ describe('AppProvider / actions (app phase)', () => {
       capturedActions.openEventForm(event);
     });
     expect(screen.getByTestId('sheet').textContent).toBe('eventForm');
+    expect(screen.getByTestId('sheetEventId').textContent).toBe('ev1');
     const form = JSON.parse(screen.getByTestId('form').textContent!);
-    expect(form.id).toBe('ev1');
     expect(form.title).toBe('Großes Training');
   });
 
-  it('toggleFormNomRole adds role to nominatedRoleIds', async () => {
-    await renderAndBootstrap();
-    await act(async () => {
-      capturedActions.openEventForm(null);
-    });
-    await act(async () => {
-      capturedActions.toggleFormNomRole('r2');
-    });
-    const form = JSON.parse(screen.getByTestId('form').textContent!);
-    expect(form.nominatedRoleIds).toContain('r2');
-  });
-
-  it('toggleFormNomRole removes role from nominatedRoleIds', async () => {
-    await renderAndBootstrap();
-    await act(async () => {
-      capturedActions.openEventForm(null);
-    });
-    // Start with r1 included, toggle it off
-    await act(async () => {
-      capturedActions.toggleFormNomRole('r1');
-    });
-    const form = JSON.parse(screen.getByTestId('form').textContent!);
-    expect(form.nominatedRoleIds).not.toContain('r1');
-  });
-
-  it('saveEvent shows toast and aborts when title is empty', async () => {
-    await renderAndBootstrap();
-    await act(async () => {
-      capturedActions.openEventForm(null);
-    });
-    // Form has empty title by default — validation should block
-    await act(async () => {
-      await capturedActions.saveEvent('single');
-    });
-    // Sheet stays open (save failed)
-    expect(screen.getByTestId('sheet').textContent).toBe('eventForm');
-  });
 
   it('closeSheet resets sheet to null', async () => {
     await renderAndBootstrap();

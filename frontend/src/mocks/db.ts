@@ -4,16 +4,7 @@
 // DTO types (which already mirror the OpenAPI wire shapes closely); handlers.ts
 // is responsible for converting a row into the exact `components['schemas']`
 // response shape.
-import type {
-  Invite,
-  Membership,
-  ModuleKey,
-  Permissions,
-  PermLevel,
-  RoleDto,
-  Team,
-  User,
-} from '@/types';
+import type { Invite, Membership, ModuleKey, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
 import type { Absence, AttendanceDto, EventComment, EventDto, ResponseMode } from '@/features/events';
 import type { Contribution, Penalty, PenaltyAssignment, Transaction } from '@/features/finances';
 import type { NewsItem } from '@/features/news';
@@ -427,9 +418,30 @@ export function createSeedData(): DemoDb {
   db.attendance = att;
 
   db.absences = [
-    { id: rid('abs'), userId: 'u6', from: plusDays(5), to: plusDays(12), reason: 'Urlaub (Italien)', createdAt: iso(new Date()) },
-    { id: rid('abs'), userId: 'u10', from: plusDays(1), to: plusDays(3), reason: 'Klassenfahrt', createdAt: iso(new Date()) },
-    { id: rid('abs'), userId: 'u3', from: plusDays(20), to: plusDays(27), reason: 'Urlaub', createdAt: iso(new Date()) },
+    {
+      id: rid('abs'),
+      userId: 'u6',
+      from: plusDays(5),
+      to: plusDays(12),
+      reason: 'Urlaub (Italien)',
+      createdAt: iso(new Date()),
+    },
+    {
+      id: rid('abs'),
+      userId: 'u10',
+      from: plusDays(1),
+      to: plusDays(3),
+      reason: 'Klassenfahrt',
+      createdAt: iso(new Date()),
+    },
+    {
+      id: rid('abs'),
+      userId: 'u3',
+      from: plusDays(20),
+      to: plusDays(27),
+      reason: 'Urlaub',
+      createdAt: iso(new Date()),
+    },
   ];
 
   db.news = [
@@ -454,7 +466,15 @@ export function createSeedData(): DemoDb {
   ];
 
   const T = (type: 'income' | 'expense', title: string, amountCents: number, daysAgo: number, cat: string) =>
-    db.transactions.push({ id: rid('tx'), teamId: 't_a', type, title, amount: amountCents, date: plusDays(-daysAgo), category: cat });
+    db.transactions.push({
+      id: rid('tx'),
+      teamId: 't_a',
+      type,
+      title,
+      amount: amountCents,
+      date: plusDays(-daysAgo),
+      category: cat,
+    });
   T('income', 'Mitgliedsbeiträge Mai', 30000, 30, 'Beiträge');
   T('income', 'Mitgliedsbeiträge Juni', 30000, 2, 'Beiträge');
   T('expense', 'Turnieranmeldung Düsseldorf', 18000, 6, 'Turniere');
@@ -495,7 +515,15 @@ export function createSeedData(): DemoDb {
     return formatDateOnly(d).slice(0, 7);
   };
   const CO = (userId: string, month: string, paid: boolean) =>
-    db.contributions.push({ id: rid('co'), teamId: 't_a', userId, month, label: 'Mitgliedsbeitrag', amount: 2500, status: paid ? 'paid' : 'open' });
+    db.contributions.push({
+      id: rid('co'),
+      teamId: 't_a',
+      userId,
+      month,
+      label: 'Mitgliedsbeitrag',
+      amount: 2500,
+      status: paid ? 'paid' : 'open',
+    });
   aMembers.forEach((uid, i) => {
     for (let off = 0; off < 6; off++) {
       const month = monthKeyOff(off);
@@ -555,18 +583,40 @@ export function createSeedData(): DemoDb {
   const ft = ev.find((e) => e.type === 'training' && e.date >= todayLocalDate());
   if (ft) {
     db.eventComments = [
-      { id: rid('cm'), eventId: ft.id, userId: 'u2', text: 'Bringe die neue Musik für die Kür mit.', createdAt: iso(new Date(Date.now() - 2 * 3600 * 1000)) },
-      { id: rid('cm'), eventId: ft.id, userId: 'u1', text: 'Perfekt – wir starten mit der Eröffnung, bitte pünktlich.', createdAt: iso(new Date(Date.now() - 1 * 3600 * 1000)) },
+      {
+        id: rid('cm'),
+        eventId: ft.id,
+        userId: 'u2',
+        text: 'Bringe die neue Musik für die Kür mit.',
+        createdAt: iso(new Date(Date.now() - 2 * 3600 * 1000)),
+      },
+      {
+        id: rid('cm'),
+        eventId: ft.id,
+        userId: 'u1',
+        text: 'Perfekt – wir starten mit der Eröffnung, bitte pünktlich.',
+        createdAt: iso(new Date(Date.now() - 1 * 3600 * 1000)),
+      },
     ];
   }
 
   const ntf: AppNotification[] = [];
   const hAgo = (h: number) => iso(new Date(Date.now() - h * 3600 * 1000));
   const dAgo = (d: number) => iso(new Date(Date.now() - d * DAY));
-  const N = (o: Partial<AppNotification>) => ntf.push(Object.assign({ id: rid('ntf'), teamId: 't_a' }, o) as AppNotification);
+  const N = (o: Partial<AppNotification>) =>
+    ntf.push(Object.assign({ id: rid('ntf'), teamId: 't_a' }, o) as AppNotification);
   const trn = ev.find((e) => e.title.startsWith('NRW-Liga'));
   N({ type: 'event_created', actorId: 'u1', title: 'Lateinformation – Training (Serie Di & Do)', createdAt: dAgo(48) });
-  if (trn) N({ type: 'event_created', actorId: 'u1', title: trn.title, eventId: trn.id, eventTitle: trn.title, eventDate: trn.date, createdAt: dAgo(11) });
+  if (trn)
+    N({
+      type: 'event_created',
+      actorId: 'u1',
+      title: trn.title,
+      eventId: trn.id,
+      eventTitle: trn.title,
+      eventDate: trn.date,
+      createdAt: dAgo(11),
+    });
   db.news.forEach((n) => N({ type: 'news', actorId: n.authorId, title: n.title, createdAt: n.createdAt }));
   N({ type: 'poll', actorId: 'u1', title: 'Neue Turnierkleidung – welche Farbe?', createdAt: dAgo(4) });
   N({ type: 'absence', actorId: 'u6', title: 'Urlaub (Italien)', createdAt: dAgo(7) });
@@ -615,10 +665,19 @@ export interface EffectiveAttendance {
 // stats (see rawCountedStatus below, drift-bug fix #2).
 export function effectiveStatus(event: EventDto, userId: string | null): EffectiveAttendance {
   const rec = db.attendance.find((a) => a.eventId === event.id && a.userId === userId);
-  if (rec) return { status: rec.status, reason: rec.reason, reasonId: rec.reasonId, reasonVisibility: rec.reasonVisibility, auto: false, absent: absenceCovers(userId!, event.date) };
+  if (rec)
+    return {
+      status: rec.status,
+      reason: rec.reason,
+      reasonId: rec.reasonId,
+      reasonVisibility: rec.reasonVisibility,
+      auto: false,
+      absent: absenceCovers(userId!, event.date),
+    };
   if (userId && absenceCovers(userId, event.date))
     return { status: 'no', reason: '', reasonId: null, reasonVisibility: null, auto: true, absent: true };
-  if (event.responseMode === 'opt_out') return { status: 'yes', reason: '', reasonId: null, reasonVisibility: null, auto: true, absent: false };
+  if (event.responseMode === 'opt_out')
+    return { status: 'yes', reason: '', reasonId: null, reasonVisibility: null, auto: true, absent: false };
   return { status: 'pending', reason: '', reasonId: null, reasonVisibility: null, auto: false, absent: false };
 }
 
@@ -650,7 +709,16 @@ export function applyNominations(event: EventDto, nominatedRoleIds: string[]): v
       return;
     }
     if (!a) {
-      db.attendance.push({ id: rid('att'), eventId: event.id, userId: m.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null, at: iso(new Date()) });
+      db.attendance.push({
+        id: rid('att'),
+        eventId: event.id,
+        userId: m.userId,
+        status: 'not_nominated',
+        reason: '',
+        reasonId: null,
+        reasonVisibility: null,
+        at: iso(new Date()),
+      });
     } else if (a.status === 'not_nominated') {
       a.reason = '';
       a.reasonId = null;

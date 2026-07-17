@@ -22,23 +22,11 @@ import type {
   Provider,
 } from '@/types';
 import type { Member, MemberDto } from '@/features/members';
-import type {
-  TeamEvent,
-  AttendanceRow,
-  EventSummary,
-  EventComment,
-  Absence,
-} from '@/features/events';
+import type { TeamEvent, AttendanceRow, EventSummary, EventComment, Absence } from '@/features/events';
 import type { NewsItem } from '@/features/news';
 import type { Poll } from '@/features/polls';
 import type { AppNotification, NotificationsResult } from '@/features/notifications';
-import type {
-  FinanceOverview,
-  Transaction,
-  Penalty,
-  PenaltyAssignment,
-  Contribution,
-} from '@/features/finances';
+import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribution } from '@/features/finances';
 
 type S = components['schemas'];
 
@@ -172,7 +160,14 @@ export function mapMember(m: S['Member']): Member {
   return {
     ...dto,
     primaryRole: m.primaryRole ? mapRole(m.primaryRole) : null,
-    perms: (m.perms ?? { events: 'none', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' }) as Permissions,
+    perms: (m.perms ?? {
+      events: 'none',
+      members: 'none',
+      finances: 'none',
+      news: 'none',
+      polls: 'none',
+      settings: 'none',
+    }) as Permissions,
   };
 }
 

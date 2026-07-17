@@ -40,7 +40,12 @@ describe('drift-bug fix: penalty amount/label is snapshotted at assignment time'
 describe('drift-bug fix: stats count only explicit attendance responses, not opt_out/absence defaults', () => {
   it('does not count a non-responder to an opt-out event toward a member quota', async () => {
     const today = todayLocalDate();
-    const event = await api.events.create('t_a', { type: 'training', title: 'OptOut stats test', date: today, responseMode: 'opt_out' });
+    const event = await api.events.create('t_a', {
+      type: 'training',
+      title: 'OptOut stats test',
+      date: today,
+      responseMode: 'opt_out',
+    });
     // u4 explicitly responds; u5 never responds (auto-"yes" for the event
     // summary, but must NOT be counted for stats — see
     // backend/internal/stats/repository.go's raw `a.status IN (...)` filter,
@@ -62,7 +67,11 @@ describe('drift-bug fix: stats count only explicit attendance responses, not opt
 
 describe('drift-bug fix: single-choice polls reject multiple selected options', () => {
   it('rejects (422) a vote selecting >1 option on a non-multiple poll instead of silently truncating', async () => {
-    const created = await api.polls.create('t_a', { question: 'Single choice?', options: ['A', 'B', 'C'], multiple: false });
+    const created = await api.polls.create('t_a', {
+      question: 'Single choice?',
+      options: ['A', 'B', 'C'],
+      multiple: false,
+    });
     const [a, b] = created.options;
 
     await expect(api.polls.vote(created.id, [a.id, b.id], 't_a')).rejects.toThrow(ValidationError);
@@ -78,7 +87,7 @@ describe('drift-bug fix: single-choice polls reject multiple selected options', 
   });
 });
 
-describe('drift-bug fix: scope=upcoming includes today\'s events', () => {
+describe("drift-bug fix: scope=upcoming includes today's events", () => {
   it('includes a today-dated event under scope=upcoming, not just strictly-future ones', async () => {
     const today = todayLocalDate();
     const event = await api.events.create('t_a', { type: 'training', title: 'Today event', date: today });

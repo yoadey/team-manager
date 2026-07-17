@@ -17,6 +17,7 @@ generate:
 ## Generate TypeScript client types from OpenAPI spec
 generate-ts:
 	npm --prefix frontend exec -- openapi-typescript backend/openapi/openapi.yaml -o frontend/src/api/types.gen.ts
+	npm --prefix frontend exec -- openapi-zod-client backend/openapi/openapi.yaml -o frontend/src/api/zod.gen.ts --export-schemas
 
 ## Run DB migrations
 migrate:

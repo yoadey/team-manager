@@ -120,6 +120,9 @@ function pageSheetMeta(app: ReturnType<typeof useApp>, s: SheetState, eventDetai
   if (s.type === 'teamSettings') return base(tl('sheet.teamSettings'), team ? shortName(team.name) : '');
   if (s.type === 'roles') return base(tl('sheet.roles'), tl('sheet.rolesSubtitle'));
   if (s.type === 'roleForm')
-    return base(s.mode === 'edit' ? tl('sheet.roleFormEdit') : tl('sheet.roleFormCreate'), tl('sheet.roleFormSubtitle'));
+    return base(
+      s.mode === 'edit' ? tl('sheet.roleFormEdit') : tl('sheet.roleFormCreate'),
+      tl('sheet.roleFormSubtitle'),
+    );
   return base('', '');
 }

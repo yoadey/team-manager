@@ -1,10 +1,9 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { EventFormValues, TeamEvent } from '../types';
+import type { TeamEvent } from '../types';
+import type { EventFormValues } from '../components/eventFormSchema';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
 import { hhmm, todayStr } from '@/styles/tokens';
-import { validateEventForm } from '@/utils/validation';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import { useSaveEventMutation } from './useEventMutations';
@@ -38,7 +37,6 @@ export function useEventFormActions({
     (event: TeamEvent | null) => {
       const f: EventFormValues = event
         ? {
-            id: event.id,
             seriesId: event.seriesId || null,
             type: event.type,
             title: event.title,
@@ -73,58 +71,53 @@ export function useEventFormActions({
         sheet: {
           type: 'eventForm',
           mode: event ? 'edit' : 'create',
+          eventId: event?.id,
           back: st.sheet && st.sheet.type === 'eventDetail' ? st.sheet : null,
+          formInitial: f,
         },
-        form: f,
-        formErrors: {},
       }));
     },
     [setState, S],
   );
 
   const saveEvent = useCallback(
-    async (scope: 'single' | 'series' = 'single') => {
-      const f = S().form as EventFormValues;
+    async (f: EventFormValues, scope: 'single' | 'series' = 'single') => {
       const sh = S().sheet!;
       const mode = sh.mode;
-      const validation = validateEventForm(f, mode);
-      if (!validation.ok) {
-        toastMsg(validation.message!, undefined, 'error');
-        return;
-      }
       const back = sh.back;
       const payload = {
         type: f.type,
         title: f.title.trim(),
         date: f.date,
-        location: f.location,
-        note: f.note,
-        meetTimeMandatory: f.meetTimeMandatory,
-        responseMode: f.responseMode,
-        meetT: f.meetT,
-        startT: f.startT,
-        endT: f.endT,
-        nominatedRoleIds: f.nominatedRoleIds,
+        location: f.location || '',
+        note: f.note || '',
+        meetTimeMandatory: !!f.meetTimeMandatory,
+        responseMode: f.responseMode || 'opt_in',
+        meetT: f.meetT || '',
+        startT: f.startT || '',
+        endT: f.endT || '',
+        nominatedRoleIds: f.nominatedRoleIds || [],
       };
       try {
-        if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: f.id!, scope, payload });
+        if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: sh.eventId!, scope, payload });
         else
           await saveEventAsync({
             mode: 'create',
-            payload: { ...payload, recurring: f.recurring, repeatWeeks: validation.value!.repeatWeeks },
+            payload: { ...payload, recurring: f.recurring, repeatWeeks: f.repeatWeeks || 8 },
           });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail
-        // would look up f.id in the new team's event list and find nothing.
-        // Also don't touch it if the user has since closed this form and
-        // opened a DIFFERENT one (same team) while this save was in flight --
-        // otherwise a slow save for event A would silently close and replace
-        // whatever the user is now looking at (e.g. an edit form for event B)
-        // with A's detail view, discarding B's unsaved edits without warning.
+        // would look up sh.eventId in the new team's event list and find
+        // nothing. Also don't touch it if the user has since closed this form
+        // and opened a DIFFERENT one (same team) while this save was in
+        // flight -- otherwise a slow save for event A would silently close
+        // and replace whatever the user is now looking at (e.g. an edit form
+        // for event B) with A's detail view, discarding B's unsaved edits
+        // without warning.
         if (S().activeTeamId === teamId && S().sheet === sh) {
           setState({ sheet: null });
-          if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(f.id!);
+          if (mode === 'edit' && back && back.type === 'eventDetail') openEventDetail(sh.eventId!);
         }
         toastMsg(
           mode === 'edit'
@@ -135,20 +128,11 @@ export function useEventFormActions({
         );
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        throw err;
       }
     },
     [S, setState, teamId, saveEventAsync, openEventDetail, loadNotifications, toastMsg, logout],
   );
 
-  const toggleFormNomRole = useCallback(
-    (roleId: string) =>
-      setState((s) => {
-        const cur = formValues<EventFormValues>(s).nominatedRoleIds ?? [];
-        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-        return { form: { ...s.form, nominatedRoleIds: next } };
-      }),
-    [setState],
-  );
-
-  return { openEventForm, saveEvent, toggleFormNomRole, savingEvent };
+  return { openEventForm, saveEvent, savingEvent };
 }

@@ -3,15 +3,18 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useAbsenceActions } from './useAbsenceActions';
 import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
+import type { AbsenceFormValues } from '../components/absenceFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
     phase: 'app',
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
-    sheet: { type: 'absenceForm', mode: 'edit' } as never,
-    form: { id: 'a1', from: '2026-01-01', to: '2026-01-02', reason: 'Urlaub' },
-    formErrors: {},
+    sheet: {
+      type: 'absenceForm',
+      mode: 'edit',
+      formInitial: { id: 'a1', from: '2026-01-01', to: '2026-01-02', reason: 'Urlaub' },
+    } as never,
     busy: null,
     toast: null,
     route: 'home',
@@ -92,7 +95,7 @@ describe('useAbsenceActions', () => {
     act(() => {
       result.current.openAbsenceForm();
     });
-    expect(stateRef.form).toMatchObject({ reason: '' });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ reason: '' });
   });
 
   it('openAbsenceForm preserves the existing reason when editing an absence', () => {
@@ -100,13 +103,13 @@ describe('useAbsenceActions', () => {
     act(() => {
       result.current.openAbsenceForm({ id: 'a1', from: '2026-01-01', to: '2026-01-02', reason: 'Injured knee' });
     });
-    expect(stateRef.form).toMatchObject({ reason: 'Injured knee' });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ reason: 'Injured knee' });
   });
 
   it('saveAbsence updates an existing absence and shows toast', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveAbsence();
+      await result.current.saveAbsence(stateRef.sheet!.formInitial as AbsenceFormValues);
     });
     expect(api.absences.update).toHaveBeenCalledWith(
       'a1',
@@ -120,12 +123,15 @@ describe('useAbsenceActions', () => {
 
   it('saveAbsence creates a new absence in create mode', async () => {
     stateRef = makeState({
-      sheet: { type: 'absenceForm', mode: 'create' } as never,
-      form: { from: '2026-01-10', to: '2026-01-15', reason: 'Ski trip' },
+      sheet: {
+        type: 'absenceForm',
+        mode: 'create',
+        formInitial: { from: '2026-01-10', to: '2026-01-15', reason: 'Ski trip' },
+      } as never,
     });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveAbsence();
+      await result.current.saveAbsence(stateRef.sheet!.formInitial as AbsenceFormValues);
     });
     expect(api.absences.create).toHaveBeenCalledWith(
       expect.objectContaining({ teamId: 'team1', userId: 'u1', from: '2026-01-10', to: '2026-01-15' }),
@@ -133,15 +139,6 @@ describe('useAbsenceActions', () => {
     expect(toastMsg).toHaveBeenCalled();
   });
 
-  it('saveAbsence shows toast without calling the API on invalid date range', async () => {
-    stateRef = makeState({ form: { id: 'a1', from: '2026-01-05', to: '2026-01-01', reason: 'x' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveAbsence();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.absences.update).not.toHaveBeenCalled();
-  });
 
   // Regression: saveAbsence used to close the sheet unconditionally (once
   // the team still matched), so a slow save could clobber whatever
@@ -153,7 +150,7 @@ describe('useAbsenceActions', () => {
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveAbsence();
+      savePromise = result.current.saveAbsence(stateRef.sheet!.formInitial as AbsenceFormValues);
     });
     await waitFor(() => expect(api.absences.update).toHaveBeenCalled());
 

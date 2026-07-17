@@ -6,7 +6,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import MuiSkeleton from '@mui/material/Skeleton';
 import { type SxProps, type Theme } from '@mui/material/styles';
 import { initials as toInitials, NEUTRAL } from '@/styles/tokens';
-import { useApp, useAppActions, useAppSelector } from '@/context/AppContext';
+import { useApp } from '@/context/AppContext';
 import { t } from '@/i18n';
 
 /** Material Symbols Outlined glyph (rendered by glyph name, like the prototype).
@@ -353,48 +353,38 @@ export function Field({
 type TextInputProps = React.InputHTMLAttributes<HTMLInputElement> & { name: string };
 
 /** Form-bound text input (mirrors prototype tf()). */
-export function TextInput({ name, type = 'text', placeholder, min, max, style: styleProp, ...rest }: TextInputProps) {
-  // Subscribe only to this field so typing doesn't re-render via the whole
-  // app-state context (useApp); dispatch comes from the stable actions context.
-  const onFormInput = useAppActions().onFormInput;
-  const v = useAppSelector((s) => s.form[name]);
-  return (
+export const TextInput = React.forwardRef<HTMLInputElement, TextInputProps>(
+  ({ name, type = 'text', placeholder, min, max, style: styleProp, value, onChange, onBlur, ...rest }, ref) => (
     <input
+      ref={ref}
       name={name}
       type={type}
       min={min}
       max={max}
-      value={v == null ? '' : String(v)}
+      value={value == null ? undefined : String(value)}
       placeholder={placeholder || ''}
-      onChange={onFormInput}
+      onChange={onChange}
+      onBlur={onBlur}
       style={styleProp ? { ...inputSx, ...styleProp } : inputSx}
       {...rest}
     />
-  );
-}
+  ),
+);
+TextInput.displayName = 'TextInput';
 
 type TextAreaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
   name: string;
   minHeight?: number;
 };
 
-export function TextArea({
-  name,
-  placeholder,
-  minHeight = 80,
-  onBlur,
-  maxLength,
-  style: styleProp,
-  ...rest
-}: TextAreaProps) {
-  const onFormInput = useAppActions().onFormInput;
-  const v = useAppSelector((s) => s.form[name]);
-  return (
+export const TextArea = React.forwardRef<HTMLTextAreaElement, TextAreaProps>(
+  ({ name, placeholder, minHeight = 80, onBlur, maxLength, style: styleProp, value, onChange, ...rest }, ref) => (
     <textarea
+      ref={ref}
       name={name}
-      value={v == null ? '' : String(v)}
+      value={value == null ? undefined : String(value)}
       placeholder={placeholder || ''}
-      onChange={onFormInput}
+      onChange={onChange}
       onBlur={onBlur}
       maxLength={maxLength}
       style={
@@ -404,8 +394,9 @@ export function TextArea({
       }
       {...rest}
     />
-  );
-}
+  ),
+);
+TextArea.displayName = 'TextArea';
 
 /** Small square icon button used in lists. */
 export function IconBtn({

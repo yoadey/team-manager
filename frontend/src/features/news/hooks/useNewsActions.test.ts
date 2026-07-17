@@ -3,6 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { useNewsActions } from './useNewsActions';
 import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
+import type { NewsFormValues } from '../components/newsFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -10,8 +11,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -87,8 +86,11 @@ describe('useNewsActions', () => {
     });
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({
-        sheet: expect.objectContaining({ type: 'newsForm', mode: 'create' }),
-        form: expect.objectContaining({ title: '', body: '' }),
+        sheet: expect.objectContaining({
+          type: 'newsForm',
+          mode: 'create',
+          formInitial: expect.objectContaining({ title: '', body: '' }),
+        }),
       }),
     );
   });
@@ -101,27 +103,19 @@ describe('useNewsActions', () => {
     });
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({
-        sheet: expect.objectContaining({ type: 'newsForm', mode: 'edit' }),
-        form: expect.objectContaining({ id: 'n1', title: 'Hello', body: 'World' }),
+        sheet: expect.objectContaining({
+          type: 'newsForm',
+          mode: 'edit',
+          formInitial: expect.objectContaining({ id: 'n1', title: 'Hello', body: 'World' }),
+        }),
       }),
     );
   });
 
-  it('saveNews shows toast when title is empty', async () => {
-    stateRef = makeState({ form: { title: '', body: 'Content' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveNews();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Titel angeben.', undefined, 'error');
-    expect(api.news.create).not.toHaveBeenCalled();
-  });
-
   it('saveNews creates news in create mode (no id)', async () => {
-    stateRef = makeState({ form: { title: 'New Article', body: 'Content', pinned: false } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveNews();
+      await result.current.saveNews({ title: 'New Article', body: 'Content', pinned: false } as NewsFormValues);
     });
     expect(api.news.create).toHaveBeenCalledWith('team1', expect.objectContaining({ title: 'New Article' }));
     expect(toastMsg).toHaveBeenCalledWith('News veröffentlicht');
@@ -129,10 +123,14 @@ describe('useNewsActions', () => {
   });
 
   it('saveNews updates news in edit mode (has id)', async () => {
-    stateRef = makeState({ form: { id: 'n1', title: 'Updated', body: 'New content', pinned: true } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveNews();
+      await result.current.saveNews({
+        id: 'n1',
+        title: 'Updated',
+        body: 'New content',
+        pinned: true,
+      } as NewsFormValues);
     });
     expect(api.news.update).toHaveBeenCalledWith('n1', expect.objectContaining({ title: 'Updated' }), 'team1');
     expect(toastMsg).toHaveBeenCalledWith('News aktualisiert');
@@ -168,12 +166,13 @@ describe('useNewsActions', () => {
 
   it('saveNews handles API error gracefully', async () => {
     api.news.create = vi.fn().mockRejectedValue(new Error('Network error'));
-    stateRef = makeState({ form: { title: 'Test', body: 'Content' } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveNews();
+      await expect(
+        result.current.saveNews({ title: 'Test', body: 'Content' } as NewsFormValues),
+      ).rejects.toThrow('Network error');
     });
-    expect(toastMsg).toHaveBeenCalled();
+    expect(toastMsg).toHaveBeenCalledWith(expect.stringContaining('Network error'), undefined, 'error');
   });
 
   // Regression test: mirrors useDeleteEventMutation/useRemoveMemberMutation's

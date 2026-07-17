@@ -125,7 +125,9 @@ export function useCalExportActions({ api, S, setState, activeTeam, teamId, toas
     // show "Copied!" on the new team's sheet even though nothing was copied
     // for it.
     setState((s) =>
-      s.activeTeamId === teamId && s.sheet && s.sheet.type === 'calExport' ? { sheet: { ...s.sheet, copied: true } } : {},
+      s.activeTeamId === teamId && s.sheet && s.sheet.type === 'calExport'
+        ? { sheet: { ...s.sheet, copied: true } }
+        : {},
     );
     toastMsg(t('events.toastCalLinkCopied'));
   }, [S, activeTeam, setState, toastMsg]);

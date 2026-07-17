@@ -1,12 +1,14 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Av, Field, labelSx, PrimaryButton, SectionTitle, Sym, TextArea, TextInput } from '@/components/ui';
 import { shortName } from '@/layouts/useCompact';
 import type { Invite } from '@/types';
 import type { SheetProps } from '@/sheets/types';
-import type { CreateTeamFormValues, TeamSettingsFormValues } from '../types';
-import { formValues } from '@/utils/forms';
+import { createTeamSchema, type CreateTeamFormValues } from './createTeamSchema';
+import { teamSettingsSchema, type TeamSettingsFormValues } from './teamSettingsSchema';
 import { t } from '@/i18n';
 
 const TEAM_ICONS = ['🏆', '⭐', '💃', '🕺', '🎭', '🔥', '👑', '🎯', '💎', '🦅', '⚡', '🌟'];
@@ -17,21 +19,45 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   void team;
-  const F = formValues<CreateTeamFormValues>(app.state);
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<CreateTeamFormValues>({
+    resolver: zodResolver(createTeamSchema),
+    defaultValues: { name: '', icon: '⭐', photo: null },
+    mode: 'onBlur',
+  });
+
+  const name = watch('name');
+  const icon = watch('icon');
+  const photo = watch('photo');
+  const canSubmit = !!name?.trim();
+
+  const onSubmit = async (values: CreateTeamFormValues) => {
+    try {
+      await app.createTeam(values);
+    } catch {
+      // Ignored
+    }
+  };
 
   const icons = TEAM_ICONS.map((em) => (
     <ButtonBase
       key={em}
       role="radio"
-      aria-checked={F.icon === em}
+      aria-checked={icon === em}
       aria-label={em}
-      onClick={() => app.setFormVal({ icon: em })}
+      onClick={() => setValue('icon', em, { shouldValidate: true })}
       sx={{
         width: '48px',
         height: '48px',
         borderRadius: '13px',
-        border: '2px solid ' + (F.icon === em ? tk.primary : NEUTRAL.line3),
-        background: F.icon === em ? tk.primaryContainer : NEUTRAL.card,
+        border: '2px solid ' + (icon === em ? tk.primary : NEUTRAL.line3),
+        background: icon === em ? tk.primaryContainer : NEUTRAL.card,
         cursor: 'pointer',
         fontSize: '22px',
       }}
@@ -55,8 +81,8 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         cursor: 'pointer',
       }}
     >
-      {F.photo ? (
-        <Av key="a" name={t('team.photoAlt')} photo={F.photo} color={NEUTRAL.inputBorder} size={40} />
+      {photo ? (
+        <Av key="a" name={t('team.photoAlt')} photo={photo} color={NEUTRAL.inputBorder} size={40} />
       ) : (
         <Sym name="add_photo_alternate" size={24} color={NEUTRAL.secondary} />
       )}
@@ -65,38 +91,24 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         component="span"
         sx={{ flex: 1, fontSize: '13px', fontWeight: 600, color: NEUTRAL.onSurfaceVariant }}
       >
-        {F.photo ? t('team.photoSelected') : t('team.photoUpload')}
+        {photo ? t('team.photoSelected') : t('team.photoUpload')}
       </Box>
       <input
         key="f"
         type="file"
         accept="image/*"
-        onChange={(e) => {
-          // setFormVal writes into the single shared, untyped form buffer
-          // regardless of which sheet is open. Snapshot the sheet type here,
-          // synchronously, before onFile's async FileReader read starts, and
-          // re-check it via setState's functional-update form once the read
-          // completes -- app.state itself is just this render's snapshot
-          // (React context value, not a live ref), so re-reading app.state
-          // here would just compare the closure to itself and never catch
-          // anything; the functional updater's `s` argument is guaranteed
-          // to be the actual live state at apply time. Without this, if the
-          // user closes this sheet (or opens a different one, e.g. team
-          // settings, which reads the same form.photo field for its own
-          // unrelated preview) before the read completes, the resolved
-          // callback would overwrite that other sheet's in-progress data.
-          const sheetType = app.state.sheet?.type;
-          app.onFile(e, (d) => {
-            app.setState((s) => (s.sheet?.type === sheetType ? { form: { ...s.form, photo: d } } : {}));
-          });
-        }}
+        onChange={(e) => app.onFile(e, (d) => setValue('photo', d))}
         hidden
       />
     </Box>
   );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
       <Box
         key="i"
         sx={{
@@ -114,8 +126,8 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         <Sym name="shield_person" size={24} color={tk.primary} />
         {t('team.createTeamHint')}
       </Box>
-      <Field label={t('team.teamNameField')}>
-        <TextInput name="name" placeholder={t('team.teamNamePlaceholder')} maxLength={60} />
+      <Field label={t('team.teamNameField')} error={!!errors.name} errorText={errors.name?.message}>
+        <TextInput placeholder={t('team.teamNamePlaceholder')} maxLength={60} {...register('name')} />
       </Field>
       <Box key="ic">
         <Box key="l" sx={labelSx}>
@@ -126,7 +138,12 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         </Box>
       </Box>
       {photoRow}
-      <PrimaryButton label={t('team.createBtn')} onClick={() => app.createTeam()} busy={app.state.busy === 'save'} />
+      <PrimaryButton
+        label={t('team.createBtn')}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting}
+        disabled={!canSubmit}
+      />
     </Box>
   );
 }
@@ -237,8 +254,35 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
-  const F = formValues<TeamSettingsFormValues>(app.state);
   const roles = app.state.roles;
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<TeamSettingsFormValues>({
+    resolver: zodResolver(teamSettingsSchema),
+    defaultValues: {
+      name: team.name,
+      description: team.description || '',
+      reasonRoles: (team.reasonVisibilityRoles || []).slice(),
+    },
+    mode: 'onBlur',
+  });
+
+  const name = watch('name');
+  const reasonRoles = watch('reasonRoles');
+  const canSubmit = !!name?.trim();
+
+  const onSubmit = async (values: TeamSettingsFormValues) => {
+    try {
+      await app.saveTeamSettings(values);
+    } catch {
+      // Ignored
+    }
+  };
 
   const upLabel = (icon: string, label: string, cb: (d: string, teamId: string) => void) => (
     <Box
@@ -281,8 +325,8 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
     <Box
       key="lp"
       component="span"
-      role={F.logo ? 'img' : undefined}
-      aria-label={F.logo ? t('team.logoAlt') : undefined}
+      role={team.logo ? 'img' : undefined}
+      aria-label={team.logo ? t('team.logoAlt') : undefined}
       sx={{
         width: '58px',
         height: '58px',
@@ -293,12 +337,12 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
         fontSize: '28px',
         flex: '0 0 auto',
         overflow: 'hidden',
-        ...(F.logo
-          ? { backgroundImage: 'url(' + F.logo + ')', backgroundSize: 'cover', backgroundPosition: 'center' }
+        ...(team.logo
+          ? { backgroundImage: 'url(' + team.logo + ')', backgroundSize: 'cover', backgroundPosition: 'center' }
           : { background: team.iconBg, color: team.iconFg }),
       }}
     >
-      {F.logo ? '' : F.icon}
+      {team.logo ? '' : team.icon}
     </Box>
   );
 
@@ -307,7 +351,7 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
       <SectionTitle>{t('team.settingsLogoSection')}</SectionTitle>
       <Box key="r" sx={{ display: 'flex', alignItems: 'center', gap: '14px', mb: '10px' }}>
         {logoPreview}
-        {upLabel('upload', F.logo ? t('team.settingsLogoChange') : t('team.settingsLogoUpload'), (d, teamId) =>
+        {upLabel('upload', team.logo ? t('team.settingsLogoChange') : t('team.settingsLogoUpload'), (d, teamId) =>
           app.saveTeamLogo(d, teamId),
         )}
       </Box>
@@ -316,15 +360,15 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
           <ButtonBase
             key={em}
             role="radio"
-            aria-checked={!F.logo && F.icon === em}
+            aria-checked={!team.logo && team.icon === em}
             aria-label={em}
             onClick={() => app.setTeamIcon(em)}
             sx={{
               width: '44px',
               height: '44px',
               borderRadius: '12px',
-              border: '2px solid ' + (!F.logo && F.icon === em ? tk.primary : NEUTRAL.line3),
-              background: !F.logo && F.icon === em ? tk.primaryContainer : NEUTRAL.card,
+              border: '2px solid ' + (!team.logo && team.icon === em ? tk.primary : NEUTRAL.line3),
+              background: !team.logo && team.icon === em ? tk.primaryContainer : NEUTRAL.card,
               cursor: 'pointer',
               fontSize: '20px',
             }}
@@ -399,14 +443,18 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
       </Box>
       <Box key="b" sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
         {roles.map((r) => {
-          const sel = (F.reasonRoles || []).includes(r.id);
+          const sel = (reasonRoles || []).includes(r.id);
           return (
             <ButtonBase
               key={r.id}
               role="checkbox"
               aria-checked={sel}
               aria-label={r.name}
-              onClick={() => app.toggleReasonRole(r.id)}
+              onClick={() => {
+                const cur = reasonRoles || [];
+                const next = sel ? cur.filter((x) => x !== r.id) : cur.concat(r.id);
+                setValue('reasonRoles', next, { shouldValidate: true });
+              }}
               sx={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -436,20 +484,30 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
   );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
-      <Field label={t('team.settingsNameField')}>
-        <TextInput name="name" placeholder={t('team.settingsNamePlaceholder')} maxLength={60} />
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '18px' }}
+    >
+      <Field label={t('team.settingsNameField')} error={!!errors.name} errorText={errors.name?.message}>
+        <TextInput placeholder={t('team.settingsNamePlaceholder')} maxLength={60} {...register('name')} />
       </Field>
-      <Field label={t('team.settingsDescField')}>
-        <TextArea name="description" placeholder={t('team.settingsDescPlaceholder')} minHeight={80} maxLength={10000} />
+      <Field label={t('team.settingsDescField')} error={!!errors.description} errorText={errors.description?.message}>
+        <TextArea
+          placeholder={t('team.settingsDescPlaceholder')}
+          minHeight={80}
+          maxLength={10000}
+          {...register('description')}
+        />
       </Field>
       {logoSec}
       {photoSec}
       {visSec}
       <PrimaryButton
         label={t('team.settingsSave')}
-        onClick={() => app.saveTeamSettings()}
-        busy={app.state.busy === 'save'}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting}
+        disabled={!canSubmit}
       />
     </Box>
   );

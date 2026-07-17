@@ -30,7 +30,6 @@ type FeatureActionDeps = {
   loadNotifications: () => Promise<void>;
   afterLoginLoad: (teamId: string) => Promise<void>;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
-  setFormVal: (patch: Record<string, unknown>) => void;
   askConfirm: (cfg: ConfirmConfig) => void;
   logout: () => void;
 };
@@ -48,7 +47,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     loadNotifications,
     afterLoginLoad,
     toastMsg,
-    setFormVal,
     askConfirm,
     logout,
   } = deps;
@@ -65,7 +63,6 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     myRoles,
     teamId,
     loadNotifications,
-    setFormVal,
     askConfirm,
     toastMsg,
     logout,
@@ -106,10 +103,8 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     api,
     S,
     setState,
-    activeTeam,
     refreshTeams,
     invalidateMembers,
-    setFormVal,
     afterLoginLoad,
     toastMsg,
     logout,

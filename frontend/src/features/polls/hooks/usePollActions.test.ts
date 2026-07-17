@@ -3,6 +3,7 @@ import { renderHook, act } from '@testing-library/react';
 import { usePollActions } from './usePollActions';
 import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
+import type { PollFormValues } from '../components/pollFormSchema';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -10,8 +11,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -87,35 +86,18 @@ describe('usePollActions', () => {
     });
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({
-        sheet: { type: 'pollForm' },
-        form: expect.objectContaining({ question: '', opt0: '', opt1: '' }),
+        sheet: expect.objectContaining({
+          type: 'pollForm',
+          formInitial: expect.objectContaining({ question: '', opt0: '', opt1: '' }),
+        }),
       }),
     );
   });
 
-  it('savePoll shows toast when form is invalid (no question)', async () => {
-    stateRef = makeState({ form: { question: '', opt0: 'A', opt1: 'B' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePoll();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.polls.create).not.toHaveBeenCalled();
-  });
-
-  it('savePoll shows toast when less than 2 options', async () => {
-    stateRef = makeState({ form: { question: 'Which?', opt0: 'A', opt1: '' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePoll();
-    });
-    expect(toastMsg).toHaveBeenCalled();
-    expect(api.polls.create).not.toHaveBeenCalled();
-  });
-
   it('savePoll creates poll when valid', async () => {
-    stateRef = makeState({
-      form: {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.savePoll({
         question: 'Treffen heute?',
         opt0: 'Ja',
         opt1: 'Nein',
@@ -123,11 +105,7 @@ describe('usePollActions', () => {
         opt3: '',
         multiple: false,
         anonymous: false,
-      },
-    });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.savePoll();
+      } as PollFormValues);
     });
     expect(api.polls.create).toHaveBeenCalledWith(
       'team1',

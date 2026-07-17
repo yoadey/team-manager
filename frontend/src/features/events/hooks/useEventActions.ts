@@ -1,9 +1,8 @@
 import { useCallback, useRef } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { AttendanceRow, AttendanceCommentFormValues, EventCommentFormValues, TeamEvent } from '../types';
+import type { AttendanceRow, TeamEvent } from '../types';
 import type { AttendanceStatus, Role, TeamForUser } from '@/types';
 import type { AppState } from '@/context/AppContext';
-import { formValues } from '@/utils/forms';
 import { canSeeReason } from '@/utils/permissions';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -33,7 +32,6 @@ type EventFeatureDeps = {
    * read-worthy state (e.g. a "pending RSVP" reminder), so each such mutation also
    * refreshes the notification badge, mirroring the pre-migration refreshEvents(). */
   loadNotifications: () => Promise<void>;
-  setFormVal: (patch: Record<string, unknown>) => void;
   askConfirm: (cfg: {
     title: string;
     message: string;
@@ -53,7 +51,6 @@ export function useEventDetailActions({
   myRoles,
   teamId,
   loadNotifications,
-  setFormVal,
   askConfirm,
   toastMsg,
   logout,
@@ -144,55 +141,59 @@ export function useEventDetailActions({
           name: row.name,
           status: row.status,
           back: st.sheet,
+          formInitial: row.reason || '',
         },
-        form: { commentText: row.reason || '' } satisfies AttendanceCommentFormValues,
       }));
     },
     [setState],
   );
 
-  const submitComment = useCallback(async () => {
-    const s = S().sheet!;
-    try {
-      await submitCommentAsync({
-        eventId: s.eventId!,
-        userId: s.userId!,
-        status: s.status!,
-        reason: formValues<AttendanceCommentFormValues>(S()).commentText || '',
-      });
-      loadNotifications();
-      const eid = s.eventId!;
-      // Don't close/reopen a sheet the user has since opened for a different
-      // team after switching away mid-request, or one they've since opened
-      // while this save was in flight.
-      if (S().activeTeamId === teamId && S().sheet === s) {
-        setState({ sheet: null });
-        openEventDetail(eid);
+  const submitComment = useCallback(
+    async (text: string) => {
+      const s = S().sheet!;
+      try {
+        await submitCommentAsync({
+          eventId: s.eventId!,
+          userId: s.userId!,
+          status: s.status!,
+          reason: text,
+        });
+        loadNotifications();
+        const eid = s.eventId!;
+        // Don't close/reopen a sheet the user has since opened for a different
+        // team after switching away mid-request, or one they've since opened
+        // while this save was in flight.
+        if (S().activeTeamId === teamId && S().sheet === s) {
+          setState({ sheet: null });
+          openEventDetail(eid);
+        }
+        toastMsg(t('events.toastCommentSaved'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
       }
-      toastMsg(t('events.toastCommentSaved'));
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
-    }
-  }, [S, setState, submitCommentAsync, teamId, openEventDetail, loadNotifications, toastMsg, logout]);
+    },
+    [S, setState, submitCommentAsync, teamId, openEventDetail, loadNotifications, toastMsg, logout],
+  );
 
   const commentInFlight = useRef(new Set<string>());
 
   const postEventComment = useCallback(
-    async (eventId: string) => {
-      const txt = (formValues<EventCommentFormValues>(S()).newEventComment || '').trim();
-      if (!txt) return;
-      if (commentInFlight.current.has(eventId)) return;
+    async (eventId: string, text: string): Promise<boolean> => {
+      const txt = text.trim();
+      if (!txt) return false;
+      if (commentInFlight.current.has(eventId)) return false;
       commentInFlight.current.add(eventId);
       try {
         await postCommentAsync({ eventId, text: txt });
-        setFormVal({ newEventComment: '' });
+        return true;
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        return false;
       } finally {
         commentInFlight.current.delete(eventId);
       }
     },
-    [S, postCommentAsync, setFormVal, setState, toastMsg, logout],
+    [postCommentAsync, setState, toastMsg, logout],
   );
 
   const removeEventComment = useCallback(
@@ -329,7 +330,17 @@ export function useEventActionFeatures({
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       }
     },
-    [S, askConfirm, deleteEventAsync, setEventStatusAsync, setState, openEventDetail, loadNotifications, toastMsg, logout],
+    [
+      S,
+      askConfirm,
+      deleteEventAsync,
+      setEventStatusAsync,
+      setState,
+      openEventDetail,
+      loadNotifications,
+      toastMsg,
+      logout,
+    ],
   );
 
   const askEventAction = useCallback(

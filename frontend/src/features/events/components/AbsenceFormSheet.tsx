@@ -1,18 +1,45 @@
 import Box from '@mui/material/Box';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
-import type { AbsenceFormValues } from '../types';
+import { absenceFormSchema, type AbsenceFormValues } from './absenceFormSchema';
 import { t } from '@/i18n';
 
 export function AbsenceFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   void tk;
-  const F = formValues<AbsenceFormValues>(app.state);
+
+  const {
+    register,
+    handleSubmit,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<AbsenceFormValues>({
+    resolver: zodResolver(absenceFormSchema),
+    defaultValues: sheet.formInitial as AbsenceFormValues,
+    mode: 'onTouched',
+  });
+
+  const from = watch('from');
+  const to = watch('to');
+
+  const onSubmit = async (values: AbsenceFormValues) => {
+    try {
+      await app.saveAbsence(values);
+    } catch {
+      // Ignored
+    }
+  };
+
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
       <Box
         sx={{
           display: 'flex',
@@ -30,20 +57,20 @@ export function AbsenceFormSheet({ app, sheet }: SheetProps) {
         {t('events.absenceHint')}
       </Box>
       <Box sx={{ display: 'flex', gap: '10px' }}>
-        <Field label={t('events.absenceFrom')}>
-          <TextInput name="from" type="date" max={F.to || undefined} />
+        <Field label={t('events.absenceFrom')} error={!!errors.from} errorText={errors.from?.message}>
+          <TextInput type="date" max={to || undefined} {...register('from')} />
         </Field>
-        <Field label={t('events.absenceTo')}>
-          <TextInput name="to" type="date" min={F.from || undefined} />
+        <Field label={t('events.absenceTo')} error={!!errors.to} errorText={errors.to?.message}>
+          <TextInput type="date" min={from || undefined} {...register('to')} />
         </Field>
       </Box>
-      <Field label={t('events.absenceReason')}>
-        <TextInput name="reason" placeholder={t('events.absenceReasonPlaceholder')} maxLength={500} />
+      <Field label={t('events.absenceReason')} error={!!errors.reason} errorText={errors.reason?.message}>
+        <TextInput placeholder={t('events.absenceReasonPlaceholder')} maxLength={500} {...register('reason')} />
       </Field>
       <PrimaryButton
         label={sheet.mode === 'edit' ? t('events.absenceSaveEdit') : t('events.absenceSave')}
-        onClick={() => app.saveAbsence()}
-        busy={app.state.savingAbsence}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting || app.state.savingAbsence}
       />
     </Box>
   );

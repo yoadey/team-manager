@@ -1,10 +1,10 @@
 import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { NewsItem, NewsFormValues } from '../types';
+import type { NewsItem } from '../types';
 import type { AppState } from '@/context/AppContext';
 import { reportActionError } from '@/utils/errors';
-import { validateRequiredText } from '@/utils/validation';
 import { t } from '@/i18n';
+import type { NewsFormValues } from '../components/newsFormSchema';
 import { useDeleteNewsMutation, useSaveNewsMutation } from './useNewsMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -51,40 +51,36 @@ export function useNewsActions({
         ? { id: n.id, title: n.title, body: n.body, pinned: n.pinned }
         : { title: '', body: '', pinned: false };
       setState({
-        sheet: { type: 'newsForm', mode: n ? 'edit' : 'create' },
-        form,
-        formErrors: {},
+        sheet: { type: 'newsForm', mode: n ? 'edit' : 'create', formInitial: form },
       });
     },
     [setState],
   );
 
-  const saveNews = useCallback(async () => {
-    const f = S().form as NewsFormValues;
-    const titleResult = validateRequiredText(f.title, t('news.titleRequired'));
-    if (!titleResult.ok) {
-      toastMsg(titleResult.message!, undefined, 'error');
-      return;
-    }
-    const sh = S().sheet;
-    const savedTeamId = teamId;
-    const editing = !!f.id;
-    try {
-      await saveNewsAsync({
-        id: f.id,
-        payload: { title: titleResult.value!, body: f.body, pinned: f.pinned },
-      });
-      loadNotifications();
-      // Don't close a sheet the user has since opened for a different
-      // team after switching away mid-request, or one they've since
-      // opened for a different entity (same team) while this save was in
-      // flight.
-      if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
-      toastMsg(editing ? t('news.toastUpdated') : t('news.toastPublished'));
-    } catch (err) {
-      reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
-    }
-  }, [S, setState, saveNewsAsync, loadNotifications, teamId, toastMsg, logout]);
+  const saveNews = useCallback(
+    async (f: NewsFormValues) => {
+      const sh = S().sheet;
+      const savedTeamId = teamId;
+      const editing = !!f.id;
+      try {
+        await saveNewsAsync({
+          id: f.id,
+          payload: { title: f.title.trim(), body: f.body.trim(), pinned: !!f.pinned },
+        });
+        loadNotifications();
+        // Don't close a sheet the user has since opened for a different
+        // team after switching away mid-request, or one they've since
+        // opened for a different entity (same team) while this save was in
+        // flight.
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
+        toastMsg(editing ? t('news.toastUpdated') : t('news.toastPublished'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        throw err;
+      }
+    },
+    [S, setState, saveNewsAsync, loadNotifications, teamId, toastMsg, logout],
+  );
 
   const removeNews = useCallback(
     (id: string) => {

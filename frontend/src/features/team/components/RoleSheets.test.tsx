@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { RolesSheet, RoleFormSheet } from './RoleSheets';
 
 vi.mock('@/context/AppContext', () => {
@@ -72,7 +72,6 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     can: vi.fn().mockReturnValue(true),
     activeTeam: vi.fn().mockReturnValue({ id: 't1', name: 'Testteam' }),
     openRoleForm: vi.fn(),
-    setRolePerm: vi.fn(),
     saveRole: vi.fn(),
     removeRole: vi.fn(),
     onFormInput: vi.fn(),
@@ -215,52 +214,48 @@ describe('RoleFormSheet', () => {
     vi.clearAllMocks();
   });
 
-  const FORM_SHEET = { type: 'roleForm' } as never;
-
   function makeFormApp(stateOverrides: Record<string, unknown> = {}) {
     const app = {
       state: {
         primaryColor: '#1565C0',
         roles: MOCK_ROLES,
-        form: {
-          name: '',
-          perms: {
-            events: 'none',
-            members: 'none',
-            finances: 'none',
-            news: 'none',
-            polls: 'none',
-            settings: 'none',
-          },
-        },
         busy: null,
         ...stateOverrides,
       },
       can: vi.fn().mockReturnValue(true),
       activeTeam: vi.fn().mockReturnValue({ id: 't1', name: 'Testteam' }),
-      setRolePerm: vi.fn(),
       saveRole: vi.fn(),
-      onFormInput: vi.fn(),
     };
     mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
     return app;
   }
 
+  function makeFormSheet(formOverrides: Record<string, unknown> = {}) {
+    return {
+      type: 'roleForm',
+      formInitial: {
+        name: '',
+        perms: { events: 'none', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+        ...formOverrides,
+      },
+    } as never;
+  }
+
   it('renders the role name input field with placeholder', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
     expect(screen.getByPlaceholderText('z. B. Social-Media-Team')).toBeTruthy();
   });
 
   it('renders the "Rechte je Modul" section label', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
     expect(screen.getByText('Rechte je Modul')).toBeTruthy();
   });
 
   it('renders module rows for all modules', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
     expect(screen.getByText('Termine')).toBeTruthy();
     expect(screen.getByText('Finanzen')).toBeTruthy();
     expect(screen.getByText('Mitglieder')).toBeTruthy();
@@ -268,7 +263,7 @@ describe('RoleFormSheet', () => {
 
   it('renders —, Lesen, Schreiben permission buttons for each module', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
     const writeButtons = screen.getAllByText('Schreiben');
     const readButtons = screen.getAllByText('Lesen');
     const noneButtons = screen.getAllByText('—');
@@ -278,67 +273,89 @@ describe('RoleFormSheet', () => {
     expect(noneButtons.length).toBeGreaterThan(1);
   });
 
-  it('clicking a "Schreiben" button calls setRolePerm with "write"', () => {
+  it('clicking a "Schreiben" button marks it pressed', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
-    const writeButtons = screen.getAllByText('Schreiben');
-    fireEvent.click(writeButtons[0]);
-    expect(app.setRolePerm).toHaveBeenCalledWith(expect.any(String), 'write');
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
+    const writeButton = screen.getAllByText('Schreiben')[0].closest('button')!;
+    fireEvent.click(writeButton);
+    expect(writeButton).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('clicking "Lesen" calls setRolePerm with "read"', () => {
+  it('clicking "Lesen" marks it pressed', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
-    const readButtons = screen.getAllByText('Lesen');
-    fireEvent.click(readButtons[0]);
-    expect(app.setRolePerm).toHaveBeenCalledWith(expect.any(String), 'read');
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
+    const readButton = screen.getAllByText('Lesen')[0].closest('button')!;
+    fireEvent.click(readButton);
+    expect(readButton).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('clicking "—" (none) calls setRolePerm with "none"', () => {
+  it('clicking "—" (none) marks it pressed', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
-    const noneButtons = screen.getAllByText('—');
-    fireEvent.click(noneButtons[0]);
-    expect(app.setRolePerm).toHaveBeenCalledWith(expect.any(String), 'none');
+    const sheet = makeFormSheet({
+      name: 'Trainer',
+      perms: { events: 'write', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
+    });
+    render(<RoleFormSheet app={app as never} sheet={sheet} />);
+    const noneButton = screen.getAllByText('—')[0].closest('button')!;
+    fireEvent.click(noneButton);
+    expect(noneButton).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('saving after changing a permission submits the updated value', async () => {
+    const app = makeFormApp();
+    const sheet = makeFormSheet({ name: 'Trainer' });
+    render(<RoleFormSheet app={app as never} sheet={sheet} />);
+    const writeButton = screen.getAllByText('Schreiben')[0].closest('button')!;
+    fireEvent.click(writeButton);
+    const saveBtn = screen.getByRole('button', { name: /Rolle speichern/i });
+    fireEvent.click(saveBtn);
+    await waitFor(() => {
+      expect(app.saveRole).toHaveBeenCalledWith(
+        expect.objectContaining({ perms: expect.objectContaining({ events: 'write' }) }),
+      );
+    });
   });
 
   it('renders the save role button', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
     expect(screen.getByRole('button', { name: /Rolle speichern/i })).toBeTruthy();
   });
 
-  it('clicking save button calls saveRole', () => {
-    const app = makeFormApp({
-      form: {
-        name: 'Trainer',
-        perms: { events: 'none', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
-      },
-    });
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+  it('clicking save button calls saveRole', async () => {
+    const app = makeFormApp();
+    const sheet = makeFormSheet({ name: 'Trainer' });
+    render(<RoleFormSheet app={app as never} sheet={sheet} />);
     const saveBtn = screen.getByRole('button', { name: /Rolle speichern/i });
     fireEvent.click(saveBtn);
-    expect(app.saveRole).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(app.saveRole).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('disables the save button when the name is empty', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
     const saveBtn = screen.getByRole('button', { name: /Rolle speichern/i });
     fireEvent.click(saveBtn);
     expect(app.saveRole).not.toHaveBeenCalled();
   });
 
-  it('save button is disabled when busy is "save"', () => {
-    const app = makeFormApp({ busy: 'save' });
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+  it('save button is disabled while saveRole is pending', async () => {
+    const app = makeFormApp();
+    let resolveSave!: () => void;
+    app.saveRole = vi.fn(() => new Promise<void>((resolve) => (resolveSave = resolve)));
+    const sheet = makeFormSheet({ name: 'Trainer' });
+    render(<RoleFormSheet app={app as never} sheet={sheet} />);
     const saveBtn = screen.getByRole('button', { name: /Rolle speichern/i });
-    expect(saveBtn).toBeDisabled();
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(saveBtn).toBeDisabled());
+    resolveSave();
   });
 
   it('renders the role name field label', () => {
     const app = makeFormApp();
-    render(<RoleFormSheet app={app as never} sheet={FORM_SHEET} />);
+    render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
     expect(screen.getByText('Rollenname')).toBeTruthy();
   });
 });

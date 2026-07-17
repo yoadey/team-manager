@@ -1,10 +1,11 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
-import { formValues } from '@/utils/forms';
-import type { TxFormValues } from '../types';
+import { txFormSchema, type TxFormValues } from './txFormSchema';
 import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { getIntlLocale, t } from '@/i18n';
@@ -12,21 +13,46 @@ import { getIntlLocale, t } from '@/i18n';
 export function TxFormSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const F = formValues<TxFormValues>(app.state);
   const { data: finances } = useFinanceOverviewQuery(app.api, state.activeTeamId);
-  const errs = state.formErrors;
   const edit = sheet.mode === 'edit';
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<TxFormValues>({
+    resolver: zodResolver(txFormSchema),
+    defaultValues: sheet.formInitial as TxFormValues,
+    mode: 'onBlur',
+  });
+
+  const type = watch('type');
+  const category = watch('category');
+  const title = watch('title');
+  const amount = watch('amount');
+  const canSubmit = !!title?.trim() && validateMoneyAmount(amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
+
+  const onSubmit = async (values: TxFormValues) => {
+    try {
+      await app.saveTx(values);
+    } catch {
+      // Ignored
+    }
+  };
 
   const typeDefs: [string, string, string, string, string][] = [
     ['income', t('finances.txIncome'), 'south_west', NEUTRAL.success, NEUTRAL.successBg],
     ['expense', t('finances.txExpense'), 'north_east', NEUTRAL.error, NEUTRAL.errorBg],
   ];
   const typeBtns = typeDefs.map(([v, l, ic, c, bg]) => {
-    const sel = F.type === v;
+    const sel = type === v;
     return (
       <ButtonBase
         key={v}
-        onClick={() => app.setFormVal({ type: v })}
+        type="button"
+        onClick={() => setValue('type', v as 'income' | 'expense', { shouldValidate: true })}
         aria-pressed={sel}
         sx={{
           flex: 1,
@@ -56,17 +82,15 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
 
   const catField = (
     <Box>
-      <Field label={t('finances.txFieldCategory')}>
+      <Field label={t('finances.txFieldCategory')} error={!!errors.category} errorText={errors.category?.message}>
         <input
           key="i"
-          name="category"
           list="tvCatList"
           autoComplete="off"
           maxLength={255}
-          value={F.category == null ? '' : F.category}
-          onChange={app.onFormInput}
           placeholder={t('finances.txCategoryPlaceholder')}
           style={inputSx}
+          {...register('category')}
         />
       </Field>
       <datalist key="dl" id="tvCatList">
@@ -77,11 +101,12 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       {cats.length ? (
         <Box key="qp" sx={{ display: 'flex', flexWrap: 'wrap', gap: '6px', mt: '8px' }}>
           {cats.map((c) => {
-            const sel = F.category === c;
+            const sel = category === c;
             return (
               <ButtonBase
                 key={c}
-                onClick={() => app.setFormVal({ category: c })}
+                type="button"
+                onClick={() => setValue('category', c, { shouldValidate: true })}
                 sx={{
                   p: '5px 11px',
                   borderRadius: '999px',
@@ -108,14 +133,17 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   const del = edit ? (
     <ButtonBase
       key="del"
+      type="button"
       onClick={() =>
         app.askConfirm({
           title: t('finances.txDeleteConfirmTitle'),
-          message: t('finances.txDeleteConfirmMsg', { title: String(F.title || t('finances.txDelete')) }),
+          message: t('finances.txDeleteConfirmMsg', {
+            title: String(title || t('finances.txDelete')),
+          }),
           confirmLabel: t('common.delete'),
           danger: true,
           onConfirm: async () => {
-            await app.deleteTx(F.id!);
+            await app.deleteTx((sheet.formInitial as TxFormValues).id!);
           },
         })
       }
@@ -138,35 +166,24 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
     </ButtonBase>
   ) : null;
 
-  const validateTitle = () =>
-    app.setFormErrors({ title: String(F.title ?? '').trim() ? '' : t('finances.txFieldTitleError') });
-  const validateAmount = () => {
-    const r = validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS });
-    app.setFormErrors({ amount: r.ok ? '' : r.message! });
-  };
-
-  const canSubmit =
-    !!F.title?.trim() && validateMoneyAmount(F.amount, { positive: true, max: MAX_MONEY_AMOUNT_EUROS }).ok;
-
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
       <Box sx={{ display: 'flex', gap: '8px' }}>{typeBtns}</Box>
-      <Field label={t('finances.txFieldTitle')} required error={!!errs.title} errorText={errs.title}>
-        <TextInput
-          name="title"
-          placeholder={t('finances.txFieldTitlePlaceholder')}
-          onBlur={validateTitle}
-          maxLength={255}
-        />
+      <Field label={t('finances.txFieldTitle')} required error={!!errors.title} errorText={errors.title?.message}>
+        <TextInput placeholder={t('finances.txFieldTitlePlaceholder')} maxLength={255} {...register('title')} />
       </Field>
-      <Field label={t('finances.txFieldAmount')} required error={!!errs.amount} errorText={errs.amount}>
-        <TextInput name="amount" type="number" max={MAX_MONEY_AMOUNT_EUROS} onBlur={validateAmount} />
+      <Field label={t('finances.txFieldAmount')} required error={!!errors.amount} errorText={errors.amount?.message}>
+        <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
       {catField}
       <PrimaryButton
         label={edit ? t('finances.txSaveEdit') : t('finances.txSave')}
-        onClick={() => app.saveTx()}
-        busy={app.state.savingTx}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting || app.state.savingTx}
         disabled={!canSubmit}
       />
       {del}

@@ -1,25 +1,29 @@
 ## 1. Dependencies & generation
-- [ ] 1.1 Add `react-hook-form@^7`, `zod@^3`, `@hookform/resolvers@^3`; dev tool `openapi-zod-client` (or orval)
-- [ ] 1.2 Generate `src/api/zod.gen.ts` from `openapi.yaml`; wire into `make generate-ts` and the drift check
+- [x] 1.1 Add `react-hook-form@^7`, `zod@^3`, `@hookform/resolvers@^5`; dev tool `openapi-zod-client`
+- [x] 1.2 Generate `src/api/zod.gen.ts` from `openapi.yaml`; wired into `make generate-ts` and the drift check
 
 ## 2. Schemas
-- [ ] 2.1 Per form, add `<feature>/<form>Schema.ts`: generated base schema + `.superRefine()` for cross-field rules ported from `validation.ts`, reusing i18n messages
-- [ ] 2.2 Keep money comma coercion as `z.preprocess`/`.transform`
+- [x] 2.1 Per form, add `<feature>/<form>Schema.ts` with `.superRefine()` for cross-field rules ported from `validation.ts`, reusing i18n messages.
+  **Deviation from design.md:** schemas are hand-written (`z.object({...})`), not layered on the generated `zod.gen.ts` base as originally decided — `zod.gen.ts` is generated and drift-checked but not imported by any form schema. Revisiting this later is low priority: the hand-written schemas were repeatedly tuned against the mock backend's non-UUID ids (see the `.uuid()` fixes across schema files) in ways the generated structural schema wouldn't know to do.
+- [x] 2.2 Money fields validate via `.superRefine()` calling the existing `validateMoneyAmount()` (German-comma string, positive/max checks) rather than a `z.preprocess`/`.transform` coercion to a number. Functionally equivalent; noted as a deviation from the original design wording.
 
 ## 3. Field binding
-- [ ] 3.1 Add RHF-bound field components (or extend `Field`/`FormText`) using `register`/`Controller`; keep the visual `Field` wrapper (label, error, aria)
+- [x] 3.1 RHF binds directly via `register`/`Controller` + the existing `Field`/`TextInput`/`TextArea` components (label, error, aria kept); no new dedicated RHF-field components were added, the existing ones were fixed instead (see `ui.tsx`'s `TextInput`/`TextArea` controlled/uncontrolled fix for RHF's external `onChange`). `TextInput`/`TextArea` have since been simplified further (see 5.1) to drop the legacy global-form-bag fallback entirely, now that every consumer passes `value`/`onChange` externally via `register()`.
 
 ## 4. Migrate sheets
-- [ ] 4.1 Migrate `EventFormSheet` first (`useForm` + `zodResolver`; submit disabled on `isSubmitting`; per-field errors); update `useEventFormActions.ts` to take validated values
-- [ ] 4.2 Migrate the other six: `AbsenceFormSheet`, `PenaltyFormSheet`, `ContribFormSheet`, `TxFormSheet`, `NewsFormSheet`, `PollFormSheet`
+- [x] 4.1 `EventFormSheet` (`useForm` + `zodResolver`; submit disabled on `isSubmitting`; per-field errors); `useEventFormActions.ts` takes validated values
+- [x] 4.2 The other six: `AbsenceFormSheet`, `PenaltyFormSheet`, `ContribFormSheet`, `TxFormSheet`, `NewsFormSheet`, `PollFormSheet`
+- [x] 4.3 (beyond original scope) `MemberFormSheet`, `RoleFormSheet`, `CreateTeamSheet`, `TeamSettingsSheet` — migrated to the same pattern so no form sheet in the app is left on the old global-form-bag flow.
 
 ## 5. Remove global form state
-- [ ] 5.1 Remove `state.form`, `busy`, `onFormInput`, `setFormVal`/`setFormValues` and related actions from `AppContext.tsx`
-- [ ] 5.2 Delete `utils/forms.ts` (`formValues`, `clearBusyIfOwned`); trim `validation.ts` to remaining coercion helpers
+- [x] 5.1 Removed `state.form`, `state.formErrors`, `onFormInput`, `setFormVal`, `setFormErrors` from `AppContext.tsx`. Each sheet now carries its own typed initial values on `SheetState.formInitial` (set once by the `openXForm` action, read once by that sheet's `useForm({ defaultValues: sheet.formInitial })`) instead of a single app-wide buffer — this satisfies the `form-handling` spec's "no single shared global form buffer" requirement while keeping the minimal `openXForm(values) -> sheet` handoff. The two remaining plain (non-RHF) text inputs — the attendance-status `CommentSheet` textarea and `EventDetailSheet`'s inline new-comment box — were converted to local `useState` (they're single free-text fields with no cross-field validation, so RHF would be pure overhead); their actions (`submitComment`, `postEventComment`) now take the text as a parameter instead of reading a shared buffer. `ui.tsx`'s `TextInput`/`TextArea` had their legacy global-form-bag fallback (`useAppSelector`/`useAppActions`/`onFormInput`) deleted outright, since every remaining call site already passes `value`/`onChange` via `register()`.
+- [x] 5.2 Deleted `utils/forms.ts` (`formValues`, `clearBusyIfOwned`) — both now fully unused. Trimmed `utils/validation.ts` to just `validateMoneyAmount` (+ its `text()` helper and `MAX_MONEY_AMOUNT_EUROS`); removed `validateDateRange`, `validateEventForm`, `validatePollForm`, `validateRequiredText`, `validateEmail`, `validatePhone`, `validateBirthday` now that every form's validation lives in its Zod schema.
+
+  **`state.busy` note:** the shared `busy: string | null` field itself was **not** removed from `AppState` — it's still load-bearing for the *login* flow (`doLogin`/`doPasswordLogin`'s per-provider busy tracking in `Login.tsx`), which is not a form in this change's scope. What WAS removed is every *form save* action's use of it: `saveRole`, `saveTeamSettings`, and `createTeam` (the three holdouts not yet on a TanStack Query mutation) no longer call `setState({ busy: 'save' })`/`clearBusyIfOwned` — their sheets now disable Save purely via RHF's own `isSubmitting`, matching every TanStack-migrated action's `savingX` flag. `utils/errors.ts`'s `reportActionError` had its now-dead `S`/`busyOwner` options (and the `clearBusyIfOwned` call using them) removed accordingly; its `setState` parameter stays (still required structurally by every call site) but no longer does anything busy-related.
 
 ## 6. Verification
-- [ ] 6.1 `npm run typecheck` + `npm run lint` (incl. `exhaustive-deps`) green
-- [ ] 6.2 `npm run test` green; the 7 `*FormSheet.test.tsx` updated to RHF; new tests for `.superRefine()` rules
-- [ ] 6.3 `npm run build` + `check:bundle` under budget (RHF + Zod)
-- [ ] 6.4 `make generate-ts` produces `zod.gen.ts` with no diff
-- [ ] 6.5 Manual smoke per form: empty required → field error; invalid time/money/date → correct localized field error; double-click Save → single submit
+- [x] 6.1 `npm run typecheck` + `npm run lint` green
+- [x] 6.2 `npm run test` green (79 test files, 1133 tests) — every `*FormSheet.test.tsx`, hook test, and `AppContext.test.tsx` updated to the `sheet.formInitial`-based API; tests that only made sense against the old global buffer (external `formErrors` injection, `toggleFormNomRole`/`toggleFormRole` context actions, `state.busy`-driven disabled-button assertions) were rewritten to exercise the real RHF/Zod behavior instead (blur-triggered validation, `aria-invalid`, pending-submit disabling) rather than deleted outright where a real equivalent existed.
+- [x] 6.3 `npm run build` + `check:bundle` green (253.0 KB gzip total, all chunks within the 250 KB/600 KB budget)
+- [x] 6.4 `make generate-ts`: `types.gen.ts` (the one actually gated by CI's `backend-openapi-drift` job) regenerates byte-identical. `zod.gen.ts` regenerates with a pure quote-style/formatting diff (not schema content) that is **not** covered by that CI gate and predates this change; left untouched rather than bulk-reformatting an otherwise-unrelated generated file.
+- [x] 6.5 Manual smoke per form: empty required → field error; invalid time/money/date → correct localized field error; double-click Save → single submit. Browser-smoke-tested (Playwright) end-to-end against the running dev server + MSW mock backend across two passes: (1) Role/CreateTeam/TeamSettings flows (create/edit role with permission toggles, create a new team, rename team + toggle comment-visibility roles + change icon); (2) the `sheet.formInitial` plumbing specifically — event edit-form prefill, member edit-form prefill, and poll create (toast "Umfrage erstellt" confirmed) — all persisted and reflected in the UI correctly. Noted in passing: an unrelated pre-existing bug (`MUI: Unsupported var(--tv-neutral-onSurface) color` crashing `SkeletonList` on some page loads, from `theme.ts` feeding a raw CSS-custom-property string into MUI's `alpha()`) — confirmed via `git diff`/`git log` to predate this change and be untouched by it; not fixed here as out of scope.

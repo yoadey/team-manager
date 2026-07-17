@@ -1,12 +1,13 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Chip, Field, labelSx, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import { MODULE_LABELS } from '@/services';
 import type { ModuleKey, PermLevel } from '@/types';
 import type { SheetProps } from '@/sheets/types';
-import type { RoleFormValues } from '../types';
-import { formValues } from '@/utils/forms';
+import { roleFormSchema, type RoleFormValues } from './roleFormSchema';
 import { t } from '@/i18n';
 
 export function RolesSheet({ app, sheet }: SheetProps) {
@@ -140,13 +141,34 @@ export function RolesSheet({ app, sheet }: SheetProps) {
 }
 
 export function RoleFormSheet({ app, sheet }: SheetProps) {
-  void sheet;
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const team = app.activeTeam()!;
   void team;
-  const F = formValues<RoleFormValues>(app.state);
-  const canSubmit = !!F.name?.trim();
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<RoleFormValues>({
+    resolver: zodResolver(roleFormSchema),
+    defaultValues: sheet.formInitial as RoleFormValues,
+    mode: 'onBlur',
+  });
+
+  const name = watch('name');
+  const perms = watch('perms');
+  const canSubmit = !!name?.trim();
+
+  const onSubmit = async (values: RoleFormValues) => {
+    try {
+      await app.saveRole(values);
+    } catch {
+      // Ignored
+    }
+  };
 
   const rows = (Object.keys(MODULE_LABELS) as ModuleKey[]).map((mod) => (
     <Box
@@ -180,12 +202,13 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
             ['write', t('team.permWrite')],
           ] as [PermLevel, string][]
         ).map(([v, l]) => {
-          const sel = F.perms?.[mod] === v;
+          const sel = perms?.[mod] === v;
           return (
             <ButtonBase
               key={v}
+              type="button"
               aria-pressed={sel}
-              onClick={() => app.setRolePerm(mod, v)}
+              onClick={() => setValue('perms', { ...perms, [mod]: v }, { shouldValidate: true })}
               sx={{
                 p: '6px 11px',
                 borderRadius: '7px',
@@ -206,9 +229,13 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
   ));
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <Field label={t('team.roleNameField')}>
-        <TextInput name="name" placeholder={t('team.roleNamePlaceholder')} maxLength={60} />
+    <Box
+      component="form"
+      onSubmit={handleSubmit(onSubmit)}
+      sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}
+    >
+      <Field label={t('team.roleNameField')} error={!!errors.name} errorText={errors.name?.message}>
+        <TextInput placeholder={t('team.roleNamePlaceholder')} maxLength={60} {...register('name')} />
       </Field>
       <Box key="p">
         <Box key="l" sx={labelSx}>
@@ -220,8 +247,8 @@ export function RoleFormSheet({ app, sheet }: SheetProps) {
       </Box>
       <PrimaryButton
         label={t('team.saveRole')}
-        onClick={() => app.saveRole()}
-        busy={app.state.busy === 'save'}
+        onClick={handleSubmit(onSubmit)}
+        busy={isSubmitting}
         disabled={!canSubmit}
       />
     </Box>

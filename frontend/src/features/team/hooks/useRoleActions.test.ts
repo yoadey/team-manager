@@ -9,8 +9,6 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
     user: { id: 'u1', name: 'Test User', email: 'test@test.com', avatarColor: '#000', photo: null },
     activeTeamId: 'team1',
     sheet: null,
-    form: {},
-    formErrors: {},
     busy: null,
     toast: null,
     route: 'home',
@@ -110,7 +108,7 @@ describe('useRoleActions', () => {
     const patch = stateRef;
     expect(patch.sheet?.type).toBe('roleForm');
     expect(patch.sheet?.mode).toBe('create');
-    expect(patch.form).toMatchObject({
+    expect(patch.sheet?.formInitial).toMatchObject({
       name: '',
       perms: expect.objectContaining({ events: 'read', finances: 'none' }),
     });
@@ -129,43 +127,26 @@ describe('useRoleActions', () => {
     const patch = stateRef;
     expect(patch.sheet?.type).toBe('roleForm');
     expect(patch.sheet?.mode).toBe('edit');
-    expect(patch.form).toMatchObject({ id: 'r1', name: 'Trainer', perms: role.permissions });
-  });
-
-  it('setRolePerm updates permission for a module', () => {
-    stateRef = makeState({ form: { name: 'Test', perms: { events: 'read', finances: 'none' } } });
-    const { result } = renderActions();
-    act(() => {
-      result.current.setRolePerm('finances', 'write');
-    });
-    expect((stateRef.form.perms as Record<string, string>).finances).toBe('write');
-  });
-
-  it('saveRole shows toast when name is empty', async () => {
-    stateRef = makeState({ form: { name: '' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveRole();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.', undefined, 'error');
-    expect(api.roles.create).not.toHaveBeenCalled();
+    expect(patch.sheet?.formInitial).toMatchObject({ id: 'r1', name: 'Trainer', perms: role.permissions });
   });
 
   it('saveRole creates role and shows toast', async () => {
-    stateRef = makeState({ form: { name: 'Trainer', perms: { events: 'write', finances: 'none' } } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveRole();
+      await result.current.saveRole({ name: 'Trainer', perms: { events: 'write', finances: 'none' } } as never);
     });
     expect(api.roles.create).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Trainer' }));
     expect(toastMsg).toHaveBeenCalledWith('Rolle angelegt');
   });
 
   it('saveRole updates an existing role (form has id) instead of creating', async () => {
-    stateRef = makeState({ form: { id: 'r1', name: 'Renamed', perms: { events: 'write', finances: 'none' } } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveRole();
+      await result.current.saveRole({
+        id: 'r1',
+        name: 'Renamed',
+        perms: { events: 'write', finances: 'none' },
+      } as never);
     });
     expect(api.roles.update).toHaveBeenCalledWith(
       'r1',
@@ -176,21 +157,13 @@ describe('useRoleActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Rolle aktualisiert');
   });
 
-  it('saveRole shows toast when name is whitespace-only, without calling the API', async () => {
-    stateRef = makeState({ form: { name: '   ' } });
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.saveRole();
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Bitte Rollennamen angeben.', undefined, 'error');
-    expect(api.roles.create).not.toHaveBeenCalled();
-  });
-
   it('saveRole trims leading/trailing whitespace from the name before saving', async () => {
-    stateRef = makeState({ form: { name: '  Trainer  ', perms: { events: 'write', finances: 'none' } } });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveRole();
+      await result.current.saveRole({
+        name: '  Trainer  ',
+        perms: { events: 'write', finances: 'none' },
+      } as never);
     });
     expect(api.roles.create).toHaveBeenCalledWith('team1', expect.objectContaining({ name: 'Trainer' }));
   });
@@ -202,14 +175,17 @@ describe('useRoleActions', () => {
     let resolveUpdate!: (v: { id: string }) => void;
     api.roles.update = vi.fn(() => new Promise((resolve) => (resolveUpdate = resolve)));
     stateRef = makeState({
-      form: { id: 'r1', name: 'Renamed', perms: { events: 'write', finances: 'none' } },
       sheet: { type: 'roleForm', mode: 'edit' } as never,
     });
     const { result } = renderActions();
 
     let savePromise!: Promise<void>;
     act(() => {
-      savePromise = result.current.saveRole();
+      savePromise = result.current.saveRole({
+        id: 'r1',
+        name: 'Renamed',
+        perms: { events: 'write', finances: 'none' },
+      } as never);
     });
 
     const somethingElse = { type: 'teams' } as never;

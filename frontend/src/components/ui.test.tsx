@@ -17,14 +17,10 @@ import {
   metaItem,
 } from './ui';
 
-const mockForm: Record<string, unknown> = { title: 'Hello' };
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn().mockReturnValue({
-    state: { primaryColor: '#4285F4', form: { title: 'Hello' } },
-    onFormInput: vi.fn(),
+    state: { primaryColor: '#4285F4' },
   }),
-  useAppActions: vi.fn(() => ({ onFormInput: vi.fn() })),
-  useAppSelector: (sel: (s: { form: Record<string, unknown> }) => unknown) => sel({ form: mockForm }),
 }));
 
 describe('Sym', () => {
@@ -160,8 +156,8 @@ describe('Field', () => {
 });
 
 describe('TextInput', () => {
-  it('renders input with name from form state', () => {
-    const { container } = render(<TextInput name="title" />);
+  it('renders a controlled input reflecting the passed value', () => {
+    const { container } = render(<TextInput name="title" value="Hello" onChange={() => {}} />);
     const input = container.querySelector('input[name="title"]');
     expect(input).toBeTruthy();
     expect((input as HTMLInputElement).value).toBe('Hello');
@@ -169,8 +165,10 @@ describe('TextInput', () => {
 });
 
 describe('TextArea', () => {
-  it('renders textarea element', () => {
-    const { container } = render(<TextArea name="title" placeholder="Beschreibung" />);
+  it('renders a controlled textarea reflecting the passed value', () => {
+    const { container } = render(
+      <TextArea name="title" placeholder="Beschreibung" value="Hello" onChange={() => {}} />,
+    );
     const ta = container.querySelector('textarea');
     expect(ta).toBeTruthy();
     expect(ta!.value).toBe('Hello');
