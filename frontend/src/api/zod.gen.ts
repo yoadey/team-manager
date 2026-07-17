@@ -717,6 +717,11 @@ const endpoints = makeApi([
     response: z.void(),
     errors: [
       {
+        status: 302,
+        description: `Redirect to a short-lived presigned object-storage URL. Membership (and, where applicable, module permission) is checked before this response is issued -- the URL itself carries its own time-limited authorization and is not further access-controlled.`,
+        schema: z.void(),
+      },
+      {
         status: 404,
         description: `Not Found`,
         schema: z.void(),
@@ -1511,6 +1516,11 @@ const endpoints = makeApi([
     response: z.void(),
     errors: [
       {
+        status: 302,
+        description: `Redirect to a short-lived presigned object-storage URL. Membership (and, where applicable, module permission) is checked before this response is issued -- the URL itself carries its own time-limited authorization and is not further access-controlled.`,
+        schema: z.void(),
+      },
+      {
         status: 404,
         description: `Not Found`,
         schema: z.void(),
@@ -1777,6 +1787,11 @@ const endpoints = makeApi([
     response: z.void(),
     errors: [
       {
+        status: 302,
+        description: `Redirect to a short-lived presigned object-storage URL. Membership (and, where applicable, module permission) is checked before this response is issued -- the URL itself carries its own time-limited authorization and is not further access-controlled.`,
+        schema: z.void(),
+      },
+      {
         status: 404,
         description: `Not Found`,
         schema: z.void(),
@@ -2027,6 +2042,37 @@ const endpoints = makeApi([
       },
     ],
     response: MemberAttendanceStats,
+  },
+  {
+    method: 'get',
+    path: '/teams/:teamId/users/:userId/photo',
+    alias: 'getUserPhoto',
+    requestFormat: 'json',
+    parameters: [
+      {
+        name: 'teamId',
+        type: 'Path',
+        schema: z.string().uuid(),
+      },
+      {
+        name: 'userId',
+        type: 'Path',
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.void(),
+    errors: [
+      {
+        status: 302,
+        description: `Redirect to a short-lived presigned object-storage URL. Membership (and, where applicable, module permission) is checked before this response is issued -- the URL itself carries its own time-limited authorization and is not further access-controlled.`,
+        schema: z.void(),
+      },
+      {
+        status: 404,
+        description: `Not Found`,
+        schema: z.void(),
+      },
+    ],
   },
 ]);
 

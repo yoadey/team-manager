@@ -85,10 +85,10 @@ func TestRepository_FindUserByID(t *testing.T) {
 
 // Regression test: FindUserByID is on the hot path (invoked on essentially
 // every authenticated request via AuthMiddleware), so it must only expose a
-// HasPhoto boolean rather than fetching the full photo_data BLOB every time;
-// FindUserPhotoByID is the dedicated method for the one path that actually
-// needs the raw bytes.
-func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
+// HasPhoto boolean rather than fetching the object key every time;
+// FindUserPhotoKeyByID is the dedicated method for the one path that
+// actually needs it.
+func TestRepository_FindUserByID_ExposesHasPhotoNotObjectKey(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
@@ -97,8 +97,8 @@ func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
 
 	_, err := pool.Exec(
 		ctx,
-		`INSERT INTO users (id, name, email, avatar_color, photo_data, photo_mime)
-		 VALUES ('33333333-3333-3333-3333-333333333333', 'Carol', 'carol@example.com', '#0000ff', '\x89504e47', 'image/jpeg')`,
+		`INSERT INTO users (id, name, email, avatar_color, photo_object_key)
+		 VALUES ('33333333-3333-3333-3333-333333333333', 'Carol', 'carol@example.com', '#0000ff', 'users/33333333-3333-3333-3333-333333333333/photo')`,
 	)
 	require.NoError(t, err)
 
@@ -106,9 +106,9 @@ func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, user.HasPhoto)
 
-	data, err := repo.FindUserPhotoByID(ctx, "33333333-3333-3333-3333-333333333333")
+	key, err := repo.FindUserPhotoKeyByID(ctx, "33333333-3333-3333-3333-333333333333")
 	require.NoError(t, err)
-	assert.NotEmpty(t, data)
+	assert.Equal(t, "users/33333333-3333-3333-3333-333333333333/photo", key)
 }
 
 func TestRepository_CreateAndFindSession(t *testing.T) {
@@ -247,6 +247,48 @@ func TestRepository_EraseUser_AnotherSettingsAdminExists_Succeeds(t *testing.T) 
 	var deletedAt *time.Time
 	require.NoError(t, pool.QueryRow(ctx, `SELECT deleted_at FROM users WHERE id = $1`, userID).Scan(&deletedAt))
 	assert.NotNil(t, deletedAt)
+}
+
+// Regression test: EraseUser must null photo_object_key alongside the legacy
+// photo_data/photo_mime columns -- otherwise an erased user's DB row would
+// still reference a live object-store key even though the account itself is
+// anonymized, leaving a dangling pointer back at (now-orphaned) photo bytes.
+func TestRepository_EraseUser_NullsPhotoObjectKey(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "bbbbbbbb-4444-4444-4444-444444444444"
+	userID := "bbbbbbbb-5555-5555-5555-555555555555"
+	otherAdminID := "bbbbbbbb-6666-6666-6666-666666666666"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Erase Photo Test Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color, photo_object_key) VALUES ($1, 'Leaving Admin', 'leaving-admin-photo@example.com', '#123456', 'users/'||$1||'/photo')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Other Admin', 'other-admin-photo@example.com', '#654321')`, otherAdminID)
+	require.NoError(t, err)
+
+	var roleID string
+	require.NoError(t, pool.QueryRow(ctx, `
+		INSERT INTO roles (team_id, name, permissions)
+		VALUES ($1, 'Admin', '{"events":"write","members":"write","finances":"write","news":"write","polls":"write","settings":"write"}')
+		RETURNING id
+	`, teamID).Scan(&roleID))
+
+	for _, uid := range []string{userID, otherAdminID} {
+		var membershipID string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2) RETURNING id`, teamID, uid).Scan(&membershipID))
+		_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, roleID)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, repo.EraseUser(ctx, userID))
+
+	var photoKey *string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT photo_object_key FROM users WHERE id = $1`, userID).Scan(&photoKey))
+	assert.Nil(t, photoKey)
 }
 
 // Regression test: EraseUser's sole-settings-admin check used to run without

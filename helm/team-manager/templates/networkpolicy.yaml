@@ -55,10 +55,12 @@ spec:
       to:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-    {{- if and .Values.backup.enabled .Values.backup.s3.enabled }}
-    # Allow outbound to the backup CronJob's S3(-compatible) endpoint. Kept
-    # separate from the https rule above since a self-hosted endpoint
-    # (backup.s3.endpoint, e.g. MinIO) commonly listens on a non-443 port —
+    {{- if or (and .Values.backup.enabled .Values.backup.s3.enabled) .Values.images.s3.enabled }}
+    # Allow outbound to the backup CronJob's and/or the app's own
+    # image-storage S3(-compatible) endpoint (see networkPolicy.egress.s3
+    # above for why this is one shared rule). Kept separate from the https
+    # rule above since a self-hosted endpoint (backup.s3.endpoint /
+    # images.s3.endpoint, e.g. MinIO) commonly listens on a non-443 port —
     # override via networkPolicy.egress.s3.port to match it.
     - ports:
         - port: {{ .Values.networkPolicy.egress.s3.port }}

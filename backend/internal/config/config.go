@@ -52,6 +52,12 @@ var ErrJWTKeysRequired = errors.New("JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are both
 // entry that is not a valid CIDR (e.g. "10.0.0.0/8").
 var ErrInvalidTrustedProxyCIDR = errors.New("TRUSTED_PROXY_CIDRS must be a comma-separated list of valid CIDRs")
 
+// ErrS3ConfigRequired is returned when S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/
+// S3_SECRET_ACCESS_KEY are not all set while COOKIE_SECURE is true
+// (production), where storing images in Postgres (or not storing them at
+// all) is not an acceptable fallback.
+var ErrS3ConfigRequired = errors.New("S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are all required when COOKIE_SECURE=true")
+
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
 
@@ -104,6 +110,25 @@ type Config struct {
 	// to info; an unrecognized value also falls back to info rather than
 	// failing startup over a logging-verbosity typo.
 	LogLevel slog.Level
+	// S3 holds object-storage configuration for team/user photos and logos.
+	// Required when CookieSecure is true (see ErrS3ConfigRequired); optional
+	// in dev, where an unset S3.Endpoint means main.go skips wiring a real
+	// store.
+	S3 S3Config
+}
+
+// S3Config configures the S3-compatible object store used for team/user
+// photos and logos. See CLAUDE.md's env var table for each field's env var.
+type S3Config struct {
+	// Endpoint is the bare host[:port] (scheme stripped by loadS3Config).
+	Endpoint      string
+	UseSSL        bool
+	Region        string
+	Bucket        string
+	AccessKeyID   string
+	SecretKey     string
+	UsePathStyle  bool
+	PublicBaseURL string
 }
 
 func Load() (*Config, error) {
@@ -162,6 +187,11 @@ func Load() (*Config, error) {
 
 	logLevel := loadLogLevel()
 
+	s3Config, err := loadS3Config(cookieSecure)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:                      envOr("PORT", "8080"),
 		DatabaseURL:               dbURL,
@@ -184,6 +214,7 @@ func Load() (*Config, error) {
 		RetentionAuditLogDays:     retentionAuditLogDays,
 		TrustedProxyCIDRs:         trustedProxyCIDRs,
 		LogLevel:                  logLevel,
+		S3:                        s3Config,
 	}, nil
 }
 
@@ -252,6 +283,57 @@ func loadJWTKeys(cookieSecure bool) (privateKey, publicKey string, err error) {
 		return "", "", ErrJWTKeysRequired
 	}
 	return privateKey, publicKey, nil
+}
+
+// loadS3Config reads the S3_* object-storage env vars, failing loudly if
+// S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY are not all set
+// while cookieSecure is true (production) -- see ErrS3ConfigRequired. In dev,
+// an empty Endpoint is a valid "no object store configured" value; main.go
+// treats that as "skip wiring a real S3Store" rather than failing.
+//
+// S3_ENDPOINT may include an explicit "http://"/"https://" scheme (e.g. for a
+// plaintext local MinIO); when present it also selects UseSSL, and the
+// scheme is stripped before handing the bare host[:port] to minio-go, which
+// takes Secure as a separate option. Without a scheme, UseSSL defaults to
+// true (the production-safe default) since S3_USE_SSL is deliberately not a
+// separate env var -- one fewer knob to misconfigure.
+func loadS3Config(cookieSecure bool) (S3Config, error) {
+	rawEndpoint := os.Getenv("S3_ENDPOINT")
+	bucket := os.Getenv("S3_BUCKET")
+	accessKey := os.Getenv("S3_ACCESS_KEY_ID")
+	secretKey := os.Getenv("S3_SECRET_ACCESS_KEY")
+
+	if cookieSecure && (rawEndpoint == "" || bucket == "" || accessKey == "" || secretKey == "") {
+		return S3Config{}, ErrS3ConfigRequired
+	}
+
+	endpoint, useSSL := rawEndpoint, true
+	switch {
+	case strings.HasPrefix(rawEndpoint, "http://"):
+		endpoint, useSSL = strings.TrimPrefix(rawEndpoint, "http://"), false
+	case strings.HasPrefix(rawEndpoint, "https://"):
+		endpoint, useSSL = strings.TrimPrefix(rawEndpoint, "https://"), true
+	}
+
+	usePathStyle := true
+	if v := os.Getenv("S3_USE_PATH_STYLE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return S3Config{}, fmt.Errorf("S3_USE_PATH_STYLE: %w", err)
+		}
+		usePathStyle = b
+	}
+
+	return S3Config{
+		Endpoint:      endpoint,
+		UseSSL:        useSSL,
+		Region:        os.Getenv("S3_REGION"),
+		Bucket:        bucket,
+		AccessKeyID:   accessKey,
+		SecretKey:     secretKey,
+		UsePathStyle:  usePathStyle,
+		PublicBaseURL: os.Getenv("S3_PUBLIC_BASE_URL"),
+	}, nil
 }
 
 // loadRateLimits reads RATE_LIMIT_RPS and LOGIN_RATE_LIMIT_PER_MIN.

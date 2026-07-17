@@ -46,6 +46,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: nil, Module: "public", SelfService: false},                                                                             // getTeam
 	{Method: "GET", Segments: []string{"logo"}, Module: "public", SelfService: false},                                                                // getTeamLogo
 	{Method: "GET", Segments: []string{"photo"}, Module: "public", SelfService: false},                                                               // getTeamPhoto
+	{Method: "GET", Segments: []string{"users", "{userId}", "photo"}, Module: "members", SelfService: false},                                         // getUserPhoto
 	{Method: "GET", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                            // listAbsences
 	{Method: "GET", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: false},                                   // listAttendance
 	{Method: "GET", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: false},                                     // listEventComments

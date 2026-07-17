@@ -43,6 +43,58 @@ services:
           cpus: "0.25"
           memory: 256M
 
+  # MinIO stands in for S3 in local dev, storing team/user photos and logos
+  # (see move-images-to-object-storage). Not a production deployment manifest
+  # -- production uses real S3 or an operator-managed S3-compatible store,
+  # configured via the backend's S3_* env vars (see helm/ and CLAUDE.md).
+  minio:
+    # Pin to an immutable digest, matching this file's postgres/frontend
+    # services. Digest below resolved 2026-07-17 from registry-1.docker.io
+    # for minio/minio:RELEASE.2025-09-07T16-13-09Z.
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-teammanager}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-teammanager123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+
+  # One-shot init container: creates the bucket the backend writes to, since
+  # MinIO doesn't auto-create buckets on first use the way S3 can be
+  # pre-provisioned by infra-as-code in production.
+  minio-init:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-teammanager} ${MINIO_ROOT_PASSWORD:-teammanager123} &&
+      mc mb -p local/${MINIO_BUCKET:-team-manager-images}
+      "
+
   backend:
     build:
       context: backend
@@ -51,6 +103,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       # The distroless/static image has no shell/wget, so this must be the
       # exec form invoking the /healthcheck binary directly (see backend
@@ -80,6 +134,20 @@ services:
       # encryption key when COOKIE_ENCRYPTION_KEY is unset.
       COOKIE_SECURE: "false"
       COOKIE_ENCRYPTION_KEY: ${COOKIE_ENCRYPTION_KEY:-}
+      # Object storage for team/user photos and logos, backed by the minio
+      # service above. S3_ENDPOINT has no scheme, so config.go defaults
+      # UseSSL to true -- explicit http:// here selects plaintext, matching
+      # MinIO's default unencrypted local listener.
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${MINIO_BUCKET:-team-manager-images}
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-teammanager}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-teammanager123}
+      S3_USE_PATH_STYLE: "true"
+      # Presigned URLs are issued with the minio: hostname (S3_ENDPOINT,
+      # reachable from the backend container); rewrite them to the
+      # host-published port so the browser (which can't resolve "minio") can
+      # actually follow the redirect.
+      S3_PUBLIC_BASE_URL: http://localhost:9000
     ports:
       - "8080:8080"
     deploy:
@@ -131,3 +199,4 @@ services:
 volumes:
   postgres_data:
   frontend_node_modules:
+  minio_data:

@@ -164,6 +164,48 @@ pod crash-loops on retry with `pq: relation "audit_log" already exists`
 3. Delete the crash-looping pod so the initContainer retries cleanly against
    the now-empty state.
 
+## Image object storage
+
+Team/user photos and logos live in an S3-compatible object store, not
+Postgres — the `users`/`teams` tables hold only an object key
+(`*_object_key`), and GET endpoints 302-redirect to a short-lived (5 minute)
+presigned URL rather than streaming bytes through the app. Configure via the
+`S3_*` env vars (CLAUDE.md's table) or, on the Helm chart, `images.s3.*` in
+`values.yaml` (mirrors `backup.s3`'s shape).
+
+**Required in production**: with `COOKIE_SECURE=true` (the default), startup
+hard-fails (`ErrS3ConfigRequired`) unless `S3_ENDPOINT`, `S3_BUCKET`,
+`S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are all set — including for the
+`--migrate-only` initContainer, since `config.Load()` runs before that flag
+is checked. In dev, an unset `S3_ENDPOINT` falls back to an in-memory store
+(uploads don't survive a restart) rather than failing.
+
+**Local dev**: `docker compose up` runs a MinIO container (`minio`/`minio-init`
+services) and points the backend at it automatically — no setup needed.
+MinIO's web console is at `http://localhost:9001` (credentials:
+`MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`, defaulting to
+`teammanager`/`teammanager123`).
+
+**NetworkPolicy**: `networkPolicy.egress.s3` gates outbound access to the S3
+endpoint (default port 443; override for a non-standard port like MinIO's
+9000) and is rendered whenever `images.s3.enabled` **or**
+`backup.s3.enabled` is true — both S3 clients share the one rule, so if
+they point at different endpoints/ports, widen `networkPolicy.egress.s3.to`
+to cover both rather than narrowing it to just one.
+
+**`S3_PUBLIC_BASE_URL`**: only needed when the backend's own S3 endpoint
+(used for server-to-store calls, e.g. an in-cluster MinIO Service DNS name)
+isn't reachable by the browser that follows the presigned redirect — it
+rewrites the scheme+host of issued URLs without changing where the backend
+itself talks to the store.
+
+**Deferred**: existing `photo_data`/`logo_data` BYTEA columns (migration
+`00001_init.sql`) are not touched by migration `00026` and are not read or
+written by the application anymore — they're dead weight left in place
+until a follow-up change backfills them into the object store and drops the
+columns (`00027`). No data is lost by this change; it's a two-phase
+migration, not a destructive one.
+
 ## Cookie encryption key rotation
 
 `COOKIE_ENCRYPTION_KEYS` supports zero-downtime rotation, but — same

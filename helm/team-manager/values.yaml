@@ -228,18 +228,42 @@ networkPolicy:
       #       cidr: 10.0.1.0/24
     https:
       to: []
-    # Only rendered when backup.enabled and backup.s3.enabled are both true.
-    # The https rule above hardcodes port 443, which is fine for real AWS S3
-    # but not for a self-hosted S3-compatible endpoint (backup.s3.endpoint,
-    # e.g. MinIO) that conventionally listens on a different port such as
-    # 9000 — without this, the backup CronJob's s3-upload container (which
-    # carries the same pod selector labels as the main Deployment and is
-    # therefore subject to this NetworkPolicy too) has its egress silently
-    # dropped, and `aws s3 cp` hangs until backup.activeDeadlineSeconds kills
-    # the Job. Override the port to match backup.s3.endpoint's actual port.
+    # Rendered when either backup.enabled+backup.s3.enabled or
+    # images.s3.enabled is true (shared by two independent S3 clients — the
+    # backup CronJob's s3-upload container, which carries the same pod
+    # selector labels as the main Deployment and is therefore subject to
+    # this NetworkPolicy too, and the main app's own image-storage S3
+    # client). The https rule above hardcodes port 443, which is fine for
+    # real AWS S3 but not for a self-hosted S3-compatible endpoint
+    # (backup.s3.endpoint / images.s3.endpoint, e.g. MinIO) that
+    # conventionally listens on a different port such as 9000 — without
+    # this, egress is silently dropped (the backup Job's `aws s3 cp` hangs
+    # until backup.activeDeadlineSeconds kills it; the app's image upload/
+    # presign calls time out). Override the port to match your endpoint's
+    # actual port -- both S3 clients share this one port/destination
+    # allowlist, so it must match whichever of them you enable (or both, if
+    # they point at the same endpoint).
     s3:
       port: 443
       to: []
+
+# S3-compatible object storage for team/user photos and logos (see
+# move-images-to-object-storage). Mirrors backup.s3's shape below.
+images:
+  s3:
+    # When false, the backend falls back to an in-memory object store --
+    # fine for a quick trial, but uploaded photos/logos vanish on every pod
+    # restart, and startup hard-fails (os.Exit(1)) once env.COOKIE_SECURE is
+    # "true" (the default -- config.go requires S3_ENDPOINT/S3_BUCKET/
+    # S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY in that mode). Set true and fill
+    # in the fields below for any real deployment.
+    enabled: false
+    endpoint: ""              # e.g. s3.amazonaws.com, or https://minio.example.com:9000 for a self-hosted S3-compatible store
+    region: ""
+    bucket: ""
+    usePathStyle: true        # Required by most S3-compatible stores (MinIO, etc.); set false for virtual-hosted-style AWS S3
+    publicBaseURL: ""         # Overrides the scheme+host of presigned URLs when `endpoint` (used for server-to-store calls, e.g. an in-cluster MinIO Service DNS name) isn't reachable by the browser following the redirect
+    credentialsSecretName: "" # Secret with S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY keys; leave empty to read them from the top-level `existingSecret` instead
 
 podDisruptionBudget:
   enabled: true

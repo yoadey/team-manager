@@ -1,7 +1,6 @@
 package teams
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,10 +27,10 @@ type teamService interface {
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*gen.Team, error)
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
 	AcceptInvite(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
-	GetTeamPhotoData(ctx context.Context, teamID string) ([]byte, string, error)
+	GetTeamPhotoURL(ctx context.Context, teamID string) (string, error)
 	UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
 	DeletePhoto(ctx context.Context, teamID string) error
-	GetTeamLogoData(ctx context.Context, teamID string) ([]byte, string, error)
+	GetTeamLogoURL(ctx context.Context, teamID string) (string, error)
 	UpdateLogo(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
 	DeleteLogo(ctx context.Context, teamID string) error
 }
@@ -263,9 +262,9 @@ func (h *Handler) AcceptInvite(ctx context.Context, request gen.AcceptInviteRequ
 	return gen.AcceptInvite200JSONResponse(*tfu), nil
 }
 
-// GetTeamPhoto returns the team photo as JPEG.
+// GetTeamPhoto redirects to a short-lived presigned URL for the team photo.
 func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequestObject) (gen.GetTeamPhotoResponseObject, error) {
-	data, _, err := h.svc.GetTeamPhotoData(ctx, request.TeamId.String())
+	url, err := h.svc.GetTeamPhotoURL(ctx, request.TeamId.String())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return notFoundPhotoResponse("no team photo"), nil
@@ -273,10 +272,7 @@ func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequ
 		h.logger.ErrorContext(ctx, "GetTeamPhoto failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.GetTeamPhoto: %w", err)
 	}
-	return gen.GetTeamPhoto200ImagejpegResponse{
-		Body:          bytes.NewReader(data),
-		ContentLength: int64(len(data)),
-	}, nil
+	return gen.GetTeamPhoto302Response{Headers: gen.PhotoRedirectResponseHeaders{Location: url}}, nil
 }
 
 // readMultipartImage reads the first part of a multipart body, capped at 2 MB,
@@ -350,9 +346,9 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 	return gen.UploadTeamPhoto200JSONResponse(*t), nil
 }
 
-// GetTeamLogo returns the team logo as JPEG.
+// GetTeamLogo redirects to a short-lived presigned URL for the team logo.
 func (h *Handler) GetTeamLogo(ctx context.Context, request gen.GetTeamLogoRequestObject) (gen.GetTeamLogoResponseObject, error) {
-	data, _, err := h.svc.GetTeamLogoData(ctx, request.TeamId.String())
+	url, err := h.svc.GetTeamLogoURL(ctx, request.TeamId.String())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return notFoundLogoResponse("no team logo"), nil
@@ -360,10 +356,7 @@ func (h *Handler) GetTeamLogo(ctx context.Context, request gen.GetTeamLogoReques
 		h.logger.ErrorContext(ctx, "GetTeamLogo failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.GetTeamLogo: %w", err)
 	}
-	return gen.GetTeamLogo200ImagejpegResponse{
-		Body:          bytes.NewReader(data),
-		ContentLength: int64(len(data)),
-	}, nil
+	return gen.GetTeamLogo302Response{Headers: gen.PhotoRedirectResponseHeaders{Location: url}}, nil
 }
 
 // UploadTeamLogo handles a multipart upload, stores the logo, and returns the updated team.

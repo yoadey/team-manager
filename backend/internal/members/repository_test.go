@@ -1022,3 +1022,38 @@ func TestMembersRepository_ListMembers_BatchRolesLoaded(t *testing.T) {
 	assert.Equal(t, "Luke Cage", list[1].Name)
 	assert.Empty(t, list[1].Roles)
 }
+
+func TestMembersRepository_GetMemberPhotoKey(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+	member := seedMember(t, pool, teamID, "Photo Member", "photo-member@example.com")
+
+	_, err := repo.GetMemberPhotoKey(ctx, teamID.String(), member.UserID.String())
+	require.ErrorIs(t, err, pgx.ErrNoRows, "no photo set yet")
+
+	key := "users/" + member.UserID.String() + "/photo"
+	_, err = pool.Exec(ctx, `UPDATE users SET photo_object_key = $1 WHERE id = $2`, key, member.UserID)
+	require.NoError(t, err)
+
+	gotKey, err := repo.GetMemberPhotoKey(ctx, teamID.String(), member.UserID.String())
+	require.NoError(t, err)
+	assert.Equal(t, key, gotKey)
+}
+
+func TestMembersRepository_GetMemberPhotoKey_NotAMember_ReturnsNoRows(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := members.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := seedMemberFixtures(t, pool)
+
+	_, err := repo.GetMemberPhotoKey(ctx, teamID.String(), uuid.New().String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}

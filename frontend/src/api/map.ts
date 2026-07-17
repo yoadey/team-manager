@@ -1,11 +1,15 @@
 // Mapping functions: API schema types → frontend domain types.
-// Photos: the backend stores raw bytes and returns hasPhoto:boolean. Only two
-// GET-by-bytes endpoints exist — the current user's own photo (/auth/me/photo)
-// and a team's photo/logo (/teams/{teamId}/photo|logo) — so only those two
-// entities can be resolved to a display URL here. Other members' photos
-// (attendance rows, comments, poll voters, finance rows, stats, ...) have no
-// per-arbitrary-user photo endpoint on the backend, so they stay null
-// (initials/avatar fallback) until such an endpoint exists.
+// Photos: the backend returns a hasPhoto:boolean per entity and stores the
+// actual bytes in an S3-compatible object store, delivered via a 302
+// redirect to a presigned URL (see move-images-to-object-storage) rather
+// than streamed through the app. /auth/me/photo and /teams/{teamId}/photo|logo
+// cover the caller's own photo and team branding; every other per-user photo
+// (attendance rows, comments, absences, finance rows, stats, notifications,
+// news authors, ...) resolves through the generic
+// /teams/{teamId}/users/{userId}/photo endpoint via memberPhotoUrl below.
+// The one exception is poll voters — PollOption.voters intentionally omits
+// userId (anonymous-poll privacy), so those stay null (initials/avatar
+// fallback); there's no id to build a URL from.
 
 import { apiOrigin } from './client';
 import type { components } from './types.gen';
@@ -53,6 +57,23 @@ export function eurosToCents(euros: number): number {
 function photoUrl(hasPhoto: boolean | undefined, path: string): string | null {
   if (!hasPhoto) return null;
   return `${apiOrigin}/api/v1${path}?v=${Date.now()}`;
+}
+
+// memberPhotoUrl is photoUrl's counterpart for any team member's photo
+// (not just the caller's own or a team's branding), built from the generic
+// /teams/{teamId}/users/{userId}/photo redirect endpoint. teamId is only
+// available as an explicit parameter on mappers whose own schema doesn't
+// already carry one (AttendanceRow, EventComment, Absence, MemberStat,
+// OpenPenalty, Member) — schemas that already embed teamId (NewsItem,
+// PenaltyAssignment, Contribution, AppNotification) use it directly instead
+// of taking a separate parameter.
+function memberPhotoUrl(
+  hasPhoto: boolean | undefined,
+  teamId: string | undefined,
+  userId: string | undefined,
+): string | null {
+  if (!teamId || !userId) return null;
+  return photoUrl(hasPhoto, `/teams/${teamId}/users/${userId}/photo`);
 }
 
 // The backend's attendance-quote fields (MemberStat.quote, EventStat.pct,
@@ -142,7 +163,7 @@ export function mapInvite(inv: S['Invite']): Invite {
   };
 }
 
-export function mapMember(m: S['Member']): Member {
+export function mapMember(m: S['Member'], teamId?: string): Member {
   const dto: MemberDto = {
     membershipId: m.membershipId,
     userId: m.userId,
@@ -152,7 +173,7 @@ export function mapMember(m: S['Member']): Member {
     birthday: m.birthday ?? '',
     address: m.address ?? '',
     avatarColor: m.avatarColor,
-    photo: null,
+    photo: memberPhotoUrl(m.hasPhoto, teamId, m.userId),
     group: m.group ?? '',
     roles: (m.roles ?? []).map(mapRole),
     joinedAt: m.joinedAt,
@@ -217,12 +238,12 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
   };
 }
 
-export function mapAttendanceRow(r: S['AttendanceRow']): AttendanceRow {
+export function mapAttendanceRow(r: S['AttendanceRow'], teamId?: string): AttendanceRow {
   return {
     userId: r.userId,
     name: r.name,
     avatarColor: r.avatarColor,
-    photo: null,
+    photo: memberPhotoUrl(r.hasPhoto, teamId, r.userId),
     group: r.group ?? '',
     primaryRole: r.primaryRole ? mapRole(r.primaryRole) : null,
     status: r.status,
@@ -234,7 +255,7 @@ export function mapAttendanceRow(r: S['AttendanceRow']): AttendanceRow {
   };
 }
 
-export function mapEventComment(c: S['EventComment']): EventComment {
+export function mapEventComment(c: S['EventComment'], teamId?: string): EventComment {
   return {
     id: c.id,
     eventId: c.eventId,
@@ -243,11 +264,11 @@ export function mapEventComment(c: S['EventComment']): EventComment {
     createdAt: c.createdAt,
     name: c.authorName,
     color: c.authorColor,
-    photo: null,
+    photo: memberPhotoUrl(c.hasAuthorPhoto, teamId, c.userId),
   };
 }
 
-export function mapAbsence(a: S['Absence']): Absence {
+export function mapAbsence(a: S['Absence'], teamId?: string): Absence {
   return {
     id: a.id,
     userId: a.userId,
@@ -257,7 +278,7 @@ export function mapAbsence(a: S['Absence']): Absence {
     createdAt: a.createdAt,
     name: a.memberName,
     avatarColor: a.memberAvatarColor,
-    photo: null,
+    photo: memberPhotoUrl(a.hasPhoto, teamId, a.userId),
     roleColor: a.roleColor,
     roleName: a.roleName,
   };
@@ -274,7 +295,7 @@ export function mapNewsItem(n: S['NewsItem']): NewsItem {
     createdAt: n.createdAt,
     authorName: n.authorName,
     authorColor: n.authorColor,
-    authorPhoto: null,
+    authorPhoto: memberPhotoUrl(n.hasAuthorPhoto, n.teamId, n.authorId),
   };
 }
 
@@ -296,6 +317,8 @@ export function mapPoll(p: S['Poll']): Poll {
       text: o.text,
       count: o.count,
       pct: o.pct,
+      // v carries no userId (anonymous-poll privacy — see this file's header
+      // comment), so there's no id to build a photo URL from; stays null.
       voters: (o.voters ?? []).map((v) => ({
         name: v.name ?? '',
         color: v.color ?? '#888',
@@ -320,7 +343,7 @@ export function mapNotification(n: S['AppNotification']): AppNotification {
     createdAt: n.createdAt,
     actorName: n.actorName,
     actorColor: n.actorColor,
-    actorPhoto: null,
+    actorPhoto: memberPhotoUrl(n.hasActorPhoto, n.teamId, n.actorId),
     unread: n.unread ?? false,
   };
 }
@@ -363,7 +386,7 @@ export function mapPenaltyAssignment(a: S['PenaltyAssignment']): PenaltyAssignme
     date: a.date,
     name: a.memberName,
     avatarColor: a.memberAvatarColor,
-    photo: null,
+    photo: memberPhotoUrl(a.hasPhoto, a.teamId, a.userId),
     label: a.label,
     amount: a.amount == null ? a.amount : centsToEuros(a.amount),
   };
@@ -380,11 +403,11 @@ export function mapContribution(c: S['Contribution']): Contribution {
     status: c.status,
     name: c.memberName,
     avatarColor: c.memberAvatarColor,
-    photo: null,
+    photo: memberPhotoUrl(c.hasPhoto, c.teamId, c.userId),
   };
 }
 
-export function mapFinanceOverview(o: S['FinanceOverview']): FinanceOverview {
+export function mapFinanceOverview(o: S['FinanceOverview'], teamId?: string): FinanceOverview {
   return {
     balance: centsToEuros(o.balance),
     income: centsToEuros(o.income),
@@ -396,7 +419,7 @@ export function mapFinanceOverview(o: S['FinanceOverview']): FinanceOverview {
       userId: op.userId,
       name: op.name,
       avatarColor: op.avatarColor,
-      photo: null,
+      photo: memberPhotoUrl(op.hasPhoto, teamId, op.userId),
       amount: centsToEuros(op.amount),
     })),
     openPenaltySum: centsToEuros(o.openPenaltySum),
@@ -405,12 +428,12 @@ export function mapFinanceOverview(o: S['FinanceOverview']): FinanceOverview {
   };
 }
 
-export function mapMemberStat(s: S['MemberStat']): MemberStat {
+export function mapMemberStat(s: S['MemberStat'], teamId?: string): MemberStat {
   return {
     userId: s.userId,
     name: s.name,
     avatarColor: s.avatarColor,
-    photo: null,
+    photo: memberPhotoUrl(s.hasPhoto, teamId, s.userId),
     // counted === 0 means "no data yet", not "0% attendance" — Stats.tsx
     // renders these as distinct states (– / gray vs. 0% / red). The backend
     // always returns a number (0 when counted is 0), so map that case to
@@ -434,10 +457,10 @@ export function mapEventStat(s: S['EventStat']): EventStat {
   };
 }
 
-export function mapStatsOverview(o: S['StatsOverview']): StatsOverview {
+export function mapStatsOverview(o: S['StatsOverview'], teamId?: string): StatsOverview {
   return {
     avg: fractionToPercent(o.avg),
-    members: o.members.map(mapMemberStat),
+    members: o.members.map((m) => mapMemberStat(m, teamId)),
     events: o.events.map(mapEventStat),
     pastCount: o.pastCount,
     from: o.from,

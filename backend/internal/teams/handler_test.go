@@ -28,18 +28,18 @@ import (
 // ─── mock service ─────────────────────────────────────────────────────────────
 
 type mockTeamService struct {
-	listForUser      func(ctx context.Context, userID string) ([]gen.TeamForUser, error)
-	createTeam       func(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error)
-	getTeam          func(ctx context.Context, teamID string) (*gen.Team, error)
-	updateTeam       func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
-	createInvite     func(ctx context.Context, teamID string) (*gen.Invite, error)
-	acceptInvite     func(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
-	getTeamPhotoData func(ctx context.Context, teamID string) ([]byte, string, error)
-	updatePhoto      func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
-	deletePhoto      func(ctx context.Context, teamID string) error
-	getTeamLogoData  func(ctx context.Context, teamID string) ([]byte, string, error)
-	updateLogo       func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
-	deleteLogo       func(ctx context.Context, teamID string) error
+	listForUser     func(ctx context.Context, userID string) ([]gen.TeamForUser, error)
+	createTeam      func(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error)
+	getTeam         func(ctx context.Context, teamID string) (*gen.Team, error)
+	updateTeam      func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
+	createInvite    func(ctx context.Context, teamID string) (*gen.Invite, error)
+	acceptInvite    func(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
+	getTeamPhotoURL func(ctx context.Context, teamID string) (string, error)
+	updatePhoto     func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
+	deletePhoto     func(ctx context.Context, teamID string) error
+	getTeamLogoURL  func(ctx context.Context, teamID string) (string, error)
+	updateLogo      func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
+	deleteLogo      func(ctx context.Context, teamID string) error
 }
 
 func (m *mockTeamService) ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error) {
@@ -66,8 +66,8 @@ func (m *mockTeamService) AcceptInvite(ctx context.Context, code, userID string)
 	return m.acceptInvite(ctx, code, userID)
 }
 
-func (m *mockTeamService) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mimeType string, err error) {
-	return m.getTeamPhotoData(ctx, teamID)
+func (m *mockTeamService) GetTeamPhotoURL(ctx context.Context, teamID string) (string, error) {
+	return m.getTeamPhotoURL(ctx, teamID)
 }
 
 func (m *mockTeamService) UpdatePhoto(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error) {
@@ -78,8 +78,8 @@ func (m *mockTeamService) DeletePhoto(ctx context.Context, teamID string) error 
 	return m.deletePhoto(ctx, teamID)
 }
 
-func (m *mockTeamService) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mimeType string, err error) {
-	return m.getTeamLogoData(ctx, teamID)
+func (m *mockTeamService) GetTeamLogoURL(ctx context.Context, teamID string) (string, error) {
+	return m.getTeamLogoURL(ctx, teamID)
 }
 
 func (m *mockTeamService) UpdateLogo(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error) {
@@ -107,8 +107,10 @@ func (f *fakeAuthSvc) UpdatePhoto(_ context.Context, _ string, _ []byte, _ strin
 	return f.user, nil
 }
 
-func (f *fakeAuthSvc) GetMyPhotoData(_ context.Context, _ string) ([]byte, error) { return nil, nil }
-func (f *fakeAuthSvc) EraseAccount(_ context.Context, _, _ string) error          { return nil }
+func (f *fakeAuthSvc) GetMyPhotoURL(_ context.Context, _ string) (string, error) {
+	return "", pgx.ErrNoRows
+}
+func (f *fakeAuthSvc) EraseAccount(_ context.Context, _, _ string) error { return nil }
 func (f *fakeAuthSvc) ExportUserData(_ context.Context, _ string) (*auth.ExportData, error) {
 	return &auth.ExportData{}, nil
 }
@@ -208,12 +210,47 @@ func TestTeamHandler_ListTeams(t *testing.T) {
 	assert.Equal(t, 5, result[0].MemberCount)
 }
 
+func TestTeamHandler_GetTeamPhoto_NotFound(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		getTeamPhotoURL: func(_ context.Context, _ string) (string, error) {
+			return "", pgx.ErrNoRows
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+
+	resp, err := h.GetTeamPhoto(context.Background(), gen.GetTeamPhotoRequestObject{TeamId: uuid.New()})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetTeamPhotoResponse(w))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestTeamHandler_GetTeamPhoto_RedirectsToPresignedURL(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		getTeamPhotoURL: func(_ context.Context, _ string) (string, error) {
+			return "https://s3.example.com/teams/t1/photo?sig=abc", nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+
+	resp, err := h.GetTeamPhoto(context.Background(), gen.GetTeamPhotoRequestObject{TeamId: uuid.New()})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetTeamPhotoResponse(w))
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "https://s3.example.com/teams/t1/photo?sig=abc", w.Header().Get("Location"))
+}
+
 func TestTeamHandler_GetTeamLogo_NotFound(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockTeamService{
-		getTeamLogoData: func(_ context.Context, _ string) ([]byte, string, error) {
-			return nil, "", pgx.ErrNoRows
+		getTeamLogoURL: func(_ context.Context, _ string) (string, error) {
+			return "", pgx.ErrNoRows
 		},
 	}
 	h := teams.NewHandler(svc, slog.Default(), nil)
@@ -225,12 +262,12 @@ func TestTeamHandler_GetTeamLogo_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
-func TestTeamHandler_GetTeamLogo_ReturnsStoredBytes(t *testing.T) {
+func TestTeamHandler_GetTeamLogo_RedirectsToPresignedURL(t *testing.T) {
 	t.Parallel()
 
 	svc := &mockTeamService{
-		getTeamLogoData: func(_ context.Context, _ string) ([]byte, string, error) {
-			return []byte("fake-jpeg-bytes"), "image/jpeg", nil
+		getTeamLogoURL: func(_ context.Context, _ string) (string, error) {
+			return "https://s3.example.com/teams/t1/logo?sig=abc", nil
 		},
 	}
 	h := teams.NewHandler(svc, slog.Default(), nil)
@@ -239,8 +276,8 @@ func TestTeamHandler_GetTeamLogo_ReturnsStoredBytes(t *testing.T) {
 	require.NoError(t, err)
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitGetTeamLogoResponse(w))
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "fake-jpeg-bytes", w.Body.String())
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "https://s3.example.com/teams/t1/logo?sig=abc", w.Header().Get("Location"))
 }
 
 func TestTeamHandler_UploadTeamLogo_StoresAndReturnsTeam(t *testing.T) {

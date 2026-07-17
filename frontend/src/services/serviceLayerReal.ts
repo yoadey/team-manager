@@ -320,7 +320,7 @@ export const realApi = {
         });
         return check(res);
       });
-      return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
+      return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0], teamId));
     },
 
     async update(
@@ -347,7 +347,7 @@ export const realApi = {
         },
       });
       const m = await check(res);
-      return mapMember(m);
+      return mapMember(m, teamId);
     },
 
     async setRoles(membershipId: string, roleIds: string[], teamId: string): Promise<Member> {
@@ -356,7 +356,7 @@ export const realApi = {
         body: { roleIds },
       });
       const m = await check(res);
-      return mapMember(m);
+      return mapMember(m, teamId);
     },
 
     async remove(membershipId: string, teamId: string): Promise<void> {
@@ -555,7 +555,7 @@ export const realApi = {
           })
           .then(check),
       );
-      return comments.map(mapEventComment);
+      return comments.map((c) => mapEventComment(c, teamId));
     },
 
     async addComment(eventId: string, text: string, teamId: string): Promise<EventComment> {
@@ -564,7 +564,7 @@ export const realApi = {
         body: { text },
       });
       const c = await check(res);
-      return mapEventComment(c);
+      return mapEventComment(c, teamId);
     },
 
     async removeComment(commentId: string, eventId: string, teamId: string): Promise<void> {
@@ -592,7 +592,7 @@ export const realApi = {
         (a, b) =>
           ATTENDANCE_STATUS_ORDER[a.status] - ATTENDANCE_STATUS_ORDER[b.status] || a.name.localeCompare(b.name, 'de'),
       );
-      return sorted.map(mapAttendanceRow);
+      return sorted.map((r) => mapAttendanceRow(r, teamId));
     },
 
     async set(
@@ -637,7 +637,7 @@ export const realApi = {
       // absence appears first. EventAbsences.tsx renders the list in the
       // order it receives (no client-side sort), so re-sort ascending here to
       // match the mock's convention.
-      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map(mapAbsence);
+      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map((a) => mapAbsence(a, teamId));
     },
 
     async listMine(teamId: string): Promise<Absence[]> {
@@ -647,7 +647,7 @@ export const realApi = {
         });
         return check(res);
       });
-      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map(mapAbsence);
+      return [...items].sort((a, b) => a.from.localeCompare(b.from)).map((a) => mapAbsence(a, teamId));
     },
 
     async create(payload: {
@@ -667,7 +667,7 @@ export const realApi = {
         },
       });
       const a = await check(res);
-      return mapAbsence(a);
+      return mapAbsence(a, payload.teamId);
     },
 
     async update(
@@ -680,7 +680,7 @@ export const realApi = {
         body: patch,
       });
       const a = await check(res);
-      return mapAbsence(a);
+      return mapAbsence(a, teamId);
     },
 
     async remove(absenceId: string, teamId: string): Promise<void> {
@@ -795,7 +795,7 @@ export const realApi = {
       // gets reversed a second time and shows the oldest assignment on top.
       // Reverse here so both service layers hand the UI the same (ascending)
       // convention.
-      return mapFinanceOverview({ ...o, assignments: [...o.assignments].reverse() });
+      return mapFinanceOverview({ ...o, assignments: [...o.assignments].reverse() }, teamId);
     },
 
     async addTransaction(
@@ -948,7 +948,7 @@ export const realApi = {
         params: { path: { teamId }, query: { from: range?.from ?? undefined, to: range?.to ?? undefined } },
       });
       const o = await check(res);
-      return mapStatsOverview(o);
+      return mapStatsOverview(o, teamId);
     },
   },
 

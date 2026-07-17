@@ -141,7 +141,7 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
-		       (u.photo_data IS NOT NULL AND length(u.photo_data) > 0),
+		       (u.photo_object_key IS NOT NULL),
 		       m."group", m.joined_at
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id
@@ -182,6 +182,33 @@ func (r *Repository) ListMembers(ctx context.Context, teamID string, limit int, 
 	}
 
 	return members, nil
+}
+
+// GetMemberPhotoKey returns the object-store key for userID's profile photo,
+// scoped to teamID (returns pgx.ErrNoRows if userID is not a member of
+// teamID, has no photo set, or is soft-deleted) -- this is the membership
+// check for GetUserPhoto, not just a lookup, so it must join through
+// memberships rather than querying users directly.
+func (r *Repository) GetMemberPhotoKey(ctx context.Context, teamID, userID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var key *string
+	err := r.pool.QueryRow(ctx, `
+		SELECT u.photo_object_key
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id
+		WHERE m.team_id = $1 AND m.user_id = $2 AND u.deleted_at IS NULL
+	`, teamID, userID).Scan(&key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows
+		}
+		return "", fmt.Errorf("members.Repository.GetMemberPhotoKey: %w", err)
+	}
+	if key == nil || *key == "" {
+		return "", pgx.ErrNoRows
+	}
+	return *key, nil
 }
 
 // UpdateMember applies a partial update to the user fields and optionally the
@@ -749,7 +776,7 @@ func getMemberByMembershipIDQ(ctx context.Context, q querier, membershipID strin
 	row := q.QueryRow(ctx, `
 		SELECT m.id, u.id, u.name, u.email, u.phone,
 		       u.birthday, u.address, u.avatar_color,
-		       (u.photo_data IS NOT NULL AND length(u.photo_data) > 0),
+		       (u.photo_object_key IS NOT NULL),
 		       m."group", m.joined_at
 		FROM memberships m
 		JOIN users u ON u.id = m.user_id

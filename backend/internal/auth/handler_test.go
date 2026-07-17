@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ type mockAuthService struct {
 	validateToken  func(ctx context.Context, token string) (*auth.UserRow, error)
 	logout         func(ctx context.Context, tokenHash string) error
 	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
-	getMyPhotoData func(ctx context.Context, userID string) ([]byte, error)
+	getMyPhotoURL  func(ctx context.Context, userID string) (string, error)
 	eraseAccount   func(ctx context.Context, userID, password string) error
 	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
 }
@@ -52,11 +53,11 @@ func (m *mockAuthService) UpdatePhoto(ctx context.Context, userID string, data [
 	return m.updatePhoto(ctx, userID, data, mime)
 }
 
-func (m *mockAuthService) GetMyPhotoData(ctx context.Context, userID string) ([]byte, error) {
-	if m.getMyPhotoData != nil {
-		return m.getMyPhotoData(ctx, userID)
+func (m *mockAuthService) GetMyPhotoURL(ctx context.Context, userID string) (string, error) {
+	if m.getMyPhotoURL != nil {
+		return m.getMyPhotoURL(ctx, userID)
 	}
-	return nil, nil
+	return "", pgx.ErrNoRows
 }
 
 func (m *mockAuthService) EraseAccount(ctx context.Context, userID, password string) error {
@@ -585,6 +586,25 @@ func TestHandler_GetMyPhoto_NoPhoto_Returns404WithType(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&body))
 	assert.NotEmpty(t, body["type"])
+}
+
+func TestHandler_GetMyPhoto_RedirectsToPresignedURL(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		getMyPhotoURL: func(context.Context, string) (string, error) {
+			return "https://s3.example.com/users/u1/photo?sig=abc", nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+	resp, err := h.GetMyPhoto(ctx, gen.GetMyPhotoRequestObject{})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetMyPhotoResponse(w))
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "https://s3.example.com/users/u1/photo?sig=abc", w.Header().Get("Location"))
 }
 
 // Regression test: erasing the sole settings administrator of a team used

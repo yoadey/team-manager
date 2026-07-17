@@ -198,6 +198,16 @@ func TestLoad_CookieKeyEphemeralInDev(t *testing.T) {
 	assert.False(t, cfg.CookieSecure)
 }
 
+// setS3Env sets the S3_* env vars TestLoad requires whenever COOKIE_SECURE=true
+// (see config.ErrS3ConfigRequired) but isn't itself testing S3 config.
+func setS3Env(t *testing.T) {
+	t.Helper()
+	t.Setenv("S3_ENDPOINT", "s3.example.com")
+	t.Setenv("S3_BUCKET", "team-manager-images")
+	t.Setenv("S3_ACCESS_KEY_ID", "access-key")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret-key")
+}
+
 func TestLoad_CookieKeyFromHex(t *testing.T) {
 	// 32 bytes encoded as 64 hex chars.
 	const hexKey = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
@@ -206,6 +216,7 @@ func TestLoad_CookieKeyFromHex(t *testing.T) {
 	t.Setenv("COOKIE_ENCRYPTION_KEY", hexKey)
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setS3Env(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -221,6 +232,7 @@ func TestLoad_CookieKeyFromBase64(t *testing.T) {
 	t.Setenv("COOKIE_ENCRYPTION_KEY", b64Key)
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setS3Env(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -246,6 +258,7 @@ func TestLoad_CookieEncryptionKeysPlural(t *testing.T) {
 	t.Setenv("COOKIE_ENCRYPTION_KEYS", key0+","+key1)
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setS3Env(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -309,6 +322,117 @@ func TestLoad_JWTKeysEphemeralInDev(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cfg.JWTPrivateKey)
 	assert.Empty(t, cfg.JWTPublicKey)
+}
+
+func TestLoad_S3RequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	t.Setenv("S3_ENDPOINT", "")
+	t.Setenv("S3_BUCKET", "")
+	t.Setenv("S3_ACCESS_KEY_ID", "")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrS3ConfigRequired)
+}
+
+func TestLoad_S3PartialRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	t.Setenv("S3_ENDPOINT", "s3.example.com")
+	t.Setenv("S3_BUCKET", "")
+	t.Setenv("S3_ACCESS_KEY_ID", "access-key")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret-key")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrS3ConfigRequired)
+}
+
+func TestLoad_S3OptionalInDev(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("S3_ENDPOINT", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.S3.Endpoint)
+}
+
+func TestLoad_S3EndpointSchemeSelectsUseSSL(t *testing.T) {
+	cases := []struct {
+		name           string
+		endpoint       string
+		wantEndpoint   string
+		wantUseSSL     bool
+		expectPathTrue bool
+	}{
+		{name: "https scheme", endpoint: "https://s3.example.com", wantEndpoint: "s3.example.com", wantUseSSL: true, expectPathTrue: true},
+		{name: "http scheme", endpoint: "http://minio.local:9000", wantEndpoint: "minio.local:9000", wantUseSSL: false, expectPathTrue: true},
+		{name: "no scheme defaults to SSL", endpoint: "s3.example.com", wantEndpoint: "s3.example.com", wantUseSSL: true, expectPathTrue: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+			t.Setenv("COOKIE_SECURE", "false")
+			t.Setenv("S3_ENDPOINT", c.endpoint)
+			t.Setenv("S3_BUCKET", "bucket")
+			t.Setenv("S3_ACCESS_KEY_ID", "access-key")
+			t.Setenv("S3_SECRET_ACCESS_KEY", "secret-key")
+
+			cfg, err := config.Load()
+			require.NoError(t, err)
+			assert.Equal(t, c.wantEndpoint, cfg.S3.Endpoint)
+			assert.Equal(t, c.wantUseSSL, cfg.S3.UseSSL)
+			assert.Equal(t, c.expectPathTrue, cfg.S3.UsePathStyle)
+		})
+	}
+}
+
+func TestLoad_S3UsePathStyleOverride(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("S3_ENDPOINT", "s3.amazonaws.com")
+	t.Setenv("S3_BUCKET", "bucket")
+	t.Setenv("S3_ACCESS_KEY_ID", "access-key")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret-key")
+	t.Setenv("S3_USE_PATH_STYLE", "false")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.S3.UsePathStyle)
+}
+
+func TestLoad_S3InvalidUsePathStyle(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("S3_ENDPOINT", "s3.example.com")
+	t.Setenv("S3_BUCKET", "bucket")
+	t.Setenv("S3_ACCESS_KEY_ID", "access-key")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret-key")
+	t.Setenv("S3_USE_PATH_STYLE", "not-a-bool")
+
+	_, err := config.Load()
+	require.Error(t, err)
+}
+
+func TestLoad_S3PublicBaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("S3_ENDPOINT", "minio:9000")
+	t.Setenv("S3_BUCKET", "bucket")
+	t.Setenv("S3_ACCESS_KEY_ID", "access-key")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret-key")
+	t.Setenv("S3_PUBLIC_BASE_URL", "https://images.example.com")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "https://images.example.com", cfg.S3.PublicBaseURL)
 }
 
 func TestLoad_TrustedProxyCIDRsDefaultEmpty(t *testing.T) {

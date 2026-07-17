@@ -91,6 +91,7 @@ team-manager/
 │   │   ├── observability/ OpenTelemetry tracing + Sentry wiring
 │   │   ├── pagination/    Keyset pagination + HMAC-signed cursors
 │   │   ├── validate/      Shared input-validation helpers
+│   │   ├── storage/       S3-compatible object store for team/user photos & logos (ObjectStore interface + S3/fake impls)
 │   │   ├── config/        Environment config
 │   │   └── testutil/      Test helpers (testcontainers)
 │   ├── openapi/openapi.yaml  Source of truth for API contract
@@ -186,6 +187,13 @@ The TypeScript client is also generated from this spec via `openapi-typescript` 
 | `ERROR_TYPE_BASE_URI` | _(empty)_               | Base URI prefix for the `type` field of RFC 9457 problem+json error responses (e.g. `https://docs.example.com/errors`); left as relative paths when unset. |
 | `LOG_LEVEL`       | `info`                      | Minimum level the JSON structured logger emits (`debug`\|`info`\|`warn`\|`error`, case-insensitive). An unrecognized value falls back to `info` rather than failing startup. |
 | `API_DEPRECATION_DATE` | _(empty)_              | When set, emitted as both the RFC 8594 `Deprecation` and `Sunset` response headers on every request, so API clients can programmatically detect a pending deprecation window. Any string is passed through verbatim (e.g. `@1735689600` or an HTTP-date) — no format validation. |
+| `S3_ENDPOINT`     | _(empty)_                   | S3-compatible object store endpoint for team/user photos and logos (e.g. `s3.amazonaws.com`, `minio:9000`, or with an explicit `http://`/`https://` scheme). **Required when `COOKIE_SECURE=true`** (with `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`) — startup fails without it. When unset in dev, an in-memory store is used instead (uploads don't survive a restart). |
+| `S3_REGION`       | _(empty)_                   | Object store region (e.g. `eu-central-1`). |
+| `S3_BUCKET`       | _(required with `S3_ENDPOINT`)_ | Bucket used for team/user photos and logos. |
+| `S3_ACCESS_KEY_ID` | _(required with `S3_ENDPOINT`)_ | Object store access key. |
+| `S3_SECRET_ACCESS_KEY` | _(required with `S3_ENDPOINT`)_ | Object store secret key. |
+| `S3_USE_PATH_STYLE` | `true`                     | Path-style bucket addressing (`host/bucket/key` instead of `bucket.host/key`), required by most S3-compatible stores (MinIO, etc.). Set `false` for virtual-hosted-style AWS S3. |
+| `S3_PUBLIC_BASE_URL` | _(empty)_                | Overrides the scheme+host of presigned image URLs; needed when `S3_ENDPOINT` (used for server-to-store calls, e.g. a MinIO Service DNS name inside the cluster) is not reachable by the browser following the redirect. |
 
 > **Key rotation:** Use `COOKIE_ENCRYPTION_KEYS` (plural) for zero-downtime rotation.
 > Encryption always uses the *first* key; decryption tries all keys in order. Like

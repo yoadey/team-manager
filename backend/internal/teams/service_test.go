@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/storage"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
@@ -79,10 +80,10 @@ type mockTeamRepo struct {
 	getRolesForMemberships func(ctx context.Context, membershipIDs []string) (map[string][]teams.RoleRow, error)
 	createInvite           func(ctx context.Context, teamID string, ttl time.Duration) (*teams.InviteRow, error)
 	acceptInvite           func(ctx context.Context, code, userID string) (*teams.TeamRow, bool, error)
-	getTeamPhotoBytes      func(ctx context.Context, teamID string) ([]byte, *string, error)
-	getTeamLogoBytes       func(ctx context.Context, teamID string) ([]byte, *string, error)
-	updateTeamPhoto        func(ctx context.Context, teamID string, data []byte, mime string) error
-	updateTeamLogo         func(ctx context.Context, teamID string, data []byte, mime string) error
+	getTeamPhotoKey        func(ctx context.Context, teamID string) (string, error)
+	getTeamLogoKey         func(ctx context.Context, teamID string) (string, error)
+	updateTeamPhoto        func(ctx context.Context, teamID string, objectKey string) error
+	updateTeamLogo         func(ctx context.Context, teamID string, objectKey string) error
 	deleteTeamPhoto        func(ctx context.Context, teamID string) error
 	deleteTeamLogo         func(ctx context.Context, teamID string) error
 }
@@ -135,20 +136,20 @@ func (m *mockTeamRepo) AcceptInvite(ctx context.Context, code, userID string) (*
 	return m.acceptInvite(ctx, code, userID)
 }
 
-func (m *mockTeamRepo) GetTeamPhotoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
-	return m.getTeamPhotoBytes(ctx, teamID)
+func (m *mockTeamRepo) GetTeamPhotoKey(ctx context.Context, teamID string) (string, error) {
+	return m.getTeamPhotoKey(ctx, teamID)
 }
 
-func (m *mockTeamRepo) GetTeamLogoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
-	return m.getTeamLogoBytes(ctx, teamID)
+func (m *mockTeamRepo) GetTeamLogoKey(ctx context.Context, teamID string) (string, error) {
+	return m.getTeamLogoKey(ctx, teamID)
 }
 
-func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
-	return m.updateTeamPhoto(ctx, teamID, data, mime)
+func (m *mockTeamRepo) UpdateTeamPhoto(ctx context.Context, teamID, objectKey string) error {
+	return m.updateTeamPhoto(ctx, teamID, objectKey)
 }
 
-func (m *mockTeamRepo) UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error {
-	return m.updateTeamLogo(ctx, teamID, data, mime)
+func (m *mockTeamRepo) UpdateTeamLogo(ctx context.Context, teamID, objectKey string) error {
+	return m.updateTeamLogo(ctx, teamID, objectKey)
 }
 
 func (m *mockTeamRepo) DeleteTeamPhoto(ctx context.Context, teamID string) error {
@@ -225,7 +226,7 @@ func TestTeamService_ListForUser(t *testing.T) {
 		},
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	result, err := svc.ListForUser(context.Background(), userID.String())
 	require.NoError(t, err)
 	require.Len(t, result, 1)
@@ -273,7 +274,7 @@ func TestTeamService_ListForUser_BatchesAcrossMultipleTeams(t *testing.T) {
 		},
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	result, err := svc.ListForUser(context.Background(), userID.String())
 	require.NoError(t, err)
 	require.Len(t, result, 2)
@@ -302,7 +303,7 @@ func TestCreateInvite_BuildsLinkFromPublicBaseURL(t *testing.T) {
 	}
 
 	// A trailing slash on the base URL must not produce a double slash.
-	svc := teams.NewService(repo, "https://app.example.com/")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com/")
 	inv, err := svc.CreateInvite(context.Background(), teamID.String())
 	require.NoError(t, err)
 	assert.Equal(t, "https://app.example.com/join/"+teamID.String()+"/ABC123", inv.Link)
@@ -333,7 +334,7 @@ func TestTeamService_AcceptInvite_ReturnsEnrichedTeam(t *testing.T) {
 		},
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	tfu, err := svc.AcceptInvite(context.Background(), "ABC123", userID.String())
 	require.NoError(t, err)
 	assert.Equal(t, teamID, tfu.Id)
@@ -363,7 +364,7 @@ func TestTeamService_AcceptInvite_PropagatesAlreadyMember(t *testing.T) {
 		},
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	tfu, err := svc.AcceptInvite(context.Background(), "ABC123", userID.String())
 	require.NoError(t, err)
 	assert.True(t, tfu.AlreadyMember)
@@ -378,7 +379,7 @@ func TestTeamService_AcceptInvite_PropagatesErrInviteNotFound(t *testing.T) {
 		},
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	_, err := svc.AcceptInvite(context.Background(), "expired-or-unknown", uuid.New().String())
 	require.ErrorIs(t, err, teams.ErrInviteNotFound)
 }
@@ -388,22 +389,22 @@ func TestTeamService_UpdateLogo_StoresResizedJPEGAndReturnsTeam(t *testing.T) {
 	row := fixedTeamRow(teamID)
 	row.HasLogo = true // stand-in for "stored" bytes on refresh
 
-	var storedData []byte
-	var storedMime string
+	store := storage.NewFakeStore()
+	var storedKey string
 	repo := &mockTeamRepo{
-		updateTeamLogo: func(_ context.Context, tid string, data []byte, mime string) error {
+		updateTeamLogo: func(_ context.Context, tid string, objectKey string) error {
 			assert.Equal(t, teamID.String(), tid)
-			storedData, storedMime = data, mime
+			storedKey = objectKey
 			return nil
 		},
 		getTeam: func(_ context.Context, _ string) (*teams.TeamRow, error) { return &row, nil },
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, store, "https://app.example.com")
 	result, err := svc.UpdateLogo(context.Background(), teamID.String(), fixedJPEG(t), "image/jpeg")
 	require.NoError(t, err)
-	assert.Equal(t, "image/jpeg", storedMime)
-	assert.NotEmpty(t, storedData)
+	assert.Equal(t, storage.TeamLogoKey(teamID.String()), storedKey)
+	assert.NotEmpty(t, store.Get(storedKey))
 	assert.True(t, *result.HasLogo)
 }
 
@@ -417,7 +418,7 @@ func TestTeamService_DeletePhoto_ClearsStoredPhoto(t *testing.T) {
 			return nil
 		},
 	}
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	err := svc.DeletePhoto(context.Background(), teamID.String())
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -427,7 +428,7 @@ func TestTeamService_DeletePhoto_WrongTeam_PropagatesNoRows(t *testing.T) {
 	repo := &mockTeamRepo{
 		deleteTeamPhoto: func(context.Context, string) error { return pgx.ErrNoRows },
 	}
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	err := svc.DeletePhoto(context.Background(), uuid.New().String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
@@ -442,7 +443,7 @@ func TestTeamService_DeleteLogo_ClearsStoredLogo(t *testing.T) {
 			return nil
 		},
 	}
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	err := svc.DeleteLogo(context.Background(), teamID.String())
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -452,7 +453,7 @@ func TestTeamService_DeleteLogo_WrongTeam_PropagatesNoRows(t *testing.T) {
 	repo := &mockTeamRepo{
 		deleteTeamLogo: func(context.Context, string) error { return pgx.ErrNoRows },
 	}
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	err := svc.DeleteLogo(context.Background(), uuid.New().String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
@@ -462,12 +463,12 @@ func TestTeamService_DeleteLogo_WrongTeam_PropagatesNoRows(t *testing.T) {
 // ~1.6 GB for a single upload.
 func TestTeamService_UpdateLogo_RejectsOversizedImage(t *testing.T) {
 	repo := &mockTeamRepo{
-		updateTeamLogo: func(context.Context, string, []byte, string) error {
+		updateTeamLogo: func(context.Context, string, string) error {
 			t.Fatal("must not store an oversized image")
 			return nil
 		},
 	}
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 
 	oversized := fakeOversizedPNGHeader(20000, 20000)
 	_, err := svc.UpdateLogo(context.Background(), uuid.New().String(), oversized, "image/png")
@@ -478,12 +479,12 @@ func TestTeamService_UpdateLogo_RejectsOversizedImage(t *testing.T) {
 
 func TestTeamService_UpdatePhoto_RejectsOversizedImage(t *testing.T) {
 	repo := &mockTeamRepo{
-		updateTeamPhoto: func(context.Context, string, []byte, string) error {
+		updateTeamPhoto: func(context.Context, string, string) error {
 			t.Fatal("must not store an oversized image")
 			return nil
 		},
 	}
-	svc := teams.NewService(repo, "https://app.example.com")
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 
 	oversized := fakeOversizedPNGHeader(20000, 20000)
 	_, err := svc.UpdatePhoto(context.Background(), uuid.New().String(), oversized, "image/png")
@@ -492,33 +493,34 @@ func TestTeamService_UpdatePhoto_RejectsOversizedImage(t *testing.T) {
 	assert.ErrorIs(t, err, teams.ErrImageTooLarge)
 }
 
-func TestTeamService_GetTeamLogoData_ReturnsStoredBytes(t *testing.T) {
+func TestTeamService_GetTeamLogoURL_ReturnsPresignedURL(t *testing.T) {
 	teamID := uuid.New()
-	mime := "image/jpeg"
+	key := storage.TeamLogoKey(teamID.String())
+	store := storage.NewFakeStore()
+	require.NoError(t, store.Put(context.Background(), key, bytes.NewReader([]byte{1, 2, 3}), 3, "image/jpeg"))
 
 	repo := &mockTeamRepo{
-		getTeamLogoBytes: func(_ context.Context, _ string) ([]byte, *string, error) {
-			return []byte{1, 2, 3}, &mime, nil
+		getTeamLogoKey: func(_ context.Context, _ string) (string, error) {
+			return key, nil
 		},
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
-	data, gotMime, err := svc.GetTeamLogoData(context.Background(), teamID.String())
+	svc := teams.NewService(repo, store, "https://app.example.com")
+	url, err := svc.GetTeamLogoURL(context.Background(), teamID.String())
 	require.NoError(t, err)
-	assert.Equal(t, []byte{1, 2, 3}, data)
-	assert.Equal(t, "image/jpeg", gotMime)
+	assert.Contains(t, url, key)
 }
 
-func TestTeamService_GetTeamLogoData_NoLogoReturnsErrNoRows(t *testing.T) {
+func TestTeamService_GetTeamLogoURL_NoLogoReturnsErrNoRows(t *testing.T) {
 	teamID := uuid.New()
 
 	repo := &mockTeamRepo{
-		getTeamLogoBytes: func(_ context.Context, _ string) ([]byte, *string, error) {
-			return nil, nil, nil
+		getTeamLogoKey: func(_ context.Context, _ string) (string, error) {
+			return "", pgx.ErrNoRows
 		},
 	}
 
-	svc := teams.NewService(repo, "https://app.example.com")
-	_, _, err := svc.GetTeamLogoData(context.Background(), teamID.String())
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
+	_, err := svc.GetTeamLogoURL(context.Background(), teamID.String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

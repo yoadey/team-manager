@@ -25,6 +25,7 @@ type memberService interface {
 	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
+	GetMemberPhotoURL(ctx context.Context, teamID, userID string) (string, error)
 }
 
 // Handler implements the member-related methods of gen.StrictServerInterface.
@@ -247,6 +248,32 @@ func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequ
 		slog.String("teamId", request.TeamId.String()), slog.String("membershipId", request.MembershipId.String()))
 	metrics.TeamEvents.WithLabelValues("member", "delete").Inc()
 	return gen.RemoveMember204Response{}, nil
+}
+
+// GetUserPhoto redirects to a short-lived presigned URL for the given team
+// member's profile photo.
+func (h *Handler) GetUserPhoto(ctx context.Context, request gen.GetUserPhotoRequestObject) (gen.GetUserPhotoResponseObject, error) {
+	url, err := h.svc.GetMemberPhotoURL(ctx, request.TeamId.String(), request.UserId.String())
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return notFoundUserPhotoResponse("no profile photo"), nil
+		}
+		h.logger.ErrorContext(ctx, "GetUserPhoto failed", "err", err)
+		return nil, fmt.Errorf("members.Handler.GetUserPhoto: %w", err)
+	}
+	return gen.GetUserPhoto302Response{Headers: gen.PhotoRedirectResponseHeaders{Location: url}}, nil
+}
+
+func notFoundUserPhotoResponse(detail string) gen.GetUserPhotoResponseObject {
+	e := apierror.NotFound(detail)
+	return gen.GetUserPhoto404ApplicationProblemPlusJSONResponse{
+		NotFoundApplicationProblemPlusJSONResponse: gen.NotFoundApplicationProblemPlusJSONResponse{
+			Title:  &e.Title,
+			Detail: &detail,
+			Status: &e.Status,
+			Type:   &e.Type,
+		},
+	}
 }
 
 // ensure time is used.

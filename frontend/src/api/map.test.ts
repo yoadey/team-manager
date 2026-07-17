@@ -9,6 +9,12 @@ import {
   mapFinanceOverview,
   mapUser,
   mapTeam,
+  mapMember,
+  mapAttendanceRow,
+  mapEventComment,
+  mapAbsence,
+  mapNewsItem,
+  mapNotification,
   mapMemberStat,
   mapEventStat,
   mapStatsOverview,
@@ -138,6 +144,111 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
   });
 });
 
+describe("other members' photos resolve through /teams/{teamId}/users/{userId}/photo", () => {
+  it('mapMember returns null photo without a teamId (hasPhoto true but no context)', () => {
+    const m = mapMember({
+      membershipId: 'mem1',
+      userId: 'u1',
+      name: 'Bob',
+      email: 'bob@x.com',
+      avatarColor: '#000',
+      roles: [],
+      joinedAt: '2025-01-01T00:00:00Z',
+      hasPhoto: true,
+    });
+    expect(m.photo).toBeNull();
+  });
+
+  it('mapMember builds a per-user photo URL when hasPhoto is true and teamId is given', () => {
+    const m = mapMember(
+      {
+        membershipId: 'mem1',
+        userId: 'u1',
+        name: 'Bob',
+        email: 'bob@x.com',
+        avatarColor: '#000',
+        roles: [],
+        joinedAt: '2025-01-01T00:00:00Z',
+        hasPhoto: true,
+      },
+      'team1',
+    );
+    expect(m.photo).toMatch(/\/api\/v1\/teams\/team1\/users\/u1\/photo\?v=\d+$/);
+  });
+
+  it('mapAttendanceRow builds a per-user photo URL when hasPhoto is true and teamId is given', () => {
+    const r = mapAttendanceRow(
+      { userId: 'u2', name: 'Carol', avatarColor: '#111', status: 'yes', hasPhoto: true },
+      'team1',
+    );
+    expect(r.photo).toMatch(/\/api\/v1\/teams\/team1\/users\/u2\/photo\?v=\d+$/);
+  });
+
+  it('mapEventComment builds a per-user photo URL from hasAuthorPhoto when teamId is given', () => {
+    const c = mapEventComment(
+      {
+        id: 'c1',
+        eventId: 'e1',
+        userId: 'u3',
+        text: 'hi',
+        createdAt: '2025-01-01T00:00:00Z',
+        hasAuthorPhoto: true,
+      },
+      'team1',
+    );
+    expect(c.photo).toMatch(/\/api\/v1\/teams\/team1\/users\/u3\/photo\?v=\d+$/);
+  });
+
+  it('mapAbsence builds a per-user photo URL when hasPhoto is true and teamId is given', () => {
+    const a = mapAbsence(
+      {
+        id: 'a1',
+        userId: 'u4',
+        from: '2025-01-01',
+        to: '2025-01-02',
+        createdAt: '2025-01-01T00:00:00Z',
+        hasPhoto: true,
+      },
+      'team1',
+    );
+    expect(a.photo).toMatch(/\/api\/v1\/teams\/team1\/users\/u4\/photo\?v=\d+$/);
+  });
+
+  it('mapNewsItem builds a per-user photo URL from its own embedded teamId', () => {
+    const n = mapNewsItem({
+      id: 'n1',
+      teamId: 'team1',
+      authorId: 'u5',
+      title: 't',
+      body: 'b',
+      pinned: false,
+      createdAt: '2025-01-01T00:00:00Z',
+      hasAuthorPhoto: true,
+    });
+    expect(n.authorPhoto).toMatch(/\/api\/v1\/teams\/team1\/users\/u5\/photo\?v=\d+$/);
+  });
+
+  it('mapNotification builds a per-user photo URL from its own embedded teamId', () => {
+    const n = mapNotification({
+      id: 'not1',
+      teamId: 'team1',
+      type: 'event_created',
+      actorId: 'u6',
+      createdAt: '2025-01-01T00:00:00Z',
+      hasActorPhoto: true,
+    });
+    expect(n.actorPhoto).toMatch(/\/api\/v1\/teams\/team1\/users\/u6\/photo\?v=\d+$/);
+  });
+
+  it('returns null photo when hasPhoto is false, regardless of teamId', () => {
+    const r = mapAttendanceRow(
+      { userId: 'u7', name: 'Dana', avatarColor: '#222', status: 'no', hasPhoto: false },
+      'team1',
+    );
+    expect(r.photo).toBeNull();
+  });
+});
+
 // The backend's quote/pct/avg attendance fields are 0-1 fractions
 // (internal/stats/service.go's quote()); every UI consumer (Stats.tsx,
 // MemberSheets.tsx) renders them as a 0-100 percentage. Regression coverage
@@ -146,14 +257,20 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
 // the worst color bucket.
 describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
   it('mapMemberStat scales quote', () => {
-    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }).quote).toBe(50);
-    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 1, counted: 4, yes: 4 }).quote).toBe(100);
+    expect(
+      mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }).quote,
+    ).toBe(50);
+    expect(
+      mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 1, counted: 4, yes: 4 }).quote,
+    ).toBe(100);
   });
 
   it('mapMemberStat maps counted:0 to quote:null ("no data"), not 0%', () => {
     // A member with 0 counted events attended none of zero, not 0% of some —
     // Stats.tsx renders these as distinct states (gray "–" vs. red "0%").
-    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0, counted: 0, yes: 0 }).quote).toBeNull();
+    expect(
+      mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0, counted: 0, yes: 0 }).quote,
+    ).toBeNull();
   });
 
   it('mapEventStat scales pct and passes enough through unchanged', () => {
@@ -176,7 +293,16 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
       avg: 0.667,
       members: [{ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }],
       events: [
-        { id: 'e1', title: 'Training', type: 'training', date: '2024-06-01', yes: 3, nominated: 4, pct: 0.75, enough: true },
+        {
+          id: 'e1',
+          title: 'Training',
+          type: 'training',
+          date: '2024-06-01',
+          yes: 3,
+          nominated: 4,
+          pct: 0.75,
+          enough: true,
+        },
       ],
       pastCount: 1,
       from: '2024-01-01',

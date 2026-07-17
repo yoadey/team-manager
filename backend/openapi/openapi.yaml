@@ -164,13 +164,8 @@ paths:
       operationId: getMyPhoto
       summary: Get user profile photo
       responses:
-        "200":
-          description: JPEG image
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -277,13 +272,8 @@ paths:
       x-rbac-module: public
       summary: Get team photo
       responses:
-        "200":
-          description: JPEG image
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -329,13 +319,8 @@ paths:
       x-rbac-module: public
       summary: Get team logo
       responses:
-        "200":
-          description: JPEG image
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -496,6 +481,24 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Member"
+
+  /teams/{teamId}/users/{userId}/photo:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/userId"
+    get:
+      tags: [members]
+      operationId: getUserPhoto
+      x-rbac-module: members
+      summary: >-
+        Get another team member's profile photo (membership + members:read
+        gated; use /auth/me/photo for the caller's own photo, which needs no
+        module permission).
+      responses:
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ── Roles ───────────────────────────────────────────────────────────────────
 
@@ -1475,6 +1478,13 @@ components:
       schema:
         type: string
         format: uuid
+    userId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     eventId:
       name: eventId
       in: path
@@ -1548,6 +1558,18 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    PhotoRedirect:
+      description: >-
+        Redirect to a short-lived presigned object-storage URL. Membership
+        (and, where applicable, module permission) is checked before this
+        response is issued -- the URL itself carries its own time-limited
+        authorization and is not further access-controlled.
+      headers:
+        Location:
+          required: true
+          schema:
+            type: string
+            format: uri
 
   schemas:
 

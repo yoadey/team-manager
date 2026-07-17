@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,12 +10,14 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
+	"github.com/yoadey/team-manager/backend/internal/storage"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
@@ -26,7 +27,7 @@ type authService interface {
 	ValidateToken(ctx context.Context, tokenString string) (*UserRow, error)
 	Logout(ctx context.Context, tokenHash string) error
 	UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error)
-	GetMyPhotoData(ctx context.Context, userID string) ([]byte, error)
+	GetMyPhotoURL(ctx context.Context, userID string) (string, error)
 	EraseAccount(ctx context.Context, userID, password string) error
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
@@ -179,23 +180,21 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 	return gen.GetCurrentUser200JSONResponse(toGenUser(user)), nil
 }
 
-// GetMyPhoto returns the authenticated user's profile photo.
+// GetMyPhoto redirects to a short-lived presigned URL for the authenticated
+// user's profile photo.
 func (h *Handler) GetMyPhoto(ctx context.Context, _ gen.GetMyPhotoRequestObject) (gen.GetMyPhotoResponseObject, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.NotFound("no profile photo")
 	}
-	data, err := h.svc.GetMyPhotoData(ctx, user.Id.String())
+	url, err := h.svc.GetMyPhotoURL(ctx, user.Id.String())
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, storage.ErrNotFound) {
+			return nil, apierror.NotFound("no profile photo")
+		}
 		return nil, fmt.Errorf("auth.Handler.GetMyPhoto: %w", err)
 	}
-	if len(data) == 0 {
-		return nil, apierror.NotFound("no profile photo")
-	}
-	return gen.GetMyPhoto200ImagejpegResponse{
-		Body:          bytes.NewReader(data),
-		ContentLength: int64(len(data)),
-	}, nil
+	return gen.GetMyPhoto302Response{Headers: gen.PhotoRedirectResponseHeaders{Location: url}}, nil
 }
 
 // UploadMyPhoto handles profile photo upload (multipart), resizes, stores, and returns updated user.
