@@ -314,24 +314,27 @@ jobs:
           set -euo pipefail
           version=$(grep -oP 'oapi-codegen/v2/cmd/oapi-codegen@\K\S+' backend/Makefile)
           go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$version"
-      - name: Regenerate backend/internal/gen/api.gen.go
+      - name: Regenerate backend/internal/gen/api.gen.go and rbac_table.gen.go
         run: cd backend && make generate
       - name: npm ci (frontend, for openapi-typescript)
         working-directory: frontend
         run: npm ci
       - name: Regenerate frontend/src/api/types.gen.ts
         run: make generate-ts
-      # backend/internal/gen/api.gen.go is marked "DO NOT EDIT" and
-      # frontend/src/api/types.gen.ts is likewise generated; both must be
-      # regenerated and committed whenever openapi.yaml changes. Without this
-      # check, a PR that edits the spec but forgets (or loses to a merge
-      # conflict) the regeneration step passes every other job green with the
-      # client/server contract silently out of sync.
+      # backend/internal/gen/api.gen.go, backend/internal/middleware/rbac_table.gen.go
+      # and frontend/src/api/types.gen.ts are marked "DO NOT EDIT" / generated;
+      # all three must be regenerated and committed whenever openapi.yaml
+      # changes. Without this check, a PR that edits the spec but forgets (or
+      # loses to a merge conflict) the regeneration step passes every other
+      # job green with the client/server contract or RBAC table silently out
+      # of sync. (A team-scoped operation missing x-rbac-module entirely
+      # fails the "make generate" step above already -- this check catches
+      # the subtler case of a stale-but-present table.)
       - name: Fail if generated code is out of sync with openapi.yaml
         run: |
           set -euo pipefail
-          if ! git diff --exit-code -- backend/internal/gen/api.gen.go frontend/src/api/types.gen.ts; then
-            echo "::error::backend/internal/gen/api.gen.go and/or frontend/src/api/types.gen.ts are out of sync with backend/openapi/openapi.yaml. Run 'make generate && make generate-ts' at the repo root and commit the result."
+          if ! git diff --exit-code -- backend/internal/gen/api.gen.go backend/internal/middleware/rbac_table.gen.go frontend/src/api/types.gen.ts; then
+            echo "::error::backend/internal/gen/api.gen.go, backend/internal/middleware/rbac_table.gen.go and/or frontend/src/api/types.gen.ts are out of sync with backend/openapi/openapi.yaml. Run 'make generate && make generate-ts' at the repo root and commit the result."
             exit 1
           fi
 

@@ -114,7 +114,7 @@ func applyPermMW(checker middleware.PermissionChecker, req *http.Request) *httpt
 func TestRequirePermission_GET_RequiresReadPermission(t *testing.T) {
 	paths := []string{
 		"/api/v1/teams/" + testTeamID.String() + "/events",
-		"/api/v1/teams/" + testTeamID.String() + "/finances/transactions",
+		"/api/v1/teams/" + testTeamID.String() + "/finances", // getFinanceOverview
 		"/api/v1/teams/" + testTeamID.String() + "/members",
 	}
 
@@ -194,9 +194,18 @@ func TestRequirePermission_Mutations(t *testing.T) {
 		{"create event write ok", http.MethodPost, "/api/v1/teams/" + tid + "/events", allWritePerms(), http.StatusOK},
 		// events write denied (read only)
 		{"create event read denied", http.MethodPost, "/api/v1/teams/" + tid + "/events", allReadPerms(), http.StatusForbidden},
-		// members
-		{"invite member write ok", http.MethodPost, "/api/v1/teams/" + tid + "/members", allWritePerms(), http.StatusOK},
-		{"invite member read denied", http.MethodPost, "/api/v1/teams/" + tid + "/members", allReadPerms(), http.StatusForbidden},
+		// members (there is no POST /members — members join via accepting an
+		// invite; updateMember is the real members:write mutation)
+		{
+			"update member write ok", http.MethodPatch,
+			"/api/v1/teams/" + tid + "/members/" + uuid.New().String(),
+			allWritePerms(), http.StatusOK,
+		},
+		{
+			"update member read denied", http.MethodPatch,
+			"/api/v1/teams/" + tid + "/members/" + uuid.New().String(),
+			allReadPerms(), http.StatusForbidden,
+		},
 		// finances
 		{"create transaction write ok", http.MethodPost, "/api/v1/teams/" + tid + "/finances/transactions", allWritePerms(), http.StatusOK},
 		{"create transaction read denied", http.MethodPost, "/api/v1/teams/" + tid + "/finances/transactions", allReadPerms(), http.StatusForbidden},
@@ -342,6 +351,36 @@ func TestRequirePermission_NoTeamID_Passthrough(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// Regression test for the bug this change fixes: a GET on a route with no
+// RBAC classification must be rejected (404), not served on membership
+// alone. Before the spec-generated table, unknown segments fell through
+// readModuleForPath's "restrict=false" default for GET while the write path
+// already 404'd the same segment — i.e. reads were fail-open where writes
+// were fail-closed. There is now a single lookup (matchRBACRoute) shared by
+// every method, so that asymmetry cannot recur.
+func TestRequirePermission_GET_UnknownRoute_Returns404(t *testing.T) {
+	tid := testTeamID.String()
+	unknownPaths := []string{
+		"/api/v1/teams/" + tid + "/widgets",
+		"/api/v1/teams/" + tid + "/admin",
+		"/api/v1/teams/" + tid + "/superpower",
+		"/api/v1/teams/" + tid + "/debug/dump",
+		// A real top-level module ("events") with a sub-path that isn't an
+		// actual operation must still 404, not fall back to a coarse
+		// per-first-segment classification.
+		"/api/v1/teams/" + tid + "/events/" + uuid.New().String() + "/nonexistent-action",
+	}
+	// Even with full permissions on every module, unknown routes must be rejected.
+	checker := &mockPermissionChecker{perms: allWritePerms()}
+	for _, p := range unknownPaths {
+		t.Run(p, func(t *testing.T) {
+			req := makeChiRequest(http.MethodGet, p, tid)
+			rec := applyPermMW(checker, req)
+			assert.Equal(t, http.StatusNotFound, rec.Code, "GET %s with unknown route should return 404", p)
+		})
+	}
+}
+
 // Unknown path segments must be rejected with 404, not silently mapped to "settings".
 func TestRequirePermission_UnknownPathSegment_Returns404(t *testing.T) {
 	tid := testTeamID.String()
@@ -365,21 +404,24 @@ func TestRequirePermission_UnknownPathSegment_Returns404(t *testing.T) {
 // Known settings-level segments (photo, logo, invite) must still require settings write.
 func TestRequirePermission_SettingsSegments_RequireSettingsWrite(t *testing.T) {
 	tid := testTeamID.String()
-	settingsPaths := []string{
-		"/api/v1/teams/" + tid + "/photo",
-		"/api/v1/teams/" + tid + "/logo",
-		"/api/v1/teams/" + tid + "/invite",
+	settingsRoutes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPut, "/api/v1/teams/" + tid + "/photo"},   // uploadTeamPhoto
+		{http.MethodPut, "/api/v1/teams/" + tid + "/logo"},    // uploadTeamLogo
+		{http.MethodPost, "/api/v1/teams/" + tid + "/invite"}, // createInvite
 	}
-	for _, p := range settingsPaths {
-		t.Run("write ok "+p, func(t *testing.T) {
+	for _, rt := range settingsRoutes {
+		t.Run("write ok "+rt.path, func(t *testing.T) {
 			checker := &mockPermissionChecker{perms: allWritePerms()}
-			req := makeChiRequest(http.MethodPost, p, tid)
+			req := makeChiRequest(rt.method, rt.path, tid)
 			rec := applyPermMW(checker, req)
 			assert.Equal(t, http.StatusOK, rec.Code)
 		})
-		t.Run("read denied "+p, func(t *testing.T) {
+		t.Run("read denied "+rt.path, func(t *testing.T) {
 			checker := &mockPermissionChecker{perms: allReadPerms()}
-			req := makeChiRequest(http.MethodPost, p, tid)
+			req := makeChiRequest(rt.method, rt.path, tid)
 			rec := applyPermMW(checker, req)
 			assert.Equal(t, http.StatusForbidden, rec.Code)
 		})

@@ -27,6 +27,7 @@ tools:
 generate:
 	mkdir -p internal/gen
 	$(OAPI_CODEGEN) -config oapi-codegen.yaml openapi/openapi.yaml
+	go run ./cmd/genrbac openapi/openapi.yaml internal/middleware/rbac_table.gen.go
 
 ## Run database migrations (up)
 migrate:
@@ -80,4 +81,4 @@ run: build
 
 ## Clean generated and built files
 clean:
-	rm -rf bin/ internal/gen/ coverage.out coverage.html
+	rm -rf bin/ internal/gen/ internal/middleware/rbac_table.gen.go coverage.out coverage.html

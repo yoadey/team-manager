@@ -66,6 +66,9 @@ linters:
       - path: "internal/gen/"
         linters:
           - all
+      - path: "internal/middleware/rbac_table\\.gen\\.go"
+        linters:
+          - all
       # G124: the session cookie's Secure attribute is intentionally configurable
       # via COOKIE_SECURE (false for local http dev). Scoped to the only file that
       # sets cookies so G124 stays active everywhere else.
@@ -80,6 +83,12 @@ linters:
       # value is a real port number — this is not an actual SSRF sink. Scoped
       # to this one file so G704 stays active everywhere else.
       - path: "cmd/healthcheck/main\\.go"
+        linters:
+          - gosec
+      # G304 (file inclusion via variable): genrbac is a build-time codegen
+      # tool invoked by `make generate`/CI with a developer-controlled path
+      # argument (defaulting to openapi/openapi.yaml), never attacker input.
+      - path: "cmd/genrbac/main\\.go"
         linters:
           - gosec
       - path: "internal/server/server\\.go"
