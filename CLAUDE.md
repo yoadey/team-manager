@@ -67,6 +67,7 @@ team-manager/
 ├── backend/               Go REST API
 │   ├── cmd/server/main.go Entry point
 │   ├── cmd/healthcheck/   Docker HEALTHCHECK binary (no HTTP client at runtime)
+│   ├── cmd/genrbac/       Generates internal/middleware/rbac_table.gen.go from openapi.yaml's x-rbac-* extensions
 │   ├── internal/
 │   │   ├── auth/          Auth module (password login, JWT, OIDC-ready)
 │   │   ├── teams/         Teams, invites
@@ -126,7 +127,9 @@ team-manager/
 
 Each team member has roles; each role has per-module permission levels (`none | read | write`). Modules: `events`, `members`, `finances`, `news`, `polls`, `settings`. Permissions are stored as JSONB in Postgres.
 
-Enforcement (`internal/middleware/authz.go`, `RequirePermission`): mutating requests (POST/PUT/PATCH/DELETE) require `write` on the relevant module, as expected — but GET requests are *also* gated, requiring at least `read`; a module set to `none` hides read access too, not just writes. Self-service routes (an event's own attendance/comments, a poll vote, absences, notifications/seen) never require `write` on their module regardless of method, but still require at least `read` where the route reads back module data (e.g. `polls/vote` returns the assembled poll) — self-service exempts a caller from `write`, not from `none`. `stats` and `notifications` aren't modules of their own: `stats` piggybacks on `events:read` (its data is event/attendance-derived), and `notifications` has no route-level gate at all since it aggregates across modules — instead, `notifications.Service.List` filters each returned item server-side by the caller's permission on that item's originating module.
+**Route-to-module mapping is generated from the spec, not hand-maintained.** Every team-scoped operation in `openapi.yaml` carries an `x-rbac-module` extension (`events | members | finances | news | polls | settings | public`) and, where applicable, `x-rbac-self-service: true`. `cmd/genrbac` (wired into `make generate`, after oapi-codegen) parses these into `internal/middleware/rbac_table.gen.go` — DO NOT EDIT; edit the extensions in `openapi.yaml` and re-run `make generate`. `genrbac` fails the build if any team-scoped operation is missing `x-rbac-module`, so a newly added route can't silently end up unclassified.
+
+Enforcement (`internal/middleware/authz.go`, `RequirePermission`): looks up the request's method+path in the generated table via `matchRBACRoute`. **A request whose method+path matches no table entry is rejected with 404 for every HTTP method, including GET** — there is no fallback to "unrestricted". `module: public` routes (team info itself, photo, logo, absences, notifications) require nothing beyond membership, for any method. For module-gated routes, mutating requests (POST/PUT/PATCH/DELETE) require `write`, as expected — but GET requests are *also* gated, requiring at least `read`; a module set to `none` hides read access too, not just writes. Self-service routes (an event's own attendance/comments, a poll vote — `x-rbac-self-service: true`) never require `write` on their module regardless of method, but still require at least `read` where the route reads back module data (e.g. `polls/vote` returns the assembled poll) — self-service exempts a caller from `write`, not from `none`. `stats` isn't a module of its own: its GET operations carry `x-rbac-module: events`, since its data is event/attendance-derived. `notifications` has no route-level gate at all (`x-rbac-module: public`) since it aggregates across modules — instead, `notifications.Service.List` filters each returned item server-side by the caller's permission on that item's originating module.
 
 ## OpenAPI Contract
 
