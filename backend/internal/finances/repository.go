@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/yoadey/team-manager/backend/internal/db/sqlbuilder"
 )
 
 // pgxIface is satisfied by both *pgxpool.Pool and pgx.Tx, letting Repository
@@ -170,30 +171,22 @@ func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, tx
 func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	setClauses, args, n := []string{}, []any{}, 1
 
+	b := sqlbuilder.New()
 	if patch.Type != nil {
-		setClauses = append(setClauses, fmt.Sprintf("type = $%d", n))
-		args = append(args, *patch.Type)
-		n++
+		b.Add("type", *patch.Type)
 	}
 	if patch.Title != nil {
-		setClauses = append(setClauses, fmt.Sprintf("title = $%d", n))
-		args = append(args, *patch.Title)
-		n++
+		b.Add("title", *patch.Title)
 	}
 	if patch.Amount != nil {
-		setClauses = append(setClauses, fmt.Sprintf("amount = $%d", n))
-		args = append(args, *patch.Amount)
-		n++
+		b.Add("amount", *patch.Amount)
 	}
 	if patch.Category != nil {
-		setClauses = append(setClauses, fmt.Sprintf("category = $%d", n))
-		args = append(args, *patch.Category)
-		n++
+		b.Add("category", *patch.Category)
 	}
-
-	if len(setClauses) == 0 {
+	setSQL, args, nextIdx, ok := b.Build(1)
+	if !ok {
 		return r.getTransactionByID(ctx, id, teamID)
 	}
 
@@ -202,7 +195,7 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE transactions SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, type, title, amount, date, category, created_at
-	`, strings.Join(setClauses, ", "), n, n+1), args...).Scan(
+	`, setSQL, nextIdx, nextIdx+1), args...).Scan(
 		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt,
 	)
 	if err != nil {
@@ -302,20 +295,16 @@ func (r *Repository) CreatePenalty(ctx context.Context, teamID uuid.UUID, label 
 func (r *Repository) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, patch PenaltyPatch) (*PenaltyRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	setClauses, args, n := []string{}, []any{}, 1
 
+	b := sqlbuilder.New()
 	if patch.Label != nil {
-		setClauses = append(setClauses, fmt.Sprintf("label = $%d", n))
-		args = append(args, *patch.Label)
-		n++
+		b.Add("label", *patch.Label)
 	}
 	if patch.Amount != nil {
-		setClauses = append(setClauses, fmt.Sprintf("amount = $%d", n))
-		args = append(args, *patch.Amount)
-		n++
+		b.Add("amount", *patch.Amount)
 	}
-
-	if len(setClauses) == 0 {
+	setSQL, args, nextIdx, ok := b.Build(1)
+	if !ok {
 		p := &PenaltyRow{}
 		err := r.db.QueryRow(ctx, `SELECT id, team_id, label, amount FROM penalties WHERE id = $1 AND team_id = $2`, id, teamID).
 			Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
@@ -327,7 +316,7 @@ func (r *Repository) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, pa
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE penalties SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, label, amount
-	`, strings.Join(setClauses, ", "), n, n+1), args...).Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
+	`, setSQL, nextIdx, nextIdx+1), args...).Scan(&p.ID, &p.TeamID, &p.Label, &p.Amount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -590,20 +579,16 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, patch ContributionPatch) (*ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	setClauses, args, n := []string{}, []any{}, 1
 
+	b := sqlbuilder.New()
 	if patch.Label != nil {
-		setClauses = append(setClauses, fmt.Sprintf("label = $%d", n))
-		args = append(args, *patch.Label)
-		n++
+		b.Add("label", *patch.Label)
 	}
 	if patch.Amount != nil {
-		setClauses = append(setClauses, fmt.Sprintf("amount = $%d", n))
-		args = append(args, *patch.Amount)
-		n++
+		b.Add("amount", *patch.Amount)
 	}
-
-	if len(setClauses) == 0 {
+	setSQL, args, nextIdx, ok := b.Build(1)
+	if !ok {
 		return r.getContributionByID(ctx, id, teamID)
 	}
 
@@ -614,7 +599,7 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	// pgx.ErrNoRows here.
 	tag, err := r.db.Exec(ctx, fmt.Sprintf(`
 		UPDATE contributions SET %s WHERE id = $%d AND team_id = $%d
-	`, strings.Join(setClauses, ", "), n, n+1), args...)
+	`, setSQL, nextIdx, nextIdx+1), args...)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.UpdateContribution: %w", err)
 	}

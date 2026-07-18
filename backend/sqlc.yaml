@@ -1,0 +1,35 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    schema: "internal/db/migrations"
+    queries: "internal/db/queries"
+    gen:
+      go:
+        package: "dbgen"
+        out: "internal/db/gen"
+        sql_package: "pgx/v5"
+        emit_json_tags: false
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_empty_slices: true
+        overrides:
+          # uuid: match the domain models' github.com/google/uuid.UUID instead
+          # of sqlc's default pgtype.UUID.
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "uuid"
+            go_type: "*github.com/google/uuid.UUID"
+            nullable: true
+          # timestamptz: match the domain models' time.Time instead of
+          # sqlc's default pgtype.Timestamptz. Nullable timestamptz columns
+          # are rare (none in the pilot modules) and left at sqlc's default
+          # pgtype.Timestamptz to avoid double-pointer parameter types for
+          # sqlc.narg() cursor/patch arguments.
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          # roles.permissions (JSONB): scan/encode directly as the domain's
+          # PermissionsJSON struct. pgx/v5's JSON codec already falls back to
+          # encoding/json for arbitrary Go structs, so no custom
+          # Scanner/Valuer is needed on the type itself.
+          - column: "roles.permissions"
+            go_type: "github.com/yoadey/team-manager/backend/internal/teams.PermissionsJSON"

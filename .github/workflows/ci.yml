@@ -314,27 +314,33 @@ jobs:
           set -euo pipefail
           version=$(grep -oP 'oapi-codegen/v2/cmd/oapi-codegen@\K\S+' backend/Makefile)
           go install "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@$version"
-      - name: Regenerate backend/internal/gen/api.gen.go and rbac_table.gen.go
+      - name: Install sqlc
+        run: |
+          set -euo pipefail
+          version=$(grep -oP 'sqlc-dev/sqlc/cmd/sqlc@\K\S+' backend/Makefile)
+          go install "github.com/sqlc-dev/sqlc/cmd/sqlc@$version"
+      - name: Regenerate backend/internal/gen/api.gen.go, rbac_table.gen.go and internal/db/gen/*
         run: cd backend && make generate
       - name: npm ci (frontend, for openapi-typescript)
         working-directory: frontend
         run: npm ci
       - name: Regenerate frontend/src/api/types.gen.ts
         run: make generate-ts
-      # backend/internal/gen/api.gen.go, backend/internal/middleware/rbac_table.gen.go
-      # and frontend/src/api/types.gen.ts are marked "DO NOT EDIT" / generated;
-      # all three must be regenerated and committed whenever openapi.yaml
-      # changes. Without this check, a PR that edits the spec but forgets (or
+      # backend/internal/gen/api.gen.go, backend/internal/middleware/rbac_table.gen.go,
+      # backend/internal/db/gen/* and frontend/src/api/types.gen.ts are marked
+      # "DO NOT EDIT" / generated; all of them must be regenerated and
+      # committed whenever openapi.yaml or internal/db/queries/*.sql changes.
+      # Without this check, a PR that edits the spec/queries but forgets (or
       # loses to a merge conflict) the regeneration step passes every other
-      # job green with the client/server contract or RBAC table silently out
-      # of sync. (A team-scoped operation missing x-rbac-module entirely
-      # fails the "make generate" step above already -- this check catches
-      # the subtler case of a stale-but-present table.)
-      - name: Fail if generated code is out of sync with openapi.yaml
+      # job green with the client/server contract, RBAC table, or DB access
+      # layer silently out of sync. (A team-scoped operation missing
+      # x-rbac-module entirely fails the "make generate" step above already
+      # -- this check catches the subtler case of a stale-but-present table.)
+      - name: Fail if generated code is out of sync with openapi.yaml / queries
         run: |
           set -euo pipefail
-          if ! git diff --exit-code -- backend/internal/gen/api.gen.go backend/internal/middleware/rbac_table.gen.go frontend/src/api/types.gen.ts; then
-            echo "::error::backend/internal/gen/api.gen.go, backend/internal/middleware/rbac_table.gen.go and/or frontend/src/api/types.gen.ts are out of sync with backend/openapi/openapi.yaml. Run 'make generate && make generate-ts' at the repo root and commit the result."
+          if ! git diff --exit-code -- backend/internal/gen/api.gen.go backend/internal/middleware/rbac_table.gen.go backend/internal/db/gen frontend/src/api/types.gen.ts; then
+            echo "::error::backend/internal/gen/api.gen.go, backend/internal/middleware/rbac_table.gen.go, backend/internal/db/gen/* and/or frontend/src/api/types.gen.ts are out of sync with backend/openapi/openapi.yaml or backend/internal/db/queries/*.sql. Run 'make generate && make generate-ts' at the repo root and commit the result."
             exit 1
           fi
 
@@ -382,6 +388,16 @@ jobs:
           lint_ci=$(grep -A5 '^\s*uses: golangci/golangci-lint-action@' .github/workflows/ci.yml | grep -oP '^\s*version:\s*\K\S+' | head -1)
           if [ "$lint_makefile" != "$lint_ci" ]; then
             echo "::error::golangci-lint version mismatch: backend/Makefile pins $lint_makefile, ci.yml pins $lint_ci"
+            exit 1
+          fi
+
+          # sqlc has no go.mod entry (standalone codegen binary, like
+          # oapi-codegen) and only one CI install site (backend-openapi-drift),
+          # which reads its version from backend/Makefile dynamically rather
+          # than duplicating the pin -- same treatment as oapi-codegen above,
+          # so there's no second copy here to drift out of sync.
+          if ! grep -qP 'sqlc-dev/sqlc/cmd/sqlc@' backend/Makefile; then
+            echo "::error::backend/Makefile no longer pins a sqlc version under 'tools'"
             exit 1
           fi
 

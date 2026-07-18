@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/yoadey/team-manager/backend/internal/db/sqlbuilder"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
@@ -449,11 +450,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 	}
 
 	// Always update the specific event and return it, scoped to teamID.
-	sets, args := buildUpdateSets(params, eventID)
-	args = append(args, teamID)
-	q := fmt.Sprintf(`UPDATE events SET %s WHERE id = $%d AND team_id = $%d RETURNING %s`, sets, len(args)-1, len(args), selectEventFields)
-	row := tx.QueryRow(ctx, q, args...)
-	e, err := scanEventRow(row)
+	e, err := writeOrReadSingleEvent(ctx, tx, eventID, teamID, params)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -471,6 +468,22 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 	return e, nil
 }
 
+// writeOrReadSingleEvent applies params to the single event eventID (scoped
+// to teamID) and returns the resulting row. A request that set no field at
+// all (buildEventUpdateSets' ok == false) has nothing to write -- this reads
+// the row back instead of running a no-op UPDATE (see sqlbuilder's package
+// doc for why a SET-clause fallback isn't used here).
+func writeOrReadSingleEvent(ctx context.Context, tx pgx.Tx, eventID, teamID string, params *UpdateEventParams) (*EventRow, error) {
+	setSQL, args, nextIdx, ok := buildEventUpdateSets(params, 1)
+	if !ok {
+		q := fmt.Sprintf(`SELECT %s FROM events WHERE id = $1 AND team_id = $2`, selectEventFields)
+		return scanEventRow(tx.QueryRow(ctx, q, eventID, teamID))
+	}
+	args = append(args, eventID, teamID)
+	q := fmt.Sprintf(`UPDATE events SET %s WHERE id = $%d AND team_id = $%d RETURNING %s`, setSQL, nextIdx, nextIdx+1, selectEventFields)
+	return scanEventRow(tx.QueryRow(ctx, q, args...))
+}
+
 // updateSeriesEvents updates every event in seriesID within tx. Date is
 // deliberately excluded: it's what makes each occurrence in a series
 // distinct, so applying it series-wide would collapse every occurrence onto
@@ -479,24 +492,15 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params *UpdateEventParams) error {
 	seriesParams := *params
 	seriesParams.Date = nil
-	sets, args := buildUpdateSets(&seriesParams, "")
-	// Remove last arg (the eventID placeholder we added) — we use series_id instead.
-	args = args[:len(args)-1]
-	if len(args) == 0 {
+	setSQL, args, nextIdx, ok := buildEventUpdateSets(&seriesParams, 1)
+	if !ok {
 		// Nothing but Date was set (the common "change just this occurrence's
-		// date, scope=series" request) — buildUpdateSets' no-op fallback
-		// ("SET id = $1") assumes the last arg is the primary key of the row
-		// being updated, which held for the direct single-event UPDATE this
-		// function's sibling call site does, but not here: with args empty,
-		// the fallback's placeholder would bind to series_id in the WHERE
-		// clause too, producing `UPDATE events SET id = $1 WHERE series_id =
-		// $1` — overwriting every event's primary key with the series ID.
-		// There's nothing series-wide to update, so skip the query entirely;
-		// UpdateEvent's subsequent direct update still applies the date to
-		// the single targeted event.
+		// date, scope=series" request) — there's nothing series-wide to
+		// update; UpdateEvent's subsequent direct update still applies the
+		// date to the single targeted event.
 		return nil
 	}
-	q := fmt.Sprintf(`UPDATE events SET %s WHERE series_id = $%d`, sets, len(args)+1)
+	q := fmt.Sprintf(`UPDATE events SET %s WHERE series_id = $%d`, setSQL, nextIdx)
 	args = append(args, seriesID)
 	_, err := tx.Exec(ctx, q, args...)
 	if err != nil {
@@ -509,68 +513,48 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 	return nil
 }
 
-// buildUpdateSets constructs a SET clause and args slice for an UPDATE query.
-// The event ID is appended as the last arg (placeholder = len(args)).
-func buildUpdateSets(params *UpdateEventParams, eventID string) (setSQL string, args []interface{}) {
-	var sets []string
-	idx := 1
-
-	add := func(col string, val interface{}) {
-		sets = append(sets, fmt.Sprintf("%s = $%d", col, idx))
-		args = append(args, val)
-		idx++
-	}
+// buildEventUpdateSets builds the dynamic SET clause for a partial
+// UpdateEventParams patch via sqlbuilder, numbering placeholders from
+// startIdx. ok is false when params sets no field at all -- callers must not
+// run an UPDATE in that case (see sqlbuilder's package doc comment).
+func buildEventUpdateSets(params *UpdateEventParams, startIdx int) (setSQL string, args []any, nextIdx int, ok bool) {
+	b := sqlbuilder.New()
 
 	if params.Type != nil {
-		add("type", *params.Type)
+		b.Add("type", *params.Type)
 	}
 	if params.Title != nil {
-		add("title", *params.Title)
+		b.Add("title", *params.Title)
 	}
 	if params.Date != nil {
-		add("date", *params.Date)
+		b.Add("date", *params.Date)
 	}
 	if params.Location != nil {
-		add("location", *params.Location)
+		b.Add("location", *params.Location)
 	}
 	if params.Note != nil {
-		add("note", *params.Note)
+		b.Add("note", *params.Note)
 	}
 	if params.MeetTime != nil {
-		add("meet_time", nullableTime(params.MeetTime))
+		b.Add("meet_time", nullableTime(params.MeetTime))
 	}
 	if params.StartTime != nil {
-		add("start_time", nullableTime(params.StartTime))
+		b.Add("start_time", nullableTime(params.StartTime))
 	}
 	if params.EndTime != nil {
-		add("end_time", nullableTime(params.EndTime))
+		b.Add("end_time", nullableTime(params.EndTime))
 	}
 	if params.MeetTimeMandatory != nil {
-		add("meet_time_mandatory", *params.MeetTimeMandatory)
+		b.Add("meet_time_mandatory", *params.MeetTimeMandatory)
 	}
 	if params.ResponseMode != nil {
-		add("response_mode", *params.ResponseMode)
+		b.Add("response_mode", *params.ResponseMode)
 	}
 	if params.NominatedRoleIds != nil {
-		add("nominated_role_ids", params.NominatedRoleIds)
+		b.Add("nominated_role_ids", params.NominatedRoleIds)
 	}
 
-	// Append event ID as the last arg (used by the WHERE clause of the direct event update).
-	args = append(args, eventID)
-
-	if len(sets) == 0 {
-		// If nothing to update, set a no-op to keep SQL valid.
-		sets = append(sets, fmt.Sprintf("id = $%d", idx))
-	}
-
-	setStr := ""
-	for i, s := range sets {
-		if i > 0 {
-			setStr += ", "
-		}
-		setStr += s
-	}
-	return setStr, args
+	return b.Build(startIdx)
 }
 
 // ─── SetStatus ──────────────────────────────────────────────────────────────
