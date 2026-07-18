@@ -320,7 +320,7 @@ export const realApi = {
         });
         return check(res);
       });
-      return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0]));
+      return (items as unknown[]).map((m) => mapMember(m as Parameters<typeof mapMember>[0], teamId));
     },
 
     async update(
@@ -347,7 +347,7 @@ export const realApi = {
         },
       });
       const m = await check(res);
-      return mapMember(m);
+      return mapMember(m, teamId);
     },
 
     async setRoles(membershipId: string, roleIds: string[], teamId: string): Promise<Member> {
@@ -356,7 +356,7 @@ export const realApi = {
         body: { roleIds },
       });
       const m = await check(res);
-      return mapMember(m);
+      return mapMember(m, teamId);
     },
 
     async remove(membershipId: string, teamId: string): Promise<void> {

@@ -49,8 +49,8 @@ type TeamPatch struct {
 
 const selectTeamFields = `
 	t.id, t.name, t.short, t.icon, t.icon_bg, t.icon_fg,
-	(t.photo_data IS NOT NULL AND length(t.photo_data) > 0),
-	(t.logo_data IS NOT NULL AND length(t.logo_data) > 0),
+	(t.photo_object_key IS NOT NULL AND length(t.photo_object_key) > 0),
+	(t.logo_object_key IS NOT NULL AND length(t.logo_object_key) > 0),
 	t.description, t.reason_visibility_role_ids, t.created_at
 `
 
@@ -68,36 +68,42 @@ func scanTeam(row interface{ Scan(dest ...any) error }) (*TeamRow, error) {
 	return tr, nil
 }
 
-// GetTeamPhotoBytes returns the raw photo bytes and MIME type for teamID, or
-// pgx.ErrNoRows if the team has no photo set. Kept separate from GetTeam
-// (which only exposes a HasPhoto boolean) so byte-serving is the only path
-// that pays for transferring the blob out of Postgres.
-func (r *Repository) GetTeamPhotoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+// GetTeamPhotoKey returns the object store key for teamID's photo, or
+// pgx.ErrNoRows if the team has no photo set.
+func (r *Repository) GetTeamPhotoKey(ctx context.Context, teamID string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	err = r.pool.QueryRow(ctx, `SELECT photo_data, photo_mime FROM teams WHERE id = $1`, teamID).Scan(&data, &mime)
+	var key *string
+	err := r.pool.QueryRow(ctx, `SELECT photo_object_key FROM teams WHERE id = $1`, teamID).Scan(&key)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, pgx.ErrNoRows
+			return "", pgx.ErrNoRows
 		}
-		return nil, nil, fmt.Errorf("teams.Repository.GetTeamPhotoBytes: %w", err)
+		return "", fmt.Errorf("teams.Repository.GetTeamPhotoKey: %w", err)
 	}
-	return data, mime, nil
+	if key == nil || *key == "" {
+		return "", pgx.ErrNoRows
+	}
+	return *key, nil
 }
 
-// GetTeamLogoBytes returns the raw logo bytes and MIME type for teamID, or
+// GetTeamLogoKey returns the object store key for teamID's logo, or
 // pgx.ErrNoRows if the team has no logo set.
-func (r *Repository) GetTeamLogoBytes(ctx context.Context, teamID string) (data []byte, mime *string, err error) {
+func (r *Repository) GetTeamLogoKey(ctx context.Context, teamID string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	err = r.pool.QueryRow(ctx, `SELECT logo_data, logo_mime FROM teams WHERE id = $1`, teamID).Scan(&data, &mime)
+	var key *string
+	err := r.pool.QueryRow(ctx, `SELECT logo_object_key FROM teams WHERE id = $1`, teamID).Scan(&key)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, nil, pgx.ErrNoRows
+			return "", pgx.ErrNoRows
 		}
-		return nil, nil, fmt.Errorf("teams.Repository.GetTeamLogoBytes: %w", err)
+		return "", fmt.Errorf("teams.Repository.GetTeamLogoKey: %w", err)
 	}
-	return data, mime, nil
+	if key == nil || *key == "" {
+		return "", pgx.ErrNoRows
+	}
+	return *key, nil
 }
 
 // ListTeamsForUser returns all teams the given user is a member of.
@@ -166,8 +172,8 @@ func (r *Repository) CreateTeam(ctx context.Context, name, creatorUserID string,
 		INSERT INTO teams (name, icon, icon_bg, icon_fg)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, name, short, icon, icon_bg, icon_fg,
-		          (photo_data IS NOT NULL AND length(photo_data) > 0),
-		          (logo_data IS NOT NULL AND length(logo_data) > 0),
+		          (photo_object_key IS NOT NULL AND length(photo_object_key) > 0),
+		          (logo_object_key IS NOT NULL AND length(logo_object_key) > 0),
 		          description, reason_visibility_role_ids, created_at
 	`, name, icon, iconBg, iconFg).Scan(
 		&tr.Id, &tr.Name, &tr.Short, &tr.Icon, &tr.IconBg, &tr.IconFg,
@@ -374,8 +380,8 @@ func (r *Repository) UpdateTeam(ctx context.Context, teamID string, patch TeamPa
 	q := fmt.Sprintf(`
 		UPDATE teams SET %s WHERE id = $%d
 		RETURNING id, name, short, icon, icon_bg, icon_fg,
-		          (photo_data IS NOT NULL AND length(photo_data) > 0),
-		          (logo_data IS NOT NULL AND length(logo_data) > 0),
+		          (photo_object_key IS NOT NULL AND length(photo_object_key) > 0),
+		          (logo_object_key IS NOT NULL AND length(logo_object_key) > 0),
 		          description, reason_visibility_role_ids, created_at
 	`, setSQL, argN)
 
@@ -679,8 +685,8 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 	var tr TeamRow
 	err = tx.QueryRow(ctx, `
 		SELECT id, name, short, icon, icon_bg, icon_fg,
-		       (photo_data IS NOT NULL AND length(photo_data) > 0),
-		       (logo_data IS NOT NULL AND length(logo_data) > 0),
+		       (photo_object_key IS NOT NULL AND length(photo_object_key) > 0),
+		       (logo_object_key IS NOT NULL AND length(logo_object_key) > 0),
 		       description, reason_visibility_role_ids, created_at
 		FROM teams WHERE id = $1
 	`, teamID).Scan(
@@ -699,14 +705,14 @@ func (r *Repository) AcceptInvite(ctx context.Context, code, userID string) (*Te
 	return &tr, !isNewMembership, nil
 }
 
-// UpdateTeamPhoto stores raw photo bytes and MIME type for the given team.
-func (r *Repository) UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error {
+// UpdateTeamPhoto stores the object store key for the given team's photo.
+func (r *Repository) UpdateTeamPhoto(ctx context.Context, teamID, objectKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err := r.pool.Exec(
 		ctx,
-		`UPDATE teams SET photo_data = $2, photo_mime = $3 WHERE id = $1`,
-		teamID, data, mime,
+		`UPDATE teams SET photo_object_key = $2 WHERE id = $1`,
+		teamID, objectKey,
 	)
 	if err != nil {
 		return fmt.Errorf("teams.Repository.UpdateTeamPhoto: %w", err)
@@ -714,14 +720,14 @@ func (r *Repository) UpdateTeamPhoto(ctx context.Context, teamID string, data []
 	return nil
 }
 
-// UpdateTeamLogo stores raw logo bytes and MIME type for the given team.
-func (r *Repository) UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error {
+// UpdateTeamLogo stores the object store key for the given team's logo.
+func (r *Repository) UpdateTeamLogo(ctx context.Context, teamID, objectKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err := r.pool.Exec(
 		ctx,
-		`UPDATE teams SET logo_data = $2, logo_mime = $3 WHERE id = $1`,
-		teamID, data, mime,
+		`UPDATE teams SET logo_object_key = $2 WHERE id = $1`,
+		teamID, objectKey,
 	)
 	if err != nil {
 		return fmt.Errorf("teams.Repository.UpdateTeamLogo: %w", err)
@@ -734,7 +740,7 @@ func (r *Repository) UpdateTeamLogo(ctx context.Context, teamID string, data []b
 func (r *Repository) DeleteTeamPhoto(ctx context.Context, teamID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `UPDATE teams SET photo_data = NULL, photo_mime = NULL WHERE id = $1`, teamID)
+	tag, err := r.pool.Exec(ctx, `UPDATE teams SET photo_object_key = NULL WHERE id = $1`, teamID)
 	if err != nil {
 		return fmt.Errorf("teams.Repository.DeleteTeamPhoto: %w", err)
 	}
@@ -749,7 +755,7 @@ func (r *Repository) DeleteTeamPhoto(ctx context.Context, teamID string) error {
 func (r *Repository) DeleteTeamLogo(ctx context.Context, teamID string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	tag, err := r.pool.Exec(ctx, `UPDATE teams SET logo_data = NULL, logo_mime = NULL WHERE id = $1`, teamID)
+	tag, err := r.pool.Exec(ctx, `UPDATE teams SET logo_object_key = NULL WHERE id = $1`, teamID)
 	if err != nil {
 		return fmt.Errorf("teams.Repository.DeleteTeamLogo: %w", err)
 	}

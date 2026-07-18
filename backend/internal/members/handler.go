@@ -22,6 +22,7 @@ import (
 // memberService is the interface the Handler relies on.
 type memberService interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
+	GetMemberPhotoURL(ctx context.Context, teamID, membershipID string) (string, error)
 	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*gen.Member, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
 	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
@@ -67,6 +68,22 @@ func (h *Handler) ListMembers(ctx context.Context, request gen.ListMembersReques
 		return nil, fmt.Errorf("members.Handler.ListMembers: %w", err)
 	}
 	return gen.ListMembers200JSONResponse{Items: members, NextCursor: next}, nil
+}
+
+// GetMemberPhoto redirects to a short-lived presigned URL for the member's
+// profile photo.
+func (h *Handler) GetMemberPhoto(ctx context.Context, request gen.GetMemberPhotoRequestObject) (gen.GetMemberPhotoResponseObject, error) {
+	url, err := h.svc.GetMemberPhotoURL(ctx, request.TeamId.String(), request.MembershipId.String())
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.NotFound("no profile photo")
+		}
+		h.logger.ErrorContext(ctx, "GetMemberPhoto failed", "err", err)
+		return nil, fmt.Errorf("members.Handler.GetMemberPhoto: %w", err)
+	}
+	return gen.GetMemberPhoto302Response{
+		Headers: gen.PhotoRedirectResponseHeaders{Location: &url},
+	}, nil
 }
 
 // validateMemberPatch validates the optional fields of an UpdateMember

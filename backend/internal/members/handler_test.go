@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,14 +27,22 @@ import (
 // ─── mock service ─────────────────────────────────────────────────────────────
 
 type mockMemberService struct {
-	listMembers  func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
-	updateMember func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
-	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
-	removeMember func(ctx context.Context, membershipID, teamID, callerUserID string) error
+	listMembers    func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
+	getMemberPhoto func(ctx context.Context, teamID, membershipID string) (string, error)
+	updateMember   func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
+	setRoles       func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
+	removeMember   func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
 	return m.listMembers(ctx, teamID, limit, cursor)
+}
+
+func (m *mockMemberService) GetMemberPhotoURL(ctx context.Context, teamID, membershipID string) (string, error) {
+	if m.getMemberPhoto != nil {
+		return m.getMemberPhoto(ctx, teamID, membershipID)
+	}
+	return "", pgx.ErrNoRows
 }
 
 func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error) {
@@ -402,4 +411,41 @@ func TestMemberHandler_ListMembers(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
 	require.Len(t, result.Items, 1)
 	assert.Equal(t, "Bob", result.Items[0].Name)
+}
+
+func TestMemberHandler_GetMemberPhoto_Found_RedirectsToPresignedURL(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	membershipID := uuid.New()
+	svc := &mockMemberService{
+		getMemberPhoto: func(_ context.Context, gotTeamID, gotMembershipID string) (string, error) {
+			assert.Equal(t, teamID.String(), gotTeamID)
+			assert.Equal(t, membershipID.String(), gotMembershipID)
+			return "https://s3.example.com/bucket/users/u1/photo?sig=abc", nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+
+	resp, err := h.GetMemberPhoto(context.Background(), gen.GetMemberPhotoRequestObject{
+		TeamId: teamID, MembershipId: membershipID,
+	})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetMemberPhotoResponse(w))
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Contains(t, w.Header().Get("Location"), "users/u1/photo")
+}
+
+func TestMemberHandler_GetMemberPhoto_NotFound_Returns404(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+
+	resp, err := h.GetMemberPhoto(context.Background(), gen.GetMemberPhotoRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+	})
+	require.Error(t, err)
+	assert.Nil(t, resp)
 }

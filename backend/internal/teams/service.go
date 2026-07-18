@@ -16,6 +16,7 @@ import (
 	"golang.org/x/image/draw"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/storage"
 )
 
 const inviteTTL = 7 * 24 * time.Hour
@@ -50,17 +51,18 @@ type teamRepo interface {
 	GetRolesForMemberships(ctx context.Context, membershipIDs []string) (map[string][]RoleRow, error)
 	CreateInvite(ctx context.Context, teamID string, ttl time.Duration) (*InviteRow, error)
 	AcceptInvite(ctx context.Context, code, userID string) (*TeamRow, bool, error)
-	GetTeamPhotoBytes(ctx context.Context, teamID string) ([]byte, *string, error)
-	GetTeamLogoBytes(ctx context.Context, teamID string) ([]byte, *string, error)
-	UpdateTeamPhoto(ctx context.Context, teamID string, data []byte, mime string) error
-	UpdateTeamLogo(ctx context.Context, teamID string, data []byte, mime string) error
+	GetTeamPhotoKey(ctx context.Context, teamID string) (string, error)
+	GetTeamLogoKey(ctx context.Context, teamID string) (string, error)
+	UpdateTeamPhoto(ctx context.Context, teamID, objectKey string) error
+	UpdateTeamLogo(ctx context.Context, teamID, objectKey string) error
 	DeleteTeamPhoto(ctx context.Context, teamID string) error
 	DeleteTeamLogo(ctx context.Context, teamID string) error
 }
 
 // Service implements team business logic.
 type Service struct {
-	repo teamRepo
+	repo  teamRepo
+	store storage.ObjectStore
 	// publicBaseURL is the user-facing frontend origin used to build shareable
 	// invite links (no trailing slash).
 	publicBaseURL string
@@ -68,9 +70,13 @@ type Service struct {
 
 // NewService creates a new Service. publicBaseURL is the user-facing frontend
 // origin (e.g. https://app.example.com) used to build shareable invite links.
-func NewService(repo teamRepo, publicBaseURL string) *Service {
-	return &Service{repo: repo, publicBaseURL: strings.TrimRight(publicBaseURL, "/")}
+func NewService(repo teamRepo, store storage.ObjectStore, publicBaseURL string) *Service {
+	return &Service{repo: repo, store: store, publicBaseURL: strings.TrimRight(publicBaseURL, "/")}
 }
+
+// teamPhotoKey/teamLogoKey return the object store key for a team's photo/logo.
+func teamPhotoKey(teamID string) string { return "teams/" + teamID + "/photo" }
+func teamLogoKey(teamID string) string  { return "teams/" + teamID + "/logo" }
 
 // ListForUser returns all teams for the given user enriched with member count,
 // the user's roles, and merged permissions. Enrichment is batched across all
@@ -212,32 +218,38 @@ func (s *Service) CreateInvite(ctx context.Context, teamID string) (*gen.Invite,
 	}, nil
 }
 
-// GetTeamPhotoData returns the raw photo bytes and MIME type for the given team.
-func (s *Service) GetTeamPhotoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
-	data, mimePtr, err := s.repo.GetTeamPhotoBytes(ctx, teamID)
+// GetTeamPhotoURL returns a short-lived presigned URL for the team's photo,
+// or pgx.ErrNoRows if the team has no photo set.
+func (s *Service) GetTeamPhotoURL(ctx context.Context, teamID string) (string, error) {
+	key, err := s.repo.GetTeamPhotoKey(ctx, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, "", pgx.ErrNoRows
+			return "", pgx.ErrNoRows
 		}
-		return nil, "", fmt.Errorf("teams.Service.GetTeamPhotoData: %w", err)
+		return "", fmt.Errorf("teams.Service.GetTeamPhotoURL: %w", err)
 	}
-	if len(data) == 0 {
-		return nil, "", pgx.ErrNoRows
+	url, err := s.store.PresignGet(ctx, key, storage.PresignTTL)
+	if err != nil {
+		return "", fmt.Errorf("teams.Service.GetTeamPhotoURL: %w", err)
 	}
-	mime = "image/jpeg"
-	if mimePtr != nil && *mimePtr != "" {
-		mime = *mimePtr
-	}
-	return data, mime, nil
+	return url, nil
 }
 
-// UpdatePhoto resizes and stores the team photo, returning the updated gen.Team.
+// UpdatePhoto resizes the image, uploads it to the object store, stores the
+// key, and returns the updated gen.Team. Upload order is S3 put before the DB
+// write; if the DB write fails, the just-uploaded object is deleted
+// (best-effort) so it doesn't linger orphaned.
 func (s *Service) UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error) {
 	resized, err := resizeImage(data, mime)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.UpdatePhoto: resize: %w", err)
 	}
-	if err := s.repo.UpdateTeamPhoto(ctx, teamID, resized, "image/jpeg"); err != nil {
+	key := teamPhotoKey(teamID)
+	if err := s.store.Put(ctx, key, resized, "image/jpeg"); err != nil {
+		return nil, fmt.Errorf("teams.Service.UpdatePhoto: upload: %w", err)
+	}
+	if err := s.repo.UpdateTeamPhoto(ctx, teamID, key); err != nil {
+		_ = s.store.Delete(ctx, key)
 		return nil, fmt.Errorf("teams.Service.UpdatePhoto: store: %w", err)
 	}
 	tr, err := s.repo.GetTeam(ctx, teamID)
@@ -247,43 +259,52 @@ func (s *Service) UpdatePhoto(ctx context.Context, teamID string, data []byte, m
 	return toGenTeam(tr), nil
 }
 
-// DeletePhoto clears the team photo, reverting display to the icon fallback.
+// DeletePhoto clears the team photo, reverting display to the icon fallback,
+// and best-effort deletes the underlying object.
 func (s *Service) DeletePhoto(ctx context.Context, teamID string) error {
+	key, keyErr := s.repo.GetTeamPhotoKey(ctx, teamID)
 	if err := s.repo.DeleteTeamPhoto(ctx, teamID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
 		}
 		return fmt.Errorf("teams.Service.DeletePhoto: %w", err)
 	}
+	if keyErr == nil && key != "" {
+		_ = s.store.Delete(ctx, key)
+	}
 	return nil
 }
 
-// GetTeamLogoData returns the raw logo bytes and MIME type for the given team.
-func (s *Service) GetTeamLogoData(ctx context.Context, teamID string) (data []byte, mime string, err error) {
-	data, mimePtr, err := s.repo.GetTeamLogoBytes(ctx, teamID)
+// GetTeamLogoURL returns a short-lived presigned URL for the team's logo, or
+// pgx.ErrNoRows if the team has no logo set.
+func (s *Service) GetTeamLogoURL(ctx context.Context, teamID string) (string, error) {
+	key, err := s.repo.GetTeamLogoKey(ctx, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, "", pgx.ErrNoRows
+			return "", pgx.ErrNoRows
 		}
-		return nil, "", fmt.Errorf("teams.Service.GetTeamLogoData: %w", err)
+		return "", fmt.Errorf("teams.Service.GetTeamLogoURL: %w", err)
 	}
-	if len(data) == 0 {
-		return nil, "", pgx.ErrNoRows
+	url, err := s.store.PresignGet(ctx, key, storage.PresignTTL)
+	if err != nil {
+		return "", fmt.Errorf("teams.Service.GetTeamLogoURL: %w", err)
 	}
-	mime = "image/jpeg"
-	if mimePtr != nil && *mimePtr != "" {
-		mime = *mimePtr
-	}
-	return data, mime, nil
+	return url, nil
 }
 
-// UpdateLogo resizes and stores the team logo, returning the updated gen.Team.
+// UpdateLogo resizes the image, uploads it to the object store, stores the
+// key, and returns the updated gen.Team.
 func (s *Service) UpdateLogo(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error) {
 	resized, err := resizeImage(data, mime)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.UpdateLogo: resize: %w", err)
 	}
-	if err := s.repo.UpdateTeamLogo(ctx, teamID, resized, "image/jpeg"); err != nil {
+	key := teamLogoKey(teamID)
+	if err := s.store.Put(ctx, key, resized, "image/jpeg"); err != nil {
+		return nil, fmt.Errorf("teams.Service.UpdateLogo: upload: %w", err)
+	}
+	if err := s.repo.UpdateTeamLogo(ctx, teamID, key); err != nil {
+		_ = s.store.Delete(ctx, key)
 		return nil, fmt.Errorf("teams.Service.UpdateLogo: store: %w", err)
 	}
 	tr, err := s.repo.GetTeam(ctx, teamID)
@@ -293,13 +314,18 @@ func (s *Service) UpdateLogo(ctx context.Context, teamID string, data []byte, mi
 	return toGenTeam(tr), nil
 }
 
-// DeleteLogo clears the team logo, reverting display to the icon fallback.
+// DeleteLogo clears the team logo, reverting display to the icon fallback,
+// and best-effort deletes the underlying object.
 func (s *Service) DeleteLogo(ctx context.Context, teamID string) error {
+	key, keyErr := s.repo.GetTeamLogoKey(ctx, teamID)
 	if err := s.repo.DeleteTeamLogo(ctx, teamID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
 		}
 		return fmt.Errorf("teams.Service.DeleteLogo: %w", err)
+	}
+	if keyErr == nil && key != "" {
+		_ = s.store.Delete(ctx, key)
 	}
 	return nil
 }

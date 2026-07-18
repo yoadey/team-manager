@@ -9,6 +9,7 @@ import {
   mapFinanceOverview,
   mapUser,
   mapTeam,
+  mapMember,
   mapMemberStat,
   mapEventStat,
   mapStatsOverview,
@@ -135,6 +136,26 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
     const t = mapTeam({ id: 't1', name: 'Team', hasPhoto: true, hasLogo: true });
     expect(t.photo).toMatch(new RegExp(`/api/v1/teams/t1/photo\\?v=\\d+$`));
     expect(t.logo).toMatch(new RegExp(`/api/v1/teams/t1/logo\\?v=\\d+$`));
+  });
+
+  const baseMember = {
+    membershipId: 'm1',
+    userId: 'u1',
+    name: 'Bob',
+    email: 'bob@example.com',
+    avatarColor: '#000',
+    roles: [],
+    joinedAt: '2025-01-01T00:00:00Z',
+  };
+
+  it('mapMember returns null photo when hasPhoto is false or absent', () => {
+    expect(mapMember({ ...baseMember, hasPhoto: false }, 't1').photo).toBeNull();
+    expect(mapMember(baseMember, 't1').photo).toBeNull();
+  });
+
+  it('mapMember builds a per-team member photo URL when hasPhoto is true, closing the "no other members\' photos" gap', () => {
+    const m = mapMember({ ...baseMember, hasPhoto: true }, 't1');
+    expect(m.photo).toMatch(new RegExp('/api/v1/teams/t1/members/m1/photo\\?v=\\d+$'));
   });
 });
 

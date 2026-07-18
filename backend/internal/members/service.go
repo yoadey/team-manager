@@ -11,12 +11,14 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
+	"github.com/yoadey/team-manager/backend/internal/storage"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // memberRepo is the interface the Service relies on.
 type memberRepo interface {
 	ListMembers(ctx context.Context, teamID string, limit int, cur *ListCursor) ([]MemberRow, error)
+	GetMemberPhotoKey(ctx context.Context, teamID, membershipID string) (string, error)
 	UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch MemberPatch) (*MemberRow, error)
 	SetRoles(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*MemberRow, error)
 	RemoveMember(ctx context.Context, membershipID, teamID, callerUserID string) error
@@ -25,16 +27,35 @@ type memberRepo interface {
 // Service implements member business logic.
 type Service struct {
 	repo  memberRepo
+	store storage.ObjectStore
 	pager *pagination.Paginator
 }
 
 // NewService creates a new Service. pager may be nil, in which case a default
 // (unsigned) Paginator is used.
-func NewService(repo memberRepo, pager *pagination.Paginator) *Service {
+func NewService(repo memberRepo, store storage.ObjectStore, pager *pagination.Paginator) *Service {
 	if pager == nil {
 		pager = pagination.New(nil)
 	}
-	return &Service{repo: repo, pager: pager}
+	return &Service{repo: repo, store: store, pager: pager}
+}
+
+// GetMemberPhotoURL returns a short-lived presigned URL for the given
+// membership's photo, or pgx.ErrNoRows if the membership doesn't belong to
+// teamID or the member has no photo set.
+func (s *Service) GetMemberPhotoURL(ctx context.Context, teamID, membershipID string) (string, error) {
+	key, err := s.repo.GetMemberPhotoKey(ctx, teamID, membershipID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows
+		}
+		return "", fmt.Errorf("members.Service.GetMemberPhotoURL: %w", err)
+	}
+	url, err := s.store.PresignGet(ctx, key, storage.PresignTTL)
+	if err != nil {
+		return "", fmt.Errorf("members.Service.GetMemberPhotoURL: %w", err)
+	}
+	return url, nil
 }
 
 // ListMembers returns a keyset page of members plus the cursor for the next

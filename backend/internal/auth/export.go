@@ -133,7 +133,7 @@ func (r *Repository) ExportUserData(ctx context.Context, userID string) (*Export
 
 	if err := r.pool.QueryRow(ctx, `
 		SELECT id::text, name, email, phone, avatar_color, birthday::text, address,
-		       (photo_data IS NOT NULL), created_at
+		       (photo_object_key IS NOT NULL AND length(photo_object_key) > 0), created_at
 		FROM users WHERE id = $1
 	`, userID).Scan(
 		&out.Profile.ID, &out.Profile.Name, &out.Profile.Email, &out.Profile.Phone,

@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -1382,6 +1381,9 @@ type ServerInterface interface {
 	// Update member profile
 	// (PATCH /teams/{teamId}/members/{membershipId})
 	UpdateMember(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId)
+	// Get a team member's profile photo
+	// (GET /teams/{teamId}/members/{membershipId}/photo)
+	GetMemberPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId)
 	// Replace member role assignments
 	// (PUT /teams/{teamId}/members/{membershipId}/roles)
 	SetMemberRoles(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId)
@@ -1739,6 +1741,12 @@ func (_ Unimplemented) RemoveMember(w http.ResponseWriter, r *http.Request, team
 // Update member profile
 // (PATCH /teams/{teamId}/members/{membershipId})
 func (_ Unimplemented) UpdateMember(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a team member's profile photo
+// (GET /teams/{teamId}/members/{membershipId}/photo)
+func (_ Unimplemented) GetMemberPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3720,6 +3728,47 @@ func (siw *ServerInterfaceWrapper) UpdateMember(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetMemberPhoto operation middleware
+func (siw *ServerInterfaceWrapper) GetMemberPhoto(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "membershipId" -------------
+	var membershipId MembershipId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "membershipId", chi.URLParam(r, "membershipId"), &membershipId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "membershipId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMemberPhoto(w, r, teamId, membershipId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetMemberRoles operation middleware
 func (siw *ServerInterfaceWrapper) SetMemberRoles(w http.ResponseWriter, r *http.Request) {
 
@@ -4780,6 +4829,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/teams/{teamId}/members/{membershipId}", wrapper.UpdateMember)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/members/{membershipId}/photo", wrapper.GetMemberPhoto)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/teams/{teamId}/members/{membershipId}/roles", wrapper.SetMemberRoles)
 	})
 	r.Group(func(r chi.Router) {
@@ -4846,6 +4898,13 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 type NotFoundApplicationProblemPlusJSONResponse Problem
 
 type PayloadTooLargeApplicationProblemPlusJSONResponse Problem
+
+type PhotoRedirectResponseHeaders struct {
+	Location *string
+}
+type PhotoRedirectResponse struct {
+	Headers PhotoRedirectResponseHeaders
+}
 
 type TooManyRequestsApplicationProblemPlusJSONResponse Problem
 
@@ -5043,24 +5102,14 @@ type GetMyPhotoResponseObject interface {
 	VisitGetMyPhotoResponse(w http.ResponseWriter) error
 }
 
-type GetMyPhoto200ImagejpegResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
+type GetMyPhoto302Response = PhotoRedirectResponse
 
-func (response GetMyPhoto200ImagejpegResponse) VisitGetMyPhotoResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "image/jpeg")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+func (response GetMyPhoto302Response) VisitGetMyPhotoResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
+	w.WriteHeader(302)
+	return nil
 }
 
 type GetMyPhoto404ApplicationProblemPlusJSONResponse struct {
@@ -5995,24 +6044,14 @@ type GetTeamLogoResponseObject interface {
 	VisitGetTeamLogoResponse(w http.ResponseWriter) error
 }
 
-type GetTeamLogo200ImagejpegResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
+type GetTeamLogo302Response = PhotoRedirectResponse
 
-func (response GetTeamLogo200ImagejpegResponse) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "image/jpeg")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+func (response GetTeamLogo302Response) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
+	w.WriteHeader(302)
+	return nil
 }
 
 type GetTeamLogo404ApplicationProblemPlusJSONResponse struct {
@@ -6135,6 +6174,41 @@ func (response UpdateMember200JSONResponse) VisitUpdateMemberResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMemberPhotoRequestObject struct {
+	TeamId       TeamId       `json:"teamId"`
+	MembershipId MembershipId `json:"membershipId"`
+}
+
+type GetMemberPhotoResponseObject interface {
+	VisitGetMemberPhotoResponse(w http.ResponseWriter) error
+}
+
+type GetMemberPhoto302Response = PhotoRedirectResponse
+
+func (response GetMemberPhoto302Response) VisitGetMemberPhotoResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(302)
+	return nil
+}
+
+type GetMemberPhoto404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetMemberPhoto404ApplicationProblemPlusJSONResponse) VisitGetMemberPhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6317,24 +6391,14 @@ type GetTeamPhotoResponseObject interface {
 	VisitGetTeamPhotoResponse(w http.ResponseWriter) error
 }
 
-type GetTeamPhoto200ImagejpegResponse struct {
-	Body          io.Reader
-	ContentLength int64
-}
+type GetTeamPhoto302Response = PhotoRedirectResponse
 
-func (response GetTeamPhoto200ImagejpegResponse) VisitGetTeamPhotoResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "image/jpeg")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+func (response GetTeamPhoto302Response) VisitGetTeamPhotoResponse(w http.ResponseWriter) error {
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	_, err := io.Copy(w, response.Body)
-	return err
+	w.WriteHeader(302)
+	return nil
 }
 
 type GetTeamPhoto404ApplicationProblemPlusJSONResponse struct {
@@ -6765,6 +6829,9 @@ type StrictServerInterface interface {
 	// Update member profile
 	// (PATCH /teams/{teamId}/members/{membershipId})
 	UpdateMember(ctx context.Context, request UpdateMemberRequestObject) (UpdateMemberResponseObject, error)
+	// Get a team member's profile photo
+	// (GET /teams/{teamId}/members/{membershipId}/photo)
+	GetMemberPhoto(ctx context.Context, request GetMemberPhotoRequestObject) (GetMemberPhotoResponseObject, error)
 	// Replace member role assignments
 	// (PUT /teams/{teamId}/members/{membershipId}/roles)
 	SetMemberRoles(ctx context.Context, request SetMemberRolesRequestObject) (SetMemberRolesResponseObject, error)
@@ -8281,6 +8348,33 @@ func (sh *strictHandler) UpdateMember(w http.ResponseWriter, r *http.Request, te
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateMemberResponseObject); ok {
 		if err := validResponse.VisitUpdateMemberResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMemberPhoto operation middleware
+func (sh *strictHandler) GetMemberPhoto(w http.ResponseWriter, r *http.Request, teamId TeamId, membershipId MembershipId) {
+	var request GetMemberPhotoRequestObject
+
+	request.TeamId = teamId
+	request.MembershipId = membershipId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMemberPhoto(ctx, request.(GetMemberPhotoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMemberPhoto")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMemberPhotoResponseObject); ok {
+		if err := validResponse.VisitGetMemberPhotoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

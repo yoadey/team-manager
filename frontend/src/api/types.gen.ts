@@ -275,6 +275,26 @@ export interface paths {
         patch: operations["updateMember"];
         trace?: never;
     };
+    "/teams/{teamId}/members/{membershipId}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        /** Get a team member's profile photo */
+        get: operations["getMemberPhoto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{teamId}/members/{membershipId}/roles": {
         parameters: {
             query?: never;
@@ -1604,6 +1624,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description Redirect to a short-lived presigned URL for the image, hosted by the object store rather than this API. Access is membership-gated before the URL is issued; the URL itself carries no further authorization. */
+        PhotoRedirect: {
+            headers: {
+                /** @description Presigned URL to fetch the image bytes from. */
+                Location?: string;
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
     };
     parameters: {
         teamId: string;
@@ -1763,15 +1792,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description JPEG image */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "image/jpeg": string;
-                };
-            };
+            302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -1907,15 +1928,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description JPEG image */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "image/jpeg": string;
-                };
-            };
+            302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -1980,15 +1993,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description JPEG image */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "image/jpeg": string;
-                };
-            };
+            302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -2163,6 +2168,22 @@ export interface operations {
                     "application/json": components["schemas"]["Member"];
                 };
             };
+        };
+    };
+    getMemberPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            302: components["responses"]["PhotoRedirect"];
+            404: components["responses"]["NotFound"];
         };
     };
     setMemberRoles: {

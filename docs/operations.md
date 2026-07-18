@@ -164,6 +164,57 @@ pod crash-loops on retry with `pq: relation "audit_log" already exists`
 3. Delete the crash-looping pod so the initContainer retries cleanly against
    the now-empty state.
 
+## Object storage (image uploads)
+
+Team/user photos and team logos are stored in an S3-compatible object store
+(`internal/storage`), not in Postgres — the DB only holds an object key
+(`users.photo_object_key`, `teams.photo_object_key`, `teams.logo_object_key`).
+GET endpoints (`/auth/me/photo`, `/teams/{teamId}/photo`,
+`/teams/{teamId}/logo`, `/teams/{teamId}/members/{membershipId}/photo`) verify
+team membership, then respond `302` with a `Location` header pointing at a
+short-lived (15 minute) presigned URL — the application server never streams
+image bytes itself.
+
+**Configuration** (see CLAUDE.md's env var table for the full reference):
+`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` are
+**required** when `COOKIE_SECURE=true` (production) — startup fails loudly
+(`os.Exit(1)`) without them, mirroring the JWT/cookie-key hard-gating.
+`S3_REGION` and `S3_USE_PATH_STYLE` default to AWS-friendly values; set
+`S3_USE_PATH_STYLE=true` for most self-hosted S3-compatible stores (MinIO).
+Set `S3_PUBLIC_BASE_URL` when the backend's S3 endpoint (e.g. an in-cluster
+MinIO service DNS name) differs from the endpoint a browser can actually
+reach — it rewrites the scheme+host of presigned URLs after signing (the
+signature doesn't cover the host, so this is safe).
+
+**Local dev**: `docker compose up` runs a MinIO container plus a one-shot
+`minio-init` job that creates the configured bucket; the backend's
+`S3_PUBLIC_BASE_URL` is set to `http://localhost:9000` since the backend
+container reaches MinIO via the in-network `minio:9000` hostname but a
+browser on the host cannot. If `S3_ENDPOINT` is left unset entirely (e.g.
+running `go run ./cmd/server` directly, bypassing Compose) the backend falls
+back to an in-memory fake object store with a startup warning — fine for a
+quick manual smoke test, but uploaded images vanish on restart and aren't
+shared across replicas, so never rely on it beyond that.
+
+**Kubernetes**: set the plaintext `S3_ENDPOINT`/`S3_REGION`/`S3_BUCKET`/
+`S3_USE_PATH_STYLE` keys under `env` in your values overlay, and put
+`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` in the Secret referenced by
+`existingSecret` (same Secret as `DATABASE_URL`/JWT keys). The chart's
+NetworkPolicy (`networkPolicy.egress.s3`, `templates/networkpolicy.yaml`)
+already opens egress to the S3 endpoint whenever `env.S3_ENDPOINT` is set —
+override `networkPolicy.egress.s3.port`/`.to` to match a self-hosted
+endpoint's actual port/destination (AWS S3 needs no override; it's covered by
+the chart's general HTTPS egress rule too, but the dedicated S3 rule exists
+for self-hosted endpoints on non-443 ports).
+
+**Data migration note**: uploads that predate this feature (bytes still sitting
+in the now-legacy `*_data`/`*_mime` columns) are **not** automatically
+migrated — `HasPhoto`/image delivery key off `*_object_key` being set, so a
+team/user with only legacy `*_data` and no `*_object_key` appears photo-less
+until re-uploaded. A backfill migration (copy `*_data` into the object store,
+populate `*_object_key`, then drop the legacy columns) is tracked as
+follow-up work, not yet implemented.
+
 ## Cookie encryption key rotation
 
 `COOKIE_ENCRYPTION_KEYS` supports zero-downtime rotation, but — same
