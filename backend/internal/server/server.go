@@ -103,6 +103,10 @@ func (StrictUnimplemented) ListMembers(_ context.Context, _ gen.ListMembersReque
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) GetMemberPhoto(_ context.Context, _ gen.GetMemberPhotoRequestObject) (gen.GetMemberPhotoResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 func (StrictUnimplemented) RemoveMember(_ context.Context, _ gen.RemoveMemberRequestObject) (gen.RemoveMemberResponseObject, error) {
 	return nil, errNotImplemented
 }
@@ -456,6 +460,10 @@ func (s *Server) DeleteTeamLogo(ctx context.Context, req gen.DeleteTeamLogoReque
 
 func (s *Server) ListMembers(ctx context.Context, req gen.ListMembersRequestObject) (gen.ListMembersResponseObject, error) {
 	return s.Members.ListMembers(ctx, req)
+}
+
+func (s *Server) GetMemberPhoto(ctx context.Context, req gen.GetMemberPhotoRequestObject) (gen.GetMemberPhotoResponseObject, error) {
+	return s.Members.GetMemberPhoto(ctx, req)
 }
 
 func (s *Server) RemoveMember(ctx context.Context, req gen.RemoveMemberRequestObject) (gen.RemoveMemberResponseObject, error) {

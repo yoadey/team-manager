@@ -206,6 +206,7 @@ func TestLoad_CookieKeyFromHex(t *testing.T) {
 	t.Setenv("COOKIE_ENCRYPTION_KEY", hexKey)
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -221,6 +222,7 @@ func TestLoad_CookieKeyFromBase64(t *testing.T) {
 	t.Setenv("COOKIE_ENCRYPTION_KEY", b64Key)
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -246,6 +248,7 @@ func TestLoad_CookieEncryptionKeysPlural(t *testing.T) {
 	t.Setenv("COOKIE_ENCRYPTION_KEYS", key0+","+key1)
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -361,4 +364,88 @@ func TestLoad_DatabaseURLParseFailure_DoesNotLeakDSN(t *testing.T) {
 	_, err := config.Load()
 	require.ErrorIs(t, err, config.ErrInvalidDatabaseURL)
 	assert.NotContains(t, err.Error(), "S3cr3t")
+}
+
+// setRequiredS3Env sets the four S3_* vars loadS3Config requires when
+// COOKIE_SECURE=true, so tests only interested in some other production-mode
+// behavior don't also have to fail on ErrS3ConfigRequired.
+func setRequiredS3Env(t *testing.T) {
+	t.Helper()
+	t.Setenv("S3_ENDPOINT", "s3.example.com")
+	t.Setenv("S3_BUCKET", "team-manager-images")
+	t.Setenv("S3_ACCESS_KEY_ID", "AKIAEXAMPLE")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "secret")
+}
+
+func TestLoad_S3ConfigRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	t.Setenv("S3_ENDPOINT", "")
+	t.Setenv("S3_BUCKET", "")
+	t.Setenv("S3_ACCESS_KEY_ID", "")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrS3ConfigRequired)
+}
+
+func TestLoad_S3ConfigPartialRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	t.Setenv("S3_SECRET_ACCESS_KEY", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrS3ConfigRequired)
+}
+
+func TestLoad_S3ConfigOptionalInDev(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("S3_ENDPOINT", "")
+	t.Setenv("S3_BUCKET", "")
+	t.Setenv("S3_ACCESS_KEY_ID", "")
+	t.Setenv("S3_SECRET_ACCESS_KEY", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.S3Endpoint)
+	assert.Empty(t, cfg.S3Bucket)
+}
+
+func TestLoad_S3ConfigParsed(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	t.Setenv("S3_REGION", "eu-central-1")
+	t.Setenv("S3_USE_PATH_STYLE", "true")
+	t.Setenv("S3_PUBLIC_BASE_URL", "https://images.example.com")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "s3.example.com", cfg.S3Endpoint)
+	assert.Equal(t, "eu-central-1", cfg.S3Region)
+	assert.Equal(t, "team-manager-images", cfg.S3Bucket)
+	assert.Equal(t, "AKIAEXAMPLE", cfg.S3AccessKeyID)
+	assert.Equal(t, "secret", cfg.S3SecretAccessKey)
+	assert.True(t, cfg.S3UsePathStyle)
+	assert.Equal(t, "https://images.example.com", cfg.S3PublicBaseURL)
+}
+
+func TestLoad_S3UsePathStyleInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("S3_USE_PATH_STYLE", "not-a-bool")
+
+	_, err := config.Load()
+	require.Error(t, err)
 }

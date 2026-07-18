@@ -58,6 +58,18 @@ env.METRICS_ALLOW_OPEN=true if /metrics is already restricted at the
 network layer and you accept it being unauthenticated.
 {{- end }}
 
+{{- if and (eq (index .Values.env "COOKIE_SECURE") "true") (not (index .Values.env "S3_ENDPOINT")) }}
+
+WARNING: env.COOKIE_SECURE is "true" but env.S3_ENDPOINT is not set, so the
+backend hard-fails startup (exit 1, every replica crash-loops) — image
+uploads (team/user photos, team logos) require object storage to be
+configured, unlike METRICS_TOKEN above this chart CAN see this from here.
+Set env.S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_USE_PATH_STYLE via a values
+override, and put S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY in your
+{{ .Values.existingSecret | default "existingSecret" }} Secret — see
+docs/operations.md's "Object storage (image uploads)" section.
+{{- end }}
+
 {{- if and .Values.backup.enabled .Values.backup.s3.enabled }}
 
 REMINDER: backup.retentionDays ({{ .Values.backup.retentionDays }}) is

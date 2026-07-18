@@ -11,20 +11,29 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/members"
+	"github.com/yoadey/team-manager/backend/internal/storage"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
 // ─── mock repository ─────────────────────────────────────────────────────────
 
 type mockMemberRepo struct {
-	listMembers  func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
-	updateMember func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error)
-	setRoles     func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error)
-	removeMember func(ctx context.Context, membershipID, teamID, callerUserID string) error
+	listMembers    func(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
+	getMemberPhoto func(ctx context.Context, teamID, membershipID string) (string, error)
+	updateMember   func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error)
+	setRoles       func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*members.MemberRow, error)
+	removeMember   func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 func (m *mockMemberRepo) ListMembers(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error) {
 	return m.listMembers(ctx, teamID, limit, cur)
+}
+
+func (m *mockMemberRepo) GetMemberPhotoKey(ctx context.Context, teamID, membershipID string) (string, error) {
+	if m.getMemberPhoto != nil {
+		return m.getMemberPhoto(ctx, teamID, membershipID)
+	}
+	return "", pgx.ErrNoRows
 }
 
 func (m *mockMemberRepo) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*members.MemberRow, error) {
@@ -79,7 +88,7 @@ func TestMemberService_ListMembers(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	result, next, err := svc.ListMembers(context.Background(), teamID.String(), 50, "")
 	require.NoError(t, err)
 	assert.Nil(t, next)
@@ -108,7 +117,7 @@ func TestMemberService_UpdateMember_PassesTeamID(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.UpdateMember(context.Background(), membershipID.String(), teamID.String(), callerUserID.String(), members.MemberPatch{})
 	require.NoError(t, err)
 }
@@ -122,7 +131,7 @@ func TestMemberService_UpdateMember_WrongTeam_PropagatesNoRows(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.UpdateMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), members.MemberPatch{})
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
@@ -146,7 +155,7 @@ func TestMemberService_SetRoles_PassesTeamID(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.SetRoles(context.Background(), membershipID.String(), teamID.String(), roleIDs, callerUserID.String())
 	require.NoError(t, err)
 }
@@ -160,7 +169,7 @@ func TestMemberService_SetRoles_RoleNotInTeam_Propagates(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{uuid.New().String()}, uuid.New().String())
 	require.ErrorIs(t, err, members.ErrRoleNotInTeam)
 }
@@ -174,7 +183,7 @@ func TestMemberService_SetRoles_LastSettingsAdmin_Propagates(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{}, uuid.New().String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
 }
@@ -188,7 +197,7 @@ func TestMemberService_SetRoles_InsufficientPermissionToGrant_Propagates(t *test
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.SetRoles(context.Background(), uuid.New().String(), uuid.New().String(), []string{uuid.New().String()}, uuid.New().String())
 	require.ErrorIs(t, err, members.ErrInsufficientPermissionToGrant)
 }
@@ -202,7 +211,7 @@ func TestMemberService_RemoveMember_LastSettingsAdmin_Propagates(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String())
 	require.ErrorIs(t, err, members.ErrLastSettingsAdmin)
 }
@@ -225,7 +234,7 @@ func TestMemberService_RemoveMember_PassesTeamID(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	err := svc.RemoveMember(context.Background(), membershipID.String(), teamID.String(), callerUserID.String())
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -240,7 +249,7 @@ func TestMemberService_RemoveMember_WrongTeam_PropagatesNoRows(t *testing.T) {
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
@@ -257,7 +266,45 @@ func TestMemberService_RemoveMember_CannotRemoveSettingsAdmin_Propagates(t *test
 		},
 	}
 
-	svc := members.NewService(repo, nil)
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	err := svc.RemoveMember(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String())
 	require.ErrorIs(t, err, members.ErrCannotRemoveSettingsAdmin)
+}
+
+func TestMemberService_GetMemberPhotoURL_ReturnsPresignedURL(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	membershipID := uuid.New()
+	key := "users/some-user/photo"
+
+	repo := &mockMemberRepo{
+		getMemberPhoto: func(_ context.Context, gotTeamID, gotMembershipID string) (string, error) {
+			assert.Equal(t, teamID.String(), gotTeamID)
+			assert.Equal(t, membershipID.String(), gotMembershipID)
+			return key, nil
+		},
+	}
+
+	store := storage.NewFakeStore()
+	require.NoError(t, store.Put(context.Background(), key, []byte{1, 2, 3}, "image/jpeg"))
+
+	svc := members.NewService(repo, store, nil)
+	url, err := svc.GetMemberPhotoURL(context.Background(), teamID.String(), membershipID.String())
+	require.NoError(t, err)
+	assert.Contains(t, url, key)
+}
+
+func TestMemberService_GetMemberPhotoURL_NoPhotoReturnsErrNoRows(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockMemberRepo{
+		getMemberPhoto: func(context.Context, string, string) (string, error) {
+			return "", pgx.ErrNoRows
+		},
+	}
+
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
+	_, err := svc.GetMemberPhotoURL(context.Background(), uuid.New().String(), uuid.New().String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

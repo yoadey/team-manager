@@ -164,13 +164,8 @@ paths:
       operationId: getMyPhoto
       summary: Get user profile photo
       responses:
-        "200":
-          description: JPEG image
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -277,13 +272,8 @@ paths:
       x-rbac-module: public
       summary: Get team photo
       responses:
-        "200":
-          description: JPEG image
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -329,13 +319,8 @@ paths:
       x-rbac-module: public
       summary: Get team logo
       responses:
-        "200":
-          description: JPEG image
-          content:
-            image/jpeg:
-              schema:
-                type: string
-                format: binary
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
@@ -473,6 +458,21 @@ paths:
       responses:
         "204":
           description: No Content
+
+  /teams/{teamId}/members/{membershipId}/photo:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - $ref: "#/components/parameters/membershipId"
+    get:
+      tags: [members]
+      operationId: getMemberPhoto
+      x-rbac-module: members
+      summary: Get a team member's profile photo
+      responses:
+        "302":
+          $ref: "#/components/responses/PhotoRedirect"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /teams/{teamId}/members/{membershipId}/roles:
     parameters:
@@ -1548,6 +1548,17 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    PhotoRedirect:
+      description: >-
+        Redirect to a short-lived presigned URL for the image, hosted by the
+        object store rather than this API. Access is membership-gated before
+        the URL is issued; the URL itself carries no further authorization.
+      headers:
+        Location:
+          schema:
+            type: string
+            format: uri
+          description: Presigned URL to fetch the image bytes from.
 
   schemas:
 

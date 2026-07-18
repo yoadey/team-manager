@@ -52,6 +52,12 @@ var ErrJWTKeysRequired = errors.New("JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are both
 // entry that is not a valid CIDR (e.g. "10.0.0.0/8").
 var ErrInvalidTrustedProxyCIDR = errors.New("TRUSTED_PROXY_CIDRS must be a comma-separated list of valid CIDRs")
 
+// ErrS3ConfigRequired is returned when one or more of S3_ENDPOINT,
+// S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY is missing while
+// COOKIE_SECURE is true (production) -- an unconfigured object store means
+// image upload/delivery would fail at request time instead of at startup.
+var ErrS3ConfigRequired = errors.New("S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are all required when COOKIE_SECURE=true")
+
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
 
@@ -104,6 +110,27 @@ type Config struct {
 	// to info; an unrecognized value also falls back to info rather than
 	// failing startup over a logging-verbosity typo.
 	LogLevel slog.Level
+	// S3Endpoint is the S3-compatible host for image object storage, e.g.
+	// "s3.eu-central-1.amazonaws.com" or "minio:9000" (optionally prefixed
+	// with "http://"/"https://"). Set via S3_ENDPOINT.
+	S3Endpoint string
+	// S3Region is the object store's region, e.g. "eu-central-1". Set via
+	// S3_REGION; may be blank for MinIO/region-less endpoints.
+	S3Region string
+	// S3Bucket is the bucket image objects are stored in. Set via S3_BUCKET.
+	S3Bucket string
+	// S3AccessKeyID / S3SecretAccessKey are static credentials for the object
+	// store. Set via S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY.
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+	// S3UsePathStyle forces path-style bucket addressing, required by most
+	// self-hosted S3-compatible stores (MinIO). Set via S3_USE_PATH_STYLE.
+	S3UsePathStyle bool
+	// S3PublicBaseURL, when set, overrides the scheme+host of presigned image
+	// URLs so a browser can reach them even when the backend connects to the
+	// object store via a different (e.g. in-cluster/Compose) hostname. Set
+	// via S3_PUBLIC_BASE_URL.
+	S3PublicBaseURL string
 }
 
 func Load() (*Config, error) {
@@ -162,6 +189,11 @@ func Load() (*Config, error) {
 
 	logLevel := loadLogLevel()
 
+	s3, err := loadS3Config(cookieSecure)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:                      envOr("PORT", "8080"),
 		DatabaseURL:               dbURL,
@@ -184,7 +216,51 @@ func Load() (*Config, error) {
 		RetentionAuditLogDays:     retentionAuditLogDays,
 		TrustedProxyCIDRs:         trustedProxyCIDRs,
 		LogLevel:                  logLevel,
+		S3Endpoint:                s3.Endpoint,
+		S3Region:                  s3.Region,
+		S3Bucket:                  s3.Bucket,
+		S3AccessKeyID:             s3.AccessKeyID,
+		S3SecretAccessKey:         s3.SecretAccessKey,
+		S3UsePathStyle:            s3.UsePathStyle,
+		S3PublicBaseURL:           s3.PublicBaseURL,
 	}, nil
+}
+
+// s3Settings mirrors the S3-related Config fields; kept as its own return
+// type so loadS3Config has a single value to return rather than seven.
+type s3Settings struct {
+	Endpoint        string
+	Region          string
+	Bucket          string
+	AccessKeyID     string
+	SecretAccessKey string
+	UsePathStyle    bool
+	PublicBaseURL   string
+}
+
+// loadS3Config reads the S3_* object-storage env vars, failing loudly if
+// endpoint/bucket/credentials are missing while cookieSecure is true
+// (production) -- see ErrS3ConfigRequired.
+func loadS3Config(cookieSecure bool) (s3Settings, error) {
+	s := s3Settings{
+		Endpoint:        os.Getenv("S3_ENDPOINT"),
+		Region:          os.Getenv("S3_REGION"),
+		Bucket:          os.Getenv("S3_BUCKET"),
+		AccessKeyID:     os.Getenv("S3_ACCESS_KEY_ID"),
+		SecretAccessKey: os.Getenv("S3_SECRET_ACCESS_KEY"),
+		PublicBaseURL:   os.Getenv("S3_PUBLIC_BASE_URL"),
+	}
+	if v := os.Getenv("S3_USE_PATH_STYLE"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return s3Settings{}, fmt.Errorf("S3_USE_PATH_STYLE: %w", err)
+		}
+		s.UsePathStyle = b
+	}
+	if cookieSecure && (s.Endpoint == "" || s.Bucket == "" || s.AccessKeyID == "" || s.SecretAccessKey == "") {
+		return s3Settings{}, ErrS3ConfigRequired
+	}
+	return s, nil
 }
 
 // loadLogLevel reads LOG_LEVEL (debug|info|warn|error, case-insensitive),

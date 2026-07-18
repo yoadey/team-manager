@@ -1,31 +1,37 @@
 package auth_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/yoadey/team-manager/backend/internal/auth"
+	"github.com/yoadey/team-manager/backend/internal/storage"
 )
 
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	userByEmail    func(ctx context.Context, email string) (*auth.UserRow, error)
-	userByID       func(ctx context.Context, id string) (*auth.UserRow, error)
-	createSess     func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error)
-	findSess       func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
-	deleteSess     func(ctx context.Context, tokenHash string) error
-	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) error
-	userPhotoByID  func(ctx context.Context, id string) ([]byte, error)
-	eraseUser      func(ctx context.Context, userID string) error
-	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
+	userByEmail      func(ctx context.Context, email string) (*auth.UserRow, error)
+	userByID         func(ctx context.Context, id string) (*auth.UserRow, error)
+	createSess       func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error)
+	findSess         func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
+	deleteSess       func(ctx context.Context, tokenHash string) error
+	updatePhoto      func(ctx context.Context, userID, objectKey string) error
+	userPhotoKeyByID func(ctx context.Context, id string) (string, error)
+	eraseUser        func(ctx context.Context, userID string) error
+	exportUserData   func(ctx context.Context, userID string) (*auth.ExportData, error)
 }
 
 func (m *mockRepo) FindUserByEmail(ctx context.Context, email string) (*auth.UserRow, error) {
@@ -48,15 +54,15 @@ func (m *mockRepo) DeleteSession(ctx context.Context, tokenHash string) error {
 	return m.deleteSess(ctx, tokenHash)
 }
 
-func (m *mockRepo) UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error {
-	return m.updatePhoto(ctx, userID, data, mime)
+func (m *mockRepo) UpdateUserPhoto(ctx context.Context, userID, objectKey string) error {
+	return m.updatePhoto(ctx, userID, objectKey)
 }
 
-func (m *mockRepo) FindUserPhotoByID(ctx context.Context, id string) ([]byte, error) {
-	if m.userPhotoByID != nil {
-		return m.userPhotoByID(ctx, id)
+func (m *mockRepo) FindUserPhotoKeyByID(ctx context.Context, id string) (string, error) {
+	if m.userPhotoKeyByID != nil {
+		return m.userPhotoKeyByID(ctx, id)
 	}
-	return nil, nil
+	return "", pgx.ErrNoRows
 }
 
 func (m *mockRepo) EraseUser(ctx context.Context, userID string) error {
@@ -74,7 +80,7 @@ func (m *mockRepo) ExportUserData(ctx context.Context, userID string) (*auth.Exp
 
 func newTestService(t *testing.T, repo *mockRepo) *auth.Service {
 	t.Helper()
-	svc, err := auth.NewService(repo, "", "", 24*time.Hour)
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", 24*time.Hour)
 	require.NoError(t, err)
 	return svc
 }
@@ -176,7 +182,7 @@ func TestService_ValidateToken_Expired(t *testing.T) {
 
 	// Use a very short TTL so the token expires instantly.
 	repo := &mockRepo{}
-	svc, err := auth.NewService(repo, "", "", -time.Second)
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", -time.Second)
 	require.NoError(t, err)
 
 	user := makeUserWithPassword(t, "pw")
@@ -202,4 +208,103 @@ func TestService_HashPassword(t *testing.T) {
 
 	err = bcrypt.CompareHashAndPassword([]byte(hash), []byte("mypassword"))
 	assert.NoError(t, err, "hash should verify against original password")
+}
+
+// fixedJPEG returns a minimal valid 2x2 JPEG for image-processing tests.
+func fixedJPEG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	var buf bytes.Buffer
+	require.NoError(t, jpeg.Encode(&buf, img, nil))
+	return buf.Bytes()
+}
+
+func TestService_UpdatePhoto_UploadsAndStoresKey(t *testing.T) {
+	t.Parallel()
+
+	userID := "user-1"
+	var storedKey string
+	repo := &mockRepo{
+		updatePhoto: func(_ context.Context, uid, objectKey string) error {
+			assert.Equal(t, userID, uid)
+			storedKey = objectKey
+			return nil
+		},
+		userByID: func(_ context.Context, _ string) (*auth.UserRow, error) {
+			return &auth.UserRow{Id: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")}, nil
+		},
+	}
+	store := storage.NewFakeStore()
+	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour)
+	require.NoError(t, err)
+
+	_, err = svc.UpdatePhoto(context.Background(), userID, fixedJPEG(t), "image/jpeg")
+	require.NoError(t, err)
+	assert.Equal(t, "users/"+userID+"/photo", storedKey)
+	data, ok := store.Get(storedKey)
+	require.True(t, ok, "resized image must be uploaded to the object store")
+	assert.NotEmpty(t, data)
+}
+
+func TestService_GetMyPhotoURL_ReturnsPresignedURL(t *testing.T) {
+	t.Parallel()
+
+	userID := "user-1"
+	key := "users/" + userID + "/photo"
+	repo := &mockRepo{
+		userPhotoKeyByID: func(_ context.Context, _ string) (string, error) {
+			return key, nil
+		},
+	}
+	store := storage.NewFakeStore()
+	require.NoError(t, store.Put(context.Background(), key, []byte{1, 2, 3}, "image/jpeg"))
+	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour)
+	require.NoError(t, err)
+
+	url, err := svc.GetMyPhotoURL(context.Background(), userID)
+	require.NoError(t, err)
+	assert.Contains(t, url, key)
+}
+
+func TestService_GetMyPhotoURL_NoPhotoReturnsErrNoRows(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		userPhotoKeyByID: func(_ context.Context, _ string) (string, error) {
+			return "", pgx.ErrNoRows
+		},
+	}
+	svc := newTestService(t, repo)
+
+	_, err := svc.GetMyPhotoURL(context.Background(), "user-1")
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// EraseAccount (GDPR Art. 17) must delete the underlying object store photo,
+// not just null the DB reference to it -- otherwise the image bytes survive
+// the "erasure" in the object store indefinitely.
+func TestService_EraseAccount_DeletesStoredPhoto(t *testing.T) {
+	t.Parallel()
+
+	const accountEmail = "member@example.com"
+	userID := "user-1"
+	key := "users/" + userID + "/photo"
+
+	repo := &mockRepo{
+		userByID: func(_ context.Context, _ string) (*auth.UserRow, error) {
+			return &auth.UserRow{Email: accountEmail}, nil
+		},
+		userPhotoKeyByID: func(_ context.Context, _ string) (string, error) {
+			return key, nil
+		},
+		eraseUser: func(_ context.Context, _ string) error { return nil },
+	}
+	store := storage.NewFakeStore()
+	require.NoError(t, store.Put(context.Background(), key, []byte{1, 2, 3}, "image/jpeg"))
+	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour)
+	require.NoError(t, err)
+
+	require.NoError(t, svc.EraseAccount(context.Background(), userID, accountEmail))
+	assert.False(t, store.Has(key), "erasure must delete the underlying photo object")
 }

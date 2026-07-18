@@ -238,6 +238,8 @@ type Team struct {
 	Description             pgtype.Text
 	ReasonVisibilityRoleIds []uuid.UUID
 	CreatedAt               time.Time
+	PhotoObjectKey          pgtype.Text
+	LogoObjectKey           pgtype.Text
 }
 
 type Transaction struct {
@@ -253,16 +255,17 @@ type Transaction struct {
 }
 
 type User struct {
-	ID           uuid.UUID
-	Name         string
-	Email        string
-	Phone        pgtype.Text
-	AvatarColor  string
-	PhotoData    []byte
-	PhotoMime    pgtype.Text
-	Birthday     pgtype.Date
-	Address      pgtype.Text
-	PasswordHash pgtype.Text
-	CreatedAt    time.Time
-	DeletedAt    pgtype.Timestamptz
+	ID             uuid.UUID
+	Name           string
+	Email          string
+	Phone          pgtype.Text
+	AvatarColor    string
+	PhotoData      []byte
+	PhotoMime      pgtype.Text
+	Birthday       pgtype.Date
+	Address        pgtype.Text
+	PasswordHash   pgtype.Text
+	CreatedAt      time.Time
+	DeletedAt      pgtype.Timestamptz
+	PhotoObjectKey pgtype.Text
 }

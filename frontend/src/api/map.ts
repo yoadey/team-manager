@@ -1,11 +1,13 @@
 // Mapping functions: API schema types → frontend domain types.
-// Photos: the backend stores raw bytes and returns hasPhoto:boolean. Only two
-// GET-by-bytes endpoints exist — the current user's own photo (/auth/me/photo)
-// and a team's photo/logo (/teams/{teamId}/photo|logo) — so only those two
-// entities can be resolved to a display URL here. Other members' photos
-// (attendance rows, comments, poll voters, finance rows, stats, ...) have no
-// per-arbitrary-user photo endpoint on the backend, so they stay null
-// (initials/avatar fallback) until such an endpoint exists.
+// Photos: the backend stores images in object storage and returns
+// hasPhoto:boolean; GET endpoints 302-redirect to a short-lived presigned URL
+// (see internal/storage). Three entities can be resolved to a display URL
+// here: the current user's own photo (/auth/me/photo), a team's photo/logo
+// (/teams/{teamId}/photo|logo), and a team member's photo
+// (/teams/{teamId}/members/{membershipId}/photo). Other member-photo
+// consumers (attendance rows, comments, poll voters, finance rows, stats,
+// ...) don't carry a hasPhoto flag in their API schema, so they stay null
+// (initials/avatar fallback) until those schemas grow one.
 
 import { apiOrigin } from './client';
 import type { components } from './types.gen';
@@ -142,7 +144,7 @@ export function mapInvite(inv: S['Invite']): Invite {
   };
 }
 
-export function mapMember(m: S['Member']): Member {
+export function mapMember(m: S['Member'], teamId: string): Member {
   const dto: MemberDto = {
     membershipId: m.membershipId,
     userId: m.userId,
@@ -152,7 +154,7 @@ export function mapMember(m: S['Member']): Member {
     birthday: m.birthday ?? '',
     address: m.address ?? '',
     avatarColor: m.avatarColor,
-    photo: null,
+    photo: photoUrl(m.hasPhoto, `/teams/${teamId}/members/${m.membershipId}/photo`),
     group: m.group ?? '',
     roles: (m.roles ?? []).map(mapRole),
     joinedAt: m.joinedAt,

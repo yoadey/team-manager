@@ -18,8 +18,11 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/image/draw"
+
+	"github.com/yoadey/team-manager/backend/internal/storage"
 )
 
 // Sentinel errors for the auth package.
@@ -48,8 +51,8 @@ type authRepo interface {
 	CreateSession(ctx context.Context, userID string, tokenHash string, expiresAt time.Time) (*SessionRow, error)
 	FindSession(ctx context.Context, tokenHash string) (*SessionRow, error)
 	DeleteSession(ctx context.Context, tokenHash string) error
-	FindUserPhotoByID(ctx context.Context, id string) ([]byte, error)
-	UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error
+	FindUserPhotoKeyByID(ctx context.Context, id string) (string, error)
+	UpdateUserPhoto(ctx context.Context, userID, objectKey string) error
 	EraseUser(ctx context.Context, userID string) error
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 }
@@ -57,6 +60,7 @@ type authRepo interface {
 // Service implements authentication logic.
 type Service struct {
 	repo          authRepo
+	store         storage.ObjectStore
 	jwtPrivateKey *rsa.PrivateKey
 	jwtPublicKey  *rsa.PublicKey
 	sessionTTL    time.Duration
@@ -65,7 +69,7 @@ type Service struct {
 // NewService parses RSA keys from PEM strings and returns a Service.
 // If privateKeyPEM and publicKeyPEM are both empty, a throwaway RSA-2048 key
 // pair is generated for use in dev/test mode.
-func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL time.Duration) (*Service, error) {
+func NewService(repo authRepo, store storage.ObjectStore, privateKeyPEM, publicKeyPEM string, sessionTTL time.Duration) (*Service, error) {
 	var priv *rsa.PrivateKey
 	var pub *rsa.PublicKey
 
@@ -111,10 +115,16 @@ func NewService(repo authRepo, privateKeyPEM, publicKeyPEM string, sessionTTL ti
 
 	return &Service{
 		repo:          repo,
+		store:         store,
 		jwtPrivateKey: priv,
 		jwtPublicKey:  pub,
 		sessionTTL:    sessionTTL,
 	}, nil
+}
+
+// userPhotoKey returns the object store key for userID's profile photo.
+func userPhotoKey(userID string) string {
+	return "users/" + userID + "/photo"
 }
 
 // Login verifies email+password, creates a session, and returns a signed JWT.
@@ -218,8 +228,20 @@ func (s *Service) EraseAccount(ctx context.Context, userID, confirmEmail string)
 	if !strings.EqualFold(strings.TrimSpace(confirmEmail), strings.TrimSpace(user.Email)) {
 		return ErrErasureConfirmation
 	}
+
+	// Fetch the photo key before erasure nulls it out, so the underlying
+	// object can be deleted too -- GDPR Art. 17 erasure must remove the
+	// actual image bytes, not just the DB reference to them. Best-effort: a
+	// delete failure here doesn't roll back the (already-committed)
+	// anonymization, mirroring how upload's orphan cleanup is best-effort too.
+	photoKey, keyErr := s.repo.FindUserPhotoKeyByID(ctx, userID)
+
 	if err := s.repo.EraseUser(ctx, userID); err != nil {
 		return fmt.Errorf("auth.Service.EraseAccount: %w", err)
+	}
+
+	if keyErr == nil && photoKey != "" {
+		_ = s.store.Delete(ctx, photoKey)
 	}
 	return nil
 }
@@ -243,15 +265,23 @@ func (s *Service) HashPassword(password string) (string, error) {
 	return string(b), nil
 }
 
-// UpdatePhoto resizes the image to at most 800×800 px, stores it, and returns
-// the refreshed user row.
+// UpdatePhoto resizes the image to at most 800×800 px, uploads it to the
+// object store, and returns the refreshed user row. Upload order is S3 put
+// before the DB write; if the DB write fails, the just-uploaded object is
+// deleted (best-effort) so it doesn't linger orphaned.
 func (s *Service) UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error) {
 	resized, err := resizeImage(data, mime)
 	if err != nil {
 		return nil, fmt.Errorf("auth.Service.UpdatePhoto: resize: %w", err)
 	}
 
-	if err := s.repo.UpdateUserPhoto(ctx, userID, resized, "image/jpeg"); err != nil {
+	key := userPhotoKey(userID)
+	if err := s.store.Put(ctx, key, resized, "image/jpeg"); err != nil {
+		return nil, fmt.Errorf("auth.Service.UpdatePhoto: upload: %w", err)
+	}
+
+	if err := s.repo.UpdateUserPhoto(ctx, userID, key); err != nil {
+		_ = s.store.Delete(ctx, key)
 		return nil, fmt.Errorf("auth.Service.UpdatePhoto: store: %w", err)
 	}
 
@@ -262,14 +292,21 @@ func (s *Service) UpdatePhoto(ctx context.Context, userID string, data []byte, m
 	return user, nil
 }
 
-// GetMyPhotoData returns the raw photo bytes for userID, or nil if the user
-// has no photo set.
-func (s *Service) GetMyPhotoData(ctx context.Context, userID string) ([]byte, error) {
-	data, err := s.repo.FindUserPhotoByID(ctx, userID)
+// GetMyPhotoURL returns a short-lived presigned URL for userID's photo, or
+// pgx.ErrNoRows if the user has no photo set.
+func (s *Service) GetMyPhotoURL(ctx context.Context, userID string) (string, error) {
+	key, err := s.repo.FindUserPhotoKeyByID(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("auth.Service.GetMyPhotoData: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows
+		}
+		return "", fmt.Errorf("auth.Service.GetMyPhotoURL: %w", err)
 	}
-	return data, nil
+	url, err := s.store.PresignGet(ctx, key, storage.PresignTTL)
+	if err != nil {
+		return "", fmt.Errorf("auth.Service.GetMyPhotoURL: %w", err)
+	}
+	return url, nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

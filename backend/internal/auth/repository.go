@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -41,7 +42,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 
 const selectUserFields = `
 	id, name, email, phone, avatar_color,
-	(photo_data IS NOT NULL AND length(photo_data) > 0) AS has_photo,
+	(photo_object_key IS NOT NULL AND length(photo_object_key) > 0) AS has_photo,
 	birthday, address,
 	COALESCE(password_hash, '') AS password_hash,
 	created_at
@@ -100,17 +101,24 @@ func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, err
 	return u, nil
 }
 
-// FindUserPhotoByID returns the raw photo bytes for id, or nil if the user
-// has no photo set (or does not exist / is soft-deleted).
-func (r *Repository) FindUserPhotoByID(ctx context.Context, id string) ([]byte, error) {
+// FindUserPhotoKeyByID returns the object store key for id's photo, or
+// pgx.ErrNoRows if the user has no photo set (or does not exist / is
+// soft-deleted).
+func (r *Repository) FindUserPhotoKeyByID(ctx context.Context, id string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	var data []byte
-	err := r.pool.QueryRow(ctx, `SELECT photo_data FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&data)
+	var key *string
+	err := r.pool.QueryRow(ctx, `SELECT photo_object_key FROM users WHERE id = $1 AND deleted_at IS NULL`, id).Scan(&key)
 	if err != nil {
-		return nil, fmt.Errorf("auth.Repository.FindUserPhotoByID: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows
+		}
+		return "", fmt.Errorf("auth.Repository.FindUserPhotoKeyByID: %w", err)
 	}
-	return data, nil
+	if key == nil || *key == "" {
+		return "", pgx.ErrNoRows
+	}
+	return *key, nil
 }
 
 // CreateSession inserts a new session row and returns it.
@@ -229,8 +237,8 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 		{`UPDATE users SET
 			name = $2, email = 'deleted+' || id::text || '@invalid',
 			phone = NULL, birthday = NULL, address = NULL,
-			photo_data = NULL, photo_mime = NULL, password_hash = NULL,
-			deleted_at = now()
+			photo_data = NULL, photo_mime = NULL, photo_object_key = NULL,
+			password_hash = NULL, deleted_at = now()
 		  WHERE id = $1 AND deleted_at IS NULL`, []any{userID, anonName}},
 		{`UPDATE event_comments SET text = '' WHERE user_id = $1`, []any{userID}},
 		{`UPDATE attendance SET reason = NULL WHERE user_id = $1`, []any{userID}},
@@ -249,14 +257,14 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-// UpdateUserPhoto stores raw photo bytes and MIME type for the given user.
-func (r *Repository) UpdateUserPhoto(ctx context.Context, userID string, data []byte, mime string) error {
+// UpdateUserPhoto stores the object store key for the given user's photo.
+func (r *Repository) UpdateUserPhoto(ctx context.Context, userID, objectKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err := r.pool.Exec(
 		ctx,
-		`UPDATE users SET photo_data = $2, photo_mime = $3 WHERE id = $1`,
-		userID, data, mime,
+		`UPDATE users SET photo_object_key = $2 WHERE id = $1`,
+		userID, objectKey,
 	)
 	if err != nil {
 		return fmt.Errorf("auth.Repository.UpdateUserPhoto: %w", err)

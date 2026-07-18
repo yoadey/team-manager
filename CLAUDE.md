@@ -87,6 +87,7 @@ team-manager/
 │   │   ├── apierror/      RFC 9457 Problem Details
 │   │   ├── audit/         Audit log
 │   │   ├── jobs/          River-based background workers (retention, notifications)
+│   │   ├── storage/       S3-compatible object store (team/user photos, team logos) — ObjectStore interface + S3/fake impls
 │   │   ├── metrics/       Prometheus metrics (business + retention job)
 │   │   ├── observability/ OpenTelemetry tracing + Sentry wiring
 │   │   ├── pagination/    Keyset pagination + HMAC-signed cursors
@@ -179,6 +180,12 @@ The TypeScript client is also generated from this spec via `openapi-typescript` 
 | `RETENTION_NOTIFICATIONS_DAYS` | `90`         | How many days to keep notification rows before the daily retention job deletes them. |
 | `RETENTION_SESSIONS_DAYS` | `30`               | How many days past expiry to keep session rows before the daily retention job deletes them. |
 | `RETENTION_AUDIT_LOG_DAYS` | `365`             | How many days to keep `audit_log` rows before the daily retention job deletes them. Compliance-relevant — raise if your retention policy requires longer. |
+| `S3_ENDPOINT`     | _(empty)_                   | S3-compatible host for image object storage (team/user photos, team logos), e.g. `s3.eu-central-1.amazonaws.com` or `minio:9000`; optionally prefixed `http://`/`https://` (defaults to secure). **Required when `COOKIE_SECURE=true`** (with `S3_BUCKET`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`) — startup fails without it. Unset in dev falls back to an in-memory fake store (images don't survive a restart). |
+| `S3_REGION`       | _(empty)_                   | Object store region, e.g. `eu-central-1`. May be blank for MinIO/region-less endpoints. |
+| `S3_BUCKET`       | _(empty)_                   | Bucket image objects are stored in. Same `COOKIE_SECURE=true` requirement as `S3_ENDPOINT`. |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | _(empty)_ | Static credentials for the object store. Same `COOKIE_SECURE=true` requirement as `S3_ENDPOINT`. |
+| `S3_USE_PATH_STYLE` | `false`                    | Force path-style bucket addressing (`https://host/bucket/key`) instead of virtual-hosted-style. Set `true` for most self-hosted S3-compatible stores (MinIO); leave `false` for real AWS S3. |
+| `S3_PUBLIC_BASE_URL` | _(empty)_                | Overrides the scheme+host of presigned image URLs after signing. Needed when the backend's S3 endpoint (e.g. in-cluster/Compose service DNS) differs from the endpoint a browser can reach. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_       | OTLP/HTTP collector URL; enables OpenTelemetry tracing when set (other `OTEL_*` vars honored by the SDK) |
 | `OTEL_SERVICE_NAME` | `team-manager-backend`    | Service name reported in traces |
 | `SENTRY_DSN`      | _(empty)_                   | Sentry DSN for backend error tracking; disabled when empty |

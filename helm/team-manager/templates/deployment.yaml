@@ -74,6 +74,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: JWT_PUBLIC_KEY
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: S3_SECRET_ACCESS_KEY
             - name: COOKIE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
@@ -188,6 +198,16 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: JWT_PUBLIC_KEY
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: S3_SECRET_ACCESS_KEY
             - name: COOKIE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:

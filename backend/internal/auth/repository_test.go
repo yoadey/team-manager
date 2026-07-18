@@ -85,10 +85,10 @@ func TestRepository_FindUserByID(t *testing.T) {
 
 // Regression test: FindUserByID is on the hot path (invoked on essentially
 // every authenticated request via AuthMiddleware), so it must only expose a
-// HasPhoto boolean rather than fetching the full photo_data BLOB every time;
-// FindUserPhotoByID is the dedicated method for the one path that actually
-// needs the raw bytes.
-func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
+// HasPhoto boolean derived from photo_object_key rather than fetching the
+// object store key (or bytes) every time; FindUserPhotoKeyByID is the
+// dedicated method for the one path that actually needs the key.
+func TestRepository_FindUserByID_ExposesHasPhotoFromObjectKey(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
@@ -97,8 +97,8 @@ func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
 
 	_, err := pool.Exec(
 		ctx,
-		`INSERT INTO users (id, name, email, avatar_color, photo_data, photo_mime)
-		 VALUES ('33333333-3333-3333-3333-333333333333', 'Carol', 'carol@example.com', '#0000ff', '\x89504e47', 'image/jpeg')`,
+		`INSERT INTO users (id, name, email, avatar_color, photo_object_key)
+		 VALUES ('33333333-3333-3333-3333-333333333333', 'Carol', 'carol@example.com', '#0000ff', 'users/33333333-3333-3333-3333-333333333333/photo')`,
 	)
 	require.NoError(t, err)
 
@@ -106,9 +106,9 @@ func TestRepository_FindUserByID_ExposesHasPhotoNotRawBytes(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, user.HasPhoto)
 
-	data, err := repo.FindUserPhotoByID(ctx, "33333333-3333-3333-3333-333333333333")
+	key, err := repo.FindUserPhotoKeyByID(ctx, "33333333-3333-3333-3333-333333333333")
 	require.NoError(t, err)
-	assert.NotEmpty(t, data)
+	assert.Equal(t, "users/33333333-3333-3333-3333-333333333333/photo", key)
 }
 
 func TestRepository_CreateAndFindSession(t *testing.T) {

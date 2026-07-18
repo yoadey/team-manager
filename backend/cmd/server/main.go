@@ -41,6 +41,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/server"
 	"github.com/yoadey/team-manager/backend/internal/stats"
+	"github.com/yoadey/team-manager/backend/internal/storage"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
@@ -177,6 +178,7 @@ func runHTTPServer(srv *http.Server) {
 func initAuthComponents(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
+	objectStore storage.ObjectStore,
 	logger *slog.Logger,
 	auditLogger *audit.Logger,
 ) (*auth.Handler, *auth.SessionCookieCodec, error) {
@@ -184,7 +186,7 @@ func initAuthComponents(
 		slog.Warn("JWT_PRIVATE_KEY/JWT_PUBLIC_KEY not set; generating an ephemeral RSA key pair for this process — sessions will not survive a restart and won't verify across replicas")
 	}
 	repo := auth.NewRepository(pool)
-	svc, err := auth.NewService(repo, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	svc, err := auth.NewService(repo, objectStore, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth service: %w", err)
 	}
@@ -193,6 +195,32 @@ func initAuthComponents(
 		return nil, nil, fmt.Errorf("cookie codec: %w", err)
 	}
 	return auth.NewHandler(svc, logger, codec, auditLogger), codec, nil
+}
+
+// initObjectStore constructs the ObjectStore used for team/user image
+// uploads. Falls back to an in-memory fake when S3_ENDPOINT is unset --
+// config.Load() already hard-requires it when COOKIE_SECURE=true, so this
+// path is only reachable in dev/test, mirroring the JWT/cookie-key ephemeral
+// fallback above.
+func initObjectStore(cfg *config.Config) storage.ObjectStore {
+	if cfg.S3Endpoint == "" {
+		slog.Warn("S3_ENDPOINT not set; using an in-memory fake object store — uploaded images will not persist across restarts and are not shared across replicas")
+		return storage.NewFakeStore()
+	}
+	s3Store, err := storage.NewS3Store(storage.S3Config{
+		Endpoint:        cfg.S3Endpoint,
+		Region:          cfg.S3Region,
+		Bucket:          cfg.S3Bucket,
+		AccessKeyID:     cfg.S3AccessKeyID,
+		SecretAccessKey: cfg.S3SecretAccessKey,
+		UsePathStyle:    cfg.S3UsePathStyle,
+		PublicBaseURL:   cfg.S3PublicBaseURL,
+	})
+	if err != nil {
+		slog.Error("object store init failed", "err", err)
+		os.Exit(1)
+	}
+	return s3Store
 }
 
 func main() {
@@ -289,9 +317,15 @@ func main() {
 	// records survive log rotation and can be queried for compliance review.
 	auditLogger := audit.New(logger).WithDB(pool)
 
+	// ─── Object storage ──────────────────────────────────────────────────────
+	// Shared by auth (user photos), teams (team photo/logo) and members (member
+	// photo delivery).
+
+	objectStore := initObjectStore(cfg)
+
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, logger, auditLogger)
+	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, logger, auditLogger)
 	if err != nil {
 		slog.Error("auth init failed", "err", err)
 		os.Exit(1)
@@ -307,13 +341,13 @@ func main() {
 	// ─── Teams ───────────────────────────────────────────────────────────────
 
 	teamsRepo := teams.NewRepository(pool)
-	teamsSvc := teams.NewService(teamsRepo, cfg.PublicBaseURL)
+	teamsSvc := teams.NewService(teamsRepo, objectStore, cfg.PublicBaseURL)
 	teamsHandler := teams.NewHandler(teamsSvc, logger, auditLogger)
 
 	// ─── Members ─────────────────────────────────────────────────────────────
 
 	membersRepo := members.NewRepository(pool)
-	membersSvc := members.NewService(membersRepo, pager)
+	membersSvc := members.NewService(membersRepo, objectStore, pager)
 	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
 
 	// ─── Roles ───────────────────────────────────────────────────────────────

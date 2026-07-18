@@ -416,22 +416,20 @@ func TestTeamRepository_DeleteTeamPhoto_ClearsStoredPhoto(t *testing.T) {
 	tr, err := repo.CreateTeam(ctx, "Photo Delete Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, repo.UpdateTeamPhoto(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
+	require.NoError(t, repo.UpdateTeamPhoto(ctx, tr.Id.String(), "teams/"+tr.Id.String()+"/photo"))
 	withPhoto, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
 	assert.True(t, withPhoto.HasPhoto)
-	photoData, photoMime, err := repo.GetTeamPhotoBytes(ctx, tr.Id.String())
+	photoKey, err := repo.GetTeamPhotoKey(ctx, tr.Id.String())
 	require.NoError(t, err)
-	require.NotEmpty(t, photoData)
-	require.NotNil(t, photoMime)
+	require.NotEmpty(t, photoKey)
 
 	require.NoError(t, repo.DeleteTeamPhoto(ctx, tr.Id.String()))
 	cleared, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
 	assert.False(t, cleared.HasPhoto)
-	_, clearedMime, err := repo.GetTeamPhotoBytes(ctx, tr.Id.String())
-	require.NoError(t, err)
-	assert.Nil(t, clearedMime)
+	_, err = repo.GetTeamPhotoKey(ctx, tr.Id.String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 func TestTeamRepository_DeleteTeamPhoto_UnknownTeam_ReturnsNoRows(t *testing.T) {
@@ -457,22 +455,20 @@ func TestTeamRepository_DeleteTeamLogo_ClearsStoredLogo(t *testing.T) {
 	tr, err := repo.CreateTeam(ctx, "Logo Delete Team", userID, nil, nil, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, repo.UpdateTeamLogo(ctx, tr.Id.String(), []byte{0xFF, 0xD8, 0xFF}, "image/jpeg"))
+	require.NoError(t, repo.UpdateTeamLogo(ctx, tr.Id.String(), "teams/"+tr.Id.String()+"/logo"))
 	withLogo, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
 	assert.True(t, withLogo.HasLogo)
-	logoData, logoMime, err := repo.GetTeamLogoBytes(ctx, tr.Id.String())
+	logoKey, err := repo.GetTeamLogoKey(ctx, tr.Id.String())
 	require.NoError(t, err)
-	require.NotEmpty(t, logoData)
-	require.NotNil(t, logoMime)
+	require.NotEmpty(t, logoKey)
 
 	require.NoError(t, repo.DeleteTeamLogo(ctx, tr.Id.String()))
 	cleared, err := repo.GetTeam(ctx, tr.Id.String())
 	require.NoError(t, err)
 	assert.False(t, cleared.HasLogo)
-	_, clearedMime, err := repo.GetTeamLogoBytes(ctx, tr.Id.String())
-	require.NoError(t, err)
-	assert.Nil(t, clearedMime)
+	_, err = repo.GetTeamLogoKey(ctx, tr.Id.String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
 }
 
 func TestTeamRepository_DeleteTeamLogo_UnknownTeam_ReturnsNoRows(t *testing.T) {
