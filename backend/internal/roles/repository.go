@@ -2,16 +2,17 @@ package roles
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/yoadey/team-manager/backend/internal/db/gen"
+	"github.com/yoadey/team-manager/backend/internal/db/sqlbuilder"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
@@ -52,38 +53,47 @@ var ErrInsufficientPermissionToGrant = errors.New("cannot grant a permission lev
 // Repository handles role-related DB operations.
 type Repository struct {
 	pool *pgxpool.Pool
+	q    *dbgen.Queries
 }
 
 // NewRepository creates a new Repository.
 func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+	return &Repository{pool: pool, q: dbgen.New(pool)}
+}
+
+// textToPtr converts a nullable pgtype.Text (as returned by generated
+// queries for the nullable roles.color column) into the *string the
+// teams.RoleRow domain model uses.
+func textToPtr(t pgtype.Text) *string {
+	if !t.Valid {
+		return nil
+	}
+	return &t.String
+}
+
+// ptrToText converts a *string patch/create field into the pgtype.Text a
+// generated query expects for the nullable roles.color column.
+func ptrToText(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: *s, Valid: true}
 }
 
 // ListRoles returns all roles for the given team.
 func (r *Repository) ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.pool.Query(ctx, `
-		SELECT id, team_id, name, system, color, permissions
-		FROM roles
-		WHERE team_id = $1
-		ORDER BY system DESC, name
-	`, teamID)
+	rows, err := r.q.ListRolesByTeam(ctx, uuid.MustParse(teamID))
 	if err != nil {
 		return nil, fmt.Errorf("roles.Repository.ListRoles: %w", err)
 	}
-	defer rows.Close()
-
-	var out []teams.RoleRow
-	for rows.Next() {
-		rr, err := scanRole(rows)
-		if err != nil {
-			return nil, fmt.Errorf("roles.Repository.ListRoles scan: %w", err)
-		}
-		out = append(out, *rr)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("roles.Repository.ListRoles rows: %w", err)
+	out := make([]teams.RoleRow, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, teams.RoleRow{
+			Id: row.ID, TeamID: row.TeamID, Name: row.Name, System: row.System,
+			Color: textToPtr(row.Color), Permissions: row.Permissions,
+		})
 	}
 	return out, nil
 }
@@ -92,54 +102,33 @@ func (r *Repository) ListRoles(ctx context.Context, teamID string) ([]teams.Role
 func (r *Repository) CreateRole(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	permJSON, err := json.Marshal(permissions)
-	if err != nil {
-		return nil, fmt.Errorf("roles.Repository.CreateRole: marshal permissions: %w", err)
-	}
-
-	rr := &teams.RoleRow{}
-	var permBytes []byte
-	err = r.pool.QueryRow(ctx, `
-		INSERT INTO roles (team_id, name, color, permissions)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, team_id, name, system, color, permissions
-	`, teamID, name, color, permJSON).Scan(
-		&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes,
-	)
+	row, err := r.q.CreateRole(ctx, dbgen.CreateRoleParams{
+		TeamID: uuid.MustParse(teamID), Name: name, Color: ptrToText(color), Permissions: permissions,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("roles.Repository.CreateRole: %w", err)
 	}
-	if err := json.Unmarshal(permBytes, &rr.Permissions); err != nil {
-		return nil, fmt.Errorf("roles.Repository.CreateRole: unmarshal: %w", err)
-	}
-	return rr, nil
+	return &teams.RoleRow{
+		Id: row.ID, TeamID: row.TeamID, Name: row.Name, System: row.System,
+		Color: textToPtr(row.Color), Permissions: row.Permissions,
+	}, nil
 }
 
-// buildRoleUpdateSets constructs a SET clause and args slice for patch.
-func buildRoleUpdateSets(patch RolePatch) (setSQL string, args []any, err error) {
-	var sets []string
-	n := 1
-
+// buildRoleUpdateSets constructs a SET clause and args slice for patch via
+// sqlbuilder (see its package doc for why a hand-rolled builder with a
+// placeholder fallback isn't used here).
+func buildRoleUpdateSets(patch RolePatch, startIdx int) (setSQL string, args []any, nextIdx int, ok bool) {
+	b := sqlbuilder.New()
 	if patch.Name != nil {
-		sets = append(sets, fmt.Sprintf("name = $%d", n))
-		args = append(args, *patch.Name)
-		n++
+		b.Add("name", *patch.Name)
 	}
 	if patch.Color != nil {
-		sets = append(sets, fmt.Sprintf("color = $%d", n))
-		args = append(args, *patch.Color)
-		n++
+		b.Add("color", *patch.Color)
 	}
 	if patch.Permissions != nil {
-		permJSON, marshalErr := json.Marshal(*patch.Permissions)
-		if marshalErr != nil {
-			return "", nil, fmt.Errorf("roles.buildRoleUpdateSets: marshal permissions: %w", marshalErr)
-		}
-		sets = append(sets, fmt.Sprintf("permissions = $%d", n))
-		args = append(args, permJSON)
+		b.Add("permissions", *patch.Permissions)
 	}
-
-	return strings.Join(sets, ", "), args, nil
+	return b.Build(startIdx)
 }
 
 // guardRoleUpdate rejects renaming/re-permissioning a system role
@@ -149,7 +138,9 @@ func buildRoleUpdateSets(patch RolePatch) (setSQL string, args []any, err error)
 // role's permissions when no other role held by any member would still
 // grant it (ErrLastSettingsAdmin) — the same invariant DeleteRole enforces
 // for deleting a role outright, applied here to editing one.
-func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, teamID, callerUserID string, patch RolePatch) error {
+func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, teamID uuid.UUID, callerUserID string, patch RolePatch) error {
+	qtx := r.q.WithTx(tx)
+
 	// Same advisory lock key as DeleteRole/members.SetRoles/RemoveMember,
 	// serializing this against concurrent role/assignment changes guarding
 	// the same invariant.
@@ -157,16 +148,14 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 		return fmt.Errorf("roles.Repository.UpdateRole: advisory lock: %w", err)
 	}
 
-	var isSystem bool
-	var currentPermBytes []byte
-	if err := tx.QueryRow(ctx, `SELECT system, permissions FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID).
-		Scan(&isSystem, &currentPermBytes); err != nil {
+	current, err := qtx.GetRoleSystemAndPermissions(ctx, dbgen.GetRoleSystemAndPermissionsParams{ID: roleID, TeamID: teamID})
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
 		}
 		return fmt.Errorf("roles.Repository.UpdateRole: check system: %w", err)
 	}
-	if isSystem {
+	if current.System {
 		return ErrSystemRole
 	}
 
@@ -174,11 +163,7 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 		return nil
 	}
 
-	var currentPerms teams.PermissionsJSON
-	if err := json.Unmarshal(currentPermBytes, &currentPerms); err != nil {
-		return fmt.Errorf("roles.Repository.UpdateRole: unmarshal current permissions: %w", err)
-	}
-	if err := enforceNoRoleEscalation(ctx, tx, teamID, callerUserID, currentPerms, *patch.Permissions); err != nil {
+	if err := enforceNoRoleEscalation(ctx, qtx, teamID, callerUserID, current.Permissions, *patch.Permissions); err != nil {
 		return err
 	}
 
@@ -186,29 +171,15 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 		return nil
 	}
 
-	// The users join (with deleted_at IS NULL) excludes GDPR-erased accounts:
-	// EraseUser only anonymizes users, leaving membership_roles intact, so an
-	// erased user's settings:write role would otherwise still count as a
-	// usable admin even though the account can never authenticate again.
-	var othersHaveSettingsWrite bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM memberships m
-			JOIN membership_roles mr ON mr.membership_id = m.id
-			JOIN roles r ON r.id = mr.role_id
-			JOIN users u ON u.id = m.user_id
-			WHERE m.team_id = $1 AND r.id != $2 AND r.team_id = m.team_id
-			  AND r.permissions->>'settings' = 'write'
-			  AND u.deleted_at IS NULL
-		)`, teamID, roleID,
-	).Scan(&othersHaveSettingsWrite); err != nil {
+	othersHaveSettingsWrite, err := qtx.CheckOtherRolesHaveSettingsWrite(ctx, dbgen.CheckOtherRolesHaveSettingsWriteParams{TeamID: teamID, ID: roleID})
+	if err != nil {
 		return fmt.Errorf("roles.Repository.UpdateRole: check other settings admins: %w", err)
 	}
 	if othersHaveSettingsWrite {
 		return nil
 	}
 
-	if currentPerms.Settings == "write" {
+	if current.Permissions.Settings == "write" {
 		return ErrLastSettingsAdmin
 	}
 	return nil
@@ -222,8 +193,8 @@ func (r *Repository) guardRoleUpdate(ctx context.Context, tx pgx.Tx, roleID, tea
 // identical allowance: reorganizing/demoting what a role already grants is
 // never treated as "granting" something new, even if the result still
 // exceeds the caller's own permissions, since nothing actually increased.
-func enforceNoRoleEscalation(ctx context.Context, tx pgx.Tx, teamID, callerUserID string, currentPerms, newPerms teams.PermissionsJSON) error {
-	callerPerms, err := getEffectivePermissionsByUserQ(ctx, tx, teamID, callerUserID)
+func enforceNoRoleEscalation(ctx context.Context, qtx *dbgen.Queries, teamID uuid.UUID, callerUserID string, currentPerms, newPerms teams.PermissionsJSON) error {
+	callerPerms, err := getEffectivePermissionsByUserQ(ctx, qtx, teamID, uuid.MustParse(callerUserID))
 	if err != nil {
 		return fmt.Errorf("roles.Repository.UpdateRole: caller permissions: %w", err)
 	}
@@ -250,31 +221,16 @@ func enforceNoRoleEscalation(ctx context.Context, tx pgx.Tx, teamID, callerUserI
 // members.getEffectivePermissionsByUserQ, duplicated here (rather than
 // exported cross-package) since it's a small, self-contained query and the
 // two packages otherwise have no dependency on each other.
-func getEffectivePermissionsByUserQ(ctx context.Context, tx pgx.Tx, teamID, userID string) (teams.PermissionsJSON, error) {
+func getEffectivePermissionsByUserQ(ctx context.Context, qtx *dbgen.Queries, teamID, userID uuid.UUID) (teams.PermissionsJSON, error) {
 	eff := teams.PermissionsJSON{Events: "none", Members: "none", Finances: "none", News: "none", Polls: "none", Settings: "none"}
-	rows, err := tx.Query(ctx, `
-		SELECT r.permissions
-		FROM roles r
-		JOIN membership_roles mr ON mr.role_id = r.id
-		JOIN memberships m ON m.id = mr.membership_id
-		WHERE m.team_id = $1 AND m.user_id = $2 AND r.team_id = $1
-	`, teamID, userID)
+	perms, err := qtx.GetEffectivePermissionsForUser(ctx, dbgen.GetEffectivePermissionsForUserParams{TeamID: teamID, UserID: userID})
 	if err != nil {
 		return eff, fmt.Errorf("getEffectivePermissionsByUserQ: %w", err)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var permJSON []byte
-		if err := rows.Scan(&permJSON); err != nil {
-			return eff, fmt.Errorf("getEffectivePermissionsByUserQ scan: %w", err)
-		}
-		var p teams.PermissionsJSON
-		if err := json.Unmarshal(permJSON, &p); err != nil {
-			return eff, fmt.Errorf("getEffectivePermissionsByUserQ unmarshal: %w", err)
-		}
+	for _, p := range perms {
 		eff = foldPermissions(eff, p)
 	}
-	return eff, rows.Err()
+	return eff, nil
 }
 
 // foldPermissions folds b into a, taking the per-module maximum.
@@ -330,12 +286,19 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID, callerUserI
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	setSQL, args, err := buildRoleUpdateSets(patch)
-	if err != nil {
-		return nil, err
-	}
-	if len(args) == 0 {
-		return r.getRoleByID(ctx, roleID, teamID)
+	roleUUID := uuid.MustParse(roleID)
+	teamUUID := uuid.MustParse(teamID)
+
+	setSQL, args, nextIdx, ok := buildRoleUpdateSets(patch, 1)
+	if !ok {
+		row, err := r.q.GetRoleByID(ctx, dbgen.GetRoleByIDParams{ID: roleUUID, TeamID: teamUUID})
+		if err != nil {
+			return nil, err
+		}
+		return &teams.RoleRow{
+			Id: row.ID, TeamID: row.TeamID, Name: row.Name, System: row.System,
+			Color: textToPtr(row.Color), Permissions: row.Permissions,
+		}, nil
 	}
 
 	tx, err := r.pool.Begin(ctx)
@@ -345,21 +308,19 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID, callerUserI
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	if patch.Name != nil || patch.Permissions != nil {
-		if err := r.guardRoleUpdate(ctx, tx, roleID, teamID, callerUserID, patch); err != nil {
+		if err := r.guardRoleUpdate(ctx, tx, roleUUID, teamUUID, callerUserID, patch); err != nil {
 			return nil, err
 		}
 	}
 
-	n := len(args) + 1
-	args = append(args, roleID, teamID)
-
+	args = append(args, roleUUID, teamUUID)
 	rr := &teams.RoleRow{}
-	var permBytes []byte
+	var color pgtype.Text
 	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE roles SET %s WHERE id = $%d AND team_id = $%d
 		RETURNING id, team_id, name, system, color, permissions
-	`, setSQL, n, n+1), args...).Scan(
-		&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes,
+	`, setSQL, nextIdx, nextIdx+1), args...).Scan(
+		&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &color, &rr.Permissions,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -367,9 +328,7 @@ func (r *Repository) UpdateRole(ctx context.Context, roleID, teamID, callerUserI
 		}
 		return nil, fmt.Errorf("roles.Repository.UpdateRole: %w", err)
 	}
-	if err := json.Unmarshal(permBytes, &rr.Permissions); err != nil {
-		return nil, fmt.Errorf("roles.Repository.UpdateRole: unmarshal: %w", err)
-	}
+	rr.Color = textToPtr(color)
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("roles.Repository.UpdateRole: commit: %w", err)
@@ -385,21 +344,24 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
+	roleUUID := uuid.MustParse(roleID)
+	teamUUID := uuid.MustParse(teamID)
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("roles.Repository.DeleteRole: begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	qtx := r.q.WithTx(tx)
 
 	// Uses the same advisory lock key as members.SetRoles/RemoveMember
 	// (hashtextextended(teamID, 0)) so role deletion is serialized against
 	// concurrent role (re)assignment changes guarding the same invariant.
-	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamID); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, teamUUID); err != nil {
 		return fmt.Errorf("roles.Repository.DeleteRole: advisory lock: %w", err)
 	}
 
-	var isSystem bool
-	err = tx.QueryRow(ctx, `SELECT system FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID).Scan(&isSystem)
+	isSystem, err := qtx.GetRoleSystem(ctx, dbgen.GetRoleSystemParams{ID: roleUUID, TeamID: teamUUID})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return pgx.ErrNoRows
@@ -411,28 +373,13 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 	}
 
 	// The users join (with deleted_at IS NULL) excludes GDPR-erased accounts;
-	// see the identical comment in guardRoleUpdate above.
-	var othersHaveSettingsWrite bool
-	err = tx.QueryRow(ctx, `
-		SELECT EXISTS (
-			SELECT 1 FROM memberships m
-			JOIN membership_roles mr ON mr.membership_id = m.id
-			JOIN roles r ON r.id = mr.role_id
-			JOIN users u ON u.id = m.user_id
-			WHERE m.team_id = $1 AND r.id != $2 AND r.team_id = m.team_id
-			  AND r.permissions->>'settings' = 'write'
-			  AND u.deleted_at IS NULL
-		)`, teamID, roleID,
-	).Scan(&othersHaveSettingsWrite)
+	// see the identical comment on CheckOtherRolesHaveSettingsWrite's query.
+	othersHaveSettingsWrite, err := qtx.CheckOtherRolesHaveSettingsWrite(ctx, dbgen.CheckOtherRolesHaveSettingsWriteParams{TeamID: teamUUID, ID: roleUUID})
 	if err != nil {
 		return fmt.Errorf("roles.Repository.DeleteRole: check other settings admins: %w", err)
 	}
 	if !othersHaveSettingsWrite {
-		var deletedRoleHasSettingsWrite bool
-		err = tx.QueryRow(ctx,
-			`SELECT permissions->>'settings' = 'write' FROM roles WHERE id = $1 AND team_id = $2`,
-			roleID, teamID,
-		).Scan(&deletedRoleHasSettingsWrite)
+		deletedRoleHasSettingsWrite, err := qtx.GetRoleHasSettingsWrite(ctx, dbgen.GetRoleHasSettingsWriteParams{ID: roleUUID, TeamID: teamUUID})
 		if err != nil {
 			return fmt.Errorf("roles.Repository.DeleteRole: check own settings write: %w", err)
 		}
@@ -441,15 +388,15 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 		}
 	}
 
-	tag, err := tx.Exec(ctx, `DELETE FROM roles WHERE id = $1 AND team_id = $2`, roleID, teamID)
+	n, err := qtx.DeleteRole(ctx, dbgen.DeleteRoleParams{ID: roleUUID, TeamID: teamUUID})
 	if err != nil {
 		return fmt.Errorf("roles.Repository.DeleteRole: %w", err)
 	}
-	if tag.RowsAffected() == 0 {
+	if n == 0 {
 		return pgx.ErrNoRows
 	}
 
-	if err := scrubDanglingRoleReferences(ctx, tx, roleID, teamID); err != nil {
+	if err := scrubDanglingRoleReferences(ctx, qtx, roleUUID, teamUUID); err != nil {
 		return err
 	}
 
@@ -465,23 +412,14 @@ func (r *Repository) DeleteRole(ctx context.Context, roleID, teamID string) erro
 // referenced there leaves a permanently dangling ID with no error or
 // indication. Runs inside the caller's transaction so it's atomic with the
 // role deletion itself.
-func scrubDanglingRoleReferences(ctx context.Context, tx pgx.Tx, roleID, teamID string) error {
-	if _, err := tx.Exec(ctx,
-		`UPDATE teams SET reason_visibility_role_ids = array_remove(reason_visibility_role_ids, $1) WHERE id = $2`,
-		roleID, teamID,
-	); err != nil {
+func scrubDanglingRoleReferences(ctx context.Context, qtx *dbgen.Queries, roleID, teamID uuid.UUID) error {
+	if err := qtx.ScrubTeamReasonVisibilityRoleID(ctx, dbgen.ScrubTeamReasonVisibilityRoleIDParams{RoleID: roleID, ID: teamID}); err != nil {
 		return fmt.Errorf("roles.Repository: scrub reason_visibility_role_ids: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE events SET nominated_role_ids = array_remove(nominated_role_ids, $1) WHERE team_id = $2`,
-		roleID, teamID,
-	); err != nil {
+	if err := qtx.ScrubEventsNominatedRoleID(ctx, dbgen.ScrubEventsNominatedRoleIDParams{RoleID: roleID, TeamID: teamID}); err != nil {
 		return fmt.Errorf("roles.Repository: scrub events.nominated_role_ids: %w", err)
 	}
-	if _, err := tx.Exec(ctx,
-		`UPDATE event_series SET nominated_role_ids = array_remove(nominated_role_ids, $1) WHERE team_id = $2`,
-		roleID, teamID,
-	); err != nil {
+	if err := qtx.ScrubEventSeriesNominatedRoleID(ctx, dbgen.ScrubEventSeriesNominatedRoleIDParams{RoleID: roleID, TeamID: teamID}); err != nil {
 		return fmt.Errorf("roles.Repository: scrub event_series.nominated_role_ids: %w", err)
 	}
 	return nil
@@ -496,11 +434,7 @@ func (r *Repository) RolesExistForTeam(ctx context.Context, teamID string, roleI
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	var count int
-	err := r.pool.QueryRow(ctx,
-		`SELECT COUNT(*)::int FROM roles WHERE team_id = $1 AND id = ANY($2)`,
-		teamID, roleIDs,
-	).Scan(&count)
+	count, err := r.q.CountRolesForTeam(ctx, dbgen.CountRolesForTeamParams{TeamID: uuid.MustParse(teamID), RoleIds: roleIDs})
 	if err != nil {
 		return false, fmt.Errorf("roles.Repository.RolesExistForTeam: %w", err)
 	}
@@ -511,36 +445,5 @@ func (r *Repository) RolesExistForTeam(ctx context.Context, teamID string, roleI
 	for _, id := range roleIDs {
 		seen[id] = struct{}{}
 	}
-	return count == len(seen), nil
-}
-
-// ─── internal helpers ─────────────────────────────────────────────────────────
-
-func (r *Repository) getRoleByID(ctx context.Context, roleID, teamID string) (*teams.RoleRow, error) {
-	rr := &teams.RoleRow{}
-	var permBytes []byte
-	err := r.pool.QueryRow(ctx, `
-		SELECT id, team_id, name, system, color, permissions
-		FROM roles WHERE id = $1 AND team_id = $2
-	`, roleID, teamID).Scan(&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes)
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(permBytes, &rr.Permissions); err != nil {
-		return nil, fmt.Errorf("roles.Repository.getRoleByID: unmarshal: %w", err)
-	}
-	return rr, nil
-}
-
-func scanRole(row interface{ Scan(dest ...any) error }) (*teams.RoleRow, error) {
-	rr := &teams.RoleRow{}
-	var permBytes []byte
-	err := row.Scan(&rr.Id, &rr.TeamID, &rr.Name, &rr.System, &rr.Color, &permBytes)
-	if err != nil {
-		return nil, fmt.Errorf("scan: %w", err)
-	}
-	if err := json.Unmarshal(permBytes, &rr.Permissions); err != nil {
-		return nil, fmt.Errorf("unmarshal permissions: %w", err)
-	}
-	return rr, nil
+	return int(count) == len(seen), nil
 }

@@ -3,6 +3,7 @@ OAPI_CODEGEN    := $(GOPATH)/bin/oapi-codegen
 GOOSE           := $(GOPATH)/bin/goose
 GOLANGCI_LINT   := $(GOPATH)/bin/golangci-lint
 GOVULNCHECK     := $(GOPATH)/bin/govulncheck
+SQLC            := $(GOPATH)/bin/sqlc
 DATABASE_URL    ?= postgres://teammanager:teammanager@localhost:5432/teammanager?sslmode=disable
 
 .PHONY: all build generate migrate migrate-down migrate-status test test-unit test-integration test-coverage lint vuln run clean tools
@@ -22,12 +23,14 @@ tools:
 	go install github.com/pressly/goose/v3/cmd/goose@v3.24.2
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.12.2
 	go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 
-## Generate Go server code from OpenAPI spec
+## Generate Go server code from OpenAPI spec + sqlc DB access code
 generate:
 	mkdir -p internal/gen
 	$(OAPI_CODEGEN) -config oapi-codegen.yaml openapi/openapi.yaml
 	go run ./cmd/genrbac openapi/openapi.yaml internal/middleware/rbac_table.gen.go
+	$(SQLC) generate
 
 ## Run database migrations (up)
 migrate:

@@ -52,6 +52,11 @@ linters:
         - github.com/jackc/pgx/v5
         - github.com/jackc/pgx/v5/*
         - crypto/rand
+        # sqlc-generated query functions are a thin passthrough of pgx itself
+        # (same pgx.ErrNoRows sentinel repositories match on with errors.Is),
+        # so this is the same exemption as the pgx globs above, one layer
+        # removed.
+        - github.com/yoadey/team-manager/backend/internal/db/gen
 
   exclusions:
     rules:
@@ -64,6 +69,9 @@ linters:
           - gocognit
           - cyclop
       - path: "internal/gen/"
+        linters:
+          - all
+      - path: "internal/db/gen/"
         linters:
           - all
       - path: "internal/middleware/rbac_table\\.gen\\.go"
