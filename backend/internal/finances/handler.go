@@ -13,12 +13,14 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/metrics"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/validate"
 )
 
 // financeService is the interface the Handler relies on.
 type financeService interface {
 	GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error)
+	ListTransactions(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Transaction, *string, error)
 	CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
@@ -80,6 +82,27 @@ func (h *Handler) GetFinanceOverview(ctx context.Context, req gen.GetFinanceOver
 		return nil, apierror.Internal("failed to get finance overview")
 	}
 	return gen.GetFinanceOverview200JSONResponse(*overview), nil
+}
+
+// ListTransactions returns a keyset page of the team's transactions.
+func (h *Handler) ListTransactions(ctx context.Context, req gen.ListTransactionsRequestObject) (gen.ListTransactionsResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	limit := pagination.ParseLimit(req.Params.Limit)
+	cursor := ""
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
+	}
+	items, next, err := h.svc.ListTransactions(ctx, req.TeamId, limit, cursor)
+	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
+		h.logger.ErrorContext(ctx, "ListTransactions failed", "err", err)
+		return nil, apierror.Internal("failed to list transactions")
+	}
+	return gen.ListTransactions200JSONResponse{Items: items, NextCursor: next}, nil
 }
 
 // CreateTransaction creates a new financial transaction.

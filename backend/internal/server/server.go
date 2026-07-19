@@ -620,6 +620,10 @@ func (s *Server) GetFinanceOverview(ctx context.Context, req gen.GetFinanceOverv
 	return s.Finances.GetFinanceOverview(ctx, req)
 }
 
+func (s *Server) ListTransactions(ctx context.Context, req gen.ListTransactionsRequestObject) (gen.ListTransactionsResponseObject, error) {
+	return s.Finances.ListTransactions(ctx, req)
+}
+
 func (s *Server) CreateTransaction(ctx context.Context, req gen.CreateTransactionRequestObject) (gen.CreateTransactionResponseObject, error) {
 	return s.Finances.CreateTransaction(ctx, req)
 }

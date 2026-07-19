@@ -501,6 +501,7 @@ const CreateTransactionRequest = z
     title: z.string().max(255),
     amount: z.number().int().gte(1).lte(100000000),
     category: z.string().max(255).optional(),
+    date: z.string().optional(),
   })
   .passthrough();
 const UpdateTransactionRequest = z
@@ -509,6 +510,7 @@ const UpdateTransactionRequest = z
     title: z.string().max(255),
     amount: z.number().int().gte(1).lte(100000000),
     category: z.string().max(255),
+    date: z.string(),
   })
   .partial()
   .passthrough();
@@ -1468,6 +1470,36 @@ const endpoints = makeApi([
       },
     ],
     response: PenaltyAssignment,
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/finances/transactions",
+    alias: "listTransactions",
+    description: `Returns transactions newest-first with keyset pagination, so a team&#x27;s full history is reachable without the hard row cap the finance overview applies to its embedded transaction list.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(500).optional().default(50),
+      },
+      {
+        name: "cursor",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+    ],
+    response: z
+      .object({
+        items: z.array(Transaction),
+        nextCursor: z.string().nullable(),
+      })
+      .passthrough(),
   },
   {
     method: "post",

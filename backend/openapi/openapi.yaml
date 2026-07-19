@@ -1176,6 +1176,35 @@ paths:
   /teams/{teamId}/finances/transactions:
     parameters:
       - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [finances]
+      operationId: listTransactions
+      x-rbac-module: finances
+      summary: List transactions (keyset-paginated)
+      description: >-
+        Returns transactions newest-first with keyset pagination, so a team's
+        full history is reachable without the hard row cap the finance overview
+        applies to its embedded transaction list.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Transaction"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [finances]
       operationId: createTransaction
@@ -2558,6 +2587,12 @@ components:
         category:
           type: string
           maxLength: 255
+        date:
+          type: string
+          format: date
+          description: >-
+            Transaction date (e.g. to back-date a receipt). Defaults to the
+            server's current date when omitted.
 
     UpdateTransactionRequest:
       type: object
@@ -2576,6 +2611,10 @@ components:
         category:
           type: string
           maxLength: 255
+        date:
+          type: string
+          format: date
+          description: Transaction date.
 
     Penalty:
       type: object

@@ -12,6 +12,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // Sentinel errors for cross-team validation.
@@ -56,6 +57,7 @@ const (
 // financeRepo is the interface the Service relies on.
 type financeRepo interface {
 	ListTransactions(ctx context.Context, teamID uuid.UUID) ([]TransactionRow, error)
+	ListTransactionsPage(ctx context.Context, teamID uuid.UUID, limit int, cur *TxCursor) ([]TransactionRow, error)
 	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
 	CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error)
@@ -90,12 +92,15 @@ type financeRepo interface {
 // Service implements finance business logic.
 type Service struct {
 	repo   financeRepo
+	pager  *pagination.Paginator
 	logger *slog.Logger
 }
 
-// NewService creates a new Service.
-func NewService(repo financeRepo, logger *slog.Logger) *Service {
-	return &Service{repo: repo, logger: logger}
+// NewService creates a new Service. pager encodes/decodes the keyset cursors
+// used by ListTransactions; pass the shared Paginator so signed-cursor config
+// (PAGINATION_HMAC_KEY) applies uniformly across list endpoints.
+func NewService(repo financeRepo, pager *pagination.Paginator, logger *slog.Logger) *Service {
+	return &Service{repo: repo, pager: pager, logger: logger}
 }
 
 // ─── Overview ─────────────────────────────────────────────────────────────────
@@ -213,7 +218,45 @@ func (s *Service) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.Finan
 
 // ─── Transactions ─────────────────────────────────────────────────────────────
 
-// CreateTransaction creates a new transaction (date defaults to today).
+// ListTransactions returns a keyset page of transactions plus the cursor for
+// the next page (nil on the last page). cursor is the opaque token from a prior
+// page ("" = first page). Unlike GetOverview's embedded transaction list, this
+// has no hard visibility cap — the whole history is reachable by paging.
+func (s *Service) ListTransactions(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Transaction, *string, error) {
+	var cur *TxCursor
+	var decoded TxCursor
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
+		return nil, nil, fmt.Errorf("finances.Service.ListTransactions: %w", err)
+	} else if ok {
+		cur = &decoded
+	}
+
+	// Fetch one extra row to detect whether a further page exists.
+	rows, err := s.repo.ListTransactionsPage(ctx, teamID, limit+1, cur)
+	if err != nil {
+		return nil, nil, fmt.Errorf("finances.Service.ListTransactions: %w", err)
+	}
+
+	var next *string
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		token, err := s.pager.Encode(TxCursor{Date: last.Date, CreatedAt: last.CreatedAt, ID: last.ID})
+		if err != nil {
+			return nil, nil, fmt.Errorf("finances.Service.ListTransactions: %w", err)
+		}
+		next = &token
+	}
+
+	result := make([]gen.Transaction, 0, len(rows))
+	for _, t := range rows {
+		result = append(result, toGenTransaction(t))
+	}
+	return result, next, nil
+}
+
+// CreateTransaction creates a new transaction (date defaults to today when the
+// client omits it).
 func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
 	count, err := s.repo.CountTransactions(ctx, teamID)
 	if err != nil {
@@ -223,7 +266,11 @@ func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body 
 		return nil, ErrTooManyTransactions
 	}
 
-	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, time.Now(), body.Category)
+	date := time.Now()
+	if body.Date != nil {
+		date = body.Date.Time
+	}
+	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, date, body.Category)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
 	}
@@ -246,6 +293,10 @@ func (s *Service) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, b
 	}
 	if body.Category != nil {
 		patch.Category = body.Category
+	}
+	if body.Date != nil {
+		d := body.Date.Time
+		patch.Date = &d
 	}
 	t, err := s.repo.UpdateTransaction(ctx, id, teamID, patch)
 	if err != nil {

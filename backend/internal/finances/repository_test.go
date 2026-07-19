@@ -92,6 +92,112 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	assert.Equal(t, int64(2000), expense)
 }
 
+func TestFinancesRepository_ListTransactionsPage_KeysetPaginatesWholeHistory(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	// Create 5 transactions on distinct, ascending dates so the newest-first
+	// ordering is deterministic and easy to assert against.
+	const total = 5
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < total; i++ {
+		cat := "dues"
+		_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", int64(100+i), base.AddDate(0, 0, i), &cat)
+		require.NoError(t, err)
+	}
+
+	// Page through 2 at a time, following the cursor, and collect every row.
+	var seen []string
+	var cur *finances.TxCursor
+	pages := 0
+	for {
+		page, err := repo.ListTransactionsPage(ctx, teamID, 2, cur)
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		pages++
+		for _, row := range page {
+			seen = append(seen, row.ID.String())
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		cur = &finances.TxCursor{Date: last.Date, CreatedAt: last.CreatedAt, ID: last.ID}
+		require.LessOrEqual(t, pages, total+1, "pagination must terminate")
+	}
+
+	assert.Len(t, seen, total, "every transaction must be reachable by paging")
+	// No row appears twice across pages (keyset correctness).
+	unique := map[string]struct{}{}
+	for _, id := range seen {
+		_, dup := unique[id]
+		assert.False(t, dup, "keyset pagination must not repeat a row across pages")
+		unique[id] = struct{}{}
+	}
+
+	// First page must be newest-first: the latest date (base+4) comes first.
+	first, err := repo.ListTransactionsPage(ctx, teamID, 2, nil)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	assert.True(t, first[0].Date.After(first[1].Date) || first[0].Date.Equal(first[1].Date),
+		"page must be ordered newest-first")
+	assert.Equal(t, int64(104), first[0].Amount, "newest transaction (base+4 days) must sort first")
+}
+
+func TestFinancesRepository_ListTransactionsPage_ScopedToTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	cat := "dues"
+	_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat)
+	require.NoError(t, err)
+
+	// A different team sees none of this team's rows.
+	other, err := repo.ListTransactionsPage(ctx, uuid.New(), 50, nil)
+	require.NoError(t, err)
+	assert.Empty(t, other)
+}
+
+func TestFinancesRepository_UpdateTransaction_SetsDate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	cat := "dues"
+	tx, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat)
+	require.NoError(t, err)
+
+	want := time.Date(2022, 6, 30, 0, 0, 0, 0, time.UTC)
+	updated, err := repo.UpdateTransaction(ctx, tx.ID, teamID, finances.TransactionPatch{Date: &want})
+	require.NoError(t, err)
+	assert.True(t, want.Equal(updated.Date), "the date patch must be persisted")
+}
+
 func TestFinancesRepository_Penalties(t *testing.T) {
 	t.Parallel()
 

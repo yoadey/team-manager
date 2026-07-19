@@ -57,6 +57,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: []string{"notifications"}, Module: "public", SelfService: false},                                               // listNotifications
 	{Method: "GET", Segments: []string{"polls"}, Module: "polls", SelfService: false},                                                        // listPolls
 	{Method: "GET", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                     // listRoles
+	{Method: "GET", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                                  // listTransactions
 	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                      // markNotificationsSeen
 	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                               // removeMember
 	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                           // setAttendance

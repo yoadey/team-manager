@@ -389,7 +389,7 @@ func main() {
 	// ─── Finances ─────────────────────────────────────────────────────────────
 
 	financesRepo := finances.NewRepository(pool)
-	financesSvc := finances.NewService(financesRepo, logger)
+	financesSvc := finances.NewService(financesRepo, pager, logger)
 	financesHandler := finances.NewHandler(financesSvc, logger, auditLogger)
 
 	// ─── Stats ───────────────────────────────────────────────────────────────

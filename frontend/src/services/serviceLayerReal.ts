@@ -798,6 +798,20 @@ export const realApi = {
       return mapFinanceOverview({ ...o, assignments: [...o.assignments].reverse() });
     },
 
+    // listTransactions walks the keyset { items, nextCursor } envelope to the
+    // end, so the full transaction history is reachable — unlike overview(),
+    // whose embedded transaction list the backend caps at a fixed number of
+    // rows for the summary view.
+    async listTransactions(teamId: string): Promise<Transaction[]> {
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/finances/transactions', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapTransaction);
+    },
+
     async addTransaction(
       teamId: string,
       payload: {
@@ -815,6 +829,7 @@ export const realApi = {
           title: payload.title,
           amount: eurosToCents(payload.amount),
           category: payload.category,
+          date: payload.date,
         },
       });
       const t = await check(res);
@@ -829,6 +844,7 @@ export const realApi = {
           title: patch.title,
           amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
           category: patch.category,
+          date: patch.date,
         },
       });
       const t = await check(res);

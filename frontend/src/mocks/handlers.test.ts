@@ -231,6 +231,26 @@ describe('finances', () => {
     expect(after.income).toBe(before.income + 100);
   });
 
+  it('lists the full transaction history via the paginated endpoint', async () => {
+    const overview = await api.finances.overview('t_a');
+    const listed = await api.finances.listTransactions('t_a');
+    // The paginated list surfaces at least everything the (capped) overview does.
+    expect(listed.length).toBeGreaterThanOrEqual(overview.transactions.length);
+    expect(listed.some((t) => t.id === overview.transactions[0].id)).toBe(true);
+  });
+
+  it('back-dates a transaction with a client-provided date', async () => {
+    const created = await api.finances.addTransaction('t_a', {
+      type: 'expense',
+      title: 'Nachtrag',
+      amount: 50,
+      date: '2023-02-01',
+    });
+    expect(created.date).toBe('2023-02-01');
+    const listed = await api.finances.listTransactions('t_a');
+    expect(listed.find((t) => t.id === created.id)?.date).toBe('2023-02-01');
+  });
+
   it('sets a penalty assignment paid state (idempotent)', async () => {
     const overview = await api.finances.overview('t_a');
     const assignment = overview.assignments[0];

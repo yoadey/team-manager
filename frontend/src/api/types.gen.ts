@@ -728,7 +728,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List transactions (keyset-paginated)
+         * @description Returns transactions newest-first with keyset pagination, so a team's full history is reachable without the hard row cap the finance overview applies to its embedded transaction list.
+         */
+        get: operations["listTransactions"];
         put?: never;
         /** Add income or expense */
         post: operations["createTransaction"];
@@ -1401,6 +1405,11 @@ export interface components {
              */
             amount: number;
             category?: string;
+            /**
+             * Format: date
+             * @description Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
+             */
+            date?: string;
         };
         UpdateTransactionRequest: {
             type?: components["schemas"]["TransactionType"];
@@ -1411,6 +1420,11 @@ export interface components {
              */
             amount?: number;
             category?: string;
+            /**
+             * Format: date
+             * @description Transaction date.
+             */
+            date?: string;
         };
         Penalty: {
             /** Format: uuid */
@@ -3030,6 +3044,36 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FinanceOverview"];
+                };
+            };
+        };
+    };
+    listTransactions: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Transaction"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };

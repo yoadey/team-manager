@@ -951,11 +951,24 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
+  // Keyset-paginated transaction list. Removes the overview's row cap by
+  // exposing the full history; the mock returns everything in one page
+  // (nextCursor: null), which fetchAllPages consumes exactly like the real
+  // multi-page envelope.
+  http.get(P('/teams/:teamId/finances/transactions'), async ({ params }) => {
+    await mockDelay();
+    const teamId = params.teamId as string;
+    const tx = db.transactions
+      .filter((x) => x.teamId === teamId)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return HttpResponse.json({ items: tx.map(toWireTransaction), nextCursor: null });
+  }),
+
   http.post(P('/teams/:teamId/finances/transactions'), async ({ params, request }) => {
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
-    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: todayLocalDate(), category: body.category || '' };
+    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: body.date || todayLocalDate(), category: body.category || '' };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
   }),
@@ -969,6 +982,7 @@ export const handlers = [
     if (body.title !== undefined) t.title = body.title;
     if (body.amount !== undefined) t.amount = body.amount;
     if (body.category !== undefined) t.category = body.category;
+    if (body.date !== undefined) t.date = body.date;
     return HttpResponse.json(toWireTransaction(t));
   }),
 

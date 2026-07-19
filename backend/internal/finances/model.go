@@ -75,6 +75,7 @@ type TransactionPatch struct {
 	Title    *string
 	Amount   *int64
 	Category *string
+	Date     *time.Time
 }
 
 // ContributionPatch carries optional fields for an UPDATE contributions query.

@@ -116,6 +116,63 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	return out, rows.Err()
 }
 
+// TxCursor is the keyset position for transaction pagination. It matches the
+// ORDER BY date DESC, created_at DESC, id DESC ordering used by
+// ListTransactionsPage, so (date, created_at, id) is a unique, stable sort key
+// even when several transactions share the same date.
+type TxCursor struct {
+	Date      time.Time `json:"d"`
+	CreatedAt time.Time `json:"c"`
+	ID        uuid.UUID `json:"i"`
+}
+
+// ListTransactionsPage returns up to limit transactions for the team,
+// newest-first, starting after cur (nil = first page). Unlike ListTransactions
+// (which the overview caps at maxOverviewRows), this is a keyset query with no
+// hard visibility ceiling: paging with the returned cursor reaches the team's
+// entire history. No OFFSET, so deep pages stay fast.
+func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID, limit int, cur *TxCursor) ([]TransactionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var (
+		hasCursor  bool
+		curDate    time.Time
+		curCreated time.Time
+		curID      uuid.UUID
+	)
+	if cur != nil {
+		hasCursor = true
+		curDate = cur.Date
+		curCreated = cur.CreatedAt
+		curID = cur.ID
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT id, team_id, type, title, amount, date, category, created_at
+		FROM transactions
+		WHERE team_id = $1
+		  AND ($2::boolean IS FALSE
+		       OR (date, created_at, id) < ($3::date, $4::timestamptz, $5::uuid))
+		ORDER BY date DESC, created_at DESC, id DESC
+		LIMIT $6
+	`, teamID, hasCursor, curDate, curCreated, curID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Repository.ListTransactionsPage: %w", err)
+	}
+	defer rows.Close()
+
+	var out []TransactionRow
+	for rows.Next() {
+		var t TransactionRow
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt); err != nil {
+			return nil, fmt.Errorf("finances.Repository.ListTransactionsPage scan: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // SumTransactions returns the total income and expense across ALL of the
 // team's transactions (not just the capped display list returned by
 // ListTransactions), so the finance overview's income/expense/balance figures
@@ -184,6 +241,9 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	}
 	if patch.Category != nil {
 		b.Add("category", *patch.Category)
+	}
+	if patch.Date != nil {
+		b.Add("date", *patch.Date)
 	}
 	setSQL, args, nextIdx, ok := b.Build(1)
 	if !ok {

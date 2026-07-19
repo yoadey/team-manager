@@ -9,11 +9,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // ─── mock repository ────────────────────────────────────────────────────────
@@ -21,6 +23,7 @@ import (
 // mockRepo satisfies the unexported financeRepo interface via structural typing.
 type mockRepo struct {
 	listTransactionsFn       func(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error)
+	listTransactionsPageFn   func(ctx context.Context, teamID uuid.UUID, limit int, cur *finances.TxCursor) ([]finances.TransactionRow, error)
 	sumTransactionsFn        func(ctx context.Context, teamID uuid.UUID) (int64, int64, error)
 	createTransactionFn      func(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*finances.TransactionRow, error)
 	updateTransactionFn      func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
@@ -49,6 +52,15 @@ type mockRepo struct {
 
 func (m *mockRepo) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error) {
 	return m.listTransactionsFn(ctx, teamID)
+}
+
+// ListTransactionsPage is optional; when unset it returns no rows, so tests
+// that don't exercise pagination don't all need to set it.
+func (m *mockRepo) ListTransactionsPage(ctx context.Context, teamID uuid.UUID, limit int, cur *finances.TxCursor) ([]finances.TransactionRow, error) {
+	if m.listTransactionsPageFn != nil {
+		return m.listTransactionsPageFn(ctx, teamID, limit, cur)
+	}
+	return nil, nil
 }
 
 func (m *mockRepo) SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error) {
@@ -192,7 +204,7 @@ func TestService_GetOverview_ComputesBalanceAndOpenPenaltySum(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	overview, err := svc.GetOverview(context.Background(), teamID)
 	require.NoError(t, err)
 	assert.Equal(t, int64(50000), overview.Income)
@@ -213,7 +225,7 @@ func TestService_GetOverview_PropagatesRepositoryError(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	_, err := svc.GetOverview(context.Background(), uuid.New())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
@@ -237,7 +249,7 @@ func TestService_CreateTransaction(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreateTransactionJSONRequestBody{
 		Type:     gen.Expense,
 		Title:    "Balls",
@@ -249,6 +261,123 @@ func TestService_CreateTransaction(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, int64(4250), capturedAmount)
 	assert.Equal(t, "Balls", result.Title)
+}
+
+func TestService_CreateTransaction_UsesClientDateWhenProvided(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	want := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
+	var gotDate time.Time
+	repo := &mockRepo{
+		createTransactionFn: func(_ context.Context, _ uuid.UUID, txType, title string, amount int64, date time.Time, cat *string) (*finances.TransactionRow, error) {
+			gotDate = date
+			return &finances.TransactionRow{ID: uuid.New(), TeamID: teamID, Type: txType, Title: title, Amount: amount, Date: date, Category: cat}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.CreateTransactionJSONRequestBody{
+		Type:   gen.Income,
+		Title:  "Back-dated dues",
+		Amount: 1000,
+		Date:   &openapi_types.Date{Time: want},
+	}
+	_, err := svc.CreateTransaction(context.Background(), teamID, body)
+	require.NoError(t, err)
+	assert.Equal(t, want, gotDate, "client-provided date must be passed through to the repository")
+}
+
+func TestService_UpdateTransaction_PassesDatePatch(t *testing.T) {
+	t.Parallel()
+
+	want := time.Date(2023, 12, 1, 0, 0, 0, 0, time.UTC)
+	var gotPatch finances.TransactionPatch
+	repo := &mockRepo{
+		updateTransactionFn: func(_ context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error) {
+			gotPatch = patch
+			return &finances.TransactionRow{ID: id, TeamID: teamID, Type: "income", Title: "x", Amount: 1, Date: want}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.UpdateTransactionJSONRequestBody{Date: &openapi_types.Date{Time: want}}
+	_, err := svc.UpdateTransaction(context.Background(), uuid.New(), uuid.New(), body)
+	require.NoError(t, err)
+	require.NotNil(t, gotPatch.Date)
+	assert.Equal(t, want, *gotPatch.Date)
+}
+
+// ─── ListTransactions (keyset pagination) ────────────────────────────────────
+
+func TestService_ListTransactions_ReturnsNextCursorWhenMorePages(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	// Repo is asked for limit+1 to detect a further page; return exactly that
+	// many so the service trims to `limit` and emits a next cursor.
+	var gotLimit int
+	repo := &mockRepo{
+		listTransactionsPageFn: func(_ context.Context, _ uuid.UUID, limit int, cur *finances.TxCursor) ([]finances.TransactionRow, error) {
+			gotLimit = limit
+			assert.Nil(t, cur, "first page must decode to a nil cursor")
+			rows := make([]finances.TransactionRow, limit)
+			for i := range rows {
+				rows[i] = finances.TransactionRow{ID: uuid.New(), TeamID: teamID, Type: "income", Title: "t", Amount: 1, Date: time.Now()}
+			}
+			return rows, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	items, next, err := svc.ListTransactions(context.Background(), teamID, 2, "")
+	require.NoError(t, err)
+	assert.Equal(t, 3, gotLimit, "service must over-fetch by one to detect a further page")
+	assert.Len(t, items, 2, "the page must be trimmed back to the requested limit")
+	require.NotNil(t, next, "a next cursor must be returned when a further page exists")
+	assert.NotEmpty(t, *next)
+}
+
+func TestService_ListTransactions_NoCursorOnLastPage(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		listTransactionsPageFn: func(_ context.Context, _ uuid.UUID, _ int, _ *finances.TxCursor) ([]finances.TransactionRow, error) {
+			return []finances.TransactionRow{
+				{ID: uuid.New(), Type: "income", Title: "t", Amount: 1, Date: time.Now()},
+			}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	items, next, err := svc.ListTransactions(context.Background(), uuid.New(), 50, "")
+	require.NoError(t, err)
+	assert.Len(t, items, 1)
+	assert.Nil(t, next, "no next cursor when the last page fits under the limit")
+}
+
+func TestService_ListTransactions_DecodesIncomingCursor(t *testing.T) {
+	t.Parallel()
+
+	pager := pagination.New(nil)
+	want := finances.TxCursor{Date: time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC), CreatedAt: time.Now().UTC().Truncate(time.Second), ID: uuid.New()}
+	token, err := pager.Encode(want)
+	require.NoError(t, err)
+
+	var got *finances.TxCursor
+	repo := &mockRepo{
+		listTransactionsPageFn: func(_ context.Context, _ uuid.UUID, _ int, cur *finances.TxCursor) ([]finances.TransactionRow, error) {
+			got = cur
+			return nil, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pager, slog.Default())
+	_, _, err = svc.ListTransactions(context.Background(), uuid.New(), 50, token)
+	require.NoError(t, err)
+	require.NotNil(t, got, "a valid cursor token must be decoded and forwarded to the repository")
+	assert.Equal(t, want.ID, got.ID)
+	assert.True(t, want.Date.Equal(got.Date))
 }
 
 // Regression test: with no per-team cap, a member holding only
@@ -269,7 +398,7 @@ func TestService_CreateTransaction_RejectsAtCap(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Expense, Title: "Balls", Amount: 100}
 	_, err := svc.CreateTransaction(context.Background(), teamID, body)
 	require.ErrorIs(t, err, finances.ErrTooManyTransactions)
@@ -293,7 +422,7 @@ func TestService_CreatePenalty_RejectsAtCap(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreatePenaltyJSONRequestBody{Label: "Zu spät", Amount: 500}
 	_, err := svc.CreatePenalty(context.Background(), teamID, body)
 	require.ErrorIs(t, err, finances.ErrTooManyPenalties)
@@ -314,7 +443,7 @@ func TestService_UpdateTransaction_OnlySetsProvidedFields(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.UpdateTransactionJSONRequestBody{Title: &newTitle}
 	_, err := svc.UpdateTransaction(context.Background(), id, teamID, body)
 	require.NoError(t, err)
@@ -337,7 +466,7 @@ func TestService_DeleteTransaction(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	err := svc.DeleteTransaction(context.Background(), uuid.New(), uuid.New())
 	require.NoError(t, err)
 	assert.True(t, called)
@@ -352,7 +481,7 @@ func TestService_CreateAssignment_RejectsPenaltyFromAnotherTeam(t *testing.T) {
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: uuid.New(), UserId: uuid.New()}
 	_, err := svc.CreateAssignment(context.Background(), uuid.New(), body)
 	require.ErrorIs(t, err, finances.ErrPenaltyNotInTeam)
@@ -366,7 +495,7 @@ func TestService_CreateAssignment_RejectsUserNotInTeam(t *testing.T) {
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: uuid.New(), UserId: uuid.New()}
 	_, err := svc.CreateAssignment(context.Background(), uuid.New(), body)
 	require.ErrorIs(t, err, finances.ErrUserNotInTeam)
@@ -391,7 +520,7 @@ func TestService_CreateAssignment_RejectsAtCap(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	_, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.ErrorIs(t, err, finances.ErrTooManyAssignments)
@@ -418,7 +547,7 @@ func TestService_CreateAssignment_ReloadsEnrichedRowOnSuccess(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	result, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.NoError(t, err)
@@ -442,7 +571,7 @@ func TestService_CreateAssignment_FallsBackToUnenrichedRowWhenReloadFails(t *tes
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	result, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.NoError(t, err, "a reload failure after a successful create should not fail the request")
@@ -473,7 +602,7 @@ func TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload(
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
 	_, err := svc.CreateAssignment(context.Background(), teamID, body)
 	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
@@ -496,7 +625,7 @@ func TestService_SetPenaltyPaid_ReloadsEnrichedRow(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	result, err := svc.SetPenaltyPaid(context.Background(), teamID, id, true)
 	require.NoError(t, err)
 	assert.True(t, result.Paid)
@@ -520,7 +649,7 @@ func TestService_SetPenaltyPaid_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t 
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	_, err := svc.SetPenaltyPaid(context.Background(), teamID, id, true)
 	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
@@ -540,7 +669,7 @@ func TestService_SetContributionPaid(t *testing.T) {
 		},
 	}
 
-	svc := finances.NewService(repo, slog.Default())
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
 	result, err := svc.SetContributionPaid(context.Background(), id, teamID, true)
 	require.NoError(t, err)
 	assert.Equal(t, gen.ContributionStatus("paid"), result.Status)
