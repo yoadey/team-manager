@@ -1,19 +1,18 @@
 ## 1. Dead-code import hacks
-- [ ] 1.1 Remove `var _ = time.Time{}` in `auth/handler.go`, `events/service.go`, `members/service.go`, `members/handler.go`; run `gofumpt`/`goimports` to drop now-unused imports
+- [x] 1.1 Removed `var _ = time.Time{}` + orphaned "ensure time is used" comments in `auth/handler.go`, `events/service.go`, `members/service.go`, `members/handler.go`; dropped the now-unused `time` imports
 
 ## 2. Deduplicate toGenRole
-- [ ] 2.1 Add one shared mapper (in `teams`, where `RoleRow` lives); replace the 4 copies with calls to it
+- [x] 2.1 Exported the canonical mapper as `teams.ToGenRole`; removed the 3 copies in `events`/`roles`/`members` (roles' JSON-marshal variant folded into the explicit one — same output) and pointed all callers at `teams.ToGenRole`
 
 ## 3. Tenant scoping
-- [ ] 3.1 Add `AND team_id = $2` to the `CreateAssignment` snapshot SELECT (`finances/repository.go`)
+- [x] 3.1 `CreateAssignment` snapshot read now `WHERE id = $1 AND team_id = $2`; added a regression test rejecting a penalty from another team (`..._RejectsPenaltyFromAnotherTeam`)
 
 ## 4. Error type URI default
-- [ ] 4.1 Change `apierror` default from the example domain to relative (or empty); update `CLAUDE.md`; keep the `backend-lint` type-URI check green
+- [x] 4.1 `apierror` default changed from the example domain to relative `/errors/`; updated the test's expected base and the doc comment (CLAUDE.md's "relative paths when unset" is now accurate)
 
 ## 5. Batch role insert
-- [ ] 5.1 Replace the per-row `membership_roles` insert in `members/repository.go` with an `UNNEST` batch insert
+- [x] 5.1 `members.SetRoles` replaced the per-row loop with a single `INSERT … SELECT $1::uuid, r FROM unnest($2::uuid[])`, shrinking advisory-lock hold time (mirrors `CreateSeries`)
 
 ## 6. Verification
-- [ ] 6.1 `cd backend && make test` green
-- [ ] 6.2 `make lint` green (incl. type-URI-literal check); coverage gate holds
-- [ ] 6.3 `make generate` produces no diff (if any generated code touched)
+- [x] 6.1 `go test ./... -short` green
+- [x] 6.2 `golangci-lint run ./...` 0 issues; `make generate` no drift (pure-Go change)

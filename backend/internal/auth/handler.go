@@ -376,4 +376,3 @@ func errBadRequest(msg string) error   { return apierror.BadRequest(msg) }
 func errInternal(msg string) error     { return apierror.Internal(msg) }
 
 // ensure time is used (time.Time in UserRow.Birthday).
-var _ = time.Time{}

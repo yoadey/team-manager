@@ -2,7 +2,6 @@ package roles
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -37,7 +36,7 @@ func (s *Service) ListRoles(ctx context.Context, teamID uuid.UUID) ([]gen.Role, 
 	}
 	out := make([]gen.Role, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, toGenRole(r))
+		out = append(out, teams.ToGenRole(r))
 	}
 	return out, nil
 }
@@ -49,7 +48,7 @@ func (s *Service) CreateRole(ctx context.Context, teamID uuid.UUID, body *gen.Cr
 	if err != nil {
 		return nil, fmt.Errorf("roles.Service.CreateRole: %w", err)
 	}
-	result := toGenRole(*row)
+	result := teams.ToGenRole(*row)
 	return &result, nil
 }
 
@@ -67,7 +66,7 @@ func (s *Service) UpdateRole(ctx context.Context, roleID, teamID, callerUserID u
 	if err != nil {
 		return nil, fmt.Errorf("roles.Service.UpdateRole: %w", err)
 	}
-	result := toGenRole(*row)
+	result := teams.ToGenRole(*row)
 	return &result, nil
 }
 
@@ -80,21 +79,6 @@ func (s *Service) DeleteRole(ctx context.Context, roleID, teamID uuid.UUID) erro
 }
 
 // ─── mappers ──────────────────────────────────────────────────────────────────
-
-func toGenRole(r teams.RoleRow) gen.Role {
-	permBytes, _ := json.Marshal(r.Permissions)
-	var perms gen.Permissions
-	_ = json.Unmarshal(permBytes, &perms)
-
-	return gen.Role{
-		Id:          r.Id,
-		TeamId:      r.TeamID,
-		Name:        r.Name,
-		System:      r.System,
-		Color:       r.Color,
-		Permissions: perms,
-	}
-}
 
 func toInternalPermissions(p gen.Permissions) teams.PermissionsJSON {
 	return teams.PermissionsJSON{

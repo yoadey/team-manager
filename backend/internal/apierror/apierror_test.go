@@ -61,7 +61,9 @@ func TestAPIError_Render_StatusCode(t *testing.T) {
 }
 
 func TestConstructors_SetTypeURI(t *testing.T) {
-	const base = "https://teammanager.example/errors/"
+	// Default (ERROR_TYPE_BASE_URI unset) is a relative path, not a placeholder
+	// example domain.
+	const base = "/errors/"
 
 	tests := []struct {
 		name     string

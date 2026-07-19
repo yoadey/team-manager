@@ -468,7 +468,7 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 
 	var amount int64
 	var label string
-	if err := tx.QueryRow(ctx, `SELECT amount, label FROM penalties WHERE id = $1`, penaltyID).Scan(&amount, &label); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT amount, label FROM penalties WHERE id = $1 AND team_id = $2`, penaltyID, teamID).Scan(&amount, &label); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrPenaltyNotInTeam
 		}

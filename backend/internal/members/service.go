@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -156,7 +155,7 @@ func toGenMember(mr MemberRow) gen.Member {
 
 	genRoles := make([]gen.Role, len(mr.Roles))
 	for i, r := range mr.Roles {
-		genRoles[i] = toGenRole(r)
+		genRoles[i] = teams.ToGenRole(r)
 	}
 
 	// Primary role = first role, ordered by role id (arbitrary but
@@ -196,24 +195,3 @@ func toGenMember(mr MemberRow) gen.Member {
 
 	return m
 }
-
-func toGenRole(r teams.RoleRow) gen.Role {
-	return gen.Role{
-		Id:     r.Id,
-		TeamId: r.TeamID,
-		Name:   r.Name,
-		System: r.System,
-		Color:  r.Color,
-		Permissions: gen.Permissions{
-			Events:   gen.PermLevel(r.Permissions.Events),
-			Members:  gen.PermLevel(r.Permissions.Members),
-			Finances: gen.PermLevel(r.Permissions.Finances),
-			News:     gen.PermLevel(r.Permissions.News),
-			Polls:    gen.PermLevel(r.Permissions.Polls),
-			Settings: gen.PermLevel(r.Permissions.Settings),
-		},
-	}
-}
-
-// ensure time is used.
-var _ = time.Time{}

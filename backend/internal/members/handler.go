@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -265,6 +264,3 @@ func (h *Handler) RemoveMember(ctx context.Context, request gen.RemoveMemberRequ
 	metrics.TeamEvents.WithLabelValues("member", "delete").Inc()
 	return gen.RemoveMember204Response{}, nil
 }
-
-// ensure time is used.
-var _ = time.Time{}

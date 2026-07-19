@@ -8,13 +8,16 @@ import (
 	"strings"
 )
 
-// baseURI is the prefix for all RFC 9457 error type URIs.
-// Override via ERROR_TYPE_BASE_URI environment variable in production.
+// baseURI is the prefix for all RFC 9457 error type URIs. When
+// ERROR_TYPE_BASE_URI is unset it defaults to a relative path ("/errors/")
+// rather than a placeholder example domain, so an unconfigured deployment never
+// emits a made-up hostname in problem+json responses. Set the env var to an
+// absolute URL in production to point clients at hosted error documentation.
 var baseURI = func() string {
 	if v := os.Getenv("ERROR_TYPE_BASE_URI"); v != "" {
 		return strings.TrimRight(v, "/") + "/"
 	}
-	return "https://teammanager.example/errors/"
+	return "/errors/"
 }()
 
 // APIError represents an RFC 9457 Problem Details object.

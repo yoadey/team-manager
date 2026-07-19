@@ -377,12 +377,16 @@ func (r *Repository) SetRoles(ctx context.Context, membershipID, teamID string, 
 		return nil, fmt.Errorf("members.Repository.SetRoles: delete: %w", err)
 	}
 
-	for _, roleID := range roleIDs {
-		_, err = tx.Exec(ctx, `
-			INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)
-		`, membershipID, roleID)
-		if err != nil {
-			return nil, fmt.Errorf("members.Repository.SetRoles: insert role %s: %w", roleID, err)
+	// Batch-insert all roles in a single round-trip via UNNEST rather than one
+	// Exec per role, shrinking how long the team advisory lock is held (see the
+	// same UNNEST pattern in events.Repository.CreateSeries). roleIDs is capped
+	// by validate.UUIDs, so the array stays bounded.
+	if len(roleIDs) > 0 {
+		if _, err = tx.Exec(ctx, `
+			INSERT INTO membership_roles (membership_id, role_id)
+			SELECT $1::uuid, r FROM unnest($2::uuid[]) AS r
+		`, membershipID, roleIDs); err != nil {
+			return nil, fmt.Errorf("members.Repository.SetRoles: batch insert roles: %w", err)
 		}
 	}
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -717,29 +716,10 @@ func toGenAttendanceRow(a *AttendanceEnriched) gen.AttendanceRow {
 		row.ReasonVisibility = &rv
 	}
 	if a.PrimaryRole != nil {
-		role := toGenRole(*a.PrimaryRole)
+		role := teams.ToGenRole(*a.PrimaryRole)
 		row.PrimaryRole = &role
 	}
 	return row
-}
-
-// toGenRole maps a teams.RoleRow to gen.Role.
-func toGenRole(r teams.RoleRow) gen.Role {
-	return gen.Role{
-		Id:     r.Id,
-		TeamId: r.TeamID,
-		Name:   r.Name,
-		System: r.System,
-		Color:  r.Color,
-		Permissions: gen.Permissions{
-			Events:   gen.PermLevel(r.Permissions.Events),
-			Members:  gen.PermLevel(r.Permissions.Members),
-			Finances: gen.PermLevel(r.Permissions.Finances),
-			News:     gen.PermLevel(r.Permissions.News),
-			Polls:    gen.PermLevel(r.Permissions.Polls),
-			Settings: gen.PermLevel(r.Permissions.Settings),
-		},
-	}
 }
 
 // toGenAttendanceRecord maps an AttendanceDBRow to gen.AttendanceRecord.
@@ -763,4 +743,3 @@ func toGenAttendanceRecord(a *AttendanceDBRow) gen.AttendanceRecord {
 }
 
 // ensure time is used (time.Time in toGenAttendanceRecord).
-var _ = time.Time{}

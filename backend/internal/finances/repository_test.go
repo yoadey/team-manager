@@ -221,6 +221,37 @@ func TestFinancesRepository_DeletePenalty_PreservesAssignments(t *testing.T) {
 	}
 }
 
+// CreateAssignment's snapshot read is team-scoped in the query itself
+// (WHERE id = $1 AND team_id = $2), so a penalty belonging to another team can
+// never be assigned even if the id is known -- defense-in-depth matching the
+// repository's otherwise-uniform in-query tenant scoping.
+func TestFinancesRepository_CreateAssignment_RejectsPenaltyFromAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamA := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	// A penalty owned by a different team B.
+	otherTid := uuid.New().String()
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTid)
+	require.NoError(t, err)
+	penB, err := repo.CreatePenalty(ctx, uuid.MustParse(otherTid), "Team B fee", 500)
+	require.NoError(t, err)
+
+	// Assigning team B's penalty within team A must be rejected.
+	_, err = repo.CreateAssignment(ctx, teamA, userID, penB.ID)
+	assert.ErrorIs(t, err, finances.ErrPenaltyNotInTeam)
+}
+
 func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *testing.T) {
 	t.Parallel()
 
