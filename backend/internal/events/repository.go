@@ -670,8 +670,10 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 // internal/attendance and reused here so the event summary and the statistics
 // module (internal/stats) can never drift apart on how effective attendance is
 // derived. computeEffectiveAttendance mirrors the same precedence in Go.
-const absenceCoversExpr = attendance.AbsenceCoversExpr
-const effectiveStatusExpr = attendance.EffectiveStatusExpr
+const (
+	absenceCoversExpr   = attendance.AbsenceCoversExpr
+	effectiveStatusExpr = attendance.EffectiveStatusExpr
+)
 
 // GetAttendanceSummary returns aggregated attendance counts for an event,
 // scoped to teamID. Roster-driven (joined from memberships, not attendance):

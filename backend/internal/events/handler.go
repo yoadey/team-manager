@@ -353,7 +353,7 @@ func (h *Handler) ListAttendance(ctx context.Context, request gen.ListAttendance
 // ─── SetAttendance ───────────────────────────────────────────────────────────
 
 // SetAttendance upserts an attendance record.
-func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) { //nolint:cyclop // sequential field validation + error-cause mapping, not nested branching
+func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) { //nolint:cyclop,gocognit // sequential field validation + error-cause mapping, not nested branching
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
