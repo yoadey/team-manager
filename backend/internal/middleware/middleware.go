@@ -292,11 +292,17 @@ var csrfSafeMethods = map[string]struct{}{
 
 // CSRFOriginCheck provides defense-in-depth against CSRF for cookie-based auth.
 // Because the session is carried by a cookie the browser attaches automatically,
-// SameSite=Lax is the primary defense; this middleware adds a second layer: for
-// state-changing methods it rejects requests whose Origin header is present but
-// not in the whitelist. A missing Origin is allowed so non-browser API clients
-// and same-origin requests that omit it keep working — a forged cross-site
-// browser request always carries a (disallowed) Origin and is blocked.
+// SameSite=Lax is the primary defense; this middleware adds a second layer for
+// state-changing methods:
+//
+//  1. If Sec-Fetch-Site is "cross-site", the browser itself has classified the
+//     request as cross-site — block it unconditionally. Modern browsers always
+//     send this metadata header, so it catches a forged request even in the
+//     edge case where a (disallowed) Origin header is somehow absent.
+//  2. Otherwise, if an Origin header is present, reject it unless whitelisted.
+//
+// A request with neither a disallowed Origin nor a cross-site Sec-Fetch-Site is
+// allowed, so non-browser API clients and same-origin requests keep working.
 func CSRFOriginCheck(allowedOrigins []string) func(http.Handler) http.Handler {
 	allowed := make(map[string]struct{}, len(allowedOrigins))
 	for _, o := range allowedOrigins {
@@ -306,6 +312,10 @@ func CSRFOriginCheck(allowedOrigins []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if _, safe := csrfSafeMethods[r.Method]; !safe {
+				if r.Header.Get("Sec-Fetch-Site") == "cross-site" {
+					writeProblem(w, http.StatusForbidden, "cross-origin request blocked")
+					return
+				}
 				if origin := r.Header.Get("Origin"); origin != "" {
 					if _, ok := allowed[origin]; !ok {
 						writeProblem(w, http.StatusForbidden, "cross-origin request blocked")

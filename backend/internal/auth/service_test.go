@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +176,43 @@ func TestService_Login_UserNotFound(t *testing.T) {
 	svc := newTestService(t, repo)
 	_, _, err := svc.Login(context.Background(), "nobody@example.com", "pass")
 	assert.Error(t, err)
+}
+
+func TestService_Login_RejectsOverLengthPassword(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		userByEmail: func(_ context.Context, _ string) (*auth.UserRow, error) {
+			t.Fatal("repository must not be consulted for an over-length password")
+			return nil, nil
+		},
+	}
+	svc := newTestService(t, repo)
+
+	_, _, err := svc.Login(context.Background(), "test@example.com", strings.Repeat("a", 73))
+	assert.ErrorIs(t, err, auth.ErrInvalidCredentials, "an over-length password is rejected before any DB lookup")
+}
+
+func TestService_HashPassword_RejectsOverLength(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestService(t, &mockRepo{})
+
+	_, err := svc.HashPassword(strings.Repeat("x", 73))
+	assert.ErrorIs(t, err, auth.ErrPasswordTooLong, "a >72-byte password must be rejected, not silently truncated")
+
+	_, err = svc.HashPassword(strings.Repeat("x", 72))
+	assert.NoError(t, err, "a 72-byte password is at the limit and accepted")
+}
+
+func TestHashEmailForAudit(t *testing.T) {
+	t.Parallel()
+
+	h := auth.HashEmailForAudit("User@Example.com")
+	assert.Equal(t, auth.HashEmailForAudit("user@example.com"), h, "hashing is case-insensitive (lowercased)")
+	assert.Len(t, h, 64, "SHA-256 hex digest is 64 chars")
+	assert.NotContains(t, h, "example", "the digest must not contain the plaintext address")
+	assert.NotEqual(t, auth.HashEmailForAudit("other@example.com"), h, "different emails hash differently")
 }
 
 func TestService_ValidateToken_Expired(t *testing.T) {
