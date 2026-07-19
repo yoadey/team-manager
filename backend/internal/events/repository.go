@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/yoadey/team-manager/backend/internal/attendance"
 	"github.com/yoadey/team-manager/backend/internal/db/sqlbuilder"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/teams"
@@ -665,35 +666,12 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 
 // ─── Attendance Summary ──────────────────────────────────────────────────────
 
-// absenceCoversExpr is a correlated EXISTS check (not a JOIN) for whether m's
-// planned absence covers e's date, shared by every roster-based attendance
-// query below. EXISTS rather than a LEFT JOIN deliberately avoids fanning
-// out a member's row if more than one absence entry happened to cover the
-// same date -- the absences package enforces non-overlap at the application
-// layer (advisory-locked check before insert/update, not a DB constraint),
-// so this is a defensive guard against double-counting from corrupted or
-// pre-constraint historical data, not an expected case.
-const absenceCoversExpr = `
-	EXISTS (
-		SELECT 1 FROM absences ab
-		WHERE ab.user_id = m.user_id AND ab.team_id = m.team_id
-		  AND ab.from_date <= e.date AND ab.to_date >= e.date
-	)
-`
-
-// effectiveStatusExpr is the CASE expression shared by GetAttendanceSummary
-// and GetAttendanceSummaries to resolve each roster row's effective status
-// in SQL, mirroring computeEffectiveAttendance's precedence: an explicit
-// attendance record wins; otherwise a covering planned absence defaults to
-// "no"; otherwise an opt_out event defaults to "yes"; otherwise "pending".
-const effectiveStatusExpr = `
-	CASE
-		WHEN a.status IS NOT NULL THEN a.status
-		WHEN ` + absenceCoversExpr + ` THEN 'no'
-		WHEN e.response_mode = 'opt_out' THEN 'yes'
-		ELSE 'pending'
-	END
-`
+// absenceCoversExpr and effectiveStatusExpr are defined once in
+// internal/attendance and reused here so the event summary and the statistics
+// module (internal/stats) can never drift apart on how effective attendance is
+// derived. computeEffectiveAttendance mirrors the same precedence in Go.
+const absenceCoversExpr = attendance.AbsenceCoversExpr
+const effectiveStatusExpr = attendance.EffectiveStatusExpr
 
 // GetAttendanceSummary returns aggregated attendance counts for an event,
 // scoped to teamID. Roster-driven (joined from memberships, not attendance):
