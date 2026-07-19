@@ -90,11 +90,15 @@ services:
     depends_on:
       minio:
         condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-teammanager} ${MINIO_ROOT_PASSWORD:-teammanager123} &&
-      mc mb --ignore-existing local/${S3_BUCKET:-team-manager-images}
-      "
+    environment:
+      # mc auto-registers an alias from MC_HOST_<alias> at startup, so this
+      # replaces the explicit `mc alias set local ... <user> <password>` call
+      # that used to bake the credentials into this container's Entrypoint/
+      # Cmd (visible in plaintext via `docker inspect`/`ps`, unlike every
+      # other credential in this file, which goes through `environment:`).
+      MC_HOST_local: http://${MINIO_ROOT_USER:-teammanager}:${MINIO_ROOT_PASSWORD:-teammanager123}@minio:9000
+      MC_BUCKET: ${S3_BUCKET:-team-manager-images}
+    entrypoint: ["/bin/sh", "-c", "mc mb --ignore-existing local/$$MC_BUCKET"]
     restart: "no"
 
   backend:
