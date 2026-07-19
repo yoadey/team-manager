@@ -28,25 +28,14 @@ function makeState(overrides: Partial<AppState> = {}): AppState {
   } as unknown as AppState;
 }
 
-function makeActiveTeam(roleIds = ['r1']) {
-  return {
-    id: 'team1',
-    name: 'Test Team',
-    membershipId: 'ms1',
-    myRoles: roleIds.map((id) => ({ id, name: `Role ${id}` })),
-  };
-}
-
 describe('useRoleActions', () => {
   let setState: ReturnType<typeof vi.fn>;
   let toastMsg: ReturnType<typeof vi.fn>;
   let refreshRoles: ReturnType<typeof vi.fn>;
-  let refreshTeams: ReturnType<typeof vi.fn>;
   let askConfirm: ReturnType<typeof vi.fn>;
   let logout: ReturnType<typeof vi.fn>;
   let api: {
     roles: { create: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn>; remove: ReturnType<typeof vi.fn> };
-    members: { setRoles: ReturnType<typeof vi.fn> };
   };
   let stateRef: AppState;
 
@@ -62,7 +51,6 @@ describe('useRoleActions', () => {
     });
     toastMsg = vi.fn();
     refreshRoles = vi.fn().mockResolvedValue(undefined);
-    refreshTeams = vi.fn().mockResolvedValue(undefined);
     askConfirm = vi.fn((cfg) => cfg.onConfirm());
     logout = vi.fn();
     api = {
@@ -71,19 +59,16 @@ describe('useRoleActions', () => {
         update: vi.fn().mockResolvedValue({ id: 'r1' }),
         remove: vi.fn().mockResolvedValue(undefined),
       },
-      members: { setRoles: vi.fn().mockResolvedValue(undefined) },
     };
   });
 
-  function renderActions(roleIds = ['r1']) {
+  function renderActions() {
     return renderHook(() =>
       useRoleActions({
         api: api as never,
         S: () => stateRef,
         setState: setState as never,
-        activeTeam: () => makeActiveTeam(roleIds) as never,
         refreshRoles: refreshRoles as never,
-        refreshTeams: refreshTeams as never,
         askConfirm: askConfirm as never,
         toastMsg: toastMsg as never,
         logout: logout as never,
@@ -222,76 +207,5 @@ describe('useRoleActions', () => {
     });
     expect(toastMsg).toHaveBeenCalled();
     expect(refreshRoles).not.toHaveBeenCalled();
-  });
-
-  it('toggleMyRole adds role and shows toast', async () => {
-    const { result } = renderActions(['r1']);
-    await act(async () => {
-      await result.current.toggleMyRole('r2');
-    });
-    expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1', 'r2'], 'team1');
-    expect(toastMsg).toHaveBeenCalledWith('Rollen aktualisiert');
-  });
-
-  it('toggleMyRole removes role and shows toast', async () => {
-    const { result } = renderActions(['r1', 'r2']);
-    await act(async () => {
-      await result.current.toggleMyRole('r2');
-    });
-    expect(api.members.setRoles).toHaveBeenCalledWith('ms1', ['r1'], 'team1');
-  });
-
-  it('toggleMyRole shows error when trying to remove last role', async () => {
-    const { result } = renderActions(['r1']);
-    await act(async () => {
-      await result.current.toggleMyRole('r1');
-    });
-    expect(toastMsg).toHaveBeenCalledWith('Mindestens eine Rolle nötig.', undefined, 'error');
-    expect(api.members.setRoles).not.toHaveBeenCalled();
-  });
-
-  // Regression test: toggleMyRole used to compute `next` from whatever
-  // `activeTeam().myRoles` looked like at click time. Two rapid toggles
-  // (different roles) both read the same pre-toggle snapshot before either
-  // request's refreshTeams() had a chance to update it, so the second PUT
-  // silently overwrote the first's change instead of building on it --
-  // toggling r2 then r3 could end up saving ['r1','r3'], losing r2 entirely.
-  // toggleMyRole must serialize so each toggle reads the roles the previous
-  // one actually left behind.
-  it('serializes rapid toggles so the second reads the roles the first left behind', async () => {
-    let currentRoleIds = ['r1'];
-    const activeTeam = () => makeActiveTeam(currentRoleIds);
-    api.members.setRoles.mockImplementation(async (_ms: string, roleIds: string[]) => {
-      // A real network round-trip always crosses at least one microtask
-      // boundary before the caller's continuation (and refreshTeams' effect
-      // on activeTeam()) is observable -- await one explicitly so a second,
-      // synchronously-fired toggle's read of activeTeam() genuinely races
-      // against this one instead of always seeing an already-applied result.
-      await Promise.resolve();
-      currentRoleIds = roleIds; // simulate refreshTeams() picking up the server's new state
-    });
-
-    const { result } = renderHook(() =>
-      useRoleActions({
-        api: api as never,
-        S: () => stateRef,
-        setState: setState as never,
-        activeTeam: activeTeam as never,
-        refreshRoles: refreshRoles as never,
-        refreshTeams: refreshTeams as never,
-        askConfirm: askConfirm as never,
-        toastMsg: toastMsg as never,
-        logout: logout as never,
-      }),
-    );
-
-    await act(async () => {
-      const p1 = result.current.toggleMyRole('r2');
-      const p2 = result.current.toggleMyRole('r3');
-      await Promise.all([p1, p2]);
-    });
-
-    expect(api.members.setRoles).toHaveBeenNthCalledWith(1, 'ms1', ['r1', 'r2'], 'team1');
-    expect(api.members.setRoles).toHaveBeenNthCalledWith(2, 'ms1', ['r1', 'r2', 'r3'], 'team1');
   });
 });

@@ -586,8 +586,6 @@ export const en: Messages = {
     roleNamePlaceholder: 'e.g. Social media team',
     permPerModule: 'Permissions per module',
     saveRole: 'Save role',
-    myRolesInTeam: 'My roles in {teamName} (Demo)',
-    multiRoleHint: 'Multiple selection possible – permissions are the sum of all roles.',
     colorScheme: 'Appearance',
     colorSchemeSystem: 'Auto',
     colorSchemeLight: 'Light',
@@ -622,7 +620,6 @@ export const en: Messages = {
     deleteRoleConfirmMsg: 'This role will be removed from every member it is assigned to.',
     toastRoleDeleted: 'Role deleted',
     roleAtLeastOne: 'At least one role is required.',
-    toastRolesSaved: 'Roles updated',
   },
   notifications: {
     today: 'Today',

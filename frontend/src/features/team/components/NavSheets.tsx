@@ -5,8 +5,7 @@ import type { SheetProps } from '@/sheets/types';
 import type { Route } from '@/context/AppContext';
 import { ROUTE_MODULE } from '@/context/urlState';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Sym, Av, SectionTitle } from '@/components/ui';
-import { shortName } from '@/layouts/useCompact';
+import { Sym, Av } from '@/components/ui';
 import { t, type Locale } from '@/i18n';
 import { useLocale } from '@/i18n/LocaleProvider';
 import { captureException } from '@/monitoring';
@@ -115,16 +114,7 @@ export function ProfileSheet({ app }: SheetProps) {
   const { state } = app;
   const { locale, setLocale, supported } = useLocale();
   const tk = buildTokens(state.primaryColor);
-  const team = app.activeTeam()!;
   const S = state;
-  const roles = S.roles;
-  const myIds = app.myRoles().map((r) => r.id);
-  // Self-assigning a role is the same privileged operation as assigning it to
-  // another member (MemberSheets gates that the same way) — the backend
-  // requires settings:write for any members/{id}/roles mutation (assigning a
-  // role can hand out settings:write itself), so members:write alone must
-  // not be enough to self-grant admin access here either.
-  const canEditMyRoles = app.can('settings', 'write');
 
   // Account erasure (GDPR Art. 17): a destructive, irreversible action gated by
   // retyping the account email — no password, since accounts may be OIDC-only.
@@ -180,67 +170,6 @@ export function ProfileSheet({ app }: SheetProps) {
             <Sym name="mail" size={15} />
             {S.user!.email}
           </Box>
-        </Box>
-      </Box>
-
-      <Box key="rs">
-        <SectionTitle>{t('team.myRolesInTeam', { teamName: shortName(team.name) })}</SectionTitle>
-        <Box key="l" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {roles.map((r) => {
-            const sel = myIds.includes(r.id);
-            return (
-              <ButtonBase
-                key={r.id}
-                role="checkbox"
-                aria-checked={sel}
-                aria-label={r.name}
-                disabled={!canEditMyRoles}
-                onClick={canEditMyRoles ? () => app.toggleMyRole(r.id) : undefined}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  width: '100%',
-                  p: '12px 14px',
-                  borderRadius: '14px',
-                  cursor: canEditMyRoles ? 'pointer' : 'default',
-                  border: '1px solid ' + (sel ? tk.primary : '#E6E7EE'),
-                  background: sel ? tk.primaryContainer : NEUTRAL.card,
-                  justifyContent: 'flex-start',
-                  textAlign: 'left',
-                }}
-              >
-                <Box
-                  component="span"
-                  key="c"
-                  sx={{
-                    width: '22px',
-                    height: '22px',
-                    borderRadius: '6px',
-                    border: '2px solid ' + (sel ? tk.primary : NEUTRAL.faint),
-                    background: sel ? tk.primary : NEUTRAL.card,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flex: '0 0 auto',
-                  }}
-                >
-                  {sel ? <Sym name="check" size={15} color="#fff" /> : null}
-                </Box>
-                <Box
-                  component="span"
-                  key="d"
-                  sx={{ width: '11px', height: '11px', borderRadius: '50%', background: r.color, flex: '0 0 auto' }}
-                />
-                <Box component="span" key="n" sx={{ flex: 1, textAlign: 'left', fontSize: '14px', fontWeight: 500 }}>
-                  {r.name}
-                </Box>
-              </ButtonBase>
-            );
-          })}
-        </Box>
-        <Box key="hint" sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '8px 2px 0', lineHeight: 1.5 }}>
-          {t('team.multiRoleHint')}
         </Box>
       </Box>
 

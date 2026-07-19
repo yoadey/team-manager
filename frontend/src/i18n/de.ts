@@ -594,8 +594,6 @@ export const de = {
     roleNamePlaceholder: 'z. B. Social-Media-Team',
     permPerModule: 'Rechte je Modul',
     saveRole: 'Rolle speichern',
-    myRolesInTeam: 'Meine Rollen in {teamName} (Demo)',
-    multiRoleHint: 'Mehrfachauswahl möglich – Rechte ergeben sich aus der Summe aller Rollen.',
     colorScheme: 'Erscheinungsbild',
     colorSchemeSystem: 'Automatisch',
     colorSchemeLight: 'Hell',
@@ -630,7 +628,6 @@ export const de = {
     deleteRoleConfirmMsg: 'Diese Rolle wird allen Mitgliedern entzogen, denen sie zugewiesen ist.',
     toastRoleDeleted: 'Rolle gelöscht',
     roleAtLeastOne: 'Mindestens eine Rolle nötig.',
-    toastRolesSaved: 'Rollen aktualisiert',
   },
   notifications: {
     today: 'Heute',
