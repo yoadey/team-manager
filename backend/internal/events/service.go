@@ -25,6 +25,7 @@ var (
 	ErrSetAttendanceForbidden       = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
 	ErrSetNominationForbidden       = errors.New("events.Service.SetNomination: caller lacks events:write")
 	ErrAttendanceStatusNotNominated = errors.New("events.Service.SetAttendance: status 'not_nominated' may only be set via SetNomination")
+	ErrEventCancelled               = errors.New("events.Service.SetAttendance: cannot change attendance on a cancelled event")
 	ErrRepeatWeeksTooLarge          = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
 	ErrTooManyComments              = fmt.Errorf("event has reached the maximum of %d comments", maxCommentsPerEvent)
 )
@@ -525,6 +526,20 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 		if perms.Events != "write" {
 			return nil, ErrSetAttendanceForbidden
 		}
+	}
+
+	// Reject attendance changes on a cancelled event: a cancelled event isn't
+	// happening, so recording (or rewriting) attendance for it is meaningless
+	// and lets anyone alter the record after the fact. This guard is placed
+	// after the permission check so an unauthorized caller still gets 403, not
+	// a leak of the event's status. A GetEvent not-found error (wrapped here)
+	// still satisfies the handler's pgx.ErrNoRows → 404 mapping.
+	ev, err := s.repo.GetEvent(ctx, eventID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Service.SetAttendance: load event: %w", err)
+	}
+	if ev.Status == "cancelled" {
+		return nil, ErrEventCancelled
 	}
 
 	statusStr := string(req.Status)

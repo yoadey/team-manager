@@ -401,6 +401,9 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		if errors.Is(err, ErrAttendanceStatusNotNominated) {
 			return nil, apierror.BadRequest("status 'not_nominated' may only be set via the nominations endpoint")
 		}
+		if errors.Is(err, ErrEventCancelled) {
+			return nil, apierror.Conflict("cannot change attendance on a cancelled event")
+		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")
 	}

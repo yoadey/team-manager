@@ -85,15 +85,17 @@ func TestEventRepository_CreateAndListEvents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 
-	// List upcoming (both events are today or future).
+	// List upcoming: one event is dated today, one a week out. BOTH must be
+	// upcoming -- a today-dated event must not fall out of "upcoming" (regression
+	// guard for the DATE-vs-timestamp boundary bug). Asserted exactly, not `>= 1`.
 	upcoming, err := repo.ListEvents(ctx, testTeamID, gen.Upcoming, 50, nil)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(upcoming), 1)
+	assert.Len(t, upcoming, 2, "today's event and next week's event must both be upcoming")
 
-	// List past (no past events seeded).
+	// List past: today's event must NOT be past, and no earlier events exist.
 	past, err := repo.ListEvents(ctx, testTeamID, gen.Past, 50, nil)
 	require.NoError(t, err)
-	assert.Len(t, past, 0)
+	assert.Len(t, past, 0, "a today-dated event must not be classified as past")
 }
 
 func TestEventRepository_CreateRecurringEvent(t *testing.T) {
@@ -291,6 +293,59 @@ func TestEventRepository_UpdateEvent_Series_DoesNotCollapseDates(t *testing.T) {
 		dates[e.Date.Format("2006-01-02")] = true
 	}
 	assert.Len(t, dates, 3, "each occurrence must keep its own distinct date, not collapse onto the updated event's date")
+}
+
+// Cancelling the remainder of a series must not retroactively cancel already-
+// held (past) occurrences. Only today's and future instances flip to cancelled;
+// a past occurrence keeps its status so team history and stats are unchanged.
+func TestEventRepository_SetStatus_Series_DoesNotCancelPastInstances(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "56565656-5656-5656-5656-565656565656"
+	teamID := "78787878-7878-7878-7878-787878787878"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Series Cancel User', 'series-cancel@example.com', '#abcdef')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Cancel Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	rows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+
+	// Backdate the first occurrence into the past (yesterday), keeping its series_id.
+	pastID := rows[0].Id
+	_, err = pool.Exec(ctx, `UPDATE events SET date = $1 WHERE id = $2`, startDate.AddDate(0, 0, -1), pastID)
+	require.NoError(t, err)
+
+	// Cancel the remainder of the series, invoked on a future occurrence.
+	_, err = repo.SetStatus(ctx, rows[2].Id.String(), teamID, "cancelled", "series")
+	require.NoError(t, err)
+
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	for _, e := range all {
+		if e.Id == pastID {
+			assert.Equal(t, "active", e.Status, "a past occurrence must keep its status when the series is cancelled")
+		} else {
+			assert.Equal(t, "cancelled", e.Status, "today/future occurrences must be cancelled")
+		}
+	}
 }
 
 // Regression test: the handler's endTime>startTime check only runs when both

@@ -138,7 +138,12 @@ type ListCursor struct {
 func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *ListCursor) ([]EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	today := time.Now().UTC()
+	// Truncate to date granularity: events.date is a DATE column, which casts
+	// to midnight UTC. Comparing it against a mid-day timestamp would push
+	// today's events out of the "upcoming" set (and into "past") from 00:00:01
+	// onward — exactly on the day they matter. Truncating makes "date >= today"
+	// include today and "date < today" exclude it.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	var (
 		q    string
@@ -583,7 +588,13 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, sco
 			return nil, fmt.Errorf("events.Repository.SetStatus: get series_id: %w", err)
 		}
 		if seriesID != nil {
-			_, err = tx.Exec(ctx, `UPDATE events SET status = $1 WHERE series_id = $2 AND team_id = $3`, status, seriesID, teamID)
+			// Only today's and future instances are affected. Bulk-changing the
+			// status of already-held (past) occurrences would retroactively
+			// rewrite team history — e.g. cancelling "the rest of the series"
+			// must not flip completed trainings to cancelled and drop them from
+			// stats. The event addressed by eventID is still updated
+			// individually below regardless of its date.
+			_, err = tx.Exec(ctx, `UPDATE events SET status = $1 WHERE series_id = $2 AND team_id = $3 AND date >= CURRENT_DATE`, status, seriesID, teamID)
 			if err != nil {
 				return nil, fmt.Errorf("events.Repository.SetStatus: update series: %w", err)
 			}

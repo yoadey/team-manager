@@ -438,6 +438,9 @@ func TestEventService_SetAttendance(t *testing.T) {
 	}
 
 	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active"}, nil
+		},
 		setAttendanceFn: func(_ context.Context, evID, _, uID, tID string, status, _, _, _ *string) (*events.AttendanceDBRow, error) {
 			assert.Equal(t, eventID.String(), evID)
 			assert.Equal(t, userID.String(), uID)
@@ -534,6 +537,9 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 
 	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: targetUserID, Status: "yes"}
 	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active"}, nil
+		},
 		setAttendanceFn: func(_ context.Context, _, _, uID, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
 			assert.Equal(t, targetUserID.String(), uID)
 			return rec, nil
@@ -546,6 +552,34 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 	result, err := svc.SetAttendance(context.Background(), eventID.String(), callerID.String(), targetUserID.String(), teamID.String(), req)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+}
+
+// TestEventService_SetAttendance_RejectsCancelledEvent verifies that attendance
+// cannot be changed on a cancelled event: the event isn't happening, so
+// recording or rewriting its attendance is meaningless. The repository write
+// must not be reached.
+func TestEventService_SetAttendance_RejectsCancelledEvent(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "cancelled"}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			t.Fatal("repository must not be called for a cancelled event")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrEventCancelled)
 }
 
 // TestEventService_SetNomination_RequiresEventsWrite guards against a
