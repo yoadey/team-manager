@@ -92,6 +92,112 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	assert.Equal(t, int64(2000), expense)
 }
 
+func TestFinancesRepository_ListTransactionsPage_KeysetPaginatesWholeHistory(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	// Create 5 transactions on distinct, ascending dates so the newest-first
+	// ordering is deterministic and easy to assert against.
+	const total = 5
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < total; i++ {
+		cat := "dues"
+		_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", int64(100+i), base.AddDate(0, 0, i), &cat)
+		require.NoError(t, err)
+	}
+
+	// Page through 2 at a time, following the cursor, and collect every row.
+	var seen []string
+	var cur *finances.TxCursor
+	pages := 0
+	for {
+		page, err := repo.ListTransactionsPage(ctx, teamID, 2, cur)
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		pages++
+		for _, row := range page {
+			seen = append(seen, row.ID.String())
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		cur = &finances.TxCursor{Date: last.Date, CreatedAt: last.CreatedAt, ID: last.ID}
+		require.LessOrEqual(t, pages, total+1, "pagination must terminate")
+	}
+
+	assert.Len(t, seen, total, "every transaction must be reachable by paging")
+	// No row appears twice across pages (keyset correctness).
+	unique := map[string]struct{}{}
+	for _, id := range seen {
+		_, dup := unique[id]
+		assert.False(t, dup, "keyset pagination must not repeat a row across pages")
+		unique[id] = struct{}{}
+	}
+
+	// First page must be newest-first: the latest date (base+4) comes first.
+	first, err := repo.ListTransactionsPage(ctx, teamID, 2, nil)
+	require.NoError(t, err)
+	require.Len(t, first, 2)
+	assert.True(t, first[0].Date.After(first[1].Date) || first[0].Date.Equal(first[1].Date),
+		"page must be ordered newest-first")
+	assert.Equal(t, int64(104), first[0].Amount, "newest transaction (base+4 days) must sort first")
+}
+
+func TestFinancesRepository_ListTransactionsPage_ScopedToTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	cat := "dues"
+	_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat)
+	require.NoError(t, err)
+
+	// A different team sees none of this team's rows.
+	other, err := repo.ListTransactionsPage(ctx, uuid.New(), 50, nil)
+	require.NoError(t, err)
+	assert.Empty(t, other)
+}
+
+func TestFinancesRepository_UpdateTransaction_SetsDate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	cat := "dues"
+	tx, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat)
+	require.NoError(t, err)
+
+	want := time.Date(2022, 6, 30, 0, 0, 0, 0, time.UTC)
+	updated, err := repo.UpdateTransaction(ctx, tx.ID, teamID, finances.TransactionPatch{Date: &want})
+	require.NoError(t, err)
+	assert.True(t, want.Equal(updated.Date), "the date patch must be persisted")
+}
+
 func TestFinancesRepository_Penalties(t *testing.T) {
 	t.Parallel()
 
@@ -143,12 +249,12 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	_, err = repo.GetAssignmentByID(ctx, uuid.New(), teamID)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
-	toggled, err := repo.ToggleAssignmentPaid(ctx, assign.ID, teamID)
+	toggled, err := repo.SetAssignmentPaid(ctx, assign.ID, teamID, true)
 	require.NoError(t, err)
 	assert.True(t, toggled.Paid)
-	// Regression: ToggleAssignmentPaid's RETURNING used to omit label/amount,
-	// so a's snapshot fields stayed nil -- fine when Service.ToggleAssignmentPaid's
-	// post-toggle reload succeeds (its enriched result is used instead), but
+	// Regression: SetAssignmentPaid's RETURNING used to omit label/amount,
+	// so a's snapshot fields stayed nil -- fine when Service.SetPenaltyPaid's
+	// post-write reload succeeds (its enriched result is used instead), but
 	// silently incomplete if that reload ever hits the ErrNoRows fallback,
 	// unlike CreateAssignment's equivalent fallback which keeps them.
 	require.NotNil(t, toggled.PenaltyLabel)
@@ -167,6 +273,89 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	pens, err = repo.ListPenalties(ctx, teamID)
 	require.NoError(t, err)
 	assert.Empty(t, pens)
+}
+
+// Deleting a penalty catalog entry must NOT remove its assignments (paid or
+// unpaid). Migration 00027 changed the FK to ON DELETE SET NULL, so each
+// assignment survives with a null penalty_id and is still fully rendered from
+// its snapshot label/amount -- preserving the immutable financial record 00025
+// established (the old ON DELETE CASCADE erased paid history on catalog tidy-up).
+func TestFinancesRepository_DeletePenalty_PreservesAssignments(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late fee", 500)
+	require.NoError(t, err)
+
+	// One paid and one unpaid assignment of the same penalty.
+	paid, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	_, err = repo.SetAssignmentPaid(ctx, paid.ID, teamID, true)
+	require.NoError(t, err)
+	_, err = repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+
+	// Delete the catalog penalty.
+	require.NoError(t, repo.DeletePenalty(ctx, pen.ID, teamID))
+	pens, err := repo.ListPenalties(ctx, teamID)
+	require.NoError(t, err)
+	assert.Empty(t, pens, "the penalty catalog entry itself is gone")
+
+	// Both assignments must survive, detached (null penalty_id) but with their
+	// snapshot label/amount intact.
+	assignments, err := repo.ListAssignments(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, assignments, 2, "assignments must survive deletion of their penalty, not cascade away")
+	for _, a := range assignments {
+		assert.Nil(t, a.PenaltyID, "penalty_id must be nulled (SET NULL), not the row deleted")
+		require.NotNil(t, a.PenaltyLabel)
+		assert.Equal(t, "Late fee", *a.PenaltyLabel, "snapshot label must remain the record")
+		require.NotNil(t, a.PenaltyAmount)
+		assert.Equal(t, int64(500), *a.PenaltyAmount, "snapshot amount must remain the record")
+	}
+}
+
+// CreateAssignment's snapshot read is team-scoped in the query itself
+// (WHERE id = $1 AND team_id = $2), so a penalty belonging to another team can
+// never be assigned even if the id is known -- defense-in-depth matching the
+// repository's otherwise-uniform in-query tenant scoping.
+func TestFinancesRepository_CreateAssignment_RejectsPenaltyFromAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamA := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	// A penalty owned by a different team B.
+	otherTid := uuid.New().String()
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Other Team')`, otherTid)
+	require.NoError(t, err)
+	penB, err := repo.CreatePenalty(ctx, uuid.MustParse(otherTid), "Team B fee", 500)
+	require.NoError(t, err)
+
+	// Assigning team B's penalty within team A must be rejected.
+	_, err = repo.CreateAssignment(ctx, teamA, userID, penB.ID)
+	assert.ErrorIs(t, err, finances.ErrPenaltyNotInTeam)
 }
 
 func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *testing.T) {
@@ -391,8 +580,8 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, "Monthly Fee", *updated.Label)
 	assert.Equal(t, int64(3000), updated.Amount)
 
-	// ToggleContributionStatus: open → paid.
-	toggled, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
+	// SetContributionPaid: open → paid.
+	toggled, err := repo.SetContributionPaid(ctx, contribID, teamID, true)
 	require.NoError(t, err)
 	assert.Equal(t, "paid", toggled.Status)
 
@@ -400,8 +589,8 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, openCount)
 
-	// Toggle again: paid → open.
-	toggled, err = repo.ToggleContributionStatus(ctx, contribID, teamID)
+	// Set paid → open.
+	toggled, err = repo.SetContributionPaid(ctx, contribID, teamID, false)
 	require.NoError(t, err)
 	assert.Equal(t, "open", toggled.Status)
 
@@ -417,7 +606,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
-	_, err = repo.ToggleContributionStatus(ctx, contribID, otherTeamID)
+	_, err = repo.SetContributionPaid(ctx, contribID, otherTeamID, true)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
@@ -428,14 +617,13 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, "open", list[0].Status)
 }
 
-// TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates
-// guards against a read-then-write race: ToggleContributionStatus previously
-// read the current status, computed the flip in Go, then wrote it back in a
-// separate statement — two concurrent toggles could both read "open", both
-// compute "paid", and both write "paid", losing one of the two toggle
-// intents (net effect of two toggles should be back to "open"). The fix
-// flips the status atomically in a single UPDATE ... CASE statement.
-func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates(t *testing.T) {
+// TestFinancesRepository_SetContributionPaid_ConcurrentSameValueIsIdempotent
+// verifies the idempotent set-paid semantics: SetContributionPaid writes an
+// explicit target status in a single UPDATE, so N concurrent requests for the
+// same value all succeed and land deterministically on that value -- there is
+// no read-then-write race and no possibility of a retried request flipping the
+// state back (the failure mode the previous flip-based toggle had).
+func TestFinancesRepository_SetContributionPaid_ConcurrentSameValueIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
@@ -460,7 +648,7 @@ func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUp
 	errs := make(chan error, n)
 	for range n {
 		go func() {
-			_, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
+			_, err := repo.SetContributionPaid(ctx, contribID, teamID, true)
 			errs <- err
 		}()
 	}
@@ -468,12 +656,12 @@ func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUp
 		require.NoError(t, <-errs)
 	}
 
-	// An even number of toggles must land back on the original status —
-	// a lost update would instead leave it stuck on "paid".
+	// Every request set the same value, so the result is deterministically
+	// "paid" regardless of interleaving -- retries can never flip it back.
 	list, err := repo.ListContributions(ctx, teamID)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	assert.Equal(t, "open", list[0].Status)
+	assert.Equal(t, "paid", list[0].Status)
 }
 
 // TestFinancesRepository_UserIsMemberOfTeam guards against regressing to a

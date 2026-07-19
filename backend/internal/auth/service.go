@@ -36,6 +36,7 @@ var (
 	ErrUnexpectedSigningMethod = errors.New("auth.Service.ValidateToken: unexpected signing method")
 	ErrImageTooLarge           = errors.New("auth.resizeImage: image dimensions exceed the allowed maximum")
 	ErrErasureConfirmation     = errors.New("auth.Service.EraseAccount: confirmation email does not match account")
+	ErrPasswordTooLong         = errors.New("password must be at most 72 bytes")
 )
 
 // dummyPasswordHash is a valid bcrypt hash that Login compares against when no
@@ -127,8 +128,22 @@ func userPhotoKey(userID string) string {
 	return "users/" + userID + "/photo"
 }
 
+// maxPasswordBytes is bcrypt's hard input limit: bytes beyond 72 are silently
+// ignored by the algorithm. Rejecting over-length passwords explicitly (rather
+// than letting them be truncated) means a passphrase's tail can never be
+// dropped without the user knowing, and a login can't succeed on a truncated
+// prefix of a longer stored secret.
+const maxPasswordBytes = 72
+
 // Login verifies email+password, creates a session, and returns a signed JWT.
 func (s *Service) Login(ctx context.Context, email, password string) (token string, user *UserRow, err error) {
+	if len(password) > maxPasswordBytes {
+		// Never a valid password (HashPassword rejects the same). Burn a compare
+		// so timing doesn't distinguish this from a normal wrong password.
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(password))
+		return "", nil, ErrInvalidCredentials
+	}
+
 	user, err = s.repo.FindUserByEmail(ctx, email)
 	if err != nil {
 		// Compare against a dummy hash so a missing user takes about as long as a
@@ -256,13 +271,28 @@ func (s *Service) ExportUserData(ctx context.Context, userID string) (*ExportDat
 	return data, nil
 }
 
-// HashPassword hashes a plain-text password using bcrypt cost 12.
+// HashPassword hashes a plain-text password using bcrypt cost 12. Passwords
+// longer than bcrypt's 72-byte limit are rejected rather than silently
+// truncated, so the stored hash always covers the full input.
 func (s *Service) HashPassword(password string) (string, error) {
+	if len(password) > maxPasswordBytes {
+		return "", ErrPasswordTooLong
+	}
 	b, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return "", fmt.Errorf("auth.Service.HashPassword: %w", err)
 	}
 	return string(b), nil
+}
+
+// HashEmailForAudit returns a one-way SHA-256 hex digest of the lowercased
+// email, used in audit-log attributes instead of the plaintext address. This
+// keeps repeated attempts for the same address correlatable (identical input →
+// identical digest) without retaining the address itself, so GDPR erasure and
+// the audit log's retention window don't leave plaintext PII behind.
+func HashEmailForAudit(email string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(email)))
+	return hex.EncodeToString(sum[:])
 }
 
 // UpdatePhoto resizes the image to at most 800×800 px, uploads it to the

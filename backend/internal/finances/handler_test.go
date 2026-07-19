@@ -23,27 +23,33 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // ─── mock service ────────────────────────────────────────────────────────────
 
 type mockFinanceService struct {
-	getOverview          func(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error)
-	createTransaction    func(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error)
-	updateTransaction    func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
-	deleteTransaction    func(ctx context.Context, id, teamID uuid.UUID) error
-	createPenalty        func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error)
-	updatePenalty        func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error)
-	deletePenalty        func(ctx context.Context, id, teamID uuid.UUID) error
-	createAssignment     func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
-	deleteAssignment     func(ctx context.Context, id, teamID uuid.UUID) error
-	toggleAssignmentPaid func(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error)
-	updateContribution   func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
-	toggleContribution   func(ctx context.Context, id, teamID uuid.UUID) (*gen.Contribution, error)
+	getOverview         func(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error)
+	listTransactions    func(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Transaction, *string, error)
+	createTransaction   func(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error)
+	updateTransaction   func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error)
+	deleteTransaction   func(ctx context.Context, id, teamID uuid.UUID) error
+	createPenalty       func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyJSONRequestBody) (*gen.Penalty, error)
+	updatePenalty       func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdatePenaltyJSONRequestBody) (*gen.Penalty, error)
+	deletePenalty       func(ctx context.Context, id, teamID uuid.UUID) error
+	createAssignment    func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
+	deleteAssignment    func(ctx context.Context, id, teamID uuid.UUID) error
+	setPenaltyPaid      func(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error)
+	updateContribution  func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
+	setContributionPaid func(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error)
 }
 
 func (m *mockFinanceService) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error) {
 	return m.getOverview(ctx, teamID)
+}
+
+func (m *mockFinanceService) ListTransactions(ctx context.Context, teamID uuid.UUID, limit int, cursor string) ([]gen.Transaction, *string, error) {
+	return m.listTransactions(ctx, teamID, limit, cursor)
 }
 
 func (m *mockFinanceService) CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
@@ -78,16 +84,16 @@ func (m *mockFinanceService) DeleteAssignment(ctx context.Context, id, teamID uu
 	return m.deleteAssignment(ctx, id, teamID)
 }
 
-func (m *mockFinanceService) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error) {
-	return m.toggleAssignmentPaid(ctx, teamID, id)
+func (m *mockFinanceService) SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error) {
+	return m.setPenaltyPaid(ctx, teamID, id, paid)
 }
 
 func (m *mockFinanceService) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
 	return m.updateContribution(ctx, id, teamID, body)
 }
 
-func (m *mockFinanceService) ToggleContribution(ctx context.Context, id, teamID uuid.UUID) (*gen.Contribution, error) {
-	return m.toggleContribution(ctx, id, teamID)
+func (m *mockFinanceService) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error) {
+	return m.setContributionPaid(ctx, id, teamID, paid)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -181,6 +187,49 @@ func TestHandler_GetFinanceOverview_ServiceError(t *testing.T) {
 	h := finances.NewHandler(svc, slog.Default(), nil)
 	_, err := h.GetFinanceOverview(authedCtx(), gen.GetFinanceOverviewRequestObject{TeamId: testTeamID})
 	require.Error(t, err)
+}
+
+func TestHandler_ListTransactions_Success(t *testing.T) {
+	t.Parallel()
+	next := "next-cursor"
+	svc := &mockFinanceService{
+		listTransactions: func(_ context.Context, _ uuid.UUID, limit int, cursor string) ([]gen.Transaction, *string, error) {
+			assert.Equal(t, 50, limit, "an omitted limit param must default to 50")
+			assert.Equal(t, "", cursor)
+			return []gen.Transaction{{Id: testTxID, TeamId: testTeamID, Type: gen.Income, Title: "Dues", Amount: 100, Date: openapi_types.Date{Time: time.Now()}}}, &next, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	resp, err := h.ListTransactions(authedCtx(), gen.ListTransactionsRequestObject{TeamId: testTeamID})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitListTransactionsResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var result gen.ListTransactions200JSONResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&result))
+	require.Len(t, result.Items, 1)
+	require.NotNil(t, result.NextCursor)
+	assert.Equal(t, "next-cursor", *result.NextCursor)
+}
+
+func TestHandler_ListTransactions_InvalidCursorIsBadRequest(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		listTransactions: func(_ context.Context, _ uuid.UUID, _ int, _ string) ([]gen.Transaction, *string, error) {
+			return nil, nil, pagination.ErrInvalidCursor
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	bad := "not-a-cursor"
+	_, err := h.ListTransactions(authedCtx(), gen.ListTransactionsRequestObject{TeamId: testTeamID, Params: gen.ListTransactionsParams{Cursor: &bad}})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 }
 
 func TestHandler_CreateTransaction_MissingBody(t *testing.T) {
@@ -391,28 +440,30 @@ func TestHandler_DeleteTransaction_Success(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 }
 
-func TestHandler_ToggleContribution_Unauthenticated(t *testing.T) {
+func TestHandler_SetContributionPaid_Unauthenticated(t *testing.T) {
 	t.Parallel()
 	h := finances.NewHandler(&mockFinanceService{}, slog.Default(), nil)
-	_, err := h.ToggleContribution(context.Background(), gen.ToggleContributionRequestObject{
+	_, err := h.SetContributionPaid(context.Background(), gen.SetContributionPaidRequestObject{
 		TeamId:         testTeamID,
 		ContributionId: testTxID,
+		Body:           &gen.SetPaidRequest{Paid: true},
 	})
 	require.Error(t, err)
 }
 
-func TestHandler_TogglePenaltyPaid_NotFoundReturns404(t *testing.T) {
+func TestHandler_SetPenaltyPaid_NotFoundReturns404(t *testing.T) {
 	t.Parallel()
 	svc := &mockFinanceService{
-		toggleAssignmentPaid: func(_ context.Context, _, _ uuid.UUID) (*gen.PenaltyAssignment, error) {
+		setPenaltyPaid: func(_ context.Context, _, _ uuid.UUID, _ bool) (*gen.PenaltyAssignment, error) {
 			return nil, pgx.ErrNoRows
 		},
 	}
 	h := finances.NewHandler(svc, slog.Default(), nil)
 
-	_, err := h.TogglePenaltyPaid(authedCtx(), gen.TogglePenaltyPaidRequestObject{
+	_, err := h.SetPenaltyPaid(authedCtx(), gen.SetPenaltyPaidRequestObject{
 		TeamId:       testTeamID,
 		AssignmentId: testTxID,
+		Body:         &gen.SetPaidRequest{Paid: true},
 	})
 	require.Error(t, err)
 	var apiErr *apierror.APIError
@@ -445,18 +496,19 @@ func TestHandler_CreatePenaltyAssignment_ReloadRaceReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, apiErr.Status)
 }
 
-func TestHandler_TogglePenaltyPaid_ServiceErrorReturns500(t *testing.T) {
+func TestHandler_SetPenaltyPaid_ServiceErrorReturns500(t *testing.T) {
 	t.Parallel()
 	svc := &mockFinanceService{
-		toggleAssignmentPaid: func(_ context.Context, _, _ uuid.UUID) (*gen.PenaltyAssignment, error) {
+		setPenaltyPaid: func(_ context.Context, _, _ uuid.UUID, _ bool) (*gen.PenaltyAssignment, error) {
 			return nil, errors.New("db error")
 		},
 	}
 	h := finances.NewHandler(svc, slog.Default(), nil)
 
-	_, err := h.TogglePenaltyPaid(authedCtx(), gen.TogglePenaltyPaidRequestObject{
+	_, err := h.SetPenaltyPaid(authedCtx(), gen.SetPenaltyPaidRequestObject{
 		TeamId:       testTeamID,
 		AssignmentId: testTxID,
+		Body:         &gen.SetPaidRequest{Paid: true},
 	})
 	require.Error(t, err)
 	var apiErr *apierror.APIError

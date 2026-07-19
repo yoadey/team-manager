@@ -2,6 +2,7 @@ package events_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -85,15 +86,17 @@ func TestEventRepository_CreateAndListEvents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, all, 2)
 
-	// List upcoming (both events are today or future).
+	// List upcoming: one event is dated today, one a week out. BOTH must be
+	// upcoming -- a today-dated event must not fall out of "upcoming" (regression
+	// guard for the DATE-vs-timestamp boundary bug). Asserted exactly, not `>= 1`.
 	upcoming, err := repo.ListEvents(ctx, testTeamID, gen.Upcoming, 50, nil)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(upcoming), 1)
+	assert.Len(t, upcoming, 2, "today's event and next week's event must both be upcoming")
 
-	// List past (no past events seeded).
+	// List past: today's event must NOT be past, and no earlier events exist.
 	past, err := repo.ListEvents(ctx, testTeamID, gen.Past, 50, nil)
 	require.NoError(t, err)
-	assert.Len(t, past, 0)
+	assert.Len(t, past, 0, "a today-dated event must not be classified as past")
 }
 
 func TestEventRepository_CreateRecurringEvent(t *testing.T) {
@@ -291,6 +294,59 @@ func TestEventRepository_UpdateEvent_Series_DoesNotCollapseDates(t *testing.T) {
 		dates[e.Date.Format("2006-01-02")] = true
 	}
 	assert.Len(t, dates, 3, "each occurrence must keep its own distinct date, not collapse onto the updated event's date")
+}
+
+// Cancelling the remainder of a series must not retroactively cancel already-
+// held (past) occurrences. Only today's and future instances flip to cancelled;
+// a past occurrence keeps its status so team history and stats are unchanged.
+func TestEventRepository_SetStatus_Series_DoesNotCancelPastInstances(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "56565656-5656-5656-5656-565656565656"
+	teamID := "78787878-7878-7878-7878-787878787878"
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color)
+		VALUES ($1, 'Series Cancel User', 'series-cancel@example.com', '#abcdef')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Series Cancel Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	params := events.CreateEventParams{
+		Type:        "training",
+		Title:       "Weekly Training",
+		Date:        startDate,
+		Recurring:   true,
+		RepeatWeeks: 3,
+	}
+	rows, err := repo.CreateSeries(ctx, teamID, &params)
+	require.NoError(t, err)
+	require.Len(t, rows, 3)
+
+	// Backdate the first occurrence into the past (yesterday), keeping its series_id.
+	pastID := rows[0].Id
+	_, err = pool.Exec(ctx, `UPDATE events SET date = $1 WHERE id = $2`, startDate.AddDate(0, 0, -1), pastID)
+	require.NoError(t, err)
+
+	// Cancel the remainder of the series, invoked on a future occurrence.
+	_, err = repo.SetStatus(ctx, rows[2].Id.String(), teamID, "cancelled", "series")
+	require.NoError(t, err)
+
+	all, err := repo.ListEvents(ctx, teamID, gen.All, 50, nil)
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+	for _, e := range all {
+		if e.Id == pastID {
+			assert.Equal(t, "active", e.Status, "a past occurrence must keep its status when the series is cancelled")
+		} else {
+			assert.Equal(t, "cancelled", e.Status, "today/future occurrences must be cancelled")
+		}
+	}
 }
 
 // Regression test: the handler's endTime>startTime check only runs when both
@@ -1087,7 +1143,7 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, attendanceList, "ListAttendance must not see cross-team event's attendance")
 
-	comments, err := repo.ListComments(ctx, eventID, teamB.String(), 50, 0)
+	comments, err := repo.ListComments(ctx, eventID, teamB.String(), 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, comments, "ListComments must not see cross-team event's comments")
 
@@ -1114,7 +1170,7 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, noRow, "no attendance row should have been created by the rejected cross-team SetAttendance call")
 
-	comments, err = repo.ListComments(ctx, eventID, teamA.String(), 50, 0)
+	comments, err = repo.ListComments(ctx, eventID, teamA.String(), 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, comments, "no comment should have been created by the rejected cross-team AddComment call")
 
@@ -1237,7 +1293,7 @@ func TestEventRepository_AddComment_RejectsNonMemberUser(t *testing.T) {
 	_, err = repo.AddComment(ctx, eventID, outsider.String(), teamID.String(), "should be rejected")
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "AddComment must reject a userID that is not a member of teamID")
 
-	comments, err := repo.ListComments(ctx, eventID, teamID.String(), 50, 0)
+	comments, err := repo.ListComments(ctx, eventID, teamID.String(), 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, comments, "no comment should have been created for the non-member user")
 
@@ -1245,6 +1301,81 @@ func TestEventRepository_AddComment_RejectsNonMemberUser(t *testing.T) {
 	comment, err := repo.AddComment(ctx, eventID, member.String(), teamID.String(), "from an actual member")
 	require.NoError(t, err, "AddComment scoped to an actual team member must succeed")
 	assert.Equal(t, "from an actual member", comment.Text)
+}
+
+// TestEventRepository_ListComments_KeysetPaginatesWholeThread verifies the
+// keyset pagination reaches every comment, oldest-first, with no row skipped or
+// repeated across pages -- and stays scoped to the event's team.
+func TestEventRepository_ListComments_KeysetPaginatesWholeThread(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	member := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Keyset Comment Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Member', 'keyset-comment@example.com', '#abcdef')`, member)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Keyset Comment Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	// Insert comments with explicit, ascending timestamps so the chronological
+	// order is deterministic to assert against.
+	const total = 5
+	base := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < total; i++ {
+		_, err = pool.Exec(ctx,
+			`INSERT INTO event_comments (id, event_id, user_id, text, created_at) VALUES ($1, $2, $3, $4, $5)`,
+			uuid.New(), ev.Id, member, fmt.Sprintf("comment-%d", i), base.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, err)
+	}
+
+	var seen []string
+	var lastCreated time.Time
+	var cur *events.CommentCursor
+	pages := 0
+	for {
+		page, err := repo.ListComments(ctx, eventID, teamID.String(), 2, cur)
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		pages++
+		for _, c := range page {
+			if !lastCreated.IsZero() {
+				assert.False(t, c.CreatedAt.Before(lastCreated), "comments must be returned oldest-first across pages")
+			}
+			lastCreated = c.CreatedAt
+			seen = append(seen, c.Id.String())
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		cur = &events.CommentCursor{CreatedAt: last.CreatedAt, ID: last.Id}
+		require.LessOrEqual(t, pages, total+1, "pagination must terminate")
+	}
+
+	assert.Len(t, seen, total, "every comment must be reachable by paging")
+	unique := map[string]struct{}{}
+	for _, id := range seen {
+		_, dup := unique[id]
+		assert.False(t, dup, "keyset pagination must not repeat a comment across pages")
+		unique[id] = struct{}{}
+	}
+
+	// A different team sees none of this event's comments.
+	other, err := repo.ListComments(ctx, eventID, uuid.New().String(), 50, nil)
+	require.NoError(t, err)
+	assert.Empty(t, other, "ListComments must stay scoped to the event's team")
 }
 
 func TestEventRepository_CountComments(t *testing.T) {

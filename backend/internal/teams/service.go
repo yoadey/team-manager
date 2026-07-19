@@ -357,7 +357,7 @@ func (s *Service) enrichTeamForUser(ctx context.Context, tr TeamRow, userID stri
 func buildTeamForUser(tr TeamRow, m MembershipRow, count int, roles []RoleRow) *gen.TeamForUser {
 	genRoles := make([]gen.Role, len(roles))
 	for i, r := range roles {
-		genRoles[i] = toGenRole(r)
+		genRoles[i] = ToGenRole(r)
 	}
 
 	perms := MergePermissions(roles)
@@ -411,7 +411,7 @@ func toGenTeam(tr *TeamRow) *gen.Team {
 	return t
 }
 
-func toGenRole(r RoleRow) gen.Role {
+func ToGenRole(r RoleRow) gen.Role {
 	return gen.Role{
 		Id:     r.Id,
 		TeamId: r.TeamID,

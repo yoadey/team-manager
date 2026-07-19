@@ -19,8 +19,8 @@ import {
   useSavePenaltyAssignMutation,
   useSavePenaltyMutation,
   useSaveTxMutation,
-  useTogglePenaltyMutation,
-  useToggleContributionMutation,
+  useSetPenaltyPaidMutation,
+  useSetContributionPaidMutation,
 } from './useFinanceMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -50,8 +50,8 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
   );
   const { mutateAsync: deleteAssignmentAsync } = useDeleteAssignmentMutation(api);
   const { mutateAsync: saveContribAsync, isPending: savingContrib } = useSaveContribMutation(api, teamId);
-  const { mutateAsync: togglePenaltyAsync } = useTogglePenaltyMutation(api, teamId);
-  const { mutateAsync: toggleContributionAsync } = useToggleContributionMutation(api, teamId);
+  const { mutateAsync: setPenaltyPaidAsync } = useSetPenaltyPaidMutation(api, teamId);
+  const { mutateAsync: setContributionPaidAsync } = useSetContributionPaidMutation(api, teamId);
 
   const openTxForm = useCallback(
     (tx?: Transaction) => {
@@ -241,36 +241,36 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
 
   const toggleInFlight = useRef(new Set<string>());
 
-  const togglePenalty = useCallback(
-    async (id: string) => {
+  const setPenaltyPaid = useCallback(
+    async (id: string, paid: boolean) => {
       const key = 'penalty:' + id;
       if (toggleInFlight.current.has(key)) return;
       toggleInFlight.current.add(key);
       try {
-        await togglePenaltyAsync(id);
+        await setPenaltyPaidAsync({ id, paid });
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       } finally {
         toggleInFlight.current.delete(key);
       }
     },
-    [togglePenaltyAsync, setState, toastMsg, logout],
+    [setPenaltyPaidAsync, setState, toastMsg, logout],
   );
 
-  const toggleContribution = useCallback(
-    async (id: string) => {
+  const setContributionPaid = useCallback(
+    async (id: string, paid: boolean) => {
       const key = 'contribution:' + id;
       if (toggleInFlight.current.has(key)) return;
       toggleInFlight.current.add(key);
       try {
-        await toggleContributionAsync(id);
+        await setContributionPaidAsync({ id, paid });
       } catch (err) {
         reportActionError({ setState, toastMsg, onAuthError: logout }, err);
       } finally {
         toggleInFlight.current.delete(key);
       }
     },
-    [toggleContributionAsync, setState, toastMsg, logout],
+    [setContributionPaidAsync, setState, toastMsg, logout],
   );
 
   // Stats itself is fetched via useStatsQuery (React Query), whose
@@ -291,8 +291,8 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     deleteAssignment,
     openContribForm,
     saveContrib,
-    togglePenalty,
-    toggleContribution,
+    setPenaltyPaid,
+    setContributionPaid,
     setStatsRange,
     savingTx,
     savingPenalty,

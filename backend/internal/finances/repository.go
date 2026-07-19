@@ -116,6 +116,63 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	return out, rows.Err()
 }
 
+// TxCursor is the keyset position for transaction pagination. It matches the
+// ORDER BY date DESC, created_at DESC, id DESC ordering used by
+// ListTransactionsPage, so (date, created_at, id) is a unique, stable sort key
+// even when several transactions share the same date.
+type TxCursor struct {
+	Date      time.Time `json:"d"`
+	CreatedAt time.Time `json:"c"`
+	ID        uuid.UUID `json:"i"`
+}
+
+// ListTransactionsPage returns up to limit transactions for the team,
+// newest-first, starting after cur (nil = first page). Unlike ListTransactions
+// (which the overview caps at maxOverviewRows), this is a keyset query with no
+// hard visibility ceiling: paging with the returned cursor reaches the team's
+// entire history. No OFFSET, so deep pages stay fast.
+func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID, limit int, cur *TxCursor) ([]TransactionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var (
+		hasCursor  bool
+		curDate    time.Time
+		curCreated time.Time
+		curID      uuid.UUID
+	)
+	if cur != nil {
+		hasCursor = true
+		curDate = cur.Date
+		curCreated = cur.CreatedAt
+		curID = cur.ID
+	}
+
+	rows, err := r.db.Query(ctx, `
+		SELECT id, team_id, type, title, amount, date, category, created_at
+		FROM transactions
+		WHERE team_id = $1
+		  AND ($2::boolean IS FALSE
+		       OR (date, created_at, id) < ($3::date, $4::timestamptz, $5::uuid))
+		ORDER BY date DESC, created_at DESC, id DESC
+		LIMIT $6
+	`, teamID, hasCursor, curDate, curCreated, curID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Repository.ListTransactionsPage: %w", err)
+	}
+	defer rows.Close()
+
+	var out []TransactionRow
+	for rows.Next() {
+		var t TransactionRow
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt); err != nil {
+			return nil, fmt.Errorf("finances.Repository.ListTransactionsPage scan: %w", err)
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // SumTransactions returns the total income and expense across ALL of the
 // team's transactions (not just the capped display list returned by
 // ListTransactions), so the finance overview's income/expense/balance figures
@@ -184,6 +241,9 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	}
 	if patch.Category != nil {
 		b.Add("category", *patch.Category)
+	}
+	if patch.Date != nil {
+		b.Add("date", *patch.Date)
 	}
 	setSQL, args, nextIdx, ok := b.Build(1)
 	if !ok {
@@ -468,7 +528,7 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 
 	var amount int64
 	var label string
-	if err := tx.QueryRow(ctx, `SELECT amount, label FROM penalties WHERE id = $1`, penaltyID).Scan(&amount, &label); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT amount, label FROM penalties WHERE id = $1 AND team_id = $2`, penaltyID, teamID).Scan(&amount, &label); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrPenaltyNotInTeam
 		}
@@ -515,26 +575,29 @@ func (r *Repository) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID)
 	return nil
 }
 
-// ToggleAssignmentPaid flips the paid flag on a penalty assignment that belongs to teamID.
-func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error) {
+// SetAssignmentPaid sets the paid flag on a penalty assignment that belongs to
+// teamID to an explicit value. Idempotent: applying the same value twice yields
+// the same state, so a retried request can't flip a paid penalty back to open
+// (the failure mode of the previous flip-based toggle).
+func (r *Repository) SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	// RETURNING includes the label/amount snapshot columns (see
 	// CreateAssignment's equivalent RETURNING) so a's fields are already
-	// complete if Service.ToggleAssignmentPaid's post-toggle reload fails and
-	// falls back to toGenAssignment(*a) -- without them, that degraded
-	// response would omit which penalty was toggled and for how much, not
-	// just the member name/avatar CreateAssignment's own fallback omits.
+	// complete if Service.SetPenaltyPaid's post-write reload fails and falls
+	// back to toGenAssignment(*a) -- without them, that degraded response would
+	// omit which penalty was set and for how much, not just the member
+	// name/avatar CreateAssignment's own fallback omits.
 	err := r.db.QueryRow(ctx, `
-		UPDATE penalty_assignments SET paid = NOT paid WHERE id = $1 AND team_id = $2
+		UPDATE penalty_assignments SET paid = $3 WHERE id = $1 AND team_id = $2
 		RETURNING id, team_id, user_id, penalty_id, paid, date, label, amount
-	`, id, teamID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
+	`, id, teamID, paid).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
-		return nil, fmt.Errorf("finances.Repository.ToggleAssignmentPaid: %w", err)
+		return nil, fmt.Errorf("finances.Repository.SetAssignmentPaid: %w", err)
 	}
 	return a, nil
 }
@@ -609,17 +672,21 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	return r.getContributionByID(ctx, id, teamID)
 }
 
-// ToggleContributionStatus flips between 'open' and 'paid' for a contribution that belongs to teamID.
-func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error) {
+// SetContributionPaid sets a contribution's status to 'paid' or 'open' for a
+// contribution that belongs to teamID. Idempotent: applying the same value
+// twice yields the same state (unlike the previous flip-based toggle).
+func (r *Repository) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	status := "open"
+	if paid {
+		status = "paid"
+	}
 	tag, err := r.db.Exec(ctx, `
-		UPDATE contributions
-		SET status = CASE WHEN status = 'paid' THEN 'open' ELSE 'paid' END
-		WHERE id = $1 AND team_id = $2
-	`, id, teamID)
+		UPDATE contributions SET status = $3 WHERE id = $1 AND team_id = $2
+	`, id, teamID, status)
 	if err != nil {
-		return nil, fmt.Errorf("finances.Repository.ToggleContributionStatus: %w", err)
+		return nil, fmt.Errorf("finances.Repository.SetContributionPaid: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, pgx.ErrNoRows

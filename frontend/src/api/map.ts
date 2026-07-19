@@ -360,7 +360,9 @@ export function mapPenaltyAssignment(a: S['PenaltyAssignment']): PenaltyAssignme
     id: a.id,
     teamId: a.teamId,
     userId: a.userId,
-    penaltyId: a.penaltyId,
+    // penaltyId is null when the source penalty catalog entry was deleted
+    // (ON DELETE SET NULL); the snapshot label/amount remain authoritative.
+    penaltyId: a.penaltyId ?? null,
     paid: a.paid,
     date: a.date,
     name: a.memberName,

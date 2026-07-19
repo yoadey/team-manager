@@ -57,10 +57,10 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     deletePenaltyDef: vi.fn(),
     openPenaltyAssign: vi.fn(),
     deleteAssignment: vi.fn(),
-    togglePenalty: vi.fn(),
+    setPenaltyPaid: vi.fn(),
     openContribForm: vi.fn(),
     saveContrib: vi.fn(),
-    toggleContribution: vi.fn(),
+    setContributionPaid: vi.fn(),
   };
 }
 

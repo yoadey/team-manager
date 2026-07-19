@@ -41,6 +41,29 @@ npm test           # Tests einmalig ausführen
 > Beim Login genügt ein Klick auf einen beliebigen Identity-Provider – der
 > Mock-Service meldet automatisch den Demo-Nutzer „Lena Bergmann“ an.
 
+### Full-Stack lokal (Backend + Postgres)
+
+Für die komplette Anwendung (Go-Backend + PostgreSQL + Frontend) genügt Docker Compose:
+
+```bash
+cp .env.example .env      # Werte anpassen (Secrets: openssl rand -base64 32)
+make install              # npm (Root + Frontend) + Go-Tools in einem Schritt
+make dev                  # docker compose up --build
+# Frontend  → http://localhost:5173
+# Backend   → http://localhost:8080
+# Postgres  → localhost:5432
+```
+
+Backend allein (ohne Compose) — siehe [`CLAUDE.md`](./CLAUDE.md#quick-start) und
+[`docs/operations.md`](./docs/operations.md) für Betrieb, Migrationen und Runbooks:
+
+```bash
+cd backend
+make tools      # Codegen-/Qualitäts-Tools installieren (einmalig)
+make generate   # Code aus openapi.yaml + sqlc generieren
+make build && make lint && make test
+```
+
 ## Projektstruktur
 
 ```

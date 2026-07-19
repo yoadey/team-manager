@@ -26,7 +26,7 @@ type eventService interface {
 	UpdateEvent(ctx context.Context, teamID, userID, eventID string, scope string, body *gen.UpdateEventJSONRequestBody) (*gen.TeamEvent, error)
 	DeleteEvent(ctx context.Context, eventID, teamID, scope string) error
 	SetStatus(ctx context.Context, userID, eventID, teamID, status, scope string) (*gen.TeamEvent, error)
-	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]gen.EventComment, error)
+	ListComments(ctx context.Context, eventID, teamID string, limit int, cursor string) ([]gen.EventComment, *string, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error)
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
 	ListAttendance(ctx context.Context, eventID, teamID, viewerID string) ([]gen.AttendanceRow, error)
@@ -273,13 +273,20 @@ func (h *Handler) ListEventComments(ctx context.Context, request gen.ListEventCo
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 
-	limit, offset := pagination.Parse(request.Params.Limit, request.Params.Offset)
-	comments, err := h.svc.ListComments(ctx, request.EventId.String(), request.TeamId.String(), limit, offset)
+	limit := pagination.ParseLimit(request.Params.Limit)
+	cursor := ""
+	if request.Params.Cursor != nil {
+		cursor = *request.Params.Cursor
+	}
+	comments, next, err := h.svc.ListComments(ctx, request.EventId.String(), request.TeamId.String(), limit, cursor)
 	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return nil, apierror.BadRequest("invalid cursor")
+		}
 		h.logger.ErrorContext(ctx, "ListEventComments failed", "err", err)
 		return nil, apierror.Internal("failed to list comments")
 	}
-	return gen.ListEventComments200JSONResponse(comments), nil
+	return gen.ListEventComments200JSONResponse{Items: comments, NextCursor: next}, nil
 }
 
 // ─── AddEventComment ─────────────────────────────────────────────────────────
@@ -353,7 +360,7 @@ func (h *Handler) ListAttendance(ctx context.Context, request gen.ListAttendance
 // ─── SetAttendance ───────────────────────────────────────────────────────────
 
 // SetAttendance upserts an attendance record.
-func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) { //nolint:cyclop // sequential field validation + error-cause mapping, not nested branching
+func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRequestObject) (gen.SetAttendanceResponseObject, error) { //nolint:cyclop,gocognit // sequential field validation + error-cause mapping, not nested branching
 	user, ok := auth.UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.Unauthorized("not authenticated")
@@ -400,6 +407,9 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		}
 		if errors.Is(err, ErrAttendanceStatusNotNominated) {
 			return nil, apierror.BadRequest("status 'not_nominated' may only be set via the nominations endpoint")
+		}
+		if errors.Is(err, ErrEventCancelled) {
+			return nil, apierror.Conflict("cannot change attendance on a cancelled event")
 		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")

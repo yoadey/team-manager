@@ -231,12 +231,37 @@ describe('finances', () => {
     expect(after.income).toBe(before.income + 100);
   });
 
-  it('toggles a penalty assignment paid state', async () => {
+  it('lists the full transaction history via the paginated endpoint', async () => {
+    const overview = await api.finances.overview('t_a');
+    const listed = await api.finances.listTransactions('t_a');
+    // The paginated list surfaces at least everything the (capped) overview does.
+    expect(listed.length).toBeGreaterThanOrEqual(overview.transactions.length);
+    expect(listed.some((t) => t.id === overview.transactions[0].id)).toBe(true);
+  });
+
+  it('back-dates a transaction with a client-provided date', async () => {
+    const created = await api.finances.addTransaction('t_a', {
+      type: 'expense',
+      title: 'Nachtrag',
+      amount: 50,
+      date: '2023-02-01',
+    });
+    expect(created.date).toBe('2023-02-01');
+    const listed = await api.finances.listTransactions('t_a');
+    expect(listed.find((t) => t.id === created.id)?.date).toBe('2023-02-01');
+  });
+
+  it('sets a penalty assignment paid state (idempotent)', async () => {
     const overview = await api.finances.overview('t_a');
     const assignment = overview.assignments[0];
-    await api.finances.togglePenaltyPaid(assignment.id, 't_a');
-    const reloaded = await api.finances.overview('t_a');
-    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(!assignment.paid);
+    const target = !assignment.paid;
+    await api.finances.setPenaltyPaid(assignment.id, 't_a', target);
+    let reloaded = await api.finances.overview('t_a');
+    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(target);
+    // Idempotent: applying the same value again keeps it, not flips it.
+    await api.finances.setPenaltyPaid(assignment.id, 't_a', target);
+    reloaded = await api.finances.overview('t_a');
+    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(target);
   });
 
   it('deletes a transaction', async () => {

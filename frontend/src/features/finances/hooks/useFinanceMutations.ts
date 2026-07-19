@@ -82,10 +82,10 @@ export function useDeleteAssignmentMutation(api: typeof defaultApi) {
   });
 }
 
-export function useTogglePenaltyMutation(api: typeof defaultApi, teamId: string | null) {
+export function useSetPenaltyPaidMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateFinances(teamId);
   return useMutation({
-    mutationFn: (id: string) => api.finances.togglePenaltyPaid(id, teamId!),
+    mutationFn: ({ id, paid }: { id: string; paid: boolean }) => api.finances.setPenaltyPaid(id, teamId!, paid),
     onSuccess: () => invalidate(),
   });
 }
@@ -104,10 +104,10 @@ export function useSaveContribMutation(api: typeof defaultApi, teamId: string | 
   });
 }
 
-export function useToggleContributionMutation(api: typeof defaultApi, teamId: string | null) {
+export function useSetContributionPaidMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateFinances(teamId);
   return useMutation({
-    mutationFn: (id: string) => api.finances.toggleContribution(id, teamId!),
+    mutationFn: ({ id, paid }: { id: string; paid: boolean }) => api.finances.setContributionPaid(id, teamId!, paid),
     onSuccess: () => invalidate(),
   });
 }

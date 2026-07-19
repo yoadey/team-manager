@@ -358,8 +358,8 @@ export interface AppContextValue {
   deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
   saveContrib: (f: ContribFormValues) => Promise<void>;
-  togglePenalty: (id: string) => Promise<void>;
-  toggleContribution: (id: string) => Promise<void>;
+  setPenaltyPaid: (id: string, paid: boolean) => Promise<void>;
+  setContributionPaid: (id: string, paid: boolean) => Promise<void>;
   setStatsRange: (range: DateRange | null) => void;
   // polls
   openPollForm: () => void;
@@ -1054,8 +1054,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteAssignment,
     openContribForm,
     saveContrib,
-    togglePenalty,
-    toggleContribution,
+    setPenaltyPaid,
+    setContributionPaid,
     setStatsRange,
     openPollForm,
     savePoll,
@@ -1281,8 +1281,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAssignment,
       openContribForm,
       saveContrib,
-      togglePenalty,
-      toggleContribution,
+      setPenaltyPaid,
+      setContributionPaid,
       setStatsRange,
       openPollForm,
       savePoll,
@@ -1376,8 +1376,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAssignment,
       openContribForm,
       saveContrib,
-      togglePenalty,
-      toggleContribution,
+      setPenaltyPaid,
+      setContributionPaid,
       setStatsRange,
       openPollForm,
       savePoll,

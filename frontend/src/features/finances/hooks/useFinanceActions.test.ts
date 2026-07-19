@@ -62,8 +62,8 @@ function makeApi() {
       assignPenalty: vi.fn().mockResolvedValue(undefined),
       deleteAssignment: vi.fn().mockResolvedValue(undefined),
       updateContribution: vi.fn().mockResolvedValue(undefined),
-      togglePenaltyPaid: vi.fn().mockResolvedValue(undefined),
-      toggleContribution: vi.fn().mockResolvedValue(undefined),
+      setPenaltyPaid: vi.fn().mockResolvedValue(undefined),
+      setContributionPaid: vi.fn().mockResolvedValue(undefined),
     },
   };
 }
@@ -340,20 +340,20 @@ describe('useFinanceActions', () => {
     expect(toastMsg).toHaveBeenCalledWith('Beitrag gespeichert');
   });
 
-  it('togglePenalty calls togglePenaltyPaid', async () => {
+  it('setPenaltyPaid calls setPenaltyPaid with the desired value', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.togglePenalty('a1');
+      await result.current.setPenaltyPaid('a1', true);
     });
-    expect(api.finances.togglePenaltyPaid).toHaveBeenCalledWith('a1', 'team1');
+    expect(api.finances.setPenaltyPaid).toHaveBeenCalledWith('a1', 'team1', true);
   });
 
-  it('toggleContribution calls toggleContribution API', async () => {
+  it('setContributionPaid calls setContributionPaid with the desired value', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.toggleContribution('c1');
+      await result.current.setContributionPaid('c1', false);
     });
-    expect(api.finances.toggleContribution).toHaveBeenCalledWith('c1', 'team1');
+    expect(api.finances.setContributionPaid).toHaveBeenCalledWith('c1', 'team1', false);
   });
 
   it('setStatsRange updates state', () => {

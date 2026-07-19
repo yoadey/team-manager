@@ -689,8 +689,11 @@ export const handlers = [
 
   http.get(P('/teams/:teamId/events/:eventId/comments'), async ({ params }) => {
     await mockDelay();
-    const body = db.eventComments.filter((c) => c.eventId === params.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toWireComment);
-    return HttpResponse.json(body);
+    // Keyset { items, nextCursor } envelope (oldest-first). The mock returns
+    // everything in one page (nextCursor: null), which fetchAllPages consumes
+    // exactly like the real multi-page envelope.
+    const items = db.eventComments.filter((c) => c.eventId === params.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toWireComment);
+    return HttpResponse.json({ items, nextCursor: null });
   }),
 
   http.post(P('/teams/:teamId/events/:eventId/comments'), async ({ params, request }) => {
@@ -951,11 +954,24 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
+  // Keyset-paginated transaction list. Removes the overview's row cap by
+  // exposing the full history; the mock returns everything in one page
+  // (nextCursor: null), which fetchAllPages consumes exactly like the real
+  // multi-page envelope.
+  http.get(P('/teams/:teamId/finances/transactions'), async ({ params }) => {
+    await mockDelay();
+    const teamId = params.teamId as string;
+    const tx = db.transactions
+      .filter((x) => x.teamId === teamId)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    return HttpResponse.json({ items: tx.map(toWireTransaction), nextCursor: null });
+  }),
+
   http.post(P('/teams/:teamId/finances/transactions'), async ({ params, request }) => {
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
-    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: todayLocalDate(), category: body.category || '' };
+    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: body.date || todayLocalDate(), category: body.category || '' };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
   }),
@@ -969,6 +985,7 @@ export const handlers = [
     if (body.title !== undefined) t.title = body.title;
     if (body.amount !== undefined) t.amount = body.amount;
     if (body.category !== undefined) t.category = body.category;
+    if (body.date !== undefined) t.date = body.date;
     return HttpResponse.json(toWireTransaction(t));
   }),
 
@@ -1030,11 +1047,12 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.post(P('/teams/:teamId/finances/penalty-assignments/:assignmentId/toggle-paid'), async ({ params }) => {
+  http.put(P('/teams/:teamId/finances/penalty-assignments/:assignmentId/paid'), async ({ params, request }) => {
     await mockDelay();
     const a = db.penaltyAssignments.find((x) => x.id === params.assignmentId);
     if (!a) return problem(404, 'Assignment not found');
-    a.paid = !a.paid;
+    const body = (await request.json()) as S['SetPaidRequest'];
+    a.paid = body.paid;
     return HttpResponse.json(toWireAssignment(a));
   }),
 
@@ -1048,11 +1066,12 @@ export const handlers = [
     return HttpResponse.json(toWireContribution(c));
   }),
 
-  http.post(P('/teams/:teamId/finances/contributions/:contributionId/toggle'), async ({ params }) => {
+  http.put(P('/teams/:teamId/finances/contributions/:contributionId/paid'), async ({ params, request }) => {
     await mockDelay();
     const c = db.contributions.find((x) => x.id === params.contributionId);
     if (!c) return problem(404, 'Contribution not found');
-    c.status = c.status === 'paid' ? 'open' : 'paid';
+    const body = (await request.json()) as S['SetPaidRequest'];
+    c.status = body.paid ? 'paid' : 'open';
     return HttpResponse.json(toWireContribution(c));
   }),
 

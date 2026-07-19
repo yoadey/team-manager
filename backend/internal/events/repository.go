@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/yoadey/team-manager/backend/internal/attendance"
 	"github.com/yoadey/team-manager/backend/internal/db/sqlbuilder"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/teams"
@@ -138,7 +139,12 @@ type ListCursor struct {
 func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.ListEventsParamsScope, limit int, cur *ListCursor) ([]EventRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	today := time.Now().UTC()
+	// Truncate to date granularity: events.date is a DATE column, which casts
+	// to midnight UTC. Comparing it against a mid-day timestamp would push
+	// today's events out of the "upcoming" set (and into "past") from 00:00:01
+	// onward — exactly on the day they matter. Truncating makes "date >= today"
+	// include today and "date < today" exclude it.
+	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	var (
 		q    string
@@ -583,7 +589,13 @@ func (r *Repository) SetStatus(ctx context.Context, eventID, teamID, status, sco
 			return nil, fmt.Errorf("events.Repository.SetStatus: get series_id: %w", err)
 		}
 		if seriesID != nil {
-			_, err = tx.Exec(ctx, `UPDATE events SET status = $1 WHERE series_id = $2 AND team_id = $3`, status, seriesID, teamID)
+			// Only today's and future instances are affected. Bulk-changing the
+			// status of already-held (past) occurrences would retroactively
+			// rewrite team history — e.g. cancelling "the rest of the series"
+			// must not flip completed trainings to cancelled and drop them from
+			// stats. The event addressed by eventID is still updated
+			// individually below regardless of its date.
+			_, err = tx.Exec(ctx, `UPDATE events SET status = $1 WHERE series_id = $2 AND team_id = $3 AND date >= CURRENT_DATE`, status, seriesID, teamID)
 			if err != nil {
 				return nil, fmt.Errorf("events.Repository.SetStatus: update series: %w", err)
 			}
@@ -654,35 +666,14 @@ func (r *Repository) DeleteEvent(ctx context.Context, eventID, teamID, scope str
 
 // ─── Attendance Summary ──────────────────────────────────────────────────────
 
-// absenceCoversExpr is a correlated EXISTS check (not a JOIN) for whether m's
-// planned absence covers e's date, shared by every roster-based attendance
-// query below. EXISTS rather than a LEFT JOIN deliberately avoids fanning
-// out a member's row if more than one absence entry happened to cover the
-// same date -- the absences package enforces non-overlap at the application
-// layer (advisory-locked check before insert/update, not a DB constraint),
-// so this is a defensive guard against double-counting from corrupted or
-// pre-constraint historical data, not an expected case.
-const absenceCoversExpr = `
-	EXISTS (
-		SELECT 1 FROM absences ab
-		WHERE ab.user_id = m.user_id AND ab.team_id = m.team_id
-		  AND ab.from_date <= e.date AND ab.to_date >= e.date
-	)
-`
-
-// effectiveStatusExpr is the CASE expression shared by GetAttendanceSummary
-// and GetAttendanceSummaries to resolve each roster row's effective status
-// in SQL, mirroring computeEffectiveAttendance's precedence: an explicit
-// attendance record wins; otherwise a covering planned absence defaults to
-// "no"; otherwise an opt_out event defaults to "yes"; otherwise "pending".
-const effectiveStatusExpr = `
-	CASE
-		WHEN a.status IS NOT NULL THEN a.status
-		WHEN ` + absenceCoversExpr + ` THEN 'no'
-		WHEN e.response_mode = 'opt_out' THEN 'yes'
-		ELSE 'pending'
-	END
-`
+// absenceCoversExpr and effectiveStatusExpr are defined once in
+// internal/attendance and reused here so the event summary and the statistics
+// module (internal/stats) can never drift apart on how effective attendance is
+// derived. computeEffectiveAttendance mirrors the same precedence in Go.
+const (
+	absenceCoversExpr   = attendance.AbsenceCoversExpr
+	effectiveStatusExpr = attendance.EffectiveStatusExpr
+)
 
 // GetAttendanceSummary returns aggregated attendance counts for an event,
 // scoped to teamID. Roster-driven (joined from memberships, not attendance):
@@ -1277,11 +1268,33 @@ func (r *Repository) CountComments(ctx context.Context, eventID, teamID string) 
 	return count, nil
 }
 
-// ListComments returns all comments for an event scoped to teamID, enriched
-// with user data.
-func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error) {
+// CommentCursor is the keyset position for comment pagination. It matches the
+// ORDER BY created_at ASC, id ASC ordering used by ListComments, so
+// (created_at, id) is a unique, stable sort key even when several comments
+// share the same created_at timestamp.
+type CommentCursor struct {
+	CreatedAt time.Time `json:"c"`
+	ID        uuid.UUID `json:"i"`
+}
+
+// ListComments returns up to limit comments for an event scoped to teamID,
+// oldest-first, starting after cur (nil = first page). It is a keyset query:
+// no OFFSET, so a busy event's later pages stay as cheap as the first.
+func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, limit int, cur *CommentCursor) ([]CommentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	var (
+		hasCursor  bool
+		curCreated time.Time
+		curID      uuid.UUID
+	)
+	if cur != nil {
+		hasCursor = true
+		curCreated = cur.CreatedAt
+		curID = cur.ID
+	}
+
 	q := `
 		SELECT
 			c.id, c.event_id, c.user_id, c.text, c.created_at,
@@ -1292,10 +1305,12 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 		JOIN users u ON u.id = c.user_id
 		JOIN events e ON e.id = c.event_id
 		WHERE c.event_id = $1 AND e.team_id = $2
-		ORDER BY c.created_at ASC
-		LIMIT $3 OFFSET $4
+		  AND ($3::boolean IS FALSE
+		       OR (c.created_at, c.id) > ($4::timestamptz, $5::uuid))
+		ORDER BY c.created_at ASC, c.id ASC
+		LIMIT $6
 	`
-	rows, err := r.pool.Query(ctx, q, eventID, teamID, limit, offset)
+	rows, err := r.pool.Query(ctx, q, eventID, teamID, hasCursor, curCreated, curID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.ListComments: %w", err)
 	}

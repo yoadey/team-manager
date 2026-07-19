@@ -153,7 +153,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
             ) : null}
             {canFin ? (
               <ButtonBase
-                onClick={() => app.toggleContribution(c.id)}
+                onClick={() => app.setContributionPaid(c.id, c.status !== 'paid')}
                 sx={{
                   border: 'none',
                   cursor: 'pointer',

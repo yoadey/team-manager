@@ -75,6 +75,11 @@ func TestStatsRepository_EventStats(t *testing.T) {
 	_, err = pool.Exec(ctx,
 		`INSERT INTO teams (id, name) VALUES ($1, 'Evt Stats Team')`, tid)
 	require.NoError(t, err)
+	// EventStats is roster-driven: only current members are scored. The user
+	// must be a member for their attendance to count.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
 
 	today := time.Now().UTC().Format("2006-01-02")
 	var eid string
@@ -100,6 +105,85 @@ func TestStatsRepository_EventStats(t *testing.T) {
 	// gen.EventStat.Type is a required field of the API contract.
 	assert.Equal(t, "training", rows[0].Type)
 	assert.Equal(t, 1, rows[0].Yes)
+}
+
+// An opt_out event with no explicit response must count the member as
+// attending in the statistics, matching the event summary. Explicit-only
+// counting previously reported 0% here while the event showed the member as
+// attending.
+func TestStatsRepository_MemberStats_OptOutDefaultsToAttending(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'OptOut User', 'optout@example.com', '#010203')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'OptOut Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Format("2006-01-02")
+	_, err = pool.Exec(ctx,
+		`INSERT INTO events (team_id, type, title, date, status, response_mode) VALUES ($1, 'training', 'Opt-Out Training', $2, 'active', 'opt_out')`,
+		tid, today)
+	require.NoError(t, err)
+	// Deliberately NO attendance row: the member never responded.
+
+	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+
+	rows, err := repo.MemberStats(ctx, uuid.MustParse(tid), from, to)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 1, rows[0].Yes, "opt_out with no response must default to attending")
+	assert.Equal(t, 1, rows[0].Counted)
+}
+
+// A planned absence covering the event date defaults the member to "no"
+// (counted, not attending), matching the event summary.
+func TestStatsRepository_MemberStats_AbsenceDefaultsToNotAttending(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Absent User', 'absent@example.com', '#040506')`, uid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Absence Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	today := time.Now().UTC().Format("2006-01-02")
+	_, err = pool.Exec(ctx,
+		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'training', 'Covered Training', $2, 'active')`,
+		tid, today)
+	require.NoError(t, err)
+	// A covering planned absence, no explicit attendance.
+	_, err = pool.Exec(ctx,
+		`INSERT INTO absences (team_id, user_id, from_date, to_date) VALUES ($1, $2, $3, $3)`, tid, uid, today)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+
+	rows, err := repo.MemberStats(ctx, uuid.MustParse(tid), from, to)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	assert.Equal(t, 0, rows[0].Yes, "a covering absence must not count as attending")
+	assert.Equal(t, 1, rows[0].Counted, "a covering absence is a counted 'no'")
 }
 
 func TestStatsRepository_SingleMemberStats(t *testing.T) {

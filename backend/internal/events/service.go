@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -25,6 +24,7 @@ var (
 	ErrSetAttendanceForbidden       = errors.New("events.Service.SetAttendance: caller may not set another member's attendance")
 	ErrSetNominationForbidden       = errors.New("events.Service.SetNomination: caller lacks events:write")
 	ErrAttendanceStatusNotNominated = errors.New("events.Service.SetAttendance: status 'not_nominated' may only be set via SetNomination")
+	ErrEventCancelled               = errors.New("events.Service.SetAttendance: cannot change attendance on a cancelled event")
 	ErrRepeatWeeksTooLarge          = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
 	ErrTooManyComments              = fmt.Errorf("event has reached the maximum of %d comments", maxCommentsPerEvent)
 )
@@ -53,7 +53,7 @@ type eventRepo interface {
 	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
 	SetNomination(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
-	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
+	ListComments(ctx context.Context, eventID, teamID string, limit int, cur *CommentCursor) ([]CommentRow, error)
 	CountComments(ctx context.Context, eventID, teamID string) (int, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error)
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
@@ -371,18 +371,40 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
-// ListComments returns paginated comments for an event scoped to teamID.
-func (s *Service) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]gen.EventComment, error) {
-	rows, err := s.repo.ListComments(ctx, eventID, teamID, limit, offset)
+// ListComments returns a keyset page of an event's comments (oldest-first) plus
+// the cursor for the next page (nil on the last page). cursor is the opaque
+// token from a prior page ("" = first page).
+func (s *Service) ListComments(ctx context.Context, eventID, teamID string, limit int, cursor string) ([]gen.EventComment, *string, error) {
+	var cur *CommentCursor
+	var decoded CommentCursor
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
+		return nil, nil, fmt.Errorf("events.Service.ListComments: %w", err)
+	} else if ok {
+		cur = &decoded
+	}
+
+	// Fetch one extra row to detect whether a further page exists.
+	rows, err := s.repo.ListComments(ctx, eventID, teamID, limit+1, cur)
 	if err != nil {
-		return nil, fmt.Errorf("events.Service.ListComments: %w", err)
+		return nil, nil, fmt.Errorf("events.Service.ListComments: %w", err)
+	}
+
+	var next *string
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		token, err := s.pager.Encode(CommentCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+		if err != nil {
+			return nil, nil, fmt.Errorf("events.Service.ListComments: %w", err)
+		}
+		next = &token
 	}
 
 	out := make([]gen.EventComment, 0, len(rows))
 	for _, c := range rows {
 		out = append(out, toGenComment(&c))
 	}
-	return out, nil
+	return out, next, nil
 }
 
 // AddComment adds a comment to an event scoped to teamID. Returns
@@ -525,6 +547,20 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 		if perms.Events != "write" {
 			return nil, ErrSetAttendanceForbidden
 		}
+	}
+
+	// Reject attendance changes on a cancelled event: a cancelled event isn't
+	// happening, so recording (or rewriting) attendance for it is meaningless
+	// and lets anyone alter the record after the fact. This guard is placed
+	// after the permission check so an unauthorized caller still gets 403, not
+	// a leak of the event's status. A GetEvent not-found error (wrapped here)
+	// still satisfies the handler's pgx.ErrNoRows → 404 mapping.
+	ev, err := s.repo.GetEvent(ctx, eventID, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("events.Service.SetAttendance: load event: %w", err)
+	}
+	if ev.Status == "cancelled" {
+		return nil, ErrEventCancelled
 	}
 
 	statusStr := string(req.Status)
@@ -702,29 +738,10 @@ func toGenAttendanceRow(a *AttendanceEnriched) gen.AttendanceRow {
 		row.ReasonVisibility = &rv
 	}
 	if a.PrimaryRole != nil {
-		role := toGenRole(*a.PrimaryRole)
+		role := teams.ToGenRole(*a.PrimaryRole)
 		row.PrimaryRole = &role
 	}
 	return row
-}
-
-// toGenRole maps a teams.RoleRow to gen.Role.
-func toGenRole(r teams.RoleRow) gen.Role {
-	return gen.Role{
-		Id:     r.Id,
-		TeamId: r.TeamID,
-		Name:   r.Name,
-		System: r.System,
-		Color:  r.Color,
-		Permissions: gen.Permissions{
-			Events:   gen.PermLevel(r.Permissions.Events),
-			Members:  gen.PermLevel(r.Permissions.Members),
-			Finances: gen.PermLevel(r.Permissions.Finances),
-			News:     gen.PermLevel(r.Permissions.News),
-			Polls:    gen.PermLevel(r.Permissions.Polls),
-			Settings: gen.PermLevel(r.Permissions.Settings),
-		},
-	}
 }
 
 // toGenAttendanceRecord maps an AttendanceDBRow to gen.AttendanceRecord.
@@ -748,4 +765,3 @@ func toGenAttendanceRecord(a *AttendanceDBRow) gen.AttendanceRecord {
 }
 
 // ensure time is used (time.Time in toGenAttendanceRecord).
-var _ = time.Time{}

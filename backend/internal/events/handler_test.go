@@ -3,6 +3,7 @@ package events_test
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 )
 
 // mockEventService implements the eventService interface used by events.Handler.
@@ -29,6 +31,7 @@ type mockEventService struct {
 	setAttendance func(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error)
 	setNomination func(ctx context.Context, eventID, callerID, teamID string, req gen.SetNominationRequest) error
 	addComment    func(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error)
+	listComments  func(ctx context.Context, eventID, teamID string, limit int, cursor string) ([]gen.EventComment, *string, error)
 }
 
 func (m *mockEventService) ListEvents(context.Context, string, string, gen.ListEventsParamsScope, string, int) ([]gen.TeamEvent, *string, error) {
@@ -55,8 +58,8 @@ func (m *mockEventService) SetStatus(ctx context.Context, userID, eventID, teamI
 	return m.setStatus(ctx, userID, eventID, teamID, status, scope)
 }
 
-func (m *mockEventService) ListComments(context.Context, string, string, int, int) ([]gen.EventComment, error) {
-	panic("not implemented")
+func (m *mockEventService) ListComments(ctx context.Context, eventID, teamID string, limit int, cursor string) ([]gen.EventComment, *string, error) {
+	return m.listComments(ctx, eventID, teamID, limit, cursor)
 }
 
 func (m *mockEventService) AddComment(ctx context.Context, eventID, userID, teamID, text string) (*gen.EventComment, error) {
@@ -87,6 +90,44 @@ func (m *mockEventService) SetNomination(ctx context.Context, eventID, callerID,
 
 func ctxWithUser() context.Context {
 	return auth.ContextWithUser(context.Background(), &auth.UserRow{Id: uuid.New(), Name: "Alice", Email: "a@x.c"})
+}
+
+func TestEventHandler_ListEventComments_ReturnsEnvelope(t *testing.T) {
+	t.Parallel()
+	next := "cursor-2"
+	svc := &mockEventService{
+		listComments: func(_ context.Context, _, _ string, limit int, cursor string) ([]gen.EventComment, *string, error) {
+			assert.Equal(t, 50, limit, "an omitted limit param must default to 50")
+			assert.Equal(t, "", cursor)
+			return []gen.EventComment{{Id: uuid.New()}}, &next, nil
+		},
+	}
+	h := events.NewHandler(svc, slog.Default())
+
+	resp, err := h.ListEventComments(ctxWithUser(), gen.ListEventCommentsRequestObject{TeamId: uuid.New(), EventId: uuid.New()})
+	require.NoError(t, err)
+	env, ok := resp.(gen.ListEventComments200JSONResponse)
+	require.True(t, ok, "response must be the {items, nextCursor} envelope")
+	require.Len(t, env.Items, 1)
+	require.NotNil(t, env.NextCursor)
+	assert.Equal(t, "cursor-2", *env.NextCursor)
+}
+
+func TestEventHandler_ListEventComments_InvalidCursorIsBadRequest(t *testing.T) {
+	t.Parallel()
+	svc := &mockEventService{
+		listComments: func(context.Context, string, string, int, string) ([]gen.EventComment, *string, error) {
+			return nil, nil, pagination.ErrInvalidCursor
+		},
+	}
+	h := events.NewHandler(svc, slog.Default())
+
+	bad := "not-a-cursor"
+	_, err := h.ListEventComments(ctxWithUser(), gen.ListEventCommentsRequestObject{TeamId: uuid.New(), EventId: uuid.New(), Params: gen.ListEventCommentsParams{Cursor: &bad}})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 }
 
 func TestEventHandler_CreateEvent_RejectsOversizedLocation(t *testing.T) {

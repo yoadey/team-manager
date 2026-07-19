@@ -428,7 +428,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List comments for event */
+        /** List comments for event (keyset-paginated, oldest-first) */
         get: operations["listEventComments"];
         put?: never;
         /** Add comment to event */
@@ -728,7 +728,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List transactions (keyset-paginated)
+         * @description Returns transactions newest-first with keyset pagination, so a team's full history is reachable without the hard row cap the finance overview applies to its embedded transaction list.
+         */
+        get: operations["listTransactions"];
         put?: never;
         /** Add income or expense */
         post: operations["createTransaction"];
@@ -838,7 +842,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid": {
+    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid": {
         parameters: {
             query?: never;
             header?: never;
@@ -849,9 +853,9 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        /** Toggle paid status of penalty assignment */
-        post: operations["togglePenaltyPaid"];
+        /** Set the paid status of a penalty assignment (idempotent) */
+        put: operations["setPenaltyPaid"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -878,7 +882,7 @@ export interface paths {
         patch: operations["updateContribution"];
         trace?: never;
     };
-    "/teams/{teamId}/finances/contributions/{contributionId}/toggle": {
+    "/teams/{teamId}/finances/contributions/{contributionId}/paid": {
         parameters: {
             query?: never;
             header?: never;
@@ -889,9 +893,9 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        /** Toggle contribution paid/open */
-        post: operations["toggleContribution"];
+        /** Set the paid status of a contribution (idempotent) */
+        put: operations["setContributionPaid"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1401,6 +1405,11 @@ export interface components {
              */
             amount: number;
             category?: string;
+            /**
+             * Format: date
+             * @description Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
+             */
+            date?: string;
         };
         UpdateTransactionRequest: {
             type?: components["schemas"]["TransactionType"];
@@ -1411,6 +1420,11 @@ export interface components {
              */
             amount?: number;
             category?: string;
+            /**
+             * Format: date
+             * @description Transaction date.
+             */
+            date?: string;
         };
         Penalty: {
             /** Format: uuid */
@@ -1447,8 +1461,11 @@ export interface components {
             teamId: string;
             /** Format: uuid */
             userId: string;
-            /** Format: uuid */
-            penaltyId: string;
+            /**
+             * Format: uuid
+             * @description The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
+             */
+            penaltyId?: string | null;
             paid: boolean;
             /** Format: date */
             date: string;
@@ -1467,6 +1484,10 @@ export interface components {
             userId: string;
             /** Format: uuid */
             penaltyId: string;
+        };
+        SetPaidRequest: {
+            /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
+            paid: boolean;
         };
         OpenPenalty: {
             /** Format: uuid */
@@ -1640,7 +1661,6 @@ export interface components {
         eventId: string;
         roleId: string;
         limit: number;
-        offset: number;
         /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
         cursor: string;
     };
@@ -2475,7 +2495,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: components["parameters"]["limit"];
-                offset?: components["parameters"]["offset"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
             };
             header?: never;
             path: {
@@ -2492,7 +2513,11 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["EventComment"][];
+                    "application/json": {
+                        items: components["schemas"]["EventComment"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
                 };
             };
         };
@@ -3027,6 +3052,36 @@ export interface operations {
             };
         };
     };
+    listTransactions: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Transaction"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
     createTransaction: {
         parameters: {
             query?: never;
@@ -3222,7 +3277,7 @@ export interface operations {
             };
         };
     };
-    togglePenaltyPaid: {
+    setPenaltyPaid: {
         parameters: {
             query?: never;
             header?: never;
@@ -3232,7 +3287,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPaidRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -3272,7 +3331,7 @@ export interface operations {
             };
         };
     };
-    toggleContribution: {
+    setContributionPaid: {
         parameters: {
             query?: never;
             header?: never;
@@ -3282,7 +3341,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPaidRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {

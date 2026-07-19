@@ -522,11 +522,11 @@ describe('events', () => {
   });
 
   it('comments: list, add and remove', async () => {
-    client.GET.mockResolvedValueOnce(ok([{ id: 'c1' }]));
+    client.GET.mockResolvedValueOnce(ok({ items: [{ id: 'c1' }], nextCursor: null }));
     expect((await realApi.events.listComments('e1', 't1'))[0]).toMatchObject({ __mapped: 'eventComment' });
     expect(client.GET).toHaveBeenCalledWith(
       '/teams/{teamId}/events/{eventId}/comments',
-      expect.objectContaining({ params: { path: { teamId: 't1', eventId: 'e1' }, query: { limit: 500, offset: 0 } } }),
+      expect.objectContaining({ params: { path: { teamId: 't1', eventId: 'e1' }, query: { limit: 500, cursor: undefined } } }),
     );
 
     client.POST.mockResolvedValueOnce(ok({ id: 'c1' }));
@@ -536,27 +536,28 @@ describe('events', () => {
     await expect(realApi.events.removeComment('c1', 'e1', 't1')).resolves.toBeUndefined();
   });
 
-  // listEventComments is limit/offset paginated (default limit 50, backend
-  // caps at 500) with no { items, nextCursor } envelope — the backend orders
-  // ORDER BY created_at ASC, so without walking every page to completion an
-  // event with a full page of comments would silently lose everything after
-  // it (its most recent activity) against the real backend, while the mock
-  // returns every comment unconditionally.
-  it('listComments walks every offset page until a short page is returned', async () => {
+  // listEventComments is keyset paginated with a { items, nextCursor } envelope
+  // (oldest-first). Without walking every page to completion an event with a
+  // full page of comments would silently lose everything after it against the
+  // real backend, while the mock returns every comment unconditionally.
+  it('listComments walks every keyset page and forwards the cursor', async () => {
     const fullPage = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}` }));
-    client.GET.mockResolvedValueOnce(ok(fullPage)).mockResolvedValueOnce(ok([{ id: 'c500' }]));
+    client.GET
+      .mockResolvedValueOnce(ok({ items: fullPage, nextCursor: 'c1' }))
+      .mockResolvedValueOnce(ok({ items: [{ id: 'c500' }], nextCursor: null }));
     const res = await realApi.events.listComments('e1', 't1');
     expect(res).toHaveLength(501);
     expect(client.GET).toHaveBeenCalledTimes(2);
     expect(client.GET).toHaveBeenNthCalledWith(
       1,
       '/teams/{teamId}/events/{eventId}/comments',
-      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, offset: 0 } }) }),
+      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, cursor: undefined } }) }),
     );
+    // The second request must carry the cursor the first page returned.
     expect(client.GET).toHaveBeenNthCalledWith(
       2,
       '/teams/{teamId}/events/{eventId}/comments',
-      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, offset: 500 } }) }),
+      expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, cursor: 'c1' } }) }),
     );
   });
 });
@@ -757,8 +758,8 @@ describe('finances', () => {
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.finances.deleteAssignment('pa1', 't1')).resolves.toBeUndefined();
 
-    client.POST.mockResolvedValueOnce(ok({ id: 'pa1' }));
-    expect(await realApi.finances.togglePenaltyPaid('pa1', 't1')).toMatchObject({ __mapped: 'penaltyAssignment' });
+    client.PUT.mockResolvedValueOnce(ok({ id: 'pa1' }));
+    expect(await realApi.finances.setPenaltyPaid('pa1', 't1', true)).toMatchObject({ __mapped: 'penaltyAssignment' });
   });
 
   it('contributions', async () => {
@@ -767,8 +768,8 @@ describe('finances', () => {
       __mapped: 'contribution',
     });
 
-    client.POST.mockResolvedValueOnce(ok({ id: 'co1' }));
-    expect(await realApi.finances.toggleContribution('co1', 't1')).toMatchObject({ __mapped: 'contribution' });
+    client.PUT.mockResolvedValueOnce(ok({ id: 'co1' }));
+    expect(await realApi.finances.setContributionPaid('co1', 't1', true)).toMatchObject({ __mapped: 'contribution' });
   });
 });
 

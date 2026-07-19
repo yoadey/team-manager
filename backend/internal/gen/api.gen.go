@@ -522,10 +522,13 @@ type CreateTeamRequest struct {
 // CreateTransactionRequest defines model for CreateTransactionRequest.
 type CreateTransactionRequest struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
-	Amount   int64           `json:"amount"`
-	Category *string         `json:"category,omitempty"`
-	Title    string          `json:"title"`
-	Type     TransactionType `json:"type"`
+	Amount   int64   `json:"amount"`
+	Category *string `json:"category,omitempty"`
+
+	// Date Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
+	Date  *openapi_types.Date `json:"date,omitempty"`
+	Title string              `json:"title"`
+	Type  TransactionType     `json:"type"`
 }
 
 // DeleteAccountRequest defines model for DeleteAccountRequest.
@@ -710,9 +713,11 @@ type PenaltyAssignment struct {
 	MemberAvatarColor *string            `json:"memberAvatarColor,omitempty"`
 	MemberName        *string            `json:"memberName,omitempty"`
 	Paid              bool               `json:"paid"`
-	PenaltyId         openapi_types.UUID `json:"penaltyId"`
-	TeamId            openapi_types.UUID `json:"teamId"`
-	UserId            openapi_types.UUID `json:"userId"`
+
+	// PenaltyId The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
+	PenaltyId *openapi_types.UUID `json:"penaltyId,omitempty"`
+	TeamId    openapi_types.UUID  `json:"teamId"`
+	UserId    openapi_types.UUID  `json:"userId"`
 }
 
 // PermLevel defines model for PermLevel.
@@ -808,6 +813,12 @@ type SetEventStatusRequest struct {
 type SetNominationRequest struct {
 	Nominated bool               `json:"nominated"`
 	UserId    openapi_types.UUID `json:"userId"`
+}
+
+// SetPaidRequest defines model for SetPaidRequest.
+type SetPaidRequest struct {
+	// Paid The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints).
+	Paid bool `json:"paid"`
 }
 
 // SetRolesRequest defines model for SetRolesRequest.
@@ -982,10 +993,13 @@ type UpdateTeamRequest struct {
 // UpdateTransactionRequest defines model for UpdateTransactionRequest.
 type UpdateTransactionRequest struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
-	Amount   *int64           `json:"amount,omitempty"`
-	Category *string          `json:"category,omitempty"`
-	Title    *string          `json:"title,omitempty"`
-	Type     *TransactionType `json:"type,omitempty"`
+	Amount   *int64  `json:"amount,omitempty"`
+	Category *string `json:"category,omitempty"`
+
+	// Date Transaction date.
+	Date  *openapi_types.Date `json:"date,omitempty"`
+	Title *string             `json:"title,omitempty"`
+	Type  *TransactionType    `json:"type,omitempty"`
 }
 
 // User defines model for User.
@@ -1017,9 +1031,6 @@ type Limit = int
 
 // MembershipId defines model for membershipId.
 type MembershipId = openapi_types.UUID
-
-// Offset defines model for offset.
-type Offset = int
 
 // RoleId defines model for roleId.
 type RoleId = openapi_types.UUID
@@ -1093,8 +1104,10 @@ type UpdateEventParamsScope string
 
 // ListEventCommentsParams defines parameters for ListEventComments.
 type ListEventCommentsParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // SetEventStatusParams defines parameters for SetEventStatus.
@@ -1104,6 +1117,14 @@ type SetEventStatusParams struct {
 
 // SetEventStatusParamsScope defines parameters for SetEventStatus.
 type SetEventStatusParamsScope string
+
+// ListTransactionsParams defines parameters for ListTransactions.
+type ListTransactionsParams struct {
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
 
 // UploadTeamLogoMultipartBody defines parameters for UploadTeamLogo.
 type UploadTeamLogoMultipartBody struct {
@@ -1187,6 +1208,9 @@ type SetEventStatusJSONRequestBody = SetEventStatusRequest
 // UpdateContributionJSONRequestBody defines body for UpdateContribution for application/json ContentType.
 type UpdateContributionJSONRequestBody = UpdateContributionRequest
 
+// SetContributionPaidJSONRequestBody defines body for SetContributionPaid for application/json ContentType.
+type SetContributionPaidJSONRequestBody = SetPaidRequest
+
 // CreatePenaltyJSONRequestBody defines body for CreatePenalty for application/json ContentType.
 type CreatePenaltyJSONRequestBody = CreatePenaltyRequest
 
@@ -1195,6 +1219,9 @@ type UpdatePenaltyJSONRequestBody = UpdatePenaltyRequest
 
 // CreatePenaltyAssignmentJSONRequestBody defines body for CreatePenaltyAssignment for application/json ContentType.
 type CreatePenaltyAssignmentJSONRequestBody = CreatePenaltyAssignmentRequest
+
+// SetPenaltyPaidJSONRequestBody defines body for SetPenaltyPaid for application/json ContentType.
+type SetPenaltyPaidJSONRequestBody = SetPaidRequest
 
 // CreateTransactionJSONRequestBody defines body for CreateTransaction for application/json ContentType.
 type CreateTransactionJSONRequestBody = CreateTransactionRequest
@@ -1312,7 +1339,7 @@ type ServerInterface interface {
 	// Nominate or denominate a member for event
 	// (PUT /teams/{teamId}/events/{eventId}/attendance/nominations)
 	SetNomination(w http.ResponseWriter, r *http.Request, teamId TeamId, eventId EventId)
-	// List comments for event
+	// List comments for event (keyset-paginated, oldest-first)
 	// (GET /teams/{teamId}/events/{eventId}/comments)
 	ListEventComments(w http.ResponseWriter, r *http.Request, teamId TeamId, eventId EventId, params ListEventCommentsParams)
 	// Add comment to event
@@ -1330,9 +1357,9 @@ type ServerInterface interface {
 	// Update contribution amount or label
 	// (PATCH /teams/{teamId}/finances/contributions/{contributionId})
 	UpdateContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
-	// Toggle contribution paid/open
-	// (POST /teams/{teamId}/finances/contributions/{contributionId}/toggle)
-	ToggleContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
+	// Set the paid status of a contribution (idempotent)
+	// (PUT /teams/{teamId}/finances/contributions/{contributionId}/paid)
+	SetContributionPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
 	// Create penalty template
 	// (POST /teams/{teamId}/finances/penalties)
 	CreatePenalty(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1348,9 +1375,12 @@ type ServerInterface interface {
 	// Remove penalty assignment
 	// (DELETE /teams/{teamId}/finances/penalty-assignments/{assignmentId})
 	DeletePenaltyAssignment(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
-	// Toggle paid status of penalty assignment
-	// (POST /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid)
-	TogglePenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
+	// Set the paid status of a penalty assignment (idempotent)
+	// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
+	SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
+	// List transactions (keyset-paginated)
+	// (GET /teams/{teamId}/finances/transactions)
+	ListTransactions(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListTransactionsParams)
 	// Add income or expense
 	// (POST /teams/{teamId}/finances/transactions)
 	CreateTransaction(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1606,7 +1636,7 @@ func (_ Unimplemented) SetNomination(w http.ResponseWriter, r *http.Request, tea
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List comments for event
+// List comments for event (keyset-paginated, oldest-first)
 // (GET /teams/{teamId}/events/{eventId}/comments)
 func (_ Unimplemented) ListEventComments(w http.ResponseWriter, r *http.Request, teamId TeamId, eventId EventId, params ListEventCommentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -1642,9 +1672,9 @@ func (_ Unimplemented) UpdateContribution(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Toggle contribution paid/open
-// (POST /teams/{teamId}/finances/contributions/{contributionId}/toggle)
-func (_ Unimplemented) ToggleContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
+// Set the paid status of a contribution (idempotent)
+// (PUT /teams/{teamId}/finances/contributions/{contributionId}/paid)
+func (_ Unimplemented) SetContributionPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1678,9 +1708,15 @@ func (_ Unimplemented) DeletePenaltyAssignment(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Toggle paid status of penalty assignment
-// (POST /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid)
-func (_ Unimplemented) TogglePenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
+// Set the paid status of a penalty assignment (idempotent)
+// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
+func (_ Unimplemented) SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List transactions (keyset-paginated)
+// (GET /teams/{teamId}/finances/transactions)
+func (_ Unimplemented) ListTransactions(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListTransactionsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2829,15 +2865,15 @@ func (siw *ServerInterfaceWrapper) ListEventComments(w http.ResponseWriter, r *h
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -3074,8 +3110,8 @@ func (siw *ServerInterfaceWrapper) UpdateContribution(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
-// ToggleContribution operation middleware
-func (siw *ServerInterfaceWrapper) ToggleContribution(w http.ResponseWriter, r *http.Request) {
+// SetContributionPaid operation middleware
+func (siw *ServerInterfaceWrapper) SetContributionPaid(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3105,7 +3141,7 @@ func (siw *ServerInterfaceWrapper) ToggleContribution(w http.ResponseWriter, r *
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ToggleContribution(w, r, teamId, contributionId)
+		siw.Handler.SetContributionPaid(w, r, teamId, contributionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3302,8 +3338,8 @@ func (siw *ServerInterfaceWrapper) DeletePenaltyAssignment(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
-// TogglePenaltyPaid operation middleware
-func (siw *ServerInterfaceWrapper) TogglePenaltyPaid(w http.ResponseWriter, r *http.Request) {
+// SetPenaltyPaid operation middleware
+func (siw *ServerInterfaceWrapper) SetPenaltyPaid(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3333,7 +3369,68 @@ func (siw *ServerInterfaceWrapper) TogglePenaltyPaid(w http.ResponseWriter, r *h
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TogglePenaltyPaid(w, r, teamId, assignmentId)
+		siw.Handler.SetPenaltyPaid(w, r, teamId, assignmentId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListTransactions operation middleware
+func (siw *ServerInterfaceWrapper) ListTransactions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTransactionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTransactions(w, r, teamId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4778,7 +4875,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/teams/{teamId}/finances/contributions/{contributionId}", wrapper.UpdateContribution)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/teams/{teamId}/finances/contributions/{contributionId}/toggle", wrapper.ToggleContribution)
+		r.Put(options.BaseURL+"/teams/{teamId}/finances/contributions/{contributionId}/paid", wrapper.SetContributionPaid)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{teamId}/finances/penalties", wrapper.CreatePenalty)
@@ -4796,7 +4893,10 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}", wrapper.DeletePenaltyAssignment)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid", wrapper.TogglePenaltyPaid)
+		r.Put(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid", wrapper.SetPenaltyPaid)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/finances/transactions", wrapper.ListTransactions)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{teamId}/finances/transactions", wrapper.CreateTransaction)
@@ -5657,7 +5757,12 @@ type ListEventCommentsResponseObject interface {
 	VisitListEventCommentsResponse(w http.ResponseWriter) error
 }
 
-type ListEventComments200JSONResponse []EventComment
+type ListEventComments200JSONResponse struct {
+	Items []EventComment `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListEventComments200JSONResponse) VisitListEventCommentsResponse(w http.ResponseWriter) error {
 
@@ -5784,18 +5889,19 @@ func (response UpdateContribution200JSONResponse) VisitUpdateContributionRespons
 	return err
 }
 
-type ToggleContributionRequestObject struct {
+type SetContributionPaidRequestObject struct {
 	TeamId         TeamId             `json:"teamId"`
 	ContributionId openapi_types.UUID `json:"contributionId"`
+	Body           *SetContributionPaidJSONRequestBody
 }
 
-type ToggleContributionResponseObject interface {
-	VisitToggleContributionResponse(w http.ResponseWriter) error
+type SetContributionPaidResponseObject interface {
+	VisitSetContributionPaidResponse(w http.ResponseWriter) error
 }
 
-type ToggleContribution200JSONResponse Contribution
+type SetContributionPaid200JSONResponse Contribution
 
-func (response ToggleContribution200JSONResponse) VisitToggleContributionResponse(w http.ResponseWriter) error {
+func (response SetContributionPaid200JSONResponse) VisitSetContributionPaidResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5911,18 +6017,47 @@ func (response DeletePenaltyAssignment204Response) VisitDeletePenaltyAssignmentR
 	return nil
 }
 
-type TogglePenaltyPaidRequestObject struct {
+type SetPenaltyPaidRequestObject struct {
 	TeamId       TeamId             `json:"teamId"`
 	AssignmentId openapi_types.UUID `json:"assignmentId"`
+	Body         *SetPenaltyPaidJSONRequestBody
 }
 
-type TogglePenaltyPaidResponseObject interface {
-	VisitTogglePenaltyPaidResponse(w http.ResponseWriter) error
+type SetPenaltyPaidResponseObject interface {
+	VisitSetPenaltyPaidResponse(w http.ResponseWriter) error
 }
 
-type TogglePenaltyPaid200JSONResponse PenaltyAssignment
+type SetPenaltyPaid200JSONResponse PenaltyAssignment
 
-func (response TogglePenaltyPaid200JSONResponse) VisitTogglePenaltyPaidResponse(w http.ResponseWriter) error {
+func (response SetPenaltyPaid200JSONResponse) VisitSetPenaltyPaidResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTransactionsRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Params ListTransactionsParams
+}
+
+type ListTransactionsResponseObject interface {
+	VisitListTransactionsResponse(w http.ResponseWriter) error
+}
+
+type ListTransactions200JSONResponse struct {
+	Items []Transaction `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
+
+func (response ListTransactions200JSONResponse) VisitListTransactionsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6760,7 +6895,7 @@ type StrictServerInterface interface {
 	// Nominate or denominate a member for event
 	// (PUT /teams/{teamId}/events/{eventId}/attendance/nominations)
 	SetNomination(ctx context.Context, request SetNominationRequestObject) (SetNominationResponseObject, error)
-	// List comments for event
+	// List comments for event (keyset-paginated, oldest-first)
 	// (GET /teams/{teamId}/events/{eventId}/comments)
 	ListEventComments(ctx context.Context, request ListEventCommentsRequestObject) (ListEventCommentsResponseObject, error)
 	// Add comment to event
@@ -6778,9 +6913,9 @@ type StrictServerInterface interface {
 	// Update contribution amount or label
 	// (PATCH /teams/{teamId}/finances/contributions/{contributionId})
 	UpdateContribution(ctx context.Context, request UpdateContributionRequestObject) (UpdateContributionResponseObject, error)
-	// Toggle contribution paid/open
-	// (POST /teams/{teamId}/finances/contributions/{contributionId}/toggle)
-	ToggleContribution(ctx context.Context, request ToggleContributionRequestObject) (ToggleContributionResponseObject, error)
+	// Set the paid status of a contribution (idempotent)
+	// (PUT /teams/{teamId}/finances/contributions/{contributionId}/paid)
+	SetContributionPaid(ctx context.Context, request SetContributionPaidRequestObject) (SetContributionPaidResponseObject, error)
 	// Create penalty template
 	// (POST /teams/{teamId}/finances/penalties)
 	CreatePenalty(ctx context.Context, request CreatePenaltyRequestObject) (CreatePenaltyResponseObject, error)
@@ -6796,9 +6931,12 @@ type StrictServerInterface interface {
 	// Remove penalty assignment
 	// (DELETE /teams/{teamId}/finances/penalty-assignments/{assignmentId})
 	DeletePenaltyAssignment(ctx context.Context, request DeletePenaltyAssignmentRequestObject) (DeletePenaltyAssignmentResponseObject, error)
-	// Toggle paid status of penalty assignment
-	// (POST /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid)
-	TogglePenaltyPaid(ctx context.Context, request TogglePenaltyPaidRequestObject) (TogglePenaltyPaidResponseObject, error)
+	// Set the paid status of a penalty assignment (idempotent)
+	// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
+	SetPenaltyPaid(ctx context.Context, request SetPenaltyPaidRequestObject) (SetPenaltyPaidResponseObject, error)
+	// List transactions (keyset-paginated)
+	// (GET /teams/{teamId}/finances/transactions)
+	ListTransactions(ctx context.Context, request ListTransactionsRequestObject) (ListTransactionsResponseObject, error)
 	// Add income or expense
 	// (POST /teams/{teamId}/finances/transactions)
 	CreateTransaction(ctx context.Context, request CreateTransactionRequestObject) (CreateTransactionResponseObject, error)
@@ -7854,26 +7992,33 @@ func (sh *strictHandler) UpdateContribution(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// ToggleContribution operation middleware
-func (sh *strictHandler) ToggleContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
-	var request ToggleContributionRequestObject
+// SetContributionPaid operation middleware
+func (sh *strictHandler) SetContributionPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
+	var request SetContributionPaidRequestObject
 
 	request.TeamId = teamId
 	request.ContributionId = contributionId
 
+	var body SetContributionPaidJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ToggleContribution(ctx, request.(ToggleContributionRequestObject))
+		return sh.ssi.SetContributionPaid(ctx, request.(SetContributionPaidRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ToggleContribution")
+		handler = middleware(handler, "SetContributionPaid")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ToggleContributionResponseObject); ok {
-		if err := validResponse.VisitToggleContributionResponse(w); err != nil {
+	} else if validResponse, ok := response.(SetContributionPaidResponseObject); ok {
+		if err := validResponse.VisitSetContributionPaidResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8035,26 +8180,60 @@ func (sh *strictHandler) DeletePenaltyAssignment(w http.ResponseWriter, r *http.
 	}
 }
 
-// TogglePenaltyPaid operation middleware
-func (sh *strictHandler) TogglePenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
-	var request TogglePenaltyPaidRequestObject
+// SetPenaltyPaid operation middleware
+func (sh *strictHandler) SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
+	var request SetPenaltyPaidRequestObject
 
 	request.TeamId = teamId
 	request.AssignmentId = assignmentId
 
+	var body SetPenaltyPaidJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.TogglePenaltyPaid(ctx, request.(TogglePenaltyPaidRequestObject))
+		return sh.ssi.SetPenaltyPaid(ctx, request.(SetPenaltyPaidRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "TogglePenaltyPaid")
+		handler = middleware(handler, "SetPenaltyPaid")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(TogglePenaltyPaidResponseObject); ok {
-		if err := validResponse.VisitTogglePenaltyPaidResponse(w); err != nil {
+	} else if validResponse, ok := response.(SetPenaltyPaidResponseObject); ok {
+		if err := validResponse.VisitSetPenaltyPaidResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListTransactions operation middleware
+func (sh *strictHandler) ListTransactions(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListTransactionsParams) {
+	var request ListTransactionsRequestObject
+
+	request.TeamId = teamId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTransactions(ctx, request.(ListTransactionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTransactions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTransactionsResponseObject); ok {
+		if err := validResponse.VisitListTransactionsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

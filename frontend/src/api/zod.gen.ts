@@ -447,7 +447,7 @@ const PenaltyAssignment = z
     id: z.string().uuid(),
     teamId: z.string().uuid(),
     userId: z.string().uuid(),
-    penaltyId: z.string().uuid(),
+    penaltyId: z.string().uuid().nullish(),
     paid: z.boolean(),
     date: z.string(),
     memberName: z.string().optional(),
@@ -501,6 +501,7 @@ const CreateTransactionRequest = z
     title: z.string().max(255),
     amount: z.number().int().gte(1).lte(100000000),
     category: z.string().max(255).optional(),
+    date: z.string().optional(),
   })
   .passthrough();
 const UpdateTransactionRequest = z
@@ -509,6 +510,7 @@ const UpdateTransactionRequest = z
     title: z.string().max(255),
     amount: z.number().int().gte(1).lte(100000000),
     category: z.string().max(255),
+    date: z.string(),
   })
   .partial()
   .passthrough();
@@ -522,6 +524,7 @@ const UpdatePenaltyRequest = z
 const CreatePenaltyAssignmentRequest = z
   .object({ userId: z.string().uuid(), penaltyId: z.string().uuid() })
   .passthrough();
+const SetPaidRequest = z.object({ paid: z.boolean() }).passthrough();
 const UpdateContributionRequest = z
   .object({ label: z.string(), amount: z.number().int().gte(1).lte(100000000) })
   .partial()
@@ -637,6 +640,7 @@ export const schemas = {
   CreatePenaltyRequest,
   UpdatePenaltyRequest,
   CreatePenaltyAssignmentRequest,
+  SetPaidRequest,
   UpdateContributionRequest,
   MemberStat,
   EventStat,
@@ -1197,12 +1201,17 @@ const endpoints = makeApi([
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: "offset",
+        name: "cursor",
         type: "Query",
-        schema: z.number().int().gte(0).optional().default(0),
+        schema: z.string().optional(),
       },
     ],
-    response: z.array(EventComment),
+    response: z
+      .object({
+        items: z.array(EventComment),
+        nextCursor: z.string().nullable(),
+      })
+      .passthrough(),
   },
   {
     method: "post",
@@ -1320,11 +1329,16 @@ const endpoints = makeApi([
     response: Contribution,
   },
   {
-    method: "post",
-    path: "/teams/:teamId/finances/contributions/:contributionId/toggle",
-    alias: "toggleContribution",
+    method: "put",
+    path: "/teams/:teamId/finances/contributions/:contributionId/paid",
+    alias: "setContributionPaid",
     requestFormat: "json",
     parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ paid: z.boolean() }).passthrough(),
+      },
       {
         name: "teamId",
         type: "Path",
@@ -1439,11 +1453,16 @@ const endpoints = makeApi([
     response: z.void(),
   },
   {
-    method: "post",
-    path: "/teams/:teamId/finances/penalty-assignments/:assignmentId/toggle-paid",
-    alias: "togglePenaltyPaid",
+    method: "put",
+    path: "/teams/:teamId/finances/penalty-assignments/:assignmentId/paid",
+    alias: "setPenaltyPaid",
     requestFormat: "json",
     parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ paid: z.boolean() }).passthrough(),
+      },
       {
         name: "teamId",
         type: "Path",
@@ -1456,6 +1475,36 @@ const endpoints = makeApi([
       },
     ],
     response: PenaltyAssignment,
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/finances/transactions",
+    alias: "listTransactions",
+    description: `Returns transactions newest-first with keyset pagination, so a team&#x27;s full history is reachable without the hard row cap the finance overview applies to its embedded transaction list.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "limit",
+        type: "Query",
+        schema: z.number().int().gte(1).lte(500).optional().default(50),
+      },
+      {
+        name: "cursor",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+    ],
+    response: z
+      .object({
+        items: z.array(Transaction),
+        nextCursor: z.string().nullable(),
+      })
+      .passthrough(),
   },
   {
     method: "post",

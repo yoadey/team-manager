@@ -34,7 +34,7 @@ function makeApp(overrides = {}) {
   return {
     openPenaltyCatalog: vi.fn(),
     openPenaltyAssign: vi.fn(),
-    togglePenalty: vi.fn(),
+    setPenaltyPaid: vi.fn(),
     deleteAssignment: vi.fn(),
     ...overrides,
   };
@@ -128,7 +128,7 @@ describe('FinancesPenalties', () => {
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
 
-  it('calls togglePenalty when toggle button clicked', () => {
+  it('calls setPenaltyPaid with the toggled value when the button is clicked', () => {
     const app = makeApp();
     render(
       <FinancesPenalties
@@ -139,7 +139,9 @@ describe('FinancesPenalties', () => {
       />,
     );
     fireEvent.click(screen.getByText('finances.penaltyPaid'));
-    expect(app.togglePenalty).toHaveBeenCalledWith('a1');
+    // The assignment is unpaid (makeAssignment defaults paid:false), so the
+    // click requests the opposite value explicitly (idempotent set, not toggle).
+    expect(app.setPenaltyPaid).toHaveBeenCalledWith('a1', true);
   });
 
   it('calls deleteAssignment when delete button clicked', () => {

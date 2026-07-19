@@ -268,6 +268,43 @@ func TestCSRFOriginCheck_AllowsMissingOriginOnMutation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// A browser that classifies a state-changing request as cross-site must be
+// blocked even if a (disallowed) Origin header happens to be absent -- the
+// Sec-Fetch-Site metadata header is the authoritative browser signal.
+func TestCSRFOriginCheck_BlocksCrossSiteFetchMetadata(t *testing.T) {
+	handler := middleware.CSRFOriginCheck([]string{"https://app.example.com"})(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			t.Fatal("inner handler must not run for a cross-site request")
+		}),
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/data", http.NoBody)
+	req.Header.Set("Sec-Fetch-Site", "cross-site") // no Origin header
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// A same-origin fetch (the app's own frontend) must be allowed.
+func TestCSRFOriginCheck_AllowsSameOriginFetchMetadata(t *testing.T) {
+	var called bool
+	handler := middleware.CSRFOriginCheck([]string{"https://app.example.com"})(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/api/data", http.NoBody)
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, called)
+	assert.Equal(t, http.StatusOK, rec.Code)
+}
+
 // ─── Recoverer ───────────────────────────────────────────────────────────────
 
 func TestRecoverer_CatchesPanic(t *testing.T) {

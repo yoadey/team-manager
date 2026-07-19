@@ -102,7 +102,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
               </Box>
               {canFin ? (
                 <ButtonBase
-                  onClick={() => app.togglePenalty(a.id)}
+                  onClick={() => app.setPenaltyPaid(a.id, !a.paid)}
                   sx={{
                     border: 'none',
                     cursor: 'pointer',

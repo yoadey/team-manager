@@ -718,19 +718,27 @@ paths:
       tags: [events]
       operationId: listEventComments
       x-rbac-module: events
-      summary: List comments for event
+      summary: List comments for event (keyset-paginated, oldest-first)
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/EventComment"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventComment"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [events]
       operationId: addEventComment
@@ -1176,6 +1184,35 @@ paths:
   /teams/{teamId}/finances/transactions:
     parameters:
       - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [finances]
+      operationId: listTransactions
+      x-rbac-module: finances
+      summary: List transactions (keyset-paginated)
+      description: >-
+        Returns transactions newest-first with keyset pagination, so a team's
+        full history is reachable without the hard row cap the finance overview
+        applies to its embedded transaction list.
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Transaction"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [finances]
       operationId: createTransaction
@@ -1329,7 +1366,7 @@ paths:
         "204":
           description: No Content
 
-  /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid:
+  /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid:
     parameters:
       - $ref: "#/components/parameters/teamId"
       - name: assignmentId
@@ -1338,11 +1375,17 @@ paths:
         schema:
           type: string
           format: uuid
-    post:
+    put:
       tags: [finances]
-      operationId: togglePenaltyPaid
+      operationId: setPenaltyPaid
       x-rbac-module: finances
-      summary: Toggle paid status of penalty assignment
+      summary: Set the paid status of a penalty assignment (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPaidRequest"
       responses:
         "200":
           description: OK
@@ -1379,7 +1422,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Contribution"
 
-  /teams/{teamId}/finances/contributions/{contributionId}/toggle:
+  /teams/{teamId}/finances/contributions/{contributionId}/paid:
     parameters:
       - $ref: "#/components/parameters/teamId"
       - name: contributionId
@@ -1388,11 +1431,17 @@ paths:
         schema:
           type: string
           format: uuid
-    post:
+    put:
       tags: [finances]
-      operationId: toggleContribution
+      operationId: setContributionPaid
       x-rbac-module: finances
-      summary: Toggle contribution paid/open
+      summary: Set the paid status of a contribution (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPaidRequest"
       responses:
         "200":
           description: OK
@@ -1497,13 +1546,6 @@ components:
         minimum: 1
         maximum: 500
         default: 50
-    offset:
-      name: offset
-      in: query
-      schema:
-        type: integer
-        minimum: 0
-        default: 0
     cursor:
       name: cursor
       in: query
@@ -2546,6 +2588,12 @@ components:
         category:
           type: string
           maxLength: 255
+        date:
+          type: string
+          format: date
+          description: >-
+            Transaction date (e.g. to back-date a receipt). Defaults to the
+            server's current date when omitted.
 
     UpdateTransactionRequest:
       type: object
@@ -2564,6 +2612,10 @@ components:
         category:
           type: string
           maxLength: 255
+        date:
+          type: string
+          format: date
+          description: Transaction date.
 
     Penalty:
       type: object
@@ -2609,7 +2661,7 @@ components:
 
     PenaltyAssignment:
       type: object
-      required: [id, teamId, userId, penaltyId, paid, date]
+      required: [id, teamId, userId, paid, date]
       properties:
         id:
           type: string
@@ -2623,6 +2675,11 @@ components:
         penaltyId:
           type: string
           format: uuid
+          nullable: true
+          description: >-
+            The catalog penalty this assignment was created from, or null if
+            that penalty has since been deleted. The assignment's own label and
+            amount snapshot (taken at creation) remain the authoritative record.
         paid:
           type: boolean
         date:
@@ -2651,6 +2708,17 @@ components:
         penaltyId:
           type: string
           format: uuid
+
+    SetPaidRequest:
+      type: object
+      required: [paid]
+      properties:
+        paid:
+          type: boolean
+          description: >-
+            The desired paid state. Idempotent — sending the same value twice
+            yields the same result, so a retried request never flips the state
+            back (unlike the previous toggle endpoints).
 
     OpenPenalty:
       type: object

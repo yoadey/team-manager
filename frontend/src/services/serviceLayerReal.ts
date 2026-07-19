@@ -136,25 +136,6 @@ async function fetchAllPages<T>(
   return all;
 }
 
-// fetchAllOffsetPages walks a plain-array endpoint paginated via limit/offset
-// (no { items, nextCursor } envelope, e.g. listEventComments) to completion,
-// stopping once a page comes back shorter than PAGE_LIMIT. Without this, the
-// real backend's default limit=50 would silently truncate any event with
-// more than 50 comments to its oldest 50 (ORDER BY created_at ASC), while the
-// mock returns every comment unconditionally.
-async function fetchAllOffsetPages<T>(fetchPage: (limit: number, offset: number) => Promise<T[]>): Promise<T[]> {
-  const all: T[] = [];
-  let offset = 0;
-  for (;;) {
-    const page = await fetchPage(PAGE_LIMIT, offset);
-    all.push(...page);
-    if (all.length > 10_000) throw new Error('fetchAllOffsetPages: too many pages');
-    if (page.length < PAGE_LIMIT) break;
-    offset += PAGE_LIMIT;
-  }
-  return all;
-}
-
 export const realApi = {
   auth: {
     async providers(): Promise<Provider[]> {
@@ -545,16 +526,15 @@ export const realApi = {
     },
 
     async listComments(eventId: string, teamId: string): Promise<EventComment[]> {
-      // limit/offset paginated (see fetchAllOffsetPages doc comment above) —
-      // walked to completion so events with more than one page of comments
-      // (default limit 50) don't silently lose their oldest ones.
-      const comments = await fetchAllOffsetPages((limit, offset) =>
-        apiClient
-          .GET('/teams/{teamId}/events/{eventId}/comments', {
-            params: { path: { teamId, eventId }, query: { limit, offset } },
-          })
-          .then(check),
-      );
+      // Keyset { items, nextCursor } envelope, walked to completion so events
+      // with more than one page of comments (default limit 50) don't silently
+      // lose their oldest ones.
+      const comments = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/events/{eventId}/comments', {
+          params: { path: { teamId, eventId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
       return comments.map(mapEventComment);
     },
 
@@ -798,6 +778,20 @@ export const realApi = {
       return mapFinanceOverview({ ...o, assignments: [...o.assignments].reverse() });
     },
 
+    // listTransactions walks the keyset { items, nextCursor } envelope to the
+    // end, so the full transaction history is reachable — unlike overview(),
+    // whose embedded transaction list the backend caps at a fixed number of
+    // rows for the summary view.
+    async listTransactions(teamId: string): Promise<Transaction[]> {
+      const items = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/finances/transactions', {
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
+      return items.map(mapTransaction);
+    },
+
     async addTransaction(
       teamId: string,
       payload: {
@@ -815,6 +809,7 @@ export const realApi = {
           title: payload.title,
           amount: eurosToCents(payload.amount),
           category: payload.category,
+          date: payload.date,
         },
       });
       const t = await check(res);
@@ -829,6 +824,7 @@ export const realApi = {
           title: patch.title,
           amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
           category: patch.category,
+          date: patch.date,
         },
       });
       const t = await check(res);
@@ -890,9 +886,10 @@ export const realApi = {
       await checkOk(res);
     },
 
-    async togglePenaltyPaid(id: string, teamId: string): Promise<PenaltyAssignment> {
-      const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid', {
+    async setPenaltyPaid(id: string, teamId: string, paid: boolean): Promise<PenaltyAssignment> {
+      const res = await apiClient.PUT('/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid', {
         params: { path: { teamId, assignmentId: id } },
+        body: { paid },
       });
       const a = await check(res);
       return mapPenaltyAssignment(a);
@@ -914,9 +911,10 @@ export const realApi = {
       return mapContribution(c);
     },
 
-    async toggleContribution(id: string, teamId: string): Promise<Contribution> {
-      const res = await apiClient.POST('/teams/{teamId}/finances/contributions/{contributionId}/toggle', {
+    async setContributionPaid(id: string, teamId: string, paid: boolean): Promise<Contribution> {
+      const res = await apiClient.PUT('/teams/{teamId}/finances/contributions/{contributionId}/paid', {
         params: { path: { teamId, contributionId: id } },
+        body: { paid },
       });
       const c = await check(res);
       return mapContribution(c);
