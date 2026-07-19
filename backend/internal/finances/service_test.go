@@ -35,12 +35,12 @@ type mockRepo struct {
 	getAssignmentByIDFn      func(ctx context.Context, id, teamID uuid.UUID) (*finances.PenaltyAssignmentRow, error)
 	createAssignmentFn       func(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*finances.PenaltyAssignmentRow, error)
 	deleteAssignmentFn       func(ctx context.Context, id, teamID uuid.UUID) error
-	toggleAssignmentPaidFn   func(ctx context.Context, id, teamID uuid.UUID) (*finances.PenaltyAssignmentRow, error)
+	setAssignmentPaidFn      func(ctx context.Context, id, teamID uuid.UUID, paid bool) (*finances.PenaltyAssignmentRow, error)
 	userIsMemberOfTeamFn     func(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
 	listContributionsFn      func(ctx context.Context, teamID uuid.UUID) ([]finances.ContributionRow, error)
 	countOpenContributionsFn func(ctx context.Context, teamID uuid.UUID) (int, error)
 	updateContributionFn     func(ctx context.Context, id, teamID uuid.UUID, patch finances.ContributionPatch) (*finances.ContributionRow, error)
-	toggleContributionFn     func(ctx context.Context, id, teamID uuid.UUID) (*finances.ContributionRow, error)
+	setContributionPaidFn    func(ctx context.Context, id, teamID uuid.UUID, paid bool) (*finances.ContributionRow, error)
 	listOpenPenaltiesFn      func(ctx context.Context, teamID uuid.UUID) ([]finances.OpenPenaltyAggregate, error)
 	withReadTxFn             func(ctx context.Context, fn func(finances.OverviewReader) error) error
 	countTransactionsFn      func(ctx context.Context, teamID uuid.UUID) (int, error)
@@ -133,8 +133,8 @@ func (m *mockRepo) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) e
 	return m.deleteAssignmentFn(ctx, id, teamID)
 }
 
-func (m *mockRepo) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
-	return m.toggleAssignmentPaidFn(ctx, id, teamID)
+func (m *mockRepo) SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*finances.PenaltyAssignmentRow, error) {
+	return m.setAssignmentPaidFn(ctx, id, teamID, paid)
 }
 
 func (m *mockRepo) UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error) {
@@ -153,8 +153,8 @@ func (m *mockRepo) UpdateContribution(ctx context.Context, id, teamID uuid.UUID,
 	return m.updateContributionFn(ctx, id, teamID, patch)
 }
 
-func (m *mockRepo) ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*finances.ContributionRow, error) {
-	return m.toggleContributionFn(ctx, id, teamID)
+func (m *mockRepo) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*finances.ContributionRow, error) {
+	return m.setContributionPaidFn(ctx, id, teamID, paid)
 }
 
 func (m *mockRepo) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]finances.OpenPenaltyAggregate, error) {
@@ -479,15 +479,16 @@ func TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload(
 	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
 
-func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
+func TestService_SetPenaltyPaid_ReloadsEnrichedRow(t *testing.T) {
 	t.Parallel()
 
 	teamID, id := uuid.New(), uuid.New()
 	label := "Yellow card"
 	repo := &mockRepo{
-		toggleAssignmentPaidFn: func(_ context.Context, gotID, gotTeamID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+		setAssignmentPaidFn: func(_ context.Context, gotID, gotTeamID uuid.UUID, paid bool) (*finances.PenaltyAssignmentRow, error) {
 			assert.Equal(t, id, gotID)
 			assert.Equal(t, teamID, gotTeamID)
+			assert.True(t, paid, "the requested paid value must be passed through")
 			return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, Paid: true}, nil
 		},
 		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
@@ -496,7 +497,7 @@ func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
 	}
 
 	svc := finances.NewService(repo, slog.Default())
-	result, err := svc.ToggleAssignmentPaid(context.Background(), teamID, id)
+	result, err := svc.SetPenaltyPaid(context.Background(), teamID, id, true)
 	require.NoError(t, err)
 	assert.True(t, result.Paid)
 	require.NotNil(t, result.Label)
@@ -506,12 +507,12 @@ func TestService_ToggleAssignmentPaid_ReloadsEnrichedRow(t *testing.T) {
 // Regression test: same class as
 // TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload,
 // for the toggle-paid path.
-func TestService_ToggleAssignmentPaid_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t *testing.T) {
+func TestService_SetPenaltyPaid_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t *testing.T) {
 	t.Parallel()
 
 	teamID, id := uuid.New(), uuid.New()
 	repo := &mockRepo{
-		toggleAssignmentPaidFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+		setAssignmentPaidFn: func(context.Context, uuid.UUID, uuid.UUID, bool) (*finances.PenaltyAssignmentRow, error) {
 			return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, Paid: true}, nil
 		},
 		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
@@ -520,26 +521,27 @@ func TestService_ToggleAssignmentPaid_PropagatesErrNoRowsWhenRowDeletedBeforeRel
 	}
 
 	svc := finances.NewService(repo, slog.Default())
-	_, err := svc.ToggleAssignmentPaid(context.Background(), teamID, id)
+	_, err := svc.SetPenaltyPaid(context.Background(), teamID, id, true)
 	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
 
 // ─── Contributions ───────────────────────────────────────────────────────────
 
-func TestService_ToggleContribution(t *testing.T) {
+func TestService_SetContributionPaid(t *testing.T) {
 	t.Parallel()
 
 	teamID, id := uuid.New(), uuid.New()
 	repo := &mockRepo{
-		toggleContributionFn: func(_ context.Context, gotID, gotTeamID uuid.UUID) (*finances.ContributionRow, error) {
+		setContributionPaidFn: func(_ context.Context, gotID, gotTeamID uuid.UUID, paid bool) (*finances.ContributionRow, error) {
 			assert.Equal(t, id, gotID)
 			assert.Equal(t, teamID, gotTeamID)
+			assert.True(t, paid, "the requested paid value must be passed through")
 			return &finances.ContributionRow{ID: id, TeamID: teamID, Status: "paid"}, nil
 		},
 	}
 
 	svc := finances.NewService(repo, slog.Default())
-	result, err := svc.ToggleContribution(context.Background(), id, teamID)
+	result, err := svc.SetContributionPaid(context.Background(), id, teamID, true)
 	require.NoError(t, err)
 	assert.Equal(t, gen.ContributionStatus("paid"), result.Status)
 }

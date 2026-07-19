@@ -27,9 +27,9 @@ type financeService interface {
 	DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error
 	CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
-	ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error)
+	SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error)
 	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
-	ToggleContribution(ctx context.Context, id, teamID uuid.UUID) (*gen.Contribution, error)
+	SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error)
 }
 
 // Handler implements the finance-related methods of gen.StrictServerInterface.
@@ -326,25 +326,29 @@ func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePen
 	return gen.DeletePenaltyAssignment204Response{}, nil
 }
 
-// TogglePenaltyPaid flips the paid flag on a penalty assignment.
-func (h *Handler) TogglePenaltyPaid(ctx context.Context, req gen.TogglePenaltyPaidRequestObject) (gen.TogglePenaltyPaidResponseObject, error) {
+// SetPenaltyPaid sets the paid flag on a penalty assignment to an explicit
+// value (idempotent PUT).
+func (h *Handler) SetPenaltyPaid(ctx context.Context, req gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	a, err := h.svc.ToggleAssignmentPaid(ctx, req.TeamId, req.AssignmentId)
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	a, err := h.svc.SetPenaltyPaid(ctx, req.TeamId, req.AssignmentId, req.Body.Paid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			h.recordFinanceFailure(ctx, "assignment.toggle_paid", "not found")
+			h.recordFinanceFailure(ctx, "assignment.set_paid", "not found")
 			return nil, apierror.NotFound("penalty assignment not found")
 		}
-		h.recordFinanceFailure(ctx, "assignment.toggle_paid", "internal error")
-		h.logger.ErrorContext(ctx, "TogglePenaltyPaid failed", "err", err)
-		return nil, apierror.Internal("failed to toggle penalty paid status")
+		h.recordFinanceFailure(ctx, "assignment.set_paid", "internal error")
+		h.logger.ErrorContext(ctx, "SetPenaltyPaid failed", "err", err)
+		return nil, apierror.Internal("failed to set penalty paid status")
 	}
-	h.recordFinance(ctx, "assignment.toggle_paid",
+	h.recordFinance(ctx, "assignment.set_paid",
 		slog.String("teamId", req.TeamId.String()), slog.String("assignmentId", req.AssignmentId.String()))
 	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
-	return gen.TogglePenaltyPaid200JSONResponse(*a), nil
+	return gen.SetPenaltyPaid200JSONResponse(*a), nil
 }
 
 // UpdateContribution applies a partial update to a contribution.
@@ -383,22 +387,25 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 	return gen.UpdateContribution200JSONResponse(*c), nil
 }
 
-// ToggleContribution flips a contribution's status between open and paid.
-func (h *Handler) ToggleContribution(ctx context.Context, req gen.ToggleContributionRequestObject) (gen.ToggleContributionResponseObject, error) {
+// SetContributionPaid sets a contribution's status to paid/open (idempotent PUT).
+func (h *Handler) SetContributionPaid(ctx context.Context, req gen.SetContributionPaidRequestObject) (gen.SetContributionPaidResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	c, err := h.svc.ToggleContribution(ctx, req.ContributionId, req.TeamId)
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	c, err := h.svc.SetContributionPaid(ctx, req.ContributionId, req.TeamId, req.Body.Paid)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			h.recordFinanceFailure(ctx, "contribution.toggle", "not found")
+			h.recordFinanceFailure(ctx, "contribution.set_paid", "not found")
 			return nil, apierror.NotFound("contribution not found")
 		}
-		h.recordFinanceFailure(ctx, "contribution.toggle", "internal error")
-		h.logger.ErrorContext(ctx, "ToggleContribution failed", "err", err)
-		return nil, apierror.Internal("failed to toggle contribution status")
+		h.recordFinanceFailure(ctx, "contribution.set_paid", "internal error")
+		h.logger.ErrorContext(ctx, "SetContributionPaid failed", "err", err)
+		return nil, apierror.Internal("failed to set contribution status")
 	}
-	h.recordFinance(ctx, "contribution.toggle", slog.String("contributionId", req.ContributionId.String()))
+	h.recordFinance(ctx, "contribution.set_paid", slog.String("contributionId", req.ContributionId.String()))
 	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
-	return gen.ToggleContribution200JSONResponse(*c), nil
+	return gen.SetContributionPaid200JSONResponse(*c), nil
 }

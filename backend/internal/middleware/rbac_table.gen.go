@@ -18,63 +18,63 @@ type rbacRouteEntry struct {
 // GET -- see rbac_table.gen.go's generator (cmd/genrbac) for the
 // completeness guard that keeps this table exhaustive.
 var rbacRoutes = []rbacRouteEntry{
-	{Method: "POST", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: true},                                     // addEventComment
-	{Method: "POST", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                           // createAbsence
-	{Method: "POST", Segments: []string{"events"}, Module: "events", SelfService: false},                                                             // createEvent
-	{Method: "POST", Segments: []string{"invite"}, Module: "settings", SelfService: false},                                                           // createInvite
-	{Method: "POST", Segments: []string{"news"}, Module: "news", SelfService: false},                                                                 // createNews
-	{Method: "POST", Segments: []string{"finances", "penalties"}, Module: "finances", SelfService: false},                                            // createPenalty
-	{Method: "POST", Segments: []string{"finances", "penalty-assignments"}, Module: "finances", SelfService: false},                                  // createPenaltyAssignment
-	{Method: "POST", Segments: []string{"polls"}, Module: "polls", SelfService: false},                                                               // createPoll
-	{Method: "POST", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                            // createRole
-	{Method: "POST", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                                         // createTransaction
-	{Method: "DELETE", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                          // deleteAbsence
-	{Method: "DELETE", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                              // deleteEvent
-	{Method: "DELETE", Segments: []string{"events", "{eventId}", "comments", "{commentId}"}, Module: "events", SelfService: true},                    // deleteEventComment
-	{Method: "DELETE", Segments: []string{"news", "{newsId}"}, Module: "news", SelfService: false},                                                   // deleteNews
-	{Method: "DELETE", Segments: []string{"finances", "penalties", "{penaltyId}"}, Module: "finances", SelfService: false},                           // deletePenalty
-	{Method: "DELETE", Segments: []string{"finances", "penalty-assignments", "{assignmentId}"}, Module: "finances", SelfService: false},              // deletePenaltyAssignment
-	{Method: "DELETE", Segments: []string{"polls", "{pollId}"}, Module: "polls", SelfService: false},                                                 // deletePoll
-	{Method: "DELETE", Segments: []string{"roles", "{roleId}"}, Module: "settings", SelfService: false},                                              // deleteRole
-	{Method: "DELETE", Segments: []string{"logo"}, Module: "settings", SelfService: false},                                                           // deleteTeamLogo
-	{Method: "DELETE", Segments: []string{"photo"}, Module: "settings", SelfService: false},                                                          // deleteTeamPhoto
-	{Method: "DELETE", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},                    // deleteTransaction
-	{Method: "GET", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                                 // getEvent
-	{Method: "GET", Segments: []string{"finances"}, Module: "finances", SelfService: false},                                                          // getFinanceOverview
-	{Method: "GET", Segments: []string{"members", "{membershipId}", "photo"}, Module: "members", SelfService: false},                                 // getMemberPhoto
-	{Method: "GET", Segments: []string{"stats", "members", "{userId}"}, Module: "events", SelfService: false},                                        // getMemberStats
-	{Method: "GET", Segments: []string{"stats"}, Module: "events", SelfService: false},                                                               // getStatsOverview
-	{Method: "GET", Segments: nil, Module: "public", SelfService: false},                                                                             // getTeam
-	{Method: "GET", Segments: []string{"logo"}, Module: "public", SelfService: false},                                                                // getTeamLogo
-	{Method: "GET", Segments: []string{"photo"}, Module: "public", SelfService: false},                                                               // getTeamPhoto
-	{Method: "GET", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                            // listAbsences
-	{Method: "GET", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: false},                                   // listAttendance
-	{Method: "GET", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: false},                                     // listEventComments
-	{Method: "GET", Segments: []string{"events"}, Module: "events", SelfService: false},                                                              // listEvents
-	{Method: "GET", Segments: []string{"members"}, Module: "members", SelfService: false},                                                            // listMembers
-	{Method: "GET", Segments: []string{"absences", "mine"}, Module: "public", SelfService: false},                                                    // listMyAbsences
-	{Method: "GET", Segments: []string{"news"}, Module: "news", SelfService: false},                                                                  // listNews
-	{Method: "GET", Segments: []string{"notifications"}, Module: "public", SelfService: false},                                                       // listNotifications
-	{Method: "GET", Segments: []string{"polls"}, Module: "polls", SelfService: false},                                                                // listPolls
-	{Method: "GET", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                             // listRoles
-	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                              // markNotificationsSeen
-	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                                       // removeMember
-	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                                   // setAttendance
-	{Method: "POST", Segments: []string{"events", "{eventId}", "status"}, Module: "events", SelfService: false},                                      // setEventStatus
-	{Method: "PUT", Segments: []string{"members", "{membershipId}", "roles"}, Module: "settings", SelfService: false},                                // setMemberRoles
-	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},                    // setNomination
-	{Method: "POST", Segments: []string{"finances", "contributions", "{contributionId}", "toggle"}, Module: "finances", SelfService: false},          // toggleContribution
-	{Method: "POST", Segments: []string{"finances", "penalty-assignments", "{assignmentId}", "toggle-paid"}, Module: "finances", SelfService: false}, // togglePenaltyPaid
-	{Method: "PATCH", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                           // updateAbsence
-	{Method: "PATCH", Segments: []string{"finances", "contributions", "{contributionId}"}, Module: "finances", SelfService: false},                   // updateContribution
-	{Method: "PATCH", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                               // updateEvent
-	{Method: "PATCH", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                                        // updateMember
-	{Method: "PATCH", Segments: []string{"news", "{newsId}"}, Module: "news", SelfService: false},                                                    // updateNews
-	{Method: "PATCH", Segments: []string{"finances", "penalties", "{penaltyId}"}, Module: "finances", SelfService: false},                            // updatePenalty
-	{Method: "PATCH", Segments: []string{"roles", "{roleId}"}, Module: "settings", SelfService: false},                                               // updateRole
-	{Method: "PATCH", Segments: nil, Module: "settings", SelfService: false},                                                                         // updateTeam
-	{Method: "PATCH", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},                     // updateTransaction
-	{Method: "PUT", Segments: []string{"logo"}, Module: "settings", SelfService: false},                                                              // uploadTeamLogo
-	{Method: "PUT", Segments: []string{"photo"}, Module: "settings", SelfService: false},                                                             // uploadTeamPhoto
-	{Method: "POST", Segments: []string{"polls", "{pollId}", "vote"}, Module: "polls", SelfService: true},                                            // votePoll
+	{Method: "POST", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: true},                             // addEventComment
+	{Method: "POST", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                   // createAbsence
+	{Method: "POST", Segments: []string{"events"}, Module: "events", SelfService: false},                                                     // createEvent
+	{Method: "POST", Segments: []string{"invite"}, Module: "settings", SelfService: false},                                                   // createInvite
+	{Method: "POST", Segments: []string{"news"}, Module: "news", SelfService: false},                                                         // createNews
+	{Method: "POST", Segments: []string{"finances", "penalties"}, Module: "finances", SelfService: false},                                    // createPenalty
+	{Method: "POST", Segments: []string{"finances", "penalty-assignments"}, Module: "finances", SelfService: false},                          // createPenaltyAssignment
+	{Method: "POST", Segments: []string{"polls"}, Module: "polls", SelfService: false},                                                       // createPoll
+	{Method: "POST", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                    // createRole
+	{Method: "POST", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                                 // createTransaction
+	{Method: "DELETE", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                  // deleteAbsence
+	{Method: "DELETE", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                      // deleteEvent
+	{Method: "DELETE", Segments: []string{"events", "{eventId}", "comments", "{commentId}"}, Module: "events", SelfService: true},            // deleteEventComment
+	{Method: "DELETE", Segments: []string{"news", "{newsId}"}, Module: "news", SelfService: false},                                           // deleteNews
+	{Method: "DELETE", Segments: []string{"finances", "penalties", "{penaltyId}"}, Module: "finances", SelfService: false},                   // deletePenalty
+	{Method: "DELETE", Segments: []string{"finances", "penalty-assignments", "{assignmentId}"}, Module: "finances", SelfService: false},      // deletePenaltyAssignment
+	{Method: "DELETE", Segments: []string{"polls", "{pollId}"}, Module: "polls", SelfService: false},                                         // deletePoll
+	{Method: "DELETE", Segments: []string{"roles", "{roleId}"}, Module: "settings", SelfService: false},                                      // deleteRole
+	{Method: "DELETE", Segments: []string{"logo"}, Module: "settings", SelfService: false},                                                   // deleteTeamLogo
+	{Method: "DELETE", Segments: []string{"photo"}, Module: "settings", SelfService: false},                                                  // deleteTeamPhoto
+	{Method: "DELETE", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},            // deleteTransaction
+	{Method: "GET", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                         // getEvent
+	{Method: "GET", Segments: []string{"finances"}, Module: "finances", SelfService: false},                                                  // getFinanceOverview
+	{Method: "GET", Segments: []string{"members", "{membershipId}", "photo"}, Module: "members", SelfService: false},                         // getMemberPhoto
+	{Method: "GET", Segments: []string{"stats", "members", "{userId}"}, Module: "events", SelfService: false},                                // getMemberStats
+	{Method: "GET", Segments: []string{"stats"}, Module: "events", SelfService: false},                                                       // getStatsOverview
+	{Method: "GET", Segments: nil, Module: "public", SelfService: false},                                                                     // getTeam
+	{Method: "GET", Segments: []string{"logo"}, Module: "public", SelfService: false},                                                        // getTeamLogo
+	{Method: "GET", Segments: []string{"photo"}, Module: "public", SelfService: false},                                                       // getTeamPhoto
+	{Method: "GET", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                    // listAbsences
+	{Method: "GET", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: false},                           // listAttendance
+	{Method: "GET", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: false},                             // listEventComments
+	{Method: "GET", Segments: []string{"events"}, Module: "events", SelfService: false},                                                      // listEvents
+	{Method: "GET", Segments: []string{"members"}, Module: "members", SelfService: false},                                                    // listMembers
+	{Method: "GET", Segments: []string{"absences", "mine"}, Module: "public", SelfService: false},                                            // listMyAbsences
+	{Method: "GET", Segments: []string{"news"}, Module: "news", SelfService: false},                                                          // listNews
+	{Method: "GET", Segments: []string{"notifications"}, Module: "public", SelfService: false},                                               // listNotifications
+	{Method: "GET", Segments: []string{"polls"}, Module: "polls", SelfService: false},                                                        // listPolls
+	{Method: "GET", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                     // listRoles
+	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                      // markNotificationsSeen
+	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                               // removeMember
+	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                           // setAttendance
+	{Method: "PUT", Segments: []string{"finances", "contributions", "{contributionId}", "paid"}, Module: "finances", SelfService: false},     // setContributionPaid
+	{Method: "POST", Segments: []string{"events", "{eventId}", "status"}, Module: "events", SelfService: false},                              // setEventStatus
+	{Method: "PUT", Segments: []string{"members", "{membershipId}", "roles"}, Module: "settings", SelfService: false},                        // setMemberRoles
+	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},            // setNomination
+	{Method: "PUT", Segments: []string{"finances", "penalty-assignments", "{assignmentId}", "paid"}, Module: "finances", SelfService: false}, // setPenaltyPaid
+	{Method: "PATCH", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                   // updateAbsence
+	{Method: "PATCH", Segments: []string{"finances", "contributions", "{contributionId}"}, Module: "finances", SelfService: false},           // updateContribution
+	{Method: "PATCH", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                       // updateEvent
+	{Method: "PATCH", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                                // updateMember
+	{Method: "PATCH", Segments: []string{"news", "{newsId}"}, Module: "news", SelfService: false},                                            // updateNews
+	{Method: "PATCH", Segments: []string{"finances", "penalties", "{penaltyId}"}, Module: "finances", SelfService: false},                    // updatePenalty
+	{Method: "PATCH", Segments: []string{"roles", "{roleId}"}, Module: "settings", SelfService: false},                                       // updateRole
+	{Method: "PATCH", Segments: nil, Module: "settings", SelfService: false},                                                                 // updateTeam
+	{Method: "PATCH", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},             // updateTransaction
+	{Method: "PUT", Segments: []string{"logo"}, Module: "settings", SelfService: false},                                                      // uploadTeamLogo
+	{Method: "PUT", Segments: []string{"photo"}, Module: "settings", SelfService: false},                                                     // uploadTeamPhoto
+	{Method: "POST", Segments: []string{"polls", "{pollId}", "vote"}, Module: "polls", SelfService: true},                                    // votePoll
 }

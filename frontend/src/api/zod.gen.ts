@@ -522,6 +522,7 @@ const UpdatePenaltyRequest = z
 const CreatePenaltyAssignmentRequest = z
   .object({ userId: z.string().uuid(), penaltyId: z.string().uuid() })
   .passthrough();
+const SetPaidRequest = z.object({ paid: z.boolean() }).passthrough();
 const UpdateContributionRequest = z
   .object({ label: z.string(), amount: z.number().int().gte(1).lte(100000000) })
   .partial()
@@ -637,6 +638,7 @@ export const schemas = {
   CreatePenaltyRequest,
   UpdatePenaltyRequest,
   CreatePenaltyAssignmentRequest,
+  SetPaidRequest,
   UpdateContributionRequest,
   MemberStat,
   EventStat,
@@ -1320,11 +1322,16 @@ const endpoints = makeApi([
     response: Contribution,
   },
   {
-    method: "post",
-    path: "/teams/:teamId/finances/contributions/:contributionId/toggle",
-    alias: "toggleContribution",
+    method: "put",
+    path: "/teams/:teamId/finances/contributions/:contributionId/paid",
+    alias: "setContributionPaid",
     requestFormat: "json",
     parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ paid: z.boolean() }).passthrough(),
+      },
       {
         name: "teamId",
         type: "Path",
@@ -1439,11 +1446,16 @@ const endpoints = makeApi([
     response: z.void(),
   },
   {
-    method: "post",
-    path: "/teams/:teamId/finances/penalty-assignments/:assignmentId/toggle-paid",
-    alias: "togglePenaltyPaid",
+    method: "put",
+    path: "/teams/:teamId/finances/penalty-assignments/:assignmentId/paid",
+    alias: "setPenaltyPaid",
     requestFormat: "json",
     parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ paid: z.boolean() }).passthrough(),
+      },
       {
         name: "teamId",
         type: "Path",

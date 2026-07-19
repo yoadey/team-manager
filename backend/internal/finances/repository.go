@@ -515,26 +515,29 @@ func (r *Repository) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID)
 	return nil
 }
 
-// ToggleAssignmentPaid flips the paid flag on a penalty assignment that belongs to teamID.
-func (r *Repository) ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error) {
+// SetAssignmentPaid sets the paid flag on a penalty assignment that belongs to
+// teamID to an explicit value. Idempotent: applying the same value twice yields
+// the same state, so a retried request can't flip a paid penalty back to open
+// (the failure mode of the previous flip-based toggle).
+func (r *Repository) SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	// RETURNING includes the label/amount snapshot columns (see
 	// CreateAssignment's equivalent RETURNING) so a's fields are already
-	// complete if Service.ToggleAssignmentPaid's post-toggle reload fails and
-	// falls back to toGenAssignment(*a) -- without them, that degraded
-	// response would omit which penalty was toggled and for how much, not
-	// just the member name/avatar CreateAssignment's own fallback omits.
+	// complete if Service.SetPenaltyPaid's post-write reload fails and falls
+	// back to toGenAssignment(*a) -- without them, that degraded response would
+	// omit which penalty was set and for how much, not just the member
+	// name/avatar CreateAssignment's own fallback omits.
 	err := r.db.QueryRow(ctx, `
-		UPDATE penalty_assignments SET paid = NOT paid WHERE id = $1 AND team_id = $2
+		UPDATE penalty_assignments SET paid = $3 WHERE id = $1 AND team_id = $2
 		RETURNING id, team_id, user_id, penalty_id, paid, date, label, amount
-	`, id, teamID).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
+	`, id, teamID, paid).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
 		}
-		return nil, fmt.Errorf("finances.Repository.ToggleAssignmentPaid: %w", err)
+		return nil, fmt.Errorf("finances.Repository.SetAssignmentPaid: %w", err)
 	}
 	return a, nil
 }
@@ -609,17 +612,21 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	return r.getContributionByID(ctx, id, teamID)
 }
 
-// ToggleContributionStatus flips between 'open' and 'paid' for a contribution that belongs to teamID.
-func (r *Repository) ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error) {
+// SetContributionPaid sets a contribution's status to 'paid' or 'open' for a
+// contribution that belongs to teamID. Idempotent: applying the same value
+// twice yields the same state (unlike the previous flip-based toggle).
+func (r *Repository) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	status := "open"
+	if paid {
+		status = "paid"
+	}
 	tag, err := r.db.Exec(ctx, `
-		UPDATE contributions
-		SET status = CASE WHEN status = 'paid' THEN 'open' ELSE 'paid' END
-		WHERE id = $1 AND team_id = $2
-	`, id, teamID)
+		UPDATE contributions SET status = $3 WHERE id = $1 AND team_id = $2
+	`, id, teamID, status)
 	if err != nil {
-		return nil, fmt.Errorf("finances.Repository.ToggleContributionStatus: %w", err)
+		return nil, fmt.Errorf("finances.Repository.SetContributionPaid: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
 		return nil, pgx.ErrNoRows

@@ -211,7 +211,7 @@ func (StrictUnimplemented) UpdateContribution(_ context.Context, _ gen.UpdateCon
 	return nil, errNotImplemented
 }
 
-func (StrictUnimplemented) ToggleContribution(_ context.Context, _ gen.ToggleContributionRequestObject) (gen.ToggleContributionResponseObject, error) {
+func (StrictUnimplemented) SetContributionPaid(_ context.Context, _ gen.SetContributionPaidRequestObject) (gen.SetContributionPaidResponseObject, error) {
 	return nil, errNotImplemented
 }
 
@@ -235,7 +235,7 @@ func (StrictUnimplemented) DeletePenaltyAssignment(_ context.Context, _ gen.Dele
 	return nil, errNotImplemented
 }
 
-func (StrictUnimplemented) TogglePenaltyPaid(_ context.Context, _ gen.TogglePenaltyPaidRequestObject) (gen.TogglePenaltyPaidResponseObject, error) {
+func (StrictUnimplemented) SetPenaltyPaid(_ context.Context, _ gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
 	return nil, errNotImplemented
 }
 
@@ -652,16 +652,16 @@ func (s *Server) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePena
 	return s.Finances.DeletePenaltyAssignment(ctx, req)
 }
 
-func (s *Server) TogglePenaltyPaid(ctx context.Context, req gen.TogglePenaltyPaidRequestObject) (gen.TogglePenaltyPaidResponseObject, error) {
-	return s.Finances.TogglePenaltyPaid(ctx, req)
+func (s *Server) SetPenaltyPaid(ctx context.Context, req gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
+	return s.Finances.SetPenaltyPaid(ctx, req)
 }
 
 func (s *Server) UpdateContribution(ctx context.Context, req gen.UpdateContributionRequestObject) (gen.UpdateContributionResponseObject, error) {
 	return s.Finances.UpdateContribution(ctx, req)
 }
 
-func (s *Server) ToggleContribution(ctx context.Context, req gen.ToggleContributionRequestObject) (gen.ToggleContributionResponseObject, error) {
-	return s.Finances.ToggleContribution(ctx, req)
+func (s *Server) SetContributionPaid(ctx context.Context, req gen.SetContributionPaidRequestObject) (gen.SetContributionPaidResponseObject, error) {
+	return s.Finances.SetContributionPaid(ctx, req)
 }
 
 // ─── Stats delegations ────────────────────────────────────────────────────────

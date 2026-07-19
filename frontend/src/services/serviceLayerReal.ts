@@ -890,9 +890,10 @@ export const realApi = {
       await checkOk(res);
     },
 
-    async togglePenaltyPaid(id: string, teamId: string): Promise<PenaltyAssignment> {
-      const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid', {
+    async setPenaltyPaid(id: string, teamId: string, paid: boolean): Promise<PenaltyAssignment> {
+      const res = await apiClient.PUT('/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid', {
         params: { path: { teamId, assignmentId: id } },
+        body: { paid },
       });
       const a = await check(res);
       return mapPenaltyAssignment(a);
@@ -914,9 +915,10 @@ export const realApi = {
       return mapContribution(c);
     },
 
-    async toggleContribution(id: string, teamId: string): Promise<Contribution> {
-      const res = await apiClient.POST('/teams/{teamId}/finances/contributions/{contributionId}/toggle', {
+    async setContributionPaid(id: string, teamId: string, paid: boolean): Promise<Contribution> {
+      const res = await apiClient.PUT('/teams/{teamId}/finances/contributions/{contributionId}/paid', {
         params: { path: { teamId, contributionId: id } },
+        body: { paid },
       });
       const c = await check(res);
       return mapContribution(c);

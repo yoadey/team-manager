@@ -1030,11 +1030,12 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.post(P('/teams/:teamId/finances/penalty-assignments/:assignmentId/toggle-paid'), async ({ params }) => {
+  http.put(P('/teams/:teamId/finances/penalty-assignments/:assignmentId/paid'), async ({ params, request }) => {
     await mockDelay();
     const a = db.penaltyAssignments.find((x) => x.id === params.assignmentId);
     if (!a) return problem(404, 'Assignment not found');
-    a.paid = !a.paid;
+    const body = (await request.json()) as S['SetPaidRequest'];
+    a.paid = body.paid;
     return HttpResponse.json(toWireAssignment(a));
   }),
 
@@ -1048,11 +1049,12 @@ export const handlers = [
     return HttpResponse.json(toWireContribution(c));
   }),
 
-  http.post(P('/teams/:teamId/finances/contributions/:contributionId/toggle'), async ({ params }) => {
+  http.put(P('/teams/:teamId/finances/contributions/:contributionId/paid'), async ({ params, request }) => {
     await mockDelay();
     const c = db.contributions.find((x) => x.id === params.contributionId);
     if (!c) return problem(404, 'Contribution not found');
-    c.status = c.status === 'paid' ? 'open' : 'paid';
+    const body = (await request.json()) as S['SetPaidRequest'];
+    c.status = body.paid ? 'paid' : 'open';
     return HttpResponse.json(toWireContribution(c));
   }),
 

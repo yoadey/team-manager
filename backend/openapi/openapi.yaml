@@ -1329,7 +1329,7 @@ paths:
         "204":
           description: No Content
 
-  /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid:
+  /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid:
     parameters:
       - $ref: "#/components/parameters/teamId"
       - name: assignmentId
@@ -1338,11 +1338,17 @@ paths:
         schema:
           type: string
           format: uuid
-    post:
+    put:
       tags: [finances]
-      operationId: togglePenaltyPaid
+      operationId: setPenaltyPaid
       x-rbac-module: finances
-      summary: Toggle paid status of penalty assignment
+      summary: Set the paid status of a penalty assignment (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPaidRequest"
       responses:
         "200":
           description: OK
@@ -1379,7 +1385,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Contribution"
 
-  /teams/{teamId}/finances/contributions/{contributionId}/toggle:
+  /teams/{teamId}/finances/contributions/{contributionId}/paid:
     parameters:
       - $ref: "#/components/parameters/teamId"
       - name: contributionId
@@ -1388,11 +1394,17 @@ paths:
         schema:
           type: string
           format: uuid
-    post:
+    put:
       tags: [finances]
-      operationId: toggleContribution
+      operationId: setContributionPaid
       x-rbac-module: finances
-      summary: Toggle contribution paid/open
+      summary: Set the paid status of a contribution (idempotent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetPaidRequest"
       responses:
         "200":
           description: OK
@@ -2656,6 +2668,17 @@ components:
         penaltyId:
           type: string
           format: uuid
+
+    SetPaidRequest:
+      type: object
+      required: [paid]
+      properties:
+        paid:
+          type: boolean
+          description: >-
+            The desired paid state. Idempotent — sending the same value twice
+            yields the same result, so a retried request never flips the state
+            back (unlike the previous toggle endpoints).
 
     OpenPenalty:
       type: object

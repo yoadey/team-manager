@@ -143,12 +143,12 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	_, err = repo.GetAssignmentByID(ctx, uuid.New(), teamID)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
-	toggled, err := repo.ToggleAssignmentPaid(ctx, assign.ID, teamID)
+	toggled, err := repo.SetAssignmentPaid(ctx, assign.ID, teamID, true)
 	require.NoError(t, err)
 	assert.True(t, toggled.Paid)
-	// Regression: ToggleAssignmentPaid's RETURNING used to omit label/amount,
-	// so a's snapshot fields stayed nil -- fine when Service.ToggleAssignmentPaid's
-	// post-toggle reload succeeds (its enriched result is used instead), but
+	// Regression: SetAssignmentPaid's RETURNING used to omit label/amount,
+	// so a's snapshot fields stayed nil -- fine when Service.SetPenaltyPaid's
+	// post-write reload succeeds (its enriched result is used instead), but
 	// silently incomplete if that reload ever hits the ErrNoRows fallback,
 	// unlike CreateAssignment's equivalent fallback which keeps them.
 	require.NotNil(t, toggled.PenaltyLabel)
@@ -196,7 +196,7 @@ func TestFinancesRepository_DeletePenalty_PreservesAssignments(t *testing.T) {
 	// One paid and one unpaid assignment of the same penalty.
 	paid, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
 	require.NoError(t, err)
-	_, err = repo.ToggleAssignmentPaid(ctx, paid.ID, teamID)
+	_, err = repo.SetAssignmentPaid(ctx, paid.ID, teamID, true)
 	require.NoError(t, err)
 	_, err = repo.CreateAssignment(ctx, teamID, userID, pen.ID)
 	require.NoError(t, err)
@@ -474,8 +474,8 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, "Monthly Fee", *updated.Label)
 	assert.Equal(t, int64(3000), updated.Amount)
 
-	// ToggleContributionStatus: open → paid.
-	toggled, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
+	// SetContributionPaid: open → paid.
+	toggled, err := repo.SetContributionPaid(ctx, contribID, teamID, true)
 	require.NoError(t, err)
 	assert.Equal(t, "paid", toggled.Status)
 
@@ -483,8 +483,8 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, openCount)
 
-	// Toggle again: paid → open.
-	toggled, err = repo.ToggleContributionStatus(ctx, contribID, teamID)
+	// Set paid → open.
+	toggled, err = repo.SetContributionPaid(ctx, contribID, teamID, false)
 	require.NoError(t, err)
 	assert.Equal(t, "open", toggled.Status)
 
@@ -500,7 +500,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
-	_, err = repo.ToggleContributionStatus(ctx, contribID, otherTeamID)
+	_, err = repo.SetContributionPaid(ctx, contribID, otherTeamID, true)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
@@ -511,14 +511,13 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Equal(t, "open", list[0].Status)
 }
 
-// TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates
-// guards against a read-then-write race: ToggleContributionStatus previously
-// read the current status, computed the flip in Go, then wrote it back in a
-// separate statement — two concurrent toggles could both read "open", both
-// compute "paid", and both write "paid", losing one of the two toggle
-// intents (net effect of two toggles should be back to "open"). The fix
-// flips the status atomically in a single UPDATE ... CASE statement.
-func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUpdates(t *testing.T) {
+// TestFinancesRepository_SetContributionPaid_ConcurrentSameValueIsIdempotent
+// verifies the idempotent set-paid semantics: SetContributionPaid writes an
+// explicit target status in a single UPDATE, so N concurrent requests for the
+// same value all succeed and land deterministically on that value -- there is
+// no read-then-write race and no possibility of a retried request flipping the
+// state back (the failure mode the previous flip-based toggle had).
+func TestFinancesRepository_SetContributionPaid_ConcurrentSameValueIsIdempotent(t *testing.T) {
 	t.Parallel()
 
 	pool := testutil.NewTestDB(t)
@@ -543,7 +542,7 @@ func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUp
 	errs := make(chan error, n)
 	for range n {
 		go func() {
-			_, err := repo.ToggleContributionStatus(ctx, contribID, teamID)
+			_, err := repo.SetContributionPaid(ctx, contribID, teamID, true)
 			errs <- err
 		}()
 	}
@@ -551,12 +550,12 @@ func TestFinancesRepository_ToggleContributionStatus_ConcurrentTogglesDontLoseUp
 		require.NoError(t, <-errs)
 	}
 
-	// An even number of toggles must land back on the original status —
-	// a lost update would instead leave it stuck on "paid".
+	// Every request set the same value, so the result is deterministically
+	// "paid" regardless of interleaving -- retries can never flip it back.
 	list, err := repo.ListContributions(ctx, teamID)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
-	assert.Equal(t, "open", list[0].Status)
+	assert.Equal(t, "paid", list[0].Status)
 }
 
 // TestFinancesRepository_UserIsMemberOfTeam guards against regressing to a

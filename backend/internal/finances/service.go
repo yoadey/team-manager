@@ -74,13 +74,13 @@ type financeRepo interface {
 	CountAssignments(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
-	ToggleAssignmentPaid(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
+	SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*PenaltyAssignmentRow, error)
 	UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
 
 	ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error)
 	CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error)
 	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, patch ContributionPatch) (*ContributionRow, error)
-	ToggleContributionStatus(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error)
+	SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*ContributionRow, error)
 
 	ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error)
 
@@ -380,22 +380,23 @@ func (s *Service) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) er
 	return nil
 }
 
-// ToggleAssignmentPaid flips the paid flag on an assignment that belongs to teamID.
-func (s *Service) ToggleAssignmentPaid(ctx context.Context, teamID, id uuid.UUID) (*gen.PenaltyAssignment, error) {
-	a, err := s.repo.ToggleAssignmentPaid(ctx, id, teamID)
+// SetPenaltyPaid sets the paid flag on an assignment that belongs to teamID to
+// an explicit value (idempotent).
+func (s *Service) SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error) {
+	a, err := s.repo.SetAssignmentPaid(ctx, id, teamID, paid)
 	if err != nil {
-		return nil, fmt.Errorf("finances.Service.ToggleAssignmentPaid: %w", err)
+		return nil, fmt.Errorf("finances.Service.SetPenaltyPaid: %w", err)
 	}
 	// Reload the single row with joined member/penalty data.
 	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Same reasoning as CreateAssignment above: a concurrent
-			// DeletePenalty cascaded this row away between the toggle and
+			// DeletePenalty detached/removed this row between the write and
 			// this reload, so it must not be reported as a 200 OK success.
 			return nil, pgx.ErrNoRows
 		}
-		s.logger.Warn("finances: failed to reload assignment after toggle, returning partial result",
+		s.logger.Warn("finances: failed to reload assignment after set-paid, returning partial result",
 			slog.String("assignmentId", a.ID.String()), slog.String("error", err.Error()))
 		result := toGenAssignment(*a)
 		return &result, nil
@@ -417,11 +418,12 @@ func (s *Service) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, 
 	return &result, nil
 }
 
-// ToggleContribution flips the contribution status between open and paid for a contribution that belongs to teamID.
-func (s *Service) ToggleContribution(ctx context.Context, id, teamID uuid.UUID) (*gen.Contribution, error) {
-	c, err := s.repo.ToggleContributionStatus(ctx, id, teamID)
+// SetContributionPaid sets a contribution's status to paid/open for a
+// contribution that belongs to teamID (idempotent).
+func (s *Service) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error) {
+	c, err := s.repo.SetContributionPaid(ctx, id, teamID, paid)
 	if err != nil {
-		return nil, fmt.Errorf("finances.Service.ToggleContribution: %w", err)
+		return nil, fmt.Errorf("finances.Service.SetContributionPaid: %w", err)
 	}
 	result := toGenContribution(*c)
 	return &result, nil

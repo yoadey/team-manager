@@ -757,8 +757,8 @@ describe('finances', () => {
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.finances.deleteAssignment('pa1', 't1')).resolves.toBeUndefined();
 
-    client.POST.mockResolvedValueOnce(ok({ id: 'pa1' }));
-    expect(await realApi.finances.togglePenaltyPaid('pa1', 't1')).toMatchObject({ __mapped: 'penaltyAssignment' });
+    client.PUT.mockResolvedValueOnce(ok({ id: 'pa1' }));
+    expect(await realApi.finances.setPenaltyPaid('pa1', 't1', true)).toMatchObject({ __mapped: 'penaltyAssignment' });
   });
 
   it('contributions', async () => {
@@ -767,8 +767,8 @@ describe('finances', () => {
       __mapped: 'contribution',
     });
 
-    client.POST.mockResolvedValueOnce(ok({ id: 'co1' }));
-    expect(await realApi.finances.toggleContribution('co1', 't1')).toMatchObject({ __mapped: 'contribution' });
+    client.PUT.mockResolvedValueOnce(ok({ id: 'co1' }));
+    expect(await realApi.finances.setContributionPaid('co1', 't1', true)).toMatchObject({ __mapped: 'contribution' });
   });
 });
 

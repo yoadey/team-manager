@@ -812,6 +812,12 @@ type SetNominationRequest struct {
 	UserId    openapi_types.UUID `json:"userId"`
 }
 
+// SetPaidRequest defines model for SetPaidRequest.
+type SetPaidRequest struct {
+	// Paid The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints).
+	Paid bool `json:"paid"`
+}
+
 // SetRolesRequest defines model for SetRolesRequest.
 type SetRolesRequest struct {
 	RoleIds []openapi_types.UUID `json:"roleIds"`
@@ -1189,6 +1195,9 @@ type SetEventStatusJSONRequestBody = SetEventStatusRequest
 // UpdateContributionJSONRequestBody defines body for UpdateContribution for application/json ContentType.
 type UpdateContributionJSONRequestBody = UpdateContributionRequest
 
+// SetContributionPaidJSONRequestBody defines body for SetContributionPaid for application/json ContentType.
+type SetContributionPaidJSONRequestBody = SetPaidRequest
+
 // CreatePenaltyJSONRequestBody defines body for CreatePenalty for application/json ContentType.
 type CreatePenaltyJSONRequestBody = CreatePenaltyRequest
 
@@ -1197,6 +1206,9 @@ type UpdatePenaltyJSONRequestBody = UpdatePenaltyRequest
 
 // CreatePenaltyAssignmentJSONRequestBody defines body for CreatePenaltyAssignment for application/json ContentType.
 type CreatePenaltyAssignmentJSONRequestBody = CreatePenaltyAssignmentRequest
+
+// SetPenaltyPaidJSONRequestBody defines body for SetPenaltyPaid for application/json ContentType.
+type SetPenaltyPaidJSONRequestBody = SetPaidRequest
 
 // CreateTransactionJSONRequestBody defines body for CreateTransaction for application/json ContentType.
 type CreateTransactionJSONRequestBody = CreateTransactionRequest
@@ -1332,9 +1344,9 @@ type ServerInterface interface {
 	// Update contribution amount or label
 	// (PATCH /teams/{teamId}/finances/contributions/{contributionId})
 	UpdateContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
-	// Toggle contribution paid/open
-	// (POST /teams/{teamId}/finances/contributions/{contributionId}/toggle)
-	ToggleContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
+	// Set the paid status of a contribution (idempotent)
+	// (PUT /teams/{teamId}/finances/contributions/{contributionId}/paid)
+	SetContributionPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
 	// Create penalty template
 	// (POST /teams/{teamId}/finances/penalties)
 	CreatePenalty(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1350,9 +1362,9 @@ type ServerInterface interface {
 	// Remove penalty assignment
 	// (DELETE /teams/{teamId}/finances/penalty-assignments/{assignmentId})
 	DeletePenaltyAssignment(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
-	// Toggle paid status of penalty assignment
-	// (POST /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid)
-	TogglePenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
+	// Set the paid status of a penalty assignment (idempotent)
+	// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
+	SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
 	// Add income or expense
 	// (POST /teams/{teamId}/finances/transactions)
 	CreateTransaction(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1644,9 +1656,9 @@ func (_ Unimplemented) UpdateContribution(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Toggle contribution paid/open
-// (POST /teams/{teamId}/finances/contributions/{contributionId}/toggle)
-func (_ Unimplemented) ToggleContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
+// Set the paid status of a contribution (idempotent)
+// (PUT /teams/{teamId}/finances/contributions/{contributionId}/paid)
+func (_ Unimplemented) SetContributionPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1680,9 +1692,9 @@ func (_ Unimplemented) DeletePenaltyAssignment(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Toggle paid status of penalty assignment
-// (POST /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid)
-func (_ Unimplemented) TogglePenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
+// Set the paid status of a penalty assignment (idempotent)
+// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
+func (_ Unimplemented) SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3076,8 +3088,8 @@ func (siw *ServerInterfaceWrapper) UpdateContribution(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
-// ToggleContribution operation middleware
-func (siw *ServerInterfaceWrapper) ToggleContribution(w http.ResponseWriter, r *http.Request) {
+// SetContributionPaid operation middleware
+func (siw *ServerInterfaceWrapper) SetContributionPaid(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3107,7 +3119,7 @@ func (siw *ServerInterfaceWrapper) ToggleContribution(w http.ResponseWriter, r *
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ToggleContribution(w, r, teamId, contributionId)
+		siw.Handler.SetContributionPaid(w, r, teamId, contributionId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3304,8 +3316,8 @@ func (siw *ServerInterfaceWrapper) DeletePenaltyAssignment(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
-// TogglePenaltyPaid operation middleware
-func (siw *ServerInterfaceWrapper) TogglePenaltyPaid(w http.ResponseWriter, r *http.Request) {
+// SetPenaltyPaid operation middleware
+func (siw *ServerInterfaceWrapper) SetPenaltyPaid(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
@@ -3335,7 +3347,7 @@ func (siw *ServerInterfaceWrapper) TogglePenaltyPaid(w http.ResponseWriter, r *h
 	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TogglePenaltyPaid(w, r, teamId, assignmentId)
+		siw.Handler.SetPenaltyPaid(w, r, teamId, assignmentId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4780,7 +4792,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/teams/{teamId}/finances/contributions/{contributionId}", wrapper.UpdateContribution)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/teams/{teamId}/finances/contributions/{contributionId}/toggle", wrapper.ToggleContribution)
+		r.Put(options.BaseURL+"/teams/{teamId}/finances/contributions/{contributionId}/paid", wrapper.SetContributionPaid)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{teamId}/finances/penalties", wrapper.CreatePenalty)
@@ -4798,7 +4810,7 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}", wrapper.DeletePenaltyAssignment)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid", wrapper.TogglePenaltyPaid)
+		r.Put(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid", wrapper.SetPenaltyPaid)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{teamId}/finances/transactions", wrapper.CreateTransaction)
@@ -5786,18 +5798,19 @@ func (response UpdateContribution200JSONResponse) VisitUpdateContributionRespons
 	return err
 }
 
-type ToggleContributionRequestObject struct {
+type SetContributionPaidRequestObject struct {
 	TeamId         TeamId             `json:"teamId"`
 	ContributionId openapi_types.UUID `json:"contributionId"`
+	Body           *SetContributionPaidJSONRequestBody
 }
 
-type ToggleContributionResponseObject interface {
-	VisitToggleContributionResponse(w http.ResponseWriter) error
+type SetContributionPaidResponseObject interface {
+	VisitSetContributionPaidResponse(w http.ResponseWriter) error
 }
 
-type ToggleContribution200JSONResponse Contribution
+type SetContributionPaid200JSONResponse Contribution
 
-func (response ToggleContribution200JSONResponse) VisitToggleContributionResponse(w http.ResponseWriter) error {
+func (response SetContributionPaid200JSONResponse) VisitSetContributionPaidResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5913,18 +5926,19 @@ func (response DeletePenaltyAssignment204Response) VisitDeletePenaltyAssignmentR
 	return nil
 }
 
-type TogglePenaltyPaidRequestObject struct {
+type SetPenaltyPaidRequestObject struct {
 	TeamId       TeamId             `json:"teamId"`
 	AssignmentId openapi_types.UUID `json:"assignmentId"`
+	Body         *SetPenaltyPaidJSONRequestBody
 }
 
-type TogglePenaltyPaidResponseObject interface {
-	VisitTogglePenaltyPaidResponse(w http.ResponseWriter) error
+type SetPenaltyPaidResponseObject interface {
+	VisitSetPenaltyPaidResponse(w http.ResponseWriter) error
 }
 
-type TogglePenaltyPaid200JSONResponse PenaltyAssignment
+type SetPenaltyPaid200JSONResponse PenaltyAssignment
 
-func (response TogglePenaltyPaid200JSONResponse) VisitTogglePenaltyPaidResponse(w http.ResponseWriter) error {
+func (response SetPenaltyPaid200JSONResponse) VisitSetPenaltyPaidResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6780,9 +6794,9 @@ type StrictServerInterface interface {
 	// Update contribution amount or label
 	// (PATCH /teams/{teamId}/finances/contributions/{contributionId})
 	UpdateContribution(ctx context.Context, request UpdateContributionRequestObject) (UpdateContributionResponseObject, error)
-	// Toggle contribution paid/open
-	// (POST /teams/{teamId}/finances/contributions/{contributionId}/toggle)
-	ToggleContribution(ctx context.Context, request ToggleContributionRequestObject) (ToggleContributionResponseObject, error)
+	// Set the paid status of a contribution (idempotent)
+	// (PUT /teams/{teamId}/finances/contributions/{contributionId}/paid)
+	SetContributionPaid(ctx context.Context, request SetContributionPaidRequestObject) (SetContributionPaidResponseObject, error)
 	// Create penalty template
 	// (POST /teams/{teamId}/finances/penalties)
 	CreatePenalty(ctx context.Context, request CreatePenaltyRequestObject) (CreatePenaltyResponseObject, error)
@@ -6798,9 +6812,9 @@ type StrictServerInterface interface {
 	// Remove penalty assignment
 	// (DELETE /teams/{teamId}/finances/penalty-assignments/{assignmentId})
 	DeletePenaltyAssignment(ctx context.Context, request DeletePenaltyAssignmentRequestObject) (DeletePenaltyAssignmentResponseObject, error)
-	// Toggle paid status of penalty assignment
-	// (POST /teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid)
-	TogglePenaltyPaid(ctx context.Context, request TogglePenaltyPaidRequestObject) (TogglePenaltyPaidResponseObject, error)
+	// Set the paid status of a penalty assignment (idempotent)
+	// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
+	SetPenaltyPaid(ctx context.Context, request SetPenaltyPaidRequestObject) (SetPenaltyPaidResponseObject, error)
 	// Add income or expense
 	// (POST /teams/{teamId}/finances/transactions)
 	CreateTransaction(ctx context.Context, request CreateTransactionRequestObject) (CreateTransactionResponseObject, error)
@@ -7856,26 +7870,33 @@ func (sh *strictHandler) UpdateContribution(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// ToggleContribution operation middleware
-func (sh *strictHandler) ToggleContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
-	var request ToggleContributionRequestObject
+// SetContributionPaid operation middleware
+func (sh *strictHandler) SetContributionPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
+	var request SetContributionPaidRequestObject
 
 	request.TeamId = teamId
 	request.ContributionId = contributionId
 
+	var body SetContributionPaidJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ToggleContribution(ctx, request.(ToggleContributionRequestObject))
+		return sh.ssi.SetContributionPaid(ctx, request.(SetContributionPaidRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ToggleContribution")
+		handler = middleware(handler, "SetContributionPaid")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ToggleContributionResponseObject); ok {
-		if err := validResponse.VisitToggleContributionResponse(w); err != nil {
+	} else if validResponse, ok := response.(SetContributionPaidResponseObject); ok {
+		if err := validResponse.VisitSetContributionPaidResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8037,26 +8058,33 @@ func (sh *strictHandler) DeletePenaltyAssignment(w http.ResponseWriter, r *http.
 	}
 }
 
-// TogglePenaltyPaid operation middleware
-func (sh *strictHandler) TogglePenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
-	var request TogglePenaltyPaidRequestObject
+// SetPenaltyPaid operation middleware
+func (sh *strictHandler) SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
+	var request SetPenaltyPaidRequestObject
 
 	request.TeamId = teamId
 	request.AssignmentId = assignmentId
 
+	var body SetPenaltyPaidJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.TogglePenaltyPaid(ctx, request.(TogglePenaltyPaidRequestObject))
+		return sh.ssi.SetPenaltyPaid(ctx, request.(SetPenaltyPaidRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "TogglePenaltyPaid")
+		handler = middleware(handler, "SetPenaltyPaid")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(TogglePenaltyPaidResponseObject); ok {
-		if err := validResponse.VisitTogglePenaltyPaidResponse(w); err != nil {
+	} else if validResponse, ok := response.(SetPenaltyPaidResponseObject); ok {
+		if err := validResponse.VisitSetPenaltyPaidResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

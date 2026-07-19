@@ -838,7 +838,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}/toggle-paid": {
+    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid": {
         parameters: {
             query?: never;
             header?: never;
@@ -849,9 +849,9 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        /** Toggle paid status of penalty assignment */
-        post: operations["togglePenaltyPaid"];
+        /** Set the paid status of a penalty assignment (idempotent) */
+        put: operations["setPenaltyPaid"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -878,7 +878,7 @@ export interface paths {
         patch: operations["updateContribution"];
         trace?: never;
     };
-    "/teams/{teamId}/finances/contributions/{contributionId}/toggle": {
+    "/teams/{teamId}/finances/contributions/{contributionId}/paid": {
         parameters: {
             query?: never;
             header?: never;
@@ -889,9 +889,9 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
-        /** Toggle contribution paid/open */
-        post: operations["toggleContribution"];
+        /** Set the paid status of a contribution (idempotent) */
+        put: operations["setContributionPaid"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1470,6 +1470,10 @@ export interface components {
             userId: string;
             /** Format: uuid */
             penaltyId: string;
+        };
+        SetPaidRequest: {
+            /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
+            paid: boolean;
         };
         OpenPenalty: {
             /** Format: uuid */
@@ -3225,7 +3229,7 @@ export interface operations {
             };
         };
     };
-    togglePenaltyPaid: {
+    setPenaltyPaid: {
         parameters: {
             query?: never;
             header?: never;
@@ -3235,7 +3239,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPaidRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -3275,7 +3283,7 @@ export interface operations {
             };
         };
     };
-    toggleContribution: {
+    setContributionPaid: {
         parameters: {
             query?: never;
             header?: never;
@@ -3285,7 +3293,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPaidRequest"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {

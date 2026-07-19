@@ -231,12 +231,17 @@ describe('finances', () => {
     expect(after.income).toBe(before.income + 100);
   });
 
-  it('toggles a penalty assignment paid state', async () => {
+  it('sets a penalty assignment paid state (idempotent)', async () => {
     const overview = await api.finances.overview('t_a');
     const assignment = overview.assignments[0];
-    await api.finances.togglePenaltyPaid(assignment.id, 't_a');
-    const reloaded = await api.finances.overview('t_a');
-    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(!assignment.paid);
+    const target = !assignment.paid;
+    await api.finances.setPenaltyPaid(assignment.id, 't_a', target);
+    let reloaded = await api.finances.overview('t_a');
+    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(target);
+    // Idempotent: applying the same value again keeps it, not flips it.
+    await api.finances.setPenaltyPaid(assignment.id, 't_a', target);
+    reloaded = await api.finances.overview('t_a');
+    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(target);
   });
 
   it('deletes a transaction', async () => {

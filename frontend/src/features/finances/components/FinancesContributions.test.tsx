@@ -49,7 +49,7 @@ function makeApp(overrides = {}) {
     setState: vi.fn(),
     state: { contribMonth: null },
     openContribForm: vi.fn(),
-    toggleContribution: vi.fn(),
+    setContributionPaid: vi.fn(),
     ...overrides,
   };
 }
