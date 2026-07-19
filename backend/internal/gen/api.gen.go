@@ -1032,9 +1032,6 @@ type Limit = int
 // MembershipId defines model for membershipId.
 type MembershipId = openapi_types.UUID
 
-// Offset defines model for offset.
-type Offset = int
-
 // RoleId defines model for roleId.
 type RoleId = openapi_types.UUID
 
@@ -1107,8 +1104,10 @@ type UpdateEventParamsScope string
 
 // ListEventCommentsParams defines parameters for ListEventComments.
 type ListEventCommentsParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Opaque keyset-pagination cursor returned as nextCursor by a prior page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // SetEventStatusParams defines parameters for SetEventStatus.
@@ -1340,7 +1339,7 @@ type ServerInterface interface {
 	// Nominate or denominate a member for event
 	// (PUT /teams/{teamId}/events/{eventId}/attendance/nominations)
 	SetNomination(w http.ResponseWriter, r *http.Request, teamId TeamId, eventId EventId)
-	// List comments for event
+	// List comments for event (keyset-paginated, oldest-first)
 	// (GET /teams/{teamId}/events/{eventId}/comments)
 	ListEventComments(w http.ResponseWriter, r *http.Request, teamId TeamId, eventId EventId, params ListEventCommentsParams)
 	// Add comment to event
@@ -1637,7 +1636,7 @@ func (_ Unimplemented) SetNomination(w http.ResponseWriter, r *http.Request, tea
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List comments for event
+// List comments for event (keyset-paginated, oldest-first)
 // (GET /teams/{teamId}/events/{eventId}/comments)
 func (_ Unimplemented) ListEventComments(w http.ResponseWriter, r *http.Request, teamId TeamId, eventId EventId, params ListEventCommentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -2866,15 +2865,15 @@ func (siw *ServerInterfaceWrapper) ListEventComments(w http.ResponseWriter, r *h
 		return
 	}
 
-	// ------------- Optional query parameter "offset" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
@@ -5758,7 +5757,12 @@ type ListEventCommentsResponseObject interface {
 	VisitListEventCommentsResponse(w http.ResponseWriter) error
 }
 
-type ListEventComments200JSONResponse []EventComment
+type ListEventComments200JSONResponse struct {
+	Items []EventComment `json:"items"`
+
+	// NextCursor Cursor for the next page, or null when there are no more items.
+	NextCursor *string `json:"nextCursor"`
+}
 
 func (response ListEventComments200JSONResponse) VisitListEventCommentsResponse(w http.ResponseWriter) error {
 
@@ -6891,7 +6895,7 @@ type StrictServerInterface interface {
 	// Nominate or denominate a member for event
 	// (PUT /teams/{teamId}/events/{eventId}/attendance/nominations)
 	SetNomination(ctx context.Context, request SetNominationRequestObject) (SetNominationResponseObject, error)
-	// List comments for event
+	// List comments for event (keyset-paginated, oldest-first)
 	// (GET /teams/{teamId}/events/{eventId}/comments)
 	ListEventComments(ctx context.Context, request ListEventCommentsRequestObject) (ListEventCommentsResponseObject, error)
 	// Add comment to event

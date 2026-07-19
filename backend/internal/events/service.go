@@ -53,7 +53,7 @@ type eventRepo interface {
 	GetReasonVisibilityContext(ctx context.Context, teamID, viewerID string) (teamRoleIDs, viewerRoleIDs []string, err error)
 	SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error)
 	SetNomination(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
-	ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error)
+	ListComments(ctx context.Context, eventID, teamID string, limit int, cur *CommentCursor) ([]CommentRow, error)
 	CountComments(ctx context.Context, eventID, teamID string) (int, error)
 	AddComment(ctx context.Context, eventID, userID, teamID, text string) (*CommentRow, error)
 	DeleteComment(ctx context.Context, commentID, userID, teamID string) error
@@ -371,18 +371,40 @@ func (s *Service) SetStatus(ctx context.Context, userID, eventID, teamID, status
 
 // ─── Comments ───────────────────────────────────────────────────────────────
 
-// ListComments returns paginated comments for an event scoped to teamID.
-func (s *Service) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]gen.EventComment, error) {
-	rows, err := s.repo.ListComments(ctx, eventID, teamID, limit, offset)
+// ListComments returns a keyset page of an event's comments (oldest-first) plus
+// the cursor for the next page (nil on the last page). cursor is the opaque
+// token from a prior page ("" = first page).
+func (s *Service) ListComments(ctx context.Context, eventID, teamID string, limit int, cursor string) ([]gen.EventComment, *string, error) {
+	var cur *CommentCursor
+	var decoded CommentCursor
+	if ok, err := s.pager.Decode(cursor, &decoded); err != nil {
+		return nil, nil, fmt.Errorf("events.Service.ListComments: %w", err)
+	} else if ok {
+		cur = &decoded
+	}
+
+	// Fetch one extra row to detect whether a further page exists.
+	rows, err := s.repo.ListComments(ctx, eventID, teamID, limit+1, cur)
 	if err != nil {
-		return nil, fmt.Errorf("events.Service.ListComments: %w", err)
+		return nil, nil, fmt.Errorf("events.Service.ListComments: %w", err)
+	}
+
+	var next *string
+	if len(rows) > limit {
+		rows = rows[:limit]
+		last := rows[len(rows)-1]
+		token, err := s.pager.Encode(CommentCursor{CreatedAt: last.CreatedAt, ID: last.Id})
+		if err != nil {
+			return nil, nil, fmt.Errorf("events.Service.ListComments: %w", err)
+		}
+		next = &token
 	}
 
 	out := make([]gen.EventComment, 0, len(rows))
 	for _, c := range rows {
 		out = append(out, toGenComment(&c))
 	}
-	return out, nil
+	return out, next, nil
 }
 
 // AddComment adds a comment to an event scoped to teamID. Returns

@@ -1268,11 +1268,33 @@ func (r *Repository) CountComments(ctx context.Context, eventID, teamID string) 
 	return count, nil
 }
 
-// ListComments returns all comments for an event scoped to teamID, enriched
-// with user data.
-func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]CommentRow, error) {
+// CommentCursor is the keyset position for comment pagination. It matches the
+// ORDER BY created_at ASC, id ASC ordering used by ListComments, so
+// (created_at, id) is a unique, stable sort key even when several comments
+// share the same created_at timestamp.
+type CommentCursor struct {
+	CreatedAt time.Time `json:"c"`
+	ID        uuid.UUID `json:"i"`
+}
+
+// ListComments returns up to limit comments for an event scoped to teamID,
+// oldest-first, starting after cur (nil = first page). It is a keyset query:
+// no OFFSET, so a busy event's later pages stay as cheap as the first.
+func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, limit int, cur *CommentCursor) ([]CommentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
+	var (
+		hasCursor  bool
+		curCreated time.Time
+		curID      uuid.UUID
+	)
+	if cur != nil {
+		hasCursor = true
+		curCreated = cur.CreatedAt
+		curID = cur.ID
+	}
+
 	q := `
 		SELECT
 			c.id, c.event_id, c.user_id, c.text, c.created_at,
@@ -1283,10 +1305,12 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 		JOIN users u ON u.id = c.user_id
 		JOIN events e ON e.id = c.event_id
 		WHERE c.event_id = $1 AND e.team_id = $2
-		ORDER BY c.created_at ASC
-		LIMIT $3 OFFSET $4
+		  AND ($3::boolean IS FALSE
+		       OR (c.created_at, c.id) > ($4::timestamptz, $5::uuid))
+		ORDER BY c.created_at ASC, c.id ASC
+		LIMIT $6
 	`
-	rows, err := r.pool.Query(ctx, q, eventID, teamID, limit, offset)
+	rows, err := r.pool.Query(ctx, q, eventID, teamID, hasCursor, curCreated, curID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.ListComments: %w", err)
 	}

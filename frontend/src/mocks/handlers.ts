@@ -689,8 +689,11 @@ export const handlers = [
 
   http.get(P('/teams/:teamId/events/:eventId/comments'), async ({ params }) => {
     await mockDelay();
-    const body = db.eventComments.filter((c) => c.eventId === params.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toWireComment);
-    return HttpResponse.json(body);
+    // Keyset { items, nextCursor } envelope (oldest-first). The mock returns
+    // everything in one page (nextCursor: null), which fetchAllPages consumes
+    // exactly like the real multi-page envelope.
+    const items = db.eventComments.filter((c) => c.eventId === params.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toWireComment);
+    return HttpResponse.json({ items, nextCursor: null });
   }),
 
   http.post(P('/teams/:teamId/events/:eventId/comments'), async ({ params, request }) => {

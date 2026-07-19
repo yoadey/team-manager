@@ -1201,12 +1201,17 @@ const endpoints = makeApi([
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: "offset",
+        name: "cursor",
         type: "Query",
-        schema: z.number().int().gte(0).optional().default(0),
+        schema: z.string().optional(),
       },
     ],
-    response: z.array(EventComment),
+    response: z
+      .object({
+        items: z.array(EventComment),
+        nextCursor: z.string().nullable(),
+      })
+      .passthrough(),
   },
   {
     method: "post",

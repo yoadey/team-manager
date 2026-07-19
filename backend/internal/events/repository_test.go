@@ -2,6 +2,7 @@ package events_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -1142,7 +1143,7 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, attendanceList, "ListAttendance must not see cross-team event's attendance")
 
-	comments, err := repo.ListComments(ctx, eventID, teamB.String(), 50, 0)
+	comments, err := repo.ListComments(ctx, eventID, teamB.String(), 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, comments, "ListComments must not see cross-team event's comments")
 
@@ -1169,7 +1170,7 @@ func TestEventRepository_CrossTenantIDOR(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, noRow, "no attendance row should have been created by the rejected cross-team SetAttendance call")
 
-	comments, err = repo.ListComments(ctx, eventID, teamA.String(), 50, 0)
+	comments, err = repo.ListComments(ctx, eventID, teamA.String(), 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, comments, "no comment should have been created by the rejected cross-team AddComment call")
 
@@ -1292,7 +1293,7 @@ func TestEventRepository_AddComment_RejectsNonMemberUser(t *testing.T) {
 	_, err = repo.AddComment(ctx, eventID, outsider.String(), teamID.String(), "should be rejected")
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "AddComment must reject a userID that is not a member of teamID")
 
-	comments, err := repo.ListComments(ctx, eventID, teamID.String(), 50, 0)
+	comments, err := repo.ListComments(ctx, eventID, teamID.String(), 50, nil)
 	require.NoError(t, err)
 	assert.Empty(t, comments, "no comment should have been created for the non-member user")
 
@@ -1300,6 +1301,81 @@ func TestEventRepository_AddComment_RejectsNonMemberUser(t *testing.T) {
 	comment, err := repo.AddComment(ctx, eventID, member.String(), teamID.String(), "from an actual member")
 	require.NoError(t, err, "AddComment scoped to an actual team member must succeed")
 	assert.Equal(t, "from an actual member", comment.Text)
+}
+
+// TestEventRepository_ListComments_KeysetPaginatesWholeThread verifies the
+// keyset pagination reaches every comment, oldest-first, with no row skipped or
+// repeated across pages -- and stays scoped to the event's team.
+func TestEventRepository_ListComments_KeysetPaginatesWholeThread(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	member := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Keyset Comment Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Member', 'keyset-comment@example.com', '#abcdef')`, member)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, member)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Keyset Comment Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	eventID := ev.Id.String()
+
+	// Insert comments with explicit, ascending timestamps so the chronological
+	// order is deterministic to assert against.
+	const total = 5
+	base := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < total; i++ {
+		_, err = pool.Exec(ctx,
+			`INSERT INTO event_comments (id, event_id, user_id, text, created_at) VALUES ($1, $2, $3, $4, $5)`,
+			uuid.New(), ev.Id, member, fmt.Sprintf("comment-%d", i), base.Add(time.Duration(i)*time.Minute))
+		require.NoError(t, err)
+	}
+
+	var seen []string
+	var lastCreated time.Time
+	var cur *events.CommentCursor
+	pages := 0
+	for {
+		page, err := repo.ListComments(ctx, eventID, teamID.String(), 2, cur)
+		require.NoError(t, err)
+		if len(page) == 0 {
+			break
+		}
+		pages++
+		for _, c := range page {
+			if !lastCreated.IsZero() {
+				assert.False(t, c.CreatedAt.Before(lastCreated), "comments must be returned oldest-first across pages")
+			}
+			lastCreated = c.CreatedAt
+			seen = append(seen, c.Id.String())
+		}
+		if len(page) < 2 {
+			break
+		}
+		last := page[len(page)-1]
+		cur = &events.CommentCursor{CreatedAt: last.CreatedAt, ID: last.Id}
+		require.LessOrEqual(t, pages, total+1, "pagination must terminate")
+	}
+
+	assert.Len(t, seen, total, "every comment must be reachable by paging")
+	unique := map[string]struct{}{}
+	for _, id := range seen {
+		_, dup := unique[id]
+		assert.False(t, dup, "keyset pagination must not repeat a comment across pages")
+		unique[id] = struct{}{}
+	}
+
+	// A different team sees none of this event's comments.
+	other, err := repo.ListComments(ctx, eventID, uuid.New().String(), 50, nil)
+	require.NoError(t, err)
+	assert.Empty(t, other, "ListComments must stay scoped to the event's team")
 }
 
 func TestEventRepository_CountComments(t *testing.T) {

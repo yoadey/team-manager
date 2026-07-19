@@ -14,6 +14,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
@@ -38,7 +39,7 @@ type mockSvcRepo struct {
 	getReasonVisibilityCtxFn    func(ctx context.Context, teamID, viewerID string) ([]string, []string, error)
 	setAttendanceFn             func(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*events.AttendanceDBRow, error)
 	setNominationFn             func(ctx context.Context, eventID, callerID, userID, teamID string, nominated bool) error
-	listCommentsFn              func(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error)
+	listCommentsFn              func(ctx context.Context, eventID, teamID string, limit int, cur *events.CommentCursor) ([]events.CommentRow, error)
 	countCommentsFn             func(ctx context.Context, eventID, teamID string) (int, error)
 	addCommentFn                func(ctx context.Context, eventID, userID, teamID, text string) (*events.CommentRow, error)
 	deleteCommentFn             func(ctx context.Context, commentID, userID, teamID string) error
@@ -127,8 +128,8 @@ func (m *mockSvcRepo) SetNomination(ctx context.Context, eventID, callerID, user
 	return m.setNominationFn(ctx, eventID, callerID, userID, teamID, nominated)
 }
 
-func (m *mockSvcRepo) ListComments(ctx context.Context, eventID, teamID string, limit, offset int) ([]events.CommentRow, error) {
-	return m.listCommentsFn(ctx, eventID, teamID, limit, offset)
+func (m *mockSvcRepo) ListComments(ctx context.Context, eventID, teamID string, limit int, cur *events.CommentCursor) ([]events.CommentRow, error) {
+	return m.listCommentsFn(ctx, eventID, teamID, limit, cur)
 }
 
 func (m *mockSvcRepo) CountComments(ctx context.Context, eventID, teamID string) (int, error) {
@@ -194,6 +195,73 @@ func TestEventService_ListEvents_Upcoming(t *testing.T) {
 	assert.Nil(t, next)
 	assert.Len(t, result, 3)
 	assert.Equal(t, gen.Upcoming, capturedScope, "scope should be passed through to repository")
+}
+
+// ─── ListComments (keyset pagination) ────────────────────────────────────────
+
+func TestEventService_ListComments_ReturnsNextCursorWhenMorePages(t *testing.T) {
+	t.Parallel()
+
+	var gotLimit int
+	repo := &mockSvcRepo{
+		listCommentsFn: func(_ context.Context, _, _ string, limit int, cur *events.CommentCursor) ([]events.CommentRow, error) {
+			gotLimit = limit
+			assert.Nil(t, cur, "first page must decode to a nil cursor")
+			rows := make([]events.CommentRow, limit)
+			for i := range rows {
+				rows[i] = events.CommentRow{Id: uuid.New(), Text: "c", CreatedAt: time.Now().Add(time.Duration(i) * time.Second)}
+			}
+			return rows, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	items, next, err := svc.ListComments(context.Background(), "e1", testTeamID, 2, "")
+	require.NoError(t, err)
+	assert.Equal(t, 3, gotLimit, "service must over-fetch by one to detect a further page")
+	assert.Len(t, items, 2, "the page must be trimmed back to the requested limit")
+	require.NotNil(t, next)
+	assert.NotEmpty(t, *next)
+}
+
+func TestEventService_ListComments_NoCursorOnLastPage(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockSvcRepo{
+		listCommentsFn: func(_ context.Context, _, _ string, _ int, _ *events.CommentCursor) ([]events.CommentRow, error) {
+			return []events.CommentRow{{Id: uuid.New(), Text: "only", CreatedAt: time.Now()}}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	items, next, err := svc.ListComments(context.Background(), "e1", testTeamID, 50, "")
+	require.NoError(t, err)
+	assert.Len(t, items, 1)
+	assert.Nil(t, next, "no next cursor when the last page fits under the limit")
+}
+
+func TestEventService_ListComments_ForwardsDecodedCursor(t *testing.T) {
+	t.Parallel()
+
+	pager := pagination.New(nil)
+	want := events.CommentCursor{CreatedAt: time.Now().UTC().Truncate(time.Second), ID: uuid.New()}
+	token, err := pager.Encode(want)
+	require.NoError(t, err)
+
+	var got *events.CommentCursor
+	repo := &mockSvcRepo{
+		listCommentsFn: func(_ context.Context, _, _ string, _ int, cur *events.CommentCursor) ([]events.CommentRow, error) {
+			got = cur
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, pager, nil, nil, slog.Default())
+	_, _, err = svc.ListComments(context.Background(), "e1", testTeamID, 50, token)
+	require.NoError(t, err)
+	require.NotNil(t, got, "a valid cursor token must be decoded and forwarded to the repository")
+	assert.Equal(t, want.ID, got.ID)
+	assert.True(t, want.CreatedAt.Equal(got.CreatedAt))
 }
 
 // Regression test: enrichEvent/ListEvents used to read GetMyAttendance(s),

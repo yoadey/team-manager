@@ -718,19 +718,27 @@ paths:
       tags: [events]
       operationId: listEventComments
       x-rbac-module: events
-      summary: List comments for event
+      summary: List comments for event (keyset-paginated, oldest-first)
       parameters:
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/EventComment"
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EventComment"
+                  nextCursor:
+                    type: string
+                    nullable: true
+                    description: Cursor for the next page, or null when there are no more items.
     post:
       tags: [events]
       operationId: addEventComment
@@ -1538,13 +1546,6 @@ components:
         minimum: 1
         maximum: 500
         default: 50
-    offset:
-      name: offset
-      in: query
-      schema:
-        type: integer
-        minimum: 0
-        default: 0
     cursor:
       name: cursor
       in: query

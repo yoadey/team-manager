@@ -136,25 +136,6 @@ async function fetchAllPages<T>(
   return all;
 }
 
-// fetchAllOffsetPages walks a plain-array endpoint paginated via limit/offset
-// (no { items, nextCursor } envelope, e.g. listEventComments) to completion,
-// stopping once a page comes back shorter than PAGE_LIMIT. Without this, the
-// real backend's default limit=50 would silently truncate any event with
-// more than 50 comments to its oldest 50 (ORDER BY created_at ASC), while the
-// mock returns every comment unconditionally.
-async function fetchAllOffsetPages<T>(fetchPage: (limit: number, offset: number) => Promise<T[]>): Promise<T[]> {
-  const all: T[] = [];
-  let offset = 0;
-  for (;;) {
-    const page = await fetchPage(PAGE_LIMIT, offset);
-    all.push(...page);
-    if (all.length > 10_000) throw new Error('fetchAllOffsetPages: too many pages');
-    if (page.length < PAGE_LIMIT) break;
-    offset += PAGE_LIMIT;
-  }
-  return all;
-}
-
 export const realApi = {
   auth: {
     async providers(): Promise<Provider[]> {
@@ -545,16 +526,15 @@ export const realApi = {
     },
 
     async listComments(eventId: string, teamId: string): Promise<EventComment[]> {
-      // limit/offset paginated (see fetchAllOffsetPages doc comment above) —
-      // walked to completion so events with more than one page of comments
-      // (default limit 50) don't silently lose their oldest ones.
-      const comments = await fetchAllOffsetPages((limit, offset) =>
-        apiClient
-          .GET('/teams/{teamId}/events/{eventId}/comments', {
-            params: { path: { teamId, eventId }, query: { limit, offset } },
-          })
-          .then(check),
-      );
+      // Keyset { items, nextCursor } envelope, walked to completion so events
+      // with more than one page of comments (default limit 50) don't silently
+      // lose their oldest ones.
+      const comments = await fetchAllPages(async (cursor) => {
+        const res = await apiClient.GET('/teams/{teamId}/events/{eventId}/comments', {
+          params: { path: { teamId, eventId }, query: { limit: PAGE_LIMIT, cursor } },
+        });
+        return check(res);
+      });
       return comments.map(mapEventComment);
     },
 
