@@ -19,7 +19,9 @@ export interface PenaltyAssignment {
   id: string;
   teamId: string;
   userId: string;
-  penaltyId: string;
+  /** null when the source penalty catalog entry was deleted; the snapshot
+   *  label/amount below remain the authoritative record of the assignment. */
+  penaltyId: string | null;
   paid: boolean;
   date: string;
   name?: string;

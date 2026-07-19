@@ -174,7 +174,7 @@ type PenaltyAssignment struct {
 	ID        uuid.UUID
 	TeamID    uuid.UUID
 	UserID    uuid.UUID
-	PenaltyID uuid.UUID
+	PenaltyID *uuid.UUID
 	Paid      bool
 	Date      pgtype.Date
 	Amount    pgtype.Int8

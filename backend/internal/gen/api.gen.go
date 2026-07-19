@@ -710,9 +710,11 @@ type PenaltyAssignment struct {
 	MemberAvatarColor *string            `json:"memberAvatarColor,omitempty"`
 	MemberName        *string            `json:"memberName,omitempty"`
 	Paid              bool               `json:"paid"`
-	PenaltyId         openapi_types.UUID `json:"penaltyId"`
-	TeamId            openapi_types.UUID `json:"teamId"`
-	UserId            openapi_types.UUID `json:"userId"`
+
+	// PenaltyId The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
+	PenaltyId *openapi_types.UUID `json:"penaltyId,omitempty"`
+	TeamId    openapi_types.UUID  `json:"teamId"`
+	UserId    openapi_types.UUID  `json:"userId"`
 }
 
 // PermLevel defines model for PermLevel.

@@ -2609,7 +2609,7 @@ components:
 
     PenaltyAssignment:
       type: object
-      required: [id, teamId, userId, penaltyId, paid, date]
+      required: [id, teamId, userId, paid, date]
       properties:
         id:
           type: string
@@ -2623,6 +2623,11 @@ components:
         penaltyId:
           type: string
           format: uuid
+          nullable: true
+          description: >-
+            The catalog penalty this assignment was created from, or null if
+            that penalty has since been deleted. The assignment's own label and
+            amount snapshot (taken at creation) remain the authoritative record.
         paid:
           type: boolean
         date:

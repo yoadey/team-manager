@@ -32,10 +32,13 @@ type PenaltyRow struct {
 // PenaltyAssignmentRow is the internal DB representation of a penalty assignment.
 // PenaltyAmount is stored as integer cents.
 type PenaltyAssignmentRow struct {
-	ID                uuid.UUID
-	TeamID            uuid.UUID
-	UserID            uuid.UUID
-	PenaltyID         uuid.UUID
+	ID     uuid.UUID
+	TeamID uuid.UUID
+	UserID uuid.UUID
+	// PenaltyID is nullable: it becomes NULL when the source penalty catalog
+	// entry is deleted (ON DELETE SET NULL, migration 00027). The assignment's
+	// snapshotted PenaltyLabel/PenaltyAmount remain the authoritative record.
+	PenaltyID         *uuid.UUID
 	Paid              bool
 	Date              time.Time
 	PenaltyLabel      *string

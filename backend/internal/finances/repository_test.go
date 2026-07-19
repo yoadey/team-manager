@@ -169,6 +169,58 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	assert.Empty(t, pens)
 }
 
+// Deleting a penalty catalog entry must NOT remove its assignments (paid or
+// unpaid). Migration 00027 changed the FK to ON DELETE SET NULL, so each
+// assignment survives with a null penalty_id and is still fully rendered from
+// its snapshot label/amount -- preserving the immutable financial record 00025
+// established (the old ON DELETE CASCADE erased paid history on catalog tidy-up).
+func TestFinancesRepository_DeletePenalty_PreservesAssignments(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late fee", 500)
+	require.NoError(t, err)
+
+	// One paid and one unpaid assignment of the same penalty.
+	paid, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+	_, err = repo.ToggleAssignmentPaid(ctx, paid.ID, teamID)
+	require.NoError(t, err)
+	_, err = repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	require.NoError(t, err)
+
+	// Delete the catalog penalty.
+	require.NoError(t, repo.DeletePenalty(ctx, pen.ID, teamID))
+	pens, err := repo.ListPenalties(ctx, teamID)
+	require.NoError(t, err)
+	assert.Empty(t, pens, "the penalty catalog entry itself is gone")
+
+	// Both assignments must survive, detached (null penalty_id) but with their
+	// snapshot label/amount intact.
+	assignments, err := repo.ListAssignments(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, assignments, 2, "assignments must survive deletion of their penalty, not cascade away")
+	for _, a := range assignments {
+		assert.Nil(t, a.PenaltyID, "penalty_id must be nulled (SET NULL), not the row deleted")
+		require.NotNil(t, a.PenaltyLabel)
+		assert.Equal(t, "Late fee", *a.PenaltyLabel, "snapshot label must remain the record")
+		require.NotNil(t, a.PenaltyAmount)
+		assert.Equal(t, int64(500), *a.PenaltyAmount, "snapshot amount must remain the record")
+	}
+}
+
 func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *testing.T) {
 	t.Parallel()
 

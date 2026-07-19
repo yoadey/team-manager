@@ -410,11 +410,11 @@ func TestService_CreateAssignment_ReloadsEnrichedRowOnSuccess(t *testing.T) {
 			assert.Equal(t, teamID, gotTeamID)
 			assert.Equal(t, userID, gotUserID)
 			assert.Equal(t, penaltyID, gotPenaltyID)
-			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: penaltyID}, nil
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID}, nil
 		},
 		getAssignmentByIDFn: func(_ context.Context, gotID, gotTeamID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
 			assert.Equal(t, createdID, gotID)
-			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: penaltyID, PenaltyLabel: &label}, nil
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, PenaltyLabel: &label}, nil
 		},
 	}
 
@@ -435,7 +435,7 @@ func TestService_CreateAssignment_FallsBackToUnenrichedRowWhenReloadFails(t *tes
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
-			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: penaltyID}, nil
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID}, nil
 		},
 		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
 			return nil, errors.New("reload failed")
@@ -466,7 +466,7 @@ func TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload(
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
-			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: penaltyID}, nil
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID}, nil
 		},
 		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
 			return nil, pgx.ErrNoRows

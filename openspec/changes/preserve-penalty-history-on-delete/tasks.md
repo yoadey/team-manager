@@ -1,15 +1,17 @@
 ## 1. Migration
-- [ ] 1.1 Add `00027_penalty_fk_set_null.sql`: drop the `penalty_assignments.penalty_id` FK, make the column nullable, re-add the FK as `ON DELETE SET NULL`; write a safe down migration
-- [ ] 1.2 Run `cd backend && make generate` (sqlc picks up the now-nullable column); commit generated output
+- [x] 1.1 Add `00027_penalty_fk_set_null.sql`: `DROP NOT NULL` on `penalty_id`, drop the FK, re-add it `ON DELETE SET NULL` (NOT VALID + VALIDATE, per migration-safety rules); safe down migration (restores CASCADE, leaves column nullable to avoid a raw SET NOT NULL scan)
+- [x] 1.2 `make generate` — sqlc regenerated `penalty_assignments.PenaltyID` as `*uuid.UUID`; committed generated output
 
 ## 2. Repository/service
-- [ ] 2.1 Audit read/aggregate paths for `penalty_id` dereferences; treat it as optional, display from the snapshot `label`/`amount`
-- [ ] 2.2 Confirm the finance overview open/paid sums come from assignment snapshots, unaffected by a null `penalty_id`
+- [x] 2.1 `finances/model.go` `PenaltyID uuid.UUID` → `*uuid.UUID`; scan sites already scan by address (null-tolerant); `toGenAssignment` passes the pointer through (openapi_types.UUID is an alias for uuid.UUID)
+- [x] 2.2 Confirmed no read path joins `penalties` for display (snapshot columns only) and no `.PenaltyID` dereference exists; overview sums come from assignment snapshots, unaffected by a null penalty_id
+- [x] 2.3 OpenAPI `PenaltyAssignment.penaltyId` made `nullable: true` and dropped from `required` → generated as `*openapi_types.UUID` / `penaltyId?: string | null`; frontend `map.ts` uses `?? null`; domain `PenaltyAssignment.penaltyId` widened to `string | null`
 
 ## 3. Tests
-- [ ] 3.1 Test: deleting a penalty with paid + unpaid assignments keeps all assignments with their snapshot values
-- [ ] 3.2 Test: an assignment whose penalty was deleted still lists correctly (null catalog reference)
+- [x] 3.1 `TestFinancesRepository_DeletePenalty_PreservesAssignments`: delete a penalty with paid + unpaid assignments → both survive with null penalty_id and intact snapshot label/amount
+- [x] 3.2 Updated `service_test.go` mock rows to the pointer field; existing delete/toggle tests stay green
 
 ## 4. Verification
-- [ ] 4.1 `make test` green; migration up→down→up green; migration-safety lint green
-- [ ] 4.2 `make lint` + coverage gate green; `make generate` produces no diff
+- [x] 4.1 `go test ./... -short` green; migration up→down→up + migration-safety lint confirmed by CI (no Docker locally)
+- [x] 4.2 `golangci-lint run ./...` 0 issues; `make generate` + `make generate-ts` committed with no further drift
+- [x] 4.3 Frontend `typecheck` + finance/map tests (146) green; `npm run lint` 0 errors

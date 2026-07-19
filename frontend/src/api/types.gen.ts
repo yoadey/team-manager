@@ -1447,8 +1447,11 @@ export interface components {
             teamId: string;
             /** Format: uuid */
             userId: string;
-            /** Format: uuid */
-            penaltyId: string;
+            /**
+             * Format: uuid
+             * @description The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
+             */
+            penaltyId?: string | null;
             paid: boolean;
             /** Format: date */
             date: string;

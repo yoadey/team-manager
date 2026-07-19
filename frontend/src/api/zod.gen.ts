@@ -447,7 +447,7 @@ const PenaltyAssignment = z
     id: z.string().uuid(),
     teamId: z.string().uuid(),
     userId: z.string().uuid(),
-    penaltyId: z.string().uuid(),
+    penaltyId: z.string().uuid().nullish(),
     paid: z.boolean(),
     date: z.string(),
     memberName: z.string().optional(),
