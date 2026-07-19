@@ -477,9 +477,19 @@ jobs:
         # "https://teammanager.example/errors/..." literal instead of calling
         # into apierror, silently bypassing that override in production. This
         # guards against the bug class recurring.
+        #
+        # Matches on the bare domain, not the full "https://teammanager.example
+        # /errors/" string: a substring match on the complete literal is
+        # trivially evaded by splitting it, e.g.
+        # `base := "https://teammanager.example"; apierror.New(base +
+        # "/errors/validation")` or `fmt.Sprintf("%s/errors/%s",
+        # "https://teammanager.example", kind)` -- neither contains the full
+        # original string contiguously, but both still contain the domain
+        # literal, which is the actual tell that a URI is being hand-built
+        # instead of going through apierror.
         run: |
           set -euo pipefail
-          hits=$(grep -rn 'https://teammanager\.example/errors/' --include='*.go' . | grep -v '^\./internal/apierror/' || true)
+          hits=$(grep -rn 'teammanager\.example' --include='*.go' . | grep -v '^\./internal/apierror/' || true)
           if [ -n "$hits" ]; then
             echo "::error::Found hardcoded RFC 9457 type-URI literals outside internal/apierror/ — use apierror.New/apierror.BadRequest/etc. instead so ERROR_TYPE_BASE_URI is honored:"
             echo "$hits"
