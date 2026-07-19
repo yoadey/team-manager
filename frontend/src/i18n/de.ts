@@ -275,6 +275,7 @@ export const de = {
     comments: 'Kommentare',
     noComments: 'Noch keine Kommentare.',
     commentWrite: 'Kommentar schreiben…',
+    commentSend: 'Kommentar senden',
     eventType: 'Termintyp',
     typeTraining: 'Training',
     typeAuftritt: 'Auftritt',

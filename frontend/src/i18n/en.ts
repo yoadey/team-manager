@@ -274,6 +274,7 @@ export const en: Messages = {
     comments: 'Comments',
     noComments: 'No comments yet.',
     commentWrite: 'Write a comment…',
+    commentSend: 'Send comment',
     eventType: 'Event type',
     typeTraining: 'Training',
     typeAuftritt: 'Performance',
