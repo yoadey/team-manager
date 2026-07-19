@@ -1,0 +1,19 @@
+# Scoped allowlist for scripts/check-npm-audit.mjs, consumed by
+# `npm run audit:ci`. One GHSA ID per line; every entry needs a written
+# justification, mirroring .github/trivyignore-*.txt's convention for
+# Trivy image scans. Do not add an entry without one.
+#
+# GHSA-52f5-9888-hmc6 / GHSA-ph9p-34f9-6g65: `tmp` <=0.2.5, reached only via
+# @lhci/cli (a devDependency, Lighthouse CI) -> inquirer -> external-editor.
+# @lhci/cli never ships to users or production; it runs exclusively inside
+# the frontend-lighthouse CI job against a locally built preview server.
+# Both advisories require an attacker who can already choose the `dir`/
+# prefix/postfix arguments passed to `tmp` -- this codebase never calls
+# `tmp` directly, and @lhci/cli's own use of it is not attacker-influenced
+# in this repo's CI usage (no untrusted input reaches its arguments).
+# `npm audit fix --force` resolves this by downgrading @lhci/cli to 0.1.0
+# (a breaking major-version change to an unrelated tool); not applied here
+# to avoid destabilizing the Lighthouse CI job on an unrelated fix. Revisit
+# when @lhci/cli ships a fixed inquirer/tmp chain on its current major.
+GHSA-52f5-9888-hmc6
+GHSA-ph9p-34f9-6g65

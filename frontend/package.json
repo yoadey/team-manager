@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "audit:ci": "npm audit --omit=dev --audit-level=high",
+    "audit:ci": "npm audit --omit=dev --audit-level=high && node scripts/check-npm-audit.mjs",
     "sbom": "cyclonedx-npm --omit dev --output-format JSON --output-file sbom.json",
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "icons": "node scripts/generate-pwa-icons.mjs",
