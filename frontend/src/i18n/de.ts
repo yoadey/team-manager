@@ -326,7 +326,7 @@ export const de = {
     calDownload: 'Kalenderdatei (.ics) herunterladen',
     calSubscribe: 'Automatisch abonnieren (Abo-Link)',
     calSubscribeDesc:
-      'Mit diesem Link bleibt dein Kalender automatisch aktuell – neue und geänderte Termine erscheinen ohne erneuten Export.',
+      'Dieser Link soll deinen Kalender künftig automatisch aktuell halten – neue und geänderte Termine würden ohne erneuten Export erscheinen. In dieser Vorschau ist das noch nicht aktiv; siehe Hinweis unten.',
     calCopy: 'Kopieren',
     calCopied: 'Kopiert',
     calGoogle: 'Google Kalender',

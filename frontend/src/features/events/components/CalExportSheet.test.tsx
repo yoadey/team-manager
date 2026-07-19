@@ -96,4 +96,17 @@ describe('CalExportSheet', () => {
     render(<CalExportSheet app={app as never} sheet={sheet} />);
     expect(screen.getByText('Apple / iOS')).toBeTruthy();
   });
+
+  // Regression test: the subscribe-link description used to assert the
+  // calendar "bleibt automatisch aktuell" (stays up to date automatically)
+  // unconditionally, directly contradicting the prototype note further down
+  // the same sheet, which says the subscription link isn't functional yet.
+  // A user reading only the description (and the "copied" success toast)
+  // had no reason to doubt the link would actually work.
+  it('subscribe description does not contradict the prototype note about the link not being active yet', () => {
+    mockUseApp.mockReturnValue(makeApp() as never);
+    const app = mockUseApp();
+    render(<CalExportSheet app={app as never} sheet={sheet} />);
+    expect(screen.getByText(/Dieser Link soll/i).textContent).toMatch(/noch nicht aktiv/i);
+  });
 });
