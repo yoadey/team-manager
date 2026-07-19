@@ -81,7 +81,6 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     myRoles: vi.fn().mockReturnValue([MOCK_ROLES[0]]),
     selectTeam: vi.fn(),
     openCreateTeam: vi.fn(),
-    toggleMyRole: vi.fn(),
     setColorScheme: vi.fn(),
     logout: vi.fn(),
     deleteAccount: vi.fn().mockResolvedValue(undefined),
@@ -203,28 +202,6 @@ describe('ProfileSheet', () => {
     expect(screen.getByText('max@example.com')).toBeTruthy();
   });
 
-  it('renders all roles as toggleable items', () => {
-    const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    expect(screen.getByText('Trainer')).toBeTruthy();
-    expect(screen.getByText('Kassierer')).toBeTruthy();
-  });
-
-  it('clicking a role calls toggleMyRole with the role id', () => {
-    const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    fireEvent.click(screen.getByText('Trainer'));
-    expect(app.toggleMyRole).toHaveBeenCalledWith('r1');
-  });
-
-  it('does not call toggleMyRole when the user lacks members:write (no self role-escalation)', () => {
-    const app = makeApp();
-    app.can.mockReturnValue(false);
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    fireEvent.click(screen.getByText('Trainer'));
-    expect(app.toggleMyRole).not.toHaveBeenCalled();
-  });
-
   it('renders logout button', () => {
     const app = makeApp();
     render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
@@ -236,12 +213,6 @@ describe('ProfileSheet', () => {
     render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
     fireEvent.click(screen.getByText('Abmelden'));
     expect(app.logout).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders multi-role hint text', () => {
-    const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    expect(screen.getByText(/Mehrfachauswahl möglich/)).toBeTruthy();
   });
 
   it('clicking "export my data" calls exportMyData', () => {
@@ -323,36 +294,6 @@ describe('ProfileSheet', () => {
       expect(screen.getByText('Konto konnte nicht gelöscht werden. Stimmt die E-Mail-Adresse?')).toBeTruthy(),
     );
     expect(app.logout).not.toHaveBeenCalled();
-  });
-
-  it('renders the team name in the roles section title', () => {
-    const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    expect(screen.getByText(/Meine Rollen in/)).toBeTruthy();
-  });
-
-  it('selected role shows a checkmark icon (check text from Sym)', () => {
-    const app = makeApp();
-    // myRoles returns r1, so Trainer is selected
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    // Sym renders icon name as text; "check" should appear for selected role
-    expect(screen.getByText('check')).toBeTruthy();
-  });
-
-  it('non-selected role does not show a checkmark', () => {
-    const app = makeApp();
-    // myRoles returns [r1] (Trainer selected), Kassierer is not selected
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    // Both roles render; only the selected one has a check icon
-    const checkmarks = screen.getAllByText('check');
-    expect(checkmarks).toHaveLength(1);
-  });
-
-  it('renders team name in "my roles" section title', () => {
-    const app = makeApp();
-    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
-    // Team name should appear in section heading
-    expect(screen.getByText(/FC Testverein/)).toBeTruthy();
   });
 
   it('renders a language switcher with all supported languages', () => {

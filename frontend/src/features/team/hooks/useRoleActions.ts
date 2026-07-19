@@ -1,6 +1,6 @@
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import type { api as defaultApi } from '@/services';
-import type { Role, TeamForUser } from '@/types';
+import type { Role } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
 import type { RoleFormValues } from '../components/roleFormSchema';
 import { reportActionError } from '@/utils/errors';
@@ -12,25 +12,13 @@ type RoleDeps = {
   api: typeof defaultApi;
   S: () => AppState;
   setState: SetState;
-  activeTeam: () => TeamForUser | null;
   refreshRoles: () => Promise<void>;
-  refreshTeams: () => Promise<void>;
   askConfirm: (cfg: ConfirmConfig) => void;
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
 
-export function useRoleActions({
-  api,
-  S,
-  setState,
-  activeTeam,
-  refreshRoles,
-  refreshTeams,
-  askConfirm,
-  toastMsg,
-  logout,
-}: RoleDeps) {
+export function useRoleActions({ api, S, setState, refreshRoles, askConfirm, toastMsg, logout }: RoleDeps) {
   const openRoles = useCallback(() => setState({ sheet: { type: 'roles' } }), [setState]);
 
   const openRoleForm = useCallback(
@@ -95,38 +83,5 @@ export function useRoleActions({
     [api, S, askConfirm, refreshRoles, setState, toastMsg, logout],
   );
 
-  // Chains toggleMyRole calls so each one reads activeTeam().myRoles only
-  // once the previous toggle's refreshTeams() has applied -- reading it at
-  // click time instead let two rapid toggles of different roles both start
-  // from the same stale role list, so the second request's PUT silently
-  // overwrote the first's change instead of building on it.
-  const toggleChain = useRef<Promise<void>>(Promise.resolve());
-
-  const toggleMyRole = useCallback(
-    (roleId: string) => {
-      const run = async () => {
-        const team = activeTeam();
-        if (!team) return;
-        const cur = team.myRoles.map((r) => r.id);
-        const next = cur.includes(roleId) ? cur.filter((x) => x !== roleId) : cur.concat(roleId);
-        if (!next.length) {
-          toastMsg(t('team.roleAtLeastOne'), undefined, 'error');
-          return;
-        }
-        try {
-          await api.members.setRoles(team.membershipId, next, team.id);
-          await refreshTeams();
-          toastMsg(t('team.toastRolesSaved'));
-        } catch (err) {
-          reportActionError({ setState, toastMsg, onAuthError: logout }, err);
-        }
-      };
-      const step = toggleChain.current.then(run);
-      toggleChain.current = step;
-      return step;
-    },
-    [api, activeTeam, refreshTeams, setState, toastMsg, logout],
-  );
-
-  return { openRoles, openRoleForm, saveRole, removeRole, toggleMyRole };
+  return { openRoles, openRoleForm, saveRole, removeRole };
 }

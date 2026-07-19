@@ -317,7 +317,6 @@ export interface AppContextValue {
   openRoleForm: (role?: Role) => void;
   saveRole: (f: RoleFormValues) => Promise<void>;
   removeRole: (roleId: string) => void;
-  toggleMyRole: (roleId: string) => Promise<void>;
   // team
   openTeamSwitcher: () => void;
   openProfile: () => void;
@@ -737,14 +736,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // monotonic-sequence guard, and for the same reason: it's invoked from
   // many independent, unserialized call sites (useTeamActions' saveTeamPhoto/
   // saveTeamLogo/setTeamIcon/removeTeamPhoto/saveTeamSettings/createTeam/
-  // uploadMyPhoto, and useRoleActions' toggleMyRole), each guarded against
-  // racing ITSELF (an in-flight key, or toggleMyRole's own chain) but not
-  // against racing each other -- e.g. uploading a team photo while toggling
-  // one's own role in a different sheet fires two concurrent refreshTeams()
+  // uploadMyPhoto), each guarded against racing ITSELF (an in-flight key) but
+  // not against racing each other -- e.g. uploading a team photo while
+  // creating a team in a different sheet fires two concurrent refreshTeams()
   // calls. Without this, an out-of-order response applies whichever call
-  // happened to resolve last, silently reverting the other's change (e.g. a
-  // just-toggled own role, which feeds can()/myRoles() via activeTeam(),
-  // appearing to un-toggle itself) until the next unrelated refresh.
+  // happened to resolve last, silently reverting the other's change until the
+  // next unrelated refresh.
   const refreshTeamsSeq = useRef(0);
   const refreshTeams = useCallback(async () => {
     const seq = ++refreshTeamsSeq.current;
@@ -1018,7 +1015,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openRoleForm,
     saveRole,
     removeRole,
-    toggleMyRole,
     openTeamSwitcher,
     openProfile,
     openMore,
@@ -1245,7 +1241,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openRoleForm,
       saveRole,
       removeRole,
-      toggleMyRole,
       openTeamSwitcher,
       openProfile,
       openMore,
@@ -1340,7 +1335,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openRoleForm,
       saveRole,
       removeRole,
-      toggleMyRole,
       openTeamSwitcher,
       openProfile,
       openMore,
