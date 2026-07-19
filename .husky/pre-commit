@@ -1,1 +1,19 @@
 cd frontend && npx lint-staged
+cd ..
+
+# Backend: format + lint staged Go files so Go quality is enforced locally, not
+# only in CI (matching CLAUDE.md's "commits enforce quality" claim).
+staged_go=$(git diff --cached --name-only --diff-filter=ACM -- 'backend/**/*.go')
+if [ -n "$staged_go" ]; then
+  # gofmt formatting check (needs only the Go toolchain).
+  unformatted=$(printf '%s\n' "$staged_go" | sed 's|^backend/||' | (cd backend && xargs gofmt -l))
+  if [ -n "$unformatted" ]; then
+    echo "gofmt: staged Go files are not formatted (run 'cd backend && gofmt -w .'):"
+    echo "$unformatted"
+    exit 1
+  fi
+  # golangci-lint when available (skipped if not installed, e.g. a fresh clone).
+  if command -v golangci-lint >/dev/null 2>&1; then
+    (cd backend && golangci-lint run ./...) || exit 1
+  fi
+fi
