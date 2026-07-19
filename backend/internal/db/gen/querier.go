@@ -18,6 +18,7 @@ type Querier interface {
 	// settings:write in team $1.
 	CheckOtherRolesHaveSettingsWrite(ctx context.Context, arg CheckOtherRolesHaveSettingsWriteParams) (bool, error)
 	CountNewsByTeam(ctx context.Context, teamID uuid.UUID) (int64, error)
+	CountRoles(ctx context.Context, teamID uuid.UUID) (int32, error)
 	// Distinct-role count for a candidate ID list, used by RolesExistForTeam to
 	// verify every ID in roleIDs belongs to teamID (compares against the caller's
 	// own distinct-id count, since COUNT(*) here counts matching rows, not input
@@ -37,7 +38,12 @@ type Querier interface {
 	// cursor args mean "first page" -- the NULL check makes this one static
 	// query instead of the caller having to build the predicate conditionally.
 	ListNewsByTeam(ctx context.Context, arg ListNewsByTeamParams) ([]ListNewsByTeamRow, error)
-	ListRolesByTeam(ctx context.Context, teamID uuid.UUID) ([]ListRolesByTeamRow, error)
+	// Fetched unconditionally by every team member on login/team-switch (see
+	// teams.Repository doc comment), so it carries the same defensive LIMIT as
+	// every other unconditionally-read, per-team list in this codebase
+	// (finances.ListPenalties, etc.) -- a backstop in case CreateRole's
+	// maxRolesPerTeam check is ever bypassed or a team predates the cap.
+	ListRolesByTeam(ctx context.Context, arg ListRolesByTeamParams) ([]ListRolesByTeamRow, error)
 	ScrubEventSeriesNominatedRoleID(ctx context.Context, arg ScrubEventSeriesNominatedRoleIDParams) error
 	ScrubEventsNominatedRoleID(ctx context.Context, arg ScrubEventsNominatedRoleIDParams) error
 	ScrubTeamReasonVisibilityRoleID(ctx context.Context, arg ScrubTeamReasonVisibilityRoleIDParams) error

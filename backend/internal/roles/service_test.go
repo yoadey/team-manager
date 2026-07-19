@@ -19,6 +19,7 @@ import (
 
 type mockRepo struct {
 	listRolesFn  func(ctx context.Context, teamID string) ([]teams.RoleRow, error)
+	countRolesFn func(ctx context.Context, teamID string) (int, error)
 	createRoleFn func(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error)
 	updateRoleFn func(ctx context.Context, roleID, teamID, callerUserID string, patch roles.RolePatch) (*teams.RoleRow, error)
 	deleteRoleFn func(ctx context.Context, roleID, teamID string) error
@@ -26,6 +27,10 @@ type mockRepo struct {
 
 func (m *mockRepo) ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error) {
 	return m.listRolesFn(ctx, teamID)
+}
+
+func (m *mockRepo) CountRoles(ctx context.Context, teamID string) (int, error) {
+	return m.countRolesFn(ctx, teamID)
 }
 
 func (m *mockRepo) CreateRole(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error) {
@@ -71,6 +76,10 @@ func TestService_CreateRole_MapsPermissionsToInternalRepresentation(t *testing.T
 	teamID := uuid.New()
 	var capturedPerms teams.PermissionsJSON
 	repo := &mockRepo{
+		countRolesFn: func(_ context.Context, gotTeamID string) (int, error) {
+			assert.Equal(t, teamID.String(), gotTeamID)
+			return 0, nil
+		},
 		createRoleFn: func(_ context.Context, gotTeamID, name string, _ *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error) {
 			assert.Equal(t, teamID.String(), gotTeamID)
 			assert.Equal(t, "Coach", name)
@@ -100,6 +109,38 @@ func TestService_CreateRole_MapsPermissionsToInternalRepresentation(t *testing.T
 	assert.Equal(t, "write", capturedPerms.News)
 	assert.Equal(t, "read", capturedPerms.Polls)
 	assert.Equal(t, "none", capturedPerms.Settings)
+}
+
+// Regression test: CreateRole used to insert unconditionally with no
+// server-side cap, unlike every sibling per-team catalog in this codebase
+// (finances.maxPenaltiesPerTeam, news.maxNewsPerTeam, polls.maxPollsPerTeam),
+// letting a team accumulate an unbounded number of roles -- degrading the
+// ListRolesByTeam read that every member unconditionally triggers on every
+// login/team-switch.
+func TestService_CreateRole_RejectsWhenAtCap(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	createCalled := false
+	repo := &mockRepo{
+		countRolesFn: func(_ context.Context, _ string) (int, error) {
+			return 500, nil // maxRolesPerTeam
+		},
+		createRoleFn: func(_ context.Context, _, _ string, _ *string, _ teams.PermissionsJSON) (*teams.RoleRow, error) {
+			createCalled = true
+			return &teams.RoleRow{}, nil
+		},
+	}
+
+	svc := roles.NewService(repo)
+	body := &gen.CreateRoleJSONRequestBody{
+		Name:        "One Too Many",
+		Permissions: gen.Permissions{Events: gen.Read, Members: gen.Read, Finances: gen.Read, News: gen.Read, Polls: gen.Read, Settings: gen.Read},
+	}
+	_, err := svc.CreateRole(context.Background(), teamID, body)
+
+	require.ErrorIs(t, err, roles.ErrTooManyRoles)
+	assert.False(t, createCalled, "CreateRole must not reach the repository insert once the team is at its role cap")
 }
 
 func TestService_UpdateRole_LeavesPermissionsNilWhenNotProvided(t *testing.T) {

@@ -85,6 +85,9 @@ func (h *Handler) CreateRole(ctx context.Context, req gen.CreateRoleRequestObjec
 	}
 	role, err := h.svc.CreateRole(ctx, req.TeamId, req.Body)
 	if err != nil {
+		if errors.Is(err, ErrTooManyRoles) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateRole failed", "err", err)
 		return nil, apierror.Internal("failed to create role")
 	}
