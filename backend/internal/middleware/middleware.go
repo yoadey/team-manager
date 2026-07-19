@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -157,21 +158,93 @@ func ParseTrustedProxies(cidrs []string) ([]*net.IPNet, error) {
 	return nets, nil
 }
 
-// trustedProxyKeyFunc returns an httprate.KeyFunc that only honors
-// client-supplied IP headers (True-Client-IP / X-Real-IP / X-Forwarded-For)
-// when the immediate TCP peer address falls within a trusted CIDR. For any
-// other peer, those headers are ignored and the raw connection address is
-// used instead — this prevents a client from bypassing rate limiting
-// (including login brute-force protection) by spoofing the headers, while
-// still supporting the common reverse-proxy/load-balancer deployment when
-// its address range is explicitly configured.
+// trustedProxyKeyFunc returns an httprate.KeyFunc that only honors the
+// client-supplied X-Forwarded-For header when the immediate TCP peer
+// address falls within a trusted CIDR. For any other peer, the header is
+// ignored and the raw connection address is used instead — this prevents a
+// client from bypassing rate limiting (including login brute-force
+// protection) by spoofing the header, while still supporting the common
+// reverse-proxy/load-balancer deployment when its address range is
+// explicitly configured.
+//
+// This deliberately does not use httprate.KeyByRealIP, which also honors
+// True-Client-IP and X-Real-IP verbatim and takes X-Forwarded-For's
+// left-most (client-supplied) hop. Both single-value headers can be set
+// directly by the client with no guarantee that every reverse
+// proxy/ingress/LB overwrites rather than passes them through, and the
+// left-most X-Forwarded-For hop is, by definition, whatever the client
+// itself claimed. See realForwardedIP for the hop-walking this uses
+// instead.
 func trustedProxyKeyFunc(trusted []*net.IPNet) httprate.KeyFunc {
 	return func(r *http.Request) (string, error) {
 		if isTrustedPeer(r.RemoteAddr, trusted) {
-			return httprate.KeyByRealIP(r)
+			return realForwardedIP(r, trusted), nil
 		}
 		return httprate.KeyByIP(r)
 	}
+}
+
+// realForwardedIP returns the rate-limit key for a request whose immediate
+// peer is a trusted proxy. It walks X-Forwarded-For from right (closest hop)
+// to left, skipping any entry that itself falls within a trusted CIDR --
+// each proxy in a trusted chain may append its own hop -- and returns the
+// first (right-most) entry that isn't trusted, i.e. the client the trusted
+// proxy chain itself observed. Unlike taking the left-most entry, this
+// cannot be spoofed by a client-supplied value: everything the client wrote
+// into the header is to the left of, and therefore skipped in favor of, the
+// first hop actually appended by a trusted proxy. If every entry is trusted
+// (or the header is absent/unparseable), it falls back to the immediate
+// peer address.
+func realForwardedIP(r *http.Request, trusted []*net.IPNet) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		hops := strings.Split(xff, ",")
+		for i := len(hops) - 1; i >= 0; i-- {
+			host := strings.TrimSpace(hops[i])
+			ip := net.ParseIP(host)
+			if ip == nil {
+				continue
+			}
+			trustedHop := false
+			for _, n := range trusted {
+				if n.Contains(ip) {
+					trustedHop = true
+					break
+				}
+			}
+			if !trustedHop {
+				return canonicalizeIP(host)
+			}
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	return canonicalizeIP(host)
+}
+
+// canonicalizeIP mirrors httprate's unexported canonicalizeIP: IPv4
+// addresses are returned as-is, IPv6 addresses are masked to their /64 so
+// clients can't evade rate limiting by cycling through addresses within
+// their own /64, and non-IP strings pass through unchanged.
+func canonicalizeIP(ip string) string {
+	isIPv6 := false
+	for i := 0; !isIPv6 && i < len(ip); i++ {
+		switch ip[i] {
+		case '.':
+			return ip
+		case ':':
+			isIPv6 = true
+		}
+	}
+	if !isIPv6 {
+		return ip
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+	return parsed.Mask(net.CIDRMask(64, 128)).String()
 }
 
 // isTrustedPeer reports whether remoteAddr's host portion falls within any
