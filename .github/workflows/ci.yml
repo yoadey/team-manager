@@ -1183,13 +1183,25 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Install Helm
-        # Pinned to the v3.16.3 tag ref (not the mutable `main` branch) so
-        # the installer *script* is as pinned as the Helm *binary* it
-        # installs (--version v3.16.3 already pins that) — every other
-        # third-party dependency in this workflow is SHA/digest-pinned
-        # (see the trivy-action pin's comment for why), this was the one
-        # curl-|-bash exception fetching from a live, writable ref.
-        run: curl -fsSL https://raw.githubusercontent.com/helm/helm/v3.16.3/scripts/get-helm-3 | bash -s -- --no-sudo --version v3.16.3
+        # Every other third-party dependency in this workflow is SHA/digest-
+        # pinned (see the trivy-action pin's comment for why); fetching the
+        # installer *script* from the v3.16.3 tag ref was the one curl-|-bash
+        # exception, trusting a live, writable ref rather than a fixed
+        # artifact. Verify the script's content hash before executing it
+        # instead: this pins to the exact bytes fetched below regardless of
+        # what the mutable tag ref resolves to later, closing the same
+        # tag-hijack class the SHA pins elsewhere in this file defend
+        # against. (--version v3.16.3 below still pins the Helm *binary*
+        # itself, which the script downloads and verifies its own checksum
+        # for.) Re-derive this hash deliberately if bumping the version:
+        # curl -fsSL https://raw.githubusercontent.com/helm/helm/vX.Y.Z/scripts/get-helm-3 | sha256sum
+        env:
+          GET_HELM_3_SHA256: c909b416fe831e0bf21442e068cef0312cfc7313a39cc0ad0cf1a91fdf47860d
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/v3.16.3/scripts/get-helm-3 -o get-helm-3.sh
+          echo "${GET_HELM_3_SHA256}  get-helm-3.sh" | sha256sum -c -
+          bash get-helm-3.sh --no-sudo --version v3.16.3
+          rm -f get-helm-3.sh
 
       # Lint and render against every values file this chart ships (base
       # values.yaml, plus each environment overlay) — a values-dependent
