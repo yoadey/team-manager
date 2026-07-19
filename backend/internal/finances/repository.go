@@ -386,7 +386,11 @@ func (r *Repository) UpdatePenalty(ctx context.Context, id, teamID uuid.UUID, pa
 	return p, nil
 }
 
-// DeletePenalty deletes a penalty definition that belongs to teamID (cascades to assignments).
+// DeletePenalty deletes a penalty definition that belongs to teamID. Since
+// migration 00027, this detaches (not cascades to) its assignments: the FK
+// is ON DELETE SET NULL, so existing penalty_assignments rows survive with
+// penalty_id set to NULL and render from their snapshotted amount/label
+// (see 00025), preserving paid/historical records.
 func (r *Repository) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
