@@ -664,6 +664,8 @@ export const en: Messages = {
   stats: {
     presetAll: 'Total',
     presetMonths: '{n} months',
+    rangeFrom: 'Custom range: from',
+    rangeTo: 'Custom range: to',
     ringAria: 'Average attendance rate: {avg}%',
     avgQuote: 'Avg rate',
     teamAttendance: 'Team attendance',

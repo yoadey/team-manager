@@ -672,6 +672,8 @@ export const de = {
   stats: {
     presetAll: 'Gesamt',
     presetMonths: '{n} Monate',
+    rangeFrom: 'Eigener Zeitraum: von',
+    rangeTo: 'Eigener Zeitraum: bis',
     ringAria: 'Durchschnittliche Anwesenheitsquote: {avg}%',
     avgQuote: 'Ø Quote',
     teamAttendance: 'Team-Anwesenheit',

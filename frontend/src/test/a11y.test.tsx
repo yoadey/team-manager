@@ -58,12 +58,20 @@ vi.mock('@/features/members/hooks/useMemberQueries', () => ({
   useMembersQuery: vi.fn().mockReturnValue({ data: [] }),
 }));
 
+// Stats.tsx imports useStatsQuery via this exact relative path (see the
+// identical pattern in pages/Stats.test.tsx), so the mock must match it.
+vi.mock('@/pages/hooks/useStatsQueries', () => ({
+  useStatsQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
 import { useMembersQuery } from '@/features/members/hooks/useMemberQueries';
 import { useEventDetailQuery } from '@/features/events/hooks/useEventQueries';
+import { useStatsQuery } from '@/pages/hooks/useStatsQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
 const mockUseEventDetailQuery = useEventDetailQuery as ReturnType<typeof vi.fn>;
+const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
 
 // ─── Shared app state builders ───────────────────────────────────────────────
 
@@ -225,6 +233,35 @@ describe('Accessibility: EventDetailSheet', () => {
     const { container } = render(
       <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', eventId: 'ev1' } as never} />,
     );
+    const results = await axe(container);
+    assertNoViolations(results);
+  });
+});
+
+describe('Accessibility: Stats', () => {
+  beforeAll(() => {
+    vi.clearAllMocks();
+  });
+
+  // Regression test: the two custom date-range inputs had no label or
+  // aria-label -- only a visual "–" between them distinguished from/to for
+  // sighted users, so a keyboard/screen-reader user reached two identical,
+  // unlabeled "Date" fields. Stats.tsx wasn't previously covered by any a11y
+  // test, which is exactly why the gap went unnoticed.
+  it('custom date-range inputs have no axe violations', async () => {
+    const { Stats } = await import('@/pages/Stats');
+    mockUseStatsQuery.mockReturnValue({ data: undefined });
+    mockUseApp.mockReturnValue({
+      api: {},
+      state: {
+        primaryColor: '#4285F4',
+        activeTeamId: 't1',
+        statsRange: null,
+        user: { id: 'u1', name: 'Test User', avatarColor: '#000', photo: null },
+      },
+      setStatsRange: vi.fn(),
+    });
+    const { container } = render(<Stats />);
     const results = await axe(container);
     assertNoViolations(results);
   });
