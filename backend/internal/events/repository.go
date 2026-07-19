@@ -1100,19 +1100,24 @@ func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, vie
 // events:write between that check and this write could still let the write
 // through; folding the check into this statement's own atomic snapshot
 // closes that window without needing a shared transaction or advisory lock
-// on this very hot path. Returns pgx.ErrNoRows if eventID does not belong to
-// teamID, if userID is not a member of teamID (prevents forging attendance
-// rows for arbitrary users outside the team), OR -- in that narrow race --
-// if callerID no longer holds events:write; these are deliberately not
-// distinguished here, matching how every other reason this returns
-// pgx.ErrNoRows is already ambiguous by design.
+// on this very hot path. The events EXISTS clause also re-checks status !=
+// 'cancelled' for the same reason: the service layer's earlier GetEvent read
+// of the event's status is not atomic with this write, so a concurrent
+// SetStatus(cancelled) committing between that read and this write must not
+// be able to still let attendance be recorded/rewritten against an
+// already-cancelled event. Returns pgx.ErrNoRows if eventID does not belong
+// to teamID, if the event is cancelled, if userID is not a member of teamID
+// (prevents forging attendance rows for arbitrary users outside the team),
+// OR -- in that narrow race -- if callerID no longer holds events:write;
+// these are deliberately not distinguished here, matching how every other
+// reason this returns pgx.ErrNoRows is already ambiguous by design.
 func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
 		INSERT INTO attendance (event_id, user_id, status, reason, reason_id, reason_visibility, at)
 		SELECT $1, $2, $3, $4, $5, $6, now()
-		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7)
+		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7 AND status != 'cancelled')
 		  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $7 AND user_id = $2)
 		  AND ($8 = $2 OR EXISTS (
 		        SELECT 1 FROM roles r
