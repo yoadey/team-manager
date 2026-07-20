@@ -766,3 +766,115 @@ func TestFinancesRepository_CreateAssignment_RejectsDeletedPenalty(t *testing.T)
 	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
 	assert.ErrorIs(t, err, finances.ErrPenaltyNotInTeam, "CreateAssignment must map a penalty FK violation to ErrPenaltyNotInTeam")
 }
+
+// Regression test: ListTransactions ordered by date DESC, created_at DESC
+// with no further tiebreaker, unlike its sibling ListTransactionsPage/
+// ListAssignments, which both include id as a final tiebreaker. Two
+// transactions sharing the exact same date AND created_at (bulk import,
+// migration backfill, or simply coincidence at low timestamp resolution)
+// left Postgres free to return them in either order across otherwise
+// identical calls -- capped at maxOverviewRows, that non-determinism could
+// silently swap which rows fall inside vs. outside the cap between reloads
+// of the same, unchanged data.
+func TestFinancesRepository_ListTransactions_DeterministicOrderOnTie(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	tiedDate := "2024-06-01"
+	tiedCreatedAt := "2024-06-01T12:00:00Z"
+	lowID := "aaaaaaaa-0000-0000-0000-000000000001"
+	highID := "ffffffff-0000-0000-0000-000000000002"
+	for _, id := range []string{lowID, highID} {
+		_, err := pool.Exec(ctx, `
+			INSERT INTO transactions (id, team_id, type, title, amount, date, created_at)
+			VALUES ($1, $2, 'income', 'Tied', 100, $3, $4)
+		`, id, tid, tiedDate, tiedCreatedAt)
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 2; i++ {
+		list, err := repo.ListTransactions(ctx, teamID)
+		require.NoError(t, err)
+		require.Len(t, list, 2)
+		assert.Equal(t, highID, list[0].ID.String(), "call %d: id DESC must break the date/created_at tie deterministically", i)
+		assert.Equal(t, lowID, list[1].ID.String(), "call %d: id DESC must break the date/created_at tie deterministically", i)
+	}
+}
+
+// Same regression as above, for ListPenalties (ORDER BY label with no
+// tiebreaker).
+func TestFinancesRepository_ListPenalties_DeterministicOrderOnTie(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	lowID := "aaaaaaaa-0000-0000-0000-000000000001"
+	highID := "ffffffff-0000-0000-0000-000000000002"
+	for _, id := range []string{lowID, highID} {
+		_, err := pool.Exec(ctx, `INSERT INTO penalties (id, team_id, label, amount) VALUES ($1, $2, 'Same Label', 500)`, id, tid)
+		require.NoError(t, err)
+	}
+
+	for i := 0; i < 2; i++ {
+		list, err := repo.ListPenalties(ctx, teamID)
+		require.NoError(t, err)
+		require.Len(t, list, 2)
+		assert.Equal(t, lowID, list[0].ID.String(), "call %d: id must break the label tie deterministically", i)
+		assert.Equal(t, highID, list[1].ID.String(), "call %d: id must break the label tie deterministically", i)
+	}
+}
+
+// Same regression as above, for ListContributions (ORDER BY month DESC,
+// user name with no tiebreaker). Two different users sharing the same name
+// (a real possibility, not something the app prevents) each contributing in
+// the same month produces the (month, name) tie.
+func TestFinancesRepository_ListContributions_DeterministicOrderOnTie(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Tie Team')`, tid)
+	require.NoError(t, err)
+
+	user1 := "11111111-0000-0000-0000-000000000001"
+	user2 := "22222222-0000-0000-0000-000000000002"
+	for _, uid := range []string{user1, user2} {
+		_, err := pool.Exec(ctx,
+			`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Same Name', $2, '#123456')`,
+			uid, uid+"@example.com")
+		require.NoError(t, err)
+	}
+
+	lowID := "aaaaaaaa-0000-0000-0000-000000000001"
+	highID := "ffffffff-0000-0000-0000-000000000002"
+	_, err = pool.Exec(ctx, `INSERT INTO contributions (id, team_id, user_id, month, amount) VALUES ($1, $2, $3, '2024-06', 2500)`, highID, tid, user1)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO contributions (id, team_id, user_id, month, amount) VALUES ($1, $2, $3, '2024-06', 2500)`, lowID, tid, user2)
+	require.NoError(t, err)
+
+	for i := 0; i < 2; i++ {
+		list, err := repo.ListContributions(ctx, uuid.MustParse(tid))
+		require.NoError(t, err)
+		require.Len(t, list, 2)
+		assert.Equal(t, lowID, list[0].ID.String(), "call %d: id must break the (month, name) tie deterministically", i)
+		assert.Equal(t, highID, list[1].ID.String(), "call %d: id must break the (month, name) tie deterministically", i)
+	}
+}

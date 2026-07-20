@@ -97,7 +97,7 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 		SELECT id, team_id, type, title, amount, date, category, created_at
 		FROM transactions
 		WHERE team_id = $1
-		ORDER BY date DESC, created_at DESC
+		ORDER BY date DESC, created_at DESC, id DESC
 		LIMIT $2
 	`, teamID, maxOverviewRows)
 	if err != nil {
@@ -300,7 +300,7 @@ func (r *Repository) ListPenalties(ctx context.Context, teamID uuid.UUID) ([]Pen
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, label, amount FROM penalties WHERE team_id = $1 ORDER BY label LIMIT $2
+		SELECT id, team_id, label, amount FROM penalties WHERE team_id = $1 ORDER BY label, id LIMIT $2
 	`, teamID, maxOverviewRows)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.ListPenalties: %w", err)
@@ -620,7 +620,7 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 		FROM contributions c
 		JOIN users u ON u.id = c.user_id
 		WHERE c.team_id = $1
-		ORDER BY c.month DESC, u.name
+		ORDER BY c.month DESC, u.name, c.id
 		LIMIT $2
 	`, teamID, maxOverviewRows)
 	if err != nil {
