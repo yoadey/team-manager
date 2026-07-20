@@ -207,7 +207,7 @@ func trustedProxyKeyFunc(trusted []*net.IPNet) httprate.KeyFunc {
 // exact spoofable-header gap this function exists to close.
 func realForwardedIP(r *http.Request, trusted []*net.IPNet) string {
 	if values := r.Header.Values("X-Forwarded-For"); len(values) > 0 {
-		var hops []string
+		hops := make([]string, 0, len(values))
 		for _, v := range values {
 			hops = append(hops, strings.Split(v, ",")...)
 		}
