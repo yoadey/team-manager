@@ -36,7 +36,7 @@ func TestRetentionWorker_Work_RecordsErrorSpanOnFailure(t *testing.T) {
 	otel.SetTracerProvider(tp)
 	defer otel.SetTracerProvider(prev)
 
-	worker := jobs.NewRetentionWorker(pool, 0, 0, 0)
+	worker := jobs.NewRetentionWorker(pool, 0, 0, 0, 0)
 	err := worker.Work(context.Background(), &river.Job[jobs.RetentionArgs]{JobRow: &rivertype.JobRow{ID: 1}})
 	require.Error(t, err)
 

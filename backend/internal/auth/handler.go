@@ -29,6 +29,9 @@ type authService interface {
 	GetMyPhotoURL(ctx context.Context, userID string) (string, error)
 	EraseAccount(ctx context.Context, userID, password string) error
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
+	Register(ctx context.Context, email, password string) error
+	VerifyEmail(ctx context.Context, rawToken string) (token string, user *UserRow, err error)
+	ResendVerification(ctx context.Context, email string) error
 }
 
 // Handler implements the auth-related methods of gen.StrictServerInterface.
@@ -84,6 +87,12 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 		h.logger.WarnContext(ctx, "login failed", "err", err)
 		h.audit.Record(ctx, audit.EventLogin, audit.Failure, "", slog.String("email_hash", HashEmailForAudit(string(request.Body.Email))))
 		metrics.LoginAttempts.WithLabelValues("failure").Inc()
+		if errors.Is(err, ErrEmailNotVerified) {
+			// Distinguishable from wrong credentials (403, not 401) -- safe to
+			// reveal here since the caller already proved they know this
+			// account's own correct password.
+			return nil, errForbidden("please verify your email before logging in")
+		}
 		return gen.Login401ApplicationProblemPlusJSONResponse{
 			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid credentials"),
 		}, nil
@@ -95,6 +104,97 @@ func (h *Handler) Login(ctx context.Context, request gen.LoginRequestObject) (ge
 		Token: token,
 		User:  toGenUser(user),
 	}, nil
+}
+
+// registrationAcceptedMessage is the fixed, generic response body for
+// Register and ResendVerification, returned identically regardless of
+// whether the email was available, already registered and verified, or
+// already registered and still pending verification -- see
+// Service.Register's enumeration-safety contract. Never vary this message
+// (or its status code) based on account state.
+const registrationAcceptedMessage = "If this email can be registered, a verification link has been sent."
+
+// Register creates a new self-service account (email + password) and emails
+// a verification link. The response is always the same generic message
+// regardless of account state -- see Service.Register.
+func (h *Handler) Register(ctx context.Context, request gen.RegisterRequestObject) (gen.RegisterResponseObject, error) {
+	if request.Body == nil {
+		return nil, errBadRequest("missing request body")
+	}
+	email := string(request.Body.Email)
+	if err := validate.Email(email); err != nil {
+		metrics.RegisterAttempts.WithLabelValues("invalid").Inc()
+		return nil, errBadRequest(err.Error())
+	}
+	if err := validate.PasswordStrength(request.Body.Password); err != nil {
+		metrics.RegisterAttempts.WithLabelValues("invalid").Inc()
+		return nil, errBadRequest(err.Error())
+	}
+
+	if err := h.svc.Register(ctx, email, request.Body.Password); err != nil {
+		if errors.Is(err, ErrSelfRegistrationDisabled) {
+			metrics.RegisterAttempts.WithLabelValues("disabled").Inc()
+			return nil, errForbidden("self-registration is disabled")
+		}
+		if errors.Is(err, ErrPasswordTooLong) {
+			metrics.RegisterAttempts.WithLabelValues("invalid").Inc()
+			return nil, errBadRequest(err.Error())
+		}
+		h.logger.ErrorContext(ctx, "register failed", "err", err)
+		h.audit.Record(ctx, audit.EventRegister, audit.Failure, "", slog.String("email_hash", HashEmailForAudit(email)))
+		metrics.RegisterAttempts.WithLabelValues("failure").Inc()
+		return nil, errInternal("registration failed")
+	}
+
+	metrics.RegisterAttempts.WithLabelValues("success").Inc()
+	h.audit.Record(ctx, audit.EventRegister, audit.Success, "", slog.String("email_hash", HashEmailForAudit(email)))
+	return gen.Register202JSONResponse{Message: registrationAcceptedMessage}, nil
+}
+
+// VerifyEmail consumes a single-use verification token, marks the account
+// verified, and returns a session identical in shape to Login's response.
+func (h *Handler) VerifyEmail(ctx context.Context, request gen.VerifyEmailRequestObject) (gen.VerifyEmailResponseObject, error) {
+	if request.Body == nil || request.Body.Token == "" {
+		return gen.VerifyEmail401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid or expired verification token"),
+		}, nil
+	}
+
+	token, user, err := h.svc.VerifyEmail(ctx, request.Body.Token)
+	if err != nil {
+		h.logger.WarnContext(ctx, "verify email failed", "err", err)
+		h.audit.Record(ctx, audit.EventEmailVerify, audit.Failure, "")
+		return gen.VerifyEmail401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid or expired verification token"),
+		}, nil
+	}
+
+	h.audit.Record(ctx, audit.EventEmailVerify, audit.Success, user.Id.String())
+	return gen.VerifyEmail200JSONResponse{
+		Token: token,
+		User:  toGenUser(user),
+	}, nil
+}
+
+// ResendVerification always returns the same generic response regardless of
+// whether the email has no account, an already-verified account, or a
+// still-unverified account -- see Service.ResendVerification.
+func (h *Handler) ResendVerification(ctx context.Context, request gen.ResendVerificationRequestObject) (gen.ResendVerificationResponseObject, error) {
+	if request.Body == nil {
+		return nil, errBadRequest("missing request body")
+	}
+	email := string(request.Body.Email)
+	if err := validate.Email(email); err != nil {
+		return nil, errBadRequest(err.Error())
+	}
+
+	if err := h.svc.ResendVerification(ctx, email); err != nil {
+		h.logger.ErrorContext(ctx, "resend verification failed", "err", err)
+		return nil, errInternal("resend verification failed")
+	}
+
+	h.audit.Record(ctx, audit.EventResendVerification, audit.Success, "", slog.String("email_hash", HashEmailForAudit(email)))
+	return gen.ResendVerification202JSONResponse{Message: registrationAcceptedMessage}, nil
 }
 
 // DeleteCurrentUser erases the authenticated account by anonymization
@@ -373,6 +473,7 @@ func writeUnauthorized(w http.ResponseWriter, detail string) {
 // silently fall through to a generic 500 on every call site.
 func errUnauthorized(msg string) error { return apierror.Unauthorized(msg) }
 func errBadRequest(msg string) error   { return apierror.BadRequest(msg) }
+func errForbidden(msg string) error    { return apierror.Forbidden(msg) }
 func errInternal(msg string) error     { return apierror.Internal(msg) }
 
 // ensure time is used (time.Time in UserRow.Birthday).

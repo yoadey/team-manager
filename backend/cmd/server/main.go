@@ -31,6 +31,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
+	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/members"
 	"github.com/yoadey/team-manager/backend/internal/middleware"
 	"github.com/yoadey/team-manager/backend/internal/news"
@@ -179,6 +180,7 @@ func initAuthComponents(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
 	objectStore storage.ObjectStore,
+	mailSender mailer.Mailer,
 	logger *slog.Logger,
 	auditLogger *audit.Logger,
 ) (*auth.Handler, *auth.SessionCookieCodec, error) {
@@ -186,7 +188,12 @@ func initAuthComponents(
 		slog.Warn("JWT_PRIVATE_KEY/JWT_PUBLIC_KEY not set; generating an ephemeral RSA key pair for this process — sessions will not survive a restart and won't verify across replicas")
 	}
 	repo := auth.NewRepository(pool)
-	svc, err := auth.NewService(repo, objectStore, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	svc, err := auth.NewService(repo, objectStore, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL, auth.RegistrationConfig{
+		Mailer:                  mailSender,
+		PublicBaseURL:           cfg.PublicBaseURL,
+		EmailVerificationTTL:    cfg.EmailVerificationTTL,
+		SelfRegistrationEnabled: cfg.SelfRegistrationEnabled,
+	}, logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth service: %w", err)
 	}
@@ -195,6 +202,30 @@ func initAuthComponents(
 		return nil, nil, fmt.Errorf("cookie codec: %w", err)
 	}
 	return auth.NewHandler(svc, logger, codec, auditLogger), codec, nil
+}
+
+// initMailer constructs the Mailer used to send self-registration
+// verification email. Falls back to an in-memory fake (logs the link) when
+// SMTP_HOST is unset -- config.Load() already hard-requires it when
+// COOKIE_SECURE=true, so this path is only reachable in dev/test, mirroring
+// the JWT/cookie-key/object-store ephemeral fallbacks above.
+func initMailer(cfg *config.Config, logger *slog.Logger) mailer.Mailer {
+	if cfg.SMTPHost == "" {
+		slog.Warn("SMTP_HOST not set; using a logging fake mailer — verification emails will only appear in the server log")
+		return mailer.NewFakeMailer(logger)
+	}
+	m, err := mailer.NewSMTPMailer(mailer.SMTPConfig{
+		Host:        cfg.SMTPHost,
+		Port:        cfg.SMTPPort,
+		Username:    cfg.SMTPUsername,
+		Password:    cfg.SMTPPassword,
+		FromAddress: cfg.SMTPFromAddress,
+	})
+	if err != nil {
+		slog.Error("mailer init failed", "err", err)
+		os.Exit(1)
+	}
+	return m
 }
 
 // initObjectStore constructs the ObjectStore used for team/user image
@@ -301,7 +332,7 @@ func main() {
 
 	// ─── River job queue ──────────────────────────────────────────────────────
 
-	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays)
+	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays, cfg.RetentionUnverifiedAccountDays)
 	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
@@ -325,7 +356,8 @@ func main() {
 
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, logger, auditLogger)
+	mailSender := initMailer(cfg, logger)
+	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, mailSender, logger, auditLogger)
 	if err != nil {
 		slog.Error("auth init failed", "err", err)
 		os.Exit(1)
@@ -494,6 +526,20 @@ func main() {
 		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.ListProviders(w, req)
+		})
+		// Self-registration and its verification endpoints are rate-limited the
+		// same way as login -- each is a plausible target for volumetric abuse
+		// (account-creation spam / verification-token brute-forcing / mail-bomb
+		// via resend). verify-email itself is not separately rate-limited: its
+		// token is a high-entropy, single-use secret, not a guessable value.
+		r.With(middleware.PerIPRateLimit(cfg.RegisterRateLimitPerMin, time.Minute, trustedProxies)).Post("/auth/register", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.Register(w, req)
+		})
+		r.Post("/auth/verify-email", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.VerifyEmail(w, req)
+		})
+		r.With(middleware.PerIPRateLimit(cfg.ResendVerificationRateLimitPerMin, time.Minute, trustedProxies)).Post("/auth/resend-verification", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.ResendVerification(w, req)
 		})
 	})
 

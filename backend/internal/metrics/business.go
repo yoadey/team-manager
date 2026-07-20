@@ -19,6 +19,16 @@ var (
 		Help:      "Total password login attempts by outcome (success / failure).",
 	}, []string{"outcome"})
 
+	// RegisterAttempts counts self-registration attempts split by outcome.
+	// outcome label values: "success" (a generic 202, regardless of which of
+	// Register's three enumeration-safe branches was taken), "disabled"
+	// (SELF_REGISTRATION_ENABLED=false), "invalid" (validation failure).
+	RegisterAttempts = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "register_attempts_total",
+		Help:      "Total self-registration attempts by outcome.",
+	}, []string{"outcome"})
+
 	// RateLimitHits counts requests rejected by the rate limiter.
 	// context label values: "global" (per-IP general limit), "login" (login endpoint).
 	RateLimitHits = promauto.NewCounterVec(prometheus.CounterOpts{

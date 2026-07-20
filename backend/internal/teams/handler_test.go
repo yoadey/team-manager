@@ -114,6 +114,11 @@ func (f *fakeAuthSvc) EraseAccount(_ context.Context, _, _ string) error { retur
 func (f *fakeAuthSvc) ExportUserData(_ context.Context, _ string) (*auth.ExportData, error) {
 	return &auth.ExportData{}, nil
 }
+func (f *fakeAuthSvc) Register(_ context.Context, _, _ string) error { return nil }
+func (f *fakeAuthSvc) VerifyEmail(_ context.Context, _ string) (string, *auth.UserRow, error) {
+	return "token", f.user, nil
+}
+func (f *fakeAuthSvc) ResendVerification(_ context.Context, _ string) error { return nil }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

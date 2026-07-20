@@ -54,6 +54,15 @@ type Contribution struct {
 	UpdatedAt time.Time
 }
 
+type EmailVerificationToken struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	TokenHash  string
+	ExpiresAt  time.Time
+	ConsumedAt pgtype.Timestamptz
+	CreatedAt  time.Time
+}
+
 type Event struct {
 	ID                uuid.UUID
 	TeamID            uuid.UUID
@@ -255,17 +264,18 @@ type Transaction struct {
 }
 
 type User struct {
-	ID             uuid.UUID
-	Name           string
-	Email          string
-	Phone          pgtype.Text
-	AvatarColor    string
-	PhotoData      []byte
-	PhotoMime      pgtype.Text
-	Birthday       pgtype.Date
-	Address        pgtype.Text
-	PasswordHash   pgtype.Text
-	CreatedAt      time.Time
-	DeletedAt      pgtype.Timestamptz
-	PhotoObjectKey pgtype.Text
+	ID              uuid.UUID
+	Name            string
+	Email           string
+	Phone           pgtype.Text
+	AvatarColor     string
+	PhotoData       []byte
+	PhotoMime       pgtype.Text
+	Birthday        pgtype.Date
+	Address         pgtype.Text
+	PasswordHash    pgtype.Text
+	CreatedAt       time.Time
+	DeletedAt       pgtype.Timestamptz
+	PhotoObjectKey  pgtype.Text
+	EmailVerifiedAt pgtype.Timestamptz
 }

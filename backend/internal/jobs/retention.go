@@ -30,21 +30,23 @@ func (RetentionArgs) Kind() string { return "retention" }
 const inviteRetention = 30 * 24 * time.Hour
 
 // RetentionWorker deletes stale rows from notifications, sessions, invites,
-// and audit_log. Thresholds for the first/second/fourth are configured at
-// construction time; sensible defaults (90 / 30 / 365 days) are applied when
-// zero values are passed.
+// audit_log, and never-verified user accounts. Thresholds are configured at
+// construction time; sensible defaults (90 / 30 / 365 / 7 days) are applied
+// when zero values are passed.
 type RetentionWorker struct {
 	river.WorkerDefaults[RetentionArgs]
-	pool                  *pgxpool.Pool
-	notificationRetention time.Duration
-	sessionRetention      time.Duration
-	auditLogRetention     time.Duration
+	pool                       *pgxpool.Pool
+	notificationRetention      time.Duration
+	sessionRetention           time.Duration
+	auditLogRetention          time.Duration
+	unverifiedAccountRetention time.Duration
 }
 
-// NewRetentionWorker constructs a RetentionWorker. notifDays, sessionDays, and
-// auditLogDays control how old a row must be before it is deleted. Pass 0 to
-// use the defaults (90, 30, and 365 days respectively).
-func NewRetentionWorker(pool *pgxpool.Pool, notifDays, sessionDays, auditLogDays int) *RetentionWorker {
+// NewRetentionWorker constructs a RetentionWorker. notifDays, sessionDays,
+// auditLogDays, and unverifiedAccountDays control how old a row must be
+// before it is deleted. Pass 0 to use the defaults (90, 30, 365, and 7 days
+// respectively).
+func NewRetentionWorker(pool *pgxpool.Pool, notifDays, sessionDays, auditLogDays, unverifiedAccountDays int) *RetentionWorker {
 	if notifDays <= 0 {
 		notifDays = 90
 	}
@@ -54,11 +56,15 @@ func NewRetentionWorker(pool *pgxpool.Pool, notifDays, sessionDays, auditLogDays
 	if auditLogDays <= 0 {
 		auditLogDays = 365
 	}
+	if unverifiedAccountDays <= 0 {
+		unverifiedAccountDays = 7
+	}
 	return &RetentionWorker{
-		pool:                  pool,
-		notificationRetention: time.Duration(notifDays) * 24 * time.Hour,
-		sessionRetention:      time.Duration(sessionDays) * 24 * time.Hour,
-		auditLogRetention:     time.Duration(auditLogDays) * 24 * time.Hour,
+		pool:                       pool,
+		notificationRetention:      time.Duration(notifDays) * 24 * time.Hour,
+		sessionRetention:           time.Duration(sessionDays) * 24 * time.Hour,
+		auditLogRetention:          time.Duration(auditLogDays) * 24 * time.Hour,
+		unverifiedAccountRetention: time.Duration(unverifiedAccountDays) * 24 * time.Hour,
 	}
 }
 
@@ -93,7 +99,33 @@ func deleteBatched(ctx context.Context, pool *pgxpool.Pool, table, dateColumn st
 	}
 }
 
-// retentionPhaseTimeout bounds each of the four delete phases in Work
+// deleteUnverifiedUsers repeatedly deletes up to retentionBatchSize rows from
+// users where email_verified_at IS NULL and created_at is older than cutoff,
+// looping until fewer than a full batch is removed. Mirrors deleteBatched's
+// batching strategy, but needs its own query since deleteBatched only
+// supports a single "dateColumn < cutoff" condition, not the additional
+// email_verified_at IS NULL guard that distinguishes an abandoned
+// registration from a long-lived verified account.
+func deleteUnverifiedUsers(ctx context.Context, pool *pgxpool.Pool, cutoff time.Time) (int64, error) {
+	query := fmt.Sprintf(
+		`DELETE FROM users WHERE ctid IN (SELECT ctid FROM users WHERE email_verified_at IS NULL AND created_at < $1 LIMIT %d)`,
+		retentionBatchSize,
+	)
+
+	var total int64
+	for {
+		tag, err := pool.Exec(ctx, query, cutoff)
+		if err != nil {
+			return total, err
+		}
+		total += tag.RowsAffected()
+		if tag.RowsAffected() < retentionBatchSize {
+			return total, nil
+		}
+	}
+}
+
+// retentionPhaseTimeout bounds each of the six delete phases in Work
 // independently. A single shared timeout for the whole run would let an
 // unusually large backlog in one table (e.g. notifications, always deleted
 // first) exhaust the entire budget and starve the phases after it -- since
@@ -106,22 +138,22 @@ const retentionPhaseTimeout = 30 * time.Second
 // otherwise fall back to River's own JobTimeoutDefault (1 minute, see
 // jobs.NewClient -- river.Config.JobTimeout is left unset). That outer
 // per-job context deadline caps every phase's own context.WithTimeout below
-// it (a context's deadline can only be tightened, never loosened), so four
+// it (a context's deadline can only be tightened, never loosened), so six
 // sequential retentionPhaseTimeout budgets would be squeezed into a shared
 // ~60s window, starving whichever phases run last -- including audit_log's
 // compliance-mandated cleanup -- exactly the failure mode
 // retentionPhaseTimeout's own comment describes, just via the outer River
 // timeout instead of one phase hogging its own inner one. Budgeting for all
-// four phases' full timeout plus margin ensures the outer deadline is never
+// six phases' full timeout plus margin ensures the outer deadline is never
 // the binding constraint.
 func (w *RetentionWorker) Timeout(*river.Job[RetentionArgs]) time.Duration {
-	return 4*retentionPhaseTimeout + 30*time.Second
+	return 6*retentionPhaseTimeout + 30*time.Second
 }
 
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
 //
-// Each of the four phases below runs regardless of whether an earlier phase
+// Each of the six phases below runs regardless of whether an earlier phase
 // failed or timed out, and their errors are joined at the end rather than
 // returned immediately -- returning early on the first error would let an
 // unusually large backlog in one table (e.g. notifications, always deleted
@@ -211,6 +243,42 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	} else {
 		metrics.RetentionJobRowsDeleted.WithLabelValues("audit_log").Add(float64(auditRows))
 		slog.Info("retention: deleted old audit_log entries", "rows", auditRows, "cutoff", auditCutoff)
+	}
+
+	// Delete accounts that never completed email verification, once older
+	// than unverifiedAccountRetention -- otherwise an attacker (or a user who
+	// abandons signup) can squat an email address indefinitely, since
+	// users.email is UNIQUE and Service.Register never overwrites an
+	// existing row. Deleting the users row cascades to
+	// email_verification_tokens (ON DELETE CASCADE) and sessions, so no
+	// separate cleanup is needed for either of those on this path.
+	unverifiedCtx, unverifiedCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
+	unverifiedCutoff := now.Add(-w.unverifiedAccountRetention)
+	unverifiedRows, unverifiedErr := deleteUnverifiedUsers(unverifiedCtx, w.pool, unverifiedCutoff)
+	unverifiedCancel()
+	if unverifiedErr != nil {
+		metrics.RetentionJobFailures.WithLabelValues("users").Inc()
+		errs = append(errs, fmt.Errorf("retention: delete unverified users: %w", unverifiedErr))
+	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("users").Add(float64(unverifiedRows))
+		slog.Info("retention: deleted never-verified accounts", "rows", unverifiedRows, "cutoff", unverifiedCutoff)
+	}
+
+	// Delete verification tokens that have simply expired, independent of the
+	// unverifiedAccountRetention grace period above -- e.g. a verified user's
+	// stale token, or an unverified user's earlier token superseded by a
+	// resend. Unlike sessions/invites there's no reason to keep an expired,
+	// unusable token around at all, so the cutoff is "now" rather than a
+	// further grace window.
+	tokenCtx, tokenCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
+	tokenRows, tokenErr := deleteBatched(tokenCtx, w.pool, "email_verification_tokens", "expires_at", now)
+	tokenCancel()
+	if tokenErr != nil {
+		metrics.RetentionJobFailures.WithLabelValues("email_verification_tokens").Inc()
+		errs = append(errs, fmt.Errorf("retention: delete expired email_verification_tokens: %w", tokenErr))
+	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("email_verification_tokens").Add(float64(tokenRows))
+		slog.Info("retention: deleted expired email verification tokens", "rows", tokenRows, "cutoff", now)
 	}
 
 	if len(errs) > 0 {

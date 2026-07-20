@@ -95,8 +95,17 @@ func TestPasswordStrength(t *testing.T) {
 	t.Parallel()
 	assert.Error(t, validate.PasswordStrength("short"))
 	assert.NoError(t, validate.PasswordStrength("longenough"))
-	assert.Error(t, validate.PasswordStrength(strings.Repeat("x", 129)))
-	assert.NoError(t, validate.PasswordStrength(strings.Repeat("x", 128)))
+	assert.Error(t, validate.PasswordStrength(strings.Repeat("x", 129)), "over both the rune and byte bound")
+	// 72 bytes is bcrypt's hard limit (see auth.maxPasswordBytes) and is
+	// tighter than the 128-rune bound above for any single-byte-per-rune
+	// password, so a 128-char ASCII password is now rejected on byte length
+	// rather than accepted.
+	assert.Error(t, validate.PasswordStrength(strings.Repeat("x", 128)), "over the 72-byte bound even though under 128 runes")
+	assert.NoError(t, validate.PasswordStrength(strings.Repeat("x", 72)), "exactly at the 72-byte bound")
+	assert.Error(t, validate.PasswordStrength(strings.Repeat("x", 73)), "one byte over the 72-byte bound")
+	// A multi-byte rune password can exceed the byte bound well under the
+	// 128-rune bound (e.g. 40 runes of 3 bytes each = 120 bytes).
+	assert.Error(t, validate.PasswordStrength(strings.Repeat("€", 40)), "under 128 runes but over 72 bytes via multi-byte UTF-8")
 }
 
 func TestPositiveAmount(t *testing.T) {

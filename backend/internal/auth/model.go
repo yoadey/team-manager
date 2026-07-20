@@ -9,16 +9,27 @@ import (
 
 // UserRow mirrors the DB users table.
 type UserRow struct {
-	Id           uuid.UUID
-	Name         string
-	Email        string
-	Phone        *string
-	AvatarColor  string
-	HasPhoto     bool
-	Birthday     *time.Time
-	Address      *string
-	PasswordHash string
-	CreatedAt    time.Time
+	Id              uuid.UUID
+	Name            string
+	Email           string
+	Phone           *string
+	AvatarColor     string
+	HasPhoto        bool
+	Birthday        *time.Time
+	Address         *string
+	PasswordHash    string
+	CreatedAt       time.Time
+	EmailVerifiedAt *time.Time
+}
+
+// EmailVerificationTokenRow mirrors the DB email_verification_tokens table.
+type EmailVerificationTokenRow struct {
+	Id         uuid.UUID
+	UserId     uuid.UUID
+	TokenHash  string
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
+	CreatedAt  time.Time
 }
 
 // SessionRow mirrors the DB sessions table.

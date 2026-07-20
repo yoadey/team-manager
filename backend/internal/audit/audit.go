@@ -30,9 +30,12 @@ const (
 // Event names for audited actions. Add new constants here as more modules emit
 // audit records (e.g. roles, finances).
 const (
-	EventLogin        = "auth.login"
-	EventLogout       = "auth.logout"
-	EventAccountErase = "auth.account_erase"
+	EventLogin              = "auth.login"
+	EventLogout             = "auth.logout"
+	EventAccountErase       = "auth.account_erase"
+	EventRegister           = "auth.register"
+	EventEmailVerify        = "auth.email_verify"
+	EventResendVerification = "auth.resend_verification"
 
 	EventRoleCreate = "role.create"
 	EventRoleUpdate = "role.update"

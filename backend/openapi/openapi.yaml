@@ -10,8 +10,11 @@ info:
     limit, `RATE_LIMIT_RPS`) or `413 Payload Too Large` (request body cap,
     4 MB by default) — see the `TooManyRequests`/`PayloadTooLarge` reusable
     responses. These aren't repeated on every operation below to keep the
-    spec readable; `/auth/login` documents its own stricter rate limit
-    explicitly since it differs from the global default.
+    spec readable; `/auth/login`, `/auth/register` and
+    `/auth/resend-verification` document their own stricter per-IP rate
+    limits explicitly since they differ from the global default
+    (`LOGIN_RATE_LIMIT_PER_MIN`, `REGISTER_RATE_LIMIT_PER_MIN`,
+    `RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`).
   version: "1.0.0"
   contact:
     name: Team Manager
@@ -81,6 +84,93 @@ paths:
                 $ref: "#/components/schemas/LoginResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Self-register a new account with email + password
+      description: >
+        Creates an unverified account and emails a verification link. The
+        response is always the same generic message regardless of whether the
+        email was available, already registered and verified, or already
+        registered and still pending verification — this endpoint never
+        reveals account existence. Disabled server-side via
+        `SELF_REGISTRATION_ENABLED`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "202":
+          description: >-
+            Registration accepted. If the email can be registered, a
+            verification link has been sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/verify-email:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      summary: Consume an email verification token and establish a session
+      description: >
+        Marks the account verified and returns a session, identical in shape
+        to `login`'s response, so the client can reuse its normal
+        post-login bootstrap.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/resend-verification:
+    post:
+      tags: [auth]
+      operationId: resendVerification
+      summary: Resend the email verification link
+      description: >
+        Always returns the same generic response regardless of whether the
+        email has no account, an already-verified account, or a still-
+        unverified account — only the last case actually sends a new email.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResendVerificationRequest"
+      responses:
+        "202":
+          description: >-
+            If a still-unverified account exists for this email, a new
+            verification link has been sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -1719,6 +1809,40 @@ components:
           type: string
         user:
           $ref: "#/components/schemas/User"
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+
+    RegisterResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    ResendVerificationRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
 
     DeleteAccountRequest:
       type: object
