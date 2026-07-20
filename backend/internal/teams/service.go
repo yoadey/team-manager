@@ -25,6 +25,25 @@ const inviteTTL = 7 * 24 * time.Hour
 // dimensions exceed maxDecodePixels.
 var ErrImageTooLarge = errors.New("teams.resizeImage: image dimensions exceed the allowed maximum")
 
+// ErrTooManyTeams is returned once a user hits maxTeamsPerUser.
+var ErrTooManyTeams = fmt.Errorf("account has reached the maximum of %d teams", maxTeamsPerUser)
+
+// maxTeamsPerUser caps how many teams a single account can create/join.
+// ListForUser's own doc comment notes it batches enrichment across "an
+// unbounded number of teams" in 3 queries total rather than per-team --
+// that batching keeps per-team overhead low, but every one of those queries
+// (plus ListTeamsForUser itself) still runs under the same fixed 5s
+// timeout, against the same shared connection pool, that every other query
+// in this codebase uses to bound worst-case cost. GET /teams is hit on
+// essentially every session, so without a cap, one account creating an
+// unbounded number of teams turns its own login into a query that holds a
+// pool connection for up to 5s each -- and since the pool is shared across
+// every team and every user, enough concurrent requests from that one
+// account can exhaust it for everyone, not just the account that caused it.
+// 500 comfortably covers any real user; this exists to stop runaway/
+// malicious creation, not to constrain legitimate multi-team membership.
+const maxTeamsPerUser = 500
+
 // maxLogoDim caps the longest edge of a resized team photo/logo.
 const maxLogoDim = 800
 
@@ -40,6 +59,7 @@ const maxDecodePixels = 50_000_000
 // teamRepo is the interface the Service relies on.
 type teamRepo interface {
 	ListTeamsForUser(ctx context.Context, userID string) ([]TeamRow, error)
+	CountTeamsForUser(ctx context.Context, userID string) (int, error)
 	GetTeam(ctx context.Context, teamID string) (*TeamRow, error)
 	CreateTeam(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*TeamRow, error)
 	UpdateTeam(ctx context.Context, teamID string, patch TeamPatch) (*TeamRow, error)
@@ -129,6 +149,14 @@ func (s *Service) ListForUser(ctx context.Context, userID string) ([]gen.TeamFor
 
 // CreateTeam creates a new team and returns it enriched for the creator.
 func (s *Service) CreateTeam(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error) {
+	count, err := s.repo.CountTeamsForUser(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("teams.Service.CreateTeam: %w", err)
+	}
+	if count >= maxTeamsPerUser {
+		return nil, ErrTooManyTeams
+	}
+
 	tr, err := s.repo.CreateTeam(ctx, name, userID, icon, iconBg, iconFg)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Service.CreateTeam: %w", err)

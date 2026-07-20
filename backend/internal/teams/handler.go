@@ -108,6 +108,9 @@ func (h *Handler) CreateTeam(ctx context.Context, request gen.CreateTeamRequestO
 
 	tfu, err := h.svc.CreateTeam(ctx, user.Id.String(), request.Body.Name, request.Body.Icon, request.Body.IconBg, request.Body.IconFg)
 	if err != nil {
+		if errors.Is(err, ErrTooManyTeams) {
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateTeam failed", "err", err)
 		return nil, fmt.Errorf("teams.Handler.CreateTeam: %w", err)
 	}

@@ -69,6 +69,7 @@ func fakeOversizedPNGHeader(width, height uint32) []byte {
 
 type mockTeamRepo struct {
 	listTeamsForUser       func(ctx context.Context, userID string) ([]teams.TeamRow, error)
+	countTeamsForUser      func(ctx context.Context, userID string) (int, error)
 	getTeam                func(ctx context.Context, teamID string) (*teams.TeamRow, error)
 	createTeam             func(ctx context.Context, name, creatorUserID string, icon, iconBg, iconFg *string) (*teams.TeamRow, error)
 	updateTeam             func(ctx context.Context, teamID string, patch teams.TeamPatch) (*teams.TeamRow, error)
@@ -90,6 +91,13 @@ type mockTeamRepo struct {
 
 func (m *mockTeamRepo) ListTeamsForUser(ctx context.Context, userID string) ([]teams.TeamRow, error) {
 	return m.listTeamsForUser(ctx, userID)
+}
+
+func (m *mockTeamRepo) CountTeamsForUser(ctx context.Context, userID string) (int, error) {
+	if m.countTeamsForUser != nil {
+		return m.countTeamsForUser(ctx, userID)
+	}
+	return 0, nil
 }
 
 func (m *mockTeamRepo) GetTeam(ctx context.Context, teamID string) (*teams.TeamRow, error) {
@@ -281,6 +289,38 @@ func TestTeamService_ListForUser_BatchesAcrossMultipleTeams(t *testing.T) {
 	assert.Equal(t, 1, memberCountsCalls)
 	assert.Equal(t, 1, membershipsCalls)
 	assert.Equal(t, 1, rolesCalls)
+}
+
+// Regression test: CreateTeam used to insert unconditionally with no
+// server-side cap, unlike every sibling per-account/per-team catalog in this
+// codebase (roles.maxRolesPerTeam, finances.maxPenaltiesPerTeam,
+// news.maxNewsPerTeam, polls.maxPollsPerTeam). Since ListForUser is hit on
+// essentially every session and batches its enrichment queries across all
+// of the user's teams, an unbounded team count for one account could hold a
+// shared connection-pool slot for up to that read's 5s timeout on every
+// login -- and since the pool is shared across every team, enough
+// concurrent requests from that one account could exhaust it for everyone.
+func TestTeamService_CreateTeam_RejectsWhenAtCap(t *testing.T) {
+	t.Parallel()
+
+	userID := uuid.New()
+	createCalled := false
+	repo := &mockTeamRepo{
+		countTeamsForUser: func(_ context.Context, uid string) (int, error) {
+			assert.Equal(t, userID.String(), uid)
+			return 500, nil // maxTeamsPerUser
+		},
+		createTeam: func(context.Context, string, string, *string, *string, *string) (*teams.TeamRow, error) {
+			createCalled = true
+			return &teams.TeamRow{}, nil
+		},
+	}
+
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
+	_, err := svc.CreateTeam(context.Background(), userID.String(), "One Too Many", nil, nil, nil)
+
+	require.ErrorIs(t, err, teams.ErrTooManyTeams)
+	assert.False(t, createCalled, "CreateTeam must not reach the repository insert once the account is at its team cap")
 }
 
 func TestCreateInvite_BuildsLinkFromPublicBaseURL(t *testing.T) {
