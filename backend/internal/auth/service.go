@@ -196,7 +196,7 @@ func (s *Service) ValidateToken(ctx context.Context, tokenString string) (*UserR
 			return nil, fmt.Errorf("%w: %v", ErrUnexpectedSigningMethod, t.Header["alg"])
 		}
 		return s.jwtPublicKey, nil
-	})
+	}, jwt.WithExpirationRequired())
 	if err != nil {
 		return nil, fmt.Errorf("auth.Service.ValidateToken: %w", err)
 	}

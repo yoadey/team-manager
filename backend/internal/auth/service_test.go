@@ -3,6 +3,10 @@ package auth_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"image"
 	"image/color"
@@ -11,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
@@ -234,6 +239,69 @@ func TestService_ValidateToken_Expired(t *testing.T) {
 
 	_, err = svc.ValidateToken(context.Background(), token)
 	assert.Error(t, err, "expired token should be rejected")
+}
+
+// Regression test: ValidateToken parsed with no jwt.WithExpirationRequired()
+// option. golang-jwt v5's default validator only checks the exp claim IF
+// PRESENT -- a token with no exp claim at all passes validation
+// unconditionally, never expiring by JWT validation alone. Login always
+// sets ExpiresAt, so this was latent, not exploitable via the normal login
+// path -- but any future code path minting a JWT without setting exp (or a
+// signing-key compromise letting an attacker forge one) would produce a
+// token this service accepts forever. This mints a token directly (bypassing
+// Login) with every other claim Login sets except ExpiresAt, signed with
+// the same key the service validates against, and asserts it's rejected.
+func TestService_ValidateToken_RejectsTokenWithNoExpiryClaim(t *testing.T) {
+	t.Parallel()
+
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	privPEM := string(pem.EncodeToMemory(&pem.Block{
+		Type: "PRIVATE KEY", Bytes: mustMarshalPKCS8(t, privKey),
+	}))
+	pubPEM := string(pem.EncodeToMemory(&pem.Block{
+		Type: "PUBLIC KEY", Bytes: mustMarshalPKIXPublicKey(t, &privKey.PublicKey),
+	}))
+
+	repo := &mockRepo{
+		findSess: func(_ context.Context, _ string) (*auth.SessionRow, error) {
+			return &auth.SessionRow{UserId: uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")}, nil
+		},
+		userByID: func(_ context.Context, id string) (*auth.UserRow, error) {
+			return &auth.UserRow{Id: uuid.MustParse(id)}, nil
+		},
+	}
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), privPEM, pubPEM, 24*time.Hour)
+	require.NoError(t, err)
+
+	claims := &auth.Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			Subject:  "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+			IssuedAt: jwt.NewNumericDate(time.Now()),
+			ID:       "raw-token-no-exp",
+			// ExpiresAt deliberately omitted.
+		},
+		UserId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+	}
+	noExpToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privKey)
+	require.NoError(t, err)
+
+	_, err = svc.ValidateToken(context.Background(), noExpToken)
+	assert.Error(t, err, "a token with no exp claim at all must be rejected, not accepted forever")
+}
+
+func mustMarshalPKCS8(t *testing.T, key *rsa.PrivateKey) []byte {
+	t.Helper()
+	b, err := x509.MarshalPKCS8PrivateKey(key)
+	require.NoError(t, err)
+	return b
+}
+
+func mustMarshalPKIXPublicKey(t *testing.T, key *rsa.PublicKey) []byte {
+	t.Helper()
+	b, err := x509.MarshalPKIXPublicKey(key)
+	require.NoError(t, err)
+	return b
 }
 
 func TestService_HashPassword(t *testing.T) {
