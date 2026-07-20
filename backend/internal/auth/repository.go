@@ -258,16 +258,30 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 }
 
 // UpdateUserPhoto stores the object store key for the given user's photo.
+// UpdateUserPhoto returns pgx.ErrNoRows if userID has no active (non-erased)
+// row -- without the deleted_at guard, a photo upload racing a concurrent
+// GDPR erasure (DeleteCurrentUser) could commit after EraseUser had already
+// anonymized the row and best-effort deleted the old object, silently
+// writing a fresh photo_object_key onto an already-soft-deleted user. The
+// image would then be permanently unreachable via the API (every read path
+// filters deleted_at IS NULL) but its bytes would linger in the object store
+// forever, since no retention job ever revisits an already-erased user --
+// undermining the erasure guarantee EraseUser exists to provide. Returning
+// pgx.ErrNoRows here lets the caller (Service.UpdatePhoto) clean up the
+// just-uploaded object instead of leaving it orphaned.
 func (r *Repository) UpdateUserPhoto(ctx context.Context, userID, objectKey string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err := r.pool.Exec(
+	tag, err := r.pool.Exec(
 		ctx,
-		`UPDATE users SET photo_object_key = $2 WHERE id = $1`,
+		`UPDATE users SET photo_object_key = $2 WHERE id = $1 AND deleted_at IS NULL`,
 		userID, objectKey,
 	)
 	if err != nil {
 		return fmt.Errorf("auth.Repository.UpdateUserPhoto: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }
