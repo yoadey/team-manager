@@ -2,7 +2,6 @@ import type { useApp, SheetState } from '@/context/AppContext';
 import type { TeamEvent } from '@/features/events';
 import { fmtDateLong } from '@/styles/tokens';
 import { t as tl } from '@/i18n';
-import { shortName } from './useCompact';
 
 export interface PM {
   title: string;
@@ -117,7 +116,7 @@ function pageSheetMeta(app: ReturnType<typeof useApp>, s: SheetState, eventDetai
   }
   if (s.type === 'memberForm')
     return base(s.self ? tl('sheet.memberFormSelf') : tl('sheet.memberForm'), tl('sheet.memberFormSubtitle'));
-  if (s.type === 'teamSettings') return base(tl('sheet.teamSettings'), team ? shortName(team.name) : '');
+  if (s.type === 'teamSettings') return base(tl('sheet.teamSettings'), team ? team.name : '');
   if (s.type === 'roles') return base(tl('sheet.roles'), tl('sheet.rolesSubtitle'));
   if (s.type === 'roleForm')
     return base(
