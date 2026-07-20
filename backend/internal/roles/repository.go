@@ -84,7 +84,9 @@ func ptrToText(s *string) pgtype.Text {
 func (r *Repository) ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	rows, err := r.q.ListRolesByTeam(ctx, uuid.MustParse(teamID))
+	rows, err := r.q.ListRolesByTeam(ctx, dbgen.ListRolesByTeamParams{
+		TeamID: uuid.MustParse(teamID), Limit: maxRolesPerTeam,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("roles.Repository.ListRoles: %w", err)
 	}
@@ -96,6 +98,18 @@ func (r *Repository) ListRoles(ctx context.Context, teamID string) ([]teams.Role
 		})
 	}
 	return out, nil
+}
+
+// CountRoles returns the number of roles the team has, used to enforce
+// maxRolesPerTeam before an insert.
+func (r *Repository) CountRoles(ctx context.Context, teamID string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	count, err := r.q.CountRoles(ctx, uuid.MustParse(teamID))
+	if err != nil {
+		return 0, fmt.Errorf("roles.Repository.CountRoles: %w", err)
+	}
+	return int(count), nil
 }
 
 // CreateRole inserts a new role for the team.

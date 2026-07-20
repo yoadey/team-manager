@@ -396,6 +396,41 @@ func TestEventRepository_UpdateEvent_PartialUpdate_RejectsEndBeforeStart(t *test
 	require.ErrorIs(t, err, events.ErrEndTimeBeforeStartTime)
 }
 
+// Regression test: UpdateEvent matched on the CHECK-violation SQLSTATE
+// alone, with no ConstraintName check -- events/event_series carry two
+// OTHER CHECK constraints on that same SQLSTATE (type IN (...), response_mode
+// IN (...)), so any violation of THOSE got misreported as "endTime must be
+// after startTime" too, an actively wrong and misleading error pointing the
+// caller at a field they didn't even touch. UpdateEventParams.Type is a
+// plain *string at this layer (the handler's gen.EventType enum validates it
+// first, but that's a separate layer this repository-level call bypasses
+// entirely, exactly like some future bulk-update path or admin tool might),
+// so this test triggers the type CHECK constraint directly and asserts it is
+// NOT reported as ErrEndTimeBeforeStartTime.
+func TestEventRepository_UpdateEvent_TypeCheckViolation_NotMisreportedAsEndBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "56565656-5656-5656-5656-565656565656"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Type Check Team')`, teamID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Training", time.Now().UTC().Truncate(24*time.Hour))
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+
+	invalidType := "not-a-real-type"
+	_, err = repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		Type: &invalidType,
+	}, "single")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, events.ErrEndTimeBeforeStartTime,
+		"a type CHECK violation must not be misreported as ErrEndTimeBeforeStartTime")
+}
+
 // A series-scope update with ONLY Date set (no other field) — the primary
 // use case the fix above exists to support — must not corrupt the
 // series-wide UPDATE: with every other field nil, buildUpdateSets' "nothing
@@ -693,6 +728,51 @@ func TestEventRepository_SetAttendance_AllowsCallerWithEventsWrite(t *testing.T)
 	require.NotNil(t, rec)
 	assert.Equal(t, "yes", rec.Status)
 	assert.Equal(t, targetID.String(), rec.UserId.String())
+}
+
+// Regression test: the service layer's cancelled-event guard
+// (events.Service.SetAttendance) reads the event's status via a plain
+// GetEvent call and only afterward calls the repository's SetAttendance --
+// leaving a TOCTOU window where a concurrent SetStatus(cancelled) commit
+// between that read and this write would let attendance still be recorded
+// against an already-cancelled event. The write itself must independently
+// re-verify the event isn't cancelled via its own WHERE clause, exactly like
+// it already re-verifies membership and events:write, so even calling this
+// repository method directly (bypassing the service's earlier read
+// entirely, as this test does) rejects a write against a cancelled event.
+func TestEventRepository_SetAttendance_RejectsCancelledEvent(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	userID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Cancelled Event Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Attendee', 'cancelled-event@example.com', '#333333')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Cancelled Event", time.Now().UTC())
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	_, err = repo.SetStatus(ctx, ev.Id.String(), teamID.String(), "cancelled", "single")
+	require.NoError(t, err)
+
+	status := "yes"
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), userID.String(), userID.String(), teamID.String(), &status, nil, nil, nil)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "SetAttendance must reject a write against a cancelled event, even called directly")
+
+	rec, err := repo.GetMyAttendance(ctx, ev.Id.String(), userID.String(), teamID.String())
+	require.NoError(t, err)
+	assert.Nil(t, rec, "no attendance row should exist after the rejected write on a cancelled event")
 }
 
 func TestEventRepository_GetReasonVisibilityContext(t *testing.T) {

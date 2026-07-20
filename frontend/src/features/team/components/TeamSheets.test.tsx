@@ -249,6 +249,27 @@ describe('InviteSheet — without invite', () => {
     render(<InviteSheet app={app} sheet={sheetNoInvite} />);
     expect(document.body.textContent).toContain('SG');
   });
+
+  // Regression test: the description used to interpolate the team's short
+  // name into the template string and then locate it again via
+  // .split(shortName(team.name)) to bold it -- breaking when the short name
+  // collides with another word already in the surrounding sentence. The DE
+  // template ('Teile diesen Link. Neue Mitglieder treten {teamName} bei.
+  // Gültig 7 Tage.') contains the word "Neue"; a team named "Neue Elf" has
+  // shortName -> "Neue", which the old .split() would also match inside
+  // "Neue Mitglieder", producing duplicated/misplaced bolding.
+  it('bolds only the team name, not a colliding word elsewhere in the sentence', () => {
+    const app = makeApp({}, {});
+    (app.activeTeam as ReturnType<typeof vi.fn>).mockReturnValue(makeTeam({ name: 'Neue Elf' }));
+    const { container } = render(<InviteSheet app={app} sheet={sheetNoInvite} />);
+
+    expect(document.body.textContent).toContain(
+      'Teile diesen Link. Neue Mitglieder treten Neue bei. Gültig 7 Tage.',
+    );
+    const bolded = container.querySelectorAll('b');
+    expect(bolded).toHaveLength(1);
+    expect(bolded[0].textContent).toBe('Neue');
+  });
 });
 
 // ════════════════════════════════════════════════════════════════════════════

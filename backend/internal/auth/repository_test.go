@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -390,4 +391,39 @@ func TestRepository_ExportUserData_PenaltyAssignmentUsesSnapshotNotLiveDefinitio
 	require.Len(t, data.PenaltyAssignments, 1)
 	assert.Equal(t, "Zu spät", data.PenaltyAssignments[0].Label, "export must report the snapshotted label, not the live one")
 	assert.Equal(t, "500", data.PenaltyAssignments[0].Amount, "export must report the snapshotted amount, not the live one")
+}
+
+// Regression test: UpdateUserPhoto used to write photo_object_key
+// unconditionally, unlike every other user-scoped query in this repository
+// (FindUserByID, FindUserByEmail, FindUserPhotoKeyByID), which all filter
+// deleted_at IS NULL. A photo upload racing a concurrent GDPR erasure could
+// commit after the erasure had already anonymized the row, silently
+// resurrecting a fresh photo_object_key on an already soft-deleted user --
+// the image becomes unreachable via the API (every read path filters
+// deleted_at IS NULL) but its bytes leak forever in the object store, since
+// no retention job ever revisits an already-erased user. This test erases
+// the user first, then calls UpdateUserPhoto directly and asserts it now
+// rejects the write instead of silently succeeding.
+func TestRepository_UpdateUserPhoto_RejectsErasedUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "cccccccc-1111-1111-1111-111111111111"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Erased User', 'erased-photo@example.com', '#abcdef')`,
+		userID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `UPDATE users SET deleted_at = now() WHERE id = $1`, userID)
+	require.NoError(t, err)
+
+	err = repo.UpdateUserPhoto(ctx, userID, "users/"+userID+"/photo")
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "UpdateUserPhoto must reject a write against an erased user")
+
+	var photoKey *string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT photo_object_key FROM users WHERE id = $1`, userID).Scan(&photoKey))
+	assert.Nil(t, photoKey, "no photo_object_key should have been written to an erased user's row")
 }

@@ -11,7 +11,7 @@ import { useMembersQuery } from '@/features/members';
 import { useNotificationsQuery } from '@/features/notifications';
 import { RouteScreen } from '@/pages';
 import { renderSheet } from '@/sheets';
-import { useCompact, shortName } from './useCompact';
+import { useCompact } from './useCompact';
 import { t as tl, getLocale, subscribeLocale } from '@/i18n';
 import { pageMeta } from './pageMeta';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -204,7 +204,7 @@ export function Shell() {
           ) : null}
           <ButtonBase
             onClick={app.openTeamSwitcher}
-            aria-label={tl('shell.openTeamSwitcher', { name: shortName(team.name) })}
+            aria-label={tl('shell.openTeamSwitcher', { name: team.name })}
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -227,7 +227,7 @@ export function Shell() {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {shortName(team.name)}
+                {team.name}
               </Box>
               <Box
                 sx={{
@@ -432,7 +432,7 @@ export function Shell() {
       >
         <ButtonBase
           onClick={app.openTeamSwitcher}
-          aria-label={tl('shell.openTeamSwitcher', { name: shortName(team.name) })}
+          aria-label={tl('shell.openTeamSwitcher', { name: team.name })}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -456,7 +456,7 @@ export function Shell() {
                 textOverflow: 'ellipsis',
               }}
             >
-              {shortName(team.name)}
+              {team.name}
             </Box>
             <Box
               sx={{

@@ -41,6 +41,17 @@ func (q *Queries) CheckOtherRolesHaveSettingsWrite(ctx context.Context, arg Chec
 	return column_1, err
 }
 
+const countRoles = `-- name: CountRoles :one
+SELECT COUNT(*)::int FROM roles WHERE team_id = $1
+`
+
+func (q *Queries) CountRoles(ctx context.Context, teamID uuid.UUID) (int32, error) {
+	row := q.db.QueryRow(ctx, countRoles, teamID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countRolesForTeam = `-- name: CountRolesForTeam :one
 SELECT COUNT(*)::int FROM roles WHERE team_id = $1 AND id = ANY($2::uuid[])
 `
@@ -243,7 +254,13 @@ SELECT id, team_id, name, system, color, permissions
 FROM roles
 WHERE team_id = $1
 ORDER BY system DESC, name
+LIMIT $2
 `
+
+type ListRolesByTeamParams struct {
+	TeamID uuid.UUID
+	Limit  int32
+}
 
 type ListRolesByTeamRow struct {
 	ID          uuid.UUID
@@ -254,8 +271,13 @@ type ListRolesByTeamRow struct {
 	Permissions teams.PermissionsJSON
 }
 
-func (q *Queries) ListRolesByTeam(ctx context.Context, teamID uuid.UUID) ([]ListRolesByTeamRow, error) {
-	rows, err := q.db.Query(ctx, listRolesByTeam, teamID)
+// Fetched unconditionally by every team member on login/team-switch (see
+// teams.Repository doc comment), so it carries the same defensive LIMIT as
+// every other unconditionally-read, per-team list in this codebase
+// (finances.ListPenalties, etc.) -- a backstop in case CreateRole's
+// maxRolesPerTeam check is ever bypassed or a team predates the cap.
+func (q *Queries) ListRolesByTeam(ctx context.Context, arg ListRolesByTeamParams) ([]ListRolesByTeamRow, error) {
+	rows, err := q.db.Query(ctx, listRolesByTeam, arg.TeamID, arg.Limit)
 	if err != nil {
 		return nil, err
 	}

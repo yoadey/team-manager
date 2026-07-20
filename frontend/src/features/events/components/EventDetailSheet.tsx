@@ -660,6 +660,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         <input
           key="i"
           name="newEventComment"
+          aria-label={t('events.commentWrite')}
           value={newComment}
           onChange={(ev) => setNewComment(ev.target.value)}
           onKeyDown={(ev) => {
@@ -677,6 +678,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         />
         <ButtonBase
           key="b"
+          aria-label={t('events.commentSend')}
           onClick={() => {
             const txt = newComment;
             setNewComment('');

@@ -39,6 +39,7 @@ vi.mock('@/features/events', async (importOriginal) => {
 // reliable in CI for the other event components' tests.
 vi.mock('@/features/events/hooks/useEventQueries', () => ({
   useEventsQuery: vi.fn().mockReturnValue({ data: [] }),
+  useEventDetailQuery: vi.fn(),
 }));
 
 // Same rationale as useEventQueries above -- EventCalendar (rendered when
@@ -57,10 +58,28 @@ vi.mock('@/features/members/hooks/useMemberQueries', () => ({
   useMembersQuery: vi.fn().mockReturnValue({ data: [] }),
 }));
 
+// Stats.tsx imports useStatsQuery via this exact relative path (see the
+// identical pattern in pages/Stats.test.tsx), so the mock must match it.
+vi.mock('@/pages/hooks/useStatsQueries', () => ({
+  useStatsQuery: vi.fn(),
+}));
+
+// FinancesPage.tsx imports useFinanceOverviewQuery via this exact relative
+// path (see the identical pattern in FinancesPage.test.tsx).
+vi.mock('@/features/finances/hooks/useFinanceQueries', () => ({
+  useFinanceOverviewQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
 import { useMembersQuery } from '@/features/members/hooks/useMemberQueries';
+import { useEventDetailQuery } from '@/features/events/hooks/useEventQueries';
+import { useStatsQuery } from '@/pages/hooks/useStatsQueries';
+import { useFinanceOverviewQuery } from '@/features/finances/hooks/useFinanceQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
+const mockUseEventDetailQuery = useEventDetailQuery as ReturnType<typeof vi.fn>;
+const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
+const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
 // ─── Shared app state builders ───────────────────────────────────────────────
 
@@ -155,6 +174,141 @@ describe('Accessibility: EventsPage', () => {
     const { EventsPage } = await import('@/features/events/EventsPage');
     mockUseApp.mockReturnValue({ ...makeEventsApp(), state: { ...makeEventsApp().state, eventsView: 'calendar' } });
     const { container } = render(<EventsPage />);
+    const results = await axe(container);
+    assertNoViolations(results);
+  });
+});
+
+describe('Accessibility: EventDetailSheet', () => {
+  beforeAll(() => {
+    vi.clearAllMocks();
+  });
+
+  // Regression test: the "add comment" input had only a placeholder (no
+  // label/aria-label) and the send button was icon-only with no aria-label,
+  // so a screen-reader user got no indication of either control's purpose.
+  // This sheet wasn't previously covered by any a11y test, which is exactly
+  // why the gap went unnoticed.
+  it('event detail with comments has no axe violations', async () => {
+    const { EventDetailSheet } = await import('@/features/events/components/EventDetailSheet');
+    mockUseEventDetailQuery.mockReturnValue({
+      data: {
+        event: {
+          id: 'ev1',
+          title: 'Sommerball',
+          date: '2026-07-01',
+          type: 'event',
+          status: 'active',
+          myStatus: 'yes',
+          myAuto: false,
+          myReason: '',
+          recurring: false,
+          location: 'Sporthalle',
+          note: null,
+          result: null,
+          startTime: '19:00',
+          endTime: '21:00',
+          meetTime: null,
+          meetTimeMandatory: false,
+          responseMode: 'opt_out',
+          nominatedRoleIds: [],
+          seriesId: null,
+          teamId: 't1',
+          summary: { yes: 3, no: 1, maybe: 0, pending: 2, notNominated: 0, nominated: 6, total: 6 },
+        },
+        rows: [],
+        comments: [{ id: 'c1', userId: 'u2', userName: 'Anna Müller', text: 'Bin dabei!', createdAt: '2026-06-20T10:00:00Z' }],
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    const app = {
+      ...makeBaseApp({
+        activeTeamId: 't1',
+        user: { id: 'u1', name: 'Test User' },
+        roles: [],
+      }),
+      canSeeComment: vi.fn().mockReturnValue(true),
+      postEventComment: vi.fn().mockResolvedValue(true),
+      removeEventComment: vi.fn(),
+      setMyStatus: vi.fn(),
+      askEventAction: vi.fn(),
+      openEventForm: vi.fn(),
+      toggleNomination: vi.fn(),
+    };
+    mockUseApp.mockReturnValue(app);
+    const { container } = render(
+      <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', eventId: 'ev1' } as never} />,
+    );
+    const results = await axe(container);
+    assertNoViolations(results);
+  });
+});
+
+describe('Accessibility: Stats', () => {
+  beforeAll(() => {
+    vi.clearAllMocks();
+  });
+
+  // Regression test: the two custom date-range inputs had no label or
+  // aria-label -- only a visual "–" between them distinguished from/to for
+  // sighted users, so a keyboard/screen-reader user reached two identical,
+  // unlabeled "Date" fields. Stats.tsx wasn't previously covered by any a11y
+  // test, which is exactly why the gap went unnoticed.
+  it('custom date-range inputs have no axe violations', async () => {
+    const { Stats } = await import('@/pages/Stats');
+    mockUseStatsQuery.mockReturnValue({ data: undefined });
+    mockUseApp.mockReturnValue({
+      api: {},
+      state: {
+        primaryColor: '#4285F4',
+        activeTeamId: 't1',
+        statsRange: null,
+        user: { id: 'u1', name: 'Test User', avatarColor: '#000', photo: null },
+      },
+      setStatsRange: vi.fn(),
+    });
+    const { container } = render(<Stats />);
+    const results = await axe(container);
+    assertNoViolations(results);
+  });
+});
+
+describe('Accessibility: FinancesPage', () => {
+  beforeAll(() => {
+    vi.clearAllMocks();
+  });
+
+  // Regression test: the finance section tabs set role="tab" directly on a
+  // plain Box with no role="tablist" ancestor (unlike the identical pattern
+  // in EventsPage, which wraps its tabs in one), an aria-required-parent
+  // violation. FinancesPage wasn't previously covered by any a11y test,
+  // which is exactly why the gap went unnoticed.
+  it('section tabs have no axe violations', async () => {
+    const { FinancesPage } = await import('@/features/finances/FinancesPage');
+    mockUseFinanceOverviewQuery.mockReturnValue({
+      data: {
+        balance: 1250.5,
+        income: 2500,
+        expense: 1249.5,
+        transactions: [],
+        penalties: [],
+        assignments: [],
+        openPenalties: [],
+        openPenaltySum: 0,
+        contributions: [],
+        contribOpen: 0,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      ...makeBaseApp({
+        activeTeamId: 't1',
+        finTab: 'umsaetze',
+        user: { id: 'u1' },
+      }),
+    });
+    const { container } = render(<FinancesPage />);
     const results = await axe(container);
     assertNoViolations(results);
   });

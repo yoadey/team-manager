@@ -90,7 +90,15 @@ export function buildTokens(presetKey: string): AppTokens {
 // Neutral colour palettes — light and dark.
 // All component code references NEUTRAL, which uses CSS custom properties so
 // dark-mode switching happens automatically without touching component files.
-const NEUTRAL_LIGHT = {
+// Exported (light-mode literal values only) for buildMuiTheme: MUI computes
+// hover/disabled/Skeleton overlays by calling alpha()/darken()/lighten() on
+// palette.text/background/divider internally, which requires an actual
+// parseable color -- NEUTRAL's var(--tv-neutral-*) strings break that math
+// (see theme.ts's doc comment). Dark mode itself is handled independently,
+// by the CSS custom properties this constant seeds (see neutralCssVars) and
+// components referencing NEUTRAL directly, not by MUI's theme.palette.mode
+// (createTheme always sets mode: 'light').
+export const NEUTRAL_LIGHT = {
   appBg: '#E4E5EC',
   surface: '#FBFBFE',
   card: '#FFFFFF',

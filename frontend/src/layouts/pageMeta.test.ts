@@ -5,10 +5,6 @@ vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
 }));
 
-vi.mock('@/layouts/useCompact', () => ({
-  shortName: (name: string) => name.split(' ')[0],
-}));
-
 // pageMeta calls t() from @/i18n which reads the German catalog — let it run
 // so we can assert against the real translated strings. No mock needed.
 
@@ -229,6 +225,21 @@ describe('pageMeta()', () => {
     const meta = pageMeta(app as never);
     expect(meta.title).toBeTruthy();
     expect(meta.showPrimaryAction).toBe(false);
+  });
+
+  // Regression test: the teamSettings subtitle used to run the team name
+  // through shortName(), truncating it to its first word even though this
+  // subtitle isn't width-constrained (SheetHost renders it in a plain,
+  // wrapping Box, not an ellipsis-truncated one) -- an admin managing e.g.
+  // "SG Musterstadt Handball" would see just "SG" instead of the full club
+  // name at exactly the moment ("confirm you're editing the right team")
+  // that context matters most.
+  it('shows the full team name (not just its first word) as the teamSettings subtitle', () => {
+    const app = makeApp('team');
+    (app.activeTeam as ReturnType<typeof vi.fn>).mockReturnValue({ name: 'SG Musterstadt Handball' });
+    (app.activePageSheet as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'teamSettings' });
+    const meta = pageMeta(app as never);
+    expect(meta.subtitle).toBe('SG Musterstadt Handball');
   });
 
   // 20. pageSheetMeta roles

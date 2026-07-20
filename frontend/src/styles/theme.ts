@@ -1,5 +1,5 @@
 import { createTheme, type Theme } from '@mui/material/styles';
-import { buildTokens, NEUTRAL, neutralCssVars } from './tokens';
+import { buildTokens, NEUTRAL, NEUTRAL_LIGHT, neutralCssVars } from './tokens';
 
 // Extend the MUI palette with the Material-3 "container" colours so they are
 // available everywhere via theme.palette.*.
@@ -31,9 +31,24 @@ export function buildMuiTheme(presetKey: string): Theme {
       success: { main: t.success },
       error: { main: t.error },
       warning: { main: t.warn },
-      background: { default: NEUTRAL.appBg, paper: NEUTRAL.card, sidebar: NEUTRAL.sidebar, card: NEUTRAL.card },
-      text: { primary: NEUTRAL.onSurface, secondary: NEUTRAL.secondary },
-      divider: NEUTRAL.line,
+      // NEUTRAL_LIGHT (literal hex), not NEUTRAL (CSS var(--tv-neutral-*)
+      // strings), for every palette slot below: MUI computes hover/disabled/
+      // Skeleton overlays by calling alpha()/darken()/lighten() on
+      // palette.text/background/divider internally (e.g. MuiSkeleton's
+      // default background is alpha(theme.palette.text.primary, 0.11)),
+      // which throws/warns ("Unsupported `var(...)` color") on anything
+      // that isn't a literal, parseable color. Dark mode is handled
+      // independently -- by the CSS custom properties neutralCssVars seeds
+      // below and by components referencing NEUTRAL directly in their own
+      // sx/styles -- not by this theme's palette.mode (always 'light').
+      background: {
+        default: NEUTRAL_LIGHT.appBg,
+        paper: NEUTRAL_LIGHT.card,
+        sidebar: NEUTRAL_LIGHT.sidebar,
+        card: NEUTRAL_LIGHT.card,
+      },
+      text: { primary: NEUTRAL_LIGHT.onSurface, secondary: NEUTRAL_LIGHT.secondary },
+      divider: NEUTRAL_LIGHT.line,
     },
     shape: { borderRadius: 14 },
     typography: {

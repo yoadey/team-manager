@@ -66,7 +66,11 @@ export function FinancesPage() {
         {stat(t('finances.income'), f.income, NEUTRAL.success)}
         {stat(t('finances.expense'), f.expense, NEUTRAL.error)}
       </Box>
-      <Box sx={{ display: 'flex', gap: '4px', background: NEUTRAL.line2, borderRadius: '14px', p: '4px', mb: '18px' }}>
+      <Box
+        role="tablist"
+        aria-label={t('finances.tabsLabel')}
+        sx={{ display: 'flex', gap: '4px', background: NEUTRAL.line2, borderRadius: '14px', p: '4px', mb: '18px' }}
+      >
         {tabDef.map(([k, l, ic]) => {
           const sel = tab === k;
           return (

@@ -1,8 +1,17 @@
 -- name: ListRolesByTeam :many
+-- Fetched unconditionally by every team member on login/team-switch (see
+-- teams.Repository doc comment), so it carries the same defensive LIMIT as
+-- every other unconditionally-read, per-team list in this codebase
+-- (finances.ListPenalties, etc.) -- a backstop in case CreateRole's
+-- maxRolesPerTeam check is ever bypassed or a team predates the cap.
 SELECT id, team_id, name, system, color, permissions
 FROM roles
 WHERE team_id = $1
-ORDER BY system DESC, name;
+ORDER BY system DESC, name
+LIMIT $2;
+
+-- name: CountRoles :one
+SELECT COUNT(*)::int FROM roles WHERE team_id = $1;
 
 -- name: CreateRole :one
 INSERT INTO roles (team_id, name, color, permissions)

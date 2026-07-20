@@ -106,7 +106,10 @@ func (r *Repository) GetTeamLogoKey(ctx context.Context, teamID string) (string,
 	return *key, nil
 }
 
-// ListTeamsForUser returns all teams the given user is a member of.
+// ListTeamsForUser returns all teams the given user is a member of. Capped
+// at maxTeamsPerUser as a defensive backstop -- see that constant's doc
+// comment -- in case CreateTeam's own cap check is ever bypassed or an
+// account predates the cap.
 func (r *Repository) ListTeamsForUser(ctx context.Context, userID string) ([]TeamRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -116,9 +119,10 @@ func (r *Repository) ListTeamsForUser(ctx context.Context, userID string) ([]Tea
 		JOIN memberships m ON m.team_id = t.id
 		WHERE m.user_id = $1
 		ORDER BY t.name
+		LIMIT $2
 	`, selectTeamFields)
 
-	rows, err := r.pool.Query(ctx, q, userID)
+	rows, err := r.pool.Query(ctx, q, userID, maxTeamsPerUser)
 	if err != nil {
 		return nil, fmt.Errorf("teams.Repository.ListTeamsForUser: %w", err)
 	}
@@ -133,6 +137,19 @@ func (r *Repository) ListTeamsForUser(ctx context.Context, userID string) ([]Tea
 		out = append(out, *tr)
 	}
 	return out, rows.Err()
+}
+
+// CountTeamsForUser returns how many teams userID is a member of, used to
+// enforce maxTeamsPerUser before creating a new one.
+func (r *Repository) CountTeamsForUser(ctx context.Context, userID string) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM memberships WHERE user_id = $1`, userID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("teams.Repository.CountTeamsForUser: %w", err)
+	}
+	return count, nil
 }
 
 // GetTeam returns the team with the given ID or (nil, pgx.ErrNoRows) if not found.

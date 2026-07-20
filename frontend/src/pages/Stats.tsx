@@ -65,6 +65,7 @@ export function Stats() {
         <input
           key="f"
           type="date"
+          aria-label={tr('stats.rangeFrom')}
           value={R.from || ''}
           max={R.to || today}
           onChange={(e) => app.setStatsRange({ ...R, from: e.target.value || null })}
@@ -76,6 +77,7 @@ export function Stats() {
         <input
           key="t"
           type="date"
+          aria-label={tr('stats.rangeTo')}
           value={R.to || ''}
           min={R.from || ''}
           onChange={(e) => app.setStatsRange({ ...R, to: e.target.value || null })}

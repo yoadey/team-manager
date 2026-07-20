@@ -274,6 +274,7 @@ export const en: Messages = {
     comments: 'Comments',
     noComments: 'No comments yet.',
     commentWrite: 'Write a comment…',
+    commentSend: 'Send comment',
     eventType: 'Event type',
     typeTraining: 'Training',
     typeAuftritt: 'Performance',
@@ -324,7 +325,7 @@ export const en: Messages = {
     calDownload: 'Download calendar file (.ics)',
     calSubscribe: 'Subscribe automatically (subscription link)',
     calSubscribeDesc:
-      'With this link your calendar stays up to date automatically – new and changed events appear without re-exporting.',
+      "This link is meant to keep your calendar up to date automatically – new and changed events appearing without re-exporting. It isn't active yet in this preview; see the note below.",
     calCopy: 'Copy',
     calCopied: 'Copied',
     calGoogle: 'Google Calendar',
@@ -409,6 +410,7 @@ export const en: Messages = {
     balance: 'Current balance',
     income: 'Income',
     expense: 'Expenses',
+    tabsLabel: 'Choose section',
     tabs: {
       transactions: 'Transactions',
       penalties: 'Penalties',
@@ -663,6 +665,8 @@ export const en: Messages = {
   stats: {
     presetAll: 'Total',
     presetMonths: '{n} months',
+    rangeFrom: 'Custom range: from',
+    rangeTo: 'Custom range: to',
     ringAria: 'Average attendance rate: {avg}%',
     avgQuote: 'Avg rate',
     teamAttendance: 'Team attendance',

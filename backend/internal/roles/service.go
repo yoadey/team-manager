@@ -10,9 +10,24 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
 
+// ErrTooManyRoles is returned once a team hits maxRolesPerTeam.
+var ErrTooManyRoles = fmt.Errorf("team has reached the maximum of %d roles", maxRolesPerTeam)
+
+// maxRolesPerTeam caps how many custom roles a single team can accumulate,
+// mirroring finances.maxPenaltiesPerTeam: roles, like penalty definitions,
+// are a small, hand-curated catalog (a legitimate club needs at most a few
+// dozen), not something that grows with real usage. ListRolesByTeam is
+// fetched unconditionally by every team member on every login/team-switch,
+// so without a cap, a member holding only settings:write (or a buggy/
+// compromised admin client retrying role creation) could flood the roles
+// table and degrade that load for every member of the team, not just the
+// one flooding it.
+const maxRolesPerTeam = 500
+
 // roleRepo is the interface the Service relies on.
 type roleRepo interface {
 	ListRoles(ctx context.Context, teamID string) ([]teams.RoleRow, error)
+	CountRoles(ctx context.Context, teamID string) (int, error)
 	CreateRole(ctx context.Context, teamID, name string, color *string, permissions teams.PermissionsJSON) (*teams.RoleRow, error)
 	UpdateRole(ctx context.Context, roleID, teamID, callerUserID string, patch RolePatch) (*teams.RoleRow, error)
 	DeleteRole(ctx context.Context, roleID, teamID string) error
@@ -43,6 +58,14 @@ func (s *Service) ListRoles(ctx context.Context, teamID uuid.UUID) ([]gen.Role, 
 
 // CreateRole creates a new custom role.
 func (s *Service) CreateRole(ctx context.Context, teamID uuid.UUID, body *gen.CreateRoleJSONRequestBody) (*gen.Role, error) {
+	count, err := s.repo.CountRoles(ctx, teamID.String())
+	if err != nil {
+		return nil, fmt.Errorf("roles.Service.CreateRole: %w", err)
+	}
+	if count >= maxRolesPerTeam {
+		return nil, ErrTooManyRoles
+	}
+
 	perms := toInternalPermissions(body.Permissions)
 	row, err := s.repo.CreateRole(ctx, teamID.String(), body.Name, body.Color, perms)
 	if err != nil {

@@ -275,6 +275,7 @@ export const de = {
     comments: 'Kommentare',
     noComments: 'Noch keine Kommentare.',
     commentWrite: 'Kommentar schreiben…',
+    commentSend: 'Kommentar senden',
     eventType: 'Termintyp',
     typeTraining: 'Training',
     typeAuftritt: 'Auftritt',
@@ -325,7 +326,7 @@ export const de = {
     calDownload: 'Kalenderdatei (.ics) herunterladen',
     calSubscribe: 'Automatisch abonnieren (Abo-Link)',
     calSubscribeDesc:
-      'Mit diesem Link bleibt dein Kalender automatisch aktuell – neue und geänderte Termine erscheinen ohne erneuten Export.',
+      'Dieser Link soll deinen Kalender künftig automatisch aktuell halten – neue und geänderte Termine würden ohne erneuten Export erscheinen. In dieser Vorschau ist das noch nicht aktiv; siehe Hinweis unten.',
     calCopy: 'Kopieren',
     calCopied: 'Kopiert',
     calGoogle: 'Google Kalender',
@@ -413,6 +414,7 @@ export const de = {
     balance: 'Aktueller Kassenstand',
     income: 'Einnahmen',
     expense: 'Ausgaben',
+    tabsLabel: 'Bereich wählen',
     tabs: {
       transactions: 'Umsätze',
       penalties: 'Strafen',
@@ -671,6 +673,8 @@ export const de = {
   stats: {
     presetAll: 'Gesamt',
     presetMonths: '{n} Monate',
+    rangeFrom: 'Eigener Zeitraum: von',
+    rangeTo: 'Eigener Zeitraum: bis',
     ringAria: 'Durchschnittliche Anwesenheitsquote: {avg}%',
     avgQuote: 'Ø Quote',
     teamAttendance: 'Team-Anwesenheit',

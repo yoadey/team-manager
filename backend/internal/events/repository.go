@@ -22,6 +22,15 @@ import (
 // pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
 const pgCheckViolation = "23514"
 
+// eventsEndAfterStartTimeConstraint is the name of the CHECK constraint
+// added by migration 00012. events/event_series also carry other CHECK
+// constraints (type IN (...), response_mode IN (...)) on the same
+// pgCheckViolation SQLSTATE -- matching on the SQLSTATE alone, without this
+// name check, would misreport any of those as "endTime must be after
+// startTime" too, mirroring the mistake absences' own CHECK-violation
+// mapping is deliberately guarded against via ConstraintName.
+const eventsEndAfterStartTimeConstraint = "events_end_after_start_time"
+
 // ErrEndTimeBeforeStartTime is returned when a partial UpdateEvent would
 // leave end_time <= start_time (violates the events_end_after_start_time
 // CHECK constraint). The handler validates this when both fields are present
@@ -462,7 +471,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 			return nil, pgx.ErrNoRows
 		}
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation && pgErr.ConstraintName == eventsEndAfterStartTimeConstraint {
 			return nil, ErrEndTimeBeforeStartTime
 		}
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
@@ -511,7 +520,7 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 	_, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation && pgErr.ConstraintName == eventsEndAfterStartTimeConstraint {
 			return ErrEndTimeBeforeStartTime
 		}
 		return fmt.Errorf("events.Repository.updateSeriesEvents: %w", err)
@@ -1100,19 +1109,24 @@ func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, vie
 // events:write between that check and this write could still let the write
 // through; folding the check into this statement's own atomic snapshot
 // closes that window without needing a shared transaction or advisory lock
-// on this very hot path. Returns pgx.ErrNoRows if eventID does not belong to
-// teamID, if userID is not a member of teamID (prevents forging attendance
-// rows for arbitrary users outside the team), OR -- in that narrow race --
-// if callerID no longer holds events:write; these are deliberately not
-// distinguished here, matching how every other reason this returns
-// pgx.ErrNoRows is already ambiguous by design.
+// on this very hot path. The events EXISTS clause also re-checks status !=
+// 'cancelled' for the same reason: the service layer's earlier GetEvent read
+// of the event's status is not atomic with this write, so a concurrent
+// SetStatus(cancelled) committing between that read and this write must not
+// be able to still let attendance be recorded/rewritten against an
+// already-cancelled event. Returns pgx.ErrNoRows if eventID does not belong
+// to teamID, if the event is cancelled, if userID is not a member of teamID
+// (prevents forging attendance rows for arbitrary users outside the team),
+// OR -- in that narrow race -- if callerID no longer holds events:write;
+// these are deliberately not distinguished here, matching how every other
+// reason this returns pgx.ErrNoRows is already ambiguous by design.
 func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
 		INSERT INTO attendance (event_id, user_id, status, reason, reason_id, reason_visibility, at)
 		SELECT $1, $2, $3, $4, $5, $6, now()
-		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7)
+		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7 AND status != 'cancelled')
 		  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $7 AND user_id = $2)
 		  AND ($8 = $2 OR EXISTS (
 		        SELECT 1 FROM roles r

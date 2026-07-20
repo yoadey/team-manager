@@ -13,6 +13,12 @@ import { t } from '@/i18n';
 
 const TEAM_ICONS = ['🏆', '⭐', '💃', '🕺', '🎭', '🔥', '👑', '🎯', '💎', '🦅', '⚡', '🌟'];
 
+// Sentinel used to locate the {teamName} placeholder inside the interpolated
+// team.inviteDesc2 string without splitting on the team name itself (see the
+// comment at its use site for why that's unsafe). Control character, so it
+// can never occur in real translated text.
+const TEAM_NAME_TOKEN = '\u0001';
+
 export function CreateTeamSheet({ app, sheet }: SheetProps) {
   void sheet;
   const { state } = app;
@@ -175,8 +181,14 @@ export function InviteSheet({ app, sheet }: SheetProps) {
           link
         </Box>
         <Box key="s" sx={{ fontSize: '14px', color: NEUTRAL.secondary, mt: '12px', lineHeight: 1.5 }}>
-          {t('team.inviteDesc2', { teamName: shortName(team.name) })
-            .split(shortName(team.name))
+          {/* Interpolate a sentinel token (never present in translated text) rather
+              than the team name itself, then split on that -- splitting on the team
+              name directly breaks when its first word (via shortName) collides with
+              any other word already in the surrounding sentence, e.g. a team named
+              "Neue Elf" would match both the template's own "Neue Mitglieder" and
+              the intended placeholder, producing duplicated/misplaced bolding. */}
+          {t('team.inviteDesc2', { teamName: TEAM_NAME_TOKEN })
+            .split(TEAM_NAME_TOKEN)
             .reduce<React.ReactNode[]>((acc, part, i, arr) => {
               if (i < arr.length - 1) return [...acc, part, <b key={i}>{shortName(team.name)}</b>];
               return [...acc, part];
