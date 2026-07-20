@@ -79,7 +79,10 @@ const REGISTRATION_ACCEPTED_MESSAGE = 'If this email can be registered, a verifi
 const verificationTokenTTLMs = 48 * 60 * 60 * 1000;
 
 function issueVerificationToken(userId: string): void {
-  const token = rid('vtok');
+  // Unlike rid() (Math.random()-based, fine for demo entity ids), this token
+  // stands in for a secret, unguessable value -- the same property the real
+  // backend's crypto/rand-generated token has. crypto.randomUUID() is a CSPRNG.
+  const token = crypto.randomUUID();
   db.verificationTokens[token] = { userId, expiresAt: new Date(Date.now() + verificationTokenTTLMs).toISOString() };
 }
 
