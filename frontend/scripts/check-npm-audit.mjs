@@ -51,7 +51,22 @@ function runAudit() {
 
 const allowlist = loadAllowlist(allowlistPath);
 const report = JSON.parse(runAudit());
-const vulnerabilities = report.vulnerabilities ?? {};
+
+// `npm audit --json` reports a tool-level failure (corrupted lockfile,
+// registry outage, throttling, etc.) as `{"error": {...}}` with no
+// `vulnerabilities` key at all -- a shape that must never be treated the
+// same as a genuinely clean `{"vulnerabilities": {}, ...}` report. Failing
+// loudly here (rather than defaulting to `{}` and reporting "no advisories
+// found") matters most for the unattended weekly run in
+// scheduled-security-scan.yml, where nobody is watching for a "too quiet"
+// green build.
+if (report.error || !('vulnerabilities' in report)) {
+  console.error('npm audit itself failed to produce a vulnerability report:');
+  console.error(JSON.stringify(report.error ?? report, null, 2));
+  process.exit(1);
+}
+
+const vulnerabilities = report.vulnerabilities;
 
 const failing = [];
 const allowed = [];
