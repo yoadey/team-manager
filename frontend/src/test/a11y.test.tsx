@@ -64,14 +64,22 @@ vi.mock('@/pages/hooks/useStatsQueries', () => ({
   useStatsQuery: vi.fn(),
 }));
 
+// FinancesPage.tsx imports useFinanceOverviewQuery via this exact relative
+// path (see the identical pattern in FinancesPage.test.tsx).
+vi.mock('@/features/finances/hooks/useFinanceQueries', () => ({
+  useFinanceOverviewQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
 import { useMembersQuery } from '@/features/members/hooks/useMemberQueries';
 import { useEventDetailQuery } from '@/features/events/hooks/useEventQueries';
 import { useStatsQuery } from '@/pages/hooks/useStatsQueries';
+import { useFinanceOverviewQuery } from '@/features/finances/hooks/useFinanceQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
 const mockUseEventDetailQuery = useEventDetailQuery as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
+const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
 // ─── Shared app state builders ───────────────────────────────────────────────
 
@@ -262,6 +270,45 @@ describe('Accessibility: Stats', () => {
       setStatsRange: vi.fn(),
     });
     const { container } = render(<Stats />);
+    const results = await axe(container);
+    assertNoViolations(results);
+  });
+});
+
+describe('Accessibility: FinancesPage', () => {
+  beforeAll(() => {
+    vi.clearAllMocks();
+  });
+
+  // Regression test: the finance section tabs set role="tab" directly on a
+  // plain Box with no role="tablist" ancestor (unlike the identical pattern
+  // in EventsPage, which wraps its tabs in one), an aria-required-parent
+  // violation. FinancesPage wasn't previously covered by any a11y test,
+  // which is exactly why the gap went unnoticed.
+  it('section tabs have no axe violations', async () => {
+    const { FinancesPage } = await import('@/features/finances/FinancesPage');
+    mockUseFinanceOverviewQuery.mockReturnValue({
+      data: {
+        balance: 1250.5,
+        income: 2500,
+        expense: 1249.5,
+        transactions: [],
+        penalties: [],
+        assignments: [],
+        openPenalties: [],
+        openPenaltySum: 0,
+        contributions: [],
+        contribOpen: 0,
+      },
+    });
+    mockUseApp.mockReturnValue({
+      ...makeBaseApp({
+        activeTeamId: 't1',
+        finTab: 'umsaetze',
+        user: { id: 'u1' },
+      }),
+    });
+    const { container } = render(<FinancesPage />);
     const results = await axe(container);
     assertNoViolations(results);
   });

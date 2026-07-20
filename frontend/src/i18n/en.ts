@@ -410,6 +410,7 @@ export const en: Messages = {
     balance: 'Current balance',
     income: 'Income',
     expense: 'Expenses',
+    tabsLabel: 'Choose section',
     tabs: {
       transactions: 'Transactions',
       penalties: 'Penalties',

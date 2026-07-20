@@ -414,6 +414,7 @@ export const de = {
     balance: 'Aktueller Kassenstand',
     income: 'Einnahmen',
     expense: 'Ausgaben',
+    tabsLabel: 'Bereich wählen',
     tabs: {
       transactions: 'Umsätze',
       penalties: 'Strafen',
