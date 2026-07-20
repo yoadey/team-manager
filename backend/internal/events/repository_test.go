@@ -396,6 +396,41 @@ func TestEventRepository_UpdateEvent_PartialUpdate_RejectsEndBeforeStart(t *test
 	require.ErrorIs(t, err, events.ErrEndTimeBeforeStartTime)
 }
 
+// Regression test: UpdateEvent matched on the CHECK-violation SQLSTATE
+// alone, with no ConstraintName check -- events/event_series carry two
+// OTHER CHECK constraints on that same SQLSTATE (type IN (...), response_mode
+// IN (...)), so any violation of THOSE got misreported as "endTime must be
+// after startTime" too, an actively wrong and misleading error pointing the
+// caller at a field they didn't even touch. UpdateEventParams.Type is a
+// plain *string at this layer (the handler's gen.EventType enum validates it
+// first, but that's a separate layer this repository-level call bypasses
+// entirely, exactly like some future bulk-update path or admin tool might),
+// so this test triggers the type CHECK constraint directly and asserts it is
+// NOT reported as ErrEndTimeBeforeStartTime.
+func TestEventRepository_UpdateEvent_TypeCheckViolation_NotMisreportedAsEndBeforeStart(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := "56565656-5656-5656-5656-565656565656"
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Type Check Team')`, teamID)
+	require.NoError(t, err)
+
+	params := makeCreateParams("Training", time.Now().UTC().Truncate(24*time.Hour))
+	created, err := repo.CreateEvent(ctx, teamID, &params)
+	require.NoError(t, err)
+
+	invalidType := "not-a-real-type"
+	_, err = repo.UpdateEvent(ctx, created.Id.String(), teamID, &events.UpdateEventParams{
+		Type: &invalidType,
+	}, "single")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, events.ErrEndTimeBeforeStartTime,
+		"a type CHECK violation must not be misreported as ErrEndTimeBeforeStartTime")
+}
+
 // A series-scope update with ONLY Date set (no other field) — the primary
 // use case the fix above exists to support — must not corrupt the
 // series-wide UPDATE: with every other field nil, buildUpdateSets' "nothing

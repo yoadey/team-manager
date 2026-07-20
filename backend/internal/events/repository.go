@@ -22,6 +22,15 @@ import (
 // pgCheckViolation is the Postgres SQLSTATE for a violated CHECK constraint.
 const pgCheckViolation = "23514"
 
+// eventsEndAfterStartTimeConstraint is the name of the CHECK constraint
+// added by migration 00012. events/event_series also carry other CHECK
+// constraints (type IN (...), response_mode IN (...)) on the same
+// pgCheckViolation SQLSTATE -- matching on the SQLSTATE alone, without this
+// name check, would misreport any of those as "endTime must be after
+// startTime" too, mirroring the mistake absences' own CHECK-violation
+// mapping is deliberately guarded against via ConstraintName.
+const eventsEndAfterStartTimeConstraint = "events_end_after_start_time"
+
 // ErrEndTimeBeforeStartTime is returned when a partial UpdateEvent would
 // leave end_time <= start_time (violates the events_end_after_start_time
 // CHECK constraint). The handler validates this when both fields are present
@@ -462,7 +471,7 @@ func (r *Repository) UpdateEvent(ctx context.Context, eventID, teamID string, pa
 			return nil, pgx.ErrNoRows
 		}
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation && pgErr.ConstraintName == eventsEndAfterStartTimeConstraint {
 			return nil, ErrEndTimeBeforeStartTime
 		}
 		return nil, fmt.Errorf("events.Repository.UpdateEvent: %w", err)
@@ -511,7 +520,7 @@ func updateSeriesEvents(ctx context.Context, tx pgx.Tx, seriesID string, params 
 	_, err := tx.Exec(ctx, q, args...)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation {
+		if errors.As(err, &pgErr) && pgErr.Code == pgCheckViolation && pgErr.ConstraintName == eventsEndAfterStartTimeConstraint {
 			return ErrEndTimeBeforeStartTime
 		}
 		return fmt.Errorf("events.Repository.updateSeriesEvents: %w", err)
