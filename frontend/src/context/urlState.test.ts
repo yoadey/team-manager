@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPath, parseLocation, parsePendingInvite, routeFromPath, type UrlState } from './urlState';
+import { buildPath, parseLocation, parsePendingInvite, parseVerifyEmailToken, routeFromPath, type UrlState } from './urlState';
 
 const base: UrlState = {
   route: 'home',
@@ -95,6 +95,27 @@ describe('parsePendingInvite', () => {
     expect(parsePendingInvite('/join/team-1/code/extra')).toBeNull();
     expect(parsePendingInvite('/join//code')).toBeNull();
     expect(parsePendingInvite('/join/team-1/')).toBeNull();
+  });
+});
+
+describe('parseVerifyEmailToken', () => {
+  it('parses a well-formed /verify-email/<token> path', () => {
+    expect(parseVerifyEmailToken('/verify-email/abc123')).toBe('abc123');
+  });
+
+  it('decodes a URI-encoded token', () => {
+    expect(parseVerifyEmailToken('/verify-email/ab%2Fc')).toBe('ab/c');
+  });
+
+  it('returns null for paths that are not /verify-email/... at all', () => {
+    expect(parseVerifyEmailToken('/home')).toBeNull();
+    expect(parseVerifyEmailToken('/')).toBeNull();
+  });
+
+  it('returns null for a malformed path (missing segment or extra segment)', () => {
+    expect(parseVerifyEmailToken('/verify-email')).toBeNull();
+    expect(parseVerifyEmailToken('/verify-email/')).toBeNull();
+    expect(parseVerifyEmailToken('/verify-email/tok/extra')).toBeNull();
   });
 });
 

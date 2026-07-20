@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { createTestQueryClient } from '@/test/queryTestUtils';
 import { useNotificationsQuery } from '@/features/notifications';
 import { AppProvider, useApp, useAppActions, useAppSelector, sheetErrorBoundaryKey } from './AppContext';
+import { db as sharedMockDb } from '@/mocks/db';
 
 beforeEach(() => localStorage.clear());
 
@@ -1183,5 +1184,90 @@ describe('AppProvider / session-restore resilience', () => {
     // The state->URL sync effect must restore the id segment once the
     // sheet opens, not leave it stripped from the earlier history.replaceState.
     await waitFor(() => expect(window.location.pathname).toBe('/events/' + eventId));
+  });
+});
+
+// Self-registration's email verification link (/verify-email/<token>) is
+// consumed by the bootstrap effect before the normal currentUser()
+// cookie-restore check -- these tests exercise that branch end-to-end
+// against the mock service layer, mirroring the invite-redemption block's
+// fresh-module pattern (a real register/verifyEmail call mutates the
+// shared mock db/session singleton, which must not leak into other tests).
+describe('AppProvider / self-registration verify-email bootstrap', () => {
+  // Unlike api/AppProvider, mocks/db.ts's `db` singleton must NOT be
+  // re-imported fresh here: MSW's server (started once in test/setup.ts,
+  // before any vi.resetModules() call) always dispatches to the handlers.ts
+  // module instance -- and therefore the `db` instance -- that existed at
+  // that first import, so a freshly re-imported `db` would be a different,
+  // never-mutated object. sharedMockDb (imported at this file's top level,
+  // also pre-reset) is the same instance the live handlers actually mutate.
+  async function freshModules() {
+    vi.resetModules();
+    localStorage.clear();
+    const svc = await import('@/services');
+    const ctx = await import('./AppContext');
+    return {
+      api: svc.api,
+      AppProvider: ctx.AppProvider,
+      useApp: ctx.useApp,
+      useAppActions: ctx.useAppActions,
+    };
+  }
+
+  it('consumes a valid verification token on bootstrap and establishes a session', async () => {
+    const { api, AppProvider: FreshAppProvider, useApp: freshUseApp } = await freshModules();
+
+    await api.auth.register('new-user@example.com', 'longenoughpassword');
+    const token = Object.keys(sharedMockDb.verificationTokens)[0];
+    window.history.pushState({}, '', '/verify-email/' + token);
+
+    function Probe() {
+      const { state } = freshUseApp();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="userEmail">{state.user?.email ?? ''}</div>
+        </div>
+      );
+    }
+
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+
+    // A brand-new self-registered account has no team yet, so a successful
+    // verification lands on 'noTeam', not 'app' -- either way, it must not
+    // still be sitting on the login screen.
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('noTeam'));
+    expect(screen.getByTestId('userEmail').textContent).toBe('new-user@example.com');
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('falls back to the login screen with an error for an invalid verification token', async () => {
+    const { AppProvider: FreshAppProvider, useApp: freshUseApp } = await freshModules();
+
+    window.history.pushState({}, '', '/verify-email/totally-bogus-token');
+
+    function Probe() {
+      const { state } = freshUseApp();
+      return (
+        <div>
+          <div data-testid="phase">{state.phase}</div>
+          <div data-testid="error">{state.error ?? ''}</div>
+        </div>
+      );
+    }
+
+    renderApp(
+      <FreshAppProvider>
+        <Probe />
+      </FreshAppProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('phase').textContent).toBe('login'));
+    expect(screen.getByTestId('error').textContent).not.toBe('');
+    expect(window.location.pathname).toBe('/');
   });
 });

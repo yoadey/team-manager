@@ -115,6 +115,23 @@ function defaultRoles(teamId: string): RoleDto[] {
 
 export interface UserRow extends User {
   hasPhoto: boolean;
+  /**
+   * Only set for self-registered (non-seed) accounts -- undefined for demo
+   * seed users, which stay gated by the fixed DEMO_PASSWORD/DEMO_LOGIN_EMAIL
+   * constants instead. Storing the plaintext password is fine here (this is
+   * an in-memory demo/test double, not a real credential store).
+   */
+  password?: string;
+  /** null/undefined = unverified. Mirrors the backend's users.email_verified_at. */
+  emailVerifiedAt?: string | null;
+}
+
+/** A pending self-registration verification token (mock equivalent of the
+ * backend's hashed email_verification_tokens table -- stored in the clear
+ * here since there's nothing to protect in an in-memory test double). */
+export interface VerificationToken {
+  userId: string;
+  expiresAt: string;
 }
 
 export interface TeamRow extends Team {
@@ -144,6 +161,8 @@ export interface DemoDb {
   eventComments: EventComment[];
   notifications: AppNotification[];
   notifSeen: Record<string, string>;
+  /** Raw token -> pending verification, for self-registered accounts. */
+  verificationTokens: Record<string, VerificationToken>;
 }
 
 // Fixed demo credentials for the MSW-only demo login (POST /auth/login).
@@ -177,6 +196,7 @@ export function createSeedData(): DemoDb {
     eventComments: [],
     notifications: [],
     notifSeen: {},
+    verificationTokens: {},
   };
 
   const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({

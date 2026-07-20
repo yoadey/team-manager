@@ -38,6 +38,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Self-register a new account with email + password
+         * @description Creates an unverified account and emails a verification link. The response is always the same generic message regardless of whether the email was available, already registered and verified, or already registered and still pending verification — this endpoint never reveals account existence. Disabled server-side via `SELF_REGISTRATION_ENABLED`.
+         */
+        post: operations["register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consume an email verification token and establish a session
+         * @description Marks the account verified and returns a session, identical in shape to `login`'s response, so the client can reuse its normal post-login bootstrap.
+         */
+        post: operations["verifyEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/resend-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend the email verification link
+         * @description Always returns the same generic response regardless of whether the email has no account, an already-verified account, or a still- unverified account — only the last case actually sends a new email.
+         */
+        post: operations["resendVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -995,6 +1055,21 @@ export interface components {
             token: string;
             user: components["schemas"]["User"];
         };
+        RegisterRequest: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        RegisterResponse: {
+            message: string;
+        };
+        VerifyEmailRequest: {
+            token: string;
+        };
+        ResendVerificationRequest: {
+            /** Format: email */
+            email: string;
+        };
         DeleteAccountRequest: {
             /**
              * Format: email
@@ -1713,6 +1788,82 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Registration accepted. If the email can be registered, a verification link has been sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    verifyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    resendVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description If a still-unverified account exists for this email, a new verification link has been sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
             429: components["responses"]["TooManyRequests"];
         };
     };

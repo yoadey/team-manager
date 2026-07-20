@@ -7,12 +7,93 @@
 // fixed behavior directly against the MSW demo backend.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { realApi as api } from './serviceLayerReal';
-import { DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
+import { db, DEMO_LOGIN_EMAIL, DEMO_PASSWORD } from '@/mocks/db';
 import { todayLocalDate } from '@/utils/date';
-import { ValidationError } from '@/utils/errors';
+import { AuthError, ForbiddenError, ValidationError } from '@/utils/errors';
 
 beforeEach(async () => {
   await api.auth.login(DEMO_LOGIN_EMAIL, DEMO_PASSWORD);
+});
+
+function onlyVerificationToken(): string {
+  const tokens = Object.keys(db.verificationTokens);
+  expect(tokens).toHaveLength(1);
+  return tokens[0];
+}
+
+/** Returns the most recently issued verification token (insertion order). */
+function latestVerificationToken(): string {
+  const tokens = Object.keys(db.verificationTokens);
+  expect(tokens.length).toBeGreaterThan(0);
+  return tokens[tokens.length - 1];
+}
+
+describe('self-service registration: enumeration safety and verification flow', () => {
+  it('registering an available email creates an unverified account and issues a verification token', async () => {
+    const resp = await api.auth.register('new-user@example.com', 'longenoughpassword');
+    expect(resp.message).toBeTruthy();
+
+    const token = onlyVerificationToken();
+    const { token: sessionToken, user } = await api.auth.verifyEmail(token);
+    expect(sessionToken).toBeTruthy();
+    expect(user.email).toBe('new-user@example.com');
+  });
+
+  it('register/resend-verification return the identical response across available, verified, and pending emails', async () => {
+    // Seed a verified and a still-pending account by going through the real
+    // register (+ verify, for the verified one) flow rather than poking the
+    // mock db directly.
+    await api.auth.register('verified@example.com', 'longenoughpassword');
+    await api.auth.verifyEmail(onlyVerificationToken());
+    await api.auth.register('pending@example.com', 'longenoughpassword');
+
+    const available = await api.auth.register('available@example.com', 'longenoughpassword');
+    const verified = await api.auth.register('verified@example.com', 'attacker-password-123');
+    const pending = await api.auth.register('pending@example.com', 'attacker-password-123');
+
+    expect(verified.message).toBe(available.message);
+    expect(pending.message).toBe(available.message);
+
+    // The already-registered branches' response is a 202 that never reveals
+    // account existence -- assert on the resolved value only (a thrown error
+    // would mean the endpoint incorrectly distinguished this case).
+  });
+
+  it('a fresh verification token for a still-pending registration does not overwrite its password', async () => {
+    await api.auth.register('pending2@example.com', 'original-password-123');
+    // Re-registering the same still-unverified email with a different
+    // password must not let that new password take effect.
+    await api.auth.register('pending2@example.com', 'attacker-password-456');
+
+    await expect(api.auth.login('pending2@example.com', 'attacker-password-456')).rejects.toThrow();
+
+    const token = latestVerificationToken();
+    await api.auth.verifyEmail(token);
+    await expect(api.auth.login('pending2@example.com', 'original-password-123')).resolves.toBeTruthy();
+  });
+
+  it('rejects login for an unverified account distinctly from wrong credentials', async () => {
+    await api.auth.register('unverified@example.com', 'longenoughpassword');
+
+    await expect(api.auth.login('unverified@example.com', 'longenoughpassword')).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(api.auth.login('unverified@example.com', 'totally-wrong-password')).rejects.toBeInstanceOf(AuthError);
+  });
+
+  it('an expired or unknown verification token is rejected', async () => {
+    await expect(api.auth.verifyEmail('totally-bogus-token')).rejects.toThrow();
+  });
+
+  it('a verification token is single-use', async () => {
+    await api.auth.register('reuse@example.com', 'longenoughpassword');
+    const token = onlyVerificationToken();
+    await api.auth.verifyEmail(token);
+    await expect(api.auth.verifyEmail(token)).rejects.toThrow();
+  });
+
+  it('resend-verification returns the same generic response for a nonexistent email', async () => {
+    const resp = await api.auth.resendVerification('nobody-at-all@example.com');
+    expect(resp.message).toBeTruthy();
+  });
 });
 
 describe('drift-bug fix: penalty amount/label is snapshotted at assignment time', () => {

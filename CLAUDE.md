@@ -88,6 +88,7 @@ team-manager/
 │   │   ├── audit/         Audit log
 │   │   ├── jobs/          River-based background workers (retention, notifications)
 │   │   ├── storage/       S3-compatible object store (team/user photos, team logos) — ObjectStore interface + S3/fake impls
+│   │   ├── mailer/        Outbound transactional email (self-registration verification links) — Mailer interface + SMTP/fake impls
 │   │   ├── metrics/       Prometheus metrics (business + retention job)
 │   │   ├── observability/ OpenTelemetry tracing + Sentry wiring
 │   │   ├── pagination/    Keyset pagination + HMAC-signed cursors
@@ -175,11 +176,20 @@ The TypeScript client is also generated from this spec via `openapi-typescript` 
 | `METRICS_ALLOW_OPEN` | `false`                   | Set `true` to allow startup with an open, unauthenticated `/metrics` when `COOKIE_SECURE=true` and `METRICS_TOKEN` is unset (otherwise startup fails). Use only when `/metrics` is restricted at the network layer instead. |
 | `RATE_LIMIT_RPS`  | `100`                       | Global per-IP request rate limit (requests per second). |
 | `LOGIN_RATE_LIMIT_PER_MIN` | `5`              | Per-IP login attempt limit per minute (brute-force protection). |
+| `REGISTER_RATE_LIMIT_PER_MIN` | `5`          | Per-IP self-registration (`POST /auth/register`) attempt limit per minute. |
+| `RESEND_VERIFICATION_RATE_LIMIT_PER_MIN` | `3` | Per-IP resend-verification (`POST /auth/resend-verification`) attempt limit per minute. |
 | `TRUSTED_PROXY_CIDRS` | _(empty)_                | Comma-separated CIDRs of reverse proxies/load balancers allowed to set `X-Forwarded-For`/`X-Real-IP`/`True-Client-IP` for rate limiting. Empty (default) trusts nothing — rate limiting keys on the raw TCP peer address, so header spoofing cannot bypass it. **Set this when deploying behind a reverse proxy/LB**, or the real clients behind it will all share one rate-limit bucket (the proxy's IP). |
 | `PAGINATION_HMAC_KEY` | _(empty)_               | AES-256-equivalent key (32 bytes, hex or base64) that HMAC-signs keyset pagination cursors so clients can't craft arbitrary ones. Optional — unsigned (plain base64) cursors are used when unset; a warning is logged at startup when unset with `COOKIE_SECURE=true`. |
 | `RETENTION_NOTIFICATIONS_DAYS` | `90`         | How many days to keep notification rows before the daily retention job deletes them. |
 | `RETENTION_SESSIONS_DAYS` | `30`               | How many days past expiry to keep session rows before the daily retention job deletes them. |
 | `RETENTION_AUDIT_LOG_DAYS` | `365`             | How many days to keep `audit_log` rows before the daily retention job deletes them. Compliance-relevant — raise if your retention policy requires longer. |
+| `RETENTION_UNVERIFIED_ACCOUNTS_DAYS` | `7`     | How many days a never-verified self-registered account is kept before the daily retention job deletes it, freeing the email address for a fresh registration. |
+| `SELF_REGISTRATION_ENABLED` | `true`          | Server-side kill switch for `POST /auth/register`; set `false` to disable public self-service signup while login and invite-based provisioning keep working. |
+| `EMAIL_VERIFICATION_TTL_HOURS` | `48`         | How long a self-registration verification link stays valid before it must be re-requested via `POST /auth/resend-verification`. |
+| `SMTP_HOST`       | _(empty)_                   | SMTP relay host for outgoing self-registration verification email. **Required when `COOKIE_SECURE=true`** (with `SMTP_FROM_ADDRESS`) — startup fails without it. Unset in dev falls back to a logging fake mailer (the verification link is only written to the server log). |
+| `SMTP_PORT`       | `587`                       | SMTP relay port (STARTTLS). |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | _(empty)_   | SMTP auth credentials; may be blank for an open relay. |
+| `SMTP_FROM_ADDRESS` | _(empty)_                 | `From:` address for outgoing verification email. Same `COOKIE_SECURE=true` requirement as `SMTP_HOST`. |
 | `S3_ENDPOINT`     | _(empty)_                   | S3-compatible host for image object storage (team/user photos, team logos), e.g. `s3.eu-central-1.amazonaws.com` or `minio:9000`; optionally prefixed `http://`/`https://` (defaults to secure). **Required when `COOKIE_SECURE=true`** (with `S3_BUCKET`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`) — startup fails without it. Unset in dev falls back to an in-memory fake store (images don't survive a restart). |
 | `S3_REGION`       | _(empty)_                   | Object store region, e.g. `eu-central-1`. May be blank for MinIO/region-less endpoints. |
 | `S3_BUCKET`       | _(empty)_                   | Bucket image objects are stored in. Same `COOKIE_SECURE=true` requirement as `S3_ENDPOINT`. |

@@ -70,6 +70,19 @@ function toWireUser(u: UserRow): S['User'] {
   return { id: u.id, name: u.name, email: u.email, phone: u.phone || undefined, avatarColor: u.avatarColor, birthday: u.birthday || undefined, address: u.address || undefined, hasPhoto: u.hasPhoto };
 }
 
+// ---- self-registration (mock equivalent of auth.Service.Register etc.) ----
+
+// Fixed, generic response for register/resend-verification, returned
+// identically regardless of account state -- mirrors the real backend's
+// enumeration-safety contract (see openspec/changes/self-service-registration).
+const REGISTRATION_ACCEPTED_MESSAGE = 'If this email can be registered, a verification link has been sent.';
+const verificationTokenTTLMs = 48 * 60 * 60 * 1000;
+
+function issueVerificationToken(userId: string): void {
+  const token = rid('vtok');
+  db.verificationTokens[token] = { userId, expiresAt: new Date(Date.now() + verificationTokenTTLMs).toISOString() };
+}
+
 function toWireRole(r: RoleDto): S['Role'] {
   return { id: r.id, teamId: r.teamId, name: r.name, system: r.system, color: r.color, permissions: r.permissions };
 }
@@ -302,12 +315,82 @@ export const handlers = [
       return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
     }
     const u = db.users.find((x) => x.email.toLowerCase() === body.email?.toLowerCase());
+    // Self-registered accounts (created via POST /auth/register) carry their
+    // own password on the row; the fixed demo account never has one set.
+    if (u?.password !== undefined) {
+      if (body.password !== u.password) return problem(401, 'Invalid email or password');
+      if (!u.emailVerifiedAt) return problem(403, 'please verify your email before logging in');
+      session.userId = u.id;
+      const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+      return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
+    }
     if (!u || u.id !== DEMO_LOGIN_USER_ID || body.password !== DEMO_PASSWORD) {
       return problem(401, 'Invalid email or password');
     }
     session.userId = u.id;
     const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
     return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
+  }),
+
+  // Enumeration-safe: the response is identical whether the email was
+  // available, already registered and verified, or already registered and
+  // still pending -- see Service.Register's design on the backend.
+  http.post(P('/auth/register'), async ({ request }) => {
+    const body = (await request.json()) as S['RegisterRequest'];
+    await mockDelay();
+    const email = (body.email ?? '').toLowerCase();
+    const resp: S['RegisterResponse'] = { message: REGISTRATION_ACCEPTED_MESSAGE };
+
+    const existing = db.users.find((x) => x.email.toLowerCase() === email);
+    if (existing) {
+      // Verified: leave the account and its password untouched, no token issued.
+      // Still-pending: issue a fresh token, but never overwrite the password.
+      if (!existing.emailVerifiedAt) issueVerificationToken(existing.id);
+      return HttpResponse.json(resp, { status: 202 });
+    }
+
+    const id = rid('u');
+    const newUser: UserRow = {
+      id,
+      name: email.split('@')[0] || email,
+      email: body.email,
+      phone: '',
+      avatarColor: '#6366f1',
+      photo: null,
+      hasPhoto: false,
+      birthday: '',
+      address: '',
+      password: body.password,
+      emailVerifiedAt: null,
+    };
+    db.users.push(newUser);
+    issueVerificationToken(id);
+    return HttpResponse.json(resp, { status: 202 });
+  }),
+
+  http.post(P('/auth/verify-email'), async ({ request }) => {
+    const body = (await request.json()) as S['VerifyEmailRequest'];
+    await mockDelay();
+    const entry = body.token ? db.verificationTokens[body.token] : undefined;
+    if (!entry || new Date(entry.expiresAt).getTime() < Date.now()) {
+      return problem(401, 'Invalid or expired verification token');
+    }
+    delete db.verificationTokens[body.token];
+    const u = requireUser(entry.userId);
+    u.emailVerifiedAt = new Date().toISOString();
+    session.userId = u.id;
+    const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+    return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
+  }),
+
+  http.post(P('/auth/resend-verification'), async ({ request }) => {
+    const body = (await request.json()) as S['ResendVerificationRequest'];
+    await mockDelay();
+    const email = (body.email ?? '').toLowerCase();
+    const u = db.users.find((x) => x.email.toLowerCase() === email);
+    if (u && !u.emailVerifiedAt) issueVerificationToken(u.id);
+    const resp: S['RegisterResponse'] = { message: REGISTRATION_ACCEPTED_MESSAGE };
+    return HttpResponse.json(resp, { status: 202 });
   }),
 
   http.post(P('/auth/logout'), async () => {
