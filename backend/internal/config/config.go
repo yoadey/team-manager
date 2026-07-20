@@ -229,29 +229,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	smtp, err := loadSMTPConfig(cookieSecure)
+	reg, err := loadRegistrationConfig(cookieSecure)
 	if err != nil {
 		return nil, err
-	}
-
-	selfRegistrationEnabled, err := loadSelfRegistrationEnabled()
-	if err != nil {
-		return nil, err
-	}
-
-	emailVerificationTTLHours, err := parseInt(os.Getenv("EMAIL_VERIFICATION_TTL_HOURS"), 48)
-	if err != nil {
-		return nil, fmt.Errorf("EMAIL_VERIFICATION_TTL_HOURS: %w", err)
-	}
-
-	registerRateLimitPerMin, resendVerificationRateLimitPerMin, err := loadRegistrationRateLimits()
-	if err != nil {
-		return nil, err
-	}
-
-	retentionUnverifiedAccountDays, err := parseInt(os.Getenv("RETENTION_UNVERIFIED_ACCOUNTS_DAYS"), 7)
-	if err != nil {
-		return nil, fmt.Errorf("RETENTION_UNVERIFIED_ACCOUNTS_DAYS: %w", err)
 	}
 
 	return &Config{
@@ -283,16 +263,16 @@ func Load() (*Config, error) {
 		S3SecretAccessKey:                 s3.SecretAccessKey,
 		S3UsePathStyle:                    s3.UsePathStyle,
 		S3PublicBaseURL:                   s3.PublicBaseURL,
-		SMTPHost:                          smtp.Host,
-		SMTPPort:                          smtp.Port,
-		SMTPUsername:                      smtp.Username,
-		SMTPPassword:                      smtp.Password,
-		SMTPFromAddress:                   smtp.FromAddress,
-		SelfRegistrationEnabled:           selfRegistrationEnabled,
-		EmailVerificationTTL:              time.Duration(emailVerificationTTLHours) * time.Hour,
-		RegisterRateLimitPerMin:           registerRateLimitPerMin,
-		ResendVerificationRateLimitPerMin: resendVerificationRateLimitPerMin,
-		RetentionUnverifiedAccountDays:    retentionUnverifiedAccountDays,
+		SMTPHost:                          reg.SMTPHost,
+		SMTPPort:                          reg.SMTPPort,
+		SMTPUsername:                      reg.SMTPUsername,
+		SMTPPassword:                      reg.SMTPPassword,
+		SMTPFromAddress:                   reg.SMTPFromAddress,
+		SelfRegistrationEnabled:           reg.SelfRegistrationEnabled,
+		EmailVerificationTTL:              reg.EmailVerificationTTL,
+		RegisterRateLimitPerMin:           reg.RegisterRateLimitPerMin,
+		ResendVerificationRateLimitPerMin: reg.ResendVerificationRateLimitPerMin,
+		RetentionUnverifiedAccountDays:    reg.RetentionUnverifiedAccountDays,
 	}, nil
 }
 
@@ -359,6 +339,67 @@ func loadSMTPConfig(cookieSecure bool) (smtpSettings, error) {
 		return smtpSettings{}, ErrSMTPConfigRequired
 	}
 	return s, nil
+}
+
+// registrationSettings groups every self-registration-related Config field.
+// Grouped into its own loader (mirroring s3Settings/loadS3Config) so Load()
+// makes a single error-checked call instead of five, keeping its cyclomatic
+// complexity down.
+type registrationSettings struct {
+	SMTPHost                          string
+	SMTPPort                          string
+	SMTPUsername                      string
+	SMTPPassword                      string
+	SMTPFromAddress                   string
+	SelfRegistrationEnabled           bool
+	EmailVerificationTTL              time.Duration
+	RegisterRateLimitPerMin           int
+	ResendVerificationRateLimitPerMin int
+	RetentionUnverifiedAccountDays    int
+}
+
+// loadRegistrationConfig reads every env var governing self-service
+// registration: SMTP_*, SELF_REGISTRATION_ENABLED,
+// EMAIL_VERIFICATION_TTL_HOURS, REGISTER_RATE_LIMIT_PER_MIN,
+// RESEND_VERIFICATION_RATE_LIMIT_PER_MIN, RETENTION_UNVERIFIED_ACCOUNTS_DAYS.
+func loadRegistrationConfig(cookieSecure bool) (registrationSettings, error) {
+	smtp, err := loadSMTPConfig(cookieSecure)
+	if err != nil {
+		return registrationSettings{}, err
+	}
+
+	selfRegistrationEnabled, err := loadSelfRegistrationEnabled()
+	if err != nil {
+		return registrationSettings{}, err
+	}
+
+	emailVerificationTTLHours, err := parseInt(os.Getenv("EMAIL_VERIFICATION_TTL_HOURS"), 48)
+	if err != nil {
+		return registrationSettings{}, fmt.Errorf("EMAIL_VERIFICATION_TTL_HOURS: %w", err)
+	}
+
+	registerRateLimitPerMin, resendVerificationRateLimitPerMin, err := loadRegistrationRateLimits()
+	if err != nil {
+		return registrationSettings{}, err
+	}
+
+	retentionUnverifiedAccountDays, err := parseInt(os.Getenv("RETENTION_UNVERIFIED_ACCOUNTS_DAYS"), 7)
+	if err != nil {
+		return registrationSettings{}, fmt.Errorf("RETENTION_UNVERIFIED_ACCOUNTS_DAYS: %w", err)
+	}
+
+	return registrationSettings{
+		SMTPHost:                          smtp.Host,
+		SMTPPort:                          smtp.Port,
+		SMTPUsername:                      smtp.Username,
+		SMTPPassword:                      smtp.Password,
+		SMTPFromAddress:                   smtp.FromAddress,
+		SelfRegistrationEnabled:           selfRegistrationEnabled,
+		EmailVerificationTTL:              time.Duration(emailVerificationTTLHours) * time.Hour,
+		RegisterRateLimitPerMin:           registerRateLimitPerMin,
+		ResendVerificationRateLimitPerMin: resendVerificationRateLimitPerMin,
+		RetentionUnverifiedAccountDays:    retentionUnverifiedAccountDays,
+	}, nil
 }
 
 // loadSelfRegistrationEnabled reads SELF_REGISTRATION_ENABLED, defaulting to

@@ -17,6 +17,10 @@ var ErrSMTPHostRequired = errors.New("mailer.NewSMTPMailer: Host is required")
 // ErrSMTPFromAddressRequired is returned by NewSMTPMailer when FromAddress is empty.
 var ErrSMTPFromAddressRequired = errors.New("mailer.NewSMTPMailer: FromAddress is required")
 
+// ErrSTARTTLSUnsupported is returned by SMTPMailer.send when the relay
+// doesn't advertise STARTTLS -- send never falls back to plaintext.
+var ErrSTARTTLSUnsupported = errors.New("mailer.SMTPMailer.send: server does not support STARTTLS")
+
 // SMTPConfig holds the settings needed to send mail via an SMTP relay with
 // STARTTLS.
 type SMTPConfig struct {
@@ -100,7 +104,7 @@ func (m *SMTPMailer) send(ctx context.Context, toEmail string, msg []byte) (err 
 	defer func() { _ = client.Close() }()
 
 	if ok, _ := client.Extension("STARTTLS"); !ok {
-		return errors.New("mailer.SMTPMailer.send: server does not support STARTTLS")
+		return ErrSTARTTLSUnsupported
 	}
 	if err := client.StartTLS(&tls.Config{ServerName: m.cfg.Host}); err != nil {
 		return fmt.Errorf("mailer.SMTPMailer.send: starttls: %w", err)
@@ -132,5 +136,8 @@ func (m *SMTPMailer) send(ctx context.Context, toEmail string, msg []byte) (err 
 		return fmt.Errorf("mailer.SMTPMailer.send: close data: %w", err)
 	}
 
-	return client.Quit()
+	if err := client.Quit(); err != nil {
+		return fmt.Errorf("mailer.SMTPMailer.send: quit: %w", err)
+	}
+	return nil
 }
