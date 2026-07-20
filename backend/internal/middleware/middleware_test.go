@@ -590,6 +590,42 @@ func TestRateLimit_TrustedPeer_ForwardedFor_UsesRightmostUntrustedHop(t *testing
 		"a different real (right-most) client hop must get its own rate-limit bucket")
 }
 
+// Regression test: http.Header.Get returns only the FIRST stored value for a
+// header name, but HTTP permits X-Forwarded-For to arrive as several
+// separate header lines rather than one comma-joined value -- per RFC 7230
+// §3.2.2 those are semantically equivalent to a single header with all
+// values joined in appearance order. realForwardedIP used Header.Get, so a
+// trusted proxy that appends its own hop as a NEW header line (rather than
+// joining it onto the client's existing value) had that hop silently
+// dropped: the code walked only the client's own, fully-controlled first
+// line as if it were the complete chain, reopening the exact
+// client-controlled-hop spoof the right-to-left walk exists to close.
+func TestRateLimit_TrustedPeer_ForwardedFor_UsesSecondHeaderLine(t *testing.T) {
+	handler := newRateLimitedHandler(t, []string{"203.0.113.0/24"})
+
+	// Same real client (5.5.5.5) on both requests, appended as a SEPARATE
+	// X-Forwarded-For header line (not comma-joined) by the trusted proxy,
+	// with a different attacker-chosen first line each time -- must still be
+	// recognized as the same client and blocked on the second request.
+	req1 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req1.RemoteAddr = "203.0.113.10:1111"
+	req1.Header.Add("X-Forwarded-For", "1.1.1.1")
+	req1.Header.Add("X-Forwarded-For", "5.5.5.5")
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+	require.Equal(t, http.StatusOK, rec1.Code)
+
+	req2 := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
+	req2.RemoteAddr = "203.0.113.10:2222"
+	req2.Header.Add("X-Forwarded-For", "9.9.9.9")
+	req2.Header.Add("X-Forwarded-For", "5.5.5.5")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	assert.Equal(t, http.StatusTooManyRequests, rec2.Code,
+		"a trusted proxy's hop appended as a second X-Forwarded-For header line must still be found, not dropped by only reading the first line")
+}
+
 // ─── Metrics ─────────────────────────────────────────────────────────────────
 
 // TestMetrics_LabelsUseRoutePatternNotRawPath is a regression test: recording

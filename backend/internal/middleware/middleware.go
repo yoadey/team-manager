@@ -195,9 +195,22 @@ func trustedProxyKeyFunc(trusted []*net.IPNet) httprate.KeyFunc {
 // first hop actually appended by a trusted proxy. If every entry is trusted
 // (or the header is absent/unparseable), it falls back to the immediate
 // peer address.
+//
+// Uses r.Header.Values, not Header.Get: HTTP permits X-Forwarded-For to
+// appear as several separate header lines rather than one comma-joined
+// value, and per RFC 7230 §3.2.2 those are semantically equivalent to a
+// single header with all values joined in appearance order -- Header.Get
+// returns only the first such line, silently discarding any hop a trusted
+// proxy appended as its own line rather than joining it onto the existing
+// value. Missing that hop would mean walking only the client's own,
+// unclaimed first line as if it were the complete chain, reopening the
+// exact spoofable-header gap this function exists to close.
 func realForwardedIP(r *http.Request, trusted []*net.IPNet) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		hops := strings.Split(xff, ",")
+	if values := r.Header.Values("X-Forwarded-For"); len(values) > 0 {
+		var hops []string
+		for _, v := range values {
+			hops = append(hops, strings.Split(v, ",")...)
+		}
 		for i := len(hops) - 1; i >= 0; i-- {
 			host := strings.TrimSpace(hops[i])
 			ip := net.ParseIP(host)
