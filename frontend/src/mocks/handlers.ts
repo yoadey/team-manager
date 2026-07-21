@@ -324,7 +324,7 @@ export const handlers = [
       if (body.password !== u.password) return problem(401, 'Invalid email or password');
       if (!u.emailVerifiedAt) return problem(403, 'please verify your email before logging in');
       session.userId = u.id;
-      const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+      const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
       return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
     }
     if (!u || u.id !== DEMO_LOGIN_USER_ID || body.password !== DEMO_PASSWORD) {
@@ -382,7 +382,7 @@ export const handlers = [
     const u = requireUser(entry.userId);
     u.emailVerifiedAt = new Date().toISOString();
     session.userId = u.id;
-    const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
     return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
   }),
 
