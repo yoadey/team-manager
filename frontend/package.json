@@ -87,5 +87,10 @@
     "workerDirectory": [
       "public"
     ]
+  },
+  "overrides": {
+    "@redocly/openapi-core": {
+      "js-yaml": "^4.3.0"
+    }
   }
 }

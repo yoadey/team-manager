@@ -1072,6 +1072,10 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           scanners: vuln
+          # 19 CVEs (glib2, libacl, python3/python3-libs), none reachable
+          # from this container's sole command (`aws s3 cp`) -- see the
+          # file for full per-package justification and a re-check reminder.
+          trivyignores: .github/trivyignore-awscli-backup.txt
 
   security-container-frontend:
     name: Security · Container scan (Trivy, frontend)

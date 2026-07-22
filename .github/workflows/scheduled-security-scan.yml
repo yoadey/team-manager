@@ -133,6 +133,7 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           scanners: vuln
+          trivyignores: .github/trivyignore-awscli-backup.txt
 
   # A scheduled run has no PR/push to surface a red X on, and the only
   # built-in signal is GitHub's per-actor failure email -- sent to whoever
