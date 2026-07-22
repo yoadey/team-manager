@@ -89,7 +89,16 @@
       imports (`os`, `path/filepath`, `runtime`, `strings`), since the
       one-time data backfill it tested is moot for a fresh install (no
       pre-existing broken rows can exist)
-- [x] 4.6 (found during implementation) `backend/internal/finances/repository_test.go`
+- [x] 4.6 (found during implementation) `backend/Makefile`'s `tools` target
+      installed golangci-lint v2 via the v1-era import path
+      (`github.com/golangci/golangci-lint/cmd/golangci-lint@v2.12.2`), which
+      fails to resolve (`v2.12.2` lives under the `/v2` module path, per Go's
+      semantic-import-versioning rules) — confirmed while trying to run
+      `make lint` locally for this change's own verification. Fixed to
+      `.../golangci-lint/v2/cmd/golangci-lint@v2.12.2`; verified
+      `golangci-lint-action`-vs-Makefile version-drift check in
+      `ci.yml` still extracts `v2.12.2` correctly from the new path.
+- [x] 4.7 (found during implementation) `backend/internal/finances/repository_test.go`
       and `backend/internal/jobs/retention.go` had comments citing the
       now-deleted `00025_penalty_assignment_amount_snapshot.sql`/
       `00004_audit_log.sql` by filename; reworded to describe the invariant
@@ -104,12 +113,13 @@
 ## 5. Verification
 - [x] 5.1 `cd backend && make generate` produces no diff on a second run
       (confirmed)
-- [x] 5.2 `cd backend && make test` (`go build ./...`, `go vet ./...`,
-      `gofmt -l .`, `go test ./...`) all clean/green. `golangci-lint` itself
-      could not be installed in this sandbox (`go install .../golangci-lint@v2.12.2`
-      fails to resolve — an environment/proxy quirk unrelated to this change;
-      CI installs it via `golangci-lint-action`, a different path) — left for
-      CI's `golangci-lint` job to confirm.
+- [x] 5.2 `go build ./...`, `go vet ./...`, `gofmt -l .`, `go test ./...`,
+      and `golangci-lint run ./...` (v2.12.2, installed via the `/v2`
+      module path since v2 requires a `/v2` import suffix — the Makefile's
+      pinned `go install` command lacks it and fails to resolve in this
+      sandbox; CI's `golangci-lint-action` doesn't hit this since it
+      downloads the binary directly rather than via `go install`) all
+      clean/green: 0 lint issues, all tests passing.
 - [x] 5.3 `goose up` → `down-to 0` → `up` (the exact sequence
       `backend-migration-rollback` runs) executed locally against a real
       `postgres:16` cluster (no Docker daemon in this sandbox, so a real
