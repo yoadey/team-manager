@@ -68,7 +68,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 const selectAbsenceFields = `
 	a.id, a.user_id, a.team_id, a.from_date, a.to_date, a.reason, a.created_at,
 	u.name AS member_name, u.avatar_color AS member_avatar_color,
-	(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo,
+	(u.photo_object_key IS NOT NULL) AS has_photo,
 	r.name AS role_name, r.color AS role_color
 `
 

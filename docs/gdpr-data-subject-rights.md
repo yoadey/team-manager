@@ -21,7 +21,7 @@ invite-provisioned).
 ## Why this is needed
 
 The app stores personal data of club members in `users` (`name`, `email`,
-`phone`, `birthday`, `address`, `photo_data`) and in linked records
+`phone`, `birthday`, `address`, `photo_object_key`) and in linked records
 (`memberships`, `attendance`, `event_comments`, `absences`, `news`,
 `finances/*`). For an EU-facing deployment, a data subject must be able to
 obtain a copy of their data and request its deletion. There is currently no
@@ -67,7 +67,7 @@ and legally-retained records. **Recommended approach: anonymize, don't delete.**
 
 > **Recommended:** Replace direct identifiers on the `users` row with neutral
 > values (`name = 'Gelöschtes Mitglied'`, `email = 'deleted+<uuid>@invalid'`,
-> `phone/birthday/address = NULL`, `photo_data = NULL`, `password_hash = NULL`),
+> `phone/birthday/address = NULL`, `photo_object_key = NULL`, `password_hash = NULL`),
 > delete all sessions, and add a `deleted_at` marker. Referenced rows keep their
 > foreign key but no longer resolve to identifiable personal data. Free-text
 > fields that may contain personal data (`event_comments.text`,
@@ -78,18 +78,11 @@ the integrity of shared and retained records — the standard GDPR pattern for
 this conflict. The alternative (true hard delete) needs explicit product/legal
 sign-off and changes to the financial-retention requirements.
 
-### Migration (`00003_user_erasure.sql`)
+### Schema
 
-```sql
--- +goose Up
-ALTER TABLE users ADD COLUMN deleted_at TIMESTAMPTZ;
-
--- +goose Down
-ALTER TABLE users DROP COLUMN IF EXISTS deleted_at;
-```
-
-No partial index was added -- `email` already has a plain `UNIQUE` index from
-`00001_init.sql`, and login/validation lookups exclude anonymized accounts via
+`users.deleted_at TIMESTAMPTZ` (nullable), part of `00001_init.sql`'s initial
+schema. No partial index was added on it -- `email` already has a plain
+`UNIQUE` index, and login/validation lookups exclude anonymized accounts via
 an explicit `deleted_at IS NULL` predicate rather than an index shaped around
 it.
 
@@ -152,7 +145,7 @@ Erasure (Art. 17) — **done**:
       password** (forward-compatible with a future OIDC-only account, not
       currently implemented).
 - [x] `DELETE /auth/me` + `DeleteAccountRequest` in `openapi/openapi.yaml`; regenerated.
-- [x] Migration `00003_user_erasure.sql` (`deleted_at`).
+- [x] Schema: `users.deleted_at` (part of `00001_init.sql`).
 - [x] `auth.Repository.EraseUser` (transactional anonymization) + `auth.Service.EraseAccount`
       (email-confirmation re-auth) with unit tests.
 - [x] Exclude `deleted_at` accounts from login/validation lookups.
