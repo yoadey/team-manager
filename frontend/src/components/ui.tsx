@@ -54,9 +54,12 @@ export function Av({
   size = 40,
   font,
 }: {
-  name?: string;
-  photo?: string | null;
-  color?: string;
+  // Explicit `| undefined` throughout -- callers pass these straight from
+  // API-mapped rows (`row.photo`, `row.color`, ...) where "no photo/color/
+  // name" is `undefined`, not a distinct value from "prop omitted".
+  name?: string | undefined;
+  photo?: string | null | undefined;
+  color?: string | undefined;
   size?: number;
   font?: number;
 }) {
@@ -312,7 +315,12 @@ export function Field({
   children: React.ReactNode;
   required?: boolean;
   error?: boolean;
-  errorText?: string;
+  // Explicit `| undefined` (not just `errorText?:`) -- callers pass
+  // `errors.field?.message` straight from react-hook-form's FieldErrors,
+  // which is `string | undefined` when there's no validation error, and
+  // there's no meaningful difference here between "no errorText prop" and
+  // "errorText is undefined" (both render no error message below).
+  errorText?: string | undefined;
   helperText?: string;
 }) {
   const errorId = errorText ? `field-err-${label.replace(/\s+/g, '-').toLowerCase()}` : undefined;

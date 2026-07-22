@@ -26,7 +26,7 @@ interface NavDef {
   label: string;
   icon: string;
   badge?: number;
-  gate?: () => boolean;
+  gate: () => boolean;
 }
 
 // Subscribes to the module-level i18n store directly (see the identical
@@ -256,7 +256,7 @@ function MobileNavBar({ defs, route, onNavigate, onMore, tk }: {
       }}
     >
       {defs
-        .filter((d) => !d.gate || d.gate())
+        .filter((d) => d.gate())
         .map((n) => {
           const isMore = n.key === '__more';
           const active = !isMore && route === n.key;
@@ -329,7 +329,7 @@ function DesktopNavRail({ defs, route, onNavigate, tk }: {
       sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '12px', display: 'flex', flexDirection: 'column', gap: '3px' }}
     >
       {defs
-        .filter((d) => !d.gate || d.gate())
+        .filter((d) => d.gate())
         .map((n) => {
           const active = route === n.key;
           const badge = n.badge || 0;
@@ -620,13 +620,17 @@ export function Shell() {
   // RouteScreen's per-route content gate uses) rather than hand-rolling
   // per-entry app.can() checks, so nav visibility and page content can't
   // drift apart the way they previously did (only 'finances' was gated here).
-  const navGate = (route: Route): (() => boolean) | undefined => {
+  // Always returns a real predicate (never undefined) -- a route with no
+  // module mapping is simply always visible -- so NavDef.gate can stay a
+  // required `() => boolean` instead of an optional field callers must
+  // null-check.
+  const navGate = (route: Route): (() => boolean) => {
     const module = ROUTE_MODULE[route];
-    return module ? () => app.can(module, 'read') : undefined;
+    return module ? () => app.can(module, 'read') : () => true;
   };
 
   const railDefs: NavDef[] = [
-    { key: 'home', label: tl('nav.home'), icon: 'home' },
+    { key: 'home', label: tl('nav.home'), icon: 'home', gate: navGate('home') },
     { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending, gate: navGate('events') },
     { key: 'members', label: tl('nav.members'), icon: 'group', gate: navGate('members') },
     { key: 'finances', label: tl('nav.finances'), icon: 'payments', gate: navGate('finances') },
@@ -636,10 +640,10 @@ export function Shell() {
     { key: 'team', label: tl('nav.team'), icon: 'shield', gate: navGate('team') },
   ];
   const bottomDefs: NavDef[] = [
-    { key: 'home', label: tl('nav.home'), icon: 'home' },
+    { key: 'home', label: tl('nav.home'), icon: 'home', gate: navGate('home') },
     { key: 'events', label: tl('nav.events'), icon: 'event', badge: pending, gate: navGate('events') },
     { key: 'members', label: tl('nav.members'), icon: 'group', gate: navGate('members') },
-    { key: '__more', label: tl('nav.more'), icon: 'apps' },
+    { key: '__more', label: tl('nav.more'), icon: 'apps', gate: () => true },
   ];
 
   const chromeProps: ShellChromeProps = {

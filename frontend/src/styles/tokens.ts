@@ -17,15 +17,22 @@ export interface ThemePreset {
   onSecondaryContainer: string;
 }
 
+// Bound directly to a real object literal (not looked up by indexing) so
+// it's a ThemePreset, not ThemePreset | undefined -- buildTokens() falls
+// back to this when `presetKey` doesn't match any known preset (e.g. a
+// team's custom primaryColor), so it must be guaranteed defined independent
+// of the THEME_PRESETS lookup that can legitimately miss.
+const DEFAULT_THEME_PRESET: ThemePreset = {
+  primary: '#1565C0',
+  onPrimary: '#FFFFFF',
+  primaryContainer: '#D7E3FF',
+  onPrimaryContainer: '#001B3E',
+  secondaryContainer: '#DCE3F2',
+  onSecondaryContainer: '#101C2B',
+};
+
 export const THEME_PRESETS: Record<string, ThemePreset> = {
-  '#1565C0': {
-    primary: '#1565C0',
-    onPrimary: '#FFFFFF',
-    primaryContainer: '#D7E3FF',
-    onPrimaryContainer: '#001B3E',
-    secondaryContainer: '#DCE3F2',
-    onSecondaryContainer: '#101C2B',
-  },
+  '#1565C0': DEFAULT_THEME_PRESET,
   '#6750A4': {
     primary: '#6750A4',
     onPrimary: '#FFFFFF',
@@ -74,7 +81,7 @@ export interface AppTokens extends ThemePreset {
 }
 
 export function buildTokens(presetKey: string): AppTokens {
-  const p = THEME_PRESETS[presetKey] || THEME_PRESETS[DEFAULT_PRESET_KEY];
+  const p = THEME_PRESETS[presetKey] || DEFAULT_THEME_PRESET;
   return {
     ...p,
     surface: '#FBFBFE',
@@ -155,6 +162,12 @@ export interface TypeMeta {
   on: string;
 }
 export function typeMeta(type: EventType | string): TypeMeta {
+  // The 'event' entry is also the fallback for an unrecognized `type`, so
+  // it's bound to its own real object literal (not looked up by indexing
+  // `m.event`/`m['event']`, which would be TypeMeta | undefined for the same
+  // reason as THEME_PRESETS above) and reused as both the map entry and the
+  // guaranteed-defined fallback.
+  const eventMeta: TypeMeta = { label: t('eventType.event'), icon: 'celebration', color: '#6A3EA1', bg: '#EADDFF', on: '#23005C' };
   const m: Record<string, TypeMeta> = {
     training: {
       label: t('eventType.training'),
@@ -164,9 +177,9 @@ export function typeMeta(type: EventType | string): TypeMeta {
       on: '#00315C',
     },
     auftritt: { label: t('eventType.auftritt'), icon: 'emoji_events', color: '#9A5B00', bg: '#FFDDB0', on: '#2E1500' },
-    event: { label: t('eventType.event'), icon: 'celebration', color: '#6A3EA1', bg: '#EADDFF', on: '#23005C' },
+    event: eventMeta,
   };
-  return m[type] || m.event;
+  return m[type] || eventMeta;
 }
 
 export interface StatusMeta {
@@ -176,14 +189,18 @@ export interface StatusMeta {
   bg: string;
 }
 export function statusMeta(s: AttendanceStatus | string): StatusMeta {
+  // Same reasoning as typeMeta()'s eventMeta: 'pending' is also the fallback
+  // for an unrecognized status, so it's bound to a real object literal
+  // rather than looked up by indexing.
+  const pendingMeta: StatusMeta = { label: t('attendance.pending'), icon: 'schedule', color: '#5A5D66', bg: '#E7E8EE' };
   const m: Record<string, StatusMeta> = {
     yes: { label: t('attendance.yes'), icon: 'check_circle', color: '#2E7D32', bg: '#D7F0D8' },
     maybe: { label: t('attendance.maybe'), icon: 'help', color: '#9A5B00', bg: '#FFE5B8' },
     no: { label: t('attendance.no'), icon: 'cancel', color: '#BA1A1A', bg: '#FFDAD6' },
-    pending: { label: t('attendance.pending'), icon: 'schedule', color: '#5A5D66', bg: '#E7E8EE' },
+    pending: pendingMeta,
     not_nominated: { label: t('attendance.not_nominated'), icon: 'block', color: '#9A9DA6', bg: '#F0F0F4' },
   };
-  return m[s] || m.pending;
+  return m[s] || pendingMeta;
 }
 
 // ---- Formatting helpers -----------------------------------------------------
@@ -246,9 +263,9 @@ export function fmtDateTime(isoStr: string) {
   }).format(new Date(isoStr));
 }
 export function monthName(ym: string) {
-  const p = String(ym || '').split('-');
-  if (p.length < 2) return ym || '';
-  return getDateTimeFormat(getIntlLocale(), { month: 'long', year: 'numeric' }).format(new Date(+p[0], +p[1] - 1, 1));
+  const [y, m] = String(ym || '').split('-');
+  if (y === undefined || m === undefined) return ym || '';
+  return getDateTimeFormat(getIntlLocale(), { month: 'long', year: 'numeric' }).format(new Date(+y, +m - 1, 1));
 }
 export function initials(name: string) {
   return (name || '')

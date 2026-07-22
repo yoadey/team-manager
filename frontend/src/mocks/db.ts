@@ -494,6 +494,7 @@ export function createSeedData(): DemoDb {
   const pen = (i: number) => db.penalties[i];
   const PA = (userId: string, penIdx: number, paid: boolean, daysAgo: number) => {
     const p = pen(penIdx);
+    if (!p) return;
     db.penaltyAssignments.push({
       id: rid('pa'),
       teamId: 't_a',

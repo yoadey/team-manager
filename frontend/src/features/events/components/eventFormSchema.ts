@@ -19,13 +19,18 @@ const minutes = (value: string) => {
   return h * 60 + m;
 };
 
+// Explicit `| undefined` on the optional fields (not just `field?:`) --
+// this mirrors the schema's own `.optional()` fields as zod/react-hook-form
+// produce them (a form value that's genuinely absent, not "omit this key"),
+// so passing the full form-values object (which always sets every key, some
+// to `undefined`) straight through from .superRefine() typechecks.
 interface EventFormRefineInput {
   date: string;
-  startT?: string;
-  endT?: string;
-  meetT?: string;
-  recurring?: boolean;
-  repeatWeeks?: number;
+  startT?: string | undefined;
+  endT?: string | undefined;
+  meetT?: string | undefined;
+  recurring?: boolean | undefined;
+  repeatWeeks?: number | undefined;
 }
 
 function validateDateField(data: EventFormRefineInput, ctx: z.RefinementCtx) {
