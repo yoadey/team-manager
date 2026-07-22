@@ -315,7 +315,7 @@ export const handlers = [
     if (DEMO_SSO_PROVIDER_IDS.includes(body.email)) {
       const u = requireUser(DEMO_LOGIN_USER_ID);
       session.userId = u.id;
-      const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+      const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
       return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
     }
     const u = db.users.find((x) => x.email.toLowerCase() === body.email?.toLowerCase());
@@ -332,7 +332,7 @@ export const handlers = [
       return problem(401, 'Invalid email or password');
     }
     session.userId = u.id;
-    const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
     return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
   }),
 
