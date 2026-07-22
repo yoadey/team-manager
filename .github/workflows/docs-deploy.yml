@@ -1,0 +1,71 @@
+name: Docs Deploy
+
+# Builds the end-user documentation site (website/, sourced from
+# docs/end-user/) and publishes it to GitHub Pages. Deliberately separate
+# from ci.yml and path-filtered: app PRs never trigger or wait on a docs
+# build, and this workflow never gates app PRs.
+#
+# One-time manual step required before this can succeed: a repo admin must
+# enable GitHub Pages (Settings -> Pages -> Source: GitHub Actions). Until
+# then the build job still runs and validates the site compiles; only the
+# deploy job fails.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/end-user/**'
+      - 'website/**'
+      - '.github/workflows/docs-deploy.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Only one Pages deployment may run at a time; never cancel one mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Docs · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+
+      - name: Build site
+        working-directory: website
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: website/build
+
+  deploy:
+    name: Docs · Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

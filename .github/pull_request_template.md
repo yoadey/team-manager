@@ -23,6 +23,7 @@
 - [ ] New/changed logic is covered by tests
 - [ ] UI changes are accessible (keyboard + screen reader) and respect dark mode
 - [ ] User-facing strings go through `t()` (de **and** en catalogs updated)
+- [ ] If this PR changes a route/feature/permission covered in `docs/end-user/`, the relevant chapter was updated
 - [ ] No secrets, tokens, or PII committed
 
 ## Screenshots / notes
