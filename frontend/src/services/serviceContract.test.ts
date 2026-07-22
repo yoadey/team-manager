@@ -18,14 +18,14 @@ beforeEach(async () => {
 function onlyVerificationToken(): string {
   const tokens = Object.keys(db.verificationTokens);
   expect(tokens).toHaveLength(1);
-  return tokens[0];
+  return tokens[0]!;
 }
 
 /** Returns the most recently issued verification token (insertion order). */
 function latestVerificationToken(): string {
   const tokens = Object.keys(db.verificationTokens);
   expect(tokens.length).toBeGreaterThan(0);
-  return tokens[tokens.length - 1];
+  return tokens[tokens.length - 1]!;
 }
 
 describe('self-service registration: enumeration safety and verification flow', () => {

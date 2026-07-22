@@ -268,7 +268,7 @@ describe('InviteSheet — without invite', () => {
     );
     const bolded = container.querySelectorAll('b');
     expect(bolded).toHaveLength(1);
-    expect(bolded[0].textContent).toBe('Neue');
+    expect(bolded[0]!.textContent).toBe('Neue');
   });
 });
 

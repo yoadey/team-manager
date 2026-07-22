@@ -582,7 +582,7 @@ export const realApi = {
       // lose their oldest ones.
       const comments = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/events/{eventId}/comments', {
-          params: { path: { teamId, eventId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId, eventId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -836,7 +836,7 @@ export const realApi = {
     async listTransactions(teamId: string): Promise<Transaction[]> {
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/finances/transactions', {
-          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });

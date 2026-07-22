@@ -236,7 +236,7 @@ describe('finances', () => {
     const listed = await api.finances.listTransactions('t_a');
     // The paginated list surfaces at least everything the (capped) overview does.
     expect(listed.length).toBeGreaterThanOrEqual(overview.transactions.length);
-    expect(listed.some((t) => t.id === overview.transactions[0].id)).toBe(true);
+    expect(listed.some((t) => t.id === overview.transactions[0]!.id)).toBe(true);
   });
 
   it('back-dates a transaction with a client-provided date', async () => {
