@@ -54,13 +54,17 @@ export default tsEslint.config(
     },
   },
   {
-    // Node.js scripts (bundle checker, etc.) use Node globals
+    // Node.js scripts (bundle checker, etc.) use Node globals; console
+    // output is the intended UX for these CLI scripts, not app logging.
     files: ['scripts/**/*.mjs', 'scripts/**/*.js'],
     languageOptions: {
       globals: {
         process: 'readonly',
         console: 'readonly',
       },
+    },
+    rules: {
+      'no-console': 'off',
     },
   },
   {
