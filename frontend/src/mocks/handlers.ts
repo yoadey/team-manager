@@ -353,7 +353,10 @@ export const handlers = [
       return HttpResponse.json(resp, { status: 202 });
     }
 
-    const id = rid('u');
+    // Unlike rid()'s other demo-entity ids, this one is passed straight into
+    // issueVerificationToken() below, so it needs the same CSPRNG guarantee
+    // as the verification token itself.
+    const id = crypto.randomUUID();
     const newUser: UserRow = {
       id,
       name: email.split('@')[0] || email,
