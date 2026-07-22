@@ -281,9 +281,6 @@ export function Login() {
             {t('auth.pwaInstallable')} <b>{t('auth.pwaIosLabel')}</b> {t('auth.pwaIosHint')}
           </Box>
         </Box>
-        <Box sx={{ textAlign: 'center', mt: '18px', fontSize: '11px', color: NEUTRAL.faint }}>
-          OIDC · Authorization Code Flow + PKCE
-        </Box>
       </Box>
     </Box>
   );

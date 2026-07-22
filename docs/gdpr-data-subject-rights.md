@@ -12,7 +12,11 @@ to erasure) for the Teamverwaltung backend. Both are now live end to end.
 
 **Decision made:** erasure is implemented by **anonymization, not hard delete**
 (see "Open decision" below — now resolved), confirmed by retyping the account
-email (no password, OIDC-compatible).
+email rather than re-entering a password, so the same flow works uniformly
+across every login method — including a future OIDC-only account with no
+password, should OIDC ever be implemented (it currently is not; today all
+accounts authenticate via email/password, either self-registered or
+invite-provisioned).
 
 ## Why this is needed
 
@@ -122,11 +126,13 @@ NULL` (add the predicate to `FindUserByEmail` / `FindUserByID`).
 
 ### Hardening / confirmation
 
-- **No password re-entry.** Accounts authenticate primarily via OIDC and may
-  have no password at all, so erasure is authorized by the active session and
-  confirmed by the user **retyping their account email**, which the server
-  verifies (`DeleteAccountRequest.confirmEmail`). This proves intent and guards
-  against an accidental or forged blind DELETE without excluding OIDC users.
+- **No password re-entry.** `password_hash` is nullable so the schema can
+  support a future OIDC-only account with no password (no OIDC integration
+  exists yet — see `CLAUDE.md`), so erasure is authorized by the active
+  session and confirmed by the user **retyping their account email**, which
+  the server verifies (`DeleteAccountRequest.confirmEmail`). This proves
+  intent and guards against an accidental or forged blind DELETE, uniformly
+  across password and (future) passwordless accounts.
 - Emits an `auth.account_erase` audit event (actor + outcome) — ties into the
   audit-log finding.
 
@@ -143,7 +149,8 @@ NULL` (add the predicate to `FindUserByEmail` / `FindUserByID`).
 
 Erasure (Art. 17) — **done**:
 - [x] Product decision: **anonymize**, not hard-delete; **email confirmation, no
-      password** (OIDC-compatible).
+      password** (forward-compatible with a future OIDC-only account, not
+      currently implemented).
 - [x] `DELETE /auth/me` + `DeleteAccountRequest` in `openapi/openapi.yaml`; regenerated.
 - [x] Migration `00003_user_erasure.sql` (`deleted_at`).
 - [x] `auth.Repository.EraseUser` (transactional anonymization) + `auth.Service.EraseAccount`

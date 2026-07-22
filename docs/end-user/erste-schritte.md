@@ -11,20 +11,23 @@ Umfragen durchführt.
 
 ## Einladung erhalten
 
-Neue Mitglieder treten einem Team nur über einen **Einladungslink** bei —
-eine Registrierung „von außen" gibt es nicht. Eine admin-berechtigte Person
-im Team erzeugt den Link über *Team → Einladungslink erstellen* (siehe
+Neue Mitglieder treten einem Team über einen **Einladungslink** bei. Eine
+admin-berechtigte Person im Team erzeugt den Link über *Team →
+Einladungslink erstellen* (siehe
 [Team-Einstellungen](./team-einstellungen.md)). Der Link ist **7 Tage**
 gültig und enthält zusätzlich einen Beitritts-Code.
 
-Öffnet den Link, meldet euch an (siehe unten) — die App tritt dem Team
+Öffnet den Link: Habt ihr noch kein Konto, registriert euch (siehe unten);
+habt ihr bereits eines, meldet ihr euch einfach an. Die App tritt dem Team
 danach automatisch für euch bei.
 
 ## Erster Login
 
-Angemeldet wird sich über einen **Identity-Provider** (SSO) — es gibt kein
-separates, beim Verein gespeichertes Passwort. Wählt beim Login-Bildschirm
-den passenden Anbieter aus.
+Angemeldet wird sich mit **E-Mail-Adresse und Passwort**. Habt ihr noch kein
+Konto, könnt ihr euch auf dem Login-Bildschirm über „Registrieren" selbst
+eines anlegen: E-Mail-Adresse und Passwort wählen, danach einen
+Bestätigungslink in eurem Postfach öffnen. Erst nach dieser Bestätigung ist
+das Konto einsatzbereit.
 
 ## „Noch kein Team"
 

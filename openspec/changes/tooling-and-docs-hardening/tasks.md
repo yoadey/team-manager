@@ -1,12 +1,25 @@
 ## 1. Enforce lint warnings
-- [ ] 1.1 `eslint . --max-warnings 0` — **deferred to a follow-up.** The current tree has 19 warnings: ~11 legitimate `no-console` in build scripts / MSW mocks (fixable via eslint overrides) and ~8 `complexity`/`max-params` in real components (`EventDetailSheet`, `EventCalendar`, `Shell`, …) that need genuine refactors or justified per-site disables. Enforcing 0 without triaging these would either break CI or bury unjustified disables; split out so it doesn't block the safe doc/config wins here (design.md pre-authorizes this).
+- [ ] 1.1 `eslint . --max-warnings 0` — the tree currently has 27 warnings:
+      `no-console`/an unused var in Node build scripts (legitimate there;
+      scope an eslint override rather than removing them), and
+      `complexity`/`max-params` in real components (`EventCalendar`,
+      `EventDetailSheet`, `EventFormSheet`, `eventFormSchema.ts`,
+      `AppShell.tsx`'s `Shell`, `mocks/db.ts`) that need genuine refactors.
+      No longer deferred — see `openspec/changes/alpha-initial-setup` for the
+      unrelated alpha-release cleanup this rides alongside.
 
 ## 2. Pre-commit backend
 - [x] 2.1 Extended `.husky/pre-commit` to `gofmt -l` staged `backend/**/*.go` (fails on unformatted) and run `golangci-lint run ./...` when the tool is installed — Go quality now enforced locally, not only in CI
 
 ## 3. TypeScript strictness
-- [ ] 3.1 `noUncheckedIndexedAccess` — **deferred to a follow-up.** A trial enable surfaces **136** type errors across the state/`Record`-access layer; too broad to fold in safely here without risking regressions. Tracked as its own change per design.md ("if too broad, split into its own follow-up rather than blocking the rest").
-- [ ] 3.2 `exactOptionalPropertyTypes` — deferred with 3.1 (same triage)
+- [ ] 3.1 `noUncheckedIndexedAccess` — enabling both this and 3.2 together
+      surfaces 251 errors across ~50 files (`src/mocks/handlers.ts`,
+      `src/services/serviceLayerReal.ts`, `src/api/map.ts`, etc.); fix with
+      guards/`?.`/narrowing, not blanket non-null assertions. No longer
+      deferred.
+- [ ] 3.2 `exactOptionalPropertyTypes` — enabled together with 3.1 (fixing
+      them separately would require re-deriving which errors belong to
+      which flag; both land in the same pass)
 
 ## 4. License
 - [x] 4.1 Filled `LICENSE` copyright (`Copyright 2026 yoadey`); added `"license": "Apache-2.0"` to `frontend/package.json`
