@@ -108,7 +108,7 @@ describe('members & roles', () => {
 
   it('updates a member profile', async () => {
     const members = await api.members.list('t_a');
-    const target = members[0];
+    const target = members[0]!;
     await api.members.update(target.membershipId, { phone: '+49 111 222333' }, 't_a');
     const reloaded = await api.members.list('t_a');
     expect(reloaded.find((m) => m.membershipId === target.membershipId)?.phone).toBe('+49 111 222333');
@@ -116,7 +116,7 @@ describe('members & roles', () => {
 
   it('removes a member from the team', async () => {
     const members = await api.members.list('t_a');
-    const target = members[0];
+    const target = members[0]!;
     await api.members.remove(target.membershipId, 't_a');
     const reloaded = await api.members.list('t_a');
     expect(reloaded.some((m) => m.membershipId === target.membershipId)).toBe(false);
@@ -128,7 +128,7 @@ describe('members & roles', () => {
 
   it('rejects removing an already-removed member', async () => {
     const members = await api.members.list('t_a');
-    const target = members[0];
+    const target = members[0]!;
     await api.members.remove(target.membershipId, 't_a');
     await expect(api.members.remove(target.membershipId, 't_a')).rejects.toThrow();
   });
@@ -172,7 +172,7 @@ describe('events & attendance', () => {
 
   it('round-trips an attendance response', async () => {
     const events = await api.events.list('t_a', 'all');
-    const event = events[0];
+    const event = events[0]!;
     await api.attendance.set(event.id, 'u4', { status: 'no', reason: 'Krank' }, 't_a');
     const rows = await api.attendance.listForEvent(event.id, 't_a');
     const row = rows.find((r) => r.userId === 'u4');
@@ -186,7 +186,7 @@ describe('events & attendance', () => {
 
   it('adds and lists event comments', async () => {
     const events = await api.events.list('t_a', 'all');
-    const event = events[0];
+    const event = events[0]!;
     await api.events.addComment(event.id, 'Bitte pünktlich sein', 't_a');
     const comments = await api.events.listComments(event.id, 't_a');
     expect(comments.some((c) => c.text === 'Bitte pünktlich sein')).toBe(true);
@@ -211,7 +211,7 @@ describe('news', () => {
   it('creates and lists news, pinned first', async () => {
     await api.news.create('t_a', { title: 'Wichtig', body: 'x', pinned: true });
     const list = await api.news.list('t_a');
-    expect(list[0].pinned).toBe(true);
+    expect(list[0]!.pinned).toBe(true);
   });
 });
 
@@ -253,7 +253,7 @@ describe('finances', () => {
 
   it('sets a penalty assignment paid state (idempotent)', async () => {
     const overview = await api.finances.overview('t_a');
-    const assignment = overview.assignments[0];
+    const assignment = overview.assignments[0]!;
     const target = !assignment.paid;
     await api.finances.setPenaltyPaid(assignment.id, 't_a', target);
     let reloaded = await api.finances.overview('t_a');
@@ -266,7 +266,7 @@ describe('finances', () => {
 
   it('deletes a transaction', async () => {
     const overview = await api.finances.overview('t_a');
-    const tx = overview.transactions[0];
+    const tx = overview.transactions[0]!;
     await api.finances.deleteTransaction(tx.id, 't_a');
     const reloaded = await api.finances.overview('t_a');
     expect(reloaded.transactions.some((t) => t.id === tx.id)).toBe(false);
@@ -279,14 +279,14 @@ describe('polls', () => {
   it('lists polls with computed vote tallies', async () => {
     const polls = await api.polls.list('t_a');
     expect(polls.length).toBeGreaterThan(0);
-    expect(polls[0].options.every((o) => typeof o.pct === 'number')).toBe(true);
+    expect(polls[0]!.options.every((o) => typeof o.pct === 'number')).toBe(true);
   });
 
   it('records the current user vote and updates the tally', async () => {
     const polls = await api.polls.list('t_a');
     const poll = polls.find((p) => p.multiple)!;
     const before = poll.totalVotes;
-    await api.polls.vote(poll.id, [poll.options[0].id], 't_a');
+    await api.polls.vote(poll.id, [poll.options[0]!.id], 't_a');
     const reloaded = (await api.polls.list('t_a')).find((p) => p.id === poll.id);
     expect(reloaded?.totalVotes).toBe(before + 1);
   });
@@ -319,7 +319,7 @@ describe('poll voting validation', () => {
   it('maps a single-choice poll rejecting multiple options to ValidationError (422)', async () => {
     const polls = await api.polls.list('t_a');
     const single = polls.find((p) => !p.multiple)!;
-    await expect(api.polls.vote(single.id, [single.options[0].id, single.options[1].id], 't_a')).rejects.toThrow(
+    await expect(api.polls.vote(single.id, [single.options[0]!.id, single.options[1]!.id], 't_a')).rejects.toThrow(
       ValidationError,
     );
   });

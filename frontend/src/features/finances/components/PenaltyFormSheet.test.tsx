@@ -58,7 +58,7 @@ describe('PenaltyFormSheet', () => {
     const { app, formInitial } = makeApp({ label: 'Test', amount: '' });
     render(<PenaltyFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
     const inputs = screen.getAllByRole('spinbutton');
-    fireEvent.blur(inputs[0]);
+    fireEvent.blur(inputs[0]!);
     await waitFor(() => {
       expect(screen.getByText('Betrag fehlt.')).toBeTruthy();
     });
@@ -68,7 +68,7 @@ describe('PenaltyFormSheet', () => {
     const { app, formInitial } = makeApp({ label: 'Test', amount: '0' });
     render(<PenaltyFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
     const inputs = screen.getAllByRole('spinbutton');
-    fireEvent.blur(inputs[0]);
+    fireEvent.blur(inputs[0]!);
     await waitFor(() => {
       expect(screen.getByText('Betrag muss größer als 0 € sein.')).toBeTruthy();
     });
@@ -78,7 +78,7 @@ describe('PenaltyFormSheet', () => {
     const { app, formInitial } = makeApp({ label: 'Test', amount: '5' });
     render(<PenaltyFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
     const inputs = screen.getAllByRole('spinbutton');
-    fireEvent.blur(inputs[0]);
+    fireEvent.blur(inputs[0]!);
     await waitFor(() => {
       expect(screen.queryByText('Betrag muss größer als 0 € sein.')).toBeNull();
     });

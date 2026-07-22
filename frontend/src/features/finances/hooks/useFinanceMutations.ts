@@ -11,7 +11,10 @@ function useInvalidateFinances(teamId: string | null) {
 
 export interface SaveTxInput {
   mode: 'create' | 'edit';
-  id?: string;
+  // Explicit `| undefined` -- `mode` (not the presence of `id`) drives the
+  // create/update branch, so the caller passes `undefined` in create mode
+  // rather than omitting the key.
+  id?: string | undefined;
   payload: { type: 'income' | 'expense'; title: string; amount: number; category: string };
 }
 
@@ -40,7 +43,8 @@ export function useDeleteTxMutation(api: typeof defaultApi) {
 
 export interface SavePenaltyInput {
   mode: 'create' | 'edit';
-  id?: string;
+  // Same reasoning as SaveTxInput.id above.
+  id?: string | undefined;
   payload: { label: string; amount: number };
 }
 

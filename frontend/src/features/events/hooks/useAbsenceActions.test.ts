@@ -197,7 +197,7 @@ describe('useAbsenceActions', () => {
     act(() => {
       result.current.removeAbsence('a1');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
 
     stateRef = { ...stateRef, activeTeamId: 'team2' };
     rerender();

@@ -33,22 +33,23 @@ function plusDays(n: number) {
   return formatDateOnly(d);
 }
 
-export function perms(
-  events: PermLevel,
-  members: PermLevel,
-  finances: PermLevel,
-  news: PermLevel,
-  polls: PermLevel,
-  settings: PermLevel,
-): Permissions {
-  return { events, members, finances, news, polls, settings };
+export function perms(overrides: Partial<Permissions> = {}): Permissions {
+  return {
+    events: 'none',
+    members: 'none',
+    finances: 'none',
+    news: 'none',
+    polls: 'none',
+    settings: 'none',
+    ...overrides,
+  };
 }
 
 export const MODULES: ModuleKey[] = ['events', 'members', 'finances', 'news', 'polls', 'settings'];
 const LEVEL: Record<PermLevel, number> = { none: 0, read: 1, write: 2 };
 
 export function mergePerms(roles: RoleDto[]): Permissions {
-  const out = perms('none', 'none', 'none', 'none', 'none', 'none');
+  const out = perms();
   roles.forEach((r) =>
     MODULES.forEach((m) => {
       if (LEVEL[r.permissions[m]] > LEVEL[out[m]]) out[m] = r.permissions[m];
@@ -76,7 +77,14 @@ function defaultRoles(teamId: string): RoleDto[] {
       name: 'Admin / Trainer',
       system: true,
       color: '#1565C0',
-      permissions: perms('write', 'write', 'write', 'write', 'write', 'write'),
+      permissions: perms({
+        events: 'write',
+        members: 'write',
+        finances: 'write',
+        news: 'write',
+        polls: 'write',
+        settings: 'write',
+      }),
     },
     {
       id: rid('role'),
@@ -84,7 +92,7 @@ function defaultRoles(teamId: string): RoleDto[] {
       name: DEFAULT_MEMBER_ROLE_NAME,
       system: true,
       color: '#5B6470',
-      permissions: perms('read', 'read', 'read', 'read', 'read', 'none'),
+      permissions: perms({ events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read' }),
     },
     {
       id: rid('role'),
@@ -92,7 +100,7 @@ function defaultRoles(teamId: string): RoleDto[] {
       name: 'Kassenwart',
       system: true,
       color: '#2E7D32',
-      permissions: perms('read', 'read', 'write', 'read', 'read', 'none'),
+      permissions: perms({ events: 'read', members: 'read', finances: 'write', news: 'read', polls: 'read' }),
     },
     {
       id: rid('role'),
@@ -100,7 +108,7 @@ function defaultRoles(teamId: string): RoleDto[] {
       name: 'Teamkapitän',
       system: true,
       color: '#E8910C',
-      permissions: perms('write', 'read', 'read', 'write', 'write', 'none'),
+      permissions: perms({ events: 'write', members: 'read', finances: 'read', news: 'write', polls: 'write' }),
     },
     {
       id: rid('role'),
@@ -108,7 +116,7 @@ function defaultRoles(teamId: string): RoleDto[] {
       name: 'Betreuer',
       system: true,
       color: '#7A4FB6',
-      permissions: perms('read', 'read', 'none', 'read', 'read', 'none'),
+      permissions: perms({ events: 'read', members: 'read', news: 'read', polls: 'read' }),
     },
   ];
 }
@@ -381,18 +389,16 @@ export function createSeedData(): DemoDb {
     eventId: string,
     userId: string,
     status: AttendanceDto['status'],
-    reason?: string,
-    reasonId?: string | null,
-    vis?: AttendanceDto['reasonVisibility'],
+    opts: { reason?: string; reasonId?: string | null; vis?: AttendanceDto['reasonVisibility'] } = {},
   ) =>
     att.push({
       id: rid('att'),
       eventId,
       userId,
       status,
-      reason: reason || '',
-      reasonId: reasonId || null,
-      reasonVisibility: vis || null,
+      reason: opts.reason || '',
+      reasonId: opts.reasonId || null,
+      reasonVisibility: opts.vis || null,
       at: iso(new Date()),
     });
   const aMembers = db.memberships.filter((m) => m.teamId === 't_a').map((m) => m.userId);
@@ -407,7 +413,7 @@ export function createSeedData(): DemoDb {
     const e = upcomingTraining.id;
     A(e, 'u1', 'yes');
     A(e, 'u4', 'yes');
-    A(e, 'u5', 'no', 'Grippe, kuriere mich aus', 'cr1', 'trainers');
+    A(e, 'u5', 'no', { reason: 'Grippe, kuriere mich aus', reasonId: 'cr1', vis: 'trainers' });
     A(e, 'u7', 'maybe');
     A(e, 'u8', 'yes');
     A(e, 'u9', 'maybe');
@@ -418,7 +424,7 @@ export function createSeedData(): DemoDb {
   if (turnier) {
     aMembers.forEach((uid, i) => {
       if (uid === 'u11') return A(turnier.id, uid, 'not_nominated');
-      if (i === 5) return A(turnier.id, uid, 'no', 'Familiäre Verpflichtung', 'cr2', 'team');
+      if (i === 5) return A(turnier.id, uid, 'no', { reason: 'Familiäre Verpflichtung', reasonId: 'cr2', vis: 'team' });
       if (i === 8) return A(turnier.id, uid, 'maybe');
       A(turnier.id, uid, 'yes');
     });
@@ -426,14 +432,11 @@ export function createSeedData(): DemoDb {
   const pT = ev.find((e) => e.title.startsWith('DM-Qualifikation'));
   if (pT)
     aMembers.forEach((uid) =>
-      A(
-        pT.id,
-        uid,
-        uid === 'u9' ? 'no' : uid === 'u11' ? 'not_nominated' : 'yes',
-        uid === 'u9' ? 'Krankheit' : '',
-        uid === 'u9' ? 'cr1' : null,
-        uid === 'u9' ? 'trainers' : null,
-      ),
+      A(pT.id, uid, uid === 'u9' ? 'no' : uid === 'u11' ? 'not_nominated' : 'yes', {
+        reason: uid === 'u9' ? 'Krankheit' : '',
+        reasonId: uid === 'u9' ? 'cr1' : null,
+        vis: uid === 'u9' ? 'trainers' : null,
+      }),
     );
   db.attendance = att;
 
@@ -511,6 +514,7 @@ export function createSeedData(): DemoDb {
   const pen = (i: number) => db.penalties[i];
   const PA = (userId: string, penIdx: number, paid: boolean, daysAgo: number) => {
     const p = pen(penIdx);
+    if (!p) return;
     db.penaltyAssignments.push({
       id: rid('pa'),
       teamId: 't_a',

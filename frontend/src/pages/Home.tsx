@@ -86,7 +86,7 @@ export function Home() {
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ fontSize: '19px', fontWeight: 700, lineHeight: 1.2 }}>{team.name}</Box>
           <Box sx={{ fontSize: '13px', opacity: 0.85, mt: '4px' }}>
-            {tr('home.greeting', { name: state.user!.name.split(' ')[0] })}{' '}
+            {tr('home.greeting', { name: state.user!.name.split(' ')[0] ?? '' })}{' '}
             {myPending ? tr('home.pendingPrompt', { n: myPending, count: myPending }) : tr('home.allAnswered')}
           </Box>
         </Box>

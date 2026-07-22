@@ -66,7 +66,7 @@ describe('parseLocation', () => {
     for (const s of cases) {
       const path = buildPath(s);
       const [pathname, search] = path.split('?');
-      const parsed = parseLocation(pathname, search ? '?' + search : '');
+      const parsed = parseLocation(pathname ?? '', search ? '?' + search : '');
       expect(parsed.route).toBe(s.route);
       expect(parsed.eventScope).toBe(s.eventScope);
       expect(parsed.eventsView).toBe(s.eventsView);

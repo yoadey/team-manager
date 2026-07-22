@@ -75,12 +75,17 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
 
 export function SeriesActionSheet({ app, sheet }: SheetProps) {
   const act = sheet.action!;
+  // 'cancel' is also the fallback for an unrecognized action, so it's bound
+  // to its own real object literal rather than looked up by indexing (which
+  // would be possibly-undefined under noUncheckedIndexedAccess even for a
+  // key -- 'cancel' -- that the map literal below always defines).
+  const cancelCfg = { d: t('events.seriesCancelDesc'), ic: 'event_busy', col: NEUTRAL.warn };
   const cfg: Record<string, { d: string; ic: string; col: string }> = {
-    cancel: { d: t('events.seriesCancelDesc'), ic: 'event_busy', col: NEUTRAL.warn },
+    cancel: cancelCfg,
     delete: { d: t('events.seriesDeleteDesc'), ic: 'delete', col: NEUTRAL.error },
     reactivate: { d: t('events.seriesReactivateDesc'), ic: 'event_available', col: NEUTRAL.success },
   };
-  const L = cfg[act] || cfg.cancel;
+  const L = cfg[act] || cancelCfg;
 
   const opt = (scope: 'single' | 'series', title: string, sub: string, icon: string) => (
     <ButtonBase

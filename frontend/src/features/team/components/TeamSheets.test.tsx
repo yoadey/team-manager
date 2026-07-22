@@ -181,7 +181,7 @@ describe('CreateTeamSheet', () => {
     render(<CreateTeamSheet app={app} sheet={sheet} />);
     const fileInput = document.querySelector('input[type="file"]')!;
     fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
-    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0]![1] as (d: string) => void;
     act(() => onFileCb('data:image/png;base64,abc'));
     // t('team.photoSelected') → 'Teamfoto ausgewählt'
     expect(document.body.textContent).toContain('Teamfoto ausgewählt');
@@ -438,7 +438,7 @@ describe('TeamSettingsSheet', () => {
   it('calls setTeamIcon when an icon button is clicked', () => {
     const app = makeSettingsApp();
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
-    fireEvent.click(screen.getAllByText('⭐')[0]);
+    fireEvent.click(screen.getAllByText('⭐')[0]!);
     expect(app.setTeamIcon).toHaveBeenCalledWith('⭐');
   });
 
@@ -555,10 +555,10 @@ describe('TeamSettingsSheet', () => {
     const app = makeApp({ activeTeamId: 'team1' });
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     const [logoInput] = document.querySelectorAll('input[type="file"]');
-    fireEvent.change(logoInput, { target: { files: [new File(['x'], 'logo.png', { type: 'image/png' })] } });
+    fireEvent.change(logoInput!, { target: { files: [new File(['x'], 'logo.png', { type: 'image/png' })] } });
 
     expect(app.onFile).toHaveBeenCalledTimes(1);
-    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0]![1] as (d: string) => void;
 
     // Simulate the user switching teams while the FileReader read is still
     // in flight -- app.state is mutated in place, same object useApp() keeps

@@ -190,7 +190,7 @@ describe('usePollActions', () => {
     act(() => {
       result.current.removePoll('poll1');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
     await act(async () => {
       await cfg.onConfirm();
     });
@@ -208,7 +208,7 @@ describe('usePollActions', () => {
     act(() => {
       result.current.removePoll('poll1');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
 
     stateRef = { ...stateRef, activeTeamId: 'team2' };
     rerender();

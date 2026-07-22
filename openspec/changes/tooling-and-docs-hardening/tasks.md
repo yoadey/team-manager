@@ -1,25 +1,12 @@
 ## 1. Enforce lint warnings
-- [ ] 1.1 `eslint . --max-warnings 0` — the tree currently has 27 warnings:
-      `no-console`/an unused var in Node build scripts (legitimate there;
-      scope an eslint override rather than removing them), and
-      `complexity`/`max-params` in real components (`EventCalendar`,
-      `EventDetailSheet`, `EventFormSheet`, `eventFormSchema.ts`,
-      `AppShell.tsx`'s `Shell`, `mocks/db.ts`) that need genuine refactors.
-      No longer deferred — see `openspec/changes/alpha-initial-setup` for the
-      unrelated alpha-release cleanup this rides alongside.
+- [x] 1.1 `eslint . --max-warnings 0` — implemented. Of the tree's 19 warnings: the ~10 `no-console` warnings in `scripts/**/*.mjs` got a targeted `rules: { 'no-console': 'off' }` override (legitimate CLI output, not app logging) plus one now-unused `eslint-disable` comment removed; the unused `statSync` import in `check-bundle-size.mjs` was dropped. The remaining 8 `complexity`/`max-params` violations (`EventCalendar`, `EventDetailSheet`, `EventFormSheet`, `eventFormSchema.ts`, `AppShell`'s `Shell`, `mocks/db.ts`'s `perms`/attendance-seeding helper) were fixed with genuine refactors -- extracted sub-components/helper functions and options-object parameters -- not threshold changes or blanket disables. `frontend/package.json`'s `"lint"` script now runs `eslint . --max-warnings 0`.
 
 ## 2. Pre-commit backend
 - [x] 2.1 Extended `.husky/pre-commit` to `gofmt -l` staged `backend/**/*.go` (fails on unformatted) and run `golangci-lint run ./...` when the tool is installed — Go quality now enforced locally, not only in CI
 
 ## 3. TypeScript strictness
-- [ ] 3.1 `noUncheckedIndexedAccess` — enabling both this and 3.2 together
-      surfaces 251 errors across ~50 files (`src/mocks/handlers.ts`,
-      `src/services/serviceLayerReal.ts`, `src/api/map.ts`, etc.); fix with
-      guards/`?.`/narrowing, not blanket non-null assertions. No longer
-      deferred.
-- [ ] 3.2 `exactOptionalPropertyTypes` — enabled together with 3.1 (fixing
-      them separately would require re-deriving which errors belong to
-      which flag; both land in the same pass)
+- [x] 3.1 `noUncheckedIndexedAccess` — implemented, added to `frontend/tsconfig.app.json`. Fixed alongside 3.2 below (enabling both together surfaced 251 errors across ~50 files); array/`Record` accesses now `T | undefined` were fixed with narrowing guards, `??` defaults, or by restructuring the lookup so a fallback is bound to a real object/tuple literal instead of re-indexed (`THEME_PRESETS`/`typeMeta`/`statusMeta`/`pageMeta`'s per-route defs, `mocks/db.ts`'s seeded roles). A handful of `!` non-null assertions were kept, each immediately after a `.length`/emptiness check on the same array (mocks/tests only).
+- [x] 3.2 `exactOptionalPropertyTypes` — implemented alongside 3.1 (evaluated together since the fix cost turned out bounded, not deferred separately). Object literals assigning `undefined` to an optional property were fixed either by omitting the key when absent (a small `opt(key, value)` helper spreads `{ [key]: value }` only when defined, added to `mocks/handlers.ts`/`api/map.ts`/`services/serviceLayerReal.ts`) or, where the call site's existing intent was a genuinely meaningful `undefined` (not "omit this key") -- e.g. `SaveTxInput.id`/`SaveMemberInput.photo` picking create-vs-edit, `SheetState.eventId`/`member`, `Field.errorText`, `Av`'s `name`/`photo`/`color`, `AppNotification.eventDate` -- by widening the type to `field?: T | undefined` instead.
 
 ## 4. License
 - [x] 4.1 Filled `LICENSE` copyright (`Copyright 2026 yoadey`); added `"license": "Apache-2.0"` to `frontend/package.json`

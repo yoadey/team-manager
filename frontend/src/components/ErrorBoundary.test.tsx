@@ -25,7 +25,7 @@ describe('ErrorBoundary', () => {
     );
     expect(screen.getByText('Etwas ist schiefgelaufen')).toBeInTheDocument();
     expect(onError).toHaveBeenCalledOnce();
-    expect(onError.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(onError.mock.calls[0]![0]).toBeInstanceOf(Error);
   });
 
   it('supports a custom renderFallback that receives the error', () => {

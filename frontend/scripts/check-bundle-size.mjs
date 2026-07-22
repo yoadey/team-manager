@@ -6,7 +6,7 @@
  *   - Total JS             : 600 KB
  */
 
-import { readdirSync, statSync, readFileSync } from 'fs';
+import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { gzipSync } from 'zlib';
 

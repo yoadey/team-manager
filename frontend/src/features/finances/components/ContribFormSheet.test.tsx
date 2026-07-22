@@ -53,7 +53,7 @@ describe('ContribFormSheet', () => {
     const { app, formInitial } = makeApp({ label: 'Test', amount: '' });
     render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
     const amountInputs = screen.getAllByRole('spinbutton');
-    fireEvent.blur(amountInputs[0]);
+    fireEvent.blur(amountInputs[0]!);
     await waitFor(() => {
       expect(screen.getByText('Betrag fehlt.')).toBeTruthy();
     });
@@ -63,7 +63,7 @@ describe('ContribFormSheet', () => {
     const { app, formInitial } = makeApp({ label: 'Test', amount: '-5' });
     render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
     const amountInputs = screen.getAllByRole('spinbutton');
-    fireEvent.blur(amountInputs[0]);
+    fireEvent.blur(amountInputs[0]!);
     await waitFor(() => {
       expect(screen.getByText('Betrag muss größer als 0 € sein.')).toBeTruthy();
     });
@@ -73,7 +73,7 @@ describe('ContribFormSheet', () => {
     const { app, formInitial } = makeApp({ label: 'Test', amount: '120' });
     render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
     const amountInputs = screen.getAllByRole('spinbutton');
-    fireEvent.blur(amountInputs[0]);
+    fireEvent.blur(amountInputs[0]!);
     await waitFor(() => {
       expect(screen.queryByText('Betrag muss größer als 0 € sein.')).toBeNull();
     });

@@ -30,6 +30,18 @@ import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date
 
 type S = components['schemas'];
 
+// Spreads `{ [key]: value }` only when `value` isn't undefined -- lets the
+// toWireXxx() DTO builders below omit an optional wire field entirely
+// instead of sending `{ key: undefined }`, which `exactOptionalPropertyTypes`
+// rejects for fields the OpenAPI spec types as `key?: T` (no explicit
+// `| undefined`). Omitting vs. including-as-undefined is wire-identical
+// (HttpResponse.json / JSON.stringify drop undefined-valued keys either
+// way) -- this only satisfies the type checker's stricter object-literal
+// shape.
+function opt<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
+}
+
 // A small artificial per-request delay, applied to every handler below.
 // Without it, two chained requests issued a tick apart (e.g. AppContext's
 // session-restore effect awaiting `teams.listForCurrentUser()` then, once
@@ -67,7 +79,16 @@ function requireUser(id: string): UserRow {
 }
 
 function toWireUser(u: UserRow): S['User'] {
-  return { id: u.id, name: u.name, email: u.email, phone: u.phone || undefined, avatarColor: u.avatarColor, birthday: u.birthday || undefined, address: u.address || undefined, hasPhoto: u.hasPhoto };
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    avatarColor: u.avatarColor,
+    hasPhoto: u.hasPhoto,
+    ...opt('phone', u.phone || undefined),
+    ...opt('birthday', u.birthday || undefined),
+    ...opt('address', u.address || undefined),
+  };
 }
 
 // ---- self-registration (mock equivalent of auth.Service.Register etc.) ----
@@ -102,7 +123,7 @@ function toWireTeam(t: TeamRow): S['Team'] {
     description: t.description,
     hasPhoto: t.hasPhoto,
     hasLogo: t.hasLogo,
-    reasonVisibilityRoleIds: t.reasonVisibilityRoles,
+    ...opt('reasonVisibilityRoleIds', t.reasonVisibilityRoles),
   };
 }
 
@@ -127,16 +148,16 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
     userId: u.id,
     name: u.name,
     email: u.email,
-    phone: u.phone || undefined,
-    birthday: u.birthday || undefined,
-    address: u.address || undefined,
     avatarColor: u.avatarColor,
     hasPhoto: u.hasPhoto,
-    group: m.group || undefined,
     roles: roles.map(toWireRole),
-    primaryRole: pr ? toWireRole(pr) : undefined,
     perms: mergePerms(roles),
     joinedAt: m.joinedAt,
+    ...opt('phone', u.phone || undefined),
+    ...opt('birthday', u.birthday || undefined),
+    ...opt('address', u.address || undefined),
+    ...opt('group', m.group || undefined),
+    ...opt('primaryRole', pr ? toWireRole(pr) : undefined),
   };
 }
 
@@ -159,25 +180,25 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
   return {
     id: e.id,
     teamId: e.teamId,
-    seriesId: e.seriesId ?? undefined,
     type: e.type,
     title: e.title,
     date: e.date,
-    location: e.location || undefined,
-    note: e.note || undefined,
-    result: e.result,
-    meetTime: e.meetTime ?? undefined,
-    startTime: e.startTime ?? undefined,
-    endTime: e.endTime ?? undefined,
     meetTimeMandatory: e.meetTimeMandatory,
     responseMode: e.responseMode,
-    nominatedRoleIds: e.nominatedRoleIds,
     recurring: e.recurring,
     status: e.status,
     summary: eventSummary(e, e.teamId),
     myStatus: mine.status,
     myAuto: mine.auto,
     myReason: mine.reason,
+    ...opt('nominatedRoleIds', e.nominatedRoleIds),
+    ...opt('result', e.result),
+    ...opt('seriesId', e.seriesId ?? undefined),
+    ...opt('location', e.location || undefined),
+    ...opt('note', e.note || undefined),
+    ...opt('meetTime', e.meetTime ?? undefined),
+    ...opt('startTime', e.startTime ?? undefined),
+    ...opt('endTime', e.endTime ?? undefined),
   };
 }
 
@@ -191,32 +212,64 @@ function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S
     name: u.name,
     avatarColor: u.avatarColor,
     hasPhoto: u.hasPhoto,
-    group: m.group || undefined,
-    primaryRole: pr ? toWireRole(pr) : undefined,
     status: es.status,
-    reason: es.reason || undefined,
-    reasonId: es.reasonId ?? undefined,
-    reasonVisibility: es.reasonVisibility ?? undefined,
     auto: es.auto,
     absent: es.absent,
+    ...opt('group', m.group || undefined),
+    ...opt('primaryRole', pr ? toWireRole(pr) : undefined),
+    ...opt('reason', es.reason || undefined),
+    ...opt('reasonId', es.reasonId ?? undefined),
+    ...opt('reasonVisibility', es.reasonVisibility ?? undefined),
   };
 }
 
 function toWireComment(c: (typeof db.eventComments)[number]): S['EventComment'] {
   const u = db.users.find((x) => x.id === c.userId);
-  return { id: c.id, eventId: c.eventId, userId: c.userId, text: c.text, createdAt: c.createdAt, authorName: u?.name, authorColor: u?.avatarColor, hasAuthorPhoto: u?.hasPhoto };
+  return {
+    id: c.id,
+    eventId: c.eventId,
+    userId: c.userId,
+    text: c.text,
+    createdAt: c.createdAt,
+    ...opt('authorName', u?.name),
+    ...opt('authorColor', u?.avatarColor),
+    ...opt('hasAuthorPhoto', u?.hasPhoto),
+  };
 }
 
 function toWireAbsence(a: (typeof db.absences)[number], teamId: string): S['Absence'] {
   const u = db.users.find((x) => x.id === a.userId);
   const m = db.memberships.find((x) => x.teamId === teamId && x.userId === a.userId);
   const pr = m ? primaryRole(rolesOf(m)) : null;
-  return { id: a.id, userId: a.userId, from: a.from, to: a.to, reason: a.reason || undefined, createdAt: a.createdAt, memberName: u?.name, memberAvatarColor: u?.avatarColor, hasPhoto: u?.hasPhoto, roleColor: pr?.color, roleName: pr?.name };
+  return {
+    id: a.id,
+    userId: a.userId,
+    from: a.from,
+    to: a.to,
+    createdAt: a.createdAt,
+    ...opt('reason', a.reason || undefined),
+    ...opt('memberName', u?.name),
+    ...opt('memberAvatarColor', u?.avatarColor),
+    ...opt('hasPhoto', u?.hasPhoto),
+    ...opt('roleColor', pr?.color),
+    ...opt('roleName', pr?.name),
+  };
 }
 
 function toWireNews(n: (typeof db.news)[number]): S['NewsItem'] {
   const u = db.users.find((x) => x.id === n.authorId);
-  return { id: n.id, teamId: n.teamId, authorId: n.authorId, title: n.title, body: n.body, pinned: n.pinned, createdAt: n.createdAt, authorName: u?.name, authorColor: u?.avatarColor, hasAuthorPhoto: u?.hasPhoto };
+  return {
+    id: n.id,
+    teamId: n.teamId,
+    authorId: n.authorId,
+    title: n.title,
+    body: n.body,
+    pinned: n.pinned,
+    createdAt: n.createdAt,
+    ...opt('authorName', u?.name),
+    ...opt('authorColor', u?.avatarColor),
+    ...opt('hasAuthorPhoto', u?.hasPhoto),
+  };
 }
 
 function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
@@ -232,19 +285,24 @@ function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
     anonymous: p.anonymous,
     createdAt: p.createdAt,
     totalVotes: total,
-    myVote: mine ? [...mine.optionIds] : undefined,
-    options: p.options.map((o) => ({
-      id: o.id,
-      text: o.text,
-      count: counts[o.id],
-      pct: total ? Math.round((counts[o.id] / total) * 100) : 0,
-      voters: p.anonymous
-        ? []
-        : p.votes.filter((v) => v.optionIds.includes(o.id)).map((v) => {
-            const u = db.users.find((x) => x.id === v.userId);
-            return { name: u?.name, color: u?.avatarColor, hasPhoto: u?.hasPhoto };
-          }),
-    })),
+    ...opt('myVote', mine ? [...mine.optionIds] : undefined),
+    options: p.options.map((o) => {
+      const count = counts[o.id] ?? 0;
+      return {
+        id: o.id,
+        text: o.text,
+        count,
+        pct: total ? Math.round((count / total) * 100) : 0,
+        voters: p.anonymous
+          ? []
+          : p.votes
+              .filter((v) => v.optionIds.includes(o.id))
+              .map((v) => {
+                const u = db.users.find((x) => x.id === v.userId);
+                return { ...opt('name', u?.name), ...opt('color', u?.avatarColor), ...opt('hasPhoto', u?.hasPhoto) };
+              }),
+      };
+    }),
   };
 }
 
@@ -254,34 +312,57 @@ function toWireNotification(n: (typeof db.notifications)[number], seen: string |
     id: n.id,
     teamId: n.teamId,
     type: n.type,
-    actorId: n.actorId,
-    status: n.status,
-    title: n.title,
-    eventId: n.eventId ?? undefined,
-    eventTitle: n.eventTitle,
-    eventDate: n.eventDate,
-    note: n.note,
     createdAt: n.createdAt,
-    actorName: u?.name,
-    actorColor: u?.avatarColor,
-    hasActorPhoto: u?.hasPhoto,
     unread: seen ? n.createdAt > seen : true,
+    ...opt('actorId', n.actorId),
+    ...opt('status', n.status),
+    ...opt('title', n.title),
+    ...opt('eventId', n.eventId ?? undefined),
+    ...opt('eventTitle', n.eventTitle),
+    ...opt('eventDate', n.eventDate),
+    ...opt('note', n.note),
+    ...opt('actorName', u?.name),
+    ...opt('actorColor', u?.avatarColor),
+    ...opt('hasActorPhoto', u?.hasPhoto),
   };
 }
 
 function toWireTransaction(t: (typeof db.transactions)[number]): S['Transaction'] {
-  return { id: t.id, teamId: t.teamId, type: t.type, title: t.title, amount: t.amount, date: t.date, category: t.category || undefined };
+  return { id: t.id, teamId: t.teamId, type: t.type, title: t.title, amount: t.amount, date: t.date, ...opt('category', t.category || undefined) };
 }
 function toWirePenalty(p: (typeof db.penalties)[number]): S['Penalty'] {
   return { id: p.id, teamId: p.teamId, label: p.label, amount: p.amount };
 }
 function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['PenaltyAssignment'] {
   const u = db.users.find((x) => x.id === a.userId);
-  return { id: a.id, teamId: a.teamId, userId: a.userId, penaltyId: a.penaltyId, paid: a.paid, date: a.date, memberName: u?.name, memberAvatarColor: u?.avatarColor, hasPhoto: u?.hasPhoto, label: a.label, amount: a.amount };
+  return {
+    id: a.id,
+    teamId: a.teamId,
+    userId: a.userId,
+    penaltyId: a.penaltyId,
+    paid: a.paid,
+    date: a.date,
+    ...opt('memberName', u?.name),
+    ...opt('memberAvatarColor', u?.avatarColor),
+    ...opt('hasPhoto', u?.hasPhoto),
+    ...opt('label', a.label),
+    ...opt('amount', a.amount),
+  };
 }
 function toWireContribution(c: (typeof db.contributions)[number]): S['Contribution'] {
   const u = db.users.find((x) => x.id === c.userId);
-  return { id: c.id, teamId: c.teamId, userId: c.userId, month: c.month, label: c.label || undefined, amount: c.amount, status: c.status, memberName: u?.name, memberAvatarColor: u?.avatarColor, hasPhoto: u?.hasPhoto };
+  return {
+    id: c.id,
+    teamId: c.teamId,
+    userId: c.userId,
+    month: c.month,
+    amount: c.amount,
+    status: c.status,
+    ...opt('label', c.label || undefined),
+    ...opt('memberName', u?.name),
+    ...opt('memberAvatarColor', u?.avatarColor),
+    ...opt('hasPhoto', u?.hasPhoto),
+  };
 }
 
 function eventDate(id: string): EventDto | undefined {
@@ -479,13 +560,17 @@ export const handlers = [
       description: '',
     };
     db.teams.push(team);
-    const roles: RoleDto[] = [
+    // Tuple-typed (not RoleDto[]) so `adminRole`/`memberRole` stay non-optional
+    // under noUncheckedIndexedAccess -- this is always exactly these two seeded
+    // roles, never an arbitrary-length array.
+    const roles: [RoleDto, RoleDto] = [
       { id: rid('role'), teamId: team.id, name: 'Admin / Trainer', system: true, color: '#1565C0', permissions: { events: 'write', members: 'write', finances: 'write', news: 'write', polls: 'write', settings: 'write' } },
       { id: rid('role'), teamId: team.id, name: 'Mitglied', system: true, color: '#5B6470', permissions: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'none' } },
     ];
+    const [adminRole] = roles;
     db.roles.push(...roles);
-    team.reasonVisibilityRoles = [roles[0].id];
-    db.memberships.push({ id: rid('mem'), teamId: team.id, userId: auth, roleIds: [roles[0].id], group: '', joinedAt: new Date().toISOString() });
+    team.reasonVisibilityRoles = [adminRole.id];
+    db.memberships.push({ id: rid('mem'), teamId: team.id, userId: auth, roleIds: [adminRole.id], group: '', joinedAt: new Date().toISOString() });
     return HttpResponse.json(toWireTeamForUser(team, auth), { status: 201 });
   }),
 
@@ -685,16 +770,15 @@ export const handlers = [
       date,
       location: body.location || '',
       note: body.note || '',
-      result: undefined,
       meetTime: body.meetTime ?? null,
       startTime: body.startTime ?? null,
       endTime: body.endTime ?? null,
       meetTimeMandatory: body.meetTimeMandatory ?? false,
       responseMode: body.responseMode || 'opt_in',
-      nominatedRoleIds: body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined,
       recurring: !!body.recurring,
       seriesId: null,
       status: 'active',
+      ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
     if (body.recurring && body.repeatWeeks && body.repeatWeeks > 1) {
       const seriesId = rid('series');
@@ -710,17 +794,19 @@ export const handlers = [
     }
     created.forEach((e) => db.events.push(e));
     if (body.nominatedRoleIds) created.forEach((e) => applyNominations(e, body.nominatedRoleIds!));
+    const first = created[0];
+    if (!first) return problem(500, 'Failed to create event');
     pushNotif({
       teamId,
       type: 'event_created',
-      actorId: session.userId ?? undefined,
-      title: created[0].title,
-      eventId: created[0].id,
-      eventTitle: created[0].title,
-      eventDate: created[0].date,
+      title: first.title,
+      eventId: first.id,
+      eventTitle: first.title,
+      eventDate: first.date,
       note: created.length > 1 ? `Serie mit ${created.length} Terminen` : '',
+      ...opt('actorId', session.userId ?? undefined),
     });
-    return HttpResponse.json(toWireEvent(created[0]), { status: 201 });
+    return HttpResponse.json(toWireEvent(first), { status: 201 });
   }),
 
   http.get(P('/teams/:teamId/events/:eventId'), async ({ params }) => {
@@ -751,7 +837,7 @@ export const handlers = [
       if (body.endTime !== undefined) ev.endTime = body.endTime || null;
       if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
     });
-    pushNotif({ teamId: e.teamId, type: 'event_updated', actorId: session.userId ?? undefined, title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
+    pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e));
   }),
 
@@ -764,7 +850,7 @@ export const handlers = [
     const body = (await request.json()) as S['SetEventStatusRequest'];
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
     targets.forEach((ev) => { ev.status = body.status; });
-    pushNotif({ teamId: e.teamId, type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated', actorId: session.userId ?? undefined, title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
+    pushNotif({ teamId: e.teamId, type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e));
   }),
 
@@ -774,7 +860,7 @@ export const handlers = [
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const ids = e && scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId).map((x) => x.id) : [params.eventId as string];
-    if (e) pushNotif({ teamId: e.teamId, type: 'event_deleted', actorId: session.userId ?? undefined, title: e.title, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '' });
+    if (e) pushNotif({ teamId: e.teamId, type: 'event_deleted', title: e.title, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     db.events = db.events.filter((x) => !ids.includes(x.id));
     db.attendance = db.attendance.filter((a) => !ids.includes(a.eventId));
     db.eventComments = db.eventComments.filter((c) => !ids.includes(c.eventId));
@@ -832,7 +918,16 @@ export const handlers = [
     if (e && (body.status === 'yes' || body.status === 'no' || body.status === 'maybe')) {
       pushNotif({ teamId: e.teamId, type: 'attendance', actorId: body.userId, status: body.status, eventId: e.id, eventTitle: e.title, eventDate: e.date });
     }
-    const record: S['AttendanceRecord'] = { id: a.id, eventId: a.eventId, userId: a.userId, status: a.status, reason: a.reason || undefined, reasonId: a.reasonId ?? undefined, reasonVisibility: a.reasonVisibility ?? undefined, at: a.at };
+    const record: S['AttendanceRecord'] = {
+      id: a.id,
+      eventId: a.eventId,
+      userId: a.userId,
+      status: a.status,
+      ...opt('reason', a.reason || undefined),
+      ...opt('reasonId', a.reasonId ?? undefined),
+      ...opt('reasonVisibility', a.reasonVisibility ?? undefined),
+      ...opt('at', a.at),
+    };
     return HttpResponse.json(record);
   }),
 
@@ -965,7 +1060,7 @@ export const handlers = [
       votes: [],
     };
     db.polls.push(p);
-    pushNotif({ teamId, type: 'poll', actorId: session.userId ?? undefined, title: body.question });
+    pushNotif({ teamId, type: 'poll', title: body.question, ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWirePoll(p), { status: 201 });
   }),
 
@@ -1029,7 +1124,7 @@ export const handlers = [
     const openPenalties: S['OpenPenalty'][] = Object.keys(openByUser)
       .map((uid) => {
         const u = requireUser(uid);
-        return { userId: uid, name: u.name, avatarColor: u.avatarColor, hasPhoto: u.hasPhoto, amount: openByUser[uid] };
+        return { userId: uid, name: u.name, avatarColor: u.avatarColor, hasPhoto: u.hasPhoto, amount: openByUser[uid] ?? 0 };
       })
       .sort((a, b) => b.amount - a.amount);
     const contributions = db.contributions.filter((c) => c.teamId === teamId);
