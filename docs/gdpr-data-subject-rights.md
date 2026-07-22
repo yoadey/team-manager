@@ -1,5 +1,9 @@
 # GDPR Data-Subject Rights — Design & Implementation Plan
 
+> Looking for the end-user explanation of data export/account deletion
+> instead of the implementation details? See
+> [`end-user/daten-und-datenschutz.md`](./end-user/daten-und-datenschutz.md).
+
 Status: **implemented** (erasure by anonymization + data export) ·
 Last updated: 2026-07-07 (round 32)
 

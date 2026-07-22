@@ -133,6 +133,16 @@ bereits implementiert und wird automatisch verwendet, sobald `VITE_API_BASE_URL`
 gesetzt ist – ohne weitere Änderungen am restlichen Frontend-Code, da die exportierte
 `api`-Form unverändert bleibt.
 
+## Für Vereinsmitglieder
+
+Eine Anleitung für Vereinsmitglieder und Team-Admins — Erste Schritte,
+Rollen & Rechte, alle Funktionsbereiche sowie Daten & Datenschutz — liegt
+unter [`docs/end-user/`](./docs/end-user/README.md). Eine als Webseite
+gebaute Version (`website/`, siehe
+[`docs-deploy.yml`](./.github/workflows/docs-deploy.yml)) wird nach
+Aktivierung von GitHub Pages für dieses Repository automatisch
+veröffentlicht.
+
 ## Funktionsumfang (gemäß Lastenheft)
 
 Termine & Anwesenheit (Liste/Kalender/Abwesenheiten, Serien, Nominierung, Kommentare,
