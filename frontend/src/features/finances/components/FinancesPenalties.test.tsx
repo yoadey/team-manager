@@ -111,7 +111,7 @@ describe('FinancesPenalties', () => {
     const app = makeApp();
     render(<FinancesPenalties app={app as never} t={tk} f={makeFinances()} canFin={true} />);
     const btns = document.querySelectorAll('button');
-    fireEvent.click(btns[1]);
+    fireEvent.click(btns[1]!);
     expect(app.openPenaltyAssign).toHaveBeenCalled();
   });
 

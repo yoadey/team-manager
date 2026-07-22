@@ -73,6 +73,7 @@ describe('drift-bug fix: single-choice polls reject multiple selected options', 
       multiple: false,
     });
     const [a, b] = created.options;
+    if (!a || !b) throw new Error('expected at least 2 poll options');
 
     await expect(api.polls.vote(created.id, [a.id, b.id], 't_a')).rejects.toThrow(ValidationError);
 

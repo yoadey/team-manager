@@ -108,7 +108,7 @@ describe('finance mappers convert amount fields from cents to euros', () => {
     expect(o.income).toBe(500);
     expect(o.expense).toBe(200);
     expect(o.openPenaltySum).toBe(15);
-    expect(o.openPenalties[0].amount).toBe(15);
+    expect(o.openPenalties[0]!.amount).toBe(15);
   });
 });
 
@@ -183,8 +183,8 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
       to: '2024-06-30',
     });
     expect(o.avg).toBe(67);
-    expect(o.members[0].quote).toBe(50);
-    expect(o.events[0].pct).toBe(75);
+    expect(o.members[0]!.quote).toBe(50);
+    expect(o.events[0]!.pct).toBe(75);
   });
 });
 

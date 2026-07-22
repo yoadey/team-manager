@@ -175,7 +175,7 @@ describe('auth', () => {
     const dataUrl = 'data:image/jpeg;base64,' + btoa('hello');
     const res = await realApi.auth.setPhoto(dataUrl);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0];
+    const [, init] = fetchMock.mock.calls[0]!;
     // The backend registers PUT (not POST) for /auth/me/photo.
     expect(init.method).toBe('PUT');
     expect(init.credentials).toBe('include');
@@ -282,7 +282,7 @@ describe('teams', () => {
     const dataUrl = 'data:image/png;base64,' + btoa('img');
     await realApi.teams.create({ name: 'A', photo: dataUrl });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toContain('/api/v1/teams/t1/photo');
     expect(init.method).toBe('PUT');
     expect(client.GET).toHaveBeenCalledWith('/teams/{teamId}', { params: { path: { teamId: 't1' } } });
@@ -307,7 +307,7 @@ describe('teams', () => {
     await realApi.teams.updateSettings('t1', { photo: dataUrl });
     expect(client.PATCH).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toContain('/api/v1/teams/t1/photo');
     expect(init.method).toBe('PUT');
     vi.unstubAllGlobals();
@@ -323,8 +323,8 @@ describe('teams', () => {
     await realApi.teams.updateSettings('t1', { name: 'New', photo: photoUrl, logo: logoUrl });
     expect(client.PATCH).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toContain('/photo');
-    expect(fetchMock.mock.calls[1][0]).toContain('/logo');
+    expect(fetchMock.mock.calls[0]![0]).toContain('/photo');
+    expect(fetchMock.mock.calls[1]![0]).toContain('/logo');
     vi.unstubAllGlobals();
   });
 
