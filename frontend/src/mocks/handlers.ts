@@ -538,7 +538,11 @@ export const handlers = [
   http.post(P('/teams/:teamId/invite'), async ({ params }) => {
     await mockDelay();
     const teamId = params.teamId as string;
-    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    // An invite code grants team membership, so it's a security-sensitive
+    // value like the tokens above -- generate it with a CSPRNG, not Math.random().
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => (b % 36).toString(36))
+      .join('')
+      .toUpperCase();
     const inv: S['Invite'] = {
       id: rid('inv'),
       teamId,
