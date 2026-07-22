@@ -106,7 +106,7 @@ func (m *SMTPMailer) send(ctx context.Context, toEmail string, msg []byte) (err 
 	if ok, _ := client.Extension("STARTTLS"); !ok {
 		return ErrSTARTTLSUnsupported
 	}
-	if err := client.StartTLS(&tls.Config{ServerName: m.cfg.Host}); err != nil {
+	if err := client.StartTLS(&tls.Config{ServerName: m.cfg.Host, MinVersion: tls.VersionTLS12}); err != nil {
 		return fmt.Errorf("mailer.SMTPMailer.send: starttls: %w", err)
 	}
 
