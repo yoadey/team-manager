@@ -1,0 +1,62 @@
+# Scoped ignore list for the "Scan aws-cli (backup s3-upload container)"
+# step in both ci.yml and scheduled-security-scan.yml ONLY (passed
+# explicitly via trivy-action's `trivyignores` input on that one step) --
+# NOT a repo-root .trivyignore, so it can't accidentally suppress a real
+# finding in the app's own backend/frontend/postgres image scans.
+#
+# The s3-upload container (helm/team-manager/templates/backup-cronjob.yaml)
+# runs exactly one command per invocation, in a loop over the pg_dump
+# output file(s): `aws s3 cp /backup/<file> s3://<bucket>/<prefix>/<file>
+# --region <region>` (optionally --endpoint-url). It never invokes an
+# interactive shell, D-Bus, ACL tooling, or archive extraction -- all 19
+# findings below are in OS packages incidentally present in the amazon/
+# aws-cli base image, not exercised by that command.
+#
+# glib2 (7 CVEs) -- all in GLib entry points this container's `aws s3 cp`
+# invocation never reaches: GVariant deserialization, GDateTime parsing,
+# GRegex, GIOChannel line reading, GKeyFile parsing, and D-Bus SASL auth /
+# introspection. This container never opens a D-Bus session or system bus
+# (no SASL auth, no introspection XML), and never parses a GKeyFile-format
+# config file -- aws-cli's own config/credentials here come from Kubernetes
+# Secret env vars or IRSA, not a file GLib would parse.
+CVE-2026-58010
+CVE-2026-58011
+CVE-2026-58012
+CVE-2026-58013
+CVE-2026-58014
+CVE-2026-58015
+CVE-2026-58016
+#
+# libacl (2 CVEs) -- require invoking getfacl/setfacl or the underlying
+# libacl API to manipulate POSIX ACLs. This container's command never
+# touches ACLs; it only performs an S3 file upload.
+CVE-2026-54369
+CVE-2026-54370
+#
+# python3 / python3-libs (5 CVEs, each reported once per package since aws-
+# cli v2 bundles its own Python runtime):
+# - CVE-2026-0864 (configparser injection via crafted multi-line input)
+#   requires attacker-controlled content in a config file aws-cli parses;
+#   credentials/config here come from Secret env vars or IRSA, never from
+#   an untrusted file.
+# - CVE-2026-11940 / CVE-2026-11972 (tarfile.extractall()/EOF-handling DoS)
+#   require calling tarfile.extractall()/open() on an untrusted archive;
+#   `aws s3 cp` never extracts a tar archive, it only uploads a file as-is.
+# - CVE-2026-3276 (unicodedata DoS via excessive CPU consumption) requires
+#   processing attacker-crafted Unicode text; the only "text" this
+#   container handles is the pg_dump-generated filename
+#   (teammanager-<timestamp>.dump, produced by the sibling pg-dump
+#   initContainer) and Helm-templated, operator-controlled bucket/prefix/
+#   region values -- none of it attacker-influenced.
+# - CVE-2026-9669 (BZ2 decompression DoS) requires decompressing untrusted
+#   bzip2 data; this container never decompresses anything.
+CVE-2026-0864
+CVE-2026-11940
+CVE-2026-11972
+CVE-2026-3276
+CVE-2026-9669
+#
+# Re-check when Amazon publishes a rebuilt amazon/aws-cli:2.35.18 (or newer)
+# digest carrying patched glib2/libacl/python3 packages, and re-pin
+# helm/team-manager/values.yaml + both workflow files' image-ref then;
+# remove the corresponding entries once that happens.

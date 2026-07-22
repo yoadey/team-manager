@@ -41,7 +41,7 @@ func TestRetentionWorker_DeletesInBatches(t *testing.T) {
 		`INSERT INTO notifications (team_id, type, created_at) VALUES ($1, 'news', now())`, teamID)
 	require.NoError(t, err)
 
-	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365, 7)
 	require.NoError(t, worker.Work(ctx, &river.Job[jobs.RetentionArgs]{}))
 
 	var remaining int
@@ -55,7 +55,7 @@ func TestRetentionWorker_DeletesInBatches(t *testing.T) {
 // so River applied its own JobTimeoutDefault (1 minute) to the job's outer
 // context. That outer deadline caps every phase's own context.WithTimeout
 // (contexts can only get an earlier deadline, never a later one), so with
-// four sequential 30s phase budgets the last phase(s) -- including
+// six sequential 30s phase budgets the last phase(s) -- including
 // audit_log's compliance-mandated cleanup -- could be starved or cancelled
 // mid-batch on a run with a large backlog, silently defeating the whole
 // point of giving each phase an independent budget (see
@@ -63,10 +63,10 @@ func TestRetentionWorker_DeletesInBatches(t *testing.T) {
 func TestRetentionWorker_TimeoutExceedsRiverDefault(t *testing.T) {
 	t.Parallel()
 
-	worker := jobs.NewRetentionWorker(nil, 90, 30, 365)
+	worker := jobs.NewRetentionWorker(nil, 90, 30, 365, 7)
 	timeout := worker.Timeout(&river.Job[jobs.RetentionArgs]{})
 	assert.Greater(t, timeout, river.JobTimeoutDefault,
-		"RetentionWorker.Timeout must exceed River's default JobTimeout, or the outer job context caps all four phase timeouts to a shared budget shorter than their sum")
+		"RetentionWorker.Timeout must exceed River's default JobTimeout, or the outer job context caps all six phase timeouts to a shared budget shorter than their sum")
 }
 
 // TestRetentionWorker_KeepsStillValidLongLivedSession is a regression test
@@ -103,7 +103,7 @@ func TestRetentionWorker_KeepsStillValidLongLivedSession(t *testing.T) {
 	`, userID)
 	require.NoError(t, err)
 
-	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365, 7)
 	require.NoError(t, worker.Work(ctx, &river.Job[jobs.RetentionArgs]{}))
 
 	var tokens []string
@@ -149,7 +149,7 @@ func TestRetentionWorker_DeletesLongExpiredInvites(t *testing.T) {
 	`, teamID)
 	require.NoError(t, err)
 
-	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365, 7)
 	require.NoError(t, worker.Work(ctx, &river.Job[jobs.RetentionArgs]{}))
 
 	var codes []string
@@ -205,7 +205,7 @@ func TestRetentionWorker_ContinuesLaterPhasesWhenAnEarlierPhaseFails(t *testing.
 	_, err = pool.Exec(ctx, `DROP TABLE notifications CASCADE`)
 	require.NoError(t, err)
 
-	worker := jobs.NewRetentionWorker(pool, 90, 30, 365)
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365, 7)
 	err = worker.Work(ctx, &river.Job[jobs.RetentionArgs]{})
 	require.Error(t, err, "Work must report the notifications phase's failure")
 	assert.Contains(t, err.Error(), "delete notifications")

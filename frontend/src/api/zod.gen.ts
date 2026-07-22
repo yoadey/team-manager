@@ -28,6 +28,14 @@ const User = z
   })
   .passthrough();
 const LoginResponse = z.object({ token: z.string(), user: User }).passthrough();
+const RegisterRequest = z
+  .object({ email: z.string().email(), password: z.string().min(8).max(128) })
+  .passthrough();
+const RegisterResponse = z.object({ message: z.string() }).passthrough();
+const VerifyEmailRequest = z.object({ token: z.string() }).passthrough();
+const ResendVerificationRequest = z
+  .object({ email: z.string().email() })
+  .passthrough();
 const DeleteAccountRequest = z
   .object({ confirmEmail: z.string().email() })
   .passthrough();
@@ -584,6 +592,10 @@ export const schemas = {
   LoginRequest,
   User,
   LoginResponse,
+  RegisterRequest,
+  RegisterResponse,
+  VerifyEmailRequest,
+  ResendVerificationRequest,
   DeleteAccountRequest,
   Team,
   PermLevel,
@@ -782,6 +794,80 @@ const endpoints = makeApi([
     alias: "listProviders",
     requestFormat: "json",
     response: z.array(Provider),
+  },
+  {
+    method: "post",
+    path: "/auth/register",
+    alias: "register",
+    description: `Creates an unverified account and emails a verification link. The response is always the same generic message regardless of whether the email was available, already registered and verified, or already registered and still pending verification — this endpoint never reveals account existence. Disabled server-side via &#x60;SELF_REGISTRATION_ENABLED&#x60;.
+`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: RegisterRequest,
+      },
+    ],
+    response: z.object({ message: z.string() }).passthrough(),
+    errors: [
+      {
+        status: 403,
+        description: `Forbidden`,
+        schema: z.void(),
+      },
+      {
+        status: 429,
+        description: `Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection.`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/auth/resend-verification",
+    alias: "resendVerification",
+    description: `Always returns the same generic response regardless of whether the email has no account, an already-verified account, or a still- unverified account — only the last case actually sends a new email.
+`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ email: z.string().email() }).passthrough(),
+      },
+    ],
+    response: z.object({ message: z.string() }).passthrough(),
+    errors: [
+      {
+        status: 429,
+        description: `Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection.`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/auth/verify-email",
+    alias: "verifyEmail",
+    description: `Marks the account verified and returns a session, identical in shape to &#x60;login&#x60;&#x27;s response, so the client can reuse its normal post-login bootstrap.
+`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ token: z.string() }).passthrough(),
+      },
+    ],
+    response: LoginResponse,
+    errors: [
+      {
+        status: 401,
+        description: `Unauthorized`,
+        schema: z.void(),
+      },
+    ],
   },
   {
     method: "post",

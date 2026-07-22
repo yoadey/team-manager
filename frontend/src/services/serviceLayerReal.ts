@@ -155,6 +155,35 @@ export const realApi = {
       return { token: data.token, provider: 'password', user: mapUser(data.user) };
     },
 
+    // Always resolves with a generic message regardless of whether the email
+    // was available, already registered and verified, or already registered
+    // and still pending verification -- see backend auth.Service.Register's
+    // enumeration-safety contract. Rejects only for real validation/infra
+    // errors (weak password, malformed email, disabled, rate-limited).
+    async register(email: string, password: string): Promise<{ message: string }> {
+      const res = await apiClient.POST('/auth/register', {
+        body: { email: email as string & { format: 'email' }, password },
+      });
+      return check(res);
+    },
+
+    // Consumes a single-use verification token and establishes a session,
+    // identical in shape to login()'s response.
+    async verifyEmail(token: string): Promise<{ token: string; user: User }> {
+      const res = await apiClient.POST('/auth/verify-email', { body: { token } });
+      const data = await check(res);
+      return { token: data.token, user: mapUser(data.user) };
+    },
+
+    // Always resolves with a generic message regardless of account state --
+    // mirrors register()'s enumeration-safety contract.
+    async resendVerification(email: string): Promise<{ message: string }> {
+      const res = await apiClient.POST('/auth/resend-verification', {
+        body: { email: email as string & { format: 'email' } },
+      });
+      return check(res);
+    },
+
     async currentUser(): Promise<User | null> {
       // The session cookie travels automatically; a 401 means no active session.
       const res = await apiClient.GET('/auth/me');

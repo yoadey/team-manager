@@ -161,6 +161,10 @@ func (c *SessionCookieCodec) applyCookie(w http.ResponseWriter, operationID stri
 		if login, ok := resp.(gen.Login200JSONResponse); ok {
 			return c.Set(w, login.Token)
 		}
+	case "VerifyEmail":
+		if verify, ok := resp.(gen.VerifyEmail200JSONResponse); ok {
+			return c.Set(w, verify.Token)
+		}
 	case "Logout":
 		if _, ok := resp.(gen.Logout204Response); ok {
 			c.Clear(w)

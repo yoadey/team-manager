@@ -406,6 +406,18 @@ func (s *Server) ListProviders(ctx context.Context, req gen.ListProvidersRequest
 	return s.Auth.ListProviders(ctx, req)
 }
 
+func (s *Server) Register(ctx context.Context, req gen.RegisterRequestObject) (gen.RegisterResponseObject, error) {
+	return s.Auth.Register(ctx, req)
+}
+
+func (s *Server) VerifyEmail(ctx context.Context, req gen.VerifyEmailRequestObject) (gen.VerifyEmailResponseObject, error) {
+	return s.Auth.VerifyEmail(ctx, req)
+}
+
+func (s *Server) ResendVerification(ctx context.Context, req gen.ResendVerificationRequestObject) (gen.ResendVerificationResponseObject, error) {
+	return s.Auth.ResendVerification(ctx, req)
+}
+
 // ─── Teams delegations ────────────────────────────────────────────────────────
 
 func (s *Server) ListTeams(ctx context.Context, req gen.ListTeamsRequestObject) (gen.ListTeamsResponseObject, error) {

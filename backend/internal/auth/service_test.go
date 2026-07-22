@@ -23,21 +23,27 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/yoadey/team-manager/backend/internal/auth"
+	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/storage"
 )
 
 // ─── mock repository ────────────────────────────────────────────────────────
 
 type mockRepo struct {
-	userByEmail      func(ctx context.Context, email string) (*auth.UserRow, error)
-	userByID         func(ctx context.Context, id string) (*auth.UserRow, error)
-	createSess       func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error)
-	findSess         func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
-	deleteSess       func(ctx context.Context, tokenHash string) error
-	updatePhoto      func(ctx context.Context, userID, objectKey string) error
-	userPhotoKeyByID func(ctx context.Context, id string) (string, error)
-	eraseUser        func(ctx context.Context, userID string) error
-	exportUserData   func(ctx context.Context, userID string) (*auth.ExportData, error)
+	userByEmail            func(ctx context.Context, email string) (*auth.UserRow, error)
+	userByID               func(ctx context.Context, id string) (*auth.UserRow, error)
+	createSess             func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error)
+	findSess               func(ctx context.Context, tokenHash string) (*auth.SessionRow, error)
+	deleteSess             func(ctx context.Context, tokenHash string) error
+	updatePhoto            func(ctx context.Context, userID, objectKey string) error
+	userPhotoKeyByID       func(ctx context.Context, id string) (string, error)
+	eraseUser              func(ctx context.Context, userID string) error
+	exportUserData         func(ctx context.Context, userID string) (*auth.ExportData, error)
+	createUnverifiedUser   func(ctx context.Context, name, email, passwordHash string) (*auth.UserRow, error)
+	markEmailVerified      func(ctx context.Context, userID string) error
+	createVerificationTok  func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	findVerificationTok    func(ctx context.Context, tokenHash string) (*auth.EmailVerificationTokenRow, error)
+	consumeVerificationTok func(ctx context.Context, tokenHash string) error
 }
 
 func (m *mockRepo) FindUserByEmail(ctx context.Context, email string) (*auth.UserRow, error) {
@@ -82,11 +88,36 @@ func (m *mockRepo) ExportUserData(ctx context.Context, userID string) (*auth.Exp
 	return &auth.ExportData{}, nil
 }
 
+func (m *mockRepo) CreateUnverifiedUser(ctx context.Context, name, email, passwordHash string) (*auth.UserRow, error) {
+	return m.createUnverifiedUser(ctx, name, email, passwordHash)
+}
+
+func (m *mockRepo) MarkEmailVerified(ctx context.Context, userID string) error {
+	return m.markEmailVerified(ctx, userID)
+}
+
+func (m *mockRepo) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	return m.createVerificationTok(ctx, userID, tokenHash, expiresAt)
+}
+
+func (m *mockRepo) FindEmailVerificationToken(ctx context.Context, tokenHash string) (*auth.EmailVerificationTokenRow, error) {
+	return m.findVerificationTok(ctx, tokenHash)
+}
+
+func (m *mockRepo) ConsumeEmailVerificationToken(ctx context.Context, tokenHash string) error {
+	return m.consumeVerificationTok(ctx, tokenHash)
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 func newTestService(t *testing.T, repo *mockRepo) *auth.Service {
 	t.Helper()
-	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", 24*time.Hour)
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", 24*time.Hour, auth.RegistrationConfig{
+		Mailer:                  mailer.NewFakeMailer(nil),
+		PublicBaseURL:           "https://example.com",
+		EmailVerificationTTL:    24 * time.Hour,
+		SelfRegistrationEnabled: true,
+	}, nil)
 	require.NoError(t, err)
 	return svc
 }
@@ -95,13 +126,15 @@ func makeUserWithPassword(t *testing.T, password string) *auth.UserRow {
 	t.Helper()
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	require.NoError(t, err)
+	verifiedAt := time.Now()
 	return &auth.UserRow{
-		Id:           uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-		Name:         "Test User",
-		Email:        "test@example.com",
-		AvatarColor:  "#6366f1",
-		PasswordHash: string(hash),
-		CreatedAt:    time.Now(),
+		Id:              uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+		Name:            "Test User",
+		Email:           "test@example.com",
+		AvatarColor:     "#6366f1",
+		PasswordHash:    string(hash),
+		CreatedAt:       time.Now(),
+		EmailVerifiedAt: &verifiedAt,
 	}
 }
 
@@ -225,7 +258,7 @@ func TestService_ValidateToken_Expired(t *testing.T) {
 
 	// Use a very short TTL so the token expires instantly.
 	repo := &mockRepo{}
-	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", -time.Second)
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", -time.Second, auth.RegistrationConfig{}, nil)
 	require.NoError(t, err)
 
 	user := makeUserWithPassword(t, "pw")
@@ -271,7 +304,7 @@ func TestService_ValidateToken_RejectsTokenWithNoExpiryClaim(t *testing.T) {
 			return &auth.UserRow{Id: uuid.MustParse(id)}, nil
 		},
 	}
-	svc, err := auth.NewService(repo, storage.NewFakeStore(), privPEM, pubPEM, 24*time.Hour)
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), privPEM, pubPEM, 24*time.Hour, auth.RegistrationConfig{}, nil)
 	require.NoError(t, err)
 
 	claims := &auth.Claims{
@@ -342,7 +375,7 @@ func TestService_UpdatePhoto_UploadsAndStoresKey(t *testing.T) {
 		},
 	}
 	store := storage.NewFakeStore()
-	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour)
+	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour, auth.RegistrationConfig{}, nil)
 	require.NoError(t, err)
 
 	_, err = svc.UpdatePhoto(context.Background(), userID, fixedJPEG(t), "image/jpeg")
@@ -365,7 +398,7 @@ func TestService_GetMyPhotoURL_ReturnsPresignedURL(t *testing.T) {
 	}
 	store := storage.NewFakeStore()
 	require.NoError(t, store.Put(context.Background(), key, []byte{1, 2, 3}, "image/jpeg"))
-	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour)
+	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour, auth.RegistrationConfig{}, nil)
 	require.NoError(t, err)
 
 	url, err := svc.GetMyPhotoURL(context.Background(), userID)
@@ -408,7 +441,7 @@ func TestService_EraseAccount_DeletesStoredPhoto(t *testing.T) {
 	}
 	store := storage.NewFakeStore()
 	require.NoError(t, store.Put(context.Background(), key, []byte{1, 2, 3}, "image/jpeg"))
-	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour)
+	svc, err := auth.NewService(repo, store, "", "", 24*time.Hour, auth.RegistrationConfig{}, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, svc.EraseAccount(context.Background(), userID, accountEmail))

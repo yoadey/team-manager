@@ -28,13 +28,16 @@ import (
 // ─── mock service ────────────────────────────────────────────────────────────
 
 type mockAuthService struct {
-	login          func(ctx context.Context, email, password string) (string, *auth.UserRow, error)
-	validateToken  func(ctx context.Context, token string) (*auth.UserRow, error)
-	logout         func(ctx context.Context, tokenHash string) error
-	updatePhoto    func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
-	getMyPhotoURL  func(ctx context.Context, userID string) (string, error)
-	eraseAccount   func(ctx context.Context, userID, password string) error
-	exportUserData func(ctx context.Context, userID string) (*auth.ExportData, error)
+	login              func(ctx context.Context, email, password string) (string, *auth.UserRow, error)
+	validateToken      func(ctx context.Context, token string) (*auth.UserRow, error)
+	logout             func(ctx context.Context, tokenHash string) error
+	updatePhoto        func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
+	getMyPhotoURL      func(ctx context.Context, userID string) (string, error)
+	eraseAccount       func(ctx context.Context, userID, password string) error
+	exportUserData     func(ctx context.Context, userID string) (*auth.ExportData, error)
+	register           func(ctx context.Context, email, password string) error
+	verifyEmail        func(ctx context.Context, rawToken string) (string, *auth.UserRow, error)
+	resendVerification func(ctx context.Context, email string) error
 }
 
 func (m *mockAuthService) Login(ctx context.Context, email, password string) (string, *auth.UserRow, error) {
@@ -69,6 +72,18 @@ func (m *mockAuthService) ExportUserData(ctx context.Context, userID string) (*a
 		return m.exportUserData(ctx, userID)
 	}
 	return &auth.ExportData{}, nil
+}
+
+func (m *mockAuthService) Register(ctx context.Context, email, password string) error {
+	return m.register(ctx, email, password)
+}
+
+func (m *mockAuthService) VerifyEmail(ctx context.Context, rawToken string) (string, *auth.UserRow, error) {
+	return m.verifyEmail(ctx, rawToken)
+}
+
+func (m *mockAuthService) ResendVerification(ctx context.Context, email string) error {
+	return m.resendVerification(ctx, email)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -122,6 +137,51 @@ func callLogin(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = resp.VisitLoginResponse(w)
+}
+
+// callRegister invokes the handler Register method.
+func callRegister(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
+	var body gen.RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	resp, err := h.Register(r.Context(), gen.RegisterRequestObject{Body: &body})
+	if err != nil {
+		apierror.ResponseErrorHandler(slog.Default())(w, r, err)
+		return
+	}
+	_ = resp.VisitRegisterResponse(w)
+}
+
+// callVerifyEmail invokes the handler VerifyEmail method.
+func callVerifyEmail(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
+	var body gen.VerifyEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	resp, err := h.VerifyEmail(r.Context(), gen.VerifyEmailRequestObject{Body: &body})
+	if err != nil {
+		apierror.ResponseErrorHandler(slog.Default())(w, r, err)
+		return
+	}
+	_ = resp.VisitVerifyEmailResponse(w)
+}
+
+// callResendVerification invokes the handler ResendVerification method.
+func callResendVerification(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
+	var body gen.ResendVerificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	resp, err := h.ResendVerification(r.Context(), gen.ResendVerificationRequestObject{Body: &body})
+	if err != nil {
+		apierror.ResponseErrorHandler(slog.Default())(w, r, err)
+		return
+	}
+	_ = resp.VisitResendVerificationResponse(w)
 }
 
 // callGetCurrentUser invokes the handler GetCurrentUser method.
@@ -261,6 +321,181 @@ func TestHandler_Login_BadCredentials(t *testing.T) {
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	assert.Contains(t, w.Header().Get("Content-Type"), "problem+json")
+}
+
+func TestHandler_Login_UnverifiedAccount_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		login: func(_ context.Context, _, _ string) (string, *auth.UserRow, error) {
+			return "", nil, auth.ErrEmailNotVerified
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"pending@example.com","password":"Secret123!"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/login", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	var reqBody gen.LoginRequest
+	require.NoError(t, json.NewDecoder(bytes.NewBufferString(body)).Decode(&reqBody))
+	resp, err := h.Login(req.Context(), gen.LoginRequestObject{Body: &reqBody})
+	require.Nil(t, resp)
+	require.Error(t, err)
+	apierror.ResponseErrorHandler(slog.Default())(w, req, err)
+
+	assert.Equal(t, http.StatusForbidden, w.Code, "an unverified account must be rejected distinctly (403) from wrong credentials (401)")
+	assert.Contains(t, w.Header().Get("Content-Type"), "problem+json")
+}
+
+func TestHandler_Register_Success(t *testing.T) {
+	t.Parallel()
+
+	var gotEmail, gotPassword string
+	svc := &mockAuthService{
+		register: func(_ context.Context, email, password string) error {
+			gotEmail, gotPassword = email, password
+			return nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"new@example.com","password":"longenoughpassword"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/register", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callRegister(h, w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	assert.Equal(t, "new@example.com", gotEmail)
+	assert.Equal(t, "longenoughpassword", gotPassword)
+
+	var resp gen.RegisterResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.NotEmpty(t, resp.Message)
+}
+
+func TestHandler_Register_WeakPassword_RejectedBeforeService(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		register: func(_ context.Context, _, _ string) error {
+			t.Fatal("Service.Register must not be called for input that fails validation")
+			return nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"new@example.com","password":"short"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/register", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callRegister(h, w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandler_Register_InvalidEmail_RejectedBeforeService(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		register: func(_ context.Context, _, _ string) error {
+			t.Fatal("Service.Register must not be called for input that fails validation")
+			return nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"not-an-email","password":"longenoughpassword"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/register", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callRegister(h, w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandler_Register_Disabled_Returns403(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		register: func(_ context.Context, _, _ string) error {
+			return auth.ErrSelfRegistrationDisabled
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"new@example.com","password":"longenoughpassword"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/register", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callRegister(h, w, req)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+func TestHandler_VerifyEmail_Success(t *testing.T) {
+	t.Parallel()
+
+	user := testUser()
+	svc := &mockAuthService{
+		verifyEmail: func(_ context.Context, token string) (string, *auth.UserRow, error) {
+			assert.Equal(t, "raw-token", token)
+			return "jwt.token.here", user, nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"token":"raw-token"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/verify-email", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callVerifyEmail(h, w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp gen.LoginResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "jwt.token.here", resp.Token)
+}
+
+func TestHandler_VerifyEmail_InvalidToken_Returns401(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		verifyEmail: func(_ context.Context, _ string) (string, *auth.UserRow, error) {
+			return "", nil, auth.ErrInvalidVerificationToken
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"token":"bogus"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/verify-email", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callVerifyEmail(h, w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestHandler_ResendVerification_UniformSuccess(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		resendVerification: func(_ context.Context, _ string) error {
+			return nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"anyone@example.com"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/resend-verification", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callResendVerification(h, w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
 }
 
 func TestHandler_GetCurrentUser_NoAuth(t *testing.T) {

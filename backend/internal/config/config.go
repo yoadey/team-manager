@@ -58,6 +58,11 @@ var ErrInvalidTrustedProxyCIDR = errors.New("TRUSTED_PROXY_CIDRS must be a comma
 // image upload/delivery would fail at request time instead of at startup.
 var ErrS3ConfigRequired = errors.New("S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are all required when COOKIE_SECURE=true")
 
+// ErrSMTPConfigRequired is returned when SMTP_HOST or SMTP_FROM_ADDRESS is
+// missing while COOKIE_SECURE is true (production) -- self-registration
+// would otherwise silently fail to ever deliver a verification email.
+var ErrSMTPConfigRequired = errors.New("SMTP_HOST and SMTP_FROM_ADDRESS are required when COOKIE_SECURE=true")
+
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
 
@@ -131,6 +136,36 @@ type Config struct {
 	// object store via a different (e.g. in-cluster/Compose) hostname. Set
 	// via S3_PUBLIC_BASE_URL.
 	S3PublicBaseURL string
+	// SMTPHost/Port/Username/Password/FromAddress configure the outbound mail
+	// relay used to send self-registration verification links. Username and
+	// Password may be blank for an open relay. Set via SMTP_HOST, SMTP_PORT
+	// (default "587"), SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM_ADDRESS.
+	SMTPHost        string
+	SMTPPort        string
+	SMTPUsername    string
+	SMTPPassword    string
+	SMTPFromAddress string
+	// SelfRegistrationEnabled is a server-side kill switch for
+	// POST /auth/register. Defaults to true. Set via
+	// SELF_REGISTRATION_ENABLED.
+	SelfRegistrationEnabled bool
+	// EmailVerificationTTL is how long a self-registration verification
+	// token stays valid before it must be re-requested via
+	// POST /auth/resend-verification. Default 48h. Set via
+	// EMAIL_VERIFICATION_TTL_HOURS.
+	EmailVerificationTTL time.Duration
+	// RegisterRateLimitPerMin is the per-IP registration attempt limit per
+	// minute. Default 5. Set via REGISTER_RATE_LIMIT_PER_MIN.
+	RegisterRateLimitPerMin int
+	// ResendVerificationRateLimitPerMin is the per-IP resend-verification
+	// attempt limit per minute. Default 3. Set via
+	// RESEND_VERIFICATION_RATE_LIMIT_PER_MIN.
+	ResendVerificationRateLimitPerMin int
+	// RetentionUnverifiedAccountDays is how many days a never-verified
+	// account is kept before the daily retention job deletes it, freeing the
+	// email address for a fresh registration. Default 7. Set via
+	// RETENTION_UNVERIFIED_ACCOUNTS_DAYS.
+	RetentionUnverifiedAccountDays int
 }
 
 func Load() (*Config, error) {
@@ -194,35 +229,50 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	reg, err := loadRegistrationConfig(cookieSecure)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
-		Port:                      envOr("PORT", "8080"),
-		DatabaseURL:               dbURL,
-		JWTPrivateKey:             jwtPrivateKey,
-		JWTPublicKey:              jwtPublicKey,
-		SessionTTL:                time.Duration(ttlHours) * time.Hour,
-		MigrationsDir:             envOr("MIGRATIONS_DIR", "internal/db/migrations"),
-		AllowedOrigins:            origins,
-		CookieEncryptionKeys:      cookieKeys,
-		CookieSecure:              cookieSecure,
-		CookieName:                os.Getenv("COOKIE_NAME"),
-		PublicBaseURL:             publicBaseURL,
-		MetricsToken:              os.Getenv("METRICS_TOKEN"),
-		SentryDSN:                 os.Getenv("SENTRY_DSN"),
-		RateLimitRPS:              rateLimitRPS,
-		LoginRateLimitPerMin:      loginRateLimitPerMin,
-		PaginationHMACKey:         paginationHMACKey,
-		RetentionNotificationDays: retentionNotificationDays,
-		RetentionSessionDays:      retentionSessionDays,
-		RetentionAuditLogDays:     retentionAuditLogDays,
-		TrustedProxyCIDRs:         trustedProxyCIDRs,
-		LogLevel:                  logLevel,
-		S3Endpoint:                s3.Endpoint,
-		S3Region:                  s3.Region,
-		S3Bucket:                  s3.Bucket,
-		S3AccessKeyID:             s3.AccessKeyID,
-		S3SecretAccessKey:         s3.SecretAccessKey,
-		S3UsePathStyle:            s3.UsePathStyle,
-		S3PublicBaseURL:           s3.PublicBaseURL,
+		Port:                              envOr("PORT", "8080"),
+		DatabaseURL:                       dbURL,
+		JWTPrivateKey:                     jwtPrivateKey,
+		JWTPublicKey:                      jwtPublicKey,
+		SessionTTL:                        time.Duration(ttlHours) * time.Hour,
+		MigrationsDir:                     envOr("MIGRATIONS_DIR", "internal/db/migrations"),
+		AllowedOrigins:                    origins,
+		CookieEncryptionKeys:              cookieKeys,
+		CookieSecure:                      cookieSecure,
+		CookieName:                        os.Getenv("COOKIE_NAME"),
+		PublicBaseURL:                     publicBaseURL,
+		MetricsToken:                      os.Getenv("METRICS_TOKEN"),
+		SentryDSN:                         os.Getenv("SENTRY_DSN"),
+		RateLimitRPS:                      rateLimitRPS,
+		LoginRateLimitPerMin:              loginRateLimitPerMin,
+		PaginationHMACKey:                 paginationHMACKey,
+		RetentionNotificationDays:         retentionNotificationDays,
+		RetentionSessionDays:              retentionSessionDays,
+		RetentionAuditLogDays:             retentionAuditLogDays,
+		TrustedProxyCIDRs:                 trustedProxyCIDRs,
+		LogLevel:                          logLevel,
+		S3Endpoint:                        s3.Endpoint,
+		S3Region:                          s3.Region,
+		S3Bucket:                          s3.Bucket,
+		S3AccessKeyID:                     s3.AccessKeyID,
+		S3SecretAccessKey:                 s3.SecretAccessKey,
+		S3UsePathStyle:                    s3.UsePathStyle,
+		S3PublicBaseURL:                   s3.PublicBaseURL,
+		SMTPHost:                          reg.SMTPHost,
+		SMTPPort:                          reg.SMTPPort,
+		SMTPUsername:                      reg.SMTPUsername,
+		SMTPPassword:                      reg.SMTPPassword,
+		SMTPFromAddress:                   reg.SMTPFromAddress,
+		SelfRegistrationEnabled:           reg.SelfRegistrationEnabled,
+		EmailVerificationTTL:              reg.EmailVerificationTTL,
+		RegisterRateLimitPerMin:           reg.RegisterRateLimitPerMin,
+		ResendVerificationRateLimitPerMin: reg.ResendVerificationRateLimitPerMin,
+		RetentionUnverifiedAccountDays:    reg.RetentionUnverifiedAccountDays,
 	}, nil
 }
 
@@ -261,6 +311,124 @@ func loadS3Config(cookieSecure bool) (s3Settings, error) {
 		return s3Settings{}, ErrS3ConfigRequired
 	}
 	return s, nil
+}
+
+// smtpSettings mirrors the SMTP-related Config fields; kept as its own
+// return type for the same reason s3Settings is (loadSMTPConfig has a
+// single value to return rather than five).
+type smtpSettings struct {
+	Host        string
+	Port        string
+	Username    string
+	Password    string
+	FromAddress string
+}
+
+// loadSMTPConfig reads the SMTP_* env vars used to send self-registration
+// verification email, failing loudly if the host/from-address are missing
+// while cookieSecure is true (production) -- see ErrSMTPConfigRequired.
+func loadSMTPConfig(cookieSecure bool) (smtpSettings, error) {
+	s := smtpSettings{
+		Host:        os.Getenv("SMTP_HOST"),
+		Port:        envOr("SMTP_PORT", "587"),
+		Username:    os.Getenv("SMTP_USERNAME"),
+		Password:    os.Getenv("SMTP_PASSWORD"),
+		FromAddress: os.Getenv("SMTP_FROM_ADDRESS"),
+	}
+	if cookieSecure && (s.Host == "" || s.FromAddress == "") {
+		return smtpSettings{}, ErrSMTPConfigRequired
+	}
+	return s, nil
+}
+
+// registrationSettings groups every self-registration-related Config field.
+// Grouped into its own loader (mirroring s3Settings/loadS3Config) so Load()
+// makes a single error-checked call instead of five, keeping its cyclomatic
+// complexity down.
+type registrationSettings struct {
+	SMTPHost                          string
+	SMTPPort                          string
+	SMTPUsername                      string
+	SMTPPassword                      string
+	SMTPFromAddress                   string
+	SelfRegistrationEnabled           bool
+	EmailVerificationTTL              time.Duration
+	RegisterRateLimitPerMin           int
+	ResendVerificationRateLimitPerMin int
+	RetentionUnverifiedAccountDays    int
+}
+
+// loadRegistrationConfig reads every env var governing self-service
+// registration: SMTP_*, SELF_REGISTRATION_ENABLED,
+// EMAIL_VERIFICATION_TTL_HOURS, REGISTER_RATE_LIMIT_PER_MIN,
+// RESEND_VERIFICATION_RATE_LIMIT_PER_MIN, RETENTION_UNVERIFIED_ACCOUNTS_DAYS.
+func loadRegistrationConfig(cookieSecure bool) (registrationSettings, error) {
+	smtp, err := loadSMTPConfig(cookieSecure)
+	if err != nil {
+		return registrationSettings{}, err
+	}
+
+	selfRegistrationEnabled, err := loadSelfRegistrationEnabled()
+	if err != nil {
+		return registrationSettings{}, err
+	}
+
+	emailVerificationTTLHours, err := parseInt(os.Getenv("EMAIL_VERIFICATION_TTL_HOURS"), 48)
+	if err != nil {
+		return registrationSettings{}, fmt.Errorf("EMAIL_VERIFICATION_TTL_HOURS: %w", err)
+	}
+
+	registerRateLimitPerMin, resendVerificationRateLimitPerMin, err := loadRegistrationRateLimits()
+	if err != nil {
+		return registrationSettings{}, err
+	}
+
+	retentionUnverifiedAccountDays, err := parseInt(os.Getenv("RETENTION_UNVERIFIED_ACCOUNTS_DAYS"), 7)
+	if err != nil {
+		return registrationSettings{}, fmt.Errorf("RETENTION_UNVERIFIED_ACCOUNTS_DAYS: %w", err)
+	}
+
+	return registrationSettings{
+		SMTPHost:                          smtp.Host,
+		SMTPPort:                          smtp.Port,
+		SMTPUsername:                      smtp.Username,
+		SMTPPassword:                      smtp.Password,
+		SMTPFromAddress:                   smtp.FromAddress,
+		SelfRegistrationEnabled:           selfRegistrationEnabled,
+		EmailVerificationTTL:              time.Duration(emailVerificationTTLHours) * time.Hour,
+		RegisterRateLimitPerMin:           registerRateLimitPerMin,
+		ResendVerificationRateLimitPerMin: resendVerificationRateLimitPerMin,
+		RetentionUnverifiedAccountDays:    retentionUnverifiedAccountDays,
+	}, nil
+}
+
+// loadSelfRegistrationEnabled reads SELF_REGISTRATION_ENABLED, defaulting to
+// true (self-service signup is on unless an operator explicitly opts out in
+// favor of invite-only provisioning).
+func loadSelfRegistrationEnabled() (bool, error) {
+	v := os.Getenv("SELF_REGISTRATION_ENABLED")
+	if v == "" {
+		return true, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("SELF_REGISTRATION_ENABLED: %w", err)
+	}
+	return b, nil
+}
+
+// loadRegistrationRateLimits reads REGISTER_RATE_LIMIT_PER_MIN and
+// RESEND_VERIFICATION_RATE_LIMIT_PER_MIN.
+func loadRegistrationRateLimits() (registerPerMin, resendPerMin int, err error) {
+	registerPerMin, err = parseInt(os.Getenv("REGISTER_RATE_LIMIT_PER_MIN"), 5)
+	if err != nil {
+		return 0, 0, fmt.Errorf("REGISTER_RATE_LIMIT_PER_MIN: %w", err)
+	}
+	resendPerMin, err = parseInt(os.Getenv("RESEND_VERIFICATION_RATE_LIMIT_PER_MIN"), 3)
+	if err != nil {
+		return 0, 0, fmt.Errorf("RESEND_VERIFICATION_RATE_LIMIT_PER_MIN: %w", err)
+	}
+	return registerPerMin, resendPerMin, nil
 }
 
 // loadLogLevel reads LOG_LEVEL (debug|info|warn|error, case-insensitive),

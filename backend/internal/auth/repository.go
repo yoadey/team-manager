@@ -45,7 +45,7 @@ const selectUserFields = `
 	(photo_object_key IS NOT NULL AND length(photo_object_key) > 0) AS has_photo,
 	birthday, address,
 	COALESCE(password_hash, '') AS password_hash,
-	created_at
+	created_at, email_verified_at
 `
 
 // scanUser scans a row into a UserRow. The row must select the columns in
@@ -58,7 +58,7 @@ func scanUser(row interface {
 	err := row.Scan(
 		&u.Id, &u.Name, &u.Email, &u.Phone, &u.AvatarColor,
 		&u.HasPhoto,
-		&u.Birthday, &u.Address, &u.PasswordHash, &u.CreatedAt,
+		&u.Birthday, &u.Address, &u.PasswordHash, &u.CreatedAt, &u.EmailVerifiedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auth.scanUser: %w", err)
@@ -166,6 +166,109 @@ func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error 
 	_, err := r.pool.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
 	if err != nil {
 		return fmt.Errorf("auth.Repository.DeleteSession: %w", err)
+	}
+	return nil
+}
+
+// ErrEmailTaken is returned by CreateUnverifiedUser when a user already
+// exists with the given email (the ON CONFLICT DO NOTHING branch).
+var ErrEmailTaken = errors.New("auth: email already registered")
+
+// CreateUnverifiedUser inserts a new, unverified user row (email_verified_at
+// left NULL) with the given bcrypt password hash. name is a placeholder
+// display name (the email's local part -- self-registration collects no
+// separate name field); the user can change it later via their team member
+// profile. Returns ErrEmailTaken if a user with this email already exists --
+// the caller (Service.Register) uses that to distinguish the
+// already-registered branches of its enumeration-safe response without a
+// separate existence check racing the insert.
+func (r *Repository) CreateUnverifiedUser(ctx context.Context, name, email, passwordHash string) (*UserRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	q := fmt.Sprintf(`
+		INSERT INTO users (name, email, password_hash)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (email) DO NOTHING
+		RETURNING %s
+	`, selectUserFields)
+	row := r.pool.QueryRow(ctx, q, name, strings.ToLower(strings.TrimSpace(email)), passwordHash)
+	u, err := scanUser(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEmailTaken
+		}
+		return nil, fmt.Errorf("auth.Repository.CreateUnverifiedUser: %w", err)
+	}
+	return u, nil
+}
+
+// MarkEmailVerified sets email_verified_at to now() for userID.
+func (r *Repository) MarkEmailVerified(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET email_verified_at = now() WHERE id = $1 AND email_verified_at IS NULL`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.MarkEmailVerified: %w", err)
+	}
+	return nil
+}
+
+// CreateEmailVerificationToken inserts a new verification token row keyed by
+// its SHA-256 hash (the raw token is never persisted).
+func (r *Repository) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, tokenHash, expiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.CreateEmailVerificationToken: %w", err)
+	}
+	return nil
+}
+
+// FindEmailVerificationToken returns the token row matching tokenHash,
+// provided it has not expired and has not already been consumed. Returns
+// pgx.ErrNoRows otherwise (expired, consumed, or never existed -- the caller
+// doesn't need to distinguish these, all three are simply "invalid token").
+func (r *Repository) FindEmailVerificationToken(ctx context.Context, tokenHash string) (*EmailVerificationTokenRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	t := &EmailVerificationTokenRow{}
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, user_id, token_hash, expires_at, consumed_at, created_at
+		FROM email_verification_tokens
+		WHERE token_hash = $1 AND expires_at > now() AND consumed_at IS NULL
+	`, tokenHash).Scan(&t.Id, &t.UserId, &t.TokenHash, &t.ExpiresAt, &t.ConsumedAt, &t.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("auth.Repository.FindEmailVerificationToken: %w", err)
+	}
+	return t, nil
+}
+
+// ConsumeEmailVerificationToken marks the token identified by tokenHash as
+// consumed, guarded by "WHERE consumed_at IS NULL" so a concurrent
+// double-submit of the same token can only succeed once. Returns
+// pgx.ErrNoRows if the token doesn't exist or was already consumed.
+func (r *Repository) ConsumeEmailVerificationToken(ctx context.Context, tokenHash string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE email_verification_tokens SET consumed_at = now() WHERE token_hash = $1 AND consumed_at IS NULL`,
+		tokenHash,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.ConsumeEmailVerificationToken: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
 	}
 	return nil
 }

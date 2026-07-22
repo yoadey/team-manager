@@ -54,6 +54,7 @@ import {
   buildPath,
   currentPath,
   parsePendingInvite,
+  parseVerifyEmailToken,
   ROUTE_MODULE,
   type Route,
   type UrlState,
@@ -263,6 +264,10 @@ export interface AppContextValue {
   // auth
   doLogin: (pid: string) => Promise<void>;
   doPasswordLogin: (email: string, password: string) => Promise<void>;
+  /** Resolves true on success, false on failure (state.error is set either way). */
+  doRegister: (email: string, password: string) => Promise<boolean>;
+  /** Resolves true on success, false on failure (state.error is set either way). */
+  doResendVerification: (email: string) => Promise<boolean>;
   logout: () => void;
   deleteAccount: (confirmEmail: string) => Promise<void>;
   exportMyData: () => Promise<void>;
@@ -915,6 +920,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [api, S, setState, establishSession],
   );
 
+  // doRegister/doResendVerification don't call establishSession -- the
+  // account isn't logged in yet (self-registration requires clicking the
+  // emailed verification link first). Register.tsx renders its own local
+  // "check your email" confirmation state on success; these actions only
+  // surface busy/error the same way every other action does.
+  const doRegister = useCallback(
+    async (email: string, password: string) => {
+      const owner = 'register';
+      setState({ busy: owner, error: null });
+      try {
+        await api.auth.register(email, password);
+        if (S().busy === owner) setState({ busy: null });
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('error.network');
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
+        return false;
+      }
+    },
+    [api, S, setState],
+  );
+
+  const doResendVerification = useCallback(
+    async (email: string) => {
+      const owner = 'resendVerification';
+      setState({ busy: owner, error: null });
+      try {
+        await api.auth.resendVerification(email);
+        if (S().busy === owner) setState({ busy: null });
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('error.network');
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
+        return false;
+      }
+    },
+    [api, S, setState],
+  );
+
   // ---------- nav ----------
   const closeSheet = useCallback(() => {
     const s = S().sheet;
@@ -1153,6 +1199,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (bootstrapStarted.current) return;
     bootstrapStarted.current = true;
     (async () => {
+      // A self-registration verification link (/verify-email/<token>) brought
+      // the user here, pre-session -- consume it before the normal
+      // currentUser() cookie-restore check below, since a brand-new visitor
+      // has no session cookie yet. On success this establishes a session the
+      // exact same way a password login does (reusing establishSession, so a
+      // pending team invite in the URL still gets redeemed); on failure fall
+      // through to the normal login screen with an explanatory error.
+      const verifyToken = parseVerifyEmailToken(window.location.pathname);
+      if (verifyToken) {
+        try {
+          await api.auth.verifyEmail(verifyToken);
+          const user = await api.auth.currentUser();
+          history.replaceState({}, '', '/');
+          await establishSession(user);
+        } catch {
+          history.replaceState({}, '', '/');
+          const providers = await api.auth.providers().catch(() => []);
+          setState({ phase: 'login', providers, error: t('auth.verifyEmailFailed') });
+        }
+        return;
+      }
       try {
         // Restore an existing session from the HttpOnly cookie. If one is active,
         // the user stays logged in across reloads without seeing the login screen.
@@ -1204,6 +1271,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState,
       doLogin,
       doPasswordLogin,
+      doRegister,
+      doResendVerification,
       logout,
       deleteAccount,
       exportMyData,
@@ -1301,6 +1370,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       exportMyData,
       doPasswordLogin,
+      doRegister,
+      doResendVerification,
       go,
       goEventsPending,
       goEventsAbsences,

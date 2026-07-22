@@ -6,12 +6,16 @@ import { NEUTRAL } from '@/styles/tokens';
 import { Spinner, Sym } from '@/components/ui';
 import { t } from '@/i18n';
 import { config } from '@/config';
+import { Register } from './Register';
 
 export function Login() {
   const { state, doLogin, doPasswordLogin } = useApp();
   const { providers, busy, error } = state;
 
-  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  // 'register' is a sibling view alongside the provider list / password form
+  // (not a separate top-level Phase) -- mirrors how invite acceptance is
+  // folded into the login flow rather than getting its own route.
+  const [view, setView] = useState<'providers' | 'password' | 'register'>('providers');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -28,7 +32,7 @@ export function Login() {
   function handleProviderClick(p: (typeof providers)[number]) {
     if (loginInFlight) return;
     if (p.id === 'password') {
-      setShowPasswordForm(true);
+      setView('password');
     } else {
       doLogin(p.id);
     }
@@ -134,7 +138,9 @@ export function Login() {
           </Box>
         )}
 
-        {showPasswordForm ? (
+        {view === 'register' ? (
+          <Register onBack={() => setView('password')} />
+        ) : view === 'password' ? (
           <Box component="form" onSubmit={handlePasswordSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <Box component="label" htmlFor="login-email" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <Box component="span" sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, px: '2px' }}>
@@ -185,7 +191,13 @@ export function Login() {
               {busy === 'login:password' ? <Spinner size={18} /> : t('auth.signIn')}
             </ButtonBase>
             <ButtonBase
-              onClick={() => setShowPasswordForm(false)}
+              onClick={() => setView('register')}
+              sx={{ fontSize: '13px', color: '#1565C0', py: '4px', justifyContent: 'center' }}
+            >
+              {t('auth.createAccount')}
+            </ButtonBase>
+            <ButtonBase
+              onClick={() => setView('providers')}
               sx={{ fontSize: '13px', color: NEUTRAL.secondary, py: '4px', justifyContent: 'center' }}
             >
               ← {t('auth.back')}

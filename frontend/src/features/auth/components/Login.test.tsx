@@ -30,10 +30,23 @@ const appleProvider = {
   glyph: 'A',
 };
 
+const passwordProvider = {
+  id: 'password',
+  name: 'Passwort',
+  sub: 'test@example.com / demo',
+  bg: '#fff',
+  fg: '#000',
+  border: true,
+  glyph: 'P',
+};
+
 function makeApp(
   overrides: { providers?: (typeof googleProvider)[]; busy?: string | null; error?: string | null } = {},
 ) {
   const doLogin = vi.fn();
+  const doPasswordLogin = vi.fn();
+  const doRegister = vi.fn().mockResolvedValue(true);
+  const doResendVerification = vi.fn().mockResolvedValue(true);
   const app = {
     state: {
       providers: overrides.providers ?? [googleProvider],
@@ -41,6 +54,9 @@ function makeApp(
       error: overrides.error ?? null,
     },
     doLogin,
+    doPasswordLogin,
+    doRegister,
+    doResendVerification,
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   return app;
@@ -134,5 +150,38 @@ describe('Login', () => {
     // The hint text is inside a div alongside a <br/> and loginHintNote, so we
     // use getAllByText with a substring matcher to locate it.
     expect(screen.getByText((content) => content.includes('Anmeldung über deinen Identity-Provider.'))).toBeTruthy();
+  });
+
+  describe('password form and self-registration toggle', () => {
+    it('clicking the password provider shows the password form', () => {
+      makeApp({ providers: [passwordProvider] });
+      render(<Login />);
+      fireEvent.click(screen.getByText('Passwort').closest('button')!);
+      expect(screen.getByText('Anmelden')).toBeTruthy();
+      expect(screen.getByText('Konto erstellen')).toBeTruthy();
+    });
+
+    it('clicking "Konto erstellen" from the password form switches to the Register form', () => {
+      makeApp({ providers: [passwordProvider] });
+      render(<Login />);
+      fireEvent.click(screen.getByText('Passwort').closest('button')!);
+      fireEvent.click(screen.getByText('Konto erstellen'));
+
+      // The Register form's confirm-password field distinguishes it from the
+      // password login form (both share email/password labels).
+      expect(screen.getByText('Passwort bestätigen')).toBeTruthy();
+    });
+
+    it('the Register form\'s "back" link returns to the password form', () => {
+      makeApp({ providers: [passwordProvider] });
+      render(<Login />);
+      fireEvent.click(screen.getByText('Passwort').closest('button')!);
+      fireEvent.click(screen.getByText('Konto erstellen'));
+      expect(screen.getByText('Passwort bestätigen')).toBeTruthy();
+
+      fireEvent.click(screen.getByText((content) => content.includes('Zurück')));
+      expect(screen.queryByText('Passwort bestätigen')).toBeNull();
+      expect(screen.getByText('Anmelden')).toBeTruthy();
+    });
   });
 });
