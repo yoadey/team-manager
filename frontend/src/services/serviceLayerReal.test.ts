@@ -560,6 +560,25 @@ describe('events', () => {
       expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, cursor: 'c1' } }) }),
     );
   });
+
+  it('issueCalendarFeedToken posts and returns the url', async () => {
+    client.POST.mockResolvedValueOnce(ok({ url: 'https://app.example.com/api/v1/calendar-feed/abc.ics' }));
+    const url = await realApi.events.issueCalendarFeedToken('t1');
+    expect(client.POST).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-feed/token',
+      expect.objectContaining({ params: { path: { teamId: 't1' } } }),
+    );
+    expect(url).toBe('https://app.example.com/api/v1/calendar-feed/abc.ics');
+  });
+
+  it('revokeCalendarFeedToken deletes', async () => {
+    client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
+    await realApi.events.revokeCalendarFeedToken('t1');
+    expect(client.DELETE).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-feed/token',
+      expect.objectContaining({ params: { path: { teamId: 't1' } } }),
+    );
+  });
 });
 
 // ─── attendance ───────────────────────────────────────────────────────────────
@@ -807,6 +826,38 @@ describe('notifications', () => {
   it('markSeen posts and returns true', async () => {
     client.POST.mockResolvedValueOnce(ok(undefined, 204));
     expect(await realApi.notifications.markSeen('t1')).toBe(true);
+  });
+});
+
+describe('push', () => {
+  const validSubscription: PushSubscriptionJSON = {
+    endpoint: 'https://push.example/abc',
+    keys: { p256dh: 'p256dh-value', auth: 'auth-value' },
+  };
+
+  it('subscribe posts the endpoint and keys', async () => {
+    client.POST.mockResolvedValueOnce(ok(undefined, 204));
+    await realApi.push.subscribe(validSubscription);
+    expect(client.POST).toHaveBeenCalledWith(
+      '/users/me/push-subscriptions',
+      expect.objectContaining({
+        body: { endpoint: 'https://push.example/abc', keys: { p256dh: 'p256dh-value', auth: 'auth-value' } },
+      }),
+    );
+  });
+
+  it('subscribe rejects a subscription missing endpoint or keys without calling the API', async () => {
+    await expect(realApi.push.subscribe({ endpoint: '', keys: undefined } as never)).rejects.toThrow();
+    expect(client.POST).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribe deletes with the endpoint as a query param', async () => {
+    client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
+    await realApi.push.unsubscribe('https://push.example/abc');
+    expect(client.DELETE).toHaveBeenCalledWith(
+      '/users/me/push-subscriptions',
+      expect.objectContaining({ params: { query: { endpoint: 'https://push.example/abc' } } }),
+    );
   });
 });
 

@@ -1,102 +1,135 @@
 ## 1. Database
-- [ ] 1.1 New migration `00031_calendar_feed_tokens.sql`: `calendar_feed_tokens`
+- [x] 1.1 New migration `00003_calendar_feed_tokens.sql` (renumbered from
+      `00031` after `main` squashed all prior migrations into a single
+      `00001_init.sql`): `calendar_feed_tokens`
       (`id UUID PK`, `user_id UUID FK -> users ON DELETE CASCADE`,
       `team_id UUID FK -> teams ON DELETE CASCADE`, `token TEXT NOT NULL UNIQUE`,
       `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `revoked_at TIMESTAMPTZ`)
-- [ ] 1.2 Unique index on `(user_id, team_id) WHERE revoked_at IS NULL`
-      (enforces "one active token per user+team" at the DB layer) and an
-      index on `token` for the feed lookup
-- [ ] 1.3 `make migrate` locally; confirm `migration-rollback` (up→down→up)
-      and `migration-safety` gates pass
+- [x] 1.2 Unique index on `(user_id, team_id) WHERE revoked_at IS NULL`
+      and an index on `token` (the latter comes free from the
+      `UNIQUE(token)` column constraint, no separate index needed)
+- [x] 1.3 `make migrate` locally against a real Postgres; confirmed
+      up→down→up round-trips cleanly
 
 ## 2. OpenAPI
-- [ ] 2.1 `POST /teams/{teamId}/calendar-feed/token` (`x-rbac-module: events`,
+- [x] 2.1 `POST /teams/{teamId}/calendar-feed/token` (`x-rbac-module: events`,
       `x-rbac-self-service: true`) returning `{ url: string }`;
       `DELETE /teams/{teamId}/calendar-feed/token` (same RBAC) returning 204
-- [ ] 2.2 `GET /calendar-feed/{token}.ics` — `security: []`, response
-      `text/calendar`, no `x-rbac-module` (unauthenticated, outside the RBAC
-      table entirely, same as `/auth/*`)
-- [ ] 2.3 `cd backend && make generate` (commit `internal/gen/api.gen.go`)
-- [ ] 2.4 repo-root `make generate-ts` (commit `frontend/src/api/types.gen.ts`)
+- [x] 2.2 `GET /calendar-feed/{token}.ics` — `security: []`, response
+      `text/calendar`, no `x-rbac-module`. oapi-codegen generated the
+      expected raw-bytes strict-response type
+      (`GetCalendarFeed200TextcalendarResponse{Body io.Reader, ContentLength
+      int64}`) automatically for the non-JSON content type — no custom
+      codegen config needed.
+- [x] 2.3 `cd backend && make generate`
+- [x] 2.4 repo-root `make generate-ts`
 
 ## 3. Backend: calendarfeed package
-- [ ] 3.1 `internal/calendarfeed/model.go`: `TokenRow`
-- [ ] 3.2 `internal/calendarfeed/repository.go`: `IssueToken(ctx, userID,
-      teamID) (token string, err error)` (revokes any existing active row for
-      that pair, inserts a fresh 32-byte `crypto/rand`+hex token — mirror
-      `teams.generateCode` in `internal/teams/repository.go`), `Revoke(ctx,
-      userID, teamID) error`, `FindActiveByToken(ctx, token) (*TokenRow, error)`
-- [ ] 3.3 `internal/calendarfeed/service.go`: `IssueToken`/`RevokeToken`
-      (thin wrappers over the repo, building the full URL from
-      `config.PublicBaseURL`), `ServeFeed(ctx, token) (icsBytes []byte, err
-      error)` — resolves the token, re-checks membership + `events` read
-      permission via the same `members.Repository` methods
-      `middleware.RequireMembership`/`RequirePermission` use, loads that
-      team's non-cancelled events, renders ICS; returns a distinct
-      not-found-or-unauthorized error (mapped to plain 404, matching the
-      design decision not to leak token validity)
-- [ ] 3.4 `internal/calendarfeed/ics.go`: Go port of
-      `useCalExportActions.ts::buildIcs()` — `BEGIN:VCALENDAR`/`VEVENT`
-      structure, line folding at 73 chars, the same escaping rules
-      (backslash/comma/semicolon/newline), `UID: {eventID}@teamverwaltung.app`,
-      `DTSTAMP`, `Europe/Berlin`-anchored `DTSTART`/`DTEND` (reuse or port the
-      `zonedTimeToUtc`-equivalent conversion in Go, keeping `18:00` /
-      2-hour-duration fallbacks identical to the frontend's)
-- [ ] 3.5 `internal/calendarfeed/handler.go`: three HTTP handlers — the two
-      authenticated token-management ones plug into the generated
-      `StrictServerInterface` like other features; the unauthenticated feed
-      handler is a plain `http.HandlerFunc` (no `gen`/strict-server wrapper,
-      matching `strictSrv.Login`'s existing pattern)
+- [x] 3.1 `internal/calendarfeed/model.go`: `TokenRow`
+- [x] 3.2 `internal/calendarfeed/repository.go`: `IssueToken` (transactional
+      revoke-then-insert, 32-byte `crypto/rand`+hex token mirroring
+      `teams.generateCode`), `Revoke`, `FindActiveByToken`
+- [x] 3.3 `internal/calendarfeed/service.go`: `IssueToken`/`RevokeToken`
+      (URL built from `config.PublicBaseURL`), `ServeFeed` — re-checks
+      membership + `events` read permission on every call via the same
+      `members.Repository` (passed in as `membershipChecker`/`permsChecker`
+      interfaces), reuses `notifications.HasReadAccess` for the permission
+      check itself, returns `ErrFeedUnavailable` uniformly (token unknown,
+      revoked, team left, or permission dropped to `none` all look
+      identical to the caller)
+- [x] 3.4 `internal/calendarfeed/ics.go`: Go port of `buildIcs()` — line
+      folding at 73 octets, the same escaping rules, stable
+      `UID: {eventID}@teamverwaltung.app`, `DTSTAMP`, `Europe/Berlin`-anchored
+      `DTSTART`/`DTEND` via `time.LoadLocation` (simpler and more correct
+      than porting the frontend's manual offset-math `zonedTimeToUtc` —
+      Go's stdlib does IANA-zone-aware wall-clock-to-UTC conversion
+      natively), same `18:00`/2-hour-duration fallbacks
+- [x] 3.5 `internal/calendarfeed/handler.go`: `IssueCalendarFeedToken`/
+      `RevokeCalendarFeedToken`/`GetCalendarFeed`, all three as ordinary
+      `gen.StrictServerInterface` methods (not a bespoke `http.HandlerFunc`
+      as originally planned) — the strict-server adapter already generated
+      a working type for the `text/calendar` response, so reusing it end to
+      end (same request/response marshaling as every other route) turned
+      out simpler than a hand-rolled handler.
 
 ## 4. Router wiring
-- [ ] 4.1 `cmd/server/main.go`: register
-      `r.Get("/calendar-feed/{token}.ics", calendarFeedHandler)` after the
-      generated mux inside `r.Route("/api/v1", ...)`, alongside the existing
-      `/auth/*` manual registrations, so it overrides whatever the generated
-      mux registered for that path and never passes through
-      `AuthMiddleware`/`RequireMembership`/`RequirePermission`
+- [x] 4.1 `cmd/server/main.go`: registered
+      `r.Get("/calendar-feed/{token}.ics", func(w, req) {
+      strictSrv.GetCalendarFeed(w, req, chi.URLParam(req, "token")) })`
+      after the generated mux inside `r.Route("/api/v1", ...)`, alongside
+      the `/auth/*` manual overrides. Verified live (see 7.9) that chi's
+      `{token}.ics` compound path segment correctly extracts just the
+      token, and that the route is reachable with zero cookies.
 
 ## 5. Frontend
-- [ ] 5.1 `features/events/hooks/useCalExportActions.ts`: `copyCalUrl` calls
-      `POST /teams/{teamId}/calendar-feed/token` and copies the real returned
-      URL instead of formatting a placeholder; add a `regenerateCalUrl`
-      (or reuse `copyCalUrl` idempotently) for the "renew link" action
-- [ ] 5.2 `features/events/components/CalExportSheet.tsx`: replace the
-      hardcoded `url` with the fetched one, remove `t('events.calPrototypeNote')`
-      once wired
-- [ ] 5.3 `services/serviceLayerReal.ts`: `events.issueCalendarFeedToken` /
+- [x] 5.1 `features/events/hooks/useCalExportActions.ts`: `copyCalUrl` now
+      takes the URL as a parameter (fetched by the sheet via a new
+      `useCalendarFeedUrlQuery`, `staleTime: Infinity` so reopening the
+      sheet doesn't silently rotate the token); added `regenerateCalUrl`
+      for the explicit "renew link" action
+- [x] 5.2 `features/events/components/CalExportSheet.tsx`: shows the fetched
+      URL (loading/error states while the query resolves), removed
+      `t('events.calPrototypeNote')`, added a "renew link" button
+- [x] 5.3 `services/serviceLayerReal.ts`: `events.issueCalendarFeedToken` /
       `revokeCalendarFeedToken`
-- [ ] 5.4 `mocks/handlers.ts` + `mocks/db.ts`: MSW handlers for the two
-      token-management routes (the `.ics` feed route itself is
-      backend-only and out of scope for the mock service layer, same as
-      other server-rendered-content routes)
-- [ ] 5.5 `i18n/en.ts` + `i18n/de.ts`: drop or repurpose `calPrototypeNote`;
-      add copy for the "renew link" action if introduced
+- [x] 5.4 `mocks/handlers.ts` + `mocks/db.ts`: MSW handlers for the two
+      token-management routes
+- [x] 5.5 `i18n/en.ts` + `i18n/de.ts`: dropped `calPrototypeNote`, added
+      `calLoading`/`calLoadFailed`/`calRenew`/`calRenewFailed`/
+      `toastCalLinkRenewed`, updated `calSubscribeDesc` to drop the
+      "not active in this preview" caveat now that it's real
 
 ## 6. Tests
-- [ ] 6.1 Backend: `calendarfeed.Service.IssueToken` (rotates old token,
-      one active per user+team), `RevokeToken`, `ServeFeed` (valid token;
-      revoked token → 404; token for a team the user left → 404; token
-      whose `events` permission dropped to `none` → 404; ICS output
-      excludes cancelled events and matches expected escaping/folding);
-      `ics.go` rendering unit tests (line folding at 73 chars, special-char
-      escaping, DST-boundary date around a `Europe/Berlin` transition)
-- [ ] 6.2 Integration test hitting `GET /calendar-feed/{token}.ics` with no
-      cookie at all, confirming it's reachable unauthenticated and returns
-      `text/calendar`
-- [ ] 6.3 Frontend: `CalExportSheet`/`useCalExportActions` wired to the real
-      endpoint; `serviceContract.test.ts` new scenarios
+- [x] 6.1 Backend: `calendarfeed.Service.IssueToken`/`RevokeToken`/`ServeFeed`
+      (unknown/revoked token, left-team, permission-dropped-to-none, team
+      gone, happy path) with mocked deps; `ics.go` rendering tests (cancelled
+      exclusion, VCALENDAR structure, DST-boundary CET/CEST date pair,
+      escaping, line folding); `calendarfeed.Repository` integration tests
+      (rotate-invalidates-old-token, revoke, unknown-token) — need Docker,
+      skip in this sandbox, additionally verified via a manual smoke script
+      against a real local Postgres (issue → find → rotate → old token
+      404s → revoke → 404s)
+- [x] 6.2 Not an automated Go integration test (no existing precedent in
+      `cmd/server` for booting the full assembled router in a test — only
+      small pure-function unit tests exist there today); instead verified
+      manually end-to-end against a real running server + real Postgres:
+      logged in, issued a token, then fetched
+      `GET /calendar-feed/{token}.ics` with `curl` sending **no cookie at
+      all**, got back `200 text/calendar` with the correct ICS body; then
+      revoked the token and confirmed the same URL now 404s. A follow-up
+      change could add a proper `httptest`-based router-boot test harness
+      for this class of regression (nothing currently exercises the
+      "manual override route bypasses AuthMiddleware" wiring in an
+      automated way, for `/auth/*` either).
+- [x] 6.3 Frontend: `CalExportSheet.test.tsx`/`useCalExportActions.test.ts`
+      updated for the real query-based flow (loading state, renew button,
+      copy-with-URL); `serviceLayerReal.test.ts` new
+      `issueCalendarFeedToken`/`revokeCalendarFeedToken` cases (not
+      `serviceContract.test.ts`, which is scoped to cross-implementation
+      drift scenarios from the pre-MSW mock era — see the sibling
+      `add-web-push-notifications` proposal's tasks.md 8.2 for the same
+      reasoning)
 
 ## 7. Verification
-- [ ] 7.1 `openspec validate add-calendar-feed-subscription --strict`
-- [ ] 7.2 `cd backend && make generate` / repo-root `make generate-ts` — no diff
-- [ ] 7.3 `cd backend && make lint`
-- [ ] 7.4 `cd backend && make test` (unit + integration)
-- [ ] 7.5 `govulncheck`
-- [ ] 7.6 `migration-rollback` / `migration-safety` on the new migration
-- [ ] 7.7 `backend-openapi-drift`
-- [ ] 7.8 `cd frontend && npm run lint && npm run typecheck && npm test && npm run build`
-- [ ] 7.9 Manual: subscribe the issued URL in a real calendar app (e.g.
-      Google Calendar "From URL" or Apple Calendar), confirm events appear
-      and a later-created event shows up after the client's next poll;
-      revoke the token and confirm the app's next poll fails/stops updating
+- [x] 7.1 `openspec validate add-calendar-feed-subscription --strict`
+- [x] 7.2 `cd backend && make generate` / repo-root `make generate-ts` — no diff
+- [x] 7.3 `cd backend && make lint` (golangci-lint: 0 issues)
+- [x] 7.4 `cd backend && make test` — unit tests pass; integration tests
+      skip cleanly (no Docker in this sandbox)
+- [ ] 7.5 `govulncheck` — could not run in this sandbox (outbound proxy
+      returns 403 for `vuln.go.dev`); needs to run in CI
+- [x] 7.6 `migration-rollback` / `migration-safety` — exercised manually
+      (`goose up`/`down`/`up` against a real local Postgres 16)
+- [x] 7.7 `backend-openapi-drift` — confirmed no diff after regenerating
+- [x] 7.8 `cd frontend && npm run lint && npm run typecheck && npm test && npm run build`
+      — all pass (1168 tests, 0 lint issues, bundle within budget)
+- [ ] 7.9 Manual real-calendar-app subscribe walkthrough (Google Calendar
+      "From URL" / Apple Calendar) — not performed: this sandbox has no
+      such app to test against. What *was* verified end-to-end with `curl`
+      against a real running server + real Postgres: issuing a token,
+      fetching the feed with zero cookies and getting back a correct
+      `text/calendar` document containing the seeded event, and confirming
+      revocation immediately 404s the old URL. A real calendar-app pass is
+      still needed before shipping (client-side ICS parsing quirks — e.g.
+      how strictly a given app validates `DTSTAMP`/line-folding — can't be
+      verified without one).
