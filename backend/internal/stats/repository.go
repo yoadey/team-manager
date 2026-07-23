@@ -89,7 +89,7 @@ func (r *Repository) MemberStats(ctx context.Context, teamID uuid.UUID, from, to
 				u.id           AS user_id,
 				u.name         AS name,
 				u.avatar_color AS avatar_color,
-				(u.photo_object_key IS NOT NULL OR u.photo_data IS NOT NULL) AS has_photo,
+				(u.photo_object_key IS NOT NULL) AS has_photo,
 				CASE WHEN e.id IS NULL THEN 'pending' ELSE `+attendance.EffectiveStatusExpr+` END AS eff
 			FROM memberships m
 			JOIN users u ON u.id = m.user_id
@@ -191,7 +191,7 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 				u.id           AS user_id,
 				u.name         AS name,
 				u.avatar_color AS avatar_color,
-				(u.photo_object_key IS NOT NULL OR u.photo_data IS NOT NULL) AS has_photo,
+				(u.photo_object_key IS NOT NULL) AS has_photo,
 				CASE WHEN e.id IS NULL THEN 'pending' ELSE `+attendance.EffectiveStatusExpr+` END AS eff
 			FROM memberships m
 			JOIN users u ON u.id = m.user_id

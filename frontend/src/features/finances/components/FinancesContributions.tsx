@@ -21,7 +21,8 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const contribs = f.contributions || [];
   const months = [...new Set(contribs.map((c) => c.month).filter(Boolean))].sort().reverse();
   if (!months.length) return <EmptyState icon="payments" text={t('finances.contribEmpty')} />;
-  const sel = state.contribMonth && months.includes(state.contribMonth) ? state.contribMonth : months[0];
+  // months[0]! is safe: the `!months.length` branch above already returned.
+  const sel = state.contribMonth && months.includes(state.contribMonth) ? state.contribMonth : months[0]!;
   const rows = contribs
     .filter((c) => c.month === sel)
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', getIntlLocale()));

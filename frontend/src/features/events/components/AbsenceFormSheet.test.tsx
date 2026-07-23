@@ -77,7 +77,7 @@ describe('AbsenceFormSheet', () => {
     const app = mockUseApp();
     render(<AbsenceFormSheet app={app as never} sheet={makeSheet({ from: '2026-01-05' })} />);
     const dateInputs = document.querySelectorAll('input[type="date"]') as NodeListOf<HTMLInputElement>;
-    expect(dateInputs[1].min).toBe('2026-01-05');
+    expect(dateInputs[1]!.min).toBe('2026-01-05');
   });
 
   it('constrains the "from" date input by the current "to" value', () => {
@@ -85,7 +85,7 @@ describe('AbsenceFormSheet', () => {
     const app = mockUseApp();
     render(<AbsenceFormSheet app={app as never} sheet={makeSheet({ to: '2026-01-10' })} />);
     const dateInputs = document.querySelectorAll('input[type="date"]') as NodeListOf<HTMLInputElement>;
-    expect(dateInputs[0].max).toBe('2026-01-10');
+    expect(dateInputs[0]!.max).toBe('2026-01-10');
   });
 
   it('shows "Abwesenheit eintragen" label in create mode', () => {

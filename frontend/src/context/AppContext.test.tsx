@@ -1141,7 +1141,7 @@ describe('AppProvider / session-restore resilience', () => {
     } = await freshModules();
 
     const events = await api.events.list('t_a', 'all');
-    const eventId = events[0].id;
+    const eventId = events[0]!.id;
 
     let actions: ReturnType<typeof freshUseAppActions>;
     function Probe() {

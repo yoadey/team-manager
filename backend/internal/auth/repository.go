@@ -87,8 +87,9 @@ func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRo
 // FindUserByID looks up a user by primary key. This is on the hot path --
 // invoked on essentially every authenticated request via
 // Service.ValidateToken/Handler.AuthMiddleware -- so it only selects a
-// HasPhoto boolean rather than the full photo_data BLOB; use
-// FindUserPhotoByID for the one path that actually needs the raw bytes.
+// HasPhoto boolean rather than the photo's object key; the photo itself is
+// served via a presigned object-store URL (see internal/storage), never
+// streamed through this lookup.
 func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -340,7 +341,7 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 		{`UPDATE users SET
 			name = $2, email = 'deleted+' || id::text || '@invalid',
 			phone = NULL, birthday = NULL, address = NULL,
-			photo_data = NULL, photo_mime = NULL, photo_object_key = NULL,
+			photo_object_key = NULL,
 			password_hash = NULL, deleted_at = now()
 		  WHERE id = $1 AND deleted_at IS NULL`, []any{userID, anonName}},
 		{`UPDATE event_comments SET text = '' WHERE user_id = $1`, []any{userID}},

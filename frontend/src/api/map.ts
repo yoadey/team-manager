@@ -32,6 +32,14 @@ import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribu
 
 type S = components['schemas'];
 
+// Spreads `{ [key]: value }` only when `value` isn't undefined -- lets the
+// mapXxx() functions below omit an optional frontend-model field entirely
+// instead of assigning it `undefined`, which `exactOptionalPropertyTypes`
+// rejects for fields typed `key?: T` (no explicit `| undefined`).
+function opt<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
+}
+
 // The backend represents money as integer cents (see openapi.yaml amount
 // fields); the frontend domain model and UI keep working in euros (floats)
 // to minimize changes to components/validation, so the conversion happens
@@ -89,7 +97,7 @@ export function mapProvider(p: S['Provider']): Provider {
     glyph: p.glyph,
     bg: p.bg,
     fg: p.fg,
-    border: p.border ? true : undefined,
+    ...opt('border', p.border ? true : undefined),
   };
 }
 
@@ -115,7 +123,7 @@ export function mapTeam(t: S['Team']): Team {
     photo: photoUrl(t.hasPhoto, `/teams/${t.id}/photo`),
     logo: photoUrl(t.hasLogo, `/teams/${t.id}/logo`),
     description: t.description ?? '',
-    reasonVisibilityRoles: t.reasonVisibilityRoleIds,
+    ...opt('reasonVisibilityRoles', t.reasonVisibilityRoleIds),
   };
 }
 
@@ -195,14 +203,14 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
     date: e.date,
     location: e.location ?? '',
     note: e.note ?? '',
-    result: e.result,
     meetTime: e.meetTime ?? null,
     startTime: e.startTime ?? null,
     endTime: e.endTime ?? null,
     meetTimeMandatory: e.meetTimeMandatory ?? false,
     responseMode: (e.responseMode ?? 'opt_in') as 'opt_in' | 'opt_out',
-    nominatedRoleIds: e.nominatedRoleIds,
     recurring: e.recurring,
+    ...opt('result', e.result),
+    ...opt('nominatedRoleIds', e.nominatedRoleIds),
     status: e.status,
     summary: mapEventSummary(e.summary),
     myStatus: e.myStatus ?? 'pending',
@@ -243,9 +251,9 @@ export function mapEventComment(c: S['EventComment']): EventComment {
     userId: c.userId,
     text: c.text,
     createdAt: c.createdAt,
-    name: c.authorName,
-    color: c.authorColor,
     photo: null,
+    ...opt('name', c.authorName),
+    ...opt('color', c.authorColor),
   };
 }
 
@@ -257,11 +265,11 @@ export function mapAbsence(a: S['Absence']): Absence {
     to: a.to,
     reason: a.reason ?? '',
     createdAt: a.createdAt,
-    name: a.memberName,
-    avatarColor: a.memberAvatarColor,
     photo: null,
-    roleColor: a.roleColor,
-    roleName: a.roleName,
+    ...opt('name', a.memberName),
+    ...opt('avatarColor', a.memberAvatarColor),
+    ...opt('roleColor', a.roleColor),
+    ...opt('roleName', a.roleName),
   };
 }
 
@@ -274,9 +282,9 @@ export function mapNewsItem(n: S['NewsItem']): NewsItem {
     body: n.body,
     pinned: n.pinned,
     createdAt: n.createdAt,
-    authorName: n.authorName,
-    authorColor: n.authorColor,
     authorPhoto: null,
+    ...opt('authorName', n.authorName),
+    ...opt('authorColor', n.authorColor),
   };
 }
 
@@ -312,18 +320,18 @@ export function mapNotification(n: S['AppNotification']): AppNotification {
     id: n.id,
     teamId: n.teamId,
     type: n.type as AppNotification['type'],
-    actorId: n.actorId,
-    status: n.status as AppNotification['status'],
-    title: n.title,
-    eventId: n.eventId,
-    eventTitle: n.eventTitle,
-    eventDate: n.eventDate,
-    note: n.note,
     createdAt: n.createdAt,
-    actorName: n.actorName,
-    actorColor: n.actorColor,
     actorPhoto: null,
     unread: n.unread ?? false,
+    ...opt('actorId', n.actorId),
+    ...opt('status', n.status as AppNotification['status']),
+    ...opt('title', n.title),
+    ...opt('eventId', n.eventId),
+    ...opt('eventTitle', n.eventTitle),
+    ...opt('eventDate', n.eventDate),
+    ...opt('note', n.note),
+    ...opt('actorName', n.actorName),
+    ...opt('actorColor', n.actorColor),
   };
 }
 
@@ -365,11 +373,11 @@ export function mapPenaltyAssignment(a: S['PenaltyAssignment']): PenaltyAssignme
     penaltyId: a.penaltyId ?? null,
     paid: a.paid,
     date: a.date,
-    name: a.memberName,
-    avatarColor: a.memberAvatarColor,
     photo: null,
-    label: a.label,
-    amount: a.amount == null ? a.amount : centsToEuros(a.amount),
+    ...opt('name', a.memberName),
+    ...opt('avatarColor', a.memberAvatarColor),
+    ...opt('label', a.label),
+    ...opt('amount', a.amount == null ? a.amount : centsToEuros(a.amount)),
   };
 }
 
@@ -382,9 +390,9 @@ export function mapContribution(c: S['Contribution']): Contribution {
     label: c.label ?? '',
     amount: centsToEuros(c.amount),
     status: c.status,
-    name: c.memberName,
-    avatarColor: c.memberAvatarColor,
     photo: null,
+    ...opt('name', c.memberName),
+    ...opt('avatarColor', c.memberAvatarColor),
   };
 }
 

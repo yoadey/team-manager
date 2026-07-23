@@ -23,9 +23,8 @@ Anwesenheiten, Finanzbuchungen — bleiben aus Nachvollziehbarkeits- und
 buchhalterischen Gründen erhalten, aber **anonymisiert**: sie lassen sich
 danach nicht mehr eurer Person zuordnen.
 
-Zur Bestätigung müsst ihr eure E-Mail-Adresse erneut eingeben (ein Passwort
-gibt es dafür nicht, da die Anmeldung über einen Identity-Provider läuft).
-Erst danach wird „Endgültig löschen" aktiv.
+Zur Bestätigung müsst ihr eure E-Mail-Adresse erneut eingeben — ein Passwort
+ist dafür nicht nötig. Erst danach wird „Endgültig löschen" aktiv.
 
 ### Wenn die Löschung nicht sofort möglich ist
 

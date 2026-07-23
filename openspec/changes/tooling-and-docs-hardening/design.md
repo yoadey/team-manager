@@ -21,5 +21,5 @@ The repo is deliberately strict elsewhere (golangci-lint, coverage gates, drift 
 
 ## Risks / Trade-offs
 
-- `noUncheckedIndexedAccess` can surface many small type errors; timebox and, if too broad, split into its own follow-up rather than blocking the rest.
-- Enforcing warnings may require touching unrelated files; keep those diffs mechanical.
+- `noUncheckedIndexedAccess` (and `exactOptionalPropertyTypes`, enabled alongside it) surfaced 251 errors across ~50 files when tried together; the fix cost turned out bounded (mostly two repeating patterns -- guard/`??`/restructured lookups, and an `opt()` omit-key helper for optional wire/DTO fields) and was completed in this change rather than split out.
+- Enforcing warnings required touching several component files (genuine complexity/max-params refactors, not threshold changes); those diffs stayed mechanical/behavior-preserving, with the existing `*.test.tsx` suites as the check.

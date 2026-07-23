@@ -138,7 +138,7 @@ describe('EventAbsences', () => {
     // Find the edit button (first icon button in the absence row)
     const absenceRowBtns = Array.from(buttons).filter((b) => !b.textContent?.includes('Abwesenheit'));
     if (absenceRowBtns.length > 0) {
-      await userEvent.click(absenceRowBtns[0]);
+      await userEvent.click(absenceRowBtns[0]!);
       expect(app.openAbsenceForm).toHaveBeenCalledWith(myAbsence);
     }
   });
@@ -152,7 +152,7 @@ describe('EventAbsences', () => {
     // The remove button follows the edit button in the DOM
     const absenceRowBtns = Array.from(buttons).filter((b) => !b.textContent?.includes('Abwesenheit'));
     if (absenceRowBtns.length > 1) {
-      await userEvent.click(absenceRowBtns[1]);
+      await userEvent.click(absenceRowBtns[1]!);
       expect(app.removeAbsence).toHaveBeenCalledWith('ab1');
     }
   });

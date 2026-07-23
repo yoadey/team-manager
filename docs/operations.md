@@ -118,14 +118,14 @@ serialized via a Postgres session-level advisory lock). CI's
 (unindexed `CREATE INDEX`, `ALTER COLUMN ... TYPE`, unvalidated `CHECK`
 constraints) — it does not, and cannot, check whether a migration is
 *semantically* backward-incompatible with the old binary still serving
-traffic during that window. `00008_amount_cents.sql` (converting
-`transactions`/`penalties`/`contributions.amount` from euro floats to integer
-cents in place) is a concrete example of the shape to watch for: had that
-migration shipped under a live rolling upgrade with replicas > 1, the
-still-running old-version pods would have read/written the new column
-expecting the old type for the duration of the rollout. For any future
-migration that changes a column's *meaning* (not just its lock duration),
-either use the standard expand/contract pattern (add the new column, dual-write
+traffic during that window. A migration that converts a column's stored
+representation in place (e.g. changing a monetary column from a float type
+to integer cents) is a concrete example of the shape to watch for: if that
+shipped under a live rolling upgrade with replicas > 1, the still-running
+old-version pods would read/write the new column expecting the old type for
+the duration of the rollout. For any future migration that changes a
+column's *meaning* (not just its lock duration), either use the standard
+expand/contract pattern (add the new column, dual-write
 from both binary versions, backfill, then drop the old column in a later
 release) or, for that one deploy, scale to a single replica (`--set
 replicaCount=1`) *and* switch to `Recreate`
@@ -137,32 +137,20 @@ concurrent-old/new-binary condition this mitigation exists to avoid.
 
 ### Recovering from a migration killed mid-flight
 
-Every migration but one uses `CREATE TABLE IF NOT EXISTS`/`CREATE INDEX
-CONCURRENTLY IF NOT EXISTS`, so re-running `db.RunMigrations` after an
-interrupted `migrate` initContainer (OOM, node eviction, `kubectl delete
-pod`, a deploy timeout) is safe: goose only marks a migration as applied
-after it returns cleanly, so a partial run just gets retried from the top
-and the `IF NOT EXISTS` guards make that a no-op for whatever already
-landed. `00004_audit_log.sql` is the one exception — its `CREATE TABLE
-audit_log` and three `CREATE INDEX CONCURRENTLY` statements predate that
-convention and can't be changed retroactively (goose validates every
-*already-applied* migration's checksum against its file content, so
-editing this file would break every environment that has already run it).
+The initial-setup migration (`00001_init.sql`) wraps every `CREATE TABLE`
+in a single `-- +goose StatementBegin`/`StatementEnd` block, which Postgres
+executes as one implicit transaction: if the `migrate` initContainer is
+killed mid-flight (OOM, node eviction, `kubectl delete pod`, a deploy
+timeout) while that block is running, none of it persists, and a retry
+starts clean. Its `CREATE INDEX CONCURRENTLY` statements run afterward,
+each outside that transaction (required for `CONCURRENTLY`); every one uses
+`IF NOT EXISTS`, so re-running the migration after an interruption there is
+also safe — whatever indexes already landed are simply skipped.
 
-This only matters for a **brand-new deployment that has never successfully
-applied any migrations yet** — every existing deployment already has 00004
-recorded as applied and will never re-run it. If a fresh deployment's
-`migrate` initContainer is killed partway through 00004 specifically, the
-pod crash-loops on retry with `pq: relation "audit_log" already exists`
-(SQLSTATE `42P07`). To recover:
-
-1. Confirm this is actually 00004 stuck (`kubectl logs -c migrate <pod>`
-   shows the `42P07` error, and `SELECT * FROM goose_db_version ORDER BY id
-   DESC LIMIT 1` in the target database is still below version 4).
-2. Manually drop whatever 00004 partially created:
-   `DROP TABLE IF EXISTS audit_log;` (cascades its three indexes).
-3. Delete the crash-looping pod so the initContainer retries cleanly against
-   the now-empty state.
+Future migrations that add tables/indexes outside this pattern should keep
+using `CREATE TABLE IF NOT EXISTS`/`CREATE INDEX CONCURRENTLY IF NOT
+EXISTS` for the same reason, since goose only marks a migration as applied
+once it returns cleanly, and an interrupted run gets retried from the top.
 
 ## Object storage (image uploads)
 
@@ -206,14 +194,6 @@ override `networkPolicy.egress.s3.port`/`.to` to match a self-hosted
 endpoint's actual port/destination (AWS S3 needs no override; it's covered by
 the chart's general HTTPS egress rule too, but the dedicated S3 rule exists
 for self-hosted endpoints on non-443 ports).
-
-**Data migration note**: uploads that predate this feature (bytes still sitting
-in the now-legacy `*_data`/`*_mime` columns) are **not** automatically
-migrated — `HasPhoto`/image delivery key off `*_object_key` being set, so a
-team/user with only legacy `*_data` and no `*_object_key` appears photo-less
-until re-uploaded. A backfill migration (copy `*_data` into the object store,
-populate `*_object_key`, then drop the legacy columns) is tracked as
-follow-up work, not yet implemented.
 
 ## Cookie encryption key rotation
 

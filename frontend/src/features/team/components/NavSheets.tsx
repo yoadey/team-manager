@@ -117,7 +117,8 @@ export function ProfileSheet({ app }: SheetProps) {
   const S = state;
 
   // Account erasure (GDPR Art. 17): a destructive, irreversible action gated by
-  // retyping the account email — no password, since accounts may be OIDC-only.
+  // retyping the account email — no password, so the same flow also covers a
+  // future OIDC-only account (no OIDC integration exists yet).
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [confirmEmail, setConfirmEmail] = useState('');
   const [deleting, setDeleting] = useState(false);

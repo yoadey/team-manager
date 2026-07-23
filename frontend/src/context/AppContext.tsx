@@ -116,9 +116,15 @@ export interface SheetState {
   /** Used by the `seriesAction` confirm sheet only -- the `eventDetail` sheet
    * fetches its event via `useEventDetailQuery(eventId)` instead of carrying it. */
   event?: TeamEvent | null;
-  eventId?: string;
+  // Explicit `| undefined` -- openEventForm sets `eventId: event?.id`, so
+  // `undefined` (create mode, no event yet) is a meaningful value here.
+  eventId?: string | undefined;
   membershipId?: string;
-  member?: Member | null;
+  // Explicit `| undefined` -- openMemberDetail sets `member:` from a find()
+  // that's genuinely `undefined` for a membershipId no longer in the local
+  // list (e.g. a stale bookmarked/back-forward URL for a removed member);
+  // MemberSheets.tsx's `!sheet.member` check treats that the same as `null`.
+  member?: Member | null | undefined;
   stats?: MemberAttendanceStats | null;
   userId?: string;
   name?: string;
@@ -482,7 +488,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toastMsg = useCallback(
     (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
-      setState({ toast: { message: m, action, kind } });
+      setState({ toast: { message: m, ...(action ? { action } : {}), ...(kind ? { kind } : {}) } });
       toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
     },
     [setState],
@@ -827,7 +833,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
         return null;
       }
-      const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0].id;
+      // teams[0]! is safe: the `!teams.length` branch above already returned,
+      // so teams has at least one element here.
+      const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0]!.id;
       if (opts?.restoreLocation) {
         // Session restore (a page reload, or a bookmarked/shared deep link
         // like /finances or /events?view=absences) must not silently bounce
@@ -1174,7 +1182,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const target = buildPath(next);
     if (target === lastSyncedPath.current) return;
     const [prevPath, prevQuery] = lastSyncedPath.current.split('?');
-    const prev = parseLocation(prevPath, prevQuery ? '?' + prevQuery : '');
+    const prev = parseLocation(prevPath ?? '', prevQuery ? '?' + prevQuery : '');
     const isNavigation = prev.route !== next.route || (!prev.detailId && !!next.detail);
     if (isNavigation) history.pushState(null, '', target);
     else history.replaceState(null, '', target);

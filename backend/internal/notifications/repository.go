@@ -29,7 +29,7 @@ func (r *Repository) ListByTeamAndUser(ctx context.Context, teamID, userID uuid.
 			n.id, n.team_id, n.type, n.actor_id, n.status, n.title,
 			n.event_id, n.event_title, n.event_date, n.note, n.created_at,
 			u.name AS actor_name, u.avatar_color AS actor_color,
-			COALESCE(u.photo_data IS NOT NULL, false) AS has_photo,
+			COALESCE(u.photo_object_key IS NOT NULL, false) AS has_photo,
 			CASE WHEN ns.seen_at IS NULL OR n.created_at > ns.seen_at THEN true ELSE false END AS unread
 		FROM notifications n
 		LEFT JOIN users u ON u.id = n.actor_id

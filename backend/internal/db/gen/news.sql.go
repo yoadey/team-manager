@@ -71,7 +71,7 @@ func (q *Queries) DeleteNews(ctx context.Context, arg DeleteNewsParams) (int64, 
 const getNewsByID = `-- name: GetNewsByID :one
 SELECT n.id, n.team_id, n.author_id, n.title, n.body, n.pinned, n.created_at,
        u.name AS author_name, u.avatar_color AS author_color,
-       (u.photo_data IS NOT NULL)::boolean AS has_photo
+       (u.photo_object_key IS NOT NULL)::boolean AS has_photo
 FROM news n
 JOIN users u ON u.id = n.author_id
 WHERE n.id = $1
@@ -111,7 +111,7 @@ func (q *Queries) GetNewsByID(ctx context.Context, id uuid.UUID) (GetNewsByIDRow
 const listNewsByTeam = `-- name: ListNewsByTeam :many
 SELECT n.id, n.team_id, n.author_id, n.title, n.body, n.pinned, n.created_at,
        u.name AS author_name, u.avatar_color AS author_color,
-       (u.photo_data IS NOT NULL)::boolean AS has_photo
+       (u.photo_object_key IS NOT NULL)::boolean AS has_photo
 FROM news n
 JOIN users u ON u.id = n.author_id
 WHERE n.team_id = $1

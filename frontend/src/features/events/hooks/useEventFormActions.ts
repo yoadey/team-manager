@@ -103,7 +103,7 @@ export function useEventFormActions({
         else
           await saveEventAsync({
             mode: 'create',
-            payload: { ...payload, recurring: f.recurring, repeatWeeks: f.repeatWeeks || 8 },
+            payload: { ...payload, recurring: f.recurring ?? false, repeatWeeks: f.repeatWeeks || 8 },
           });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a

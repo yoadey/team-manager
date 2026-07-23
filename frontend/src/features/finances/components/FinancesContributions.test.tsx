@@ -146,7 +146,7 @@ describe('FinancesContributions', () => {
         canFin={false}
       />,
     );
-    fireEvent.click(screen.getAllByText('2025-06')[0].closest('button')!);
+    fireEvent.click(screen.getAllByText('2025-06')[0]!.closest('button')!);
     expect(app.setState).toHaveBeenCalledWith({ contribMonth: '2025-06' });
   });
 
