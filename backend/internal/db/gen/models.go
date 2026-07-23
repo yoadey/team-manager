@@ -43,6 +43,15 @@ type AuditLog struct {
 	Attrs      []byte
 }
 
+type CalendarFeedToken struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	TeamID    uuid.UUID
+	Token     string
+	CreatedAt time.Time
+	RevokedAt pgtype.Timestamptz
+}
+
 type Contribution struct {
 	ID        uuid.UUID
 	TeamID    uuid.UUID
@@ -212,6 +221,16 @@ type PollVote struct {
 	PollID   uuid.UUID
 	OptionID uuid.UUID
 	UserID   uuid.UUID
+}
+
+type PushSubscription struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	Endpoint   string
+	P256dh     string
+	AuthKey    string
+	CreatedAt  time.Time
+	LastUsedAt pgtype.Timestamptz
 }
 
 type Role struct {

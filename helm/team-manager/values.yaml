@@ -186,13 +186,24 @@ env:
   S3_BUCKET: "" # e.g. "team-manager-images"
   S3_USE_PATH_STYLE: "false" # "true" for most self-hosted S3-compatible stores (MinIO)
   # S3_PUBLIC_BASE_URL: "" # only needed when the backend's S3 endpoint isn't the one browsers can reach
+  # Web Push (internal/push). VAPID_PRIVATE_KEY is a secret -- supplied via
+  # existingSecret below, not here. Like S3/JWT/cookie keys, config.Load()
+  # hard-fails startup (os.Exit(1)) when COOKIE_SECURE=true (the default
+  # here) and any of VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT is
+  # unset -- fill these in (and the matching frontend VAPID_PUBLIC_KEY
+  # runtime env var, see docs/operations.md) before deploying, or you'll get
+  # a guaranteed crash-loop. Generate a keypair with e.g.
+  # `npx web-push generate-vapid-keys`.
+  VAPID_PUBLIC_KEY: ""
+  VAPID_SUBJECT: "" # e.g. "mailto:ops@example.com"
 
 # Reference to an existing Secret containing sensitive values.
 # The Secret must have keys: DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY,
-# COOKIE_ENCRYPTION_KEY, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, and
-# optionally SENTRY_DSN, PAGINATION_HMAC_KEY, COOKIE_ENCRYPTION_KEYS (plural —
-# takes precedence over the singular key above when set; use it for
-# zero-downtime key rotation, see docs/operations.md).
+# COOKIE_ENCRYPTION_KEY, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY,
+# VAPID_PRIVATE_KEY, and optionally SENTRY_DSN, PAGINATION_HMAC_KEY,
+# COOKIE_ENCRYPTION_KEYS (plural — takes precedence over the singular key
+# above when set; use it for zero-downtime key rotation, see
+# docs/operations.md).
 # METRICS_TOKEN is listed as optional in the Deployment template (it's fine
 # to omit when env.COOKIE_SECURE is "false", e.g. local/dev), but the
 # backend hard-fails startup (os.Exit(1), not just a warning) when

@@ -604,6 +604,21 @@ export const realApi = {
       });
       await checkOk(res);
     },
+
+    async issueCalendarFeedToken(teamId: string): Promise<string> {
+      const res = await apiClient.POST('/teams/{teamId}/calendar-feed/token', {
+        params: { path: { teamId } },
+      });
+      const r = await check(res);
+      return r.url;
+    },
+
+    async revokeCalendarFeedToken(teamId: string): Promise<void> {
+      const res = await apiClient.DELETE('/teams/{teamId}/calendar-feed/token', {
+        params: { path: { teamId } },
+      });
+      await checkOk(res);
+    },
   },
 
   attendance: {
@@ -1014,6 +1029,28 @@ export const realApi = {
       });
       await checkOk(res);
       return true;
+    },
+  },
+
+  push: {
+    async subscribe(subscription: PushSubscriptionJSON): Promise<void> {
+      if (!subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) {
+        throw new Error('Invalid PushSubscription: missing endpoint or keys');
+      }
+      const res = await apiClient.POST('/users/me/push-subscriptions', {
+        body: {
+          endpoint: subscription.endpoint,
+          keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth },
+        },
+      });
+      await checkOk(res);
+    },
+
+    async unsubscribe(endpoint: string): Promise<void> {
+      const res = await apiClient.DELETE('/users/me/push-subscriptions', {
+        params: { query: { endpoint } },
+      });
+      await checkOk(res);
     },
   },
 

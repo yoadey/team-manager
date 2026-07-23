@@ -17,6 +17,12 @@ export const queryKeys = {
   absences: (teamId: string) => ['teams', teamId, 'absences'] as const,
   myAbsences: (teamId: string) => ['teams', teamId, 'myAbsences'] as const,
   notifications: (teamId: string) => ['teams', teamId, 'notifications'] as const,
+  // staleTime: Infinity at the call site -- issuing a token rotates it
+  // server-side, so this must only ever be (re)fetched on an explicit user
+  // action (open the sheet once, or hit "renew"), never as a background
+  // refetch that would silently invalidate a link the user already copied
+  // or added to their calendar app.
+  calendarFeedUrl: (teamId: string) => ['teams', teamId, 'calendarFeedUrl'] as const,
   // Also varies by date range (unlike every other key here): a range change
   // must swap to a different cache entry the same way a team switch does,
   // rather than reusing/overwriting the previous range's cached data.

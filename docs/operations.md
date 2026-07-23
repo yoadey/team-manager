@@ -343,13 +343,15 @@ tag (images are immutable per digest).
 
 The frontend image is built once per release and is environment-agnostic —
 which backend it talks to (and which Sentry project, if any, it reports
-errors to) is resolved at **container start**, not baked in at build time, so
-the same image tag can be deployed to staging and production unchanged. Set
-the `API_BASE_URL` and (optionally) `SENTRY_DSN` environment variables on the
-container:
+errors to, and which VAPID keypair it uses for Web Push) is resolved at
+**container start**, not baked in at build time, so the same image tag can
+be deployed to staging and production unchanged. Set the `API_BASE_URL`
+and (optionally) `SENTRY_DSN`/`VAPID_PUBLIC_KEY` environment variables on
+the container:
 
 ```
 docker run -e API_BASE_URL=https://api.example.com -e SENTRY_DSN=https://key@o0.ingest.sentry.io/1 \
+  -e VAPID_PUBLIC_KEY=<same value as the backend's VAPID_PUBLIC_KEY> \
   ghcr.io/<org>/team-manager-frontend:vX.Y.Z
 ```
 
@@ -364,11 +366,16 @@ different origin than the frontend, that origin also needs
 environment variable table in `CLAUDE.md`) so the browser's CORS preflight
 succeeds.
 
-`SENTRY_DSN` has no build-time equivalent that reaches the release image —
-the release workflow only ever passes `VITE_BUILD_VERSION`/
-`VITE_BUILD_COMMIT` as build args — so this runtime env var is the *only*
-way to enable Sentry error tracking in a released frontend image. Leaving it
-unset disables Sentry, matching today's default.
+`SENTRY_DSN` and `VAPID_PUBLIC_KEY` have no build-time equivalent that
+reaches the release image — the release workflow only ever passes
+`VITE_BUILD_VERSION`/`VITE_BUILD_COMMIT` as build args — so these runtime
+env vars are the *only* way to enable Sentry error tracking, or Web Push,
+in a released frontend image. Leaving `SENTRY_DSN` unset disables Sentry,
+matching today's default; leaving `VAPID_PUBLIC_KEY` unset hides the push
+opt-in toggle entirely (there's nothing to subscribe against). Set it to
+the *same* value as the backend's `VAPID_PUBLIC_KEY` — a mismatch fails
+`PushManager.subscribe()` client-side with a benign-looking error, not a
+clear "wrong key" message.
 
 Note: there is currently no Helm/Kubernetes manifest for deploying the
 frontend image itself (only the backend has one under `helm/team-manager/`);

@@ -954,6 +954,30 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  // ---- calendar feed ----
+  // The GET /calendar-feed/{token}.ics feed itself is backend-server-rendered
+  // (a calendar app fetches it directly, not through this app's API client)
+  // and out of scope for the mock service layer -- only the two
+  // token-management endpoints below are mocked.
+  http.post(P('/teams/:teamId/calendar-feed/token'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    const token = rid('calfeed');
+    db.calendarFeedTokens[`${auth}:${teamId}`] = token;
+    const body: S['CalendarFeedToken'] = { url: `${location.origin}/api/v1/calendar-feed/${token}.ics` };
+    return HttpResponse.json(body);
+  }),
+
+  http.delete(P('/teams/:teamId/calendar-feed/token'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    delete db.calendarFeedTokens[`${auth}:${params.teamId as string}`];
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   // ---- absences ----
   http.get(P('/teams/:teamId/absences'), async ({ params }) => {
     await mockDelay();
@@ -1107,6 +1131,26 @@ export const handlers = [
   http.post(P('/teams/:teamId/notifications/seen'), async ({ params }) => {
     await mockDelay();
     db.notifSeen[params.teamId as string] = new Date().toISOString();
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // ---- push subscriptions ----
+  http.post(P('/users/me/push-subscriptions'), async ({ request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const body = (await request.json()) as S['PushSubscriptionRequest'];
+    db.pushSubscriptions = db.pushSubscriptions.filter((s) => s.endpoint !== body.endpoint);
+    db.pushSubscriptions.push({ userId: auth, endpoint: body.endpoint, p256dh: body.keys.p256dh, authKey: body.keys.auth });
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete(P('/users/me/push-subscriptions'), async ({ request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const endpoint = new URL(request.url).searchParams.get('endpoint');
+    db.pushSubscriptions = db.pushSubscriptions.filter((s) => !(s.userId === auth && s.endpoint === endpoint));
     return new HttpResponse(null, { status: 204 });
   }),
 

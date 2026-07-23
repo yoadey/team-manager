@@ -47,6 +47,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: nil, Module: "public", SelfService: false},                                                                     // getTeam
 	{Method: "GET", Segments: []string{"logo"}, Module: "public", SelfService: false},                                                        // getTeamLogo
 	{Method: "GET", Segments: []string{"photo"}, Module: "public", SelfService: false},                                                       // getTeamPhoto
+	{Method: "POST", Segments: []string{"calendar-feed", "token"}, Module: "events", SelfService: true},                                      // issueCalendarFeedToken
 	{Method: "GET", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                    // listAbsences
 	{Method: "GET", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: false},                           // listAttendance
 	{Method: "GET", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: false},                             // listEventComments
@@ -60,6 +61,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                                  // listTransactions
 	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                      // markNotificationsSeen
 	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                               // removeMember
+	{Method: "DELETE", Segments: []string{"calendar-feed", "token"}, Module: "events", SelfService: true},                                    // revokeCalendarFeedToken
 	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                           // setAttendance
 	{Method: "PUT", Segments: []string{"finances", "contributions", "{contributionId}", "paid"}, Module: "finances", SelfService: false},     // setContributionPaid
 	{Method: "POST", Segments: []string{"events", "{eventId}", "status"}, Module: "events", SelfService: false},                              // setEventStatus

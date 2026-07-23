@@ -1,13 +1,16 @@
 // Runtime configuration, loaded before the app bundle (see index.html). This
 // checked-in default keeps local dev, tests, and `vite preview` on the mock
 // backend, matching today's behavior. The production Docker image
-// regenerates this file from the container's API_BASE_URL/SENTRY_DSN env
-// vars at startup (see frontend/docker/) so one built image can point at any
-// backend/Sentry project without rebuilding — see src/config.ts for how it's
-// consumed. SENTRY_DSN has no build-time equivalent that reaches the release
+// regenerates this file from the container's API_BASE_URL/SENTRY_DSN/
+// VAPID_PUBLIC_KEY env vars at startup (see frontend/docker/) so one built
+// image can point at any backend/Sentry project/VAPID keypair without
+// rebuilding — see src/config.ts for how it's consumed. SENTRY_DSN and
+// VAPID_PUBLIC_KEY have no build-time equivalent that reaches the release
 // image (the Dockerfile/release.yml only ever pass VITE_API_BASE_URL/
 // VITE_BUILD_VERSION/VITE_BUILD_COMMIT as build args), so this runtime path
-// is the only way to enable Sentry in a released frontend image at all.
+// is the only way to enable Sentry, or Web Push, in a released frontend
+// image at all -- and the only way a rotated backend VAPID keypair reaches
+// an already-built frontend image without a rebuild.
 //
 // Do not delete this file: Vite's default publicDir copy is what puts it in
 // dist/, which is what makes it already owned by the image's non-root user
@@ -20,4 +23,5 @@
 window.__RUNTIME_CONFIG__ = {
   API_BASE_URL: '',
   SENTRY_DSN: '',
+  VAPID_PUBLIC_KEY: '',
 };

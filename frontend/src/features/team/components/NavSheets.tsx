@@ -10,6 +10,7 @@ import { t, type Locale } from '@/i18n';
 import { useLocale } from '@/i18n/LocaleProvider';
 import { captureException } from '@/monitoring';
 import { reportActionError, AuthError } from '@/utils/errors';
+import { usePushActions } from '@/features/notifications';
 
 /** Each language is shown in its own name (endonym), independent of UI locale. */
 const LANGUAGE_LABELS: Record<Locale, string> = { de: 'Deutsch', en: 'English' };
@@ -115,6 +116,7 @@ export function ProfileSheet({ app }: SheetProps) {
   const { locale, setLocale, supported } = useLocale();
   const tk = buildTokens(state.primaryColor);
   const S = state;
+  const push = usePushActions(app.api, app.toastMsg);
 
   // Account erasure (GDPR Art. 17): a destructive, irreversible action gated by
   // retyping the account email — no password, so the same flow also covers a
@@ -241,6 +243,42 @@ export function ProfileSheet({ app }: SheetProps) {
           })}
         </Box>
       </Box>
+
+      {push.support === 'supported' && (
+        <Box key="push" sx={{ mt: '18px' }}>
+          <Box sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, mb: '8px' }}>
+            {t('push.title')}
+          </Box>
+          <ButtonBase
+            onClick={() => (push.subscribed ? push.disablePush() : push.enablePush())}
+            disabled={push.busy || push.subscribed === null}
+            aria-pressed={push.subscribed === true}
+            sx={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              p: '12px 14px',
+              borderRadius: '14px',
+              border: push.subscribed ? `2px solid ${tk.primary}` : `1px solid ${NEUTRAL.line}`,
+              background: push.subscribed ? tk.primaryContainer : NEUTRAL.card,
+              color: push.subscribed ? tk.primary : NEUTRAL.onSurfaceVariant,
+              opacity: push.busy ? 0.6 : 1,
+              textAlign: 'left',
+            }}
+          >
+            <Sym
+              name={push.subscribed ? 'notifications_active' : 'notifications_off'}
+              size={20}
+              color={push.subscribed ? tk.primary : NEUTRAL.secondary}
+            />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Box sx={{ fontSize: '13px', fontWeight: 600 }}>{t('push.title')}</Box>
+              <Box sx={{ fontSize: '11px', color: NEUTRAL.secondary, lineHeight: 1.4 }}>{t('push.description')}</Box>
+            </Box>
+          </ButtonBase>
+        </Box>
+      )}
 
       <ButtonBase
         key="lo"
