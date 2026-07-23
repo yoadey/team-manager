@@ -442,14 +442,13 @@ func TestFinancesRepository_CreateAssignment_MaxAmountPenalty_Succeeds(t *testin
 }
 
 // TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert is a
-// regression test for a rolling-deploy hazard in migration
-// 00025_penalty_assignment_amount_snapshot.sql: under Kubernetes'
-// RollingUpdate strategy (the default with replicaCount > 1), old-version
-// pods still running the pre-snapshot binary keep issuing
+// regression test for a rolling-deploy hazard: penalty_assignments.amount/
+// label (see 00001_init.sql's comment) are deliberately nullable rather than
+// NOT NULL, since under Kubernetes' RollingUpdate strategy (the default with
+// replicaCount > 1) an old-version pod's binary could still issue
 // "INSERT INTO penalty_assignments (team_id, user_id, penalty_id) ..." with
-// no amount/label for the whole rollout window. If those two columns were
-// ever made NOT NULL (they deliberately are not -- see the migration's own
-// comment), every one of those concurrent old-pod inserts would fail. This
+// no amount/label during a rollout window that adds a NOT NULL constraint --
+// every one of those concurrent old-pod inserts would then fail. This
 // directly exercises that exact old-binary INSERT shape against the current
 // schema and asserts it still succeeds, leaving amount/label NULL --
 // tolerated end-to-end since PenaltyAssignmentRow.PenaltyAmount/PenaltyLabel

@@ -169,8 +169,8 @@ type Notification struct {
 	EventTitle pgtype.Text
 	EventDate  pgtype.Date
 	Note       pgtype.Text
-	CreatedAt  time.Time
 	RiverJobID pgtype.Int8
+	CreatedAt  time.Time
 }
 
 type OidcAccount struct {
@@ -259,15 +259,11 @@ type Team struct {
 	Icon                    pgtype.Text
 	IconBg                  pgtype.Text
 	IconFg                  pgtype.Text
-	PhotoData               []byte
-	PhotoMime               pgtype.Text
-	LogoData                []byte
-	LogoMime                pgtype.Text
+	PhotoObjectKey          pgtype.Text
+	LogoObjectKey           pgtype.Text
 	Description             pgtype.Text
 	ReasonVisibilityRoleIds []uuid.UUID
 	CreatedAt               time.Time
-	PhotoObjectKey          pgtype.Text
-	LogoObjectKey           pgtype.Text
 }
 
 type Transaction struct {
@@ -288,13 +284,11 @@ type User struct {
 	Email           string
 	Phone           pgtype.Text
 	AvatarColor     string
-	PhotoData       []byte
-	PhotoMime       pgtype.Text
+	PhotoObjectKey  pgtype.Text
 	Birthday        pgtype.Date
 	Address         pgtype.Text
 	PasswordHash    pgtype.Text
-	CreatedAt       time.Time
-	DeletedAt       pgtype.Timestamptz
-	PhotoObjectKey  pgtype.Text
 	EmailVerifiedAt pgtype.Timestamptz
+	DeletedAt       pgtype.Timestamptz
+	CreatedAt       time.Time
 }

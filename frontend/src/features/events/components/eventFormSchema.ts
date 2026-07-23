@@ -7,6 +7,7 @@ const TIME_RE = /^\d{2}:\d{2}$/;
 const validDate = (value: string) => {
   if (!DATE_RE.test(value)) return false;
   const [year, month, day] = value.split('-').map(Number);
+  if (year === undefined || month === undefined || day === undefined) return false;
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 };
@@ -14,9 +15,75 @@ const validDate = (value: string) => {
 const minutes = (value: string) => {
   if (!TIME_RE.test(value)) return null;
   const [h, m] = value.split(':').map(Number);
-  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  if (h === undefined || m === undefined || h < 0 || h > 23 || m < 0 || m > 59) return null;
   return h * 60 + m;
 };
+
+// Explicit `| undefined` on the optional fields (not just `field?:`) --
+// this mirrors the schema's own `.optional()` fields as zod/react-hook-form
+// produce them (a form value that's genuinely absent, not "omit this key"),
+// so passing the full form-values object (which always sets every key, some
+// to `undefined`) straight through from .superRefine() typechecks.
+interface EventFormRefineInput {
+  date: string;
+  startT?: string | undefined;
+  endT?: string | undefined;
+  meetT?: string | undefined;
+  recurring?: boolean | undefined;
+  repeatWeeks?: number | undefined;
+}
+
+function validateDateField(data: EventFormRefineInput, ctx: z.RefinementCtx) {
+  if (data.date && !validDate(data.date)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['date'],
+      message: t('validation.eventDateInvalid'),
+    });
+  }
+}
+
+// Parses+validates start/meet/end times and their relative ordering. Returns
+// the parsed minute values so callers don't need to reparse.
+function validateTimeFields(data: EventFormRefineInput, ctx: z.RefinementCtx) {
+  const startMin = data.startT ? minutes(data.startT) : null;
+  const endMin = data.endT ? minutes(data.endT) : null;
+  const meetMin = data.meetT ? minutes(data.meetT) : null;
+
+  if (data.startT && startMin === null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['startT'], message: t('validation.eventStartInvalid') });
+  }
+  if (data.endT && endMin === null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endT'], message: t('validation.eventEndInvalid') });
+  }
+  if (data.meetT && meetMin === null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['meetT'], message: t('validation.eventMeetTimeInvalid') });
+  }
+  if (startMin !== null && endMin !== null && endMin <= startMin) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['endT'], message: t('validation.eventEndBeforeStart') });
+  }
+  if (meetMin !== null && startMin !== null && meetMin > startMin) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['meetT'], message: t('validation.eventMeetAfterStart') });
+  }
+}
+
+function validateRecurring(data: EventFormRefineInput, ctx: z.RefinementCtx) {
+  if (!data.recurring) return;
+  const rw = Number(data.repeatWeeks);
+  if (isNaN(rw) || !Number.isInteger(rw)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['repeatWeeks'],
+      message: t('validation.eventRepeatWeeksInteger'),
+    });
+  } else if (rw < 2 || rw > 26) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['repeatWeeks'],
+      message: t('validation.eventRepeatWeeksRange', { min: 2, max: 26 }),
+    });
+  }
+}
 
 export const eventFormSchema = z
   .object({
@@ -47,75 +114,9 @@ export const eventFormSchema = z
     seriesId: z.string().optional().nullable(),
   })
   .superRefine((data, ctx) => {
-    // Validate date
-    if (data.date && !validDate(data.date)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['date'],
-        message: t('validation.eventDateInvalid'),
-      });
-    }
-
-    const startMin = data.startT ? minutes(data.startT) : null;
-    const endMin = data.endT ? minutes(data.endT) : null;
-    const meetMin = data.meetT ? minutes(data.meetT) : null;
-
-    if (data.startT && startMin === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['startT'],
-        message: t('validation.eventStartInvalid'),
-      });
-    }
-
-    if (data.endT && endMin === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['endT'],
-        message: t('validation.eventEndInvalid'),
-      });
-    }
-
-    if (data.meetT && meetMin === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['meetT'],
-        message: t('validation.eventMeetTimeInvalid'),
-      });
-    }
-
-    if (startMin !== null && endMin !== null && endMin <= startMin) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['endT'],
-        message: t('validation.eventEndBeforeStart'),
-      });
-    }
-
-    if (meetMin !== null && startMin !== null && meetMin > startMin) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['meetT'],
-        message: t('validation.eventMeetAfterStart'),
-      });
-    }
-
-    if (data.recurring) {
-      const rw = Number(data.repeatWeeks);
-      if (isNaN(rw) || !Number.isInteger(rw)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['repeatWeeks'],
-          message: t('validation.eventRepeatWeeksInteger'),
-        });
-      } else if (rw < 2 || rw > 26) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['repeatWeeks'],
-          message: t('validation.eventRepeatWeeksRange', { min: 2, max: 26 }),
-        });
-      }
-    }
+    validateDateField(data, ctx);
+    validateTimeFields(data, ctx);
+    validateRecurring(data, ctx);
   });
 
 export type EventFormValues = z.infer<typeof eventFormSchema>;

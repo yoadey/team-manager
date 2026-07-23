@@ -75,8 +75,8 @@ func TestNotificationsRepository_ListByTeamAndUser_HasPhoto(t *testing.T) {
 	tid := uuid.New().String()
 
 	_, err := pool.Exec(ctx,
-		`INSERT INTO users (id, name, email, avatar_color, photo_data, photo_mime) VALUES ($1, 'Has Photo', 'hasphoto@example.com', '#111111', $2, 'image/png')`,
-		uidWithPhoto, []byte{0xff, 0xd8})
+		`INSERT INTO users (id, name, email, avatar_color, photo_object_key) VALUES ($1, 'Has Photo', 'hasphoto@example.com', '#111111', $2)`,
+		uidWithPhoto, "users/"+uidWithPhoto+"/photo")
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx,
 		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'No Photo', 'nophoto@example.com', '#222222')`, uidNoPhoto)

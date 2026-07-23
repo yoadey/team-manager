@@ -149,10 +149,16 @@ Termine & Anwesenheit (Liste/Kalender/Abwesenheiten, Serien, Nominierung, Kommen
 iCal-/ICS-Export) · Mitglieder & Mehrfach-Rollen · Rollen & Rechte · Home-Dashboard mit
 verlinkten Kennzahlen · Anwesenheitsstatistik mit Zeitraumfilter · Finanzen (Umsätze,
 Strafen + Strafenkatalog, monatliche Beiträge) · Neuigkeiten · Umfragen ·
-Benachrichtigungs-Center · Team-Wechsel, Einladungslinks & Team-Einstellungen · OIDC-Login.
+Benachrichtigungs-Center · Team-Wechsel, Einladungslinks & Team-Einstellungen ·
+Login per E-Mail/Passwort · Self-Service-Registrierung mit E-Mail-Verifizierung.
 
 ### Noch offen / nächste Schritte
 
-- Echte OIDC-Anbindung (Authorization Code Flow + PKCE) statt Mock-Login.
+- Echtes SSO/OIDC (Authorization Code Flow + PKCE) — bislang nicht implementiert.
+  Der Login-Bildschirm zeigt im Mock-Modus zusätzliche Provider-Buttons
+  (Google/Apple/Microsoft/Vereins-SSO), das sind aber reine Demo-Bequemlichkeiten
+  der In-Memory-Mock-Datenbank (`frontend/src/mocks/db.ts`) ohne echten
+  OAuth/OIDC-Flow; gegen das echte Backend existiert nur E-Mail/Passwort-Login
+  (`GET /auth/providers` liefert dort ausschließlich `password`).
 - Web-Push-Benachrichtigungen, serverseitiger Kalender-Abo-Feed.
 - Vollständige Typisierung der Formularzustände (`AppState.form`) je Sheet.

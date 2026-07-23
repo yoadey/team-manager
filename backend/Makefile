@@ -21,7 +21,7 @@ all: generate build
 tools:
 	go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.7.1
 	go install github.com/pressly/goose/v3/cmd/goose@v3.24.2
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v2.12.2
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 	go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
 	go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
 

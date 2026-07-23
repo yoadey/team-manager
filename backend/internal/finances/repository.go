@@ -419,7 +419,7 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
 		       pa.label, pa.amount,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1
@@ -457,7 +457,7 @@ func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID
 		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
 		       pa.label, pa.amount,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.id = $1 AND pa.team_id = $2
@@ -616,7 +616,7 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 	rows, err := r.db.Query(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM contributions c
 		JOIN users u ON u.id = c.user_id
 		WHERE c.team_id = $1
@@ -720,7 +720,7 @@ func (r *Repository) getContributionByID(ctx context.Context, id, teamID uuid.UU
 	err := r.db.QueryRow(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM contributions c
 		JOIN users u ON u.id = c.user_id
 		WHERE c.id = $1 AND c.team_id = $2
@@ -783,12 +783,12 @@ func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UU
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
 		SELECT pa.user_id, u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo,
+		       (u.photo_object_key IS NOT NULL) AS has_photo,
 		       COALESCE(SUM(pa.amount), 0)::BIGINT AS total_amount
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1 AND pa.paid = false
-		GROUP BY pa.user_id, u.name, u.avatar_color, (u.photo_data IS NOT NULL)
+		GROUP BY pa.user_id, u.name, u.avatar_color, (u.photo_object_key IS NOT NULL)
 		ORDER BY total_amount DESC
 	`, teamID)
 	if err != nil {

@@ -213,7 +213,7 @@ describe('NotificationsSheet', () => {
     render(<NotificationsSheet app={app} sheet={{ type: 'notifications' }} />);
     // Buttons order: Alle, Anwesenheit, Events, Sonstiges
     const buttons = screen.getAllByRole('button');
-    fireEvent.click(buttons[2]); // "Events"
+    fireEvent.click(buttons[2]!); // "Events"
     expect(app.setNotifFilter).toHaveBeenCalledWith('events');
   });
 
@@ -221,7 +221,7 @@ describe('NotificationsSheet', () => {
     const app = makeApp({ notifications: [] });
     render(<NotificationsSheet app={app} sheet={{ type: 'notifications' }} />);
     const buttons = screen.getAllByRole('button');
-    fireEvent.click(buttons[1]); // "Anwesenheit"
+    fireEvent.click(buttons[1]!); // "Anwesenheit"
     expect(app.setNotifFilter).toHaveBeenCalledWith('attendance');
   });
 
@@ -229,7 +229,7 @@ describe('NotificationsSheet', () => {
     const app = makeApp({ notifications: [] });
     render(<NotificationsSheet app={app} sheet={{ type: 'notifications' }} />);
     const buttons = screen.getAllByRole('button');
-    fireEvent.click(buttons[3]); // "Sonstiges"
+    fireEvent.click(buttons[3]!); // "Sonstiges"
     expect(app.setNotifFilter).toHaveBeenCalledWith('other');
   });
 
@@ -237,7 +237,7 @@ describe('NotificationsSheet', () => {
     const app = makeApp({ notifications: [], notifFilter: 'events' });
     render(<NotificationsSheet app={app} sheet={{ type: 'notifications' }} />);
     const buttons = screen.getAllByRole('button');
-    fireEvent.click(buttons[0]); // "Alle"
+    fireEvent.click(buttons[0]!); // "Alle"
     expect(app.setNotifFilter).toHaveBeenCalledWith('all');
   });
 

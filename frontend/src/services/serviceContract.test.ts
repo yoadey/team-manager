@@ -18,14 +18,14 @@ beforeEach(async () => {
 function onlyVerificationToken(): string {
   const tokens = Object.keys(db.verificationTokens);
   expect(tokens).toHaveLength(1);
-  return tokens[0];
+  return tokens[0]!;
 }
 
 /** Returns the most recently issued verification token (insertion order). */
 function latestVerificationToken(): string {
   const tokens = Object.keys(db.verificationTokens);
   expect(tokens.length).toBeGreaterThan(0);
-  return tokens[tokens.length - 1];
+  return tokens[tokens.length - 1]!;
 }
 
 describe('self-service registration: enumeration safety and verification flow', () => {
@@ -154,6 +154,7 @@ describe('drift-bug fix: single-choice polls reject multiple selected options', 
       multiple: false,
     });
     const [a, b] = created.options;
+    if (!a || !b) throw new Error('expected at least 2 poll options');
 
     await expect(api.polls.vote(created.id, [a.id, b.id], 't_a')).rejects.toThrow(ValidationError);
 

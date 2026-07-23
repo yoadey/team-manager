@@ -49,9 +49,10 @@ birthday, address, photo). The following data-subject rights are implemented:
   (transactions, penalty assignments, contributions) are kept in anonymized
   form so they no longer resolve to an identifiable person. Erasure is
   irreversible.
-- **Confirmation without a password:** because accounts may authenticate via
-  OIDC and have no password, erasure is authorized by the active session and
-  confirmed by retyping the account email (verified server-side).
+- **Confirmation without a password:** `password_hash` is nullable so the
+  schema can support a future OIDC-only account with no password (no OIDC
+  integration exists yet), so erasure is authorized by the active session
+  and confirmed by retyping the account email (verified server-side).
 - Security-sensitive actions (login, logout, account erasure) emit structured
   **audit-log** events.
 - **Storage limitation (Art. 5(1)(e)):** a daily retention job deletes rows

@@ -15,10 +15,10 @@ export interface SaveMemberInput {
   patch: { name: string; email: string; phone: string; birthday: string; address: string; group: string };
   roleIds: string[];
   rolesChanged: boolean;
-  /** Self's own changed photo (already gated by the caller to self-only); omitted otherwise. */
-  photo?: string | null;
+  /** Self's own changed photo (already gated by the caller to self-only); explicitly undefined otherwise. */
+  photo?: string | null | undefined;
   /** Whether this save is the caller's own profile -- refreshes the session user/teams too. */
-  self?: boolean;
+  self?: boolean | undefined;
 }
 
 export interface SaveMemberResult {

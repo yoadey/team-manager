@@ -70,4 +70,10 @@
       instead of always `null`.
 
 ## 8. Deferred (separate follow-up change)
-- [ ] 8.1 Backfill existing BYTEA to S3; then migration `00027` drops the `*_data` columns
+- [x] 8.1 ~~Backfill existing BYTEA to S3; then migration `00027` drops the
+      `*_data` columns~~ — superseded by `openspec/changes/alpha-initial-setup`:
+      since this project has only ever shipped under an `alpha` tag and has
+      never been deployed anywhere with real image data to preserve, that
+      change drops `photo_data`/`photo_mime`/`logo_data`/`logo_mime` outright
+      (no backfill) as part of squashing the migration history into a single
+      initial-setup migration.

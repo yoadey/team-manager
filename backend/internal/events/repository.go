@@ -951,7 +951,7 @@ func (r *Repository) ListAttendance(ctx context.Context, eventID, teamID string)
 			m."group",
 			u.name,
 			u.avatar_color,
-			(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo,
+			(u.photo_object_key IS NOT NULL) AS has_photo,
 			a.status,
 			a.reason,
 			a.reason_id,
@@ -1314,7 +1314,7 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 			c.id, c.event_id, c.user_id, c.text, c.created_at,
 			u.name,
 			u.avatar_color,
-			(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo
+			(u.photo_object_key IS NOT NULL) AS has_photo
 		FROM event_comments c
 		JOIN users u ON u.id = c.user_id
 		JOIN events e ON e.id = c.event_id
@@ -1372,7 +1372,7 @@ func (r *Repository) AddComment(ctx context.Context, eventID, userID, teamID, te
 		SELECT
 			i.id, i.event_id, i.user_id, i.text, i.created_at,
 			u.name, u.avatar_color,
-			(u.photo_data IS NOT NULL AND length(u.photo_data) > 0) AS has_photo
+			(u.photo_object_key IS NOT NULL) AS has_photo
 		FROM inserted i
 		JOIN users u ON u.id = i.user_id
 	`

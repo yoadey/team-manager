@@ -44,6 +44,17 @@ import { AuthError, ForbiddenError, NetworkError, ValidationError } from '@/util
 // expired session) and 403 (valid session, insufficient permission) map to
 // distinct error types — conflating them would log a fully-authenticated
 // user out just for lacking write access to a module.
+// Spreads `{ [key]: value }` only when `value` isn't undefined -- lets the
+// request-body literals below omit an optional field entirely instead of
+// sending `{ key: undefined }`, which `exactOptionalPropertyTypes` rejects
+// for fields the generated API client types as `key?: T` (no explicit
+// `| undefined`). Omitting the key vs. sending it as `undefined` is
+// wire-identical (JSON.stringify drops undefined-valued keys either way) --
+// this only satisfies the type checker's stricter object-literal shape.
+function opt<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
+}
+
 function errorFor(status: number, body?: { detail?: string; title?: string } | null): Error {
   const msg = body?.detail ?? body?.title ?? `HTTP ${status}`;
   if (status === 401) return new AuthError(msg);
@@ -82,11 +93,12 @@ async function checkOk(result: { error?: unknown; response: Response }): Promise
 // thrown error carries the server's actual detail (e.g. "File too large")
 // instead of a generic "HTTP {status}".
 async function uploadImage(path: string, fieldName: string, dataUrl: string): Promise<Response> {
-  const arr = dataUrl.split(',');
-  const mimeMatch = arr[0].match(/:(.*?);/);
-  if (!mimeMatch || arr.length < 2) throw new Error('Invalid data URL format');
-  const mime = mimeMatch[1];
-  const bstr = atob(arr[1]);
+  const [header, data] = dataUrl.split(',');
+  if (!header || !data) throw new Error('Invalid data URL format');
+  const mimeMatch = header.match(/:(.*?);/);
+  const mime = mimeMatch?.[1];
+  if (!mime) throw new Error('Invalid data URL format');
+  const bstr = atob(data);
   const bytes = new Uint8Array(bstr.length);
   for (let i = 0; i < bstr.length; i++) bytes[i] = bstr.charCodeAt(i);
   const blob = new Blob([bytes], { type: mime });
@@ -113,7 +125,17 @@ const PAGE_LIMIT = 500;
 
 // Mirrors serviceLayer.ts's STATUS_ORDER — the display grouping the mock uses
 // for attendance rows (see attendance.listForEvent below).
-const ATTENDANCE_STATUS_ORDER: Record<string, number> = { yes: 0, maybe: 1, pending: 2, no: 3, not_nominated: 4 };
+// Keyed by the concrete AttendanceStatus union (not `Record<string, number>`)
+// so indexing with an `AttendanceStatus` value stays `number` under
+// noUncheckedIndexedAccess -- every member of the union has an entry here,
+// unlike a plain string-indexed record where TS can't prove that.
+const ATTENDANCE_STATUS_ORDER: Record<AttendanceRow['status'], number> = {
+  yes: 0,
+  maybe: 1,
+  pending: 2,
+  no: 3,
+  not_nominated: 4,
+};
 
 // fetchAllPages walks the keyset { items, nextCursor } envelope to the end and
 // returns every row. The app has no paging UI yet and consumers expect full
@@ -244,7 +266,7 @@ export const realApi = {
       photo?: string | null;
     }): Promise<Team> {
       const res = await apiClient.POST('/teams', {
-        body: { name: opts.name, icon: opts.icon, iconBg: opts.iconBg, iconFg: opts.iconFg },
+        body: { name: opts.name, ...opt('icon', opts.icon), ...opt('iconBg', opts.iconBg), ...opt('iconFg', opts.iconFg) },
       });
       const t = await check(res);
       // CreateTeamRequest has no photo field (see openapi.yaml) — the mock
@@ -280,12 +302,12 @@ export const realApi = {
         const res = await apiClient.PATCH('/teams/{teamId}', {
           params: { path: { teamId } },
           body: {
-            name: patch.name,
-            icon: patch.icon,
-            iconBg: patch.iconBg,
-            iconFg: patch.iconFg,
-            description: patch.description,
-            reasonVisibilityRoleIds: patch.reasonVisibilityRoles,
+            ...opt('name', patch.name),
+            ...opt('icon', patch.icon),
+            ...opt('iconBg', patch.iconBg),
+            ...opt('iconFg', patch.iconFg),
+            ...opt('description', patch.description),
+            ...opt('reasonVisibilityRoleIds', patch.reasonVisibilityRoles),
           },
         });
         await check(res);
@@ -326,7 +348,7 @@ export const realApi = {
       // roster is returned (no paging UI yet).
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/members', {
-          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -348,12 +370,12 @@ export const realApi = {
       const res = await apiClient.PATCH('/teams/{teamId}/members/{membershipId}', {
         params: { path: { teamId, membershipId } },
         body: {
-          name: patch.name,
-          email: patch.email as (string & { format: 'email' }) | undefined,
-          phone: patch.phone ?? undefined,
-          birthday: patch.birthday ?? undefined,
-          address: patch.address ?? undefined,
-          group: patch.group ?? undefined,
+          ...opt('name', patch.name),
+          ...opt('email', patch.email as (string & { format: 'email' }) | undefined),
+          ...opt('phone', patch.phone ?? undefined),
+          ...opt('birthday', patch.birthday ?? undefined),
+          ...opt('address', patch.address ?? undefined),
+          ...opt('group', patch.group ?? undefined),
         },
       });
       const m = await check(res);
@@ -390,7 +412,7 @@ export const realApi = {
     ): Promise<Role> {
       const res = await apiClient.POST('/teams/{teamId}/roles', {
         params: { path: { teamId } },
-        body: { name: payload.name, color: payload.color, permissions: payload.permissions },
+        body: { name: payload.name, permissions: payload.permissions, ...opt('color', payload.color) },
       });
       const r = await check(res);
       return mapRole(r);
@@ -399,7 +421,7 @@ export const realApi = {
     async update(roleId: string, patch: Partial<Role>, teamId: string): Promise<Role> {
       const res = await apiClient.PATCH('/teams/{teamId}/roles/{roleId}', {
         params: { path: { teamId, roleId } },
-        body: { name: patch.name, color: patch.color, permissions: patch.permissions },
+        body: { ...opt('name', patch.name), ...opt('color', patch.color), ...opt('permissions', patch.permissions) },
       });
       const r = await check(res);
       return mapRole(r);
@@ -418,7 +440,7 @@ export const realApi = {
       // Keyset { items, nextCursor } envelope; walked to completion.
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/events', {
-          params: { path: { teamId }, query: { scope, limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { scope, limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -466,16 +488,16 @@ export const realApi = {
           type: payload.type as 'training' | 'auftritt' | 'event',
           title: payload.title,
           date: payload.date,
-          location: payload.location ?? undefined,
-          note: payload.note ?? undefined,
-          meetTime: payload.meetT ?? undefined,
-          startTime: payload.startT ?? undefined,
-          endTime: payload.endT ?? undefined,
-          meetTimeMandatory: payload.meetTimeMandatory,
-          responseMode: payload.responseMode as 'opt_in' | 'opt_out' | undefined,
-          nominatedRoleIds: payload.nominatedRoleIds,
-          recurring: payload.recurring,
-          repeatWeeks: payload.repeatWeeks,
+          ...opt('location', payload.location ?? undefined),
+          ...opt('note', payload.note ?? undefined),
+          ...opt('meetTime', payload.meetT ?? undefined),
+          ...opt('startTime', payload.startT ?? undefined),
+          ...opt('endTime', payload.endT ?? undefined),
+          ...opt('meetTimeMandatory', payload.meetTimeMandatory),
+          ...opt('responseMode', payload.responseMode as 'opt_in' | 'opt_out' | undefined),
+          ...opt('nominatedRoleIds', payload.nominatedRoleIds),
+          ...opt('recurring', payload.recurring),
+          ...opt('repeatWeeks', payload.repeatWeeks),
         },
       });
       // Backend may return an array for series
@@ -516,17 +538,17 @@ export const realApi = {
       const res = await apiClient.PATCH('/teams/{teamId}/events/{eventId}', {
         params: { path: { teamId, eventId }, query: { scope } },
         body: {
-          type: patch.type as 'training' | 'auftritt' | 'event' | undefined,
-          title: patch.title,
-          date: patch.date,
-          location: patch.location,
-          note: patch.note,
-          meetTime: patch.meetT ?? undefined,
-          startTime: patch.startT ?? undefined,
-          endTime: patch.endT ?? undefined,
-          meetTimeMandatory: patch.meetTimeMandatory,
-          responseMode: patch.responseMode as 'opt_in' | 'opt_out' | undefined,
-          nominatedRoleIds: patch.nominatedRoleIds,
+          ...opt('type', patch.type as 'training' | 'auftritt' | 'event' | undefined),
+          ...opt('title', patch.title),
+          ...opt('date', patch.date),
+          ...opt('location', patch.location),
+          ...opt('note', patch.note),
+          ...opt('meetTime', patch.meetT ?? undefined),
+          ...opt('startTime', patch.startT ?? undefined),
+          ...opt('endTime', patch.endT ?? undefined),
+          ...opt('meetTimeMandatory', patch.meetTimeMandatory),
+          ...opt('responseMode', patch.responseMode as 'opt_in' | 'opt_out' | undefined),
+          ...opt('nominatedRoleIds', patch.nominatedRoleIds),
         },
       });
       const e = await check(res);
@@ -560,7 +582,7 @@ export const realApi = {
       // lose their oldest ones.
       const comments = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/events/{eventId}/comments', {
-          params: { path: { teamId, eventId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId, eventId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -630,9 +652,9 @@ export const realApi = {
         body: {
           userId,
           status: payload.status as 'yes' | 'no' | 'maybe' | 'pending' | 'not_nominated',
-          reason: payload.reason,
-          reasonId: payload.reasonId ?? undefined,
-          reasonVisibility: payload.reasonVisibility as 'trainers' | 'team' | undefined,
+          ...opt('reason', payload.reason),
+          ...opt('reasonId', payload.reasonId ?? undefined),
+          ...opt('reasonVisibility', payload.reasonVisibility as 'trainers' | 'team' | undefined),
         },
       });
       return check(res);
@@ -652,7 +674,7 @@ export const realApi = {
     async listForTeam(teamId: string): Promise<Absence[]> {
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/absences', {
-          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -667,7 +689,7 @@ export const realApi = {
     async listMine(teamId: string): Promise<Absence[]> {
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/absences/mine', {
-          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -687,7 +709,7 @@ export const realApi = {
           userId: payload.userId,
           from: payload.from,
           to: payload.to,
-          reason: payload.reason,
+          ...opt('reason', payload.reason),
         },
       });
       const a = await check(res);
@@ -720,7 +742,7 @@ export const realApi = {
       // Keyset { items, nextCursor } envelope; walked to completion.
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/news', {
-          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -762,7 +784,7 @@ export const realApi = {
       // Keyset { items, nextCursor } envelope; walked to completion.
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/polls', {
-          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -829,7 +851,7 @@ export const realApi = {
     async listTransactions(teamId: string): Promise<Transaction[]> {
       const items = await fetchAllPages(async (cursor) => {
         const res = await apiClient.GET('/teams/{teamId}/finances/transactions', {
-          params: { path: { teamId }, query: { limit: PAGE_LIMIT, cursor } },
+          params: { path: { teamId }, query: { limit: PAGE_LIMIT, ...opt('cursor', cursor) } },
         });
         return check(res);
       });
@@ -852,8 +874,8 @@ export const realApi = {
           type: payload.type,
           title: payload.title,
           amount: eurosToCents(payload.amount),
-          category: payload.category,
-          date: payload.date,
+          ...opt('category', payload.category),
+          ...opt('date', payload.date),
         },
       });
       const t = await check(res);
@@ -864,11 +886,11 @@ export const realApi = {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/transactions/{transactionId}', {
         params: { path: { teamId, transactionId: id } },
         body: {
-          type: patch.type,
-          title: patch.title,
-          amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
-          category: patch.category,
-          date: patch.date,
+          ...opt('type', patch.type),
+          ...opt('title', patch.title),
+          ...opt('amount', patch.amount == null ? patch.amount : eurosToCents(patch.amount)),
+          ...opt('category', patch.category),
+          ...opt('date', patch.date),
         },
       });
       const t = await check(res);
@@ -895,8 +917,8 @@ export const realApi = {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/penalties/{penaltyId}', {
         params: { path: { teamId, penaltyId: id } },
         body: {
-          label: patch.label,
-          amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
+          ...opt('label', patch.label),
+          ...opt('amount', patch.amount == null ? patch.amount : eurosToCents(patch.amount)),
         },
       });
       const p = await check(res);
@@ -947,8 +969,8 @@ export const realApi = {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/contributions/{contributionId}', {
         params: { path: { teamId, contributionId: id } },
         body: {
-          label: patch.label,
-          amount: patch.amount == null ? patch.amount : eurosToCents(patch.amount),
+          ...opt('label', patch.label),
+          ...opt('amount', patch.amount == null ? patch.amount : eurosToCents(patch.amount)),
         },
       });
       const c = await check(res);
@@ -987,7 +1009,7 @@ export const realApi = {
 
     async teamOverview(teamId: string, range?: DateRange | null): Promise<StatsOverview> {
       const res = await apiClient.GET('/teams/{teamId}/stats', {
-        params: { path: { teamId }, query: { from: range?.from ?? undefined, to: range?.to ?? undefined } },
+        params: { path: { teamId }, query: { ...opt('from', range?.from ?? undefined), ...opt('to', range?.to ?? undefined) } },
       });
       const o = await check(res);
       return mapStatsOverview(o);

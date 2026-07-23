@@ -223,16 +223,6 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	// minimum retention period (e.g. 1 year); RETENTION_AUDIT_LOG_DAYS defaults
 	// to 365. The index on occurred_at makes the time-range scan behind each
 	// batch efficient.
-	//
-	// Note: migration 00004_audit_log.sql's header comment says retention is
-	// "handled at the infrastructure layer" and recommends granting the app
-	// role no UPDATE/DELETE on this table -- that was the original design
-	// intent, superseded by this job actually owning retention instead (no
-	// migration ever revokes DELETE, so nothing is broken today, but an
-	// operator who follows that comment's advice literally would silently
-	// break this job every day going forward). Left as-is rather than editing
-	// the historical migration file, since goose validates applied
-	// migrations' checksums against their file content.
 	auditCtx, auditCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
 	auditCutoff := now.Add(-w.auditLogRetention)
 	auditRows, auditErr := deleteBatched(auditCtx, w.pool, "audit_log", "occurred_at", auditCutoff)
