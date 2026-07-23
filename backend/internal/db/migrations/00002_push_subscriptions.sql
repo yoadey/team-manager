@@ -15,8 +15,6 @@ CREATE TABLE push_subscriptions (
     last_used_at  TIMESTAMPTZ
 );
 
-CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions (user_id);
-
 -- +goose Down
 
 DROP TABLE IF EXISTS push_subscriptions;

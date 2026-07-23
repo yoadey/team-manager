@@ -16,16 +16,11 @@ CREATE TABLE calendar_feed_tokens (
     revoked_at  TIMESTAMPTZ
 );
 
--- Enforces "one active token per user+team" at the DB layer -- IssueToken
--- revokes any existing active row before inserting a new one, but this
--- index closes the race if two issue requests for the same pair ever ran
--- concurrently.
-CREATE UNIQUE INDEX idx_calendar_feed_tokens_active_user_team
-    ON calendar_feed_tokens (user_id, team_id)
-    WHERE revoked_at IS NULL;
-
 -- The feed handler looks up by bare token on every request; the UNIQUE(token)
--- constraint above already provides a btree index for this lookup.
+-- constraint above already provides a btree index for this lookup. The
+-- "one active token per user+team" index is added in a follow-up migration,
+-- since building it without blocking writes needs a mode of index creation
+-- that cannot run inside this migration's own transaction.
 
 -- +goose Down
 

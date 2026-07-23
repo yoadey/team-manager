@@ -6,12 +6,20 @@
       `endpoint TEXT NOT NULL UNIQUE`, `p256dh TEXT NOT NULL`,
       `auth_key TEXT NOT NULL`, `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`,
       `last_used_at TIMESTAMPTZ`)
-- [x] 1.2 Index on `push_subscriptions(user_id)`
+- [x] 1.2 Index on `push_subscriptions(user_id)` — split into its own
+      `00003_push_subscriptions_indexes.sql` (`CREATE INDEX CONCURRENTLY` +
+      `-- +goose NO TRANSACTION`, mirroring `00029`'s existing pattern) after
+      CI's migration-safety lint correctly flagged the first draft, which
+      had the index inline in the `CREATE TABLE` migration
 - [x] 1.3 `make migrate` locally against a real Postgres; confirmed
-      up→down→up round-trips cleanly (`migration-rollback`/`migration-safety`
-      CI gates not run directly — no `golangci-lint`-style local runner for
-      them, but the same `goose up`/`down`/`up` sequence they use was
-      exercised manually)
+      up→down→up round-trips cleanly across both migrations. CI's
+      `backend-migration-safety` job caught the inline-index issue above on
+      the first push — its unsafe-DDL grep (blanks out comments/strings,
+      then checks each statement) is stricter than eyeballing the SQL, and
+      also flagged a code comment that happened to contain the word
+      "concurrently" in prose as a false-positive "missing NO TRANSACTION
+      annotation" (that check greps the *raw* file, not the comment-stripped
+      one) — reworded to avoid the trigger word.
 
 ## 2. Push package
 - [x] 2.1 `internal/push/push.go`: `Pusher` interface, `Subscription`,

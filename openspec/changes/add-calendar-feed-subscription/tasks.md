@@ -1,15 +1,18 @@
 ## 1. Database
-- [x] 1.1 New migration `00003_calendar_feed_tokens.sql` (renumbered from
-      `00031` after `main` squashed all prior migrations into a single
-      `00001_init.sql`): `calendar_feed_tokens`
+- [x] 1.1 New migration `00004_calendar_feed_tokens.sql` (renumbered from
+      `00031`, then again from `00003` — see 1.2 — after `main` squashed all
+      prior migrations into a single `00001_init.sql`): `calendar_feed_tokens`
       (`id UUID PK`, `user_id UUID FK -> users ON DELETE CASCADE`,
       `team_id UUID FK -> teams ON DELETE CASCADE`, `token TEXT NOT NULL UNIQUE`,
       `created_at TIMESTAMPTZ NOT NULL DEFAULT now()`, `revoked_at TIMESTAMPTZ`)
-- [x] 1.2 Unique index on `(user_id, team_id) WHERE revoked_at IS NULL`
-      and an index on `token` (the latter comes free from the
-      `UNIQUE(token)` column constraint, no separate index needed)
+- [x] 1.2 Unique index on `(user_id, team_id) WHERE revoked_at IS NULL` —
+      split into its own `00005_calendar_feed_tokens_indexes.sql`
+      (`CREATE UNIQUE INDEX CONCURRENTLY` + `-- +goose NO TRANSACTION`)
+      after CI's migration-safety lint flagged the first draft's inline
+      `CREATE UNIQUE INDEX`; an index on `token` comes free from the
+      `UNIQUE(token)` column constraint, no separate index needed
 - [x] 1.3 `make migrate` locally against a real Postgres; confirmed
-      up→down→up round-trips cleanly
+      up→down→up round-trips cleanly across both migrations
 
 ## 2. OpenAPI
 - [x] 2.1 `POST /teams/{teamId}/calendar-feed/token` (`x-rbac-module: events`,
