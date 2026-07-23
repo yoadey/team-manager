@@ -672,6 +672,16 @@ export const de = {
     absenceLogged: 'hat eine Abwesenheit eingetragen',
     markReadError: 'Benachrichtigungen konnten nicht als gelesen markiert werden.',
   },
+  push: {
+    title: 'Web-Push-Benachrichtigungen',
+    description: 'Erhalte Benachrichtigungen für neue Termine, News und mehr, auch wenn die App nicht geöffnet ist.',
+    unsupported: 'Push-Benachrichtigungen werden von diesem Browser nicht unterstützt.',
+    enabled: 'Push-Benachrichtigungen aktiviert',
+    disabled: 'Push-Benachrichtigungen deaktiviert',
+    enableFailed: 'Push-Benachrichtigungen konnten nicht aktiviert werden',
+    disableFailed: 'Push-Benachrichtigungen konnten nicht deaktiviert werden',
+    permissionDenied: 'Benachrichtigungen wurden im Browser blockiert. Bitte in den Browser-Einstellungen erlauben.',
+  },
   home: {
     greeting: 'Hallo {name}!',
     pendingPrompt_one: '{n} Termin braucht deine Rückmeldung.',

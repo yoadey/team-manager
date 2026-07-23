@@ -663,6 +663,16 @@ export const en: Messages = {
     absenceLogged: 'logged an absence',
     markReadError: 'Could not mark notifications as read.',
   },
+  push: {
+    title: 'Web push notifications',
+    description: 'Get notified about new events, news, and more, even when the app isn\'t open.',
+    unsupported: 'Push notifications are not supported by this browser.',
+    enabled: 'Push notifications enabled',
+    disabled: 'Push notifications disabled',
+    enableFailed: 'Could not enable push notifications',
+    disableFailed: 'Could not disable push notifications',
+    permissionDenied: 'Notifications were blocked in the browser. Please allow them in your browser settings.',
+  },
   home: {
     greeting: 'Hi {name}!',
     pendingPrompt_one: '{n} event needs your response.',
