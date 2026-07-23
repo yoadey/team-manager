@@ -84,6 +84,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: S3_SECRET_ACCESS_KEY
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: VAPID_PRIVATE_KEY
             - name: COOKIE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
@@ -208,6 +213,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.existingSecret }}
                   key: S3_SECRET_ACCESS_KEY
+            - name: VAPID_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: VAPID_PRIVATE_KEY
             - name: COOKIE_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
