@@ -577,6 +577,22 @@ const MemberAttendanceStats = z
     yes: z.number().int(),
   })
   .passthrough();
+const AttendanceAbsenceRow = z
+  .object({
+    userId: z.string().uuid(),
+    memberName: z.string(),
+    eventId: z.string().uuid(),
+    eventTitle: z.string(),
+    eventDate: z.string(),
+  })
+  .passthrough();
+const AttendanceAbsenceTable = z
+  .object({
+    rows: z.array(AttendanceAbsenceRow),
+    from: z.string(),
+    to: z.string(),
+  })
+  .passthrough();
 const Problem = z
   .object({
     type: z.string(),
@@ -658,6 +674,8 @@ export const schemas = {
   EventStat,
   StatsOverview,
   MemberAttendanceStats,
+  AttendanceAbsenceRow,
+  AttendanceAbsenceTable,
   Problem,
 };
 
@@ -2227,6 +2245,30 @@ const endpoints = makeApi([
       },
     ],
     response: StatsOverview,
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/stats/absences",
+    alias: "getStatsAbsences",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "from",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+      {
+        name: "to",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+    ],
+    response: AttendanceAbsenceTable,
   },
   {
     method: "get",

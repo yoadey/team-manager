@@ -299,6 +299,10 @@ func (StrictUnimplemented) GetMemberStats(_ context.Context, _ gen.GetMemberStat
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) GetStatsAbsences(_ context.Context, _ gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 // Server implements gen.StrictServerInterface by composing feature handlers.
@@ -688,4 +692,8 @@ func (s *Server) GetStatsOverview(ctx context.Context, req gen.GetStatsOverviewR
 
 func (s *Server) GetMemberStats(ctx context.Context, req gen.GetMemberStatsRequestObject) (gen.GetMemberStatsResponseObject, error) {
 	return s.Stats.GetMemberStats(ctx, req)
+}
+
+func (s *Server) GetStatsAbsences(ctx context.Context, req gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
+	return s.Stats.GetStatsAbsences(ctx, req)
 }

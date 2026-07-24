@@ -21,3 +21,13 @@ type EventStatRow struct {
 	Yes     int
 	Counted int
 }
+
+// AbsenceRow holds one member's absence (effective status "no") from one
+// event, for the absence table view.
+type AbsenceRow struct {
+	UserID     uuid.UUID
+	Name       string
+	EventID    uuid.UUID
+	EventTitle string
+	Date       string // YYYY-MM-DD
+}

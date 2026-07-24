@@ -102,6 +102,20 @@ export interface MemberAttendanceStats {
   yes: number;
 }
 
+export interface AttendanceAbsenceRow {
+  userId: string;
+  memberName: string;
+  eventId: string;
+  eventTitle: string;
+  eventDate: string;
+}
+
+export interface AttendanceAbsenceTable {
+  rows: AttendanceAbsenceRow[];
+  from: string;
+  to: string;
+}
+
 export interface Provider {
   id: string;
   name: string;

@@ -706,5 +706,10 @@ export const de = {
     complete: 'Vollständig',
     tooFew: 'Zu wenig',
     emptyPast: 'Noch keine vergangenen Termine',
+    tabsAria: 'Statistik-Ansicht',
+    tabQuota: 'Quote',
+    tabAbsences: 'Fehlzeiten',
+    absenceTableTitle: 'Fehlzeiten je Person',
+    emptyAbsences: 'Keine Fehlzeiten im gewählten Zeitraum',
   },
 };
