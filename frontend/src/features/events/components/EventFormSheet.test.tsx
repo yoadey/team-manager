@@ -44,8 +44,14 @@ vi.mock('@/i18n', () => ({
   t: vi.fn().mockImplementation((key: string) => key),
 }));
 
+vi.mock('../hooks/useEventQueries', () => ({
+  useEventsQuery: vi.fn().mockReturnValue({ data: [] }),
+}));
+
 import { useApp } from '@/context/AppContext';
+import { useEventsQuery } from '../hooks/useEventQueries';
 const mockUseApp = vi.mocked(useApp);
+const mockUseEventsQuery = vi.mocked(useEventsQuery);
 
 function makeApp(formOverrides: Record<string, unknown> = {}) {
   return {
@@ -125,6 +131,26 @@ describe('EventFormSheet', () => {
     mockUseApp.mockReturnValue(app as never);
     render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.fieldLocation')).toBeTruthy();
+  });
+
+  it('suggests previously used, de-duplicated locations for the location field', () => {
+    mockUseEventsQuery.mockReturnValue({
+      data: [
+        { location: 'Turnhalle A' },
+        { location: 'Sportplatz' },
+        { location: 'turnhalle a' },
+        { location: '' },
+      ],
+    } as never);
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    const location = document.querySelector('input[name="location"]') as HTMLInputElement;
+    expect(location.getAttribute('list')).toBe('event-location-suggestions');
+    const options = Array.from(document.querySelectorAll('#event-location-suggestions option')).map((o) =>
+      o.getAttribute('value'),
+    );
+    expect(options).toEqual(['Turnhalle A', 'Sportplatz']);
   });
 
   it('renders note field', () => {

@@ -9,6 +9,7 @@ import { getIntlLocale, getLocale, subscribeLocale, t } from '@/i18n';
 import type { TeamEvent } from '@/features/events';
 import type { NewsItem } from '@/features/news';
 import { Av, Chip, Sym, metaItem } from './ui';
+import { Linkify } from './Linkify';
 
 /**
  * Subscribes to the module-level i18n store directly (rather than the
@@ -189,7 +190,7 @@ export const NewsCard = memo(function NewsCard({
           overflow: 'hidden',
         }}
       >
-        {n.body}
+        <Linkify text={n.body} />
       </Box>
     </Box>
   );

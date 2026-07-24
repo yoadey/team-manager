@@ -184,6 +184,29 @@ describe('NotificationsSheet', () => {
     expect(screen.getByText(/Neues Spiel/)).toBeTruthy();
   });
 
+  // Regression test: the backend enqueues event_created/event_cancelled
+  // notifications with eventTitle + eventDate set but title left null (see
+  // events/service.go's NotificationArgs) -- line2 used to read n.title
+  // unconditionally, rendering the literal string "undefined" with no date.
+  it('renders an event_created notification with eventTitle/eventDate but no title, without the literal "undefined"', () => {
+    const n: AppNotification = {
+      id: 'n3b',
+      teamId: 't1',
+      type: 'event_created',
+      eventTitle: 'Training Montag',
+      eventDate: '2026-06-20',
+      actorName: 'Stefan May',
+      eventId: 'e2',
+      createdAt: new Date().toISOString(),
+      unread: false,
+    };
+    const app = makeApp({ notifications: [n] });
+    render(<NotificationsSheet app={app} sheet={{ type: 'notifications' }} />);
+    expect(screen.queryByText(/undefined/)).toBeNull();
+    expect(screen.getByText(/Training Montag/)).toBeTruthy();
+    expect(screen.getByText(/Stefan May/)).toBeTruthy();
+  });
+
   it('renders an absence notification with actor name', () => {
     const n = makeNotification({
       id: 'n4',

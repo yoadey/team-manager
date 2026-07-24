@@ -537,7 +537,7 @@ function DesktopShell({ app, team, tk, pageSheet, pm, content, notifUnread, noti
             <Box sx={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {state.user!.name}
             </Box>
-            <Box sx={{ fontSize: '11px', color: NEUTRAL.secondary }}>{tl('shell.accountAndRoles')}</Box>
+            <Box sx={{ fontSize: '11px', color: NEUTRAL.secondary }}>{tl('shell.myAccount')}</Box>
           </Box>
           <Sym name="settings" size={20} color={NEUTRAL.secondary} />
         </ButtonBase>
