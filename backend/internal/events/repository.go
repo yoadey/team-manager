@@ -347,9 +347,9 @@ func seriesDates(params *CreateEventParams) []time.Time {
 	if repeatWeeks > maxRepeatWeeks {
 		repeatWeeks = maxRepeatWeeks
 	}
-	dates := make([]time.Time, repeatWeeks)
+	var dates []time.Time
 	for i := 0; i < repeatWeeks; i++ {
-		dates[i] = params.Date.AddDate(0, 0, i*7)
+		dates = append(dates, params.Date.AddDate(0, 0, i*7))
 	}
 	return dates
 }
