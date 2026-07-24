@@ -28,9 +28,11 @@ type teamService interface {
 	CreateInvite(ctx context.Context, teamID string) (*gen.Invite, error)
 	AcceptInvite(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
 	GetTeamPhotoURL(ctx context.Context, teamID string) (string, error)
+	GetTeamPhotoBytes(ctx context.Context, teamID string) (io.ReadCloser, string, error)
 	UpdatePhoto(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
 	DeletePhoto(ctx context.Context, teamID string) error
 	GetTeamLogoURL(ctx context.Context, teamID string) (string, error)
+	GetTeamLogoBytes(ctx context.Context, teamID string) (io.ReadCloser, string, error)
 	UpdateLogo(ctx context.Context, teamID string, data []byte, mime string) (*gen.Team, error)
 	DeleteLogo(ctx context.Context, teamID string) error
 }
@@ -40,6 +42,11 @@ type Handler struct {
 	svc    teamService
 	logger *slog.Logger
 	audit  *audit.Logger
+	// imageDeliveryProxyEnabled mirrors config.Config.ImageDeliveryProxyEnabled
+	// (wired in by cmd/server/main.go via SetImageDeliveryProxyEnabled).
+	// Defaults to false: GetTeamPhoto/GetTeamLogo redirect (302) to a
+	// presigned object-store URL, unchanged from before this flag existed.
+	imageDeliveryProxyEnabled bool
 }
 
 // NewHandler creates a new Handler. al is the shared audit logger; when nil a
@@ -49,6 +56,14 @@ func NewHandler(svc teamService, logger *slog.Logger, al *audit.Logger) *Handler
 		al = audit.New(logger)
 	}
 	return &Handler{svc: svc, logger: logger, audit: al}
+}
+
+// SetImageDeliveryProxyEnabled configures whether GetTeamPhoto/GetTeamLogo
+// stream image bytes directly through the backend (proxy mode) instead of
+// redirecting to a presigned object-store URL (the default). See
+// config.Config.ImageDeliveryProxyEnabled.
+func (h *Handler) SetImageDeliveryProxyEnabled(enabled bool) {
+	h.imageDeliveryProxyEnabled = enabled
 }
 
 // actor returns the acting user's id for audit records, or "" when absent.
@@ -265,19 +280,73 @@ func (h *Handler) AcceptInvite(ctx context.Context, request gen.AcceptInviteRequ
 	return gen.AcceptInvite200JSONResponse(*tfu), nil
 }
 
-// GetTeamPhoto redirects to a short-lived presigned URL for the team photo.
-func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequestObject) (gen.GetTeamPhotoResponseObject, error) {
-	url, err := h.svc.GetTeamPhotoURL(ctx, request.TeamId.String())
+// deliverImage implements the shared redirect-vs-proxy branching behind
+// GetTeamPhoto and GetTeamLogo, which otherwise differ only in which service
+// methods and generated response types they plug in -- factored out instead
+// of duplicated so the mode switch (SetImageDeliveryProxyEnabled /
+// config.Config.ImageDeliveryProxyEnabled) lives in exactly one place.
+// notFound/bytesResponse/redirectResponse construct the operation-specific
+// gen.Get*ResponseObject.
+func deliverImage[R any](
+	ctx context.Context,
+	h *Handler,
+	opName string,
+	getBytes func(context.Context) (io.ReadCloser, string, error),
+	getURL func(context.Context) (string, error),
+	notFound func() R,
+	bytesResponse func(data io.ReadCloser, contentType string) R,
+	redirectResponse func(url string) R,
+) (R, error) {
+	var zero R
+	if h.imageDeliveryProxyEnabled {
+		data, contentType, err := getBytes(ctx)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return notFound(), nil
+			}
+			h.logger.ErrorContext(ctx, opName+" failed", "err", err)
+			return zero, fmt.Errorf("teams.Handler.%s: %w", opName, err)
+		}
+		return bytesResponse(data, contentType), nil
+	}
+
+	url, err := getURL(ctx)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return notFoundPhotoResponse("no team photo"), nil
+			return notFound(), nil
 		}
-		h.logger.ErrorContext(ctx, "GetTeamPhoto failed", "err", err)
-		return nil, fmt.Errorf("teams.Handler.GetTeamPhoto: %w", err)
+		h.logger.ErrorContext(ctx, opName+" failed", "err", err)
+		return zero, fmt.Errorf("teams.Handler.%s: %w", opName, err)
 	}
-	return gen.GetTeamPhoto302Response{
-		Headers: gen.PhotoRedirectResponseHeaders{Location: &url},
-	}, nil
+	return redirectResponse(url), nil
+}
+
+// GetTeamPhoto returns the team photo: a short-lived presigned URL to
+// redirect to (default), or the image bytes streamed directly when the
+// deployment is configured for proxy image delivery
+// (SetImageDeliveryProxyEnabled / config.Config.ImageDeliveryProxyEnabled).
+//
+// deliverImage call sites over their respective gen types) -- the shared
+// logic already lives in deliverImage; this is the irreducible per-operation
+// wiring, not copy-paste that should be merged further.
+//
+//nolint:dupl // structurally mirrors GetTeamLogo below (both are thin
+func (h *Handler) GetTeamPhoto(ctx context.Context, request gen.GetTeamPhotoRequestObject) (gen.GetTeamPhotoResponseObject, error) {
+	teamID := request.TeamId.String()
+	return deliverImage(
+		ctx, h, "GetTeamPhoto",
+		func(ctx context.Context) (io.ReadCloser, string, error) { return h.svc.GetTeamPhotoBytes(ctx, teamID) },
+		func(ctx context.Context) (string, error) { return h.svc.GetTeamPhotoURL(ctx, teamID) },
+		func() gen.GetTeamPhotoResponseObject { return notFoundPhotoResponse("no team photo") },
+		func(data io.ReadCloser, contentType string) gen.GetTeamPhotoResponseObject {
+			return gen.GetTeamPhoto200ImageResponse{
+				PhotoBytesImageResponse: gen.PhotoBytesImageResponse{Body: data, ContentType: contentType},
+			}
+		},
+		func(url string) gen.GetTeamPhotoResponseObject {
+			return gen.GetTeamPhoto302Response{Headers: gen.PhotoRedirectResponseHeaders{Location: &url}}
+		},
+	)
 }
 
 // readMultipartImage reads the first part of a multipart body, capped at 2 MB,
@@ -351,19 +420,28 @@ func (h *Handler) UploadTeamPhoto(ctx context.Context, request gen.UploadTeamPho
 	return gen.UploadTeamPhoto200JSONResponse(*t), nil
 }
 
-// GetTeamLogo redirects to a short-lived presigned URL for the team logo.
+// GetTeamLogo returns the team logo: a short-lived presigned URL to redirect
+// to (default), or the image bytes streamed directly when the deployment is
+// configured for proxy image delivery (SetImageDeliveryProxyEnabled /
+// config.Config.ImageDeliveryProxyEnabled).
+//
+//nolint:dupl // structurally mirrors GetTeamPhoto above; see its comment.
 func (h *Handler) GetTeamLogo(ctx context.Context, request gen.GetTeamLogoRequestObject) (gen.GetTeamLogoResponseObject, error) {
-	url, err := h.svc.GetTeamLogoURL(ctx, request.TeamId.String())
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return notFoundLogoResponse("no team logo"), nil
-		}
-		h.logger.ErrorContext(ctx, "GetTeamLogo failed", "err", err)
-		return nil, fmt.Errorf("teams.Handler.GetTeamLogo: %w", err)
-	}
-	return gen.GetTeamLogo302Response{
-		Headers: gen.PhotoRedirectResponseHeaders{Location: &url},
-	}, nil
+	teamID := request.TeamId.String()
+	return deliverImage(
+		ctx, h, "GetTeamLogo",
+		func(ctx context.Context) (io.ReadCloser, string, error) { return h.svc.GetTeamLogoBytes(ctx, teamID) },
+		func(ctx context.Context) (string, error) { return h.svc.GetTeamLogoURL(ctx, teamID) },
+		func() gen.GetTeamLogoResponseObject { return notFoundLogoResponse("no team logo") },
+		func(data io.ReadCloser, contentType string) gen.GetTeamLogoResponseObject {
+			return gen.GetTeamLogo200ImageResponse{
+				PhotoBytesImageResponse: gen.PhotoBytesImageResponse{Body: data, ContentType: contentType},
+			}
+		},
+		func(url string) gen.GetTeamLogoResponseObject {
+			return gen.GetTeamLogo302Response{Headers: gen.PhotoRedirectResponseHeaders{Location: &url}}
+		},
+	)
 }
 
 // UploadTeamLogo handles a multipart upload, stores the logo, and returns the updated team.

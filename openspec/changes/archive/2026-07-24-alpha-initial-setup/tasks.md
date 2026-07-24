@@ -135,6 +135,6 @@
       `-- +goose NO TRANSACTION` annotation
 - [x] 5.5 `internal/gen/api.gen.go`/`rbac_table.gen.go` unaffected (openapi.yaml
       wasn't touched); confirmed byte-identical after `make generate`
-- [ ] 5.6 Frontend `npm run typecheck`, `npm test`, `npm run lint` green for
-      the `Login.tsx`/`NavSheets.tsx` edits — being verified together with
-      the parallel lint/TS-strictness work in `tooling-and-docs-hardening`
+- [x] 5.6 Frontend `npm run typecheck`, `npm test`, `npm run lint` green for
+      the `Login.tsx`/`NavSheets.tsx` edits — re-verified: typecheck clean,
+      1192 tests passing, lint clean (0 warnings)

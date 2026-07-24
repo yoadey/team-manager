@@ -28,4 +28,8 @@ export const queryKeys = {
   // rather than reusing/overwriting the previous range's cached data.
   stats: (teamId: string, range: DateRange | null) =>
     ['teams', teamId, 'stats', range?.from ?? null, range?.to ?? null] as const,
+  // Separate cache entry from `stats` above (its own endpoint/query), but
+  // varies by date range for the same reason.
+  statsAbsences: (teamId: string, range: DateRange | null) =>
+    ['teams', teamId, 'statsAbsences', range?.from ?? null, range?.to ?? null] as const,
 };

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { EventDetailSheet as RealEventDetailSheet } from './EventDetailSheet';
 import type { SheetProps } from '@/sheets/types';
@@ -643,5 +643,56 @@ describe('EventDetailSheet', () => {
     render(<RealEventDetailSheet app={app as never} sheet={{ type: 'eventDetail', eventId: 'ev1' } as never} />);
     expect(screen.getByText('1. Juli 2026')).toBeTruthy();
     expect(app.setState).not.toHaveBeenCalled();
+  });
+
+  describe('RSVP deadline countdown', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-06-25T12:00:00.000Z'));
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('shows a countdown once the RSVP deadline is under 24h away', () => {
+      const app = makeApp();
+      mockUseApp.mockReturnValue(app as never);
+      const event = makeEvent({ rsvpDeadline: '2026-06-26T00:00:00.000Z' });
+      render(
+        <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+      );
+      expect(screen.getByText('events.rsvpCountdown')).toBeTruthy();
+    });
+
+    it('does not show a countdown when the RSVP deadline is more than 24h away', () => {
+      const app = makeApp();
+      mockUseApp.mockReturnValue(app as never);
+      const event = makeEvent({ rsvpDeadline: '2026-06-30T12:00:00.000Z' });
+      render(
+        <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+      );
+      expect(screen.queryByText('events.rsvpCountdown')).toBeNull();
+    });
+
+    it('does not show a countdown when the event has no RSVP deadline', () => {
+      const app = makeApp();
+      mockUseApp.mockReturnValue(app as never);
+      const event = makeEvent({ rsvpDeadline: null });
+      render(
+        <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+      );
+      expect(screen.queryByText('events.rsvpCountdown')).toBeNull();
+    });
+
+    it('does not show a countdown once the RSVP deadline has already passed', () => {
+      const app = makeApp();
+      mockUseApp.mockReturnValue(app as never);
+      const event = makeEvent({ rsvpDeadline: '2026-06-25T00:00:00.000Z' });
+      render(
+        <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
+      );
+      expect(screen.queryByText('events.rsvpCountdown')).toBeNull();
+    });
   });
 });

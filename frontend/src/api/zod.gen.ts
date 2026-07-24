@@ -215,6 +215,7 @@ const TeamEvent = z
     myStatus: AttendanceStatus.optional(),
     myAuto: z.boolean().optional(),
     myReason: z.string().optional(),
+    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
 const CreateEventRequest = z
@@ -232,6 +233,8 @@ const CreateEventRequest = z
     nominatedRoleIds: z.array(z.string().uuid()).optional(),
     recurring: z.boolean().optional(),
     repeatWeeks: z.number().int().gte(1).lte(104).optional(),
+    endDate: z.string().optional(),
+    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
 const UpdateEventRequest = z
@@ -247,6 +250,7 @@ const UpdateEventRequest = z
     meetTimeMandatory: z.boolean(),
     responseMode: ResponseMode,
     nominatedRoleIds: z.array(z.string().uuid()),
+    rsvpDeadline: z.string().datetime({ offset: true }),
   })
   .partial()
   .passthrough();
@@ -470,6 +474,7 @@ const PenaltyAssignment = z
     hasPhoto: z.boolean().optional(),
     label: z.string().optional(),
     amount: z.number().int().optional(),
+    note: z.string().max(10000).optional(),
   })
   .passthrough();
 const OpenPenalty = z
@@ -537,7 +542,12 @@ const UpdatePenaltyRequest = z
   .partial()
   .passthrough();
 const CreatePenaltyAssignmentRequest = z
-  .object({ userId: z.string().uuid(), penaltyId: z.string().uuid() })
+  .object({
+    userId: z.string().uuid(),
+    penaltyId: z.string().uuid(),
+    date: z.string().optional(),
+    note: z.string().max(10000).optional(),
+  })
   .passthrough();
 const SetPaidRequest = z.object({ paid: z.boolean() }).passthrough();
 const UpdateContributionRequest = z
@@ -582,6 +592,22 @@ const MemberAttendanceStats = z
     quote: z.number(),
     counted: z.number().int(),
     yes: z.number().int(),
+  })
+  .passthrough();
+const AttendanceAbsenceRow = z
+  .object({
+    userId: z.string().uuid(),
+    memberName: z.string(),
+    eventId: z.string().uuid(),
+    eventTitle: z.string(),
+    eventDate: z.string(),
+  })
+  .passthrough();
+const AttendanceAbsenceTable = z
+  .object({
+    rows: z.array(AttendanceAbsenceRow),
+    from: z.string(),
+    to: z.string(),
   })
   .passthrough();
 const Problem = z
@@ -667,6 +693,8 @@ export const schemas = {
   EventStat,
   StatsOverview,
   MemberAttendanceStats,
+  AttendanceAbsenceRow,
+  AttendanceAbsenceTable,
   Problem,
 };
 
@@ -2285,6 +2313,30 @@ const endpoints = makeApi([
       },
     ],
     response: StatsOverview,
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/stats/absences",
+    alias: "getStatsAbsences",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "from",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+      {
+        name: "to",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+    ],
+    response: AttendanceAbsenceTable,
   },
   {
     method: "get",

@@ -181,6 +181,14 @@ type Config struct {
 	// "mailto:ops@example.com" -- required by the VAPID spec. Set via
 	// VAPID_SUBJECT.
 	VAPIDSubject string
+	// ImageDeliveryProxyEnabled selects how team/user photo and team logo
+	// GET endpoints deliver image bytes. Defaults to false: the handler
+	// redirects (302) to a short-lived presigned object-store URL, as
+	// today. When true, the handler instead streams the object store's
+	// bytes directly through the backend (200, via storage.ObjectStore.Get)
+	// -- for deployments where the object store is not reachable from the
+	// browser. Set via IMAGE_DELIVERY_PROXY_ENABLED.
+	ImageDeliveryProxyEnabled bool
 }
 
 func Load() (*Config, error) {
@@ -249,10 +257,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	vapid, err := loadVAPIDConfig(cookieSecure)
+	extra, err := loadAdditionalConfig(cookieSecure)
 	if err != nil {
 		return nil, err
 	}
+	vapid := extra.VAPID
+	imageDeliveryProxyEnabled := extra.ImageDeliveryProxyEnabled
 
 	return &Config{
 		Port:                              envOr("PORT", "8080"),
@@ -296,7 +306,29 @@ func Load() (*Config, error) {
 		VAPIDPublicKey:                    vapid.PublicKey,
 		VAPIDPrivateKey:                   vapid.PrivateKey,
 		VAPIDSubject:                      vapid.Subject,
+		ImageDeliveryProxyEnabled:         imageDeliveryProxyEnabled,
 	}, nil
+}
+
+// additionalConfig groups the VAPID and image-delivery-proxy settings so
+// Load can load both behind a single error check, keeping Load's own
+// cyclomatic complexity down (mirrors the s3Settings/smtpSettings grouping
+// pattern used elsewhere in this file).
+type additionalConfig struct {
+	VAPID                     vapidSettings
+	ImageDeliveryProxyEnabled bool
+}
+
+func loadAdditionalConfig(cookieSecure bool) (additionalConfig, error) {
+	vapid, err := loadVAPIDConfig(cookieSecure)
+	if err != nil {
+		return additionalConfig{}, err
+	}
+	imageDeliveryProxyEnabled, err := loadImageDeliveryProxyEnabled()
+	if err != nil {
+		return additionalConfig{}, err
+	}
+	return additionalConfig{VAPID: vapid, ImageDeliveryProxyEnabled: imageDeliveryProxyEnabled}, nil
 }
 
 // vapidSettings mirrors the VAPID-related Config fields; kept as its own
@@ -461,6 +493,20 @@ func loadSelfRegistrationEnabled() (bool, error) {
 	b, err := strconv.ParseBool(v)
 	if err != nil {
 		return false, fmt.Errorf("SELF_REGISTRATION_ENABLED: %w", err)
+	}
+	return b, nil
+}
+
+// loadImageDeliveryProxyEnabled reads IMAGE_DELIVERY_PROXY_ENABLED, defaulting
+// to false (redirect mode, unchanged from before this flag existed).
+func loadImageDeliveryProxyEnabled() (bool, error) {
+	v := os.Getenv("IMAGE_DELIVERY_PROXY_ENABLED")
+	if v == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("IMAGE_DELIVERY_PROXY_ENABLED: %w", err)
 	}
 	return b, nil
 }

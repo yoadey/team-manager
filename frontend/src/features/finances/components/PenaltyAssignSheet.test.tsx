@@ -119,4 +119,48 @@ describe('PenaltyAssignSheet', () => {
     render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
     expect(screen.getByRole('combobox')).toBeTruthy();
   });
+
+  it('renders a date input defaulting to the formInitial date', () => {
+    const { app, formInitial } = makeApp({ date: '2026-06-01' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
+    const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+    expect(dateInput).toBeTruthy();
+    expect(dateInput.value).toBe('2026-06-01');
+  });
+
+  it('allows editing the date to a past value', () => {
+    const { app, formInitial } = makeApp({ date: '2026-06-01' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
+    const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+    fireEvent.change(dateInput, { target: { value: '2026-01-15' } });
+    expect(dateInput.value).toBe('2026-01-15');
+  });
+
+  it('renders an optional note field', () => {
+    const { app, formInitial } = makeApp({ note: '' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
+    expect(screen.getByPlaceholderText('z. B. Grund der Strafe')).toBeTruthy();
+  });
+
+  it('passes the entered note and date through on submit', async () => {
+    const { app, formInitial } = makeApp({ userId: 'u2', penaltyId: 'p1', date: '2026-06-01', note: '' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
+    const noteField = screen.getByPlaceholderText('z. B. Grund der Strafe');
+    fireEvent.change(noteField, { target: { value: 'Zu spät gekommen' } });
+    fireEvent.click(screen.getByRole('button', { name: /Strafe erfassen/i }));
+    await waitFor(() => {
+      expect(app.savePenaltyAssign).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'u2', penaltyId: 'p1', date: '2026-06-01', note: 'Zu spät gekommen' }),
+      );
+    });
+  });
+
+  it('submits successfully with the note left empty', async () => {
+    const { app, formInitial } = makeApp({ userId: 'u2', penaltyId: 'p1', date: '2026-06-01', note: '' });
+    render(<PenaltyAssignSheet app={app as never} sheet={{ formInitial } as never} />);
+    fireEvent.click(screen.getByRole('button', { name: /Strafe erfassen/i }));
+    await waitFor(() => {
+      expect(app.savePenaltyAssign).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u2', penaltyId: 'p1' }));
+    });
+  });
 });

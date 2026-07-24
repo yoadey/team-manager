@@ -13,6 +13,8 @@ import {
   mapMemberStat,
   mapEventStat,
   mapStatsOverview,
+  mapAttendanceAbsenceRow,
+  mapAttendanceAbsenceTable,
   mapPoll,
   mapTeamEvent,
 } from './map';
@@ -206,6 +208,42 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
     expect(o.avg).toBe(67);
     expect(o.members[0]!.quote).toBe(50);
     expect(o.events[0]!.pct).toBe(75);
+  });
+});
+
+describe('attendance absence table mappers pass fields through unchanged', () => {
+  it('mapAttendanceAbsenceRow maps every field', () => {
+    const row = mapAttendanceAbsenceRow({
+      userId: 'u1',
+      memberName: 'Alice',
+      eventId: 'e1',
+      eventTitle: 'Training',
+      eventDate: '2026-02-10',
+    });
+    expect(row).toEqual({
+      userId: 'u1',
+      memberName: 'Alice',
+      eventId: 'e1',
+      eventTitle: 'Training',
+      eventDate: '2026-02-10',
+    });
+  });
+
+  it('mapAttendanceAbsenceTable maps rows and the covered range', () => {
+    const table = mapAttendanceAbsenceTable({
+      rows: [{ userId: 'u1', memberName: 'Alice', eventId: 'e1', eventTitle: 'Training', eventDate: '2026-02-10' }],
+      from: '2026-01-01',
+      to: '2026-03-01',
+    });
+    expect(table.rows).toHaveLength(1);
+    expect(table.rows[0]!.memberName).toBe('Alice');
+    expect(table.from).toBe('2026-01-01');
+    expect(table.to).toBe('2026-03-01');
+  });
+
+  it('mapAttendanceAbsenceTable returns an empty rows array (not an error) when there are no absences', () => {
+    const table = mapAttendanceAbsenceTable({ rows: [], from: '2026-01-01', to: '2026-03-01' });
+    expect(table.rows).toEqual([]);
   });
 });
 

@@ -7,9 +7,16 @@ import { buildTokens, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
+import { useMembersQuery } from '@/features/members';
 import { useEventsQuery } from '../hooks/useEventQueries';
 import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 import type { Absence, TeamEvent } from '../types';
+import { synthesizeBirthdayEvents, groupBirthdaysByDate, type BirthdayEntry } from './synthesizeBirthdayEvents';
+
+// Fixed color pair for the birthday chip, deliberately not one of typeMeta's
+// event-type colors (nor NEUTRAL) so a birthday pseudo-event reads as
+// visually distinct from both real events and absences at a glance.
+const BIRTHDAY_COLOR = { bg: '#FCE4EC', on: '#7A1750' };
 
 function groupEventsByDate(events: TeamEvent[] | undefined): Record<string, TeamEvent[]> {
   const byDate: Record<string, TeamEvent[]> = {};
@@ -90,6 +97,34 @@ function AbsenceChip({ absence, mobile }: { absence: Absence; mobile: boolean })
   );
 }
 
+// Synthetic pseudo-event -- styled like AbsenceChip's pill shape (not
+// EventChip's block button, since it isn't clickable/openable) but with a
+// dedicated icon + color pair so it can't be mistaken for a real event or an
+// absence.
+function BirthdayChip({ entry, mobile }: { entry: BirthdayEntry; mobile: boolean }) {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '3px',
+        background: BIRTHDAY_COLOR.bg,
+        borderRadius: '5px',
+        p: '1px 4px',
+        fontSize: mobile ? '8px' : '9px',
+        fontWeight: 600,
+        color: BIRTHDAY_COLOR.on,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      <Sym name="cake" size={mobile ? 9 : 10} color={BIRTHDAY_COLOR.on} />
+      {entry.name}
+    </Box>
+  );
+}
+
 interface CalendarDayCellProps {
   date: Date;
   inMonth: boolean;
@@ -99,6 +134,7 @@ interface CalendarDayCellProps {
   primaryContainer: string;
   events: TeamEvent[];
   absences: Absence[];
+  birthdays: BirthdayEntry[];
   onOpenEvent: (id: string) => void;
 }
 
@@ -111,6 +147,7 @@ function CalendarDayCell({
   primaryContainer,
   events,
   absences,
+  birthdays,
   onOpenEvent,
 }: CalendarDayCellProps) {
   const eventLimit = mobile ? 2 : 3;
@@ -156,6 +193,9 @@ function CalendarDayCell({
       {events.length > eventLimit ? (
         <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>{'+' + (events.length - eventLimit)}</Box>
       ) : null}
+      {birthdays.map((b) => (
+        <BirthdayChip key={'b' + b.membershipId} entry={b} mobile={mobile} />
+      ))}
       {visibleAbsences.map((a, idx) => (
         <AbsenceChip key={'a' + idx} absence={a} mobile={mobile} />
       ))}
@@ -176,6 +216,13 @@ export function EventCalendar() {
   const mobile = compact;
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
   const { data: absences } = useAbsencesQuery(app.api, state.activeTeamId, state.calShowAbsences);
+  // Birthdays are gated by the same rule as the member profile's birthday
+  // field (members:write -- the "Trainerteam"/coaching-team roles; see
+  // members.contactNote). A member without that permission gets an empty
+  // birthday list rather than a filtered one, so no birthday entry ever
+  // reaches the DOM for them.
+  const canSeeBirthdays = app.can('members', 'write');
+  const { data: members } = useMembersQuery(app.api, canSeeBirthdays ? state.activeTeamId : null);
 
   const cur = state.calMonth || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const year = cur.getFullYear();
@@ -186,6 +233,17 @@ export function EventCalendar() {
 
   const evByDate = groupEventsByDate(events);
   const absByDate = groupAbsencesByDate(absences, state.calShowAbsences);
+  // Grid range: the 42 rendered cells run from `1 - startDow` to `1 -
+  // startDow + 41` days of the visible month (see the cell loop below), so
+  // the synthesis range must match exactly or a birthday landing in a
+  // leading/trailing cell from an adjacent month (possibly a different
+  // calendar year, e.g. a December grid's early-January trailing cells)
+  // would be silently dropped.
+  const gridStart = new Date(year, month, 1 - startDow);
+  const gridEnd = new Date(year, month, 1 - startDow + 41);
+  const birthdaysByDate = canSeeBirthdays
+    ? groupBirthdaysByDate(synthesizeBirthdayEvents(members, gridStart, gridEnd))
+    : {};
 
   const cells: React.ReactNode[] = [];
   const dtf = new Intl.DateTimeFormat(getIntlLocale(), { weekday: mobile ? 'narrow' : 'short' });
@@ -216,6 +274,7 @@ export function EventCalendar() {
         primaryContainer={tk.primaryContainer}
         events={evByDate[ds] || []}
         absences={absByDate[ds] || []}
+        birthdays={birthdaysByDate[ds] || []}
         onOpenEvent={app.openEventDetail}
       />,
     );

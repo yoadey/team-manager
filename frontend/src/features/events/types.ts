@@ -4,6 +4,9 @@ export type ResponseMode = 'opt_in' | 'opt_out';
 
 // --- Editing buffer shapes for the event sheets ---
 
+/** How a recurring series' extent is specified: a fixed occurrence count, or an end date. */
+export type RepeatMode = 'weeks' | 'until';
+
 /** Event create/edit sheet (times held as HH:MM strings). `id`/`seriesId` set when editing. */
 export interface EventFormValues extends Record<string, unknown> {
   id?: string;
@@ -21,6 +24,12 @@ export interface EventFormValues extends Record<string, unknown> {
   nominatedRoleIds: string[];
   recurring: boolean;
   repeatWeeks: number;
+  /** Which of repeatWeeks/repeatEndDate the "N weeks" vs. "until date" toggle currently drives. */
+  repeatMode: RepeatMode;
+  /** Recurrence end date (YYYY-MM-DD), used instead of repeatWeeks when repeatMode === 'until'. */
+  repeatEndDate: string;
+  /** RSVP deadline as a `<input type="datetime-local">` value (YYYY-MM-DDTHH:mm), or '' for none. */
+  rsvpDeadline: string;
 }
 
 /** Plan-an-absence sheet. */
@@ -62,6 +71,8 @@ export interface EventDto {
   recurring: boolean;
   seriesId: string | null;
   status: EventStatus;
+  /** ISO 8601 timestamp; null when the event has no RSVP deadline. */
+  rsvpDeadline: string | null;
 }
 
 /** UI ViewModel consumed by event screens; summary and my* are client-side enrichment. */

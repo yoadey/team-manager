@@ -10,6 +10,7 @@ import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSch
 import type { ContribFormValues } from '../components/contribFormSchema';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
+import { todayStr } from '@/styles/tokens';
 import { queryKeys } from '@/query/keys';
 import {
   useDeleteAssignmentMutation,
@@ -174,7 +175,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     // fetch/retry on their own -- no manual refresh needed here.
     const f = queryClient.getQueryData<FinanceOverview>(queryKeys.finances(teamId ?? ''));
     const first = f && f.penalties[0] ? f.penalties[0].id : '';
-    const form: PenaltyAssignFormValues = { userId: '', penaltyId: first };
+    const form: PenaltyAssignFormValues = { userId: '', penaltyId: first, date: todayStr(), note: '' };
     setState({ sheet: { type: 'penaltyAssign', formInitial: form } });
   }, [queryClient, teamId, setState]);
 
@@ -183,7 +184,13 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
       const sh = S().sheet;
       const savedTeamId = teamId;
       try {
-        await savePenaltyAssignAsync({ userId: f.userId, penaltyId: f.penaltyId });
+        const trimmedNote = f.note?.trim();
+        await savePenaltyAssignAsync({
+          userId: f.userId,
+          penaltyId: f.penaltyId,
+          date: f.date,
+          ...(trimmedNote ? { note: trimmedNote } : {}),
+        });
         if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastPenaltyAssigned'));
       } catch (err) {

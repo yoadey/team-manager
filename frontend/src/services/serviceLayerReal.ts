@@ -26,9 +26,20 @@ import {
   mapPenaltyAssignment,
   mapContribution,
   mapStatsOverview,
+  mapAttendanceAbsenceTable,
   eurosToCents,
 } from '@/api/map';
-import type { User, Team, TeamForUser, Role, Invite, Provider, DateRange, StatsOverview } from '@/types';
+import type {
+  User,
+  Team,
+  TeamForUser,
+  Role,
+  Invite,
+  Provider,
+  DateRange,
+  StatsOverview,
+  AttendanceAbsenceTable,
+} from '@/types';
 import type { TeamEvent, AttendanceRow, EventComment, Absence } from '@/features/events';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
@@ -478,8 +489,12 @@ export const realApi = {
         meetTimeMandatory?: boolean;
         responseMode?: string;
         nominatedRoleIds?: string[];
-        recurring?: boolean;
-        repeatWeeks?: number;
+        recurring?: boolean | undefined;
+        repeatWeeks?: number | undefined;
+        /** Alternative to repeatWeeks for a recurring series; YYYY-MM-DD. */
+        endDate?: string | undefined;
+        /** ISO 8601 timestamp. */
+        rsvpDeadline?: string | undefined;
       },
     ): Promise<TeamEvent> {
       const res = await apiClient.POST('/teams/{teamId}/events', {
@@ -498,6 +513,8 @@ export const realApi = {
           ...opt('nominatedRoleIds', payload.nominatedRoleIds),
           ...opt('recurring', payload.recurring),
           ...opt('repeatWeeks', payload.repeatWeeks),
+          ...opt('endDate', payload.endDate),
+          ...opt('rsvpDeadline', payload.rsvpDeadline),
         },
       });
       // Backend may return an array for series
@@ -531,6 +548,8 @@ export const realApi = {
         meetTimeMandatory?: boolean;
         responseMode?: string;
         nominatedRoleIds?: string[];
+        /** ISO 8601 timestamp. */
+        rsvpDeadline?: string | undefined;
       },
       scope: 'single' | 'series',
       teamId: string,
@@ -549,6 +568,7 @@ export const realApi = {
           ...opt('meetTimeMandatory', patch.meetTimeMandatory),
           ...opt('responseMode', patch.responseMode as 'opt_in' | 'opt_out' | undefined),
           ...opt('nominatedRoleIds', patch.nominatedRoleIds),
+          ...opt('rsvpDeadline', patch.rsvpDeadline),
         },
       });
       const e = await check(res);
@@ -934,11 +954,11 @@ export const realApi = {
 
     async assignPenalty(
       teamId: string,
-      { userId, penaltyId }: { userId: string; penaltyId: string },
+      { userId, penaltyId, date, note }: { userId: string; penaltyId: string; date?: string; note?: string },
     ): Promise<PenaltyAssignment> {
       const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments', {
         params: { path: { teamId } },
-        body: { userId, penaltyId },
+        body: { userId, penaltyId, ...opt('date', date), ...opt('note', note) },
       });
       const a = await check(res);
       return mapPenaltyAssignment(a);
@@ -1013,6 +1033,14 @@ export const realApi = {
       });
       const o = await check(res);
       return mapStatsOverview(o);
+    },
+
+    async absenceTable(teamId: string, range?: DateRange | null): Promise<AttendanceAbsenceTable> {
+      const res = await apiClient.GET('/teams/{teamId}/stats/absences', {
+        params: { path: { teamId }, query: { ...opt('from', range?.from ?? undefined), ...opt('to', range?.to ?? undefined) } },
+      });
+      const t = await check(res);
+      return mapAttendanceAbsenceTable(t);
     },
   },
 

@@ -199,6 +199,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('meetTime', e.meetTime ?? undefined),
     ...opt('startTime', e.startTime ?? undefined),
     ...opt('endTime', e.endTime ?? undefined),
+    ...opt('rsvpDeadline', e.rsvpDeadline ?? undefined),
   };
 }
 
@@ -347,6 +348,7 @@ function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['Penalty
     ...opt('hasPhoto', u?.hasPhoto),
     ...opt('label', a.label),
     ...opt('amount', a.amount),
+    ...opt('note', a.note),
   };
 }
 function toWireContribution(c: (typeof db.contributions)[number]): S['Contribution'] {
@@ -778,9 +780,26 @@ export const handlers = [
       recurring: !!body.recurring,
       seriesId: null,
       status: 'active',
+      rsvpDeadline: body.rsvpDeadline ?? null,
       ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
-    if (body.recurring && body.repeatWeeks && body.repeatWeeks > 1) {
+    // endDate is the alternative to repeatWeeks for a recurring series (see
+    // backend/internal/events/repository.go's seriesDates): weekly
+    // occurrences from date up to and including endDate, capped the same
+    // way the backend caps repeatWeeks, instead of a fixed count.
+    if (body.recurring && body.endDate) {
+      const seriesId = rid('series');
+      const start = parseDateOnlyLocal(body.date);
+      const end = parseDateOnlyLocal(body.endDate);
+      for (let w = 0; w < 104; w++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + w * 7);
+        if (d.getTime() > end.getTime()) break;
+        const e = mk(formatDateOnly(d));
+        e.seriesId = seriesId;
+        created.push(e);
+      }
+    } else if (body.recurring && body.repeatWeeks && body.repeatWeeks > 1) {
       const seriesId = rid('series');
       for (let w = 0; w < body.repeatWeeks; w++) {
         const d = parseDateOnlyLocal(body.date);
@@ -835,6 +854,7 @@ export const handlers = [
       if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
       if (body.startTime !== undefined) ev.startTime = body.startTime || null;
       if (body.endTime !== undefined) ev.endTime = body.endTime || null;
+      if (body.rsvpDeadline !== undefined) ev.rsvpDeadline = body.rsvpDeadline || null;
       if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
     });
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
@@ -1268,7 +1288,17 @@ export const handlers = [
     const penalty = db.penalties.find((p) => p.id === body.penaltyId);
     if (!penalty) return problem(404, 'Penalty not found');
     // Snapshot label/amount at assignment time (drift-bug fix #1).
-    const a = { id: rid('pa'), teamId, userId: body.userId, penaltyId: body.penaltyId, paid: false, date: todayLocalDate(), label: penalty.label, amount: penalty.amount };
+    const a = {
+      id: rid('pa'),
+      teamId,
+      userId: body.userId,
+      penaltyId: body.penaltyId,
+      paid: false,
+      date: body.date || todayLocalDate(),
+      label: penalty.label,
+      amount: penalty.amount,
+      ...opt('note', body.note || undefined),
+    };
     db.penaltyAssignments.push(a);
     return HttpResponse.json(toWireAssignment(a), { status: 201 });
   }),
@@ -1365,6 +1395,29 @@ export const handlers = [
       if (s === 'yes') yes++;
     });
     const body: S['MemberAttendanceStats'] = { quote: counted ? yes / counted : 0, counted, yes };
+    return HttpResponse.json(body);
+  }),
+
+  http.get(P('/teams/:teamId/stats/absences'), async ({ params, request }) => {
+    await mockDelay();
+    const teamId = params.teamId as string;
+    const url = new URL(request.url);
+    const today = todayLocalDate();
+    const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
+    const to = url.searchParams.get('to') || today;
+    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+
+    const rows: S['AttendanceAbsenceRow'][] = [];
+    events.forEach((e) => {
+      memberIds.forEach((uid) => {
+        if (rawCountedStatus(e.id, uid) !== 'no') return;
+        const u = requireUser(uid);
+        rows.push({ userId: u.id, memberName: u.name, eventId: e.id, eventTitle: e.title, eventDate: e.date });
+      });
+    });
+
+    const body: S['AttendanceAbsenceTable'] = { rows, from, to };
     return HttpResponse.json(body);
   }),
 ];

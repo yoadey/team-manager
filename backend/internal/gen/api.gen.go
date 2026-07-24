@@ -393,6 +393,22 @@ type AppNotification struct {
 	Unread        *bool               `json:"unread,omitempty"`
 }
 
+// AttendanceAbsenceRow defines model for AttendanceAbsenceRow.
+type AttendanceAbsenceRow struct {
+	EventDate  openapi_types.Date `json:"eventDate"`
+	EventId    openapi_types.UUID `json:"eventId"`
+	EventTitle string             `json:"eventTitle"`
+	MemberName string             `json:"memberName"`
+	UserId     openapi_types.UUID `json:"userId"`
+}
+
+// AttendanceAbsenceTable defines model for AttendanceAbsenceTable.
+type AttendanceAbsenceTable struct {
+	From openapi_types.Date     `json:"from"`
+	Rows []AttendanceAbsenceRow `json:"rows"`
+	To   openapi_types.Date     `json:"to"`
+}
+
 // AttendanceRecord defines model for AttendanceRecord.
 type AttendanceRecord struct {
 	At               *time.Time                        `json:"at,omitempty"`
@@ -466,7 +482,10 @@ type CreateAbsenceRequest struct {
 
 // CreateEventRequest defines model for CreateEventRequest.
 type CreateEventRequest struct {
-	Date              openapi_types.Date    `json:"date"`
+	Date openapi_types.Date `json:"date"`
+
+	// EndDate Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
+	EndDate           *openapi_types.Date   `json:"endDate,omitempty"`
 	EndTime           *string               `json:"endTime,omitempty"`
 	Location          *string               `json:"location,omitempty"`
 	MeetTime          *string               `json:"meetTime,omitempty"`
@@ -476,9 +495,12 @@ type CreateEventRequest struct {
 	Recurring         *bool                 `json:"recurring,omitempty"`
 	RepeatWeeks       *int                  `json:"repeatWeeks,omitempty"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-	StartTime         *string               `json:"startTime,omitempty"`
-	Title             string                `json:"title"`
-	Type              EventType             `json:"type"`
+
+	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
+	RsvpDeadline *time.Time `json:"rsvpDeadline,omitempty"`
+	StartTime    *string    `json:"startTime,omitempty"`
+	Title        string     `json:"title"`
+	Type         EventType  `json:"type"`
 }
 
 // CreateNewsRequest defines model for CreateNewsRequest.
@@ -490,6 +512,11 @@ type CreateNewsRequest struct {
 
 // CreatePenaltyAssignmentRequest defines model for CreatePenaltyAssignmentRequest.
 type CreatePenaltyAssignmentRequest struct {
+	// Date The date the penalty was earned (e.g. to back-date an assignment recorded after the fact). Defaults to the server's current date when omitted.
+	Date *openapi_types.Date `json:"date,omitempty"`
+
+	// Note Optional free-text note explaining the assignment.
+	Note      *string            `json:"note,omitempty"`
 	PenaltyId openapi_types.UUID `json:"penaltyId"`
 	UserId    openapi_types.UUID `json:"userId"`
 }
@@ -719,6 +746,7 @@ type PenaltyAssignment struct {
 	Label             *string            `json:"label,omitempty"`
 	MemberAvatarColor *string            `json:"memberAvatarColor,omitempty"`
 	MemberName        *string            `json:"memberName,omitempty"`
+	Note              *string            `json:"note,omitempty"`
 	Paid              bool               `json:"paid"`
 
 	// PenaltyId The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
@@ -902,7 +930,10 @@ type TeamEvent struct {
 	Recurring         bool                  `json:"recurring"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
 	Result            *string               `json:"result,omitempty"`
-	SeriesId          *openapi_types.UUID   `json:"seriesId,omitempty"`
+
+	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
+	RsvpDeadline *time.Time          `json:"rsvpDeadline,omitempty"`
+	SeriesId     *openapi_types.UUID `json:"seriesId,omitempty"`
 
 	// StartTime HH:mm
 	StartTime *string            `json:"startTime,omitempty"`
@@ -972,9 +1003,12 @@ type UpdateEventRequest struct {
 	NominatedRoleIds  *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
 	Note              *string               `json:"note,omitempty"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-	StartTime         *string               `json:"startTime,omitempty"`
-	Title             *string               `json:"title,omitempty"`
-	Type              *EventType            `json:"type,omitempty"`
+
+	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response.
+	RsvpDeadline *time.Time `json:"rsvpDeadline,omitempty"`
+	StartTime    *string    `json:"startTime,omitempty"`
+	Title        *string    `json:"title,omitempty"`
+	Type         *EventType `json:"type,omitempty"`
 }
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.
@@ -1202,6 +1236,12 @@ type ListPollsParams struct {
 
 // GetStatsOverviewParams defines parameters for GetStatsOverview.
 type GetStatsOverviewParams struct {
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// GetStatsAbsencesParams defines parameters for GetStatsAbsences.
+type GetStatsAbsencesParams struct {
 	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
 	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 }
@@ -1546,6 +1586,9 @@ type ServerInterface interface {
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsOverviewParams)
+	// Per-member, per-event absence table for the date range
+	// (GET /teams/{teamId}/stats/absences)
+	GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams)
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID)
@@ -2014,6 +2057,12 @@ func (_ Unimplemented) UpdateRole(w http.ResponseWriter, r *http.Request, teamId
 // Team attendance statistics
 // (GET /teams/{teamId}/stats)
 func (_ Unimplemented) GetStatsOverview(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsOverviewParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Per-member, per-event absence table for the date range
+// (GET /teams/{teamId}/stats/absences)
+func (_ Unimplemented) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4885,6 +4934,67 @@ func (siw *ServerInterfaceWrapper) GetStatsOverview(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetStatsAbsences operation middleware
+func (siw *ServerInterfaceWrapper) GetStatsAbsences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetStatsAbsencesParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStatsAbsences(w, r, teamId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMemberStats operation middleware
 func (siw *ServerInterfaceWrapper) GetMemberStats(w http.ResponseWriter, r *http.Request) {
 
@@ -5327,6 +5437,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/teams/{teamId}/stats", wrapper.GetStatsOverview)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/stats/absences", wrapper.GetStatsAbsences)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/members/{userId}", wrapper.GetMemberStats)
 	})
 	r.Group(func(r chi.Router) {
@@ -5344,6 +5457,13 @@ type ForbiddenApplicationProblemPlusJSONResponse Problem
 type NotFoundApplicationProblemPlusJSONResponse Problem
 
 type PayloadTooLargeApplicationProblemPlusJSONResponse Problem
+
+type PhotoBytesImageResponse struct {
+	Body io.Reader
+
+	ContentType   string
+	ContentLength int64
+}
 
 type PhotoRedirectResponseHeaders struct {
 	Location *string
@@ -6737,6 +6857,23 @@ type GetTeamLogoResponseObject interface {
 	VisitGetTeamLogoResponse(w http.ResponseWriter) error
 }
 
+type GetTeamLogo200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetTeamLogo200ImageResponse) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
 type GetTeamLogo302Response = PhotoRedirectResponse
 
 func (response GetTeamLogo302Response) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
@@ -6878,6 +7015,23 @@ type GetMemberPhotoRequestObject struct {
 
 type GetMemberPhotoResponseObject interface {
 	VisitGetMemberPhotoResponse(w http.ResponseWriter) error
+}
+
+type GetMemberPhoto200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetMemberPhoto200ImageResponse) VisitGetMemberPhotoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
 }
 
 type GetMemberPhoto302Response = PhotoRedirectResponse
@@ -7082,6 +7236,23 @@ type GetTeamPhotoRequestObject struct {
 
 type GetTeamPhotoResponseObject interface {
 	VisitGetTeamPhotoResponse(w http.ResponseWriter) error
+}
+
+type GetTeamPhoto200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetTeamPhoto200ImageResponse) VisitGetTeamPhotoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
 }
 
 type GetTeamPhoto302Response = PhotoRedirectResponse
@@ -7339,6 +7510,29 @@ type GetStatsOverviewResponseObject interface {
 type GetStatsOverview200JSONResponse StatsOverview
 
 func (response GetStatsOverview200JSONResponse) VisitGetStatsOverviewResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStatsAbsencesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Params GetStatsAbsencesParams
+}
+
+type GetStatsAbsencesResponseObject interface {
+	VisitGetStatsAbsencesResponse(w http.ResponseWriter) error
+}
+
+type GetStatsAbsences200JSONResponse AttendanceAbsenceTable
+
+func (response GetStatsAbsences200JSONResponse) VisitGetStatsAbsencesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -7635,6 +7829,9 @@ type StrictServerInterface interface {
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(ctx context.Context, request GetStatsOverviewRequestObject) (GetStatsOverviewResponseObject, error)
+	// Per-member, per-event absence table for the date range
+	// (GET /teams/{teamId}/stats/absences)
+	GetStatsAbsences(ctx context.Context, request GetStatsAbsencesRequestObject) (GetStatsAbsencesResponseObject, error)
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(ctx context.Context, request GetMemberStatsRequestObject) (GetMemberStatsResponseObject, error)
@@ -9899,6 +10096,33 @@ func (sh *strictHandler) GetStatsOverview(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetStatsOverviewResponseObject); ok {
 		if err := validResponse.VisitGetStatsOverviewResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetStatsAbsences operation middleware
+func (sh *strictHandler) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
+	var request GetStatsAbsencesRequestObject
+
+	request.TeamId = teamId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStatsAbsences(ctx, request.(GetStatsAbsencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStatsAbsences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStatsAbsencesResponseObject); ok {
+		if err := validResponse.VisitGetStatsAbsencesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

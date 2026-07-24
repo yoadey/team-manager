@@ -1058,6 +1058,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/stats/absences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Per-member, per-event absence table for the date range */
+        get: operations["getStatsAbsences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1291,6 +1310,11 @@ export interface components {
             myStatus?: components["schemas"]["AttendanceStatus"];
             myAuto?: boolean;
             myReason?: string;
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
+             */
+            rsvpDeadline?: string;
         };
         CreateEventRequest: {
             type: components["schemas"]["EventType"];
@@ -1307,6 +1331,16 @@ export interface components {
             nominatedRoleIds?: string[];
             recurring?: boolean;
             repeatWeeks?: number;
+            /**
+             * Format: date
+             * @description Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
+             */
+            endDate?: string;
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
+             */
+            rsvpDeadline?: string;
         };
         UpdateEventRequest: {
             type?: components["schemas"]["EventType"];
@@ -1321,6 +1355,11 @@ export interface components {
             meetTimeMandatory?: boolean;
             responseMode?: components["schemas"]["ResponseMode"];
             nominatedRoleIds?: string[];
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response.
+             */
+            rsvpDeadline?: string;
         };
         SetEventStatusRequest: {
             status: components["schemas"]["EventStatus"];
@@ -1625,12 +1664,20 @@ export interface components {
              * @description Amount in cents (e.g. 1050 = 10.50)
              */
             amount?: number;
+            note?: string;
         };
         CreatePenaltyAssignmentRequest: {
             /** Format: uuid */
             userId: string;
             /** Format: uuid */
             penaltyId: string;
+            /**
+             * Format: date
+             * @description The date the penalty was earned (e.g. to back-date an assignment recorded after the fact). Defaults to the server's current date when omitted.
+             */
+            date?: string;
+            /** @description Optional free-text note explaining the assignment. */
+            note?: string;
         };
         SetPaidRequest: {
             /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
@@ -1745,6 +1792,23 @@ export interface components {
             /** Format: date */
             to: string;
         };
+        AttendanceAbsenceRow: {
+            /** Format: uuid */
+            userId: string;
+            memberName: string;
+            /** Format: uuid */
+            eventId: string;
+            eventTitle: string;
+            /** Format: date */
+            eventDate: string;
+        };
+        AttendanceAbsenceTable: {
+            rows: components["schemas"]["AttendanceAbsenceRow"][];
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
     };
     responses: {
         /** @description Unauthorized */
@@ -1800,6 +1864,15 @@ export interface components {
                 [name: string]: unknown;
             };
             content?: never;
+        };
+        /** @description The image bytes, streamed directly by the backend instead of a redirect. Returned instead of the 302 when the deployment is configured for proxy image delivery (IMAGE_DELIVERY_PROXY_ENABLED=true); access is membership-gated before any bytes are streamed, same as the redirect mode's presign gating. */
+        PhotoBytes: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "image/*": string;
+            };
         };
     };
     parameters: {
@@ -2213,6 +2286,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
@@ -2278,6 +2352,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
@@ -2467,6 +2542,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
@@ -3732,6 +3808,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberAttendanceStats"];
+                };
+            };
+        };
+    };
+    getStatsAbsences: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceAbsenceTable"];
                 };
             };
         };

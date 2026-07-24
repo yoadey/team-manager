@@ -629,6 +629,36 @@ func TestLoad_SelfRegistrationEnabledFalse(t *testing.T) {
 	assert.False(t, cfg.SelfRegistrationEnabled)
 }
 
+func TestLoad_ImageDeliveryProxyEnabledDefaultsFalse(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("IMAGE_DELIVERY_PROXY_ENABLED", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.ImageDeliveryProxyEnabled)
+}
+
+func TestLoad_ImageDeliveryProxyEnabledTrue(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("IMAGE_DELIVERY_PROXY_ENABLED", "true")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.ImageDeliveryProxyEnabled)
+}
+
+func TestLoad_ImageDeliveryProxyEnabledInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("IMAGE_DELIVERY_PROXY_ENABLED", "not-a-bool")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "IMAGE_DELIVERY_PROXY_ENABLED")
+}
+
 func TestLoad_RegistrationTimingDefaults(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 	t.Setenv("COOKIE_SECURE", "false")

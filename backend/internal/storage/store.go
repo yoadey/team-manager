@@ -6,6 +6,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 )
 
@@ -31,6 +32,12 @@ type ObjectStore interface {
 	// PresignGet returns a short-lived URL granting time-limited GET access to
 	// the object at key. Returns ErrObjectNotFound if key does not exist.
 	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
+	// Get returns the object's bytes at key as a stream, along with its
+	// stored content type, for callers that stream the object through the
+	// application server rather than redirecting to a presigned URL (see
+	// config.Config.ImageDeliveryProxy). The caller must Close the returned
+	// ReadCloser. Returns ErrObjectNotFound if key does not exist.
+	Get(ctx context.Context, key string) (data io.ReadCloser, contentType string, err error)
 	// Delete removes the object at key. Deleting a non-existent key is not an
 	// error.
 	Delete(ctx context.Context, key string) error

@@ -164,20 +164,69 @@ function MeetTimeToggle({ checked, tk, onToggle }: { checked: boolean; tk: Token
   );
 }
 
+const REPEAT_MODE_DEFS: readonly { value: 'weeks' | 'until'; labelKey: string }[] = [
+  { value: 'weeks', labelKey: 'events.recurModeWeeks' },
+  { value: 'until', labelKey: 'events.recurModeUntil' },
+];
+
+/** Toggle between "N weeks" and "until date" recurrence input -- mutually exclusive, so switching modes doesn't clear the field left behind (the unused one is simply not submitted/validated, see eventFormSchema's validateRecurring). */
+function RepeatModeSelector({
+  mode,
+  tk,
+  onSelect,
+}: {
+  mode: 'weeks' | 'until';
+  tk: Tokens;
+  onSelect: (mode: 'weeks' | 'until') => void;
+}) {
+  return (
+    <Box sx={{ display: 'flex', gap: '8px' }}>
+      {REPEAT_MODE_DEFS.map(({ value, labelKey }) => {
+        const sel = mode === value;
+        return (
+          <ButtonBase
+            key={value}
+            type="button"
+            onClick={() => onSelect(value)}
+            aria-pressed={sel}
+            sx={{
+              flex: 1,
+              p: '9px 10px',
+              borderRadius: '11px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 600,
+              border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
+              background: sel ? tk.primaryContainer : NEUTRAL.card,
+              color: sel ? tk.onPrimaryContainer : NEUTRAL.secondary,
+            }}
+          >
+            {t(labelKey)}
+          </ButtonBase>
+        );
+      })}
+    </Box>
+  );
+}
+
 function RecurringSection({
   show,
   recurring,
+  repeatMode,
   tk,
   register,
   errors,
   onToggle,
+  onSelectRepeatMode,
 }: {
   show: boolean;
   recurring: boolean;
+  repeatMode: 'weeks' | 'until';
   tk: Tokens;
   register: UseFormRegister<EventFormValues>;
   errors: FieldErrors<EventFormValues>;
   onToggle: () => void;
+  onSelectRepeatMode: (mode: 'weeks' | 'until') => void;
 }) {
   if (!show) return null;
   return (
@@ -230,10 +279,25 @@ function RecurringSection({
         </Box>
       </ButtonBase>
       {recurring ? (
-        <Box sx={{ mt: '10px' }}>
-          <Field label={t('events.recurWeeks')} error={!!errors.repeatWeeks} errorText={errors.repeatWeeks?.message}>
-            <TextInput type="number" min="2" max="26" {...register('repeatWeeks')} />
-          </Field>
+        <Box sx={{ mt: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <RepeatModeSelector mode={repeatMode} tk={tk} onSelect={onSelectRepeatMode} />
+          {repeatMode === 'until' ? (
+            <Field
+              label={t('events.recurEndDate')}
+              error={!!errors.repeatEndDate}
+              errorText={errors.repeatEndDate?.message}
+            >
+              <TextInput type="date" {...register('repeatEndDate')} />
+            </Field>
+          ) : (
+            <Field
+              label={t('events.recurWeeks')}
+              error={!!errors.repeatWeeks}
+              errorText={errors.repeatWeeks?.message}
+            >
+              <TextInput type="number" min="2" max="26" {...register('repeatWeeks')} />
+            </Field>
+          )}
         </Box>
       ) : null}
     </Box>
@@ -382,6 +446,7 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const responseMode = watch('responseMode');
   const meetTimeMandatory = watch('meetTimeMandatory');
   const recurring = watch('recurring');
+  const repeatMode = watch('repeatMode') || 'weeks';
   const nominatedRoleIds = watch('nominatedRoleIds') || [];
   const seriesId = watch('seriesId');
   const titleVal = watch('title');
@@ -485,13 +550,25 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           {...register('note')}
         />
       </Field>
+      <Field
+        label={t('events.fieldRsvpDeadline')}
+        error={!!errors.rsvpDeadline}
+        errorText={errors.rsvpDeadline?.message}
+      >
+        <TextInput type="datetime-local" {...register('rsvpDeadline')} />
+      </Field>
+      <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-10px 2px 0', lineHeight: 1.45 }}>
+        {t('events.fieldRsvpDeadlineHint')}
+      </Box>
       <RecurringSection
         show={sheet.mode === 'create'}
         recurring={!!recurring}
+        repeatMode={repeatMode}
         tk={tk}
         register={register}
         errors={errors}
         onToggle={() => setValue('recurring', !recurring, { shouldValidate: true })}
+        onSelectRepeatMode={(mode) => setValue('repeatMode', mode, { shouldValidate: true })}
       />
       {showSeriesButtons ? (
         <SeriesEditSubmit

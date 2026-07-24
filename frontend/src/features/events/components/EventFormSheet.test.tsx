@@ -256,6 +256,28 @@ describe('EventFormSheet', () => {
     expect(screen.getByText('events.recurWeeks')).toBeTruthy();
   });
 
+  it('shows the weeks/until-date toggle when recurring is true, defaulting to weeks', () => {
+    const app = makeApp({ recurring: true });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    expect(screen.getByText('events.recurModeWeeks')).toBeTruthy();
+    expect(screen.getByText('events.recurModeUntil')).toBeTruthy();
+    expect(screen.getByText('events.recurModeWeeks').closest('button')!.getAttribute('aria-pressed')).toBe('true');
+    // Weeks is the default -- the repeatWeeks number input shows, not the end-date picker.
+    expect(document.querySelector('input[name="repeatWeeks"]')).toBeTruthy();
+    expect(document.querySelector('input[name="repeatEndDate"]')).toBeNull();
+  });
+
+  it('switching the recurrence toggle to "until date" shows the end-date picker instead of repeatWeeks', () => {
+    const app = makeApp({ recurring: true });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    fireEvent.click(screen.getByText('events.recurModeUntil').closest('button')!);
+    expect(document.querySelector('input[name="repeatEndDate"]')).toBeTruthy();
+    expect(document.querySelector('input[name="repeatWeeks"]')).toBeNull();
+    expect(screen.getByText('events.recurEndDate')).toBeTruthy();
+  });
+
   it('clicking meetTimeMandatory toggle updates the checkbox', () => {
     const app = makeApp({ meetTimeMandatory: false });
     mockUseApp.mockReturnValue(app as never);
@@ -365,5 +387,52 @@ describe('EventFormSheet', () => {
     mockUseApp.mockReturnValue(app as never);
     render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
     expect(screen.getByText('events.responseMode')).toBeTruthy();
+  });
+
+  it('renders the RSVP deadline field as a datetime-local input, in both create and edit mode', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    expect(screen.getByText('events.fieldRsvpDeadline')).toBeTruthy();
+    const input = document.querySelector('input[name="rsvpDeadline"]') as HTMLInputElement;
+    expect(input.type).toBe('datetime-local');
+
+    const editApp = makeApp();
+    mockUseApp.mockReturnValue(editApp as never);
+    render(<EventFormSheet app={editApp as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: editApp.state.form } as never} />);
+    expect(screen.getAllByText('events.fieldRsvpDeadline').length).toBeGreaterThan(0);
+  });
+
+  it('seeds the RSVP deadline field from formInitial when editing an event that has one set', () => {
+    const app = makeApp({ rsvpDeadline: '2026-07-05T18:30' });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
+    const input = document.querySelector('input[name="rsvpDeadline"]') as HTMLInputElement;
+    expect(input.value).toBe('2026-07-05T18:30');
+  });
+
+  it('validates repeatEndDate on blur when left empty in "until date" mode', async () => {
+    const app = makeApp({ recurring: true, date: '2026-07-01' });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    fireEvent.click(screen.getByText('events.recurModeUntil').closest('button')!);
+    const endDateInput = document.querySelector('input[name="repeatEndDate"]') as HTMLInputElement;
+    fireEvent.blur(endDateInput);
+    await waitFor(() => {
+      expect(screen.getByText('validation.eventRepeatEndDateInvalid')).toBeTruthy();
+    });
+  });
+
+  it('validates repeatEndDate on blur when it falls before the event date', async () => {
+    const app = makeApp({ recurring: true, date: '2026-07-10' });
+    mockUseApp.mockReturnValue(app as never);
+    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
+    fireEvent.click(screen.getByText('events.recurModeUntil').closest('button')!);
+    const endDateInput = document.querySelector('input[name="repeatEndDate"]') as HTMLInputElement;
+    fireEvent.change(endDateInput, { target: { value: '2026-07-01' } });
+    fireEvent.blur(endDateInput);
+    await waitFor(() => {
+      expect(screen.getByText('validation.eventRepeatEndDateBeforeStart')).toBeTruthy();
+    });
   });
 });
