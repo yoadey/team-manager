@@ -1,0 +1,33 @@
+## Why
+
+The app is meant to run publicly (any club/operator can deploy an instance and let members reach it over the internet), but today it ships with **no legal-notice page, no privacy policy, no footer, and no age gate on self-registration**:
+
+- `frontend/src/i18n/de.ts` and the whole `frontend/src/**` tree contain no string, route, or component for "Impressum" or "Datenschutzerklärung" (`grep -ri impressum|datenschutz frontend/src` matches nothing outside a mock-handler and a translation key unrelated to this). Germany's `§5 DDG` (formerly `§5 TMG`) requires every "geschäftsmäßig" operated website — which case law treats club/association sites as being, regardless of profit — to publish a legal notice (operator name/address/contact, register entry if any, VAT ID if any) that is "leicht erkennbar, unmittelbar erreichbar und ständig verfügbar" (easily recognizable, directly reachable, permanently available — conventionally a footer link on every screen, including the pre-login screen).
+- No page discloses what personal data is processed, on what legal basis, for how long, or by which processors, despite `docs/gdpr-data-subject-rights.md` and `SECURITY.md` documenting that the app stores name/email/phone/birthday/address/photo and already implements Art. 15 export and Art. 17 erasure. Art. 13 GDPR requires this be disclosed to the data subject **at the point of collection**, not just be technically supportable.
+- `frontend/src/features/auth/components/Register.tsx` (self-service registration, `POST /auth/register`) collects an email and password with no link to a privacy notice and no age check at all. Because clubs commonly have youth members and self-registration lets anyone create their own account unmediated, this leaves Art. 8 GDPR (parental consent for services offered directly to a person under 16, Germany kept the 16 threshold) completely unaddressed — invite-based provisioning at least routes through an adult admin, but self-registration does not.
+- `frontend/src/monitoring.ts` optionally loads Sentry (`Sentry.browserTracingIntegration()`) when `VITE_SENTRY_DSN` is set, with no accompanying consent mechanism or documented "strictly necessary" determination under `§25 TDDDG` (formerly TTDSG, transposing the ePrivacy Directive) — the successor to the "cookie law," which covers *any* storage/access to information on the end device, not only cookies with PII.
+- Nothing in `CLAUDE.md`, `docs/operations.md`, or `SECURITY.md` tells an operator that turning on the optional S3 (photo/logo storage), SMTP (verification email), Sentry, or OTel integrations documented in `CLAUDE.md`'s environment-variable table creates an Art. 28 GDPR data-processing-agreement (AVV) obligation with that provider.
+
+`docs/gdpr-data-subject-rights.md` and `SECURITY.md` show the data-subject-*rights* machinery (export/erasure/retention) is genuinely solid — this proposal is about the **disclosure and consent** layer around it, which is a separate legal requirement and currently has no implementation at all.
+
+## What Changes
+
+- Add two unauthenticated, always-reachable pages — legal notice (`Impressum`) and privacy policy (`Datenschutzerklärung`) — rendered from Markdown content shipped with clearly marked operator-fill-in placeholders, reachable from a new footer visible on the login screen, the registration screen, and throughout the authenticated app shell.
+- Add a privacy-policy link and an "I am at least 16 years old" confirmation gate to the self-registration form (`Register.tsx`); block submission until it is checked, and document that younger members must be added by a team admin (invite flow), not via self-registration.
+- Verify and document whether the optional Sentry browser integration writes any non-essential cookie/storage; either confirm it is consent-exempt (strictly necessary / no non-essential storage) or gate its initialization behind a lightweight consent decision — record the determination and its reasoning.
+- Add an operator "before going public" legal checklist to `docs/operations.md`: what to fill into the legal-notice/privacy-policy placeholders, which enabled integrations (S3 / SMTP / Sentry / OTel collector) require an Art. 28 GDPR data-processing agreement, a pointer to the existing retention settings (`SECURITY.md`) and Art. 15/17 rights docs, and a short accessibility (BFSG/EN 301 549) applicability note.
+- Explicitly out of scope (documented as such, not silently skipped): AGB/terms of service (not legally mandated absent a paid consumer contract for the software itself — club fees are between club and member, not app operator and member), a full admin-editable legal-content CMS (single-operator-per-deployment instances don't need one; content is edited like `README.md`/`CLAUDE.md` before deploying), and BFSG accessibility as a binding functional requirement (documented as a note, not enforced — applicability to a non-e-commerce club-internal tool is genuinely unclear and needs a real legal opinion, not a guess baked into code).
+
+## Capabilities
+
+### New Capabilities
+- `legal-compliance`: public legal-notice and privacy-policy pages, footer reachability, self-registration transparency/age gate, and the operator documentation checklist that makes a deployment legally launchable.
+
+### Modified Capabilities
+<!-- none -->
+
+## Impact
+
+- Frontend: new `frontend/src/legal/` Markdown content (`impressum.de.md`, `impressum.en.md`, `datenschutz.de.md`, `datenschutz.en.md`) + a renderer component; `frontend/src/context/urlState.ts` (two new unauthenticated pseudo-routes reachable pre-login); `frontend/src/components/Root.tsx` (render legal routes outside the `phase === 'login' | 'app'` switch); a new `Footer` component wired into `Login.tsx` and `layouts/AppShell.tsx`; `features/auth/components/Register.tsx` (privacy link + age checkbox); `i18n/de.ts` / `i18n/en.ts` (new strings); `monitoring.ts` (only if the Sentry storage audit requires a consent gate).
+- Docs: `docs/operations.md` (new "Legal setup before going public" section), `CLAUDE.md` (pointer to it), `docs/end-user/daten-und-datenschutz.md` (cross-link the new privacy-policy page once it exists, so the end-user guide and the legally-required notice don't diverge).
+- No backend/OpenAPI/RBAC change: the new pages are static, unauthenticated frontend content outside the RBAC-gated API surface.
