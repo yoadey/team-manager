@@ -6,6 +6,17 @@ Unter *Mein Profil → Daten & Datenschutz* könnt ihr eure eigenen Daten
 exportieren oder euer Konto löschen. Beides betrifft ausschließlich euer
 eigenes Konto.
 
+Die vollständige, rechtlich verbindliche Datenschutzerklärung findet ihr
+direkt in der App unter *Mein Profil → Rechtliches → Datenschutzerklärung*
+(auch ohne Anmeldung über den Link auf dem Login-Bildschirm erreichbar).
+
+## Selbstregistrierung und Mindestalter
+
+Wer sich selbst ein Konto anlegt (statt über einen Einladungslink
+hinzugefügt zu werden), muss bestätigen, mindestens 16 Jahre alt zu sein.
+Jüngere Vereinsmitglieder legt eine Team-Administratorin oder ein
+Team-Administrator per Einladungslink an — nicht per Selbstregistrierung.
+
 ## Meine Daten exportieren
 
 „Meine Daten exportieren" lädt eine Datei mit allen zu eurer Person

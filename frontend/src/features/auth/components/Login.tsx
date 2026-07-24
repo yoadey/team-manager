@@ -6,6 +6,7 @@ import { NEUTRAL } from '@/styles/tokens';
 import { Spinner, Sym } from '@/components/ui';
 import { t } from '@/i18n';
 import { config } from '@/config';
+import { LegalFooter } from '@/features/legal';
 import { Register } from './Register';
 
 export function Login() {
@@ -281,6 +282,8 @@ export function Login() {
             {t('auth.pwaInstallable')} <b>{t('auth.pwaIosLabel')}</b> {t('auth.pwaIosHint')}
           </Box>
         </Box>
+
+        <LegalFooter />
       </Box>
     </Box>
   );

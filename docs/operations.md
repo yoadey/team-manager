@@ -3,6 +3,75 @@
 Operational guidance for running Teamverwaltung in production. Pairs with the
 environment-variable reference in `CLAUDE.md`.
 
+## Legal setup before going public
+
+Read this before pointing a public domain at a real deployment. Each instance
+is run by exactly one operator (the club or whoever hosts it for a club), so
+the legal-notice and privacy-policy content ships as editable source, not a
+runtime setting — the same way you'd edit `README.md` before deploying your
+fork, and unlike the container-start `SENTRY_DSN`/`VAPID_PUBLIC_KEY` overrides
+described under "Frontend image: pointing it at a backend" below (those are
+short scalar values; a legal notice is multi-paragraph prose, a poor fit for
+an env var). See `openspec/changes/webapp-legal-compliance/design.md`
+Decision 1 for the full reasoning.
+
+**This is engineering's best-effort translation of publicly known German/EU
+requirements into shipped defaults and this checklist — it is not legal
+advice.** Get real legal review before a genuine public launch.
+
+1. **Fill in the legal-notice and privacy-policy placeholders.** Edit
+   `frontend/src/features/legal/content.ts` — every `[BETREIBER: ...]` /
+   `[OPERATOR: ...]` marker must be replaced before you build the production
+   image. These pages are reachable without login (footer on the login/
+   registration screen) and from the profile sheet ("Rechtliches") inside the
+   app, per `§5 DDG`'s "leicht erkennbar, unmittelbar erreichbar" requirement.
+   Shipping with unfilled markers is intentional — it's a loud, obvious gap
+   rather than a page that looks complete but is legally empty — but don't
+   deploy publicly with markers still in place.
+
+2. **Data-processing agreements (Art. 28 GDPR) for enabled integrations.**
+   Each of these is optional and off by default; if you turn one on for your
+   deployment, you need a signed AVV/DPA with that provider before going
+   live, and should add a line to the privacy policy's "Empfänger und
+   Auftragsverarbeiter" / "Recipients and processors" section naming them:
+   - `S3_ENDPOINT` (+ `S3_BUCKET`/credentials) — object storage for photo/logo
+     uploads.
+   - `SMTP_HOST` (+ `SMTP_FROM_ADDRESS`) — outbound self-registration
+     verification email.
+   - `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend, set at container
+     start per "Frontend image: pointing it at a backend" below) — error
+     tracking. See `frontend/src/monitoring.ts`'s comment above
+     `initMonitoring` for the current cookie/storage determination (no
+     consent banner needed for the integrations actually enabled there,
+     re-verify if that changes) before you decide whether a consent banner
+     is also needed for your deployment.
+   - `OTEL_EXPORTER_OTLP_ENDPOINT` — tracing/telemetry collector, if it's a
+     third-party or otherwise external service.
+
+3. **Cross-check the data-subject-rights and retention documentation.**
+   `SECURITY.md`'s "Data Protection (GDPR)" section and
+   `docs/gdpr-data-subject-rights.md` describe what's already implemented
+   (Art. 15 export, Art. 17 erasure, retention windows). Raise
+   `RETENTION_AUDIT_LOG_DAYS` and friends (see `CLAUDE.md`'s environment
+   table) if your organization's retention policy requires longer than the
+   shipped defaults.
+
+4. **Self-registration age gate.** `POST /auth/register` requires the
+   registering person to confirm they're at least 16 (GDPR Art. 8; Germany
+   kept the national threshold at 16) before the form submits. Younger club
+   members must be added by a team admin via the invite flow instead — make
+   sure your club's onboarding process for youth members actually does this.
+
+5. **Accessibility (BFSG / EN 301 549) — assess, don't assume.** Whether
+   Germany's Barrierefreiheitsstärkungsgesetz applies to a club-internal
+   management tool (as opposed to consumer e-commerce/banking/media-access
+   services, which are squarely in its Anlage 2 scope) is genuinely unclear
+   without a real legal opinion specific to your deployment and audience —
+   get one if accessibility compliance is a hard requirement for you. The
+   existing UI relies on MUI's accessible primitives, keyboard navigation,
+   and `vitest-axe` + Lighthouse CI in the test suite as a baseline, but that
+   is not the same as a certified BFSG/EN 301 549 conformance statement.
+
 ## Database backup & restore
 
 All durable state lives in PostgreSQL (`postgres:17`). The container's data

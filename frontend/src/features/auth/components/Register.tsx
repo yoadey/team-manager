@@ -31,11 +31,17 @@ interface RegisterProps {
  * user in directly, since the account isn't verified yet.
  */
 export function Register({ onBack }: RegisterProps) {
-  const { doRegister, doResendVerification } = useApp();
+  const { doRegister, doResendVerification, openLegal } = useApp();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // GDPR Art. 8 requires parental consent for services offered directly to a
+  // child under 16 in Germany; self-registration has no admin in the loop to
+  // apply judgment (unlike the invite flow), so this self-asserted checkbox is
+  // the gate -- see openspec/changes/webapp-legal-compliance/design.md
+  // Decision 3 for why a checkbox rather than real age verification.
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
@@ -44,7 +50,10 @@ export function Register({ onBack }: RegisterProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (busy) return;
+    // Belt-and-suspenders alongside the disabled submit button below --
+    // pressing Enter in a field submits the form directly, bypassing the
+    // button's disabled attribute.
+    if (busy || !ageConfirmed) return;
     setLocalError(null);
     if (password.length < 8) {
       setLocalError(t('auth.passwordTooShort'));
@@ -164,10 +173,34 @@ export function Register({ onBack }: RegisterProps) {
           sx={inputSx}
         />
       </Box>
+      <Box
+        component="label"
+        sx={{ display: 'flex', alignItems: 'flex-start', gap: '9px', fontSize: '12px', color: NEUTRAL.secondary, lineHeight: 1.5 }}
+      >
+        <Box
+          component="input"
+          type="checkbox"
+          checked={ageConfirmed}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAgeConfirmed(e.target.checked)}
+          sx={{ width: '18px', height: '18px', flex: '0 0 auto', mt: '1px', accentColor: '#1565C0' }}
+        />
+        <Box component="span">
+          {t('auth.registerAgeConfirm')} {t('auth.registerPrivacyIntro')}{' '}
+          <ButtonBase
+            component="span"
+            onClick={() => openLegal('datenschutz')}
+            sx={{ fontSize: '12px', color: '#1565C0', textDecoration: 'underline', display: 'inline', p: 0 }}
+          >
+            {t('sheet.legalDatenschutz')}
+          </ButtonBase>
+          .
+        </Box>
+      </Box>
+
       <ButtonBase
         component="button"
         type="submit"
-        disabled={busy}
+        disabled={busy || !ageConfirmed}
         sx={{
           width: '100%',
           p: '12px 16px',
@@ -177,7 +210,7 @@ export function Register({ onBack }: RegisterProps) {
           fontWeight: 600,
           fontSize: '15px',
           justifyContent: 'center',
-          opacity: busy ? 0.7 : 1,
+          opacity: busy || !ageConfirmed ? 0.7 : 1,
         }}
       >
         {busy ? <Spinner size={18} /> : t('auth.registerSubmit')}

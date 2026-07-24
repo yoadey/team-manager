@@ -3,6 +3,7 @@ export type { SheetProps } from './types';
 import { t } from '@/i18n';
 import { eventSheetMap } from '@/features/events';
 import { financeSheetMap } from '@/features/finances';
+import { legalSheetMap } from '@/features/legal';
 import { memberSheetMap } from '@/features/members';
 import { newsSheetMap } from '@/features/news';
 import { notificationsSheetMap } from '@/features/notifications';
@@ -29,6 +30,7 @@ function getSheetRegistry(): Record<string, SheetComponent> {
     ...newsSheetMap,
     ...pollSheetMap,
     ...financeSheetMap,
+    ...legalSheetMap,
     confirm: ConfirmSheet,
     seriesAction: SeriesActionSheet,
     comment: CommentSheet,
@@ -49,6 +51,7 @@ export function sheetMeta(
     teams: t('sheet.teams'),
     profile: t('sheet.profile'),
     more: t('sheet.more'),
+    legal: s.legalPage === 'datenschutz' ? t('sheet.legalDatenschutz') : t('sheet.legalImpressum'),
     notifications: t('shell.notifications'),
     calExport: t('sheet.calExport'),
     eventDetail: t('sheet.eventDetail'),

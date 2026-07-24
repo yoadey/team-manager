@@ -74,6 +74,7 @@ export type SheetType =
   | 'teams'
   | 'profile'
   | 'more'
+  | 'legal'
   | 'teamSettings'
   | 'createTeam'
   | 'invite'
@@ -135,6 +136,8 @@ export interface SheetState {
    * each sheet's own typed FormValues shape, cast at the read site. Replaces the old shared
    * `state.form` buffer -- scoped to the sheet instance instead of the whole app. */
   formInitial?: unknown;
+  /** Which static legal page the `legal` sheet renders. */
+  legalPage?: 'impressum' | 'datenschutz';
 }
 
 export interface AppState {
@@ -282,6 +285,9 @@ export interface AppContextValue {
   goEventsPending: () => void;
   goEventsAbsences: () => void;
   closeSheet: () => void;
+  /** Opens the static legal-notice/privacy-policy sheet. Team-independent and
+   * available before login (see Login/Register), unlike openProfile/openMore. */
+  openLegal: (page: 'impressum' | 'datenschutz') => void;
   activePageSheet: () => SheetState | null;
   selectTeam: (id: string) => Promise<void>;
   setEventsView: (v: 'list' | 'calendar' | 'absences') => void;
@@ -975,6 +981,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const s = S().sheet;
     setState({ sheet: s && s.back ? s.back : null });
   }, [S, setState]);
+  // Unlike openProfile/openMore, this reads/writes no team-scoped state, so it
+  // works identically before login (Login/Register) and inside the app
+  // (ProfileSheet) -- SheetHost renders state.sheet regardless of state.phase.
+  const openLegal = useCallback(
+    (page: 'impressum' | 'datenschutz') => setState({ sheet: { type: 'legal', legalPage: page } }),
+    [setState],
+  );
   const go = useCallback(
     (route: Route) => {
       // History is mirrored centrally by the URL-sync effect (state -> URL).
@@ -1290,6 +1303,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goEventsPending,
       goEventsAbsences,
       closeSheet,
+      openLegal,
       activePageSheet,
       selectTeam,
       setEventsView,
@@ -1387,6 +1401,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goEventsPending,
       goEventsAbsences,
       closeSheet,
+      openLegal,
       activePageSheet,
       selectTeam,
       setEventsView,

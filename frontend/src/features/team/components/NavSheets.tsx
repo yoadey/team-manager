@@ -454,6 +454,52 @@ export function ProfileSheet({ app }: SheetProps) {
           </Box>
         )}
       </Box>
+
+      <Box key="legal" sx={{ mt: '24px', pt: '18px', borderTop: `1px solid ${NEUTRAL.line}` }}>
+        <Box sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, mb: '8px' }}>
+          {t('team.legalSection')}
+        </Box>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <ButtonBase
+            onClick={() => app.openLegal('impressum')}
+            sx={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              p: '13px',
+              borderRadius: '14px',
+              border: `1px solid ${NEUTRAL.line}`,
+              background: NEUTRAL.card,
+              color: NEUTRAL.onSurfaceVariant,
+              fontWeight: 600,
+              fontSize: '14px',
+            }}
+          >
+            {t('sheet.legalImpressum')}
+            <Sym name="chevron_right" size={20} color={NEUTRAL.faint} />
+          </ButtonBase>
+          <ButtonBase
+            onClick={() => app.openLegal('datenschutz')}
+            sx={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              p: '13px',
+              borderRadius: '14px',
+              border: `1px solid ${NEUTRAL.line}`,
+              background: NEUTRAL.card,
+              color: NEUTRAL.onSurfaceVariant,
+              fontWeight: 600,
+              fontSize: '14px',
+            }}
+          >
+            {t('sheet.legalDatenschutz')}
+            <Sym name="chevron_right" size={20} color={NEUTRAL.faint} />
+          </ButtonBase>
+        </Box>
+      </Box>
     </Box>
   );
 }

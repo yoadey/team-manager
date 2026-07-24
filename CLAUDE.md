@@ -144,6 +144,14 @@ cd backend && make generate  # regenerates internal/gen/api.gen.go
 The TypeScript client is also generated from this spec via `openapi-typescript` + `openapi-fetch`
 (`make generate-ts` at the repo root; see "Connecting the Real Backend" below).
 
+## Legal compliance for a public deployment
+
+Before pointing a public domain at a real deployment, see
+[`docs/operations.md`'s "Legal setup before going public"](docs/operations.md#legal-setup-before-going-public) —
+filling in the legal-notice/privacy-policy content (`frontend/src/features/legal/content.ts`),
+which optional integrations require a data-processing agreement, and the
+self-registration minimum-age gate.
+
 ## Environment Variables
 
 ### Frontend (`frontend/.env`)
