@@ -116,6 +116,9 @@ func (h *Handler) CreateEvent(ctx context.Context, request gen.CreateEventReques
 		if errors.Is(err, ErrRepeatWeeksTooLarge) {
 			return nil, apierror.BadRequest(err.Error())
 		}
+		if errors.Is(err, ErrRecurrenceEndDateBeforeDate) {
+			return nil, apierror.BadRequest(err.Error())
+		}
 		h.logger.ErrorContext(ctx, "CreateEvent failed", "err", err)
 		return nil, apierror.Internal("failed to create event")
 	}
@@ -410,6 +413,9 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		}
 		if errors.Is(err, ErrEventCancelled) {
 			return nil, apierror.Conflict("cannot change attendance on a cancelled event")
+		}
+		if errors.Is(err, ErrRsvpDeadlinePassed) {
+			return nil, apierror.Conflict("rsvp deadline has passed")
 		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")

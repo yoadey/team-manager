@@ -31,6 +31,8 @@ interface EventFormRefineInput {
   meetT?: string | undefined;
   recurring?: boolean | undefined;
   repeatWeeks?: number | undefined;
+  repeatMode?: 'weeks' | 'until' | undefined;
+  repeatEndDate?: string | undefined;
 }
 
 function validateDateField(data: EventFormRefineInput, ctx: z.RefinementCtx) {
@@ -67,8 +69,28 @@ function validateTimeFields(data: EventFormRefineInput, ctx: z.RefinementCtx) {
   }
 }
 
+// Validates the recurrence inputs, branching on repeatMode: 'until' checks
+// repeatEndDate (must be a valid date on/after the event's own date);
+// 'weeks' (the default, for forms/tests predating the toggle) checks
+// repeatWeeks as before.
 function validateRecurring(data: EventFormRefineInput, ctx: z.RefinementCtx) {
   if (!data.recurring) return;
+  if (data.repeatMode === 'until') {
+    if (!data.repeatEndDate || !validDate(data.repeatEndDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['repeatEndDate'],
+        message: t('validation.eventRepeatEndDateInvalid'),
+      });
+    } else if (data.date && validDate(data.date) && data.repeatEndDate < data.date) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['repeatEndDate'],
+        message: t('validation.eventRepeatEndDateBeforeStart'),
+      });
+    }
+    return;
+  }
   const rw = Number(data.repeatWeeks);
   if (isNaN(rw) || !Number.isInteger(rw)) {
     ctx.addIssue({
@@ -111,6 +133,9 @@ export const eventFormSchema = z
     note: z.string().max(10000).optional().or(z.literal('')),
     recurring: z.boolean().optional(),
     repeatWeeks: z.coerce.number().optional(),
+    repeatMode: z.enum(['weeks', 'until']).optional(),
+    repeatEndDate: z.string().trim().optional().or(z.literal('')),
+    rsvpDeadline: z.string().trim().optional().or(z.literal('')),
     seriesId: z.string().optional().nullable(),
   })
   .superRefine((data, ctx) => {

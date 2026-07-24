@@ -199,6 +199,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('meetTime', e.meetTime ?? undefined),
     ...opt('startTime', e.startTime ?? undefined),
     ...opt('endTime', e.endTime ?? undefined),
+    ...opt('rsvpDeadline', e.rsvpDeadline ?? undefined),
   };
 }
 
@@ -779,9 +780,26 @@ export const handlers = [
       recurring: !!body.recurring,
       seriesId: null,
       status: 'active',
+      rsvpDeadline: body.rsvpDeadline ?? null,
       ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
-    if (body.recurring && body.repeatWeeks && body.repeatWeeks > 1) {
+    // endDate is the alternative to repeatWeeks for a recurring series (see
+    // backend/internal/events/repository.go's seriesDates): weekly
+    // occurrences from date up to and including endDate, capped the same
+    // way the backend caps repeatWeeks, instead of a fixed count.
+    if (body.recurring && body.endDate) {
+      const seriesId = rid('series');
+      const start = parseDateOnlyLocal(body.date);
+      const end = parseDateOnlyLocal(body.endDate);
+      for (let w = 0; w < 104; w++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + w * 7);
+        if (d.getTime() > end.getTime()) break;
+        const e = mk(formatDateOnly(d));
+        e.seriesId = seriesId;
+        created.push(e);
+      }
+    } else if (body.recurring && body.repeatWeeks && body.repeatWeeks > 1) {
       const seriesId = rid('series');
       for (let w = 0; w < body.repeatWeeks; w++) {
         const d = parseDateOnlyLocal(body.date);
@@ -836,6 +854,7 @@ export const handlers = [
       if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
       if (body.startTime !== undefined) ev.startTime = body.startTime || null;
       if (body.endTime !== undefined) ev.endTime = body.endTime || null;
+      if (body.rsvpDeadline !== undefined) ev.rsvpDeadline = body.rsvpDeadline || null;
       if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
     });
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });

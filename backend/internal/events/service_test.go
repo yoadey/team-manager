@@ -490,6 +490,109 @@ func TestEventService_CreateEvent_Recurring_RejectsNonPositiveRepeatWeeks(t *tes
 	}
 }
 
+// TestEventService_CreateEvent_Recurring_WithEndDate covers the endDate
+// alternative to repeatWeeks: CreateSeries must receive RepeatEndDate set
+// (not RepeatWeeks driving occurrence count), matching the spec's "Creating
+// a series with an end date" scenario.
+func TestEventService_CreateEvent_Recurring_WithEndDate(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC) // a Monday
+	end := start.AddDate(0, 0, 21)                       // 3 full weeks later
+
+	sid := uuid.New()
+	eventRows := []events.EventRow{svcMakeEventRow("Season Training")}
+	eventRows[0].SeriesId = &sid
+
+	var captured *events.CreateEventParams
+	repo := &mockSvcRepo{
+		createSeriesFn: func(_ context.Context, _ string, params *events.CreateEventParams) ([]events.EventRow, error) {
+			captured = params
+			return eventRows, nil
+		},
+		getAttendanceSummaryFn: zeroSummaryFn,
+		getMyAttendanceFn:      nilMyAttendanceFn,
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	recurring := true
+	body := &gen.CreateEventRequest{
+		Type:      gen.Training,
+		Title:     "Season Training",
+		Date:      openapi_types.Date{Time: start},
+		Recurring: &recurring,
+		EndDate:   &openapi_types.Date{Time: end},
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.NotNil(t, captured.RepeatEndDate, "endDate must be forwarded as RepeatEndDate")
+	assert.True(t, captured.RepeatEndDate.Equal(end))
+}
+
+// TestEventService_CreateEvent_Recurring_RejectsEndDateBeforeDate covers the
+// endDate-before-date edge case: there are no occurrences to generate, so
+// this must be rejected before ever reaching the repository.
+func TestEventService_CreateEvent_Recurring_RejectsEndDateBeforeDate(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(0, 0, -1)
+
+	repo := &mockSvcRepo{
+		createSeriesFn: func(_ context.Context, _ string, _ *events.CreateEventParams) ([]events.EventRow, error) {
+			t.Fatal("CreateSeries must not be called when endDate is before date")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	recurring := true
+	body := &gen.CreateEventRequest{
+		Type:      gen.Training,
+		Title:     "Invalid End Date",
+		Date:      openapi_types.Date{Time: start},
+		Recurring: &recurring,
+		EndDate:   &openapi_types.Date{Time: end},
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrRecurrenceEndDateBeforeDate)
+}
+
+// TestEventService_CreateEvent_Recurring_RejectsEndDateSpanningTooManyWeeks
+// mirrors TestEventService_CreateEvent_Recurring_RejectsExcessiveRepeatWeeks
+// for the endDate path: the same maxRepeatWeeks-style safety cap applies
+// regardless of which of the two mutually exclusive inputs produced the
+// occurrence count.
+func TestEventService_CreateEvent_Recurring_RejectsEndDateSpanningTooManyWeeks(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.AddDate(2, 0, 0) // ~104+ weeks away
+
+	repo := &mockSvcRepo{
+		createSeriesFn: func(_ context.Context, _ string, _ *events.CreateEventParams) ([]events.EventRow, error) {
+			t.Fatal("CreateSeries must not be called when the endDate span exceeds the repeat-weeks cap")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	recurring := true
+	body := &gen.CreateEventRequest{
+		Type:      gen.Training,
+		Title:     "Runaway End Date",
+		Date:      openapi_types.Date{Time: start},
+		Recurring: &recurring,
+		EndDate:   &openapi_types.Date{Time: end},
+	}
+
+	_, err := svc.CreateEvent(context.Background(), testTeamID, testUserID, body)
+	require.ErrorIs(t, err, events.ErrRepeatWeeksTooLarge)
+}
+
 func TestEventService_SetAttendance(t *testing.T) {
 	t.Parallel()
 
@@ -648,6 +751,125 @@ func TestEventService_SetAttendance_RejectsCancelledEvent(t *testing.T) {
 
 	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
 	require.ErrorIs(t, err, events.ErrEventCancelled)
+}
+
+// TestEventService_SetAttendance_RejectsAfterRsvpDeadline covers the core
+// deferred-item scenario: a self-service caller (no permChecker consulted
+// for callerID == userID up to this point) without events:write must be
+// rejected once the event's RsvpDeadline has passed. The repository write
+// must not be reached.
+func TestEventService_SetAttendance_RejectsAfterRsvpDeadline(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	past := time.Now().Add(-1 * time.Hour)
+
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", RsvpDeadline: &past}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			t.Fatal("repository must not be called once the rsvp deadline has passed and the caller lacks events:write")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}}, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrRsvpDeadlinePassed)
+}
+
+// TestEventService_SetAttendance_RejectsAfterRsvpDeadline_NilPermChecker
+// covers the same rejection when no permChecker is configured at all (e.g. a
+// test wiring events.NewService with permChecker=nil) -- there is no bypass
+// to consult, so the deadline is unconditionally enforced.
+func TestEventService_SetAttendance_RejectsAfterRsvpDeadline_NilPermChecker(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	past := time.Now().Add(-1 * time.Hour)
+
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", RsvpDeadline: &past}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			t.Fatal("repository must not be called once the rsvp deadline has passed with no permChecker to bypass it")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrRsvpDeadlinePassed)
+}
+
+// TestEventService_SetAttendance_AllowsAfterRsvpDeadlineWithEventsWrite
+// covers the privileged-role bypass named in the spec ("an administrator"):
+// a caller holding events:write may still respond -- even for themselves --
+// after the deadline.
+func TestEventService_SetAttendance_AllowsAfterRsvpDeadlineWithEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	past := time.Now().Add(-1 * time.Hour)
+
+	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: userID, Status: "yes"}
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", RsvpDeadline: &past}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			return rec, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}}, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+// TestEventService_SetAttendance_AllowsBeforeRsvpDeadline is the happy path:
+// a response before the deadline is accepted without ever consulting
+// permChecker (nil here), matching the spec's "Responding before the
+// deadline" scenario.
+func TestEventService_SetAttendance_AllowsBeforeRsvpDeadline(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	future := time.Now().Add(1 * time.Hour)
+
+	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: userID, Status: "yes"}
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", RsvpDeadline: &future}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			return rec, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
 }
 
 // TestEventService_SetNomination_RequiresEventsWrite guards against a

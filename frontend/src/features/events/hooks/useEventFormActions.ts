@@ -4,6 +4,7 @@ import type { TeamEvent } from '../types';
 import type { EventFormValues } from '../components/eventFormSchema';
 import type { AppState } from '@/context/AppContext';
 import { hhmm, todayStr } from '@/styles/tokens';
+import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/utils/date';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import { useSaveEventMutation } from './useEventMutations';
@@ -20,6 +21,38 @@ type EventFormDeps = {
   toastMsg: (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
   logout: () => void;
 };
+
+/** Builds the base event write payload shared by create and edit -- everything except the create-only recurrence fields (see buildRecurrencePayload). */
+function buildBasePayload(f: EventFormValues) {
+  return {
+    type: f.type,
+    title: f.title.trim(),
+    date: f.date,
+    location: f.location || '',
+    note: f.note || '',
+    meetTimeMandatory: !!f.meetTimeMandatory,
+    responseMode: f.responseMode || 'opt_in',
+    meetT: f.meetT || '',
+    startT: f.startT || '',
+    endT: f.endT || '',
+    nominatedRoleIds: f.nominatedRoleIds || [],
+    rsvpDeadline: fromDatetimeLocalValue(f.rsvpDeadline || ''),
+  };
+}
+
+/**
+ * Builds the create-only recurrence fields, branching on repeatMode: the two
+ * are mutually exclusive server-side (endDate takes precedence when both are
+ * set), so only the field the toggle is currently on gets forwarded.
+ */
+function buildRecurrencePayload(f: EventFormValues) {
+  const recurring = f.recurring ?? false;
+  const usingEndDate = recurring && f.repeatMode === 'until';
+  return {
+    recurring,
+    ...(usingEndDate ? { endDate: f.repeatEndDate } : { repeatWeeks: f.repeatWeeks || 8 }),
+  };
+}
 
 export function useEventFormActions({
   api,
@@ -51,6 +84,9 @@ export function useEventFormActions({
             nominatedRoleIds: event.nominatedRoleIds || S().roles.map((r) => r.id),
             recurring: false,
             repeatWeeks: 8,
+            repeatMode: 'weeks',
+            repeatEndDate: '',
+            rsvpDeadline: toDatetimeLocalValue(event.rsvpDeadline),
           }
         : {
             type: 'training',
@@ -66,6 +102,9 @@ export function useEventFormActions({
             nominatedRoleIds: S().roles.map((r) => r.id),
             recurring: false,
             repeatWeeks: 8,
+            repeatMode: 'weeks',
+            repeatEndDate: '',
+            rsvpDeadline: '',
           };
       setState((st) => ({
         sheet: {
@@ -85,26 +124,10 @@ export function useEventFormActions({
       const sh = S().sheet!;
       const mode = sh.mode;
       const back = sh.back;
-      const payload = {
-        type: f.type,
-        title: f.title.trim(),
-        date: f.date,
-        location: f.location || '',
-        note: f.note || '',
-        meetTimeMandatory: !!f.meetTimeMandatory,
-        responseMode: f.responseMode || 'opt_in',
-        meetT: f.meetT || '',
-        startT: f.startT || '',
-        endT: f.endT || '',
-        nominatedRoleIds: f.nominatedRoleIds || [],
-      };
+      const payload = buildBasePayload(f);
       try {
         if (mode === 'edit') await saveEventAsync({ mode: 'edit', eventId: sh.eventId!, scope, payload });
-        else
-          await saveEventAsync({
-            mode: 'create',
-            payload: { ...payload, recurring: f.recurring ?? false, repeatWeeks: f.repeatWeeks || 8 },
-          });
+        else await saveEventAsync({ mode: 'create', payload: { ...payload, ...buildRecurrencePayload(f) } });
         loadNotifications();
         // Don't close/reopen a sheet the user has since opened for a
         // different team after switching away mid-request -- openEventDetail

@@ -92,6 +92,7 @@ type Event struct {
 	Status            string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	RsvpDeadline      pgtype.Timestamptz
 }
 
 type EventComment struct {
@@ -117,6 +118,8 @@ type EventSeries struct {
 	NominatedRoleIds  []uuid.UUID
 	RepeatWeeks       int32
 	CreatedAt         time.Time
+	RepeatEndDate     pgtype.Date
+	RsvpDeadline      pgtype.Timestamptz
 }
 
 type Invite struct {

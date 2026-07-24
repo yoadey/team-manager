@@ -144,6 +144,165 @@ func TestEventRepository_CreateRecurringEvent(t *testing.T) {
 	assert.Equal(t, *eventRows[0].SeriesId, *eventRows[3].SeriesId)
 }
 
+// TestEventRepository_CreateRecurringEvent_WithEndDate covers the endDate
+// alternative to RepeatWeeks (see events.Service.CreateEvent's endDate
+// handling and Repository.seriesDates): weekly occurrences from Date up to
+// and including RepeatEndDate, not a fixed count.
+func TestEventRepository_CreateRecurringEvent_WithEndDate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'End Date Series Team')`, teamID)
+	require.NoError(t, err)
+
+	startDate := time.Now().UTC().Truncate(24 * time.Hour)
+	// 3 weeks + 2 days past start -- the 4th weekly occurrence (day 21) falls
+	// within range, the 5th (day 28) does not.
+	endDate := startDate.AddDate(0, 0, 23)
+	params := events.CreateEventParams{
+		Type:          "training",
+		Title:         "Season Training",
+		Date:          startDate,
+		Recurring:     true,
+		RepeatEndDate: &endDate,
+	}
+
+	eventRows, err := repo.CreateSeries(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+	require.Len(t, eventRows, 4, "should generate one occurrence per week up to and including the end date, none after")
+
+	for i, e := range eventRows {
+		expectedDate := startDate.AddDate(0, 0, i*7)
+		assert.Equal(t, expectedDate.Format("2006-01-02"), e.Date.Format("2006-01-02"), "event %d date", i)
+		assert.True(t, !e.Date.After(endDate), "event %d must not fall after the end date", i)
+	}
+
+	var storedRepeatWeeks int
+	var storedEndDate time.Time
+	err = pool.QueryRow(ctx, `SELECT repeat_weeks, repeat_end_date FROM event_series WHERE id = $1`, eventRows[0].SeriesId).
+		Scan(&storedRepeatWeeks, &storedEndDate)
+	require.NoError(t, err)
+	assert.Equal(t, 4, storedRepeatWeeks, "repeat_weeks is still populated with the derived occurrence count")
+	assert.Equal(t, endDate.Format("2006-01-02"), storedEndDate.Format("2006-01-02"))
+}
+
+// TestEventRepository_SetAttendance_RejectsAfterRsvpDeadline covers the
+// race-closing re-check inside SetAttendance's own SQL (mirroring the
+// service layer's earlier, non-atomic check): a caller without events:write
+// cannot record/change attendance once the event's rsvp_deadline has passed,
+// even when calling the repository directly (bypassing the service).
+func TestEventRepository_SetAttendance_RejectsAfterRsvpDeadline(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	userID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Deadline Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Latecomer', 'latecomer@example.com', '#444444')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
+	require.NoError(t, err)
+
+	past := time.Now().UTC().Add(-1 * time.Hour)
+	params := makeCreateParams("Deadline Event", time.Now().UTC())
+	params.RsvpDeadline = &past
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	status := "yes"
+	_, err = repo.SetAttendance(ctx, ev.Id.String(), userID.String(), userID.String(), teamID.String(), &status, nil, nil, nil)
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "a caller without events:write must be rejected once the deadline has passed")
+
+	rec, err := repo.GetMyAttendance(ctx, ev.Id.String(), userID.String(), teamID.String())
+	require.NoError(t, err)
+	assert.Nil(t, rec, "no attendance row should exist after the rejected write")
+}
+
+// TestEventRepository_SetAttendance_AllowsAfterRsvpDeadlineWithEventsWrite
+// covers the privileged-role bypass: a caller holding events:write may still
+// respond (even for themselves) after the deadline.
+func TestEventRepository_SetAttendance_AllowsAfterRsvpDeadlineWithEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	userID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Deadline Bypass Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Organizer', 'organizer-deadline@example.com', '#555555')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
+	require.NoError(t, err)
+
+	var writeRoleID uuid.UUID
+	err = pool.QueryRow(ctx,
+		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Organizer', '{"events":"write"}') RETURNING id`,
+		teamID,
+	).Scan(&writeRoleID)
+	require.NoError(t, err)
+	var membershipID uuid.UUID
+	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, userID).Scan(&membershipID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, writeRoleID)
+	require.NoError(t, err)
+
+	past := time.Now().UTC().Add(-1 * time.Hour)
+	params := makeCreateParams("Deadline Bypass Event", time.Now().UTC())
+	params.RsvpDeadline = &past
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	status := "yes"
+	rec, err := repo.SetAttendance(ctx, ev.Id.String(), userID.String(), userID.String(), teamID.String(), &status, nil, nil, nil)
+	require.NoError(t, err, "a caller holding events:write must be able to respond even after the deadline")
+	assert.Equal(t, "yes", rec.Status)
+}
+
+// TestEventRepository_SetAttendance_AllowsBeforeRsvpDeadline is the baseline
+// happy path: a response recorded before the deadline is accepted regardless
+// of role.
+func TestEventRepository_SetAttendance_AllowsBeforeRsvpDeadline(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	userID := uuid.New()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Deadline Not Passed Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'OnTime', 'ontime@example.com', '#666666')`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
+	require.NoError(t, err)
+
+	future := time.Now().UTC().Add(1 * time.Hour)
+	params := makeCreateParams("Deadline Not Passed Event", time.Now().UTC())
+	params.RsvpDeadline = &future
+	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
+	require.NoError(t, err)
+
+	status := "maybe"
+	rec, err := repo.SetAttendance(ctx, ev.Id.String(), userID.String(), userID.String(), teamID.String(), &status, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "maybe", rec.Status)
+}
+
 // Regression test: CreateEvent/CreateSeries/UpdateEvent must validate
 // nominated_role_ids against the roles table inside their own transaction
 // (holding the same pg_advisory_xact_lock key roles.DeleteRole uses), not

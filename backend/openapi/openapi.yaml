@@ -2334,6 +2334,12 @@ components:
           type: boolean
         myReason:
           type: string
+        rsvpDeadline:
+          type: string
+          format: date-time
+          description: >-
+            Optional cutoff after which a non-privileged member can no longer
+            change their attendance response for this event.
 
     CreateEventRequest:
       type: object
@@ -2375,6 +2381,21 @@ components:
           type: integer
           minimum: 1
           maximum: 104
+        endDate:
+          type: string
+          format: date
+          description: >-
+            Alternative to repeatWeeks for a recurring series: generates
+            weekly occurrences from date up to and including endDate instead
+            of a fixed count. Mutually exclusive with repeatWeeks -- when
+            both are set, endDate takes precedence.
+        rsvpDeadline:
+          type: string
+          format: date-time
+          description: >-
+            Optional cutoff after which a non-privileged member can no longer
+            change their attendance response. For a recurring series, seeds
+            every generated occurrence's own rsvpDeadline.
 
     UpdateEventRequest:
       type: object
@@ -2409,6 +2430,12 @@ components:
           items:
             type: string
             format: uuid
+        rsvpDeadline:
+          type: string
+          format: date-time
+          description: >-
+            Optional cutoff after which a non-privileged member can no
+            longer change their attendance response.
 
     SetEventStatusRequest:
       type: object
