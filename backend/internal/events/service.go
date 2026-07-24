@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -27,6 +28,15 @@ var (
 	ErrEventCancelled               = errors.New("events.Service.SetAttendance: cannot change attendance on a cancelled event")
 	ErrRepeatWeeksTooLarge          = fmt.Errorf("repeat_weeks must be between 1 and %d", maxRepeatWeeks)
 	ErrTooManyComments              = fmt.Errorf("event has reached the maximum of %d comments", maxCommentsPerEvent)
+	// ErrRecurrenceEndDateBeforeDate is returned when a recurring series'
+	// endDate is set but falls before the series' own start date -- the
+	// end-date alternative to repeatWeeks (see CreateEvent) has no
+	// occurrences to generate in that case.
+	ErrRecurrenceEndDateBeforeDate = errors.New("endDate must be on or after date")
+	// ErrRsvpDeadlinePassed is returned when a member without a role
+	// permitting late responses (events:write) attempts to change their
+	// attendance after the event's rsvpDeadline has passed.
+	ErrRsvpDeadlinePassed = errors.New("events.Service.SetAttendance: rsvp deadline has passed")
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -204,7 +214,25 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 	if body.RepeatWeeks != nil {
 		repeatWeeks = *body.RepeatWeeks
 	}
-	if repeatWeeks < 1 || repeatWeeks > maxRepeatWeeks {
+	// endDate is the alternative to repeatWeeks: when both a recurring
+	// series and an endDate are given, occurrences are derived weekly from
+	// date up to and including endDate instead of using repeatWeeks as a
+	// fixed count -- see design.md's "Deferred item scoping" for the
+	// recurrence-end-date entry. Only meaningful for a recurring series;
+	// endDate on a non-recurring create is silently ignored, matching how
+	// repeatWeeks is already ignored for a non-recurring create.
+	var repeatEndDate *time.Time
+	if recurring && body.EndDate != nil {
+		end := body.EndDate.Time
+		if end.Before(body.Date.Time) {
+			return nil, ErrRecurrenceEndDateBeforeDate
+		}
+		weeks := int(end.Sub(body.Date.Time).Hours()/(24*7)) + 1
+		if weeks > maxRepeatWeeks {
+			return nil, ErrRepeatWeeksTooLarge
+		}
+		repeatEndDate = &end
+	} else if repeatWeeks < 1 || repeatWeeks > maxRepeatWeeks {
 		return nil, ErrRepeatWeeksTooLarge
 	}
 
@@ -220,6 +248,8 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		MeetTimeMandatory: body.MeetTimeMandatory,
 		Recurring:         recurring,
 		RepeatWeeks:       repeatWeeks,
+		RepeatEndDate:     repeatEndDate,
+		RsvpDeadline:      body.RsvpDeadline,
 	}
 	if body.ResponseMode != nil {
 		rm := string(*body.ResponseMode)
@@ -294,6 +324,7 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		StartTime:         body.StartTime,
 		EndTime:           body.EndTime,
 		MeetTimeMandatory: body.MeetTimeMandatory,
+		RsvpDeadline:      body.RsvpDeadline,
 	}
 	if body.Type != nil {
 		t := string(*body.Type)
@@ -517,6 +548,11 @@ func roleSetsIntersect(a, b []string) bool {
 // row is being set for (may differ from callerID). Setting another member's
 // attendance requires events:write — self-service callers may only set their
 // own. Returns ErrSetAttendanceForbidden if the caller lacks that permission.
+// Once the event's rsvpDeadline has passed, a response is also rejected
+// (ErrRsvpDeadlinePassed) unless the caller holds events:write -- the same
+// permission that lets an organizer set attendance for another member also
+// lets them (or anyone else holding it) respond, or adjust a response, past
+// the deadline; there is no separate "late response" permission.
 func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
 	// status="not_nominated" is exclusively SetNomination's domain (an
 	// events:write-gated organizer action, never self-service). Without this,
@@ -528,24 +564,10 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 	if req.Status == gen.NotNominated {
 		return nil, ErrAttendanceStatusNotNominated
 	}
+
 	if callerID != userID {
-		if s.permChecker == nil {
-			return nil, ErrSetAttendanceForbidden
-		}
-		teamUUID, err := uuid.Parse(teamID)
-		if err != nil {
-			return nil, fmt.Errorf("events.Service.SetAttendance: parse teamID: %w", err)
-		}
-		callerUUID, err := uuid.Parse(callerID)
-		if err != nil {
-			return nil, fmt.Errorf("events.Service.SetAttendance: parse callerID: %w", err)
-		}
-		perms, err := s.permChecker.GetPermissions(ctx, teamUUID, callerUUID)
-		if err != nil {
-			return nil, fmt.Errorf("events.Service.SetAttendance: check permissions: %w", err)
-		}
-		if perms.Events != "write" {
-			return nil, ErrSetAttendanceForbidden
+		if err := s.requireCallerEventsWrite(ctx, callerID, teamID, ErrSetAttendanceForbidden); err != nil {
+			return nil, err
 		}
 	}
 
@@ -563,6 +585,15 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 		return nil, ErrEventCancelled
 	}
 
+	// Reject a response once the event's rsvpDeadline has passed, unless the
+	// caller holds events:write -- see the repository's identical,
+	// race-closing re-check inside the write itself.
+	if ev.RsvpDeadline != nil && time.Now().After(*ev.RsvpDeadline) {
+		if err := s.requireCallerEventsWrite(ctx, callerID, teamID, ErrRsvpDeadlinePassed); err != nil {
+			return nil, err
+		}
+	}
+
 	statusStr := string(req.Status)
 	var reasonVisStr *string
 	if req.ReasonVisibility != nil {
@@ -576,6 +607,35 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 	}
 	rec := toGenAttendanceRecord(a)
 	return &rec, nil
+}
+
+// requireCallerEventsWrite checks whether callerID currently holds
+// events:write for teamID, returning onDenied (the caller-facing sentinel
+// appropriate to whichever gate is calling this -- ErrSetAttendanceForbidden
+// for "acting on another member", ErrRsvpDeadlinePassed for "responding
+// after the deadline") when it doesn't, nil when it does. Shared by
+// SetAttendance's two independent events:write gates, which otherwise
+// duplicate the same permChecker plumbing.
+func (s *Service) requireCallerEventsWrite(ctx context.Context, callerID, teamID string, onDenied error) error {
+	if s.permChecker == nil {
+		return onDenied
+	}
+	teamUUID, err := uuid.Parse(teamID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetAttendance: parse teamID: %w", err)
+	}
+	callerUUID, err := uuid.Parse(callerID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetAttendance: parse callerID: %w", err)
+	}
+	perms, err := s.permChecker.GetPermissions(ctx, teamUUID, callerUUID)
+	if err != nil {
+		return fmt.Errorf("events.Service.SetAttendance: check permissions: %w", err)
+	}
+	if perms.Events != "write" {
+		return onDenied
+	}
+	return nil
 }
 
 // SetNomination sets or removes a user's nomination on an event scoped to teamID.
@@ -684,6 +744,7 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 		StartTime:         row.StartTime,
 		EndTime:           row.EndTime,
 		MeetTimeMandatory: row.MeetTimeMandatory,
+		RsvpDeadline:      row.RsvpDeadline,
 	}
 
 	if row.SeriesId != nil {

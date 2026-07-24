@@ -83,7 +83,7 @@ const selectEventFields = `
 	COALESCE(TO_CHAR(end_time, 'HH24:MI'), '') AS end_time,
 	meet_time_mandatory, response_mode,
 	COALESCE(nominated_role_ids, '{}') AS nominated_role_ids,
-	status, created_at
+	status, created_at, rsvp_deadline
 `
 
 // scanEventRow scans a full event row from the DB.
@@ -96,7 +96,7 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 		&meetTime, &startTime, &endTime,
 		&e.MeetTimeMandatory, &e.ResponseMode,
 		&e.NominatedRoleIds,
-		&e.Status, &e.CreatedAt,
+		&e.Status, &e.CreatedAt, &e.RsvpDeadline,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("events.scanEventRow: %w", err)
@@ -290,11 +290,11 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 		INSERT INTO events (
 			team_id, type, title, date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, status
+			response_mode, nominated_role_ids, status, rsvp_deadline
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7::time, $8::time, $9::time, $10,
-			$11, $12, 'active'
+			$11, $12, 'active', $13
 		)
 		RETURNING %s
 	`, selectEventFields)
@@ -307,6 +307,7 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 		boolVal(params.MeetTimeMandatory),
 		strVal(params.ResponseMode, "opt_in"),
 		uuidSlice(params.NominatedRoleIds),
+		params.RsvpDeadline,
 	)
 	e, err := scanEventRow(row)
 	if err != nil {
@@ -319,14 +320,47 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 	return e, nil
 }
 
-// CreateSeries creates an event_series row and then one event per week for RepeatWeeks.
-func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+// seriesDates computes the weekly occurrence dates for a series, branching on
+// whichever of RepeatWeeks/RepeatEndDate the caller set. When RepeatEndDate
+// is set it takes precedence: occurrences run weekly from params.Date up to
+// and including RepeatEndDate. Otherwise RepeatWeeks (defaulting to 1) gives
+// a fixed count, as before. Both paths are already capped at maxRepeatWeeks
+// by Service.CreateEvent before this is ever called; the loop below still
+// stops at maxRepeatWeeks defensively so a future caller that skips that
+// pre-check can't turn this into an unbounded loop inside an open
+// transaction.
+func seriesDates(params *CreateEventParams) []time.Time {
+	if params.RepeatEndDate != nil {
+		var dates []time.Time
+		for d := params.Date; !d.After(*params.RepeatEndDate) && len(dates) < maxRepeatWeeks; d = d.AddDate(0, 0, 7) {
+			dates = append(dates, d)
+		}
+		if len(dates) == 0 {
+			dates = []time.Time{params.Date}
+		}
+		return dates
+	}
 	repeatWeeks := params.RepeatWeeks
 	if repeatWeeks < 1 {
 		repeatWeeks = 1
 	}
+	if repeatWeeks > maxRepeatWeeks {
+		repeatWeeks = maxRepeatWeeks
+	}
+	dates := make([]time.Time, repeatWeeks)
+	for i := 0; i < repeatWeeks; i++ {
+		dates[i] = params.Date.AddDate(0, 0, i*7)
+	}
+	return dates
+}
+
+// CreateSeries creates an event_series row and then one event per week for
+// RepeatWeeks, or -- when RepeatEndDate is set instead -- weekly up to and
+// including that end date (see seriesDates).
+func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *CreateEventParams) ([]EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	dates := seriesDates(params)
 
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -338,17 +372,20 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		return nil, err
 	}
 
-	// Insert series row.
+	// Insert series row. repeat_weeks is always populated with the derived
+	// occurrence count (len(dates)), even in end-date mode, so read paths
+	// that only ever consulted repeat_weeks keep working unchanged;
+	// repeat_end_date is only set in end-date mode.
 	var seriesID uuid.UUID
 	seriesQ := `
 		INSERT INTO event_series (
 			team_id, type, title, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, repeat_weeks
+			response_mode, nominated_role_ids, repeat_weeks, repeat_end_date, rsvp_deadline
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6::time, $7::time, $8::time, $9,
-			$10, $11, $12
+			$10, $11, $12, $13, $14
 		)
 		RETURNING id
 	`
@@ -359,7 +396,9 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		boolVal(params.MeetTimeMandatory),
 		strVal(params.ResponseMode, "opt_in"),
 		uuidSlice(params.NominatedRoleIds),
-		repeatWeeks,
+		len(dates),
+		params.RepeatEndDate,
+		params.RsvpDeadline,
 	).Scan(&seriesID)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateSeries: insert series: %w", err)
@@ -374,19 +413,15 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 	// pool contention), a legitimate max-length series request would exceed
 	// the timeout and fail with a generic 500, while also serializing every
 	// other lock-guarded team mutation for the loop's full duration.
-	dates := make([]time.Time, repeatWeeks)
-	for i := 0; i < repeatWeeks; i++ {
-		dates[i] = params.Date.AddDate(0, 0, i*7)
-	}
 	eventQ := fmt.Sprintf(`
 		INSERT INTO events (
 			team_id, series_id, type, title, date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, status
+			response_mode, nominated_role_ids, status, rsvp_deadline
 		)
 		SELECT $1, $2, $3, $4, d, $6, $7,
 			$8::time, $9::time, $10::time, $11,
-			$12, $13, 'active'
+			$12, $13, 'active', $14
 		FROM unnest($5::date[]) AS d
 		RETURNING %s
 	`, selectEventFields)
@@ -399,6 +434,7 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		boolVal(params.MeetTimeMandatory),
 		strVal(params.ResponseMode, "opt_in"),
 		uuidSlice(params.NominatedRoleIds),
+		params.RsvpDeadline,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("events.Repository.CreateSeries: insert events: %w", err)
@@ -567,6 +603,9 @@ func buildEventUpdateSets(params *UpdateEventParams, startIdx int) (setSQL strin
 	}
 	if params.NominatedRoleIds != nil {
 		b.Add("nominated_role_ids", params.NominatedRoleIds)
+	}
+	if params.RsvpDeadline != nil {
+		b.Add("rsvp_deadline", *params.RsvpDeadline)
 	}
 
 	return b.Build(startIdx)
@@ -1114,27 +1153,44 @@ func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, vie
 // of the event's status is not atomic with this write, so a concurrent
 // SetStatus(cancelled) committing between that read and this write must not
 // be able to still let attendance be recorded/rewritten against an
-// already-cancelled event. Returns pgx.ErrNoRows if eventID does not belong
-// to teamID, if the event is cancelled, if userID is not a member of teamID
-// (prevents forging attendance rows for arbitrary users outside the team),
-// OR -- in that narrow race -- if callerID no longer holds events:write;
-// these are deliberately not distinguished here, matching how every other
-// reason this returns pgx.ErrNoRows is already ambiguous by design.
+// already-cancelled event. The same clause also re-checks the event's
+// rsvp_deadline: the service layer's earlier deadline check (Service.
+// SetAttendance) is likewise not atomic with this write, so a request that
+// raced past the deadline (or a concurrent SetRoles granting events:write
+// mid-request) must not slip through here even if it slipped past that
+// earlier check -- caller_write (computed once, below) backs both the
+// "acting on another member" bypass and the deadline bypass, since both are
+// "does callerID currently hold events:write". Returns pgx.ErrNoRows if
+// eventID does not belong to teamID, if the event is cancelled, if the
+// deadline has passed and callerID lacks events:write, if userID is not a
+// member of teamID (prevents forging attendance rows for arbitrary users
+// outside the team), OR -- in that narrow race -- if callerID no longer
+// holds events:write; these are deliberately not distinguished here,
+// matching how every other reason this returns pgx.ErrNoRows is already
+// ambiguous by design.
 func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	q := `
+		WITH caller_write AS (
+			SELECT EXISTS (
+			        SELECT 1 FROM roles r
+			        JOIN membership_roles mr ON mr.role_id = r.id
+			        JOIN memberships m ON m.id = mr.membership_id
+			        WHERE m.team_id = $7 AND m.user_id = $8 AND r.team_id = $7
+			          AND r.permissions->>'events' = 'write'
+			      ) AS has_write
+		)
 		INSERT INTO attendance (event_id, user_id, status, reason, reason_id, reason_visibility, at)
 		SELECT $1, $2, $3, $4, $5, $6, now()
-		WHERE EXISTS (SELECT 1 FROM events WHERE id = $1 AND team_id = $7 AND status != 'cancelled')
+		FROM caller_write
+		WHERE EXISTS (
+		        SELECT 1 FROM events e
+		        WHERE e.id = $1 AND e.team_id = $7 AND e.status != 'cancelled'
+		          AND (e.rsvp_deadline IS NULL OR now() <= e.rsvp_deadline OR caller_write.has_write)
+		      )
 		  AND EXISTS (SELECT 1 FROM memberships WHERE team_id = $7 AND user_id = $2)
-		  AND ($8 = $2 OR EXISTS (
-		        SELECT 1 FROM roles r
-		        JOIN membership_roles mr ON mr.role_id = r.id
-		        JOIN memberships m ON m.id = mr.membership_id
-		        WHERE m.team_id = $7 AND m.user_id = $8 AND r.team_id = $7
-		          AND r.permissions->>'events' = 'write'
-		      ))
+		  AND ($8 = $2 OR caller_write.has_write)
 		ON CONFLICT (event_id, user_id) DO UPDATE
 			SET status = EXCLUDED.status,
 			    reason = EXCLUDED.reason,

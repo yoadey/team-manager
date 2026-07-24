@@ -1291,6 +1291,11 @@ export interface components {
             myStatus?: components["schemas"]["AttendanceStatus"];
             myAuto?: boolean;
             myReason?: string;
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
+             */
+            rsvpDeadline?: string;
         };
         CreateEventRequest: {
             type: components["schemas"]["EventType"];
@@ -1307,6 +1312,16 @@ export interface components {
             nominatedRoleIds?: string[];
             recurring?: boolean;
             repeatWeeks?: number;
+            /**
+             * Format: date
+             * @description Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
+             */
+            endDate?: string;
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
+             */
+            rsvpDeadline?: string;
         };
         UpdateEventRequest: {
             type?: components["schemas"]["EventType"];
@@ -1321,6 +1336,11 @@ export interface components {
             meetTimeMandatory?: boolean;
             responseMode?: components["schemas"]["ResponseMode"];
             nominatedRoleIds?: string[];
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response.
+             */
+            rsvpDeadline?: string;
         };
         SetEventStatusRequest: {
             status: components["schemas"]["EventStatus"];

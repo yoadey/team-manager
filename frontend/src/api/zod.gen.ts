@@ -215,6 +215,7 @@ const TeamEvent = z
     myStatus: AttendanceStatus.optional(),
     myAuto: z.boolean().optional(),
     myReason: z.string().optional(),
+    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
 const CreateEventRequest = z
@@ -232,6 +233,8 @@ const CreateEventRequest = z
     nominatedRoleIds: z.array(z.string().uuid()).optional(),
     recurring: z.boolean().optional(),
     repeatWeeks: z.number().int().gte(1).lte(104).optional(),
+    endDate: z.string().optional(),
+    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
 const UpdateEventRequest = z
@@ -247,6 +250,7 @@ const UpdateEventRequest = z
     meetTimeMandatory: z.boolean(),
     responseMode: ResponseMode,
     nominatedRoleIds: z.array(z.string().uuid()),
+    rsvpDeadline: z.string().datetime({ offset: true }),
   })
   .partial()
   .passthrough();

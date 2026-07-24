@@ -478,8 +478,12 @@ export const realApi = {
         meetTimeMandatory?: boolean;
         responseMode?: string;
         nominatedRoleIds?: string[];
-        recurring?: boolean;
-        repeatWeeks?: number;
+        recurring?: boolean | undefined;
+        repeatWeeks?: number | undefined;
+        /** Alternative to repeatWeeks for a recurring series; YYYY-MM-DD. */
+        endDate?: string | undefined;
+        /** ISO 8601 timestamp. */
+        rsvpDeadline?: string | undefined;
       },
     ): Promise<TeamEvent> {
       const res = await apiClient.POST('/teams/{teamId}/events', {
@@ -498,6 +502,8 @@ export const realApi = {
           ...opt('nominatedRoleIds', payload.nominatedRoleIds),
           ...opt('recurring', payload.recurring),
           ...opt('repeatWeeks', payload.repeatWeeks),
+          ...opt('endDate', payload.endDate),
+          ...opt('rsvpDeadline', payload.rsvpDeadline),
         },
       });
       // Backend may return an array for series
@@ -531,6 +537,8 @@ export const realApi = {
         meetTimeMandatory?: boolean;
         responseMode?: string;
         nominatedRoleIds?: string[];
+        /** ISO 8601 timestamp. */
+        rsvpDeadline?: string | undefined;
       },
       scope: 'single' | 'series',
       teamId: string,
@@ -549,6 +557,7 @@ export const realApi = {
           ...opt('meetTimeMandatory', patch.meetTimeMandatory),
           ...opt('responseMode', patch.responseMode as 'opt_in' | 'opt_out' | undefined),
           ...opt('nominatedRoleIds', patch.nominatedRoleIds),
+          ...opt('rsvpDeadline', patch.rsvpDeadline),
         },
       });
       const e = await check(res);

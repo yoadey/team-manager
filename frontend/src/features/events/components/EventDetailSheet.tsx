@@ -10,6 +10,7 @@ import type { AttendanceStatus } from '@/types';
 import type { SheetProps } from '@/sheets/types';
 import { reportActionError } from '@/utils/errors';
 import { useEventDetailQuery } from '../hooks/useEventQueries';
+import { RsvpCountdown } from './RsvpCountdown';
 import { t } from '@/i18n';
 
 type AppApi = SheetProps['app'];
@@ -749,6 +750,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           </Box>
         </Box>
       ) : null}
+      {e.rsvpDeadline ? <RsvpCountdown deadline={e.rsvpDeadline} /> : null}
       <MyResponseSection app={app} event={e} tk={tk} me={me} />
       <AttendanceSummary event={e} />
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
