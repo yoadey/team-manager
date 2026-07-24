@@ -1239,25 +1239,26 @@ jobs:
           # PrometheusRule/Grafana-dashboard-ConfigMap templates would never
           # actually render in CI and a syntax error in them would only
           # surface the first time an operator opts in at deploy time.
-          # monitoring.metricsToken is also empty everywhere (including
-          # above), so the metrics-token-secret.yaml Secret and
+          # monitoring.scrapeToken.create is also false everywhere (including
+          # above), so the monitoring-scrape-token-secret.yaml Secret and
           # servicemonitor.yaml's bearerTokenSecret block are exercised here too.
           helm template team-manager helm/team-manager \
             --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true \
-            --set monitoring.metricsToken=dummy > /dev/null
+            --set monitoring.scrapeToken.create=true --set monitoring.scrapeToken.token=dummy > /dev/null
           # backup.enabled is only true in values-prod.yaml, which also sets
           # backup.s3.enabled=true -- so backup-cronjob.yaml's `{{- else }}`
           # branch (the no-op-warning container, taken when S3 upload is
           # disabled) is never rendered by any of the invocations above.
           helm template team-manager helm/team-manager \
             --set backup.enabled=true --set backup.s3.enabled=false > /dev/null
-          # monitoring.metricsTokenSecretName (external-Secret reference,
-          # added to fix the existingSecret-only convention gap) is empty in
-          # every shipped values file and unset by the monitoring.enabled
-          # render above too, so its branch of servicemonitor.yaml's
-          # bearerTokenSecret block was never rendered anywhere.
+          # monitoring.scrapeToken.existingSecretName (external-Secret
+          # reference, the create-or-reference convention used everywhere a
+          # credential appears in this chart) is empty in every shipped
+          # values file and unset by the monitoring.enabled render above too,
+          # so its branch of servicemonitor.yaml's bearerTokenSecret block
+          # was never rendered anywhere.
           helm template team-manager helm/team-manager \
-            --set monitoring.enabled=true --set monitoring.metricsTokenSecretName=dummy-secret > /dev/null
+            --set monitoring.enabled=true --set monitoring.scrapeToken.existingSecretName=dummy-secret > /dev/null
           # backup.s3.credentialsSecretName (static AWS credentials, the one
           # alternative to IRSA) is empty in every shipped values file,
           # including values-prod.yaml's IRSA-based backup.enabled=true
@@ -1281,14 +1282,14 @@ jobs:
           helm template team-manager helm/team-manager \
             --set deploymentStrategy.type=Recreate > /dev/null
           # monitoring.namespace combined with the chart-managed
-          # monitoring.metricsToken Secret is never exercised above -- this
-          # is the combination that caught metrics-token-secret.yaml
+          # monitoring.scrapeToken Secret is never exercised above -- this
+          # is the combination that caught monitoring-scrape-token-secret.yaml
           # rendering into .Release.Namespace while servicemonitor.yaml
           # rendered into monitoring.namespace, so the bearerTokenSecret
           # reference silently failed to resolve.
           helm template team-manager helm/team-manager \
             --set monitoring.enabled=true --set monitoring.namespace=monitoring \
-            --set monitoring.metricsToken=dummy > /dev/null
+            --set monitoring.scrapeToken.create=true --set monitoring.scrapeToken.token=dummy > /dev/null
           # backup.serviceAccount.create (a dedicated ServiceAccount for the
           # backup CronJob, so an IRSA annotation for S3 access doesn't also
           # get injected into the main app Deployment's pods) has no
@@ -1302,3 +1303,38 @@ jobs:
           # coverage in any render above.
           helm template team-manager helm/team-manager \
             --set serviceAccount.create=false --set serviceAccount.name=external-sa > /dev/null
+          # Every <area>.secret.create=true branch (the chart-managed-Secret
+          # alternative to existingSecret, per-area rather than one combined
+          # Secret) plus smtp.host set (SMTP env vars + the NetworkPolicy
+          # smtp egress rule) has no coverage in any render above -- none of
+          # the shipped values files or --set overrides so far exercise the
+          # "create" side of database/jwt/cookieEncryption/s3/smtp/
+          # pagination/observability.sentry/metrics.
+          helm template team-manager helm/team-manager \
+            --set session.cookie.secure=true \
+            --set database.secret.create=true --set database.secret.url=postgres://x \
+            --set jwt.secret.create=true --set jwt.secret.privateKey=x --set jwt.secret.publicKey=x \
+            --set cookieEncryption.secret.create=true --set cookieEncryption.secret.key=x \
+            --set s3.endpoint=s3.example.com --set s3.bucket=x \
+            --set s3.secret.create=true --set s3.secret.accessKeyId=x --set s3.secret.secretAccessKey=x \
+            --set smtp.host=smtp.example.com --set smtp.fromAddress=no-reply@example.com \
+            --set smtp.secret.create=true --set smtp.secret.username=x --set smtp.secret.password=x \
+            --set pagination.secret.create=true --set pagination.secret.hmacKey=x \
+            --set observability.sentry.secret.create=true --set observability.sentry.secret.dsn=x \
+            --set metrics.secret.create=true --set metrics.secret.token=x > /dev/null
+
+      # values.schema.json's additionalProperties:false (set on every
+      # chart-specific object) should reject an unknown/typo'd key rather
+      # than silently accepting and ignoring it -- verify the negative case
+      # actually fails, not just that the positive cases above succeed.
+      - name: helm template rejects unknown values keys
+        run: |
+          set +e
+          helm template team-manager helm/team-manager --set s3.enpoint=typo > /tmp/schema-typo.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::helm template accepted an unknown key (s3.enpoint) -- values.schema.json's additionalProperties:false is not being enforced"
+            exit 1
+          fi
+          grep -q "Additional property enpoint is not allowed" /tmp/schema-typo.log

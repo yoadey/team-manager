@@ -60,6 +60,29 @@ ServiceAccount name.
 {{- end }}
 
 {{/*
+Resolves whether a <domain>.secret block (e.g. .Values.database.secret) is
+"active" -- either a Secret this chart should create, or an
+externally-managed Secret to reference -- and, if so, the Secret name to
+use in secretKeyRef entries. Chart-managed (create: true) takes precedence
+over existingSecret when both happen to be set. Returns an empty string
+when neither is set, signaling callers to omit that area's secretKeyRef
+entries entirely (config.Load() then fails loudly at startup for areas it
+requires, matching prior behavior from when the single top-level
+existingSecret was left unset).
+Usage: {{ include "team-manager.secretName" (list $ "database" .Values.database.secret) }}
+*/}}
+{{- define "team-manager.secretName" -}}
+{{- $root := index . 0 -}}
+{{- $area := index . 1 -}}
+{{- $secret := index . 2 -}}
+{{- if $secret.create -}}
+{{- printf "%s-%s" (include "team-manager.fullname" $root) $area -}}
+{{- else -}}
+{{- $secret.existingSecret -}}
+{{- end -}}
+{{- end }}
+
+{{/*
 Backup CronJob ServiceAccount name. Falls back to the main ServiceAccount
 (team-manager.serviceAccountName) when backup.serviceAccount.create is false
 and no name override is given, preserving prior behavior. Set

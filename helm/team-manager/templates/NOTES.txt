@@ -22,23 +22,23 @@ Ingress host(s):
 {{- end }}
 {{- end }}
 
-{{- if and .Values.ingress.enabled (not (index .Values.env "TRUSTED_PROXY_CIDRS")) }}
+{{- if and .Values.ingress.enabled (not .Values.server.trustedProxyCidrs) }}
 
-WARNING: ingress is enabled but env.TRUSTED_PROXY_CIDRS is not set.
+WARNING: ingress is enabled but server.trustedProxyCidrs is not set.
 
 Every request reaches the backend proxied through your ingress controller
 ({{ .Values.ingress.className | default "nginx" }}), so without
-TRUSTED_PROXY_CIDRS every real client appears to share the ingress
-controller's own IP address for the global rate limiter (RATE_LIMIT_RPS)
+trustedProxyCidrs every real client appears to share the ingress
+controller's own IP address for the global rate limiter (rateLimitRps)
 and, more importantly, the login brute-force limiter
-(LOGIN_RATE_LIMIT_PER_MIN) — see docs/operations.md's "Rate limiting"
+(loginRateLimitPerMin) — see docs/operations.md's "Rate limiting"
 section for the full explanation.
 
-Set env.TRUSTED_PROXY_CIDRS to your cluster's ingress-controller pod CIDR
+Set server.trustedProxyCidrs to your cluster's ingress-controller pod CIDR
 (or load balancer's known egress range) via a values override, e.g.:
 
   helm upgrade --install {{ .Release.Name }} . \
-    --set env.TRUSTED_PROXY_CIDRS=10.244.0.0/16
+    --set server.trustedProxyCidrs[0]=10.244.0.0/16
 
 The correct CIDR is cluster/CNI-specific (varies by Kubernetes
 distribution and networking plugin) and cannot be safely defaulted by
@@ -47,27 +47,41 @@ spoof X-Forwarded-For and bypass rate limiting entirely, which is worse
 than leaving it unset.
 {{- end }}
 
-{{- if and (eq (index .Values.env "COOKIE_SECURE") "true") (ne (index .Values.env "METRICS_ALLOW_OPEN") "true") }}
+{{- if and .Values.session.cookie.secure (not .Values.metrics.allowOpen) }}
 
-REMINDER: env.COOKIE_SECURE is "true", so the backend hard-fails startup
-(exit 1, every replica crash-loops) unless your {{ .Values.existingSecret | default "existingSecret" }}
-Secret has a non-empty METRICS_TOKEN key — this chart cannot verify that
-from here, since it only sees the Secret's name, not its contents. If you
-haven't set one, either add a METRICS_TOKEN key to that Secret, or set
-env.METRICS_ALLOW_OPEN=true if /metrics is already restricted at the
-network layer and you accept it being unauthenticated.
+REMINDER: session.cookie.secure is true, so the backend hard-fails startup
+(exit 1, every replica crash-loops) unless your metrics.secret Secret
+({{ include "team-manager.secretName" (list $ "metrics" .Values.metrics.secret) | default "metrics.secret.existingSecret / metrics.secret.create" }})
+has a non-empty METRICS_TOKEN key — this chart cannot verify that from
+here, since it only sees the Secret's name, not its contents. If you
+haven't set one, either populate METRICS_TOKEN in that Secret, or set
+metrics.allowOpen=true if /metrics is already restricted at the network
+layer and you accept it being unauthenticated.
 {{- end }}
 
-{{- if and (eq (index .Values.env "COOKIE_SECURE") "true") (not (index .Values.env "S3_ENDPOINT")) }}
+{{- if and .Values.session.cookie.secure (not .Values.s3.endpoint) }}
 
-WARNING: env.COOKIE_SECURE is "true" but env.S3_ENDPOINT is not set, so the
+WARNING: session.cookie.secure is true but s3.endpoint is not set, so the
 backend hard-fails startup (exit 1, every replica crash-loops) — image
 uploads (team/user photos, team logos) require object storage to be
 configured, unlike METRICS_TOKEN above this chart CAN see this from here.
-Set env.S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_USE_PATH_STYLE via a values
-override, and put S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY in your
-{{ .Values.existingSecret | default "existingSecret" }} Secret — see
-docs/operations.md's "Object storage (image uploads)" section.
+Set s3.endpoint/s3.region/s3.bucket/s3.usePathStyle via a values override,
+and either populate s3.secret.existingSecret (S3_ACCESS_KEY_ID/
+S3_SECRET_ACCESS_KEY) or set s3.secret.create=true with the plaintext
+fields — see docs/operations.md's "Object storage (image uploads)" section.
+{{- end }}
+
+{{- if and .Values.session.cookie.secure (or (not .Values.smtp.host) (not .Values.smtp.fromAddress)) }}
+
+WARNING: session.cookie.secure is true but smtp.host/smtp.fromAddress are
+not both set, so the backend hard-fails startup (exit 1, every replica
+crash-loops, including the migrate initContainer since config.Load() runs
+before --migrate-only is handled) — self-registration verification email
+requires SMTP to be configured. Set smtp.host/smtp.port/smtp.fromAddress via
+a values override, and optionally populate smtp.secret.existingSecret
+(SMTP_USERNAME/SMTP_PASSWORD, both may be blank for an open relay) or set
+smtp.secret.create=true with the plaintext fields — see
+docs/operations.md's "Outbound email (SMTP)" section.
 {{- end }}
 
 {{- if and .Values.backup.enabled .Values.backup.s3.enabled }}

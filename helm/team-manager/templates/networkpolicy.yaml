@@ -55,19 +55,32 @@ spec:
       to:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-    {{- if or (and .Values.backup.enabled .Values.backup.s3.enabled) .Values.env.S3_ENDPOINT }}
+    {{- if or (and .Values.backup.enabled .Values.backup.s3.enabled) .Values.s3.endpoint }}
     # Allow outbound to the S3(-compatible) endpoint, needed by either (or
     # both) of: the backup CronJob's s3-upload container (which carries the
     # same pod selector labels as the main Deployment and is therefore
     # subject to this NetworkPolicy too), and the main app's image-storage
-    # client (internal/storage, S3_ENDPOINT). Kept separate from the https
-    # rule above since a self-hosted endpoint (backup.s3.endpoint / S3_ENDPOINT,
+    # client (internal/storage, s3.endpoint). Kept separate from the https
+    # rule above since a self-hosted endpoint (backup.s3.endpoint / s3.endpoint,
     # e.g. MinIO) commonly listens on a non-443 port — override via
     # networkPolicy.egress.s3.port to match it.
     - ports:
         - port: {{ .Values.networkPolicy.egress.s3.port }}
           protocol: TCP
       {{- with .Values.networkPolicy.egress.s3.to }}
+      to:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.smtp.host }}
+    # Allow outbound to the SMTP relay (internal/mailer, smtp.host). Kept
+    # separate from the https rule above since SMTP relays commonly listen
+    # on 587 (STARTTLS, the default here)/465/25, not 443 — override via
+    # networkPolicy.egress.smtp.port to match your relay's actual port.
+    - ports:
+        - port: {{ .Values.networkPolicy.egress.smtp.port }}
+          protocol: TCP
+      {{- with .Values.networkPolicy.egress.smtp.to }}
       to:
         {{- toYaml . | nindent 8 }}
       {{- end }}
