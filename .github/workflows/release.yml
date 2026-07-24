@@ -242,6 +242,19 @@ jobs:
           digest=$(grep -oP 'Digest: \K\S+' /tmp/helm-push.log)
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
+      - name: Log in to GHCR (for cosign)
+        # cosign resolves registry credentials from the Docker config
+        # (~/.docker/config.json), not Helm's own registry config the step
+        # above writes to ~/.config/helm/registry/config.json -- without
+        # this, `cosign sign` below has no credentials for ghcr.io and fails
+        # with "UNAUTHORIZED: unauthenticated" even though the chart push
+        # itself (using Helm's separate credential store) already succeeded.
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
