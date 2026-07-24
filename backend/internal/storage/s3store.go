@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -125,6 +126,26 @@ func (s *S3Store) PresignGet(ctx context.Context, key string, ttl time.Duration)
 		u.Host = s.publicBaseURL.Host
 	}
 	return u.String(), nil
+}
+
+// Get returns the object's bytes at key as a stream, along with its stored
+// content type. The caller must Close the returned ReadCloser. Returns
+// ErrObjectNotFound if key does not exist.
+func (s *S3Store) Get(ctx context.Context, key string) (io.ReadCloser, string, error) {
+	info, err := s.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		var errResp minio.ErrorResponse
+		if errors.As(err, &errResp) && errResp.Code == "NoSuchKey" {
+			return nil, "", ErrObjectNotFound
+		}
+		return nil, "", fmt.Errorf("storage.S3Store.Get: stat: %w", err)
+	}
+
+	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, "", fmt.Errorf("storage.S3Store.Get: %w", err)
+	}
+	return obj, info.ContentType, nil
 }
 
 // Delete removes the object at key. Deleting a non-existent key is not an

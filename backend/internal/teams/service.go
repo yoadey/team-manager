@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"strings"
 	"time"
 
@@ -263,6 +264,27 @@ func (s *Service) GetTeamPhotoURL(ctx context.Context, teamID string) (string, e
 	return url, nil
 }
 
+// GetTeamPhotoBytes returns the team's photo as a byte stream plus its
+// content type, or pgx.ErrNoRows if the team has no photo set. Used instead
+// of GetTeamPhotoURL when the deployment is configured for proxy image
+// delivery (config.Config.ImageDeliveryProxyEnabled) -- the caller streams
+// the bytes through the backend rather than redirecting to a presigned URL.
+// The caller must Close the returned ReadCloser.
+func (s *Service) GetTeamPhotoBytes(ctx context.Context, teamID string) (io.ReadCloser, string, error) {
+	key, err := s.repo.GetTeamPhotoKey(ctx, teamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", pgx.ErrNoRows
+		}
+		return nil, "", fmt.Errorf("teams.Service.GetTeamPhotoBytes: %w", err)
+	}
+	data, contentType, err := s.store.Get(ctx, key)
+	if err != nil {
+		return nil, "", fmt.Errorf("teams.Service.GetTeamPhotoBytes: %w", err)
+	}
+	return data, contentType, nil
+}
+
 // UpdatePhoto resizes the image, uploads it to the object store, stores the
 // key, and returns the updated gen.Team. Upload order is S3 put before the DB
 // write; if the DB write fails, the just-uploaded object is deleted
@@ -318,6 +340,25 @@ func (s *Service) GetTeamLogoURL(ctx context.Context, teamID string) (string, er
 		return "", fmt.Errorf("teams.Service.GetTeamLogoURL: %w", err)
 	}
 	return url, nil
+}
+
+// GetTeamLogoBytes returns the team's logo as a byte stream plus its content
+// type, or pgx.ErrNoRows if the team has no logo set. See GetTeamPhotoBytes's
+// doc comment for when this is used instead of GetTeamLogoURL. The caller
+// must Close the returned ReadCloser.
+func (s *Service) GetTeamLogoBytes(ctx context.Context, teamID string) (io.ReadCloser, string, error) {
+	key, err := s.repo.GetTeamLogoKey(ctx, teamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", pgx.ErrNoRows
+		}
+		return nil, "", fmt.Errorf("teams.Service.GetTeamLogoBytes: %w", err)
+	}
+	data, contentType, err := s.store.Get(ctx, key)
+	if err != nil {
+		return nil, "", fmt.Errorf("teams.Service.GetTeamLogoBytes: %w", err)
+	}
+	return data, contentType, nil
 }
 
 // UpdateLogo resizes the image, uploads it to the object store, stores the

@@ -1845,6 +1845,15 @@ export interface components {
             };
             content?: never;
         };
+        /** @description The image bytes, streamed directly by the backend instead of a redirect. Returned instead of the 302 when the deployment is configured for proxy image delivery (IMAGE_DELIVERY_PROXY_ENABLED=true); access is membership-gated before any bytes are streamed, same as the redirect mode's presign gating. */
+        PhotoBytes: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "image/*": string;
+            };
+        };
     };
     parameters: {
         teamId: string;
@@ -2257,6 +2266,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
@@ -2322,6 +2332,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };
@@ -2511,6 +2522,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };

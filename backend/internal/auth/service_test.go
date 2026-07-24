@@ -381,7 +381,7 @@ func TestService_UpdatePhoto_UploadsAndStoresKey(t *testing.T) {
 	_, err = svc.UpdatePhoto(context.Background(), userID, fixedJPEG(t), "image/jpeg")
 	require.NoError(t, err)
 	assert.Equal(t, "users/"+userID+"/photo", storedKey)
-	data, ok := store.Get(storedKey)
+	data, ok := store.Contents(storedKey)
 	require.True(t, ok, "resized image must be uploaded to the object store")
 	assert.NotEmpty(t, data)
 }

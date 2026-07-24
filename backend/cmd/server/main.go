@@ -411,6 +411,7 @@ func main() {
 	teamsRepo := teams.NewRepository(pool)
 	teamsSvc := teams.NewService(teamsRepo, objectStore, cfg.PublicBaseURL)
 	teamsHandler := teams.NewHandler(teamsSvc, logger, auditLogger)
+	teamsHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
 
 	// ─── Members ─────────────────────────────────────────────────────────────
 	// membersRepo itself was already constructed above, ahead of the River
@@ -418,6 +419,7 @@ func main() {
 
 	membersSvc := members.NewService(membersRepo, objectStore, pager)
 	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
+	membersHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
 
 	// ─── Push ────────────────────────────────────────────────────────────────
 	// pushRepo itself was already constructed above, ahead of the River job
