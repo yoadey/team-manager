@@ -29,19 +29,19 @@
 - [x] 7.3 Tests: plain text unchanged, bare `https://` URL linked, `www.`-prefixed URL linked with `https://` href, multiple URLs in one body each linked
 
 ## 8. Events: recurrence end date (deferred — needs a migration + OpenAPI change)
-- [ ] 8.1 `event_series`: add an end-date alternative to `repeat_weeks` (migration; `events/{service,repository}.go`'s `CreateSeries` branches on whichever is set)
-- [ ] 8.2 `openapi.yaml`: sibling `endDate` field on the series-creation body; regenerate `internal/gen` + `frontend/src/api/*`
-- [ ] 8.3 `eventFormSchema.ts`/`EventFormSheet.tsx`: toggle between "N weeks" and "until date" recurrence input
+- [x] 8.1 Migration `00006_event_series_end_date.sql`: `event_series.repeat_end_date DATE`; `events/{service,repository}.go`'s `CreateSeries`/new `seriesDates()` helper branches on whichever of `repeat_weeks`/`repeat_end_date` is set (capped at `maxRepeatWeeks`)
+- [x] 8.2 `openapi.yaml`: sibling `endDate` field on the series-creation body; regenerated `internal/gen` + `frontend/src/api/*`
+- [x] 8.3 `eventFormSchema.ts`/`EventFormSheet.tsx`: `RepeatModeSelector` toggle between "N weeks" and "until date" recurrence input
 
 ## 9. Events: birthdays in the calendar (deferred)
 - [x] 9.1 `EventCalendar.tsx`: synthesize yearly recurring pseudo-events from the members list's existing `birthday` field for the visible range (extracted as pure `synthesizeBirthdayEvents.ts` for testability)
 - [x] 9.2 Gate visibility — `contactNote` turned out to be i18n copy only, not backed by an actual read-time gate anywhere in the codebase (birthday is otherwise unconditionally shown in `MemberDetailSheet`); gated calendar birthday entries on `app.can('members', 'write')`, the permission level the copy's "Trainerteam only" promise conceptually maps to. This is a new, calendar-specific gate — flagged here for awareness in case the underlying `contactNote` promise should also be enforced on the member detail view itself, which is out of this change's scope.
 
 ## 10. Events: configurable RSVP deadline + countdown (deferred — needs a migration + OpenAPI change)
-- [ ] 10.1 Migration: `rsvp_deadline` (nullable timestamptz) on `events` and `event_series`
-- [ ] 10.2 `openapi.yaml`: request/response schema fields; regenerate `internal/gen` + `frontend/src/api/*`
-- [ ] 10.3 Backend: attendance write path rejects a response after the deadline unless the caller's role bypasses it (admin-equivalent); `EventFormSheet.tsx` gains a deadline field
-- [ ] 10.4 Frontend: event detail shows a countdown once under 24h remain until the deadline
+- [x] 10.1 Migration `00007_event_rsvp_deadline.sql`: nullable `rsvp_deadline timestamptz` on `events` and `event_series`
+- [x] 10.2 `openapi.yaml`: `rsvpDeadline` request/response schema fields; regenerated `internal/gen` + `frontend/src/api/*`
+- [x] 10.3 Backend: `SetAttendance` rejects a late response (`ErrRsvpDeadlinePassed`, mapped to 409) unless the caller holds `events:write` (re-checked atomically inside the write via a `caller_write` CTE, closing the same TOCTOU window the cancelled-status check already closes); `EventFormSheet.tsx` gains a `datetime-local` deadline field
+- [x] 10.4 Frontend: new `RsvpCountdown.tsx`, wired into `EventDetailSheet.tsx`, shown once under 24h remain until the deadline
 
 ## 11. Finances: penalty earned-date + note (deferred — needs a migration + OpenAPI change)
 - [x] 11.1 Migration `00008_penalty_assignment_note.sql`: nullable `note TEXT` on `penalty_assignments` (the `date` column already existed but `CreateAssignment` never accepted a caller-supplied value)
@@ -60,4 +60,4 @@
 
 ## 14. Verification
 - [x] 14.1 Frontend: `npm run typecheck`, `npm test` (1169 tests), `npm run lint` (0 warnings), `npm run build` + `npm run check:bundle` (256.5 KB / 600 KB budget) all green for groups 1–7
-- [ ] 14.2 Once groups 8–13 are implemented: `make generate`/`make generate-ts` produce only the intended diff; backend `go test ./... -short` + `golangci-lint run ./...`; migration-safety + migration-rollback CI gates; frontend gates re-run for any touched component
+- [x] 14.2 Groups 8–13 implemented and integrated: `make generate`/`make generate-ts` produce no diff beyond the intended changes (verified after merging all six agents' work); backend `go build ./...` clean, `go test ./... -short -race` all packages `ok`, `golangci-lint run ./...` 0 issues; frontend `npm run typecheck`/`npm test -- --run` (1239 tests)/`npm run lint` (0 warnings)/`npm run build`/`npm run check:bundle` (266.0 KB / 600 KB budget) all green. Migration-safety + migration-rollback CI gates could not be exercised locally — no Docker daemon in this sandbox for testcontainers/`make test-integration`; left for CI to confirm on migrations `00006`–`00008`.
