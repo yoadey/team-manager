@@ -19,12 +19,39 @@ vi.mock('../hooks/useAbsenceQueries', () => ({
   useAbsencesQuery: vi.fn(),
 }));
 
+vi.mock('@/features/members', () => ({
+  useMembersQuery: vi.fn(),
+}));
+
 import { useApp } from '@/context/AppContext';
 import { useEventsQuery } from '../hooks/useEventQueries';
 import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
+import { useMembersQuery } from '@/features/members';
+import type { Member } from '@/features/members';
 const mockUseApp = vi.mocked(useApp);
 const mockUseEventsQuery = vi.mocked(useEventsQuery);
 const mockUseAbsencesQuery = vi.mocked(useAbsencesQuery);
+const mockUseMembersQuery = vi.mocked(useMembersQuery);
+
+function makeMember(overrides: Partial<Member> = {}): Member {
+  return {
+    membershipId: 'ms1',
+    userId: 'u1',
+    name: 'Alice Example',
+    email: 'alice@example.com',
+    phone: '',
+    birthday: '1990-03-10',
+    address: '',
+    avatarColor: '#000000',
+    photo: null,
+    group: '',
+    roles: [],
+    joinedAt: '2020-01-01',
+    primaryRole: null,
+    perms: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'read' },
+    ...overrides,
+  };
+}
 
 function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
   return {
@@ -57,11 +84,18 @@ function makeApp(
     calMonth?: Date | null;
     calShowAbsences?: boolean;
     absences?: { from: string; to: string; name: string; roleColor: string }[];
+    members?: Member[];
+    canSeeBirthdays?: boolean;
   } = {},
 ) {
   const openEventDetail = vi.fn();
   const setState = vi.fn();
   const toggleCalAbsences = vi.fn();
+  const canSeeBirthdays = overrides.canSeeBirthdays ?? true;
+  const can = vi.fn((module: string, level?: string) => {
+    if (module === 'members' && level === 'write') return canSeeBirthdays;
+    return true;
+  });
   const app = {
     api: {},
     state: {
@@ -70,6 +104,7 @@ function makeApp(
       calMonth: overrides.calMonth ?? new Date(2026, 2, 1), // March 2026
       calShowAbsences: overrides.calShowAbsences ?? false,
     },
+    can,
     openEventDetail,
     setState,
     toggleCalAbsences,
@@ -77,6 +112,7 @@ function makeApp(
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   mockUseEventsQuery.mockReturnValue({ data: overrides.events ?? [] } as never);
   mockUseAbsencesQuery.mockReturnValue({ data: overrides.absences ?? [] } as never);
+  mockUseMembersQuery.mockReturnValue({ data: overrides.members ?? [] } as never);
   return app;
 }
 
@@ -190,5 +226,55 @@ describe('EventCalendar', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  describe('birthdays', () => {
+    it('renders a birthday entry on the correct day for a user with permission', () => {
+      makeApp({
+        calMonth: new Date(2026, 2, 1), // March 2026
+        canSeeBirthdays: true,
+        members: [makeMember({ membershipId: 'ms1', name: 'Alice Example', birthday: '1990-03-10' })],
+      });
+      render(<EventCalendar />);
+      const cell = screen.getByText('10').parentElement!;
+      expect(within(cell).getByText('Alice Example')).toBeTruthy();
+    });
+
+    it('renders no birthday entry for a user without permission to see it', () => {
+      makeApp({
+        calMonth: new Date(2026, 2, 1),
+        canSeeBirthdays: false,
+        members: [makeMember({ membershipId: 'ms1', name: 'Alice Example', birthday: '1990-03-10' })],
+      });
+      render(<EventCalendar />);
+      expect(screen.queryByText('Alice Example')).toBeNull();
+      // Also verifies the query is skipped entirely rather than fetched-then-filtered.
+      expect(mockUseMembersQuery).toHaveBeenCalledWith(expect.anything(), null);
+    });
+
+    // The birthday recurs every year without a stored per-year event row --
+    // verify the same member's birthday synthesizes into a visible entry
+    // when the calendar is navigated to a different year.
+    it('recurs every year: the same birthday appears when viewing a later year', () => {
+      makeApp({
+        calMonth: new Date(2030, 2, 1), // March 2030
+        canSeeBirthdays: true,
+        members: [makeMember({ membershipId: 'ms1', name: 'Alice Example', birthday: '1990-03-10' })],
+      });
+      render(<EventCalendar />);
+      const cell = screen.getByText('10').parentElement!;
+      expect(within(cell).getByText('Alice Example')).toBeTruthy();
+    });
+
+    it('does not render a birthday entry on a day it does not fall on', () => {
+      makeApp({
+        calMonth: new Date(2026, 2, 1),
+        canSeeBirthdays: true,
+        members: [makeMember({ membershipId: 'ms1', name: 'Alice Example', birthday: '1990-03-10' })],
+      });
+      render(<EventCalendar />);
+      const otherCell = screen.getByText('11').parentElement!;
+      expect(within(otherCell).queryByText('Alice Example')).toBeNull();
+    });
   });
 });
