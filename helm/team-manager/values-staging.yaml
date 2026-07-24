@@ -38,21 +38,59 @@ ingress:
       hosts:
         - staging.team-manager.example.com
 
-allowedOrigins: "https://staging.team-manager.example.com"
-
-existingSecret: "team-manager-staging-secrets"
-
-env:
-  PORT: "8080"
-  COOKIE_SECURE: "true"
-  SESSION_TTL_HOURS: "720"
-  OTEL_SERVICE_NAME: "team-manager-backend-staging"
-  ENVIRONMENT: "staging"
-  LOG_LEVEL: "debug"
+server:
+  allowedOrigins:
+    - "https://staging.team-manager.example.com"
   # See the same note in values-prod.yaml: ingress is enabled above, so set
   # this to your cluster's ingress-controller pod CIDR or rate limiting
   # silently keys on the ingress controller's own IP for every client.
-  # TRUSTED_PROXY_CIDRS: "10.244.0.0/16"
+  # trustedProxyCidrs:
+  #   - "10.244.0.0/16"
+  logLevel: "debug"
+
+session:
+  cookie:
+    secure: true
+
+observability:
+  otelServiceName: "team-manager-backend-staging"
+  environment: "staging"
+  sentry:
+    secret:
+      existingSecret: "team-manager-staging-sentry"
+
+# One Secret per credential area -- see the same note in values-prod.yaml.
+database:
+  secret:
+    existingSecret: "team-manager-staging-database"
+
+jwt:
+  secret:
+    existingSecret: "team-manager-staging-jwt"
+
+cookieEncryption:
+  secret:
+    existingSecret: "team-manager-staging-cookie-encryption"
+
+s3:
+  secret:
+    existingSecret: "team-manager-staging-s3"
+
+smtp:
+  secret:
+    existingSecret: "team-manager-staging-smtp"
+
+push:
+  secret:
+    existingSecret: "team-manager-staging-push"
+
+pagination:
+  secret:
+    existingSecret: "team-manager-staging-pagination"
+
+metrics:
+  secret:
+    existingSecret: "team-manager-staging-metrics"
 
 resources:
   requests:

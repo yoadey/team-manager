@@ -67,8 +67,8 @@ care:
 2. **Restore into the real target**, not a scratch DB this time —
    `pg_restore --no-owner --clean --if-exists --dbname=<production DSN>
    <dump>`. If the target host/database name is changing (e.g. failing over
-   to a new Postgres instance), update `DATABASE_URL` in the
-   `existingSecret` Secret *before* the next step.
+   to a new Postgres instance), update `DATABASE_URL` in the Secret
+   referenced by `database.secret.existingSecret` *before* the next step.
 3. **Restart every pod**, not just scale back up — `DATABASE_URL` (like
    `JWT_PRIVATE_KEY`/`COOKIE_ENCRYPTION_KEY(S)` elsewhere in this doc) is
    read once via `config.Load()` at process start
@@ -184,16 +184,82 @@ back to an in-memory fake object store with a startup warning — fine for a
 quick manual smoke test, but uploaded images vanish on restart and aren't
 shared across replicas, so never rely on it beyond that.
 
-**Kubernetes**: set the plaintext `S3_ENDPOINT`/`S3_REGION`/`S3_BUCKET`/
-`S3_USE_PATH_STYLE` keys under `env` in your values overlay, and put
-`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` in the Secret referenced by
-`existingSecret` (same Secret as `DATABASE_URL`/JWT keys). The chart's
-NetworkPolicy (`networkPolicy.egress.s3`, `templates/networkpolicy.yaml`)
-already opens egress to the S3 endpoint whenever `env.S3_ENDPOINT` is set —
-override `networkPolicy.egress.s3.port`/`.to` to match a self-hosted
-endpoint's actual port/destination (AWS S3 needs no override; it's covered by
-the chart's general HTTPS egress rule too, but the dedicated S3 rule exists
-for self-hosted endpoints on non-443 ports).
+**Kubernetes**: set the plaintext `s3.endpoint`/`s3.region`/`s3.bucket`/
+`s3.usePathStyle`/`s3.publicBaseUrl` values in your overlay, and either
+populate `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` in the Secret referenced
+by `s3.secret.existingSecret`, or set `s3.secret.create=true` with
+`s3.secret.accessKeyId`/`secretAccessKey` to have the chart render and
+manage that Secret itself. The chart's NetworkPolicy
+(`networkPolicy.egress.s3`, `templates/networkpolicy.yaml`) already opens
+egress to the S3 endpoint whenever `s3.endpoint` is set — override
+`networkPolicy.egress.s3.port`/`.to` to match a self-hosted endpoint's
+actual port/destination (AWS S3 needs no override; it's covered by the
+chart's general HTTPS egress rule too, but the dedicated S3 rule exists for
+self-hosted endpoints on non-443 ports).
+
+## Outbound email (SMTP)
+
+Self-registration verification email (`internal/mailer`) is sent via SMTP
+(`internal/mailer/smtp.go`, stdlib `net/smtp` with explicit STARTTLS).
+
+**Configuration** (see CLAUDE.md's env var table for the full reference):
+`SMTP_HOST` and `SMTP_FROM_ADDRESS` are **required** when `COOKIE_SECURE=true`
+(production) — `config.Load()` fails startup loudly (`os.Exit(1)`) without
+them, and since `config.Load()` runs before the `--migrate-only` branch in
+`main.go`, this gates the migrate initContainer too, not just the main
+container. `SMTP_PORT` defaults to `587` (STARTTLS). `SMTP_USERNAME`/
+`SMTP_PASSWORD` may both be blank for an open relay.
+
+**Local dev**: leaving `SMTP_HOST` unset (the chart's default) falls back to
+a logging fake mailer (`internal/mailer/fake.go`) — the verification link is
+only written to the server log, fine for manual testing but obviously not a
+real delivery path.
+
+**Kubernetes**: set the plaintext `smtp.host`/`smtp.port`/`smtp.fromAddress`
+values in your overlay, and either populate `SMTP_USERNAME`/`SMTP_PASSWORD`
+in the Secret referenced by `smtp.secret.existingSecret`, or set
+`smtp.secret.create=true` with `smtp.secret.username`/`password` to have the
+chart render and manage that Secret itself. The chart's NetworkPolicy
+(`networkPolicy.egress.smtp`, `templates/networkpolicy.yaml`) already opens
+egress to the SMTP relay whenever `smtp.host` is set — override
+`networkPolicy.egress.smtp.port`/`.to` to match your relay's actual
+port/destination (SMTP relays commonly listen on 587/465/25, not 443, so
+this is a separate rule from the chart's general HTTPS egress rule).
+`templates/NOTES.txt` warns at deploy time if `session.cookie.secure` is
+`true` and `smtp.host`/`smtp.fromAddress` aren't both set.
+
+## Web Push (VAPID keys)
+
+Push notifications (`internal/push`) are delivered directly from the backend
+to each browser's push service (Mozilla, FCM, etc.) using VAPID
+(`internal/push/webpush.go`, `github.com/SherClockHolmes/webpush-go`) — no
+additional push-relay service is involved.
+
+**Configuration** (see CLAUDE.md's env var table for the full reference):
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and `VAPID_SUBJECT` are **required**
+when `COOKIE_SECURE=true` (production) — `config.Load()` fails startup
+loudly (`os.Exit(1)`) without them, and since `config.Load()` runs before
+the `--migrate-only` branch in `main.go`, this gates the migrate
+initContainer too, not just the main container. `VAPID_SUBJECT` must be a
+`mailto:` (or `https:`) contact URI identifying the sender to push services,
+per the VAPID spec. `VAPID_PUBLIC_KEY` is not secret — it also has to reach
+the frontend as `VITE_VAPID_PUBLIC_KEY`/`VAPID_PUBLIC_KEY`, see "Frontend
+image: pointing it at a backend" below.
+
+**Local dev**: leaving `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` unset falls
+back to a logging fake pusher (`internal/push/fake.go`) — push payloads are
+only written to the server log, fine for manual testing but no real
+delivery. Generate a real keypair with `npx web-push generate-vapid-keys`.
+
+**Kubernetes**: set the plaintext `push.publicKey`/`push.subject` values in
+your overlay, and either populate `VAPID_PRIVATE_KEY` in the Secret
+referenced by `push.secret.existingSecret`, or set `push.secret.create=true`
+with `push.secret.privateKey` to have the chart render and manage that
+Secret itself. `templates/NOTES.txt` warns at deploy time if
+`session.cookie.secure` is `true` and `push.publicKey`/`push.subject` aren't
+both set. No dedicated NetworkPolicy egress rule is needed — push services
+are reached over HTTPS/443, already covered by the chart's general HTTPS
+egress rule.
 
 ## Cookie encryption key rotation
 
@@ -216,18 +282,19 @@ rotating them invalidates every existing session immediately (all holders
 must re-authenticate). To rotate:
 
 1. Generate a new RSA-2048 key pair.
-2. Update the `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` keys in your `existingSecret`
-   during a maintenance window (accept that all active sessions are
-   invalidated).
+2. Update the `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` keys in the Secret
+   referenced by `jwt.secret.existingSecret` during a maintenance window
+   (accept that all active sessions are invalidated).
 3. **Restart every backend pod**: `kubectl rollout restart deployment/<fullname>
    -n <namespace>`. This step is not optional and easy to miss — editing a
    Kubernetes Secret does not restart pods that reference it via
    `secretKeyRef`, and `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` are only read once,
-   at process start (`loadJWTKeys`). Since `existingSecret` is a Secret you
-   manage yourself (the chart only references it, per the existingSecret-only
-   convention — see the top-level `existingSecret` comment in values.yaml),
-   there is no `checksum/secret` pod-annotation to trigger this
-   automatically the way an in-chart-templated Secret would. Skipping this
+   at process start (`loadJWTKeys`). When `jwt.secret.existingSecret` is used
+   (a Secret you manage yourself; the chart only references it), there is no
+   `checksum/secret` pod-annotation to trigger this automatically the way an
+   in-chart-templated Secret (`jwt.secret.create=true`) would either — a
+   plain `Secret` update never restarts the pods that mounted it regardless
+   of which side created the object. Skipping this
    step doesn't do nothing — it's worse than that: already-running replicas
    keep validating/issuing tokens with the *old* keypair indefinitely, while
    any replica that happens to restart on its own for an unrelated reason
@@ -288,12 +355,19 @@ over a private network. To expose it on an untrusted network, set
 **`METRICS_TOKEN` is not merely a recommendation once `COOKIE_SECURE=true`**
 (the production default): the backend fails startup outright
 (`os.Exit(1)`, every replica crash-loops, not just a logged warning) if
-`METRICS_TOKEN` is empty in that case. Either set `METRICS_TOKEN`, or set
-`METRICS_ALLOW_OPEN=true` if `/metrics` is already restricted at the network
+`METRICS_TOKEN` is empty in that case. Either populate `METRICS_TOKEN` in
+the Secret referenced by `metrics.secret.existingSecret` (or set
+`metrics.secret.create=true` with `metrics.secret.token`), or set
+`metrics.allowOpen=true` if `/metrics` is already restricted at the network
 layer and you accept it being unauthenticated. The Helm chart's
 `templates/NOTES.txt` prints a reminder about this at deploy time, since
-`values.yaml`'s `existingSecret` doesn't create the Secret's contents for
-you.
+referencing an `existingSecret` doesn't let the chart verify the Secret's
+actual contents from here. Note this is a separate Secret from
+`monitoring.scrapeToken` (the Prometheus *scraper's* own copy of the same
+token value, kept separate because Prometheus Operator resolves a
+ServiceMonitor's `bearerTokenSecret` in the ServiceMonitor's own namespace —
+see the comment on `monitoring.scrapeToken` in `values.yaml`); the two must
+be kept in sync by hand.
 
 ## Alerting & dashboards
 
