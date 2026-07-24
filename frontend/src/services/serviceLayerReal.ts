@@ -934,11 +934,11 @@ export const realApi = {
 
     async assignPenalty(
       teamId: string,
-      { userId, penaltyId }: { userId: string; penaltyId: string },
+      { userId, penaltyId, date, note }: { userId: string; penaltyId: string; date?: string; note?: string },
     ): Promise<PenaltyAssignment> {
       const res = await apiClient.POST('/teams/{teamId}/finances/penalty-assignments', {
         params: { path: { teamId } },
-        body: { userId, penaltyId },
+        body: { userId, penaltyId, ...opt('date', date), ...opt('note', note) },
       });
       const a = await check(res);
       return mapPenaltyAssignment(a);

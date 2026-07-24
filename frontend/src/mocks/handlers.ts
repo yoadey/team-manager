@@ -347,6 +347,7 @@ function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['Penalty
     ...opt('hasPhoto', u?.hasPhoto),
     ...opt('label', a.label),
     ...opt('amount', a.amount),
+    ...opt('note', a.note),
   };
 }
 function toWireContribution(c: (typeof db.contributions)[number]): S['Contribution'] {
@@ -1268,7 +1269,17 @@ export const handlers = [
     const penalty = db.penalties.find((p) => p.id === body.penaltyId);
     if (!penalty) return problem(404, 'Penalty not found');
     // Snapshot label/amount at assignment time (drift-bug fix #1).
-    const a = { id: rid('pa'), teamId, userId: body.userId, penaltyId: body.penaltyId, paid: false, date: todayLocalDate(), label: penalty.label, amount: penalty.amount };
+    const a = {
+      id: rid('pa'),
+      teamId,
+      userId: body.userId,
+      penaltyId: body.penaltyId,
+      paid: false,
+      date: body.date || todayLocalDate(),
+      label: penalty.label,
+      amount: penalty.amount,
+      ...opt('note', body.note || undefined),
+    };
     db.penaltyAssignments.push(a);
     return HttpResponse.json(toWireAssignment(a), { status: 201 });
   }),

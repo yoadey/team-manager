@@ -36,7 +36,7 @@ type mockRepo struct {
 	penaltyBelongsToTeamFn   func(ctx context.Context, penaltyID, teamID uuid.UUID) (bool, error)
 	listAssignmentsFn        func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyAssignmentRow, error)
 	getAssignmentByIDFn      func(ctx context.Context, id, teamID uuid.UUID) (*finances.PenaltyAssignmentRow, error)
-	createAssignmentFn       func(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*finances.PenaltyAssignmentRow, error)
+	createAssignmentFn       func(ctx context.Context, teamID, userID, penaltyID uuid.UUID, date time.Time, note *string) (*finances.PenaltyAssignmentRow, error)
 	deleteAssignmentFn       func(ctx context.Context, id, teamID uuid.UUID) error
 	setAssignmentPaidFn      func(ctx context.Context, id, teamID uuid.UUID, paid bool) (*finances.PenaltyAssignmentRow, error)
 	userIsMemberOfTeamFn     func(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
@@ -137,8 +137,8 @@ func (m *mockRepo) CountAssignments(ctx context.Context, teamID uuid.UUID) (int,
 	return 0, nil
 }
 
-func (m *mockRepo) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
-	return m.createAssignmentFn(ctx, teamID, userID, penaltyID)
+func (m *mockRepo) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID, date time.Time, note *string) (*finances.PenaltyAssignmentRow, error) {
+	return m.createAssignmentFn(ctx, teamID, userID, penaltyID, date, note)
 }
 
 func (m *mockRepo) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error {
@@ -514,7 +514,7 @@ func TestService_CreateAssignment_RejectsAtCap(t *testing.T) {
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		countAssignmentsFn:     func(context.Context, uuid.UUID) (int, error) { return 100_000, nil },
-		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time, *string) (*finances.PenaltyAssignmentRow, error) {
 			t.Fatal("CreateAssignment must not be called once the team is at the assignment cap")
 			return nil, nil
 		},
@@ -526,6 +526,127 @@ func TestService_CreateAssignment_RejectsAtCap(t *testing.T) {
 	require.ErrorIs(t, err, finances.ErrTooManyAssignments)
 }
 
+// TestService_CreateAssignment_DefaultsDateToToday verifies that omitting
+// body.Date defaults to the current time (mirroring CreateTransaction's
+// equivalent default), rather than leaving it zero-valued.
+func TestService_CreateAssignment_DefaultsDateToToday(t *testing.T) {
+	t.Parallel()
+
+	teamID, penaltyID, userID := uuid.New(), uuid.New(), uuid.New()
+	before := time.Now()
+	var gotDate time.Time
+	repo := &mockRepo{
+		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		createAssignmentFn: func(_ context.Context, _, _, _ uuid.UUID, date time.Time, _ *string) (*finances.PenaltyAssignmentRow, error) {
+			gotDate = date
+			return &finances.PenaltyAssignmentRow{ID: uuid.New(), TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, Date: date}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return nil, errors.New("reload not needed for this assertion")
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
+	_, err := svc.CreateAssignment(context.Background(), teamID, body)
+	require.NoError(t, err, "a reload failure must not fail the request (see FallsBackToUnenrichedRow test)")
+	after := time.Now()
+	assert.False(t, gotDate.Before(before) || gotDate.After(after), "expected date to default to now(), got %v (window %v..%v)", gotDate, before, after)
+}
+
+// TestService_CreateAssignment_PassesExplicitPastDate verifies that a
+// caller-supplied date in the past is passed through to the repository
+// unchanged, not overridden by the "defaults to today" behavior.
+func TestService_CreateAssignment_PassesExplicitPastDate(t *testing.T) {
+	t.Parallel()
+
+	teamID, penaltyID, userID := uuid.New(), uuid.New(), uuid.New()
+	pastDate := time.Now().AddDate(0, -1, 0)
+	var gotDate time.Time
+	repo := &mockRepo{
+		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		createAssignmentFn: func(_ context.Context, _, _, _ uuid.UUID, date time.Time, _ *string) (*finances.PenaltyAssignmentRow, error) {
+			gotDate = date
+			return &finances.PenaltyAssignmentRow{ID: uuid.New(), TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, Date: date}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return nil, errors.New("reload not needed for this assertion")
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID, Date: &openapi_types.Date{Time: pastDate}}
+	_, err := svc.CreateAssignment(context.Background(), teamID, body)
+	require.NoError(t, err)
+	assert.True(t, pastDate.Equal(gotDate), "the caller-supplied past date must be passed through, not replaced with today")
+}
+
+// TestService_CreateAssignment_PassesNoteThrough verifies that a
+// caller-supplied note is passed to the repository and appears on the
+// enriched result.
+func TestService_CreateAssignment_PassesNoteThrough(t *testing.T) {
+	t.Parallel()
+
+	teamID, penaltyID, userID := uuid.New(), uuid.New(), uuid.New()
+	createdID := uuid.New()
+	note := "Missed training without excuse"
+	var gotNote *string
+	repo := &mockRepo{
+		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		createAssignmentFn: func(_ context.Context, _, _, _ uuid.UUID, date time.Time, n *string) (*finances.PenaltyAssignmentRow, error) {
+			gotNote = n
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, Date: date, Note: n}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, Note: &note}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID, Note: &note}
+	result, err := svc.CreateAssignment(context.Background(), teamID, body)
+	require.NoError(t, err)
+	require.NotNil(t, gotNote, "note must be passed through to the repository")
+	assert.Equal(t, note, *gotNote)
+	require.NotNil(t, result.Note)
+	assert.Equal(t, note, *result.Note)
+}
+
+// TestService_CreateAssignment_WithoutNote_Succeeds verifies that omitting
+// the note creates the assignment successfully with a nil note passed to the
+// repository, rather than failing or synthesizing an empty string.
+func TestService_CreateAssignment_WithoutNote_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	teamID, penaltyID, userID := uuid.New(), uuid.New(), uuid.New()
+	createdID := uuid.New()
+	var noteWasPassed bool
+	var gotNote *string
+	repo := &mockRepo{
+		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		createAssignmentFn: func(_ context.Context, _, _, _ uuid.UUID, date time.Time, n *string) (*finances.PenaltyAssignmentRow, error) {
+			noteWasPassed = true
+			gotNote = n
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, Date: date, Note: n}, nil
+		},
+		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
+	result, err := svc.CreateAssignment(context.Background(), teamID, body)
+	require.NoError(t, err)
+	assert.True(t, noteWasPassed)
+	assert.Nil(t, gotNote)
+	assert.Nil(t, result.Note)
+}
+
 func TestService_CreateAssignment_ReloadsEnrichedRowOnSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -535,11 +656,11 @@ func TestService_CreateAssignment_ReloadsEnrichedRowOnSuccess(t *testing.T) {
 	repo := &mockRepo{
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
-		createAssignmentFn: func(_ context.Context, gotTeamID, gotUserID, gotPenaltyID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+		createAssignmentFn: func(_ context.Context, gotTeamID, gotUserID, gotPenaltyID uuid.UUID, gotDate time.Time, gotNote *string) (*finances.PenaltyAssignmentRow, error) {
 			assert.Equal(t, teamID, gotTeamID)
 			assert.Equal(t, userID, gotUserID)
 			assert.Equal(t, penaltyID, gotPenaltyID)
-			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID}, nil
+			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, Date: gotDate, Note: gotNote}, nil
 		},
 		getAssignmentByIDFn: func(_ context.Context, gotID, gotTeamID uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
 			assert.Equal(t, createdID, gotID)
@@ -563,7 +684,7 @@ func TestService_CreateAssignment_FallsBackToUnenrichedRowWhenReloadFails(t *tes
 	repo := &mockRepo{
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
-		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time, *string) (*finances.PenaltyAssignmentRow, error) {
 			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID}, nil
 		},
 		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
@@ -594,7 +715,7 @@ func TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload(
 	repo := &mockRepo{
 		penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
 		userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
-		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+		createAssignmentFn: func(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time, *string) (*finances.PenaltyAssignmentRow, error) {
 			return &finances.PenaltyAssignmentRow{ID: createdID, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID}, nil
 		},
 		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {

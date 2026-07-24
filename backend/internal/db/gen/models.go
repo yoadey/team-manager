@@ -197,6 +197,7 @@ type PenaltyAssignment struct {
 	Date      pgtype.Date
 	Amount    pgtype.Int8
 	Label     pgtype.Text
+	Note      pgtype.Text
 }
 
 type Poll struct {

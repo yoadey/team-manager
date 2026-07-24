@@ -378,6 +378,7 @@ export function mapPenaltyAssignment(a: S['PenaltyAssignment']): PenaltyAssignme
     ...opt('avatarColor', a.memberAvatarColor),
     ...opt('label', a.label),
     ...opt('amount', a.amount == null ? a.amount : centsToEuros(a.amount)),
+    ...opt('note', a.note),
   };
 }
 

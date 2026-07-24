@@ -490,6 +490,11 @@ type CreateNewsRequest struct {
 
 // CreatePenaltyAssignmentRequest defines model for CreatePenaltyAssignmentRequest.
 type CreatePenaltyAssignmentRequest struct {
+	// Date The date the penalty was earned (e.g. to back-date an assignment recorded after the fact). Defaults to the server's current date when omitted.
+	Date *openapi_types.Date `json:"date,omitempty"`
+
+	// Note Optional free-text note explaining the assignment.
+	Note      *string            `json:"note,omitempty"`
 	PenaltyId openapi_types.UUID `json:"penaltyId"`
 	UserId    openapi_types.UUID `json:"userId"`
 }
@@ -719,6 +724,7 @@ type PenaltyAssignment struct {
 	Label             *string            `json:"label,omitempty"`
 	MemberAvatarColor *string            `json:"memberAvatarColor,omitempty"`
 	MemberName        *string            `json:"memberName,omitempty"`
+	Note              *string            `json:"note,omitempty"`
 	Paid              bool               `json:"paid"`
 
 	// PenaltyId The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.

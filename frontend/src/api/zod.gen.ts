@@ -470,6 +470,7 @@ const PenaltyAssignment = z
     hasPhoto: z.boolean().optional(),
     label: z.string().optional(),
     amount: z.number().int().optional(),
+    note: z.string().max(10000).optional(),
   })
   .passthrough();
 const OpenPenalty = z
@@ -537,7 +538,12 @@ const UpdatePenaltyRequest = z
   .partial()
   .passthrough();
 const CreatePenaltyAssignmentRequest = z
-  .object({ userId: z.string().uuid(), penaltyId: z.string().uuid() })
+  .object({
+    userId: z.string().uuid(),
+    penaltyId: z.string().uuid(),
+    date: z.string().optional(),
+    note: z.string().max(10000).optional(),
+  })
   .passthrough();
 const SetPaidRequest = z.object({ paid: z.boolean() }).passthrough();
 const UpdateContributionRequest = z

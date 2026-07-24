@@ -71,8 +71,23 @@ export function useDeletePenaltyMutation(api: typeof defaultApi) {
 export function useSavePenaltyAssignMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateFinances(teamId);
   return useMutation({
-    mutationFn: ({ userId, penaltyId }: { userId: string; penaltyId: string }): Promise<PenaltyAssignment> =>
-      api.finances.assignPenalty(teamId!, { userId, penaltyId }),
+    mutationFn: ({
+      userId,
+      penaltyId,
+      date,
+      note,
+    }: {
+      userId: string;
+      penaltyId: string;
+      date?: string;
+      note?: string;
+    }): Promise<PenaltyAssignment> =>
+      api.finances.assignPenalty(teamId!, {
+        userId,
+        penaltyId,
+        ...(date ? { date } : {}),
+        ...(note ? { note } : {}),
+      }),
     onSuccess: () => invalidate(),
   });
 }

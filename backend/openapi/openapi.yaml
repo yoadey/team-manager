@@ -2945,6 +2945,9 @@ components:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+        note:
+          type: string
+          maxLength: 10000
 
     CreatePenaltyAssignmentRequest:
       type: object
@@ -2956,6 +2959,17 @@ components:
         penaltyId:
           type: string
           format: uuid
+        date:
+          type: string
+          format: date
+          description: >-
+            The date the penalty was earned (e.g. to back-date an assignment
+            recorded after the fact). Defaults to the server's current date
+            when omitted.
+        note:
+          type: string
+          maxLength: 10000
+          description: Optional free-text note explaining the assignment.
 
     SetPaidRequest:
       type: object

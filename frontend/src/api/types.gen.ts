@@ -1625,12 +1625,20 @@ export interface components {
              * @description Amount in cents (e.g. 1050 = 10.50)
              */
             amount?: number;
+            note?: string;
         };
         CreatePenaltyAssignmentRequest: {
             /** Format: uuid */
             userId: string;
             /** Format: uuid */
             penaltyId: string;
+            /**
+             * Format: date
+             * @description The date the penalty was earned (e.g. to back-date an assignment recorded after the fact). Defaults to the server's current date when omitted.
+             */
+            date?: string;
+            /** @description Optional free-text note explaining the assignment. */
+            note?: string;
         };
         SetPaidRequest: {
             /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
