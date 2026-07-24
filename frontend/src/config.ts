@@ -11,12 +11,12 @@ declare global {
     // container's API_BASE_URL/SENTRY_DSN env vars at startup (see
     // frontend/docker/) so one built image can point at any backend/Sentry
     // project without rebuilding.
-    __RUNTIME_CONFIG__?: { API_BASE_URL?: string; SENTRY_DSN?: string };
+    __RUNTIME_CONFIG__?: { API_BASE_URL?: string; SENTRY_DSN?: string; VAPID_PUBLIC_KEY?: string };
   }
 }
 
 /** Reads a runtime-injected __RUNTIME_CONFIG__ value, treating blank as unset. */
-function runtimeConfig(key: 'API_BASE_URL' | 'SENTRY_DSN'): string | undefined {
+function runtimeConfig(key: 'API_BASE_URL' | 'SENTRY_DSN' | 'VAPID_PUBLIC_KEY'): string | undefined {
   const v = typeof window !== 'undefined' ? window.__RUNTIME_CONFIG__?.[key] : undefined;
   return v && v.trim() !== '' ? v.trim() : undefined;
 }
@@ -39,6 +39,18 @@ function resolveApiBaseUrl(): string {
  */
 function resolveSentryDsn(): string {
   return runtimeConfig('SENTRY_DSN') ?? stringEnv(import.meta.env.VITE_SENTRY_DSN, '');
+}
+
+/**
+ * The VAPID public key passed to PushManager.subscribe() as
+ * applicationServerKey, preferring the runtime-injected value over the
+ * build-time VITE_VAPID_PUBLIC_KEY Vite env var -- same rationale as
+ * resolveSentryDsn: a released image must be able to pick up a rotated
+ * backend VAPID keypair without a rebuild, and the release pipeline never
+ * passes this as a build arg.
+ */
+function resolveVapidPublicKey(): string {
+  return runtimeConfig('VAPID_PUBLIC_KEY') ?? stringEnv(import.meta.env.VITE_VAPID_PUBLIC_KEY, '');
 }
 
 /** Parse a non-negative integer env var, falling back when missing/invalid. */
@@ -70,6 +82,7 @@ export const config = {
   mockDelayMin,
   mockDelayMax,
   sentryDsn: resolveSentryDsn(),
+  vapidPublicKey: resolveVapidPublicKey(),
 } as const;
 
 // NOTE: `VITE_ALLOW_MOCK` (production fail-safe opt-in for the MSW demo

@@ -34,7 +34,7 @@ func NewService(repo notifRepo, perms permChecker) *Service {
 	return &Service{repo: repo, perms: perms}
 }
 
-// notificationModule returns the RBAC module a notification type belongs to,
+// NotificationModule returns the RBAC module a notification type belongs to,
 // or "" if it's self-standing (not gated by any module permission). The
 // /notifications route itself carries no module-level RBAC check (it
 // aggregates across events, news, and polls), so without this, a member
@@ -47,7 +47,12 @@ func NewService(repo notifRepo, perms permChecker) *Service {
 // string switch is invisible to it, and would otherwise let a future
 // module-gated notification type silently fall through the default case and
 // leak to every team member regardless of their permission on that module.
-func notificationModule(notifType gen.NotificationType) string {
+//
+// Exported (not just used internally by List) so internal/jobs can apply the
+// identical gate before enqueuing a Web Push delivery for the same
+// notification -- push must not open a side channel around the same
+// module-permission check the in-app feed already enforces.
+func NotificationModule(notifType gen.NotificationType) string {
 	switch notifType {
 	case gen.NotificationTypeAttendance,
 		gen.NotificationTypeEventCreated,
@@ -72,18 +77,21 @@ func notificationModule(notifType gen.NotificationType) string {
 	}
 }
 
-// hasReadAccess reports whether p grants at least "read" on module. An empty
+// HasReadAccess reports whether p grants at least "read" on module. An empty
 // module (self-standing notification types, e.g. "absence") is always
 // visible. Every other module string must match one of PermissionsJSON's six
 // fields explicitly and fail CLOSED on anything else -- unlike
-// notificationModule's callers-are-trusted default, this function is the
+// NotificationModule's callers-are-trusted default, this function is the
 // actual gate deciding whether a notification is shown, so an unrecognized
-// module (e.g. notificationModule is later extended to return "members"/
+// module (e.g. NotificationModule is later extended to return "members"/
 // "finances"/"settings" for a new notification type, without a matching case
 // added here too) must not silently grant access, mirroring
 // middleware/authz.go's hasWritePermission/hasAnyPermission, which fail
 // closed on the same six module names for the identical reason.
-func hasReadAccess(p teams.PermissionsJSON, module string) bool {
+//
+// Exported for the same reason NotificationModule is -- internal/jobs
+// applies it before enqueuing a Web Push delivery.
+func HasReadAccess(p teams.PermissionsJSON, module string) bool {
 	if module == "" {
 		return true
 	}
@@ -122,7 +130,7 @@ func (s *Service) List(ctx context.Context, teamID, userID uuid.UUID) (gen.Notif
 	items := make([]gen.AppNotification, 0, len(rows))
 	unreadCount := 0
 	for _, row := range rows {
-		if !hasReadAccess(perms, notificationModule(gen.NotificationType(row.Type))) {
+		if !HasReadAccess(perms, NotificationModule(gen.NotificationType(row.Type))) {
 			continue
 		}
 		n := toGenNotification(row)

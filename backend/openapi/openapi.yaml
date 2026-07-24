@@ -39,6 +39,7 @@ tags:
   - name: news
   - name: polls
   - name: notifications
+  - name: push
   - name: finances
   - name: stats
 
@@ -282,6 +283,41 @@ paths:
                 $ref: "#/components/schemas/User"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
+
+  # ── Push notifications ───────────────────────────────────────────────────────
+  # User-scoped (no {teamId}), like /auth/me/photo above -- a subscription
+  # covers push delivery for every team the user belongs to, so it needs no
+  # x-rbac-module: genrbac only requires that extension on team-scoped
+  # ({teamId}-bearing) operations; membership in the authenticated session is
+  # already sufficient here, same as /auth/me/photo.
+
+  /users/me/push-subscriptions:
+    post:
+      tags: [push]
+      operationId: registerPushSubscription
+      summary: Register (or update) this browser's Web Push subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSubscriptionRequest"
+      responses:
+        "204":
+          description: No Content
+    delete:
+      tags: [push]
+      operationId: deletePushSubscription
+      summary: Unregister a Web Push subscription
+      parameters:
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
 
   # ── Teams ───────────────────────────────────────────────────────────────────
 
@@ -927,6 +963,64 @@ paths:
       responses:
         "204":
           description: No Content
+
+  # ── Calendar feed ─────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/calendar-feed/token:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [events]
+      operationId: issueCalendarFeedToken
+      x-rbac-module: events
+      x-rbac-self-service: true
+      summary: Issue (or rotate) the caller's calendar subscription link for this team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarFeedToken"
+    delete:
+      tags: [events]
+      operationId: revokeCalendarFeedToken
+      x-rbac-module: events
+      x-rbac-self-service: true
+      summary: Revoke the caller's calendar subscription link for this team
+      responses:
+        "204":
+          description: No Content
+
+  /calendar-feed/{token}.ics:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [events]
+      operationId: getCalendarFeed
+      summary: >-
+        Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by
+        design: calendar apps poll this URL directly and cannot present a
+        session cookie. The token itself is the credential -- see
+        internal/calendarfeed for the authorization model.
+      security: []
+      responses:
+        "200":
+          description: >-
+            iCalendar document. Content-Type is text/calendar, not
+            application/json -- oapi-codegen models this as a raw-bytes
+            response.
+          content:
+            text/calendar:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ── Absences ────────────────────────────────────────────────────────────────
 
@@ -2667,6 +2761,36 @@ components:
             $ref: "#/components/schemas/AppNotification"
         unreadCount:
           type: integer
+
+    # ── Push notifications ────────────────────────────────────────────────────
+
+    PushSubscriptionRequest:
+      type: object
+      required: [endpoint, keys]
+      description: >-
+        Mirrors the shape PushSubscription.toJSON() produces in the browser.
+      properties:
+        endpoint:
+          type: string
+        keys:
+          type: object
+          required: [p256dh, auth]
+          properties:
+            p256dh:
+              type: string
+            auth:
+              type: string
+
+    # ── Calendar feed ──────────────────────────────────────────────────────────
+
+    CalendarFeedToken:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Ready-to-use calendar subscription URL (https://...).
 
     # ── Finances ─────────────────────────────────────────────────────────────
 

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -429,6 +430,12 @@ type AttendanceRowReasonVisibility string
 // AttendanceStatus defines model for AttendanceStatus.
 type AttendanceStatus string
 
+// CalendarFeedToken defines model for CalendarFeedToken.
+type CalendarFeedToken struct {
+	// Url Ready-to-use calendar subscription URL (https://...).
+	Url string `json:"url"`
+}
+
 // Contribution defines model for Contribution.
 type Contribution struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
@@ -775,6 +782,15 @@ type Provider struct {
 	Id     string  `json:"id"`
 	Name   string  `json:"name"`
 	Sub    string  `json:"sub"`
+}
+
+// PushSubscriptionRequest Mirrors the shape PushSubscription.toJSON() produces in the browser.
+type PushSubscriptionRequest struct {
+	Endpoint string `json:"endpoint"`
+	Keys     struct {
+		Auth   string `json:"auth"`
+		P256dh string `json:"p256dh"`
+	} `json:"keys"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -1190,6 +1206,11 @@ type GetStatsOverviewParams struct {
 	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// DeletePushSubscriptionParams defines parameters for DeletePushSubscription.
+type DeletePushSubscriptionParams struct {
+	Endpoint string `form:"endpoint" json:"endpoint"`
+}
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -1292,6 +1313,9 @@ type CreateRoleJSONRequestBody = CreateRoleRequest
 // UpdateRoleJSONRequestBody defines body for UpdateRole for application/json ContentType.
 type UpdateRoleJSONRequestBody = UpdateRoleRequest
 
+// RegisterPushSubscriptionJSONRequestBody defines body for RegisterPushSubscription for application/json ContentType.
+type RegisterPushSubscriptionJSONRequestBody = PushSubscriptionRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Authenticate with email + password
@@ -1327,6 +1351,9 @@ type ServerInterface interface {
 	// Consume an email verification token and establish a session
 	// (POST /auth/verify-email)
 	VerifyEmail(w http.ResponseWriter, r *http.Request)
+	// Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model.
+	// (GET /calendar-feed/{token}.ics)
+	GetCalendarFeed(w http.ResponseWriter, r *http.Request, token string)
 	// Redeem an invite code, adding the authenticated user to its team
 	// (POST /invites/{code}/accept)
 	AcceptInvite(w http.ResponseWriter, r *http.Request, code string)
@@ -1357,6 +1384,12 @@ type ServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID)
+	// Revoke the caller's calendar subscription link for this team
+	// (DELETE /teams/{teamId}/calendar-feed/token)
+	RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Issue (or rotate) the caller's calendar subscription link for this team
+	// (POST /teams/{teamId}/calendar-feed/token)
+	IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// List events
 	// (GET /teams/{teamId}/events)
 	ListEvents(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListEventsParams)
@@ -1516,6 +1549,12 @@ type ServerInterface interface {
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID)
+	// Unregister a Web Push subscription
+	// (DELETE /users/me/push-subscriptions)
+	DeletePushSubscription(w http.ResponseWriter, r *http.Request, params DeletePushSubscriptionParams)
+	// Register (or update) this browser's Web Push subscription
+	// (POST /users/me/push-subscriptions)
+	RegisterPushSubscription(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -1588,6 +1627,12 @@ func (_ Unimplemented) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model.
+// (GET /calendar-feed/{token}.ics)
+func (_ Unimplemented) GetCalendarFeed(w http.ResponseWriter, r *http.Request, token string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Redeem an invite code, adding the authenticated user to its team
 // (POST /invites/{code}/accept)
 func (_ Unimplemented) AcceptInvite(w http.ResponseWriter, r *http.Request, code string) {
@@ -1645,6 +1690,18 @@ func (_ Unimplemented) DeleteAbsence(w http.ResponseWriter, r *http.Request, tea
 // Update absence
 // (PATCH /teams/{teamId}/absences/{absenceId})
 func (_ Unimplemented) UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke the caller's calendar subscription link for this team
+// (DELETE /teams/{teamId}/calendar-feed/token)
+func (_ Unimplemented) RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Issue (or rotate) the caller's calendar subscription link for this team
+// (POST /teams/{teamId}/calendar-feed/token)
+func (_ Unimplemented) IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1966,6 +2023,18 @@ func (_ Unimplemented) GetMemberStats(w http.ResponseWriter, r *http.Request, te
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Unregister a Web Push subscription
+// (DELETE /users/me/push-subscriptions)
+func (_ Unimplemented) DeletePushSubscription(w http.ResponseWriter, r *http.Request, params DeletePushSubscriptionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register (or update) this browser's Web Push subscription
+// (POST /users/me/push-subscriptions)
+func (_ Unimplemented) RegisterPushSubscription(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
 	Handler            ServerInterface
@@ -2156,6 +2225,32 @@ func (siw *ServerInterfaceWrapper) VerifyEmail(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.VerifyEmail(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCalendarFeed operation middleware
+func (siw *ServerInterfaceWrapper) GetCalendarFeed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCalendarFeed(w, r, token)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2528,6 +2623,70 @@ func (siw *ServerInterfaceWrapper) UpdateAbsence(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAbsence(w, r, teamId, absenceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeCalendarFeedToken operation middleware
+func (siw *ServerInterfaceWrapper) RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeCalendarFeedToken(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// IssueCalendarFeedToken operation middleware
+func (siw *ServerInterfaceWrapper) IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.IssueCalendarFeedToken(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4767,6 +4926,65 @@ func (siw *ServerInterfaceWrapper) GetMemberStats(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DeletePushSubscription operation middleware
+func (siw *ServerInterfaceWrapper) DeletePushSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeletePushSubscriptionParams
+
+	// ------------- Required query parameter "endpoint" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "endpoint", r.URL.Query(), &params.Endpoint, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "endpoint"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endpoint", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePushSubscription(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegisterPushSubscription operation middleware
+func (siw *ServerInterfaceWrapper) RegisterPushSubscription(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegisterPushSubscription(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -4914,6 +5132,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/auth/verify-email", wrapper.VerifyEmail)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/calendar-feed/{token}.ics", wrapper.GetCalendarFeed)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/invites/{code}/accept", wrapper.AcceptInvite)
 	})
 	r.Group(func(r chi.Router) {
@@ -4942,6 +5163,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/teams/{teamId}/absences/{absenceId}", wrapper.UpdateAbsence)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/calendar-feed/token", wrapper.RevokeCalendarFeedToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams/{teamId}/calendar-feed/token", wrapper.IssueCalendarFeedToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/events", wrapper.ListEvents)
@@ -5101,6 +5328,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/members/{userId}", wrapper.GetMemberStats)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/users/me/push-subscriptions", wrapper.DeletePushSubscription)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/users/me/push-subscriptions", wrapper.RegisterPushSubscription)
 	})
 
 	return r
@@ -5530,6 +5763,50 @@ func (response VerifyEmail401ApplicationProblemPlusJSONResponse) VisitVerifyEmai
 	return err
 }
 
+type GetCalendarFeedRequestObject struct {
+	Token string `json:"token"`
+}
+
+type GetCalendarFeedResponseObject interface {
+	VisitGetCalendarFeedResponse(w http.ResponseWriter) error
+}
+
+type GetCalendarFeed200TextcalendarResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetCalendarFeed200TextcalendarResponse) VisitGetCalendarFeedResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/calendar")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetCalendarFeed404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetCalendarFeed404ApplicationProblemPlusJSONResponse) VisitGetCalendarFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AcceptInviteRequestObject struct {
 	Code string `json:"code"`
 }
@@ -5781,6 +6058,44 @@ type UpdateAbsenceResponseObject interface {
 type UpdateAbsence200JSONResponse Absence
 
 func (response UpdateAbsence200JSONResponse) VisitUpdateAbsenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeCalendarFeedTokenRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type RevokeCalendarFeedTokenResponseObject interface {
+	VisitRevokeCalendarFeedTokenResponse(w http.ResponseWriter) error
+}
+
+type RevokeCalendarFeedToken204Response struct {
+}
+
+func (response RevokeCalendarFeedToken204Response) VisitRevokeCalendarFeedTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type IssueCalendarFeedTokenRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type IssueCalendarFeedTokenResponseObject interface {
+	VisitIssueCalendarFeedTokenResponse(w http.ResponseWriter) error
+}
+
+type IssueCalendarFeedToken200JSONResponse CalendarFeedToken
+
+func (response IssueCalendarFeedToken200JSONResponse) VisitIssueCalendarFeedTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -7058,6 +7373,38 @@ func (response GetMemberStats200JSONResponse) VisitGetMemberStatsResponse(w http
 	return err
 }
 
+type DeletePushSubscriptionRequestObject struct {
+	Params DeletePushSubscriptionParams
+}
+
+type DeletePushSubscriptionResponseObject interface {
+	VisitDeletePushSubscriptionResponse(w http.ResponseWriter) error
+}
+
+type DeletePushSubscription204Response struct {
+}
+
+func (response DeletePushSubscription204Response) VisitDeletePushSubscriptionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RegisterPushSubscriptionRequestObject struct {
+	Body *RegisterPushSubscriptionJSONRequestBody
+}
+
+type RegisterPushSubscriptionResponseObject interface {
+	VisitRegisterPushSubscriptionResponse(w http.ResponseWriter) error
+}
+
+type RegisterPushSubscription204Response struct {
+}
+
+func (response RegisterPushSubscription204Response) VisitRegisterPushSubscriptionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// Authenticate with email + password
@@ -7093,6 +7440,9 @@ type StrictServerInterface interface {
 	// Consume an email verification token and establish a session
 	// (POST /auth/verify-email)
 	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
+	// Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model.
+	// (GET /calendar-feed/{token}.ics)
+	GetCalendarFeed(ctx context.Context, request GetCalendarFeedRequestObject) (GetCalendarFeedResponseObject, error)
 	// Redeem an invite code, adding the authenticated user to its team
 	// (POST /invites/{code}/accept)
 	AcceptInvite(ctx context.Context, request AcceptInviteRequestObject) (AcceptInviteResponseObject, error)
@@ -7123,6 +7473,12 @@ type StrictServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(ctx context.Context, request UpdateAbsenceRequestObject) (UpdateAbsenceResponseObject, error)
+	// Revoke the caller's calendar subscription link for this team
+	// (DELETE /teams/{teamId}/calendar-feed/token)
+	RevokeCalendarFeedToken(ctx context.Context, request RevokeCalendarFeedTokenRequestObject) (RevokeCalendarFeedTokenResponseObject, error)
+	// Issue (or rotate) the caller's calendar subscription link for this team
+	// (POST /teams/{teamId}/calendar-feed/token)
+	IssueCalendarFeedToken(ctx context.Context, request IssueCalendarFeedTokenRequestObject) (IssueCalendarFeedTokenResponseObject, error)
 	// List events
 	// (GET /teams/{teamId}/events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
@@ -7282,6 +7638,12 @@ type StrictServerInterface interface {
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(ctx context.Context, request GetMemberStatsRequestObject) (GetMemberStatsResponseObject, error)
+	// Unregister a Web Push subscription
+	// (DELETE /users/me/push-subscriptions)
+	DeletePushSubscription(ctx context.Context, request DeletePushSubscriptionRequestObject) (DeletePushSubscriptionResponseObject, error)
+	// Register (or update) this browser's Web Push subscription
+	// (POST /users/me/push-subscriptions)
+	RegisterPushSubscription(ctx context.Context, request RegisterPushSubscriptionRequestObject) (RegisterPushSubscriptionResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -7619,6 +7981,32 @@ func (sh *strictHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetCalendarFeed operation middleware
+func (sh *strictHandler) GetCalendarFeed(w http.ResponseWriter, r *http.Request, token string) {
+	var request GetCalendarFeedRequestObject
+
+	request.Token = token
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCalendarFeed(ctx, request.(GetCalendarFeedRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCalendarFeed")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCalendarFeedResponseObject); ok {
+		if err := validResponse.VisitGetCalendarFeedResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // AcceptInvite operation middleware
 func (sh *strictHandler) AcceptInvite(w http.ResponseWriter, r *http.Request, code string) {
 	var request AcceptInviteRequestObject
@@ -7900,6 +8288,58 @@ func (sh *strictHandler) UpdateAbsence(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAbsenceResponseObject); ok {
 		if err := validResponse.VisitUpdateAbsenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeCalendarFeedToken operation middleware
+func (sh *strictHandler) RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request RevokeCalendarFeedTokenRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeCalendarFeedToken(ctx, request.(RevokeCalendarFeedTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeCalendarFeedToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeCalendarFeedTokenResponseObject); ok {
+		if err := validResponse.VisitRevokeCalendarFeedTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// IssueCalendarFeedToken operation middleware
+func (sh *strictHandler) IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request IssueCalendarFeedTokenRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.IssueCalendarFeedToken(ctx, request.(IssueCalendarFeedTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "IssueCalendarFeedToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(IssueCalendarFeedTokenResponseObject); ok {
+		if err := validResponse.VisitIssueCalendarFeedTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9486,6 +9926,63 @@ func (sh *strictHandler) GetMemberStats(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMemberStatsResponseObject); ok {
 		if err := validResponse.VisitGetMemberStatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeletePushSubscription operation middleware
+func (sh *strictHandler) DeletePushSubscription(w http.ResponseWriter, r *http.Request, params DeletePushSubscriptionParams) {
+	var request DeletePushSubscriptionRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePushSubscription(ctx, request.(DeletePushSubscriptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePushSubscription")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeletePushSubscriptionResponseObject); ok {
+		if err := validResponse.VisitDeletePushSubscriptionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RegisterPushSubscription operation middleware
+func (sh *strictHandler) RegisterPushSubscription(w http.ResponseWriter, r *http.Request) {
+	var request RegisterPushSubscriptionRequestObject
+
+	var body RegisterPushSubscriptionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RegisterPushSubscription(ctx, request.(RegisterPushSubscriptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RegisterPushSubscription")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegisterPushSubscriptionResponseObject); ok {
+		if err := validResponse.VisitRegisterPushSubscriptionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

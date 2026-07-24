@@ -155,6 +155,7 @@ The TypeScript client is also generated from this spec via `openapi-typescript` 
 | `VITE_MOCK_DELAY_MIN/MAX` | `120` / `320`    | Simulated latency (ms)           |
 | `VITE_SENTRY_DSN`         | _(empty)_        | Sentry; disabled when empty      |
 | `VITE_API_BASE_URL`       | _(empty)_        | Real backend URL                 |
+| `VITE_VAPID_PUBLIC_KEY`   | _(empty)_        | VAPID public key for Web Push; must match the backend's `VAPID_PUBLIC_KEY`. In production this is overridden at container start by the `VAPID_PUBLIC_KEY` runtime env var (see "Connecting the Real Backend" and `docs/operations.md`), same mechanism as `SENTRY_DSN`. |
 
 ### Backend
 
@@ -194,6 +195,8 @@ The TypeScript client is also generated from this spec via `openapi-typescript` 
 | `S3_REGION`       | _(empty)_                   | Object store region, e.g. `eu-central-1`. May be blank for MinIO/region-less endpoints. |
 | `S3_BUCKET`       | _(empty)_                   | Bucket image objects are stored in. Same `COOKIE_SECURE=true` requirement as `S3_ENDPOINT`. |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | _(empty)_ | Static credentials for the object store. Same `COOKIE_SECURE=true` requirement as `S3_ENDPOINT`. |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | _(empty)_ | VAPID keypair (RFC 8292) authenticating this server to browser push services for Web Push (`internal/push`). **Required when `COOKIE_SECURE=true`** (with `VAPID_SUBJECT`) — startup fails without it. Unset in dev falls back to a logging fake pusher (push payloads are only written to the server log). `VAPID_PUBLIC_KEY` is not secret — also set as the frontend's `VITE_VAPID_PUBLIC_KEY`/`VAPID_PUBLIC_KEY` runtime config. Generate a keypair with e.g. `npx web-push generate-vapid-keys`. |
+| `VAPID_SUBJECT`   | _(empty)_                   | Contact identifying the sender to push services, e.g. `mailto:ops@example.com` — required by the VAPID spec. Same `COOKIE_SECURE=true` requirement as `VAPID_PUBLIC_KEY`. |
 | `S3_USE_PATH_STYLE` | `false`                    | Force path-style bucket addressing (`https://host/bucket/key`) instead of virtual-hosted-style. Set `true` for most self-hosted S3-compatible stores (MinIO); leave `false` for real AWS S3. |
 | `S3_PUBLIC_BASE_URL` | _(empty)_                | Overrides the scheme+host of presigned image URLs after signing. Needed when the backend's S3 endpoint (e.g. in-cluster/Compose service DNS) differs from the endpoint a browser can reach. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | _(empty)_       | OTLP/HTTP collector URL; enables OpenTelemetry tracing when set (other `OTEL_*` vars honored by the SDK) |

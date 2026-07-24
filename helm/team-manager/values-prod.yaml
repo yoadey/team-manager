@@ -67,8 +67,14 @@ s3:
     existingSecret: "team-manager-prod-s3"
 
 smtp:
+  host: "s221.goserver.host"
+  fromAddress: "info@yoadey.de"
   secret:
     existingSecret: "team-manager-prod-smtp"
+
+push:
+  secret:
+    existingSecret: "team-manager-prod-push"
 
 pagination:
   secret:

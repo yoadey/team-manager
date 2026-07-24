@@ -215,6 +215,23 @@
         }
       }
     },
+    "push": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publicKey": { "type": "string" },
+        "subject": { "type": "string" },
+        "secret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": { "type": "boolean" },
+            "existingSecret": { "type": "string" },
+            "privateKey": { "type": "string" }
+          }
+        }
+      }
+    },
     "selfRegistration": {
       "type": "object",
       "additionalProperties": false,

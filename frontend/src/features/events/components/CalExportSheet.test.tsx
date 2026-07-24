@@ -11,13 +11,23 @@ vi.mock('../hooks/useEventQueries', () => ({
   useEventsQuery: vi.fn(),
 }));
 
+vi.mock('../hooks/useCalExportActions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../hooks/useCalExportActions')>();
+  return { ...actual, useCalendarFeedUrlQuery: vi.fn() };
+});
+
 import { useApp } from '@/context/AppContext';
 import { useEventsQuery } from '../hooks/useEventQueries';
+import { useCalendarFeedUrlQuery } from '../hooks/useCalExportActions';
 const mockUseApp = vi.mocked(useApp);
 const mockUseEventsQuery = vi.mocked(useEventsQuery);
+const mockUseCalendarFeedUrlQuery = vi.mocked(useCalendarFeedUrlQuery);
+
+const TEST_FEED_URL = 'https://app.example.com/api/v1/calendar-feed/abc123.ics';
 
 function makeApp(eventsOverrides: unknown[] = []) {
   mockUseEventsQuery.mockReturnValue({ data: eventsOverrides } as never);
+  mockUseCalendarFeedUrlQuery.mockReturnValue({ data: TEST_FEED_URL, isLoading: false, isError: false } as never);
   return {
     api: {},
     state: {
@@ -27,6 +37,7 @@ function makeApp(eventsOverrides: unknown[] = []) {
     activeTeam: vi.fn().mockReturnValue({ id: 'team1', name: 'SG Muster' }),
     downloadIcs: vi.fn(),
     copyCalUrl: vi.fn(),
+    regenerateCalUrl: vi.fn(),
   };
 }
 
@@ -52,19 +63,35 @@ describe('CalExportSheet', () => {
     expect(app.downloadIcs).toHaveBeenCalled();
   });
 
-  it('shows calendar URL with team id', () => {
+  it('shows the fetched calendar feed URL', () => {
     mockUseApp.mockReturnValue(makeApp() as never);
     const app = mockUseApp();
     render(<CalExportSheet app={app as never} sheet={sheet} />);
-    expect(screen.getByText(/team1\.ics/)).toBeTruthy();
+    expect(screen.getByText(TEST_FEED_URL)).toBeTruthy();
   });
 
-  it('calls copyCalUrl when copy button clicked', () => {
+  it('shows a loading placeholder while the URL is being issued', () => {
+    mockUseApp.mockReturnValue(makeApp() as never);
+    mockUseCalendarFeedUrlQuery.mockReturnValue({ data: undefined, isLoading: true, isError: false } as never);
+    const app = mockUseApp();
+    render(<CalExportSheet app={app as never} sheet={sheet} />);
+    expect(screen.queryByText(TEST_FEED_URL)).toBeNull();
+  });
+
+  it('calls copyCalUrl with the fetched URL when the copy button is clicked', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
     render(<CalExportSheet app={app as never} sheet={sheet} />);
     fireEvent.click(screen.getByText(/Kopieren/i));
-    expect(app.copyCalUrl).toHaveBeenCalled();
+    expect(app.copyCalUrl).toHaveBeenCalledWith(TEST_FEED_URL);
+  });
+
+  it('calls regenerateCalUrl when the renew link is clicked', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<CalExportSheet app={app as never} sheet={sheet} />);
+    fireEvent.click(screen.getByText(/erneuern/i));
+    expect(app.regenerateCalUrl).toHaveBeenCalled();
   });
 
   it('shows "Kopiert" text when sheet.copied is true', () => {
@@ -95,18 +122,5 @@ describe('CalExportSheet', () => {
     const app = mockUseApp();
     render(<CalExportSheet app={app as never} sheet={sheet} />);
     expect(screen.getByText('Apple / iOS')).toBeTruthy();
-  });
-
-  // Regression test: the subscribe-link description used to assert the
-  // calendar "bleibt automatisch aktuell" (stays up to date automatically)
-  // unconditionally, directly contradicting the prototype note further down
-  // the same sheet, which says the subscription link isn't functional yet.
-  // A user reading only the description (and the "copied" success toast)
-  // had no reason to doubt the link would actually work.
-  it('subscribe description does not contradict the prototype note about the link not being active yet', () => {
-    mockUseApp.mockReturnValue(makeApp() as never);
-    const app = mockUseApp();
-    render(<CalExportSheet app={app as never} sheet={sheet} />);
-    expect(screen.getByText(/Dieser Link soll/i).textContent).toMatch(/noch nicht aktiv/i);
   });
 });

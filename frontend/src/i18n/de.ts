@@ -339,9 +339,13 @@ export const de = {
     calDownload: 'Kalenderdatei (.ics) herunterladen',
     calSubscribe: 'Automatisch abonnieren (Abo-Link)',
     calSubscribeDesc:
-      'Dieser Link soll deinen Kalender künftig automatisch aktuell halten – neue und geänderte Termine würden ohne erneuten Export erscheinen. In dieser Vorschau ist das noch nicht aktiv; siehe Hinweis unten.',
+      'Dieser Link hält deinen Kalender automatisch aktuell – neue und geänderte Termine erscheinen ohne erneuten Export.',
     calCopy: 'Kopieren',
     calCopied: 'Kopiert',
+    calLoading: 'Link wird erstellt …',
+    calLoadFailed: 'Link konnte nicht geladen werden',
+    calRenew: 'Link erneuern',
+    calRenewFailed: 'Link konnte nicht erneuert werden',
     calGoogle: 'Google Kalender',
     calGoogleDesc:
       'Einstellungen → „Kalender hinzufügen" → „Per URL" und den Abo-Link einfügen. Auf Android wird der Kalender automatisch synchronisiert.',
@@ -350,10 +354,9 @@ export const de = {
     calOneTime: 'Einmaliger Import',
     calOneTimeDesc:
       'Alternativ die .ics-Datei herunterladen und in jeder Kalender-App öffnen – fügt die Termine einmalig hinzu.',
-    calPrototypeNote:
-      'Im Prototyp ist nur der Datei-Download aktiv; der Abo-Link wird mit dem späteren Backend funktionsfähig.',
     exportFailed: 'Export nicht möglich',
     toastCalLinkCopied: 'Abo-Link kopiert',
+    toastCalLinkRenewed: 'Abo-Link erneuert – der alte Link funktioniert nicht mehr',
     toastCalExported: '{n} Termine als .ics exportiert',
     editAbsenceLabel: 'Abwesenheit bearbeiten',
     deleteAbsenceLabel: 'Abwesenheit löschen',
@@ -668,6 +671,16 @@ export const de = {
     pollNew: 'Neue Umfrage',
     absenceLogged: 'hat eine Abwesenheit eingetragen',
     markReadError: 'Benachrichtigungen konnten nicht als gelesen markiert werden.',
+  },
+  push: {
+    title: 'Web-Push-Benachrichtigungen',
+    description: 'Erhalte Benachrichtigungen für neue Termine, News und mehr, auch wenn die App nicht geöffnet ist.',
+    unsupported: 'Push-Benachrichtigungen werden von diesem Browser nicht unterstützt.',
+    enabled: 'Push-Benachrichtigungen aktiviert',
+    disabled: 'Push-Benachrichtigungen deaktiviert',
+    enableFailed: 'Push-Benachrichtigungen konnten nicht aktiviert werden',
+    disableFailed: 'Push-Benachrichtigungen konnten nicht deaktiviert werden',
+    permissionDenied: 'Benachrichtigungen wurden im Browser blockiert. Bitte in den Browser-Einstellungen erlauben.',
   },
   home: {
     greeting: 'Hallo {name}!',

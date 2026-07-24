@@ -288,6 +288,21 @@ smtp:
     username: "" # only used when secret.create=true
     password: "" # only used when secret.create=true
 
+# Web Push (internal/push) VAPID keypair authenticating this server to
+# browser push services. publicKey/subject are **required** (with the
+# secret's privateKey) when session.cookie.secure=true. publicKey is not
+# secret -- it must also be set as the frontend's VITE_VAPID_PUBLIC_KEY/
+# VAPID_PUBLIC_KEY runtime config (see docs/operations.md). Generate a
+# keypair with e.g. `npx web-push generate-vapid-keys`.
+# existingSecret Secret key: VAPID_PRIVATE_KEY.
+push:
+  publicKey: ""
+  subject: "" # e.g. "mailto:ops@example.com"
+  secret:
+    create: false
+    existingSecret: ""
+    privateKey: "" # only used when secret.create=true
+
 selfRegistration:
   enabled: true
   emailVerificationTtlHours: 48

@@ -84,6 +84,21 @@ smtp.secret.create=true with the plaintext fields — see
 docs/operations.md's "Outbound email (SMTP)" section.
 {{- end }}
 
+{{- if and .Values.session.cookie.secure (or (not .Values.push.publicKey) (not .Values.push.subject)) }}
+
+WARNING: session.cookie.secure is true but push.publicKey/push.subject are
+not both set, so the backend hard-fails startup (exit 1, every replica
+crash-loops, including the migrate initContainer since config.Load() runs
+before --migrate-only is handled) — Web Push requires a VAPID keypair to be
+configured. Set push.publicKey/push.subject via a values override (generate
+a keypair with e.g. `npx web-push generate-vapid-keys`), and either populate
+VAPID_PRIVATE_KEY in the Secret referenced by push.secret.existingSecret, or
+set push.secret.create=true with push.secret.privateKey to have the chart
+render and manage that Secret itself. push.publicKey is not secret — it must
+also be set as the frontend's VITE_VAPID_PUBLIC_KEY/VAPID_PUBLIC_KEY runtime
+config, see docs/operations.md.
+{{- end }}
+
 {{- if and .Values.backup.enabled .Values.backup.s3.enabled }}
 
 REMINDER: backup.retentionDays ({{ .Values.backup.retentionDays }}) is

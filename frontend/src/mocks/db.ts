@@ -171,6 +171,20 @@ export interface DemoDb {
   notifSeen: Record<string, string>;
   /** Raw token -> pending verification, for self-registered accounts. */
   verificationTokens: Record<string, VerificationToken>;
+  /** Mock equivalent of the backend's push_subscriptions table. */
+  pushSubscriptions: PushSubscriptionRow[];
+  /** "userId:teamId" -> active feed token, mock equivalent of the backend's
+   * calendar_feed_tokens table (only the active row is kept; issuing a new
+   * one simply overwrites it, since the mock has no revocation history to
+   * preserve). */
+  calendarFeedTokens: Record<string, string>;
+}
+
+export interface PushSubscriptionRow {
+  userId: string;
+  endpoint: string;
+  p256dh: string;
+  authKey: string;
 }
 
 // Fixed demo credentials for the MSW-only demo login (POST /auth/login).
@@ -205,6 +219,8 @@ export function createSeedData(): DemoDb {
     notifications: [],
     notifSeen: {},
     verificationTokens: {},
+    pushSubscriptions: [],
+    calendarFeedTokens: {},
   };
 
   const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({

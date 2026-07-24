@@ -337,9 +337,13 @@ export const en: Messages = {
     calDownload: 'Download calendar file (.ics)',
     calSubscribe: 'Subscribe automatically (subscription link)',
     calSubscribeDesc:
-      "This link is meant to keep your calendar up to date automatically – new and changed events appearing without re-exporting. It isn't active yet in this preview; see the note below.",
+      'This link keeps your calendar up to date automatically – new and changed events appear without re-exporting.',
     calCopy: 'Copy',
     calCopied: 'Copied',
+    calLoading: 'Creating link …',
+    calLoadFailed: 'Could not load the link',
+    calRenew: 'Renew link',
+    calRenewFailed: 'Could not renew the link',
     calGoogle: 'Google Calendar',
     calGoogleDesc:
       'Settings → "Add calendar" → "From URL" and paste the subscription link. On Android the calendar syncs automatically.',
@@ -349,6 +353,7 @@ export const en: Messages = {
     calOneTimeDesc: 'Alternatively download the .ics file and open it in any calendar app – adds events once.',
     exportFailed: 'Export not available',
     toastCalLinkCopied: 'Subscription link copied',
+    toastCalLinkRenewed: 'Subscription link renewed – the old link no longer works',
     toastCalExported: '{n} events exported as .ics',
     editAbsenceLabel: 'Edit absence',
     deleteAbsenceLabel: 'Delete absence',
@@ -375,8 +380,6 @@ export const en: Messages = {
     toastEventCreated: 'Event created',
     toastEventUpdated: 'Event updated',
     toastSeriesUpdated: 'Entire series updated',
-    calPrototypeNote:
-      'In the prototype only the file download is active; the subscription link will work with the future backend.',
   },
   members: {
     detailNotFound: 'This member could not be found. They may have been removed.',
@@ -659,6 +662,16 @@ export const en: Messages = {
     pollNew: 'New poll',
     absenceLogged: 'logged an absence',
     markReadError: 'Could not mark notifications as read.',
+  },
+  push: {
+    title: 'Web push notifications',
+    description: 'Get notified about new events, news, and more, even when the app isn\'t open.',
+    unsupported: 'Push notifications are not supported by this browser.',
+    enabled: 'Push notifications enabled',
+    disabled: 'Push notifications disabled',
+    enableFailed: 'Could not enable push notifications',
+    disableFailed: 'Could not disable push notifications',
+    permissionDenied: 'Notifications were blocked in the browser. Please allow them in your browser settings.',
   },
   home: {
     greeting: 'Hi {name}!',

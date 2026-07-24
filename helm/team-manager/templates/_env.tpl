@@ -92,6 +92,14 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
 - name: SMTP_FROM_ADDRESS
   value: {{ . | quote }}
 {{- end }}
+{{- with .Values.push.publicKey }}
+- name: VAPID_PUBLIC_KEY
+  value: {{ . | quote }}
+{{- end }}
+{{- with .Values.push.subject }}
+- name: VAPID_SUBJECT
+  value: {{ . | quote }}
+{{- end }}
 {{- $dbSecret := include "team-manager.secretName" (list $root "database" $root.Values.database.secret) }}
 {{- if $dbSecret }}
 - name: DATABASE_URL
@@ -146,6 +154,14 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
     secretKeyRef:
       name: {{ $s3Secret }}
       key: S3_SECRET_ACCESS_KEY
+{{- end }}
+{{- $pushSecret := include "team-manager.secretName" (list $root "push" $root.Values.push.secret) }}
+{{- if $pushSecret }}
+- name: VAPID_PRIVATE_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ $pushSecret }}
+      key: VAPID_PRIVATE_KEY
 {{- end }}
 {{- $smtpSecret := include "team-manager.secretName" (list $root "smtp" $root.Values.smtp.secret) }}
 {{- if $smtpSecret }}

@@ -39,6 +39,12 @@ const ResendVerificationRequest = z
 const DeleteAccountRequest = z
   .object({ confirmEmail: z.string().email() })
   .passthrough();
+const PushSubscriptionRequest = z
+  .object({
+    endpoint: z.string(),
+    keys: z.object({ p256dh: z.string(), auth: z.string() }).passthrough(),
+  })
+  .passthrough();
 const Team = z
   .object({
     id: z.string().uuid(),
@@ -298,6 +304,7 @@ const AttendanceRecord = z
 const SetNominationRequest = z
   .object({ userId: z.string().uuid(), nominated: z.boolean() })
   .passthrough();
+const CalendarFeedToken = z.object({ url: z.string().url() }).passthrough();
 const Absence = z
   .object({
     id: z.string().uuid(),
@@ -597,6 +604,7 @@ export const schemas = {
   VerifyEmailRequest,
   ResendVerificationRequest,
   DeleteAccountRequest,
+  PushSubscriptionRequest,
   Team,
   PermLevel,
   Permissions,
@@ -626,6 +634,7 @@ export const schemas = {
   SetAttendanceRequest,
   AttendanceRecord,
   SetNominationRequest,
+  CalendarFeedToken,
   Absence,
   CreateAbsenceRequest,
   UpdateAbsenceRequest,
@@ -870,6 +879,27 @@ const endpoints = makeApi([
     ],
   },
   {
+    method: "get",
+    path: "/calendar-feed/:token.ics",
+    alias: "getCalendarFeed",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "token",
+        type: "Path",
+        schema: z.string(),
+      },
+    ],
+    response: z.void(),
+    errors: [
+      {
+        status: 404,
+        description: `Not Found`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
     method: "post",
     path: "/invites/:code/accept",
     alias: "acceptInvite",
@@ -1065,6 +1095,34 @@ const endpoints = makeApi([
     response: z
       .object({ items: z.array(Absence), nextCursor: z.string().nullable() })
       .passthrough(),
+  },
+  {
+    method: "post",
+    path: "/teams/:teamId/calendar-feed/token",
+    alias: "issueCalendarFeedToken",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.object({ url: z.string().url() }).passthrough(),
+  },
+  {
+    method: "delete",
+    path: "/teams/:teamId/calendar-feed/token",
+    alias: "revokeCalendarFeedToken",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.void(),
   },
   {
     method: "get",
@@ -2246,6 +2304,34 @@ const endpoints = makeApi([
       },
     ],
     response: MemberAttendanceStats,
+  },
+  {
+    method: "post",
+    path: "/users/me/push-subscriptions",
+    alias: "registerPushSubscription",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: PushSubscriptionRequest,
+      },
+    ],
+    response: z.void(),
+  },
+  {
+    method: "delete",
+    path: "/users/me/push-subscriptions",
+    alias: "deletePushSubscription",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "endpoint",
+        type: "Query",
+        schema: z.string(),
+      },
+    ],
+    response: z.void(),
   },
 ]);
 

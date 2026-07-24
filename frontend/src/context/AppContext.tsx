@@ -350,7 +350,8 @@ export interface AppContextValue {
   // calendar export
   openCalExport: () => void;
   downloadIcs: () => void;
-  copyCalUrl: () => void;
+  copyCalUrl: (url: string) => void;
+  regenerateCalUrl: () => void;
   // news
   openNewsForm: (n?: NewsItem) => void;
   saveNews: (f: NewsFormValues) => Promise<void>;
@@ -1089,6 +1090,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openCalExport,
     downloadIcs,
     copyCalUrl,
+    regenerateCalUrl,
     openNewsForm,
     saveNews,
     removeNews,
@@ -1338,6 +1340,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openCalExport,
       downloadIcs,
       copyCalUrl,
+      regenerateCalUrl,
       openNewsForm,
       saveNews,
       removeNews,
@@ -1434,6 +1437,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openCalExport,
       downloadIcs,
       copyCalUrl,
+      regenerateCalUrl,
       openNewsForm,
       saveNews,
       removeNews,

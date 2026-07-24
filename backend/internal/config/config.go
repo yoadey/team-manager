@@ -63,6 +63,11 @@ var ErrS3ConfigRequired = errors.New("S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY_ID a
 // would otherwise silently fail to ever deliver a verification email.
 var ErrSMTPConfigRequired = errors.New("SMTP_HOST and SMTP_FROM_ADDRESS are required when COOKIE_SECURE=true")
 
+// ErrVAPIDConfigRequired is returned when VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY
+// or VAPID_SUBJECT is missing while COOKIE_SECURE is true (production) --
+// Web Push would otherwise silently never deliver.
+var ErrVAPIDConfigRequired = errors.New("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT are all required when COOKIE_SECURE=true")
+
 // cookieKeySize is the AES-256 key length required for session cookie encryption.
 const cookieKeySize = 32
 
@@ -166,6 +171,16 @@ type Config struct {
 	// email address for a fresh registration. Default 7. Set via
 	// RETENTION_UNVERIFIED_ACCOUNTS_DAYS.
 	RetentionUnverifiedAccountDays int
+	// VAPIDPublicKey/VAPIDPrivateKey authenticate this server to browser push
+	// services for Web Push delivery (RFC 8292). VAPIDPublicKey is not
+	// secret -- it's also shipped to the frontend build as
+	// VITE_VAPID_PUBLIC_KEY. Set via VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY.
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	// VAPIDSubject identifies the sender to the push service, e.g.
+	// "mailto:ops@example.com" -- required by the VAPID spec. Set via
+	// VAPID_SUBJECT.
+	VAPIDSubject string
 }
 
 func Load() (*Config, error) {
@@ -234,6 +249,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	vapid, err := loadVAPIDConfig(cookieSecure)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:                              envOr("PORT", "8080"),
 		DatabaseURL:                       dbURL,
@@ -273,7 +293,35 @@ func Load() (*Config, error) {
 		RegisterRateLimitPerMin:           reg.RegisterRateLimitPerMin,
 		ResendVerificationRateLimitPerMin: reg.ResendVerificationRateLimitPerMin,
 		RetentionUnverifiedAccountDays:    reg.RetentionUnverifiedAccountDays,
+		VAPIDPublicKey:                    vapid.PublicKey,
+		VAPIDPrivateKey:                   vapid.PrivateKey,
+		VAPIDSubject:                      vapid.Subject,
 	}, nil
+}
+
+// vapidSettings mirrors the VAPID-related Config fields; kept as its own
+// return type so loadVAPIDConfig has a single value to return, mirroring
+// s3Settings/smtpSettings.
+type vapidSettings struct {
+	PublicKey  string
+	PrivateKey string
+	Subject    string
+}
+
+// loadVAPIDConfig reads the VAPID_* env vars used to authenticate this
+// server to browser push services for Web Push, failing loudly if any is
+// missing while cookieSecure is true (production) -- see
+// ErrVAPIDConfigRequired.
+func loadVAPIDConfig(cookieSecure bool) (vapidSettings, error) {
+	v := vapidSettings{
+		PublicKey:  os.Getenv("VAPID_PUBLIC_KEY"),
+		PrivateKey: os.Getenv("VAPID_PRIVATE_KEY"),
+		Subject:    os.Getenv("VAPID_SUBJECT"),
+	}
+	if cookieSecure && (v.PublicKey == "" || v.PrivateKey == "" || v.Subject == "") {
+		return vapidSettings{}, ErrVAPIDConfigRequired
+	}
+	return v, nil
 }
 
 // s3Settings mirrors the S3-related Config fields; kept as its own return

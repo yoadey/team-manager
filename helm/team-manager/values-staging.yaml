@@ -80,6 +80,10 @@ smtp:
   secret:
     existingSecret: "team-manager-staging-smtp"
 
+push:
+  secret:
+    existingSecret: "team-manager-staging-push"
+
 pagination:
   secret:
     existingSecret: "team-manager-staging-pagination"

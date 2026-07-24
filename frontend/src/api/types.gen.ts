@@ -174,6 +174,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/me/push-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register (or update) this browser's Web Push subscription */
+        post: operations["registerPushSubscription"];
+        /** Unregister a Web Push subscription */
+        delete: operations["deletePushSubscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams": {
         parameters: {
             query?: never;
@@ -554,6 +572,45 @@ export interface paths {
         get?: never;
         /** Nominate or denominate a member for event */
         put: operations["setNomination"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/calendar-feed/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue (or rotate) the caller's calendar subscription link for this team */
+        post: operations["issueCalendarFeedToken"];
+        /** Revoke the caller's calendar subscription link for this team */
+        delete: operations["revokeCalendarFeedToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/calendar-feed/{token}.ics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model. */
+        get: operations["getCalendarFeed"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1455,6 +1512,21 @@ export interface components {
             items: components["schemas"]["AppNotification"][];
             unreadCount: number;
         };
+        /** @description Mirrors the shape PushSubscription.toJSON() produces in the browser. */
+        PushSubscriptionRequest: {
+            endpoint: string;
+            keys: {
+                p256dh: string;
+                auth: string;
+            };
+        };
+        CalendarFeedToken: {
+            /**
+             * Format: uri
+             * @description Ready-to-use calendar subscription URL (https://...).
+             */
+            url: string;
+        };
         Transaction: {
             /** Format: uuid */
             id: string;
@@ -1993,6 +2065,48 @@ export interface operations {
                 };
             };
             413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    registerPushSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deletePushSubscription: {
+        parameters: {
+            query: {
+                endpoint: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     listTeams: {
@@ -2795,6 +2909,71 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    issueCalendarFeedToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedToken"];
+                };
+            };
+        };
+    };
+    revokeCalendarFeedToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getCalendarFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description iCalendar document. Content-Type is text/calendar, not application/json -- oapi-codegen models this as a raw-bytes response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/calendar": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listAbsences: {
