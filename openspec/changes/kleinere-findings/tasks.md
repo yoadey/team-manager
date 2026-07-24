@@ -34,8 +34,8 @@
 - [ ] 8.3 `eventFormSchema.ts`/`EventFormSheet.tsx`: toggle between "N weeks" and "until date" recurrence input
 
 ## 9. Events: birthdays in the calendar (deferred)
-- [ ] 9.1 `EventCalendar.tsx`: synthesize yearly recurring pseudo-events from the members list's existing `birthday` field for the visible range
-- [ ] 9.2 Gate visibility with the same rule as the member profile's birthday field (`contactNote`: visible to the Trainerteam only)
+- [x] 9.1 `EventCalendar.tsx`: synthesize yearly recurring pseudo-events from the members list's existing `birthday` field for the visible range (extracted as pure `synthesizeBirthdayEvents.ts` for testability)
+- [x] 9.2 Gate visibility — `contactNote` turned out to be i18n copy only, not backed by an actual read-time gate anywhere in the codebase (birthday is otherwise unconditionally shown in `MemberDetailSheet`); gated calendar birthday entries on `app.can('members', 'write')`, the permission level the copy's "Trainerteam only" promise conceptually maps to. This is a new, calendar-specific gate — flagged here for awareness in case the underlying `contactNote` promise should also be enforced on the member detail view itself, which is out of this change's scope.
 
 ## 10. Events: configurable RSVP deadline + countdown (deferred — needs a migration + OpenAPI change)
 - [ ] 10.1 Migration: `rsvp_deadline` (nullable timestamptz) on `events` and `event_series`
@@ -44,19 +44,19 @@
 - [ ] 10.4 Frontend: event detail shows a countdown once under 24h remain until the deadline
 
 ## 11. Finances: penalty earned-date + note (deferred — needs a migration + OpenAPI change)
-- [ ] 11.1 Migration: `note TEXT` on `penalty_assignments` (the `date` column already exists but `CreateAssignment` never accepts a caller-supplied value)
-- [ ] 11.2 `finances/{repository,service,handler}.go`: `CreateAssignment` accepts an explicit date + optional note; `openapi.yaml`'s assignment create/response schemas; regenerate clients
-- [ ] 11.3 `PenaltyAssignSheet.tsx`: date picker + optional note field
+- [x] 11.1 Migration `00008_penalty_assignment_note.sql`: nullable `note TEXT` on `penalty_assignments` (the `date` column already existed but `CreateAssignment` never accepted a caller-supplied value)
+- [x] 11.2 `finances/{repository,service,handler}.go`: `CreateAssignment` accepts an explicit date + optional note; `openapi.yaml`'s assignment create/response schemas; regenerated clients
+- [x] 11.3 `PenaltyAssignSheet.tsx`: date picker (defaulting to today, editable to the past) + optional note field
 
 ## 12. Statistics: absence table tab (deferred — needs a new endpoint)
-- [ ] 12.1 New `stats` repository query: per-row (member, event, date) for events×attendance where the effective status is absent (reuses `attendance.EffectiveStatusExpr`)
-- [ ] 12.2 New `openapi.yaml` operation + `stats/{service,handler}.go`; regenerate clients
-- [ ] 12.3 `Stats.tsx`: a second tab with the absence table, alongside the existing per-person quota view
+- [x] 12.1 New `stats` repository query: per-row (member, event, date) for events×attendance where the effective status is absent (reuses `attendance.EffectiveStatusExpr`)
+- [x] 12.2 New `GET /teams/{teamId}/stats/absences` operation (`x-rbac-module: events`) + `stats/{service,handler}.go`; regenerated clients
+- [x] 12.3 `Stats.tsx`: a second tab ("Fehlzeiten") with the absence table, alongside the existing per-person quota view; empty state when no absences in range
 
 ## 13. Image delivery: backend proxy option (deferred — needs an interface + config change)
-- [ ] 13.1 `storage.ObjectStore`: add `Get(ctx, key) (io.ReadCloser, contentType string, err error)` on both `S3Store` and `FakeStore`
-- [ ] 13.2 Config flag selecting redirect (current default) vs. proxy delivery per deployment
-- [ ] 13.3 `teams.GetTeamPhoto`/`GetTeamLogo`, member photo handler: stream via `Get` instead of a 302 redirect when proxy mode is on; `openapi.yaml`'s 200-binary response alternative to the 302
+- [x] 13.1 `storage.ObjectStore`: added `Get(ctx, key) (io.ReadCloser, contentType string, err error)` on both `S3Store` and `FakeStore`
+- [x] 13.2 `IMAGE_DELIVERY_PROXY_ENABLED` config flag (default `false`) selecting redirect (current default) vs. proxy delivery per deployment
+- [x] 13.3 `teams.GetTeamPhoto`/`GetTeamLogo`, member photo handler: stream via `Get` instead of a 302 redirect when proxy mode is on; `openapi.yaml`'s 200-binary response alternative added to the 302; access-control check still runs before any bytes are streamed
 
 ## 14. Verification
 - [x] 14.1 Frontend: `npm run typecheck`, `npm test` (1169 tests), `npm run lint` (0 warnings), `npm run build` + `npm run check:bundle` (256.5 KB / 600 KB budget) all green for groups 1–7
