@@ -416,3 +416,20 @@ frontend image itself (only the backend has one under `helm/team-manager/`);
 until one exists, deploy the frontend container by whatever means fits your
 infrastructure (a plain Deployment/Service, a static host that proxies to the
 image, etc.), setting `API_BASE_URL` as above.
+
+### Helm chart
+
+The same tag also packages `helm/team-manager` and pushes it as a versioned
+OCI artifact to GHCR (`oci://ghcr.io/<org>/charts/team-manager`), with
+`Chart.yaml`'s `version`/`appVersion` set to the release version at package
+time and the pushed digest signed with keyless cosign, same as the container
+images above. Install or upgrade directly from the registry instead of a
+local checkout:
+
+```
+helm upgrade --install team-manager oci://ghcr.io/<org>/charts/team-manager \
+  --version X.Y.Z -f values-prod.yaml
+```
+
+Roll back by re-running the same command with the previous version — chart
+versions are immutable per digest, same as the images.
