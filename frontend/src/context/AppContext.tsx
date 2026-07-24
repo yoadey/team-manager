@@ -375,7 +375,7 @@ export interface AppContextValue {
   openPollForm: () => void;
   savePoll: (f: PollFormValues) => Promise<void>;
   togglePollOption: (poll: Poll, optId: string) => void;
-  removePoll: (id: string) => void;
+  removePoll: (id: string, question: string) => void;
 }
 
 /** Actions + helpers, without the mutable `state`. Stable across renders. */

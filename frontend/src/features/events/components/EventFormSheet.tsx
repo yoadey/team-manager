@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useForm, type UseFormRegister, type FieldErrors } from 'react-hook-form';
@@ -8,6 +9,7 @@ import type { Role } from '@/types';
 import type { SheetProps } from '@/sheets/types';
 import { eventFormSchema, type EventFormValues } from './eventFormSchema';
 import { t } from '@/i18n';
+import { useEventsQuery } from '../hooks/useEventQueries';
 
 type Tokens = ReturnType<typeof buildTokens>;
 type EventTypeValue = EventFormValues['type'];
@@ -404,6 +406,23 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
   const showSeriesButtons = sheet.mode === 'edit' && !!seriesId;
   const submitting = isSubmitting || app.state.savingEvent;
 
+  // Reuses the events list already cached for the calendar/list view (same
+  // query key) -- no extra request in the common case of opening this sheet
+  // from a page that has already loaded it.
+  const { data: knownEvents } = useEventsQuery(app.api, state.activeTeamId);
+  const locationSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const ev of knownEvents ?? []) {
+      const loc = ev.location.trim();
+      if (loc && !seen.has(loc.toLowerCase())) {
+        seen.add(loc.toLowerCase());
+        out.push(loc);
+      }
+    }
+    return out;
+  }, [knownEvents]);
+
   return (
     <Box
       component="form"
@@ -446,7 +465,17 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       </Box>
       <NominatedRolesSelector roles={state.roles} selectedIds={nominatedRoleIds} onToggle={toggleRole} />
       <Field label={t('events.fieldLocation')} error={!!errors.location} errorText={errors.location?.message}>
-        <TextInput placeholder={t('events.fieldLocationPlaceholder')} maxLength={255} {...register('location')} />
+        <TextInput
+          placeholder={t('events.fieldLocationPlaceholder')}
+          maxLength={255}
+          list="event-location-suggestions"
+          {...register('location')}
+        />
+        <datalist id="event-location-suggestions">
+          {locationSuggestions.map((loc) => (
+            <option key={loc} value={loc} />
+          ))}
+        </datalist>
       </Field>
       <Field label={t('events.fieldNote')} error={!!errors.note} errorText={errors.note?.message}>
         <TextArea

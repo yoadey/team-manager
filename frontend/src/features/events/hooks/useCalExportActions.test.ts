@@ -104,8 +104,8 @@ describe('useCalExportActions', () => {
       result.current.downloadIcs();
     });
 
-    expect(capturedIcsText).toContain('Performance / Tournament');
-    expect(capturedIcsText).not.toContain('Auftritt / Turnier');
+    expect(capturedIcsText).toContain('Competition / Performance');
+    expect(capturedIcsText).not.toContain('Wettkampf / Auftritt');
     expect(capturedIcsText).not.toContain('Treffen');
     expect(capturedIcsText).not.toContain('Typ:');
   });
@@ -122,7 +122,7 @@ describe('useCalExportActions', () => {
       result.current.downloadIcs();
     });
 
-    expect(capturedIcsText).toContain('Auftritt / Turnier');
+    expect(capturedIcsText).toContain('Wettkampf / Auftritt');
   });
 });
 

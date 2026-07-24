@@ -19,6 +19,19 @@ interface NotifMeta {
   avatar?: boolean;
 }
 
+/** line2 for event_* notification types: title, date, note and actor, each
+ * segment omitted when absent. Falls back to `title` for any future type
+ * whose enqueue path sets that instead of `eventTitle`. */
+function eventNotifLine2(n: AppNotification): string {
+  const segments = [
+    n.eventTitle || n.title || '',
+    n.eventDate ? fmtDate(n.eventDate) : '',
+    n.note || '',
+    n.actorName || '',
+  ];
+  return segments.filter(Boolean).join(' · ');
+}
+
 function notifDayLabel(isoStr: string) {
   const d = new Date(isoStr);
   const a = new Date();
@@ -73,7 +86,7 @@ export function NotificationsSheet({ app }: SheetProps) {
         col: m[1],
         bg: m[2],
         line1: m[3],
-        line2: n.title + (n.note ? ' · ' + n.note : '') + (n.actorName ? ' · ' + n.actorName : ''),
+        line2: eventNotifLine2(n),
         onClick: n.eventId && n.type !== 'event_deleted' ? () => app.openEventDetail(n.eventId!) : null,
         group: 'events',
       };

@@ -94,7 +94,7 @@ export function PollsPage() {
               />
               {canDelete ? (
                 <ButtonBase
-                  onClick={() => app.removePoll(p.id)}
+                  onClick={() => app.removePoll(p.id, p.question)}
                   aria-label={t('polls.deleteLabel')}
                   sx={{
                     width: '30px',
@@ -126,6 +126,20 @@ export function PollsPage() {
             >
               {opts}
             </Box>
+            {!p.anonymous && p.options.some((o) => o.voters.length) ? (
+              <Box sx={{ mt: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {p.options
+                  .filter((o) => o.voters.length)
+                  .map((o) => (
+                    <Box key={o.id} sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
+                      <Box component="span" sx={{ fontWeight: 600 }}>
+                        {o.text}:
+                      </Box>{' '}
+                      {o.voters.map((v) => v.name).join(', ')}
+                    </Box>
+                  ))}
+              </Box>
+            ) : null}
             <Box sx={{ mt: '10px', fontSize: '12px', color: NEUTRAL.faint }}>
               {p.anonymous
                 ? t('polls.votesAnon', { n: p.totalVotes, count: p.totalVotes })
