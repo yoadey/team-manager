@@ -91,6 +91,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     onFormInput: vi.fn(),
     onFile: vi.fn(),
     uploadMyPhoto: vi.fn(),
+    openLegal: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   return app;
@@ -302,6 +303,20 @@ describe('ProfileSheet', () => {
     expect(screen.getByText('Sprache')).toBeTruthy();
     expect(screen.getByText('Deutsch')).toBeTruthy();
     expect(screen.getByText('English')).toBeTruthy();
+  });
+
+  it('clicking "Impressum" calls openLegal with impressum', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    fireEvent.click(screen.getByText('Impressum'));
+    expect(app.openLegal).toHaveBeenCalledWith('impressum');
+  });
+
+  it('clicking "Datenschutzerklärung" calls openLegal with datenschutz', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    fireEvent.click(screen.getByText('Datenschutzerklärung'));
+    expect(app.openLegal).toHaveBeenCalledWith('datenschutz');
   });
 });
 

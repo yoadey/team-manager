@@ -13,15 +13,21 @@ const mockUseApp = vi.mocked(useApp);
 function makeApp(overrides: { doRegister?: ReturnType<typeof vi.fn>; doResendVerification?: ReturnType<typeof vi.fn> } = {}) {
   const doRegister = overrides.doRegister ?? vi.fn().mockResolvedValue(true);
   const doResendVerification = overrides.doResendVerification ?? vi.fn().mockResolvedValue(true);
-  const app = { doRegister, doResendVerification };
+  const openLegal = vi.fn();
+  const app = { doRegister, doResendVerification, openLegal };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   return app;
+}
+
+function checkAgeBox() {
+  fireEvent.click(screen.getByRole('checkbox'));
 }
 
 function fillAndSubmit(email: string, password: string, confirmPassword: string) {
   fireEvent.change(document.getElementById('register-email')!, { target: { value: email } });
   fireEvent.change(document.getElementById('register-password')!, { target: { value: password } });
   fireEvent.change(document.getElementById('register-confirm-password')!, { target: { value: confirmPassword } });
+  checkAgeBox();
   fireEvent.click(screen.getByText('Konto erstellen').closest('button')!);
 }
 
@@ -89,5 +95,36 @@ describe('Register', () => {
 
     fireEvent.click(screen.getByText((content) => content.includes('Zurück')));
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('blocks submit when the minimum-age checkbox is left unchecked', () => {
+    const app = makeApp();
+    render(<Register onBack={vi.fn()} />);
+
+    fireEvent.change(document.getElementById('register-email')!, { target: { value: 'new@example.com' } });
+    fireEvent.change(document.getElementById('register-password')!, { target: { value: 'longenoughpassword' } });
+    fireEvent.change(document.getElementById('register-confirm-password')!, { target: { value: 'longenoughpassword' } });
+
+    const submitButton = screen.getByText('Konto erstellen').closest('button')!;
+    expect(submitButton).toBeDisabled();
+    fireEvent.click(submitButton);
+    expect(app.doRegister).not.toHaveBeenCalled();
+  });
+
+  it('enables submit once the minimum-age checkbox is checked', () => {
+    const app = makeApp();
+    render(<Register onBack={vi.fn()} />);
+
+    fillAndSubmit('new@example.com', 'longenoughpassword', 'longenoughpassword');
+
+    expect(app.doRegister).toHaveBeenCalledWith('new@example.com', 'longenoughpassword');
+  });
+
+  it('opens the privacy policy when the link is clicked', () => {
+    const app = makeApp();
+    render(<Register onBack={vi.fn()} />);
+
+    fireEvent.click(screen.getByText('Datenschutzerklärung'));
+    expect(app.openLegal).toHaveBeenCalledWith('datenschutz');
   });
 });
