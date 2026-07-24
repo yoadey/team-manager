@@ -18,23 +18,65 @@ ingress:
       hosts:
         - team-manager.example.com
 
-allowedOrigins: "https://team-manager.example.com"
-
-existingSecret: "team-manager-prod-secrets"
-
-env:
-  PORT: "8080"
-  COOKIE_SECURE: "true"
-  SESSION_TTL_HOURS: "720"
-  OTEL_SERVICE_NAME: "team-manager-backend"
-  ENVIRONMENT: "production"
+server:
+  allowedOrigins:
+    - "https://team-manager.example.com"
   # Since ingress is enabled above, every request is proxied through
   # nginx-ingress — set this to your cluster's ingress-controller pod CIDR
   # (or LB egress range) or rate limiting/login brute-force protection
   # silently keys on the ingress controller's own IP for every client. See
   # docs/operations.md's "Rate limiting" section. `helm install`/`upgrade`
   # prints a warning (see templates/NOTES.txt) if this is left unset.
-  # TRUSTED_PROXY_CIDRS: "10.244.0.0/16"
+  # trustedProxyCidrs:
+  #   - "10.244.0.0/16"
+
+session:
+  cookie:
+    secure: true
+
+observability:
+  otelServiceName: "team-manager-backend"
+  environment: "production"
+  sentry:
+    secret:
+      existingSecret: "team-manager-prod-sentry"
+
+# Every credential below is its own Secret -- no combined "God Secret" -- so
+# rotating one area (e.g. S3 access key) never touches another area's
+# (e.g. JWT signing key) blast radius. Create each Secret out-of-band
+# (external-secrets + Vault/AWS SM, or manually) with the fixed key names
+# documented per section in values.yaml; s3.endpoint/s3.bucket and
+# smtp.host/smtp.fromAddress still need a values override too (see
+# docs/operations.md's "Object storage (image uploads)" and "Outbound email
+# (SMTP)" sections) — templates/NOTES.txt warns at deploy time if either is
+# missing.
+database:
+  secret:
+    existingSecret: "team-manager-prod-database"
+
+jwt:
+  secret:
+    existingSecret: "team-manager-prod-jwt"
+
+cookieEncryption:
+  secret:
+    existingSecret: "team-manager-prod-cookie-encryption"
+
+s3:
+  secret:
+    existingSecret: "team-manager-prod-s3"
+
+smtp:
+  secret:
+    existingSecret: "team-manager-prod-smtp"
+
+pagination:
+  secret:
+    existingSecret: "team-manager-prod-pagination"
+
+metrics:
+  secret:
+    existingSecret: "team-manager-prod-metrics"
 
 resources:
   requests:
