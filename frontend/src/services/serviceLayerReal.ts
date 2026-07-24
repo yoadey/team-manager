@@ -26,9 +26,20 @@ import {
   mapPenaltyAssignment,
   mapContribution,
   mapStatsOverview,
+  mapAttendanceAbsenceTable,
   eurosToCents,
 } from '@/api/map';
-import type { User, Team, TeamForUser, Role, Invite, Provider, DateRange, StatsOverview } from '@/types';
+import type {
+  User,
+  Team,
+  TeamForUser,
+  Role,
+  Invite,
+  Provider,
+  DateRange,
+  StatsOverview,
+  AttendanceAbsenceTable,
+} from '@/types';
 import type { TeamEvent, AttendanceRow, EventComment, Absence } from '@/features/events';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
@@ -1013,6 +1024,14 @@ export const realApi = {
       });
       const o = await check(res);
       return mapStatsOverview(o);
+    },
+
+    async absenceTable(teamId: string, range?: DateRange | null): Promise<AttendanceAbsenceTable> {
+      const res = await apiClient.GET('/teams/{teamId}/stats/absences', {
+        params: { path: { teamId }, query: { ...opt('from', range?.from ?? undefined), ...opt('to', range?.to ?? undefined) } },
+      });
+      const t = await check(res);
+      return mapAttendanceAbsenceTable(t);
     },
   },
 

@@ -21,6 +21,8 @@ import type {
   MemberStat,
   EventStat,
   StatsOverview,
+  AttendanceAbsenceRow,
+  AttendanceAbsenceTable,
   Provider,
 } from '@/types';
 import type { Member, MemberDto } from '@/features/members';
@@ -455,5 +457,23 @@ export function mapStatsOverview(o: S['StatsOverview']): StatsOverview {
     pastCount: o.pastCount,
     from: o.from,
     to: o.to,
+  };
+}
+
+export function mapAttendanceAbsenceRow(r: S['AttendanceAbsenceRow']): AttendanceAbsenceRow {
+  return {
+    userId: r.userId,
+    memberName: r.memberName,
+    eventId: r.eventId,
+    eventTitle: r.eventTitle,
+    eventDate: r.eventDate,
+  };
+}
+
+export function mapAttendanceAbsenceTable(t: S['AttendanceAbsenceTable']): AttendanceAbsenceTable {
+  return {
+    rows: t.rows.map(mapAttendanceAbsenceRow),
+    from: t.from,
+    to: t.to,
   };
 }

@@ -720,5 +720,10 @@ export const en: Messages = {
     complete: 'Complete',
     tooFew: 'Too few',
     emptyPast: 'No past events yet',
+    tabsAria: 'Statistics view',
+    tabQuota: 'Rate',
+    tabAbsences: 'Absences',
+    absenceTableTitle: 'Absences per person',
+    emptyAbsences: 'No absences in the selected range',
   },
 };

@@ -321,6 +321,10 @@ func (StrictUnimplemented) GetCalendarFeed(_ context.Context, _ gen.GetCalendarF
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) GetStatsAbsences(_ context.Context, _ gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 // Server implements gen.StrictServerInterface by composing feature handlers.
@@ -740,4 +744,8 @@ func (s *Server) RevokeCalendarFeedToken(ctx context.Context, req gen.RevokeCale
 
 func (s *Server) GetCalendarFeed(ctx context.Context, req gen.GetCalendarFeedRequestObject) (gen.GetCalendarFeedResponseObject, error) {
 	return s.CalendarFeed.GetCalendarFeed(ctx, req)
+}
+
+func (s *Server) GetStatsAbsences(ctx context.Context, req gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
+	return s.Stats.GetStatsAbsences(ctx, req)
 }

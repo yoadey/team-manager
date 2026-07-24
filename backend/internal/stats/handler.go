@@ -18,6 +18,7 @@ import (
 type statsService interface {
 	GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error)
 	GetMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error)
+	GetAbsences(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error)
 }
 
 // Handler implements the stats-related methods of gen.StrictServerInterface.
@@ -58,4 +59,17 @@ func (h *Handler) GetMemberStats(ctx context.Context, req gen.GetMemberStatsRequ
 		return nil, apierror.Internal("failed to get member stats")
 	}
 	return gen.GetMemberStats200JSONResponse(*stats), nil
+}
+
+// GetStatsAbsences returns the per-member, per-event absence table for the team.
+func (h *Handler) GetStatsAbsences(ctx context.Context, req gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	table, err := h.svc.GetAbsences(ctx, req.TeamId, req.Params.From, req.Params.To)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "GetStatsAbsences failed", "err", err)
+		return nil, apierror.Internal("failed to get absence stats")
+	}
+	return gen.GetStatsAbsences200JSONResponse(*table), nil
 }

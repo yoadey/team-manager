@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
@@ -5,14 +6,18 @@ import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '@/styles/toke
 import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
-import type { DateRange } from '@/types';
-import { useStatsQuery } from './hooks/useStatsQueries';
+import type { AttendanceAbsenceTable, DateRange, StatsOverview } from '@/types';
+import { useAbsenceTableQuery, useStatsQuery } from './hooks/useStatsQueries';
+
+type StatsTab = 'quota' | 'absences';
 
 export function Stats() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);
   const { data: st } = useStatsQuery(app.api, state.activeTeamId, state.statsRange);
+  const { data: absenceTable } = useAbsenceTableQuery(app.api, state.activeTeamId, state.statsRange);
+  const [activeTab, setActiveTab] = useState<StatsTab>('quota');
 
   const today = todayStr();
   const ago = (months: number) => monthsAgoLocal(today, months);
@@ -87,14 +92,58 @@ export function Stats() {
     </Box>
   );
 
-  if (!st)
+  const tabs: [StatsTab, string][] = [
+    ['quota', tr('stats.tabQuota')],
+    ['absences', tr('stats.tabAbsences')],
+  ];
+  const tabBar = (
+    <Box key="tabs" role="tablist" aria-label={tr('stats.tabsAria')} sx={{ display: 'flex', gap: '8px', mb: '16px' }}>
+      {tabs.map(([key, label]) => {
+        const sel = activeTab === key;
+        return (
+          <ButtonBase
+            key={key}
+            role="tab"
+            aria-selected={sel}
+            onClick={() => setActiveTab(key)}
+            sx={{
+              p: '8px 14px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: '1.5px solid ' + (sel ? t.primary : NEUTRAL.inputBorder),
+              background: sel ? t.primaryContainer : NEUTRAL.card,
+              color: sel ? t.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+            }}
+          >
+            {label}
+          </ButtonBase>
+        );
+      })}
+    </Box>
+  );
+
+  const loading = activeTab === 'quota' ? !st : !absenceTable;
+  if (loading)
     return (
       <Box sx={{ maxWidth: '760px' }}>
         {filterBar}
+        {tabBar}
         <SpinnerBox />
       </Box>
     );
 
+  return (
+    <Box sx={{ maxWidth: '760px' }}>
+      {filterBar}
+      {tabBar}
+      {activeTab === 'quota' ? <QuotaView st={st as StatsOverview} t={t} /> : <AbsenceTableView table={absenceTable as AttendanceAbsenceTable} />}
+    </Box>
+  );
+}
+
+function QuotaView({ st, t }: { st: StatsOverview; t: ReturnType<typeof buildTokens> }) {
   const ring = (
     <Box
       key="ring"
@@ -250,11 +299,54 @@ export function Stats() {
   );
 
   return (
-    <Box sx={{ maxWidth: '760px' }}>
-      {filterBar}
+    <>
       {ring}
       {memberBars}
       {eventsSec}
+    </>
+  );
+}
+
+function AbsenceTableView({ table }: { table: AttendanceAbsenceTable }) {
+  return (
+    <Box key="abs">
+      <SectionTitle>{tr('stats.absenceTableTitle')}</SectionTitle>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {table.rows.length ? (
+          table.rows.map((r) => (
+            <Box
+              key={r.userId + '_' + r.eventId}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                background: NEUTRAL.card,
+                border: `1px solid ${NEUTRAL.line}`,
+                borderRadius: '14px',
+                p: '11px 14px',
+              }}
+            >
+              <Av name={r.memberName} photo={null} color={NEUTRAL.faint} size={36} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Box sx={{ fontSize: '14px', fontWeight: 600 }}>{r.memberName}</Box>
+                <Box
+                  sx={{
+                    fontSize: '12px',
+                    color: NEUTRAL.faint,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {r.eventTitle + ' · ' + fmtDate(r.eventDate)}
+                </Box>
+              </Box>
+            </Box>
+          ))
+        ) : (
+          <EmptyState icon="event_busy" text={tr('stats.emptyAbsences')} />
+        )}
+      </Box>
     </Box>
   );
 }

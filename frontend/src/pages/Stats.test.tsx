@@ -21,8 +21,13 @@ function makeStats() {
   };
 }
 
-function makeApp(statsOverride: unknown = null, statsRange: { from: string; to: string } | null = null) {
+function makeApp(
+  statsOverride: unknown = null,
+  statsRange: { from: string; to: string } | null = null,
+  absenceTableOverride: unknown = null,
+) {
   mockUseStatsQuery.mockReturnValue({ data: statsOverride ?? undefined } as never);
+  mockUseAbsenceTableQuery.mockReturnValue({ data: absenceTableOverride ?? undefined } as never);
   return {
     api: {},
     state: {
@@ -42,17 +47,19 @@ vi.mock('@/context/AppContext', () => ({
 }));
 
 // Mocked directly on the hooks module (not just a barrel re-export) --
-// Stats.tsx imports `useStatsQuery` via this exact relative path, so this
-// must match it (see the identical comment/pattern in PollsPage.test.tsx/
-// NewsPage.test.tsx).
+// Stats.tsx imports `useStatsQuery`/`useAbsenceTableQuery` via this exact
+// relative path, so this must match it (see the identical comment/pattern in
+// PollsPage.test.tsx/NewsPage.test.tsx).
 vi.mock('./hooks/useStatsQueries', () => ({
   useStatsQuery: vi.fn(),
+  useAbsenceTableQuery: vi.fn(),
 }));
 
 import { useApp } from '@/context/AppContext';
-import { useStatsQuery } from './hooks/useStatsQueries';
+import { useAbsenceTableQuery, useStatsQuery } from './hooks/useStatsQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
+const mockUseAbsenceTableQuery = useAbsenceTableQuery as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
   beforeEach(() => {
@@ -184,5 +191,47 @@ describe('Stats', () => {
     render(<Stats />);
     // Filter bar renders — no crash
     expect(screen.getByText('Gesamt')).toBeTruthy();
+  });
+
+  it('renders the absence table tab with rows when switched to', async () => {
+    mockUseApp.mockReturnValue(
+      makeApp(makeStats(), null, {
+        rows: [
+          { userId: 'u1', memberName: 'Anna Müller', eventId: 'ev1', eventTitle: 'Training', eventDate: '2026-03-01' },
+          { userId: 'u2', memberName: 'Bob Schmidt', eventId: 'ev2', eventTitle: 'Spiel', eventDate: '2026-03-05' },
+        ],
+        from: '2025-12-01',
+        to: '2026-03-05',
+      }),
+    );
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Fehlzeiten'));
+    expect(screen.getByText('Fehlzeiten je Person')).toBeTruthy();
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    expect(screen.getByText('Bob Schmidt')).toBeTruthy();
+    expect(screen.getByText(/Training/)).toBeTruthy();
+    expect(screen.getByText(/Spiel/)).toBeTruthy();
+  });
+
+  it('shows an empty state (not an empty table) when there are no absences in range', async () => {
+    mockUseApp.mockReturnValue(
+      makeApp(makeStats(), null, { rows: [], from: '2025-12-01', to: '2026-03-05' }),
+    );
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Fehlzeiten'));
+    expect(screen.getByText('Keine Fehlzeiten im gewählten Zeitraum')).toBeTruthy();
+  });
+
+  it('shows a spinner for the absence tab while its data has not loaded yet', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null));
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Fehlzeiten'));
+    expect(screen.getByRole('status')).toBeTruthy();
+  });
+
+  it('stays on the quota tab view by default', () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats()));
+    render(<Stats />);
+    expect(screen.getByText('Quote pro Person')).toBeTruthy();
   });
 });

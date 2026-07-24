@@ -1058,6 +1058,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/stats/absences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Per-member, per-event absence table for the date range */
+        get: operations["getStatsAbsences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1748,6 +1767,23 @@ export interface components {
             members: components["schemas"]["MemberStat"][];
             events: components["schemas"]["EventStat"][];
             pastCount: number;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        AttendanceAbsenceRow: {
+            /** Format: uuid */
+            userId: string;
+            memberName: string;
+            /** Format: uuid */
+            eventId: string;
+            eventTitle: string;
+            /** Format: date */
+            eventDate: string;
+        };
+        AttendanceAbsenceTable: {
+            rows: components["schemas"]["AttendanceAbsenceRow"][];
             /** Format: date */
             from: string;
             /** Format: date */
@@ -3740,6 +3776,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberAttendanceStats"];
+                };
+            };
+        };
+    };
+    getStatsAbsences: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceAbsenceTable"];
                 };
             };
         };

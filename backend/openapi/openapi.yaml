@@ -1685,6 +1685,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/MemberAttendanceStats"
 
+  /teams/{teamId}/stats/absences:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: getStatsAbsences
+      x-rbac-module: events
+      summary: Per-member, per-event absence table for the date range
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceAbsenceTable"
+
 # ─── Components ───────────────────────────────────────────────────────────────
 components:
   securitySchemes:
@@ -3162,6 +3189,39 @@ components:
             $ref: "#/components/schemas/EventStat"
         pastCount:
           type: integer
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    AttendanceAbsenceRow:
+      type: object
+      required: [userId, memberName, eventId, eventTitle, eventDate]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        memberName:
+          type: string
+        eventId:
+          type: string
+          format: uuid
+        eventTitle:
+          type: string
+        eventDate:
+          type: string
+          format: date
+
+    AttendanceAbsenceTable:
+      type: object
+      required: [rows, from, to]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceAbsenceRow"
         from:
           type: string
           format: date
