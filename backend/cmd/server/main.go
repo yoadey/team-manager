@@ -375,12 +375,14 @@ func main() {
 	teamsRepo := teams.NewRepository(pool)
 	teamsSvc := teams.NewService(teamsRepo, objectStore, cfg.PublicBaseURL)
 	teamsHandler := teams.NewHandler(teamsSvc, logger, auditLogger)
+	teamsHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
 
 	// ─── Members ─────────────────────────────────────────────────────────────
 
 	membersRepo := members.NewRepository(pool)
 	membersSvc := members.NewService(membersRepo, objectStore, pager)
 	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
+	membersHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
 
 	// ─── Roles ───────────────────────────────────────────────────────────────
 

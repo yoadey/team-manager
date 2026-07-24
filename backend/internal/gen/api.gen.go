@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -5112,6 +5113,13 @@ type NotFoundApplicationProblemPlusJSONResponse Problem
 
 type PayloadTooLargeApplicationProblemPlusJSONResponse Problem
 
+type PhotoBytesImageResponse struct {
+	Body io.Reader
+
+	ContentType   string
+	ContentLength int64
+}
+
 type PhotoRedirectResponseHeaders struct {
 	Location *string
 }
@@ -6422,6 +6430,23 @@ type GetTeamLogoResponseObject interface {
 	VisitGetTeamLogoResponse(w http.ResponseWriter) error
 }
 
+type GetTeamLogo200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetTeamLogo200ImageResponse) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
 type GetTeamLogo302Response = PhotoRedirectResponse
 
 func (response GetTeamLogo302Response) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
@@ -6563,6 +6588,23 @@ type GetMemberPhotoRequestObject struct {
 
 type GetMemberPhotoResponseObject interface {
 	VisitGetMemberPhotoResponse(w http.ResponseWriter) error
+}
+
+type GetMemberPhoto200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetMemberPhoto200ImageResponse) VisitGetMemberPhotoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
 }
 
 type GetMemberPhoto302Response = PhotoRedirectResponse
@@ -6767,6 +6809,23 @@ type GetTeamPhotoRequestObject struct {
 
 type GetTeamPhotoResponseObject interface {
 	VisitGetTeamPhotoResponse(w http.ResponseWriter) error
+}
+
+type GetTeamPhoto200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetTeamPhoto200ImageResponse) VisitGetTeamPhotoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
 }
 
 type GetTeamPhoto302Response = PhotoRedirectResponse

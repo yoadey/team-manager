@@ -362,6 +362,8 @@ paths:
       x-rbac-module: public
       summary: Get team photo
       responses:
+        "200":
+          $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
         "404":
@@ -409,6 +411,8 @@ paths:
       x-rbac-module: public
       summary: Get team logo
       responses:
+        "200":
+          $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
         "404":
@@ -559,6 +563,8 @@ paths:
       x-rbac-module: members
       summary: Get a team member's profile photo
       responses:
+        "200":
+          $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
         "404":
@@ -1691,6 +1697,18 @@ components:
             type: string
             format: uri
           description: Presigned URL to fetch the image bytes from.
+    PhotoBytes:
+      description: >-
+        The image bytes, streamed directly by the backend instead of a
+        redirect. Returned instead of the 302 when the deployment is
+        configured for proxy image delivery (IMAGE_DELIVERY_PROXY_ENABLED=true);
+        access is membership-gated before any bytes are streamed, same as
+        the redirect mode's presign gating.
+      content:
+        image/*:
+          schema:
+            type: string
+            format: binary
 
   schemas:
 

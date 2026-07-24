@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -55,6 +56,28 @@ func (s *Service) GetMemberPhotoURL(ctx context.Context, teamID, membershipID st
 		return "", fmt.Errorf("members.Service.GetMemberPhotoURL: %w", err)
 	}
 	return url, nil
+}
+
+// GetMemberPhotoBytes returns the given membership's photo as a byte stream
+// plus its content type, or pgx.ErrNoRows if the membership doesn't belong to
+// teamID or the member has no photo set. Used instead of GetMemberPhotoURL
+// when the deployment is configured for proxy image delivery
+// (config.Config.ImageDeliveryProxyEnabled) -- the caller streams the bytes
+// through the backend rather than redirecting to a presigned URL. The caller
+// must Close the returned ReadCloser.
+func (s *Service) GetMemberPhotoBytes(ctx context.Context, teamID, membershipID string) (io.ReadCloser, string, error) {
+	key, err := s.repo.GetMemberPhotoKey(ctx, teamID, membershipID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", pgx.ErrNoRows
+		}
+		return nil, "", fmt.Errorf("members.Service.GetMemberPhotoBytes: %w", err)
+	}
+	data, contentType, err := s.store.Get(ctx, key)
+	if err != nil {
+		return nil, "", fmt.Errorf("members.Service.GetMemberPhotoBytes: %w", err)
+	}
+	return data, contentType, nil
 }
 
 // ListMembers returns a keyset page of members plus the cursor for the next

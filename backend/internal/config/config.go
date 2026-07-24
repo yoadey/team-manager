@@ -166,6 +166,14 @@ type Config struct {
 	// email address for a fresh registration. Default 7. Set via
 	// RETENTION_UNVERIFIED_ACCOUNTS_DAYS.
 	RetentionUnverifiedAccountDays int
+	// ImageDeliveryProxyEnabled selects how team/user photo and team logo
+	// GET endpoints deliver image bytes. Defaults to false: the handler
+	// redirects (302) to a short-lived presigned object-store URL, as
+	// today. When true, the handler instead streams the object store's
+	// bytes directly through the backend (200, via storage.ObjectStore.Get)
+	// -- for deployments where the object store is not reachable from the
+	// browser. Set via IMAGE_DELIVERY_PROXY_ENABLED.
+	ImageDeliveryProxyEnabled bool
 }
 
 func Load() (*Config, error) {
@@ -234,6 +242,11 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	imageDeliveryProxyEnabled, err := loadImageDeliveryProxyEnabled()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Port:                              envOr("PORT", "8080"),
 		DatabaseURL:                       dbURL,
@@ -273,6 +286,7 @@ func Load() (*Config, error) {
 		RegisterRateLimitPerMin:           reg.RegisterRateLimitPerMin,
 		ResendVerificationRateLimitPerMin: reg.ResendVerificationRateLimitPerMin,
 		RetentionUnverifiedAccountDays:    reg.RetentionUnverifiedAccountDays,
+		ImageDeliveryProxyEnabled:         imageDeliveryProxyEnabled,
 	}, nil
 }
 
@@ -413,6 +427,20 @@ func loadSelfRegistrationEnabled() (bool, error) {
 	b, err := strconv.ParseBool(v)
 	if err != nil {
 		return false, fmt.Errorf("SELF_REGISTRATION_ENABLED: %w", err)
+	}
+	return b, nil
+}
+
+// loadImageDeliveryProxyEnabled reads IMAGE_DELIVERY_PROXY_ENABLED, defaulting
+// to false (redirect mode, unchanged from before this flag existed).
+func loadImageDeliveryProxyEnabled() (bool, error) {
+	v := os.Getenv("IMAGE_DELIVERY_PROXY_ENABLED")
+	if v == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("IMAGE_DELIVERY_PROXY_ENABLED: %w", err)
 	}
 	return b, nil
 }

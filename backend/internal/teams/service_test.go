@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"io"
 	"testing"
 	"time"
 
@@ -444,7 +445,7 @@ func TestTeamService_UpdateLogo_StoresResizedJPEGAndReturnsTeam(t *testing.T) {
 	result, err := svc.UpdateLogo(context.Background(), teamID.String(), fixedJPEG(t), "image/jpeg")
 	require.NoError(t, err)
 	assert.Equal(t, "teams/"+teamID.String()+"/logo", storedKey)
-	data, ok := store.Get(storedKey)
+	data, ok := store.Contents(storedKey)
 	require.True(t, ok, "resized image must be uploaded to the object store")
 	assert.NotEmpty(t, data)
 	assert.True(t, *result.HasLogo)
@@ -587,5 +588,84 @@ func TestTeamService_GetTeamLogoURL_NoLogoReturnsErrNoRows(t *testing.T) {
 
 	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
 	_, err := svc.GetTeamLogoURL(context.Background(), teamID.String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// TestTeamService_GetTeamPhotoBytes_StreamsStoredBytes covers the proxy-mode
+// delivery path (config.Config.ImageDeliveryProxyEnabled): instead of a
+// presigned URL, the service streams the object store's bytes directly.
+func TestTeamService_GetTeamPhotoBytes_StreamsStoredBytes(t *testing.T) {
+	teamID := uuid.New()
+	key := "teams/" + teamID.String() + "/photo"
+
+	repo := &mockTeamRepo{
+		getTeamPhotoKey: func(_ context.Context, _ string) (string, error) {
+			return key, nil
+		},
+	}
+
+	store := storage.NewFakeStore()
+	require.NoError(t, store.Put(context.Background(), key, []byte("photo-bytes"), "image/jpeg"))
+
+	svc := teams.NewService(repo, store, "https://app.example.com")
+	rc, contentType, err := svc.GetTeamPhotoBytes(context.Background(), teamID.String())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rc.Close()) })
+	assert.Equal(t, "image/jpeg", contentType)
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("photo-bytes"), data)
+}
+
+func TestTeamService_GetTeamPhotoBytes_NoPhotoReturnsErrNoRows(t *testing.T) {
+	teamID := uuid.New()
+
+	repo := &mockTeamRepo{
+		getTeamPhotoKey: func(_ context.Context, _ string) (string, error) {
+			return "", pgx.ErrNoRows
+		},
+	}
+
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
+	_, _, err := svc.GetTeamPhotoBytes(context.Background(), teamID.String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// TestTeamService_GetTeamLogoBytes_StreamsStoredBytes mirrors the photo
+// coverage above for the logo.
+func TestTeamService_GetTeamLogoBytes_StreamsStoredBytes(t *testing.T) {
+	teamID := uuid.New()
+	key := "teams/" + teamID.String() + "/logo"
+
+	repo := &mockTeamRepo{
+		getTeamLogoKey: func(_ context.Context, _ string) (string, error) {
+			return key, nil
+		},
+	}
+
+	store := storage.NewFakeStore()
+	require.NoError(t, store.Put(context.Background(), key, []byte("logo-bytes"), "image/png"))
+
+	svc := teams.NewService(repo, store, "https://app.example.com")
+	rc, contentType, err := svc.GetTeamLogoBytes(context.Background(), teamID.String())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rc.Close()) })
+	assert.Equal(t, "image/png", contentType)
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("logo-bytes"), data)
+}
+
+func TestTeamService_GetTeamLogoBytes_NoLogoReturnsErrNoRows(t *testing.T) {
+	teamID := uuid.New()
+
+	repo := &mockTeamRepo{
+		getTeamLogoKey: func(_ context.Context, _ string) (string, error) {
+			return "", pgx.ErrNoRows
+		},
+	}
+
+	svc := teams.NewService(repo, storage.NewFakeStore(), "https://app.example.com")
+	_, _, err := svc.GetTeamLogoBytes(context.Background(), teamID.String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -27,11 +28,12 @@ import (
 // ─── mock service ─────────────────────────────────────────────────────────────
 
 type mockMemberService struct {
-	listMembers    func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
-	getMemberPhoto func(ctx context.Context, teamID, membershipID string) (string, error)
-	updateMember   func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
-	setRoles       func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
-	removeMember   func(ctx context.Context, membershipID, teamID, callerUserID string) error
+	listMembers         func(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error)
+	getMemberPhoto      func(ctx context.Context, teamID, membershipID string) (string, error)
+	getMemberPhotoBytes func(ctx context.Context, teamID, membershipID string) (io.ReadCloser, string, error)
+	updateMember        func(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error)
+	setRoles            func(ctx context.Context, membershipID, teamID string, roleIDs []string, callerUserID string) (*gen.Member, error)
+	removeMember        func(ctx context.Context, membershipID, teamID, callerUserID string) error
 }
 
 func (m *mockMemberService) ListMembers(ctx context.Context, teamID string, limit int, cursor string) ([]gen.Member, *string, error) {
@@ -43,6 +45,13 @@ func (m *mockMemberService) GetMemberPhotoURL(ctx context.Context, teamID, membe
 		return m.getMemberPhoto(ctx, teamID, membershipID)
 	}
 	return "", pgx.ErrNoRows
+}
+
+func (m *mockMemberService) GetMemberPhotoBytes(ctx context.Context, teamID, membershipID string) (io.ReadCloser, string, error) {
+	if m.getMemberPhotoBytes != nil {
+		return m.getMemberPhotoBytes(ctx, teamID, membershipID)
+	}
+	return nil, "", pgx.ErrNoRows
 }
 
 func (m *mockMemberService) UpdateMember(ctx context.Context, membershipID, teamID, callerUserID string, patch members.MemberPatch) (*gen.Member, error) {
@@ -442,6 +451,59 @@ func TestMemberHandler_GetMemberPhoto_NotFound_Returns404(t *testing.T) {
 	t.Parallel()
 
 	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+
+	resp, err := h.GetMemberPhoto(context.Background(), gen.GetMemberPhotoRequestObject{
+		TeamId: uuid.New(), MembershipId: uuid.New(),
+	})
+	require.Error(t, err)
+	assert.Nil(t, resp)
+}
+
+// TestMemberHandler_GetMemberPhoto_ProxyMode_StreamsBytes covers scenario
+// "Proxy mode enabled" from
+// openspec/changes/kleinere-findings/specs/image-delivery-proxy: with
+// SetImageDeliveryProxyEnabled(true), GetMemberPhoto streams the image bytes
+// directly instead of redirecting.
+func TestMemberHandler_GetMemberPhoto_ProxyMode_StreamsBytes(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	membershipID := uuid.New()
+	svc := &mockMemberService{
+		getMemberPhotoBytes: func(_ context.Context, gotTeamID, gotMembershipID string) (io.ReadCloser, string, error) {
+			assert.Equal(t, teamID.String(), gotTeamID)
+			assert.Equal(t, membershipID.String(), gotMembershipID)
+			return io.NopCloser(bytes.NewReader([]byte("jpeg-bytes"))), "image/jpeg", nil
+		},
+		getMemberPhoto: func(_ context.Context, _, _ string) (string, error) {
+			t.Fatal("redirect path must not be used in proxy mode")
+			return "", nil
+		},
+	}
+	h := members.NewHandler(svc, slog.Default(), nil)
+	h.SetImageDeliveryProxyEnabled(true)
+
+	resp, err := h.GetMemberPhoto(context.Background(), gen.GetMemberPhotoRequestObject{
+		TeamId: teamID, MembershipId: membershipID,
+	})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetMemberPhotoResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/jpeg", w.Header().Get("Content-Type"))
+	assert.Empty(t, w.Header().Get("Location"))
+	assert.Equal(t, "jpeg-bytes", w.Body.String())
+}
+
+// TestMemberHandler_GetMemberPhoto_ProxyMode_NotFound_Returns404 covers the
+// same "no photo" case as redirect mode, but through the proxy-mode branch --
+// no bytes must be streamed for a membership with no photo set.
+func TestMemberHandler_GetMemberPhoto_ProxyMode_NotFound_Returns404(t *testing.T) {
+	t.Parallel()
+
+	h := members.NewHandler(&mockMemberService{}, slog.Default(), nil)
+	h.SetImageDeliveryProxyEnabled(true)
 
 	resp, err := h.GetMemberPhoto(context.Background(), gen.GetMemberPhotoRequestObject{
 		TeamId: uuid.New(), MembershipId: uuid.New(),
