@@ -1,7 +1,7 @@
 ## 1. Audit email PII
 - [x] 1.1 Add `auth.HashEmailForAudit` (one-way SHA-256 hex of the lowercased email; `crypto/sha256`/`hex`/`strings` already imported) — keyless, so no config plumbing; correlatable without plaintext
 - [x] 1.2 Replace both `slog.String("email", …)` in `auth/handler.go` login success/failure with `slog.String("email_hash", …)`
-- [ ] 1.3 (Optional erase-time scrub) Not needed: audit rows now carry only a hash, so nothing plaintext survives erasure or the retention window
+- [x] 1.3 (Optional erase-time scrub) Not needed: audit rows now carry only a hash, so nothing plaintext survives erasure or the retention window
 
 ## 2. Password length
 - [x] 2.1 `maxPasswordBytes = 72`; `HashPassword` rejects over-length with `ErrPasswordTooLong`; `Login` rejects over-length as invalid credentials (with a dummy compare to keep timing) before any DB lookup

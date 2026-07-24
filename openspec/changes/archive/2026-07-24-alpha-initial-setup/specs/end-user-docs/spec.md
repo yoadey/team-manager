@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Onboarding docs describe the actual login/registration methods
 `docs/end-user/erste-schritte.md` MUST describe the login and account-creation
