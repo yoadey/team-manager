@@ -62,11 +62,14 @@ observability:
       existingSecret: "team-manager-staging-sentry"
 
 # One Secret per credential area -- see the same note in values-prod.yaml.
-# Each area also has an existingSecretKey[s] override (see values.yaml) if
-# these Secrets are ever populated by tooling that doesn't use this chart's
-# default key names -- not needed here since they're created to match those
-# defaults.
+# Each area also has a secret.keys override (see values.yaml) if these
+# Secrets are ever populated by tooling that doesn't use this chart's
+# default key names -- not needed here since they're created to match
+# those defaults.
 database:
+  host: "postgres-staging.default.svc.cluster.local"
+  name: "teammanager_staging"
+  username: "teammanager"
   secret:
     existingSecret: "team-manager-staging-database"
 

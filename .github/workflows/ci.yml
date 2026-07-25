@@ -1283,39 +1283,31 @@ jobs:
           # PrometheusRule/Grafana-dashboard-ConfigMap templates would never
           # actually render in CI and a syntax error in them would only
           # surface the first time an operator opts in at deploy time.
-          # monitoring.scrapeToken.create is also false everywhere (including
-          # above), so the monitoring-scrape-token-secret.yaml Secret and
-          # servicemonitor.yaml's bearerTokenSecret block are exercised here too.
+          # monitoring.scrapeToken.secret.existingSecret is also unset
+          # everywhere (including above), so servicemonitor.yaml's
+          # bearerTokenSecret block is exercised here too.
           render \
             --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true \
-            --set monitoring.scrapeToken.create=true --set monitoring.scrapeToken.token=dummy
+            --set monitoring.scrapeToken.secret.existingSecret=dummy-scrape-secret
           # backup.enabled is only true in values-prod.yaml, which also sets
           # backup.s3.enabled=true -- so backup-cronjob.yaml's `{{- else }}`
           # branch (the no-op-warning container, taken when S3 upload is
           # disabled) is never rendered by any of the invocations above.
           render \
             --set backup.enabled=true --set backup.s3.enabled=false
-          # monitoring.scrapeToken.existingSecretName (external-Secret
-          # reference, the create-or-reference convention used everywhere a
-          # credential appears in this chart) is empty in every shipped
-          # values file and unset by the monitoring.enabled render above too,
-          # so its branch of servicemonitor.yaml's bearerTokenSecret block
-          # was never rendered anywhere.
-          render \
-            --set monitoring.enabled=true --set monitoring.scrapeToken.existingSecretName=dummy-secret
-          # backup.s3.credentialsSecretName (static AWS credentials, the one
+          # backup.s3.secret.existingSecret (static AWS credentials, the one
           # alternative to IRSA) is empty in every shipped values file,
           # including values-prod.yaml's IRSA-based backup.enabled=true
-          # render above -- so backup-cronjob.yaml's credentialsSecretName
-          # branch (the AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secretKeyRefs)
-          # has no template-syntax coverage at all. backup.s3.endpoint (the
-          # S3-compatible-storage/MinIO override -- see values.yaml and
-          # networkpolicy.yaml's egress.s3.port comment) is likewise empty
-          # everywhere, so backup-cronjob.yaml's --endpoint-url branch is
-          # covered here too rather than needing its own separate render.
+          # render above -- so backup-cronjob.yaml's AWS_ACCESS_KEY_ID/
+          # AWS_SECRET_ACCESS_KEY secretKeyRefs have no template-syntax
+          # coverage at all. backup.s3.endpoint (the S3-compatible-storage/
+          # MinIO override -- see values.yaml and networkpolicy.yaml's
+          # egress.s3.port comment) is likewise empty everywhere, so
+          # backup-cronjob.yaml's --endpoint-url branch is covered here too
+          # rather than needing its own separate render.
           render \
             --set backup.enabled=true --set backup.s3.enabled=true \
-            --set backup.s3.bucket=x --set backup.s3.credentialsSecretName=dummy-creds \
+            --set backup.s3.bucket=x --set backup.s3.secret.existingSecret=dummy-creds \
             --set backup.s3.endpoint=https://minio.example.com:9000
           # deploymentStrategy is `{}` (empty map, so Deployment.spec.strategy
           # is omitted entirely) in every shipped values file, so the
@@ -1325,15 +1317,15 @@ jobs:
           # backward-incompatible migration deploy.
           render \
             --set deploymentStrategy.type=Recreate
-          # monitoring.namespace combined with the chart-managed
+          # monitoring.namespace combined with a referenced
           # monitoring.scrapeToken Secret is never exercised above -- this
-          # is the combination that caught monitoring-scrape-token-secret.yaml
-          # rendering into .Release.Namespace while servicemonitor.yaml
-          # rendered into monitoring.namespace, so the bearerTokenSecret
-          # reference silently failed to resolve.
+          # is the combination that caught the scrape-token Secret rendering
+          # into .Release.Namespace while servicemonitor.yaml rendered into
+          # monitoring.namespace, so the bearerTokenSecret reference
+          # silently failed to resolve.
           render \
             --set monitoring.enabled=true --set monitoring.namespace=monitoring \
-            --set monitoring.scrapeToken.create=true --set monitoring.scrapeToken.token=dummy
+            --set monitoring.scrapeToken.secret.existingSecret=dummy-scrape-secret
           # backup.serviceAccount.create (a dedicated ServiceAccount for the
           # backup CronJob, so an IRSA annotation for S3 access doesn't also
           # get injected into the main app Deployment's pods) has no
@@ -1347,31 +1339,34 @@ jobs:
           # coverage in any render above.
           render \
             --set serviceAccount.create=false --set serviceAccount.name=external-sa
-          # Every <area>.secret.create=true branch (the chart-managed-Secret
-          # alternative to existingSecret, per-area rather than one combined
-          # Secret) plus smtp.host set (SMTP env vars + the NetworkPolicy
-          # smtp egress rule) has no coverage in any render above -- none of
-          # the shipped values files or --set overrides so far exercise the
-          # "create" side of database/jwt/cookieEncryption/s3/smtp/
-          # pagination/observability.sentry/metrics. database.secret.
-          # existingSecretKey and jwt.secret.existingSecretKeys.privateKey
-          # are also overridden here (to a non-default name) -- proving the
-          # create-side Secret's rendered key and the env var's secretKeyRef
-          # agree on the overridden name, not just the chart's own default.
+          # database.host/name/username/secret.existingSecret are all
+          # empty in the base values.yaml (schema-valid, but nothing in the
+          # chart's own render coverage so far exercises DATABASE_URL's
+          # composition, per-area secret.existingSecret resolution, or
+          # smtp.host being set (SMTP env vars + the NetworkPolicy smtp
+          # egress rule). Every area's secret.keys is also overridden here
+          # to a non-default, non-kebab-case-default name, proving
+          # _env.tpl's secretKeyRef.key actually reads the override rather
+          # than silently falling back to the chart's own default.
           render \
             --set session.cookie.secure=true \
-            --set database.secret.create=true --set database.secret.url=postgres://x \
-            --set database.secret.existingSecretKey=CUSTOM_DATABASE_URL \
-            --set jwt.secret.create=true --set jwt.secret.privateKey=x --set jwt.secret.publicKey=x \
-            --set jwt.secret.existingSecretKeys.privateKey=CUSTOM_JWT_PRIVATE_KEY \
-            --set cookieEncryption.secret.create=true --set cookieEncryption.secret.key=x \
+            --set database.host=postgres.example.com --set database.name=teammanager --set database.username=teammanager \
+            --set database.secret.existingSecret=database-secret --set database.secret.keys.password=CUSTOM_PASSWORD_KEY \
+            --set jwt.secret.existingSecret=jwt-secret \
+            --set jwt.secret.keys.privateKey=CUSTOM_PRIVATE_KEY --set jwt.secret.keys.publicKey=CUSTOM_PUBLIC_KEY \
+            --set cookieEncryption.secret.existingSecret=cookie-secret \
+            --set cookieEncryption.secret.keys.key=CUSTOM_KEY --set cookieEncryption.secret.keys.keys=CUSTOM_KEYS \
             --set s3.endpoint=s3.example.com --set s3.bucket=x \
-            --set s3.secret.create=true --set s3.secret.accessKeyId=x --set s3.secret.secretAccessKey=x \
+            --set s3.secret.existingSecret=s3-secret \
+            --set s3.secret.keys.accessKeyId=CUSTOM_ACCESS_KEY --set s3.secret.keys.secretAccessKey=CUSTOM_SECRET_KEY \
             --set smtp.host=smtp.example.com --set smtp.fromAddress=no-reply@example.com \
-            --set smtp.secret.create=true --set smtp.secret.username=x --set smtp.secret.password=x \
-            --set pagination.secret.create=true --set pagination.secret.hmacKey=x \
-            --set observability.sentry.secret.create=true --set observability.sentry.secret.dsn=x \
-            --set metrics.secret.create=true --set metrics.secret.token=x
+            --set smtp.secret.existingSecret=smtp-secret \
+            --set smtp.secret.keys.username=CUSTOM_USERNAME --set smtp.secret.keys.password=CUSTOM_SMTP_PASSWORD \
+            --set push.publicKey=dummy --set push.subject=mailto:test@example.com \
+            --set push.secret.existingSecret=push-secret --set push.secret.keys.privateKey=CUSTOM_VAPID_KEY \
+            --set pagination.secret.existingSecret=pagination-secret --set pagination.secret.keys.hmacKey=CUSTOM_HMAC_KEY \
+            --set observability.sentry.secret.existingSecret=sentry-secret --set observability.sentry.secret.keys.dsn=CUSTOM_DSN_KEY \
+            --set metrics.secret.existingSecret=metrics-secret --set metrics.secret.keys.token=CUSTOM_TOKEN_KEY
           # extraEnv/extraVolumes/extraVolumeMounts/podLabels (the
           # forward-compatibility escape hatches), priorityClassName,
           # topologySpreadConstraints, and image.digest are all empty/unset

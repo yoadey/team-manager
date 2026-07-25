@@ -76,20 +76,32 @@ the release's `/healthz` endpoint.
 
 Every functional area with credentials (`database`, `jwt`,
 `cookieEncryption`, `s3`, `smtp`, `push`, `pagination`,
-`observability.sentry`, `metrics`) has its own `secret` block, independent
-of every other area's — rotating one area's credentials never touches
-another's Secret:
+`observability.sentry`, `metrics`, `monitoring.scrapeToken`,
+`backup.s3`) has its own `secret` block, independent of every other
+area's — rotating one area's credentials never touches another's Secret.
+This chart never creates or holds secret material itself — every area's
+`secret.existingSecret` names a Secret you manage yourself (via
+`kubectl create secret`, External Secrets Operator, Vault, etc.):
 
 ```yaml
 <area>:
   secret:
-    create: false          # true: chart renders and manages this one Secret from the plaintext fields below
-    existingSecret: ""     # false (default): name of a Secret you manage yourself
-    existingSecretKey: ""  # (or existingSecretKeys: {...} for multi-key areas) — override if your
-                            # existingSecret uses different key names than this chart's defaults
-                            # (e.g. an External Secrets Operator sync with its own naming convention)
-    <plaintextField>: ""   # only used when create=true
+    existingSecret: ""   # required -- name of a Secret you manage yourself
+    keys:
+      <field>: "<key>"   # key name(s) inside that Secret -- lowercase,
+                          # dash-separated (Kubernetes Secret key
+                          # convention), NOT the backend's own env var
+                          # names. Override to match your existingSecret's
+                          # actual key names.
 ```
+
+Structural (non-secret) connection info is its own plain field, not
+folded into the Secret or into one opaque connection string — e.g.
+`database.host`/`port`/`name`/`username` are plain values, and only
+`database.secret.keys.password` is Secret-sourced; this chart composes
+the full `DATABASE_URL` the backend needs from those pieces at container
+start (see `values.yaml`'s `database` comment for exactly how, and its one
+real limitation around special characters in the password).
 
 See the per-area comments in [`values.yaml`](values.yaml) for each area's
 default key name(s) and which fields are required when
@@ -149,7 +161,8 @@ default key name(s) and which fields are required when
 | `session.loginRateLimitPerMin` | int | `5` | `LOGIN_RATE_LIMIT_PER_MIN`. |
 | `session.cookie.name` | string | `tv_session` | `COOKIE_NAME`. |
 | `session.cookie.secure` | bool | `true` | `COOKIE_SECURE`; also gates several startup hard-requirements. |
-| `database.secret.*` | — | — | `DATABASE_URL`. See "Secrets" above. |
+| `database.host` / `port` / `name` / `username` / `sslmode` | string/int | see `values.yaml` | Plain connection fields; composed into `DATABASE_URL` along with the Secret-sourced password. |
+| `database.secret.*` | — | — | `DATABASE_URL`'s password component. See "Secrets" above. |
 | `jwt.secret.*` | — | — | `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY`. See "Secrets" above. |
 | `cookieEncryption.secret.*` | — | — | `COOKIE_ENCRYPTION_KEY`/`COOKIE_ENCRYPTION_KEYS`. See "Secrets" above. |
 | `s3.endpoint` / `region` / `bucket` / `usePathStyle` / `publicBaseUrl` | string/bool | see `values.yaml` | `S3_ENDPOINT`/`S3_REGION`/`S3_BUCKET`/`S3_USE_PATH_STYLE`/`S3_PUBLIC_BASE_URL`. |
@@ -173,7 +186,7 @@ default key name(s) and which fields are required when
 | `monitoring.enabled` | bool | `false` | Create `ServiceMonitor`/`PrometheusRule` (requires Prometheus Operator). |
 | `monitoring.namespace` | string | `""` | Deploy monitoring resources to a different namespace. |
 | `monitoring.scrapeInterval` | string | `30s` | ServiceMonitor scrape interval. |
-| `monitoring.scrapeToken.*` | — | see `values.yaml` | Prometheus's own bearer token for scraping `/metrics` (separate from `metrics.secret`). |
+| `monitoring.scrapeToken.secret.*` | — | see `values.yaml` | Prometheus's own bearer token for scraping `/metrics` (separate from `metrics.secret`). |
 | `monitoring.additionalLabels` | object | `{}` | Extra labels on monitoring resources (for Prometheus Operator discovery). |
 | `monitoring.grafanaDashboard.enabled` | bool | `false` | Render a ConfigMap with the bundled Grafana dashboard. |
 | `migrations.runAsInitContainer` | bool | `true` | Run DB migrations as an initContainer before the app starts. |

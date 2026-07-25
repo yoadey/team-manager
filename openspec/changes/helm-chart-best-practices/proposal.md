@@ -26,15 +26,27 @@ Helm best-practices literature calls out ("secret key names inside
 `existingSecret` are themselves overridable, not hardcoded to one literal
 key").
 
-Beyond that, the research pass found:
+> **Revision (post-review)**: this change originally also added a
+> `<area>.secret.create: true` chart-managed-Secret mode (plaintext values
+> rendered into a chart-created Secret, for local/CI/test convenience) and
+> a `checksum/secrets` pod annotation to trigger a rollout when that
+> plaintext value changed. Review feedback on the resulting PR asked for a
+> stricter design instead: **no chart-managed Secret at all** —
+> `existingSecret` is the only path, so secret material never transits
+> `values.yaml`/`--set`/Helm's release history — plus a uniform
+> `secret.keys: {<field>: "<kebab-case-key>"}` map (not a singular
+> `existingSecretKey`/`existingSecretKeys`, and not the backend's own env
+> var names as defaults) across *every* secret-bearing area, and splitting
+> `database` into plain `host`/`port`/`name`/`username`/`sslmode` fields
+> with only the password Secret-backed (composed into `DATABASE_URL` — see
+> "What Changes" below). The `create`/plaintext-value mode and the
+> `checksum/secrets` annotation it needed are gone entirely as a result —
+> see design.md's "Secret key-name overrides" and "No chart-managed
+> Secret" decisions for the full rationale. The bullets below describe the
+> **final** design, not the superseded intermediate one.
 
-- **A real rollout bug**: when `<area>.secret.create: true` (the chart
-  renders and manages that area's Secret from plaintext `values.yaml`
-  fields), changing that plaintext value on `helm upgrade` updates the
-  Secret object's *content* but not the Deployment's pod template — so
-  running pods are never restarted to pick up the new value. There is no
-  `checksum/secret`-style annotation tying the two together, contrary to
-  the standard Helm pattern for exactly this case.
+Beyond the secret-structure work, the research pass found:
+
 - **No forward-compatibility escape hatches** (`extraEnv`,
   `extraVolumes`/`extraVolumeMounts`, `podLabels`) — any one-off need (an
   extra sidecar volume mount, an extra env var for a feature this chart
@@ -64,19 +76,35 @@ Beyond that, the research pass found:
 
 ## What Changes
 
-- **Configurable secret key names**: every `<area>.secret` block gains an
-  `existingSecretKey` (single-key areas: `database`, `push`, `pagination`,
-  `observability.sentry`, `metrics`) or `existingSecretKeys` (multi-key
-  areas: `jwt`, `cookieEncryption`, `s3`, `smtp`) field, defaulting to
-  today's hardcoded literal names — fully backward compatible. The same
-  configured key name is used both to read from an `existingSecret` and to
-  write the key when the chart renders its own Secret (`create: true`), so
-  there is exactly one source of truth per field.
-- **`checksum/secrets` pod annotation**: a new `_helpers.tpl` template
-  hashes the rendered content of every `<area>-secret.yaml` template and
-  the deployment's pod template carries the result as an annotation, so a
-  `helm upgrade` that changes a chart-managed (`create: true`) secret's
-  plaintext value — or toggles `create` on/off — triggers a rollout.
+- **No chart-managed Secrets, anywhere**: `<area>.secret.create` and every
+  plaintext-value field it gated (`database.secret.url`,
+  `jwt.secret.privateKey`, ...) are gone. `<area>.secret.existingSecret` is
+  the only way to supply credentials — the chart never renders a Secret
+  object itself, so secret material never has to pass through
+  `values.yaml`/`--set`/a committed overlay/Helm's own release-Secret
+  history. Applies uniformly to every credential in the chart:
+  `database`, `jwt`, `cookieEncryption`, `s3`, `smtp`, `push`,
+  `pagination`, `observability.sentry`, `metrics`,
+  `monitoring.scrapeToken`, and `backup.s3`.
+- **Configurable, kebab-case secret key names**: every `<area>.secret`
+  block gains a `keys: {<field>: "<kebab-case-key>"}` map (e.g.
+  `database.secret.keys.password`, `s3.secret.keys.accessKeyId` →
+  `access-key-id`), replacing the single-area `existingSecretKey`/
+  `existingSecretKeys` naming from an earlier iteration of this change.
+  Defaults are lowercase, dash-separated (the Kubernetes Secret key
+  convention) and deliberately **not** the backend's own env var names
+  (`DATABASE_URL`, `JWT_PRIVATE_KEY`, ...) — an operator's `existingSecret`
+  is under no obligation to key its contents after this app's internal
+  env var naming.
+- **`database` split into structural fields**: `host`, `port`, `name`,
+  `username`, `sslmode` are now plain values (not folded into one opaque
+  connection string), with only the password Secret-backed
+  (`database.secret.keys.password`). The backend still needs a single
+  `DATABASE_URL` connection string — this chart composes it from those
+  pieces at container start using Kubernetes' own `$(VAR_NAME)` env-var
+  expansion (no shell involved: the backend image is distroless, see
+  design.md), with one documented limitation around URL-reserved
+  characters in the password (see values.yaml's `database` comment).
 - **Escape hatches**: `extraEnv` (list, appended after generated env vars
   in both the migrate initContainer and the main container),
   `extraVolumes`/`extraVolumeMounts`, and `podLabels`.
@@ -130,9 +158,11 @@ Beyond that, the research pass found:
 
 ### Modified Capabilities
 
-- `helm-deployment`: adds configurable secret key names, a secret-content
-  checksum annotation for chart-managed secrets, forward-compatibility
-  escape hatches, chart packaging/metadata hygiene, and additional
+- `helm-deployment`: removes the chart-managed-Secret (`create: true`)
+  mode entirely in favor of `existingSecret`-only, adds a uniform
+  kebab-case `secret.keys` map per area, splits `database` into structural
+  fields with a composed `DATABASE_URL`, adds forward-compatibility escape
+  hatches, chart packaging/metadata hygiene, and additional
   production-readiness values (`priorityClassName`,
   `topologySpreadConstraints`, `image.digest`), plus CI validation
   (`--strict` lint, `kubeconform`, `helm test`).
@@ -141,18 +171,27 @@ Beyond that, the research pass found:
 
 - `helm/team-manager/`: `values.yaml`, `values.schema.json`,
   `templates/_helpers.tpl`, `templates/_env.tpl`, `templates/deployment.yaml`,
-  `templates/backup-cronjob.yaml`, every `templates/*-secret.yaml`, new
+  `templates/backup-cronjob.yaml`, `templates/servicemonitor.yaml`, new
   `templates/tests/test-connection.yaml`, new `README.md`, `LICENSE`,
-  `.helmignore`, `Chart.yaml`.
-- `values-staging.yaml`/`values-prod.yaml`: no required changes (every new
-  field is optional/backward-compatible), but worth a comment pointing at
-  the new override capability where they already document fixed
-  `existingSecret` key names.
-- `docs/operations.md`: key-naming-override mentions alongside existing
-  `existingSecret` sections.
+  `.helmignore`, `Chart.yaml`. Every per-area `templates/*-secret.yaml`
+  (database, jwt, cookie-encryption, s3, smtp, push, pagination, sentry,
+  metrics) and `templates/monitoring-scrape-token-secret.yaml` are
+  **deleted** — dead code once no area supports chart-managed Secrets.
+- `values-staging.yaml`/`values-prod.yaml`: **breaking** changes to the
+  `database`/`jwt`/`cookieEncryption`/`s3`/`smtp`/`push`/`pagination`/
+  `observability.sentry`/`metrics` shape (existingSecretKey(s) → keys map)
+  and new required `database.host`/`name`/`username` fields — acceptable
+  per this change's explicit go-ahead (no tagged chart release exists
+  yet), see design.md.
+- `docs/operations.md`: rewrites every `.secret.create=true`/
+  `existingSecretKey(s)` mention to the `existingSecret`-only, `keys`-map
+  shape; rewrites the JWT-rotation and DR-restore sections' now-inaccurate
+  `checksum/secrets`/direct-Secret-edit guidance.
 - `.github/workflows/ci.yml` and `.github/workflows/release.yml`:
   `helm lint --strict`; `ci.yml` additionally gets a `kubeconform`
-  installation/validation step and new `--set`/`helm test` coverage.
+  installation/validation step and new `--set` coverage for the
+  `existingSecret`-only shape (including non-default `keys` overrides).
 - No application code, API, or database schema change; no migration.
-  Chart-only, and every change is additive/backward-compatible with the
-  currently-shipped `values.yaml` shape (no key is renamed or removed).
+  Chart-only. `backend/internal/config/config.go`'s `DATABASE_URL`
+  contract is unchanged — only how the chart assembles the value it hands
+  the container changes.

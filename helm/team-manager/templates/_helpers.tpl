@@ -61,29 +61,6 @@ ServiceAccount name.
 {{- end }}
 
 {{/*
-Resolves whether a <domain>.secret block (e.g. .Values.database.secret) is
-"active" -- either a Secret this chart should create, or an
-externally-managed Secret to reference -- and, if so, the Secret name to
-use in secretKeyRef entries. Chart-managed (create: true) takes precedence
-over existingSecret when both happen to be set. Returns an empty string
-when neither is set, signaling callers to omit that area's secretKeyRef
-entries entirely (config.Load() then fails loudly at startup for areas it
-requires, matching prior behavior from when the single top-level
-existingSecret was left unset).
-Usage: {{ include "team-manager.secretName" (list $ "database" .Values.database.secret) }}
-*/}}
-{{- define "team-manager.secretName" -}}
-{{- $root := index . 0 -}}
-{{- $area := index . 1 -}}
-{{- $secret := index . 2 -}}
-{{- if $secret.create -}}
-{{- printf "%s-%s" (include "team-manager.fullname" $root) $area -}}
-{{- else -}}
-{{- $secret.existingSecret -}}
-{{- end -}}
-{{- end }}
-
-{{/*
 Main application image reference. image.digest, when set, takes precedence
 over image.tag (mirroring how backup.postgresImageDigest/
 backup.s3.awsCliImage's digest suffix already work) -- pins the exact image
@@ -101,22 +78,49 @@ Usage: image: {{ include "team-manager.image" . }}
 {{- end }}
 
 {{/*
-Sha256sum of the concatenated rendered content of every per-area secret
-template (see templates/*-secret.yaml) -- used as the Deployment pod
-template's `checksum/secrets` annotation so that changing a chart-managed
-(secret.create=true) area's plaintext value, or toggling `create` on/off,
-triggers a rollout. Each of these templates already renders to an empty
-string when its area's `create` is false, so this also changes (and
-correctly triggers a rollout) when an area switches between
-chart-managed and externally-referenced.
-Usage: {{ include "team-manager.secretsChecksum" . }}
+Renders the env var entries needed to reach Postgres, ending in a composed
+DATABASE_URL -- shared by the main container/migrate initContainer
+(templates/_env.tpl) and the backup CronJob's pg-dump container
+(templates/backup-cronjob.yaml), so the composition logic exists in
+exactly one place.
+
+The backend requires a single DATABASE_URL connection string
+(postgres://user:password@host:port/dbname), but database.secret.keys.password
+is only ever visible as a Secret key, never as a plaintext value.yaml
+value (see values.yaml's header comment) -- so DATABASE_URL is composed
+here from the plain database.* fields plus the Secret-sourced password
+using Kubernetes' own $(VAR_NAME) env-var expansion. This requires
+DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD to all appear *earlier* in
+the same container's env list than DATABASE_URL itself -- $(VAR_NAME)
+substitution only resolves references to previously-defined entries in
+the same list, so this whole block must be included as a unit, not
+split/reordered by callers.
+
+LIMITATION: no shell is available to percent-encode the password (the
+backend image is distroless, see backend/Dockerfile; the backup CronJob's
+postgres image *does* have a shell, but reusing this same composition
+keeps exactly one code path rather than two divergent ones) -- see
+values.yaml's database.secret comment for the resulting constraint on
+what characters a generated password may safely contain.
+
+Usage: {{ include "team-manager.databaseEnv" $ | nindent 12 }}
 */}}
-{{- define "team-manager.secretsChecksum" -}}
-{{- $content := "" -}}
-{{- range (list "database-secret.yaml" "jwt-secret.yaml" "cookie-encryption-secret.yaml" "s3-secret.yaml" "smtp-secret.yaml" "pagination-secret.yaml" "sentry-secret.yaml" "metrics-secret.yaml") -}}
-{{- $content = printf "%s%s" $content (include (print $.Template.BasePath "/" .) $) -}}
-{{- end -}}
-{{- $content | sha256sum -}}
+{{- define "team-manager.databaseEnv" -}}
+- name: DB_HOST
+  value: {{ .Values.database.host | quote }}
+- name: DB_PORT
+  value: {{ .Values.database.port | quote }}
+- name: DB_NAME
+  value: {{ .Values.database.name | quote }}
+- name: DB_USERNAME
+  value: {{ .Values.database.username | quote }}
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.database.secret.existingSecret }}
+      key: {{ .Values.database.secret.keys.password }}
+- name: DATABASE_URL
+  value: "postgres://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME){{ with .Values.database.sslmode }}?sslmode={{ . }}{{ end }}"
 {{- end }}
 
 {{/*

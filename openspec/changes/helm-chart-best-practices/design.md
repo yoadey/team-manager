@@ -79,62 +79,100 @@ since they touch the same files.
 
 ## Decisions
 
-### Secret key-name overrides
+### No chart-managed Secret, anywhere (supersedes an earlier iteration)
 
-- **Single-key areas** (`database`, `push`, `pagination`,
-  `observability.sentry`, `metrics`) get one new field,
-  `secret.existingSecretKey`, defaulting to the area's current literal key
-  name (e.g. `database.secret.existingSecretKey: "DATABASE_URL"`) — same
-  shape `monitoring.scrapeToken.existingSecretKey` already uses, so this is
-  actually completing an existing-but-inconsistently-applied pattern
-  rather than introducing a new one.
-- **Multi-key areas** (`jwt`, `cookieEncryption`, `s3`, `smtp`) get
-  `secret.existingSecretKeys: { <field>: <default literal key> }` — a map
-  keyed by the same field names already used for `create: true`'s
-  plaintext values (e.g. `jwt.secret.existingSecretKeys.privateKey`
-  defaults to `"JWT_PRIVATE_KEY"`), so the plaintext-field name and its
-  corresponding Secret key name are visibly paired in `values.yaml`.
-- `_env.tpl`'s `secretKeyRef.key` for every area switches from a hardcoded
-  literal (`key: DATABASE_URL`) to
-  `{{ .Values.database.secret.existingSecretKey }}` (or the
-  `existingSecretKeys.<field>` equivalent) — this is evaluated
-  unconditionally (not just under `existingSecret`), so it applies equally
-  when `create: true`.
-- Each `<area>-secret.yaml` template (the `create: true` renderer) writes
-  its `data` key(s) using that same value instead of the hardcoded literal
-  — e.g. `templates/database-secret.yaml`'s `data:` becomes
-  `{{ .Values.database.secret.existingSecretKey }}: {{ .Values.database.secret.url | b64enc }}`.
-  This is the "one source of truth" goal: a values override that changes
-  `existingSecretKey` changes both what the chart writes (when it manages
-  the Secret) and what it reads (when it doesn't), so the two paths can
-  never disagree.
-- Defaults for every new field match today's hardcoded literals exactly —
-  no values file in this repo (`values.yaml`, `values-staging.yaml`,
-  `values-prod.yaml`) needs to change for this alone, and no
-  externally-managed Secret an operator already created needs re-keying.
-- `monitoring.scrapeToken.existingSecretKey` is left exactly as-is (already
-  correct, already defaults to `"token"`).
+An earlier iteration of this change kept `<area>.secret.create: true` (the
+chart renders and manages that area's Secret from plaintext `values.yaml`
+fields) alongside `existingSecret`, plus per-area `existingSecretKey`/
+`existingSecretKeys` overrides defaulting to the backend's own env var
+names (`DATABASE_URL`, `JWT_PRIVATE_KEY`, ...). Review feedback rejected
+both:
 
-### `checksum/secrets` annotation
+- **`create: true` is removed entirely.** `<area>.secret.existingSecret`
+  is now the only way to supply every credential in the chart. This closes
+  the actual risk `create: true` posed — secret material passing through
+  `values.yaml`/`--set`/a committed overlay/`helm get values`/Helm's own
+  release-Secret history — at the cost of the local/CI/test convenience
+  it offered (spinning up a fully working deployment from one `--set`
+  invocation with no external Secret required). That convenience was never
+  worth the risk once weighed directly against it: this chart's own CI
+  already proves every `existingSecret` code path with a plain
+  `--set <area>.secret.existingSecret=dummy-name` (no Secret object needs
+  to actually exist for `helm template`/`lint` to validate a
+  `secretKeyRef` pointing at it), so `create: true` bought nothing CI
+  didn't already have another way to get.
+- **Per-area `existingSecretKey`/`existingSecretKeys` become a uniform
+  `secret.keys: {<field>: "<key>"}` map** on every area, single-key or
+  multi-key alike (e.g. `database.secret.keys.password`,
+  `s3.secret.keys.accessKeyId`/`secretAccessKey`) — one shape everywhere,
+  not two depending on how many keys an area happens to need.
+- **Default key values switch from the backend's env var names to
+  lowercase, dash-separated names** (`password`, `access-key-id`,
+  `private-key`, ...) — the Kubernetes Secret key convention, and
+  deliberately decoupled from this app's internal env var naming. An
+  operator's Secret (hand-created, or synced by External Secrets Operator
+  from Vault/AWS Secrets Manager/etc.) is under no obligation to key its
+  contents after `team-manager`'s own env vars; forcing that coupling was
+  itself a design smell the review feedback correctly flagged.
+- `_env.tpl`'s `secretKeyRef.key` for every area now reads
+  `{{ $root.Values.<area>.secret.keys.<field> }}` directly — no more
+  `team-manager.secretName` create-or-reference resolution helper (deleted
+  entirely, along with every per-area `templates/*-secret.yaml` and
+  `templates/monitoring-scrape-token-secret.yaml`, all dead code once
+  nothing renders a chart-managed Secret).
+- **The `checksum/secrets` pod annotation this change originally added is
+  removed too** — it existed solely to trigger a rollout when a
+  chart-managed secret's plaintext value changed on `helm upgrade`; with
+  no chart-managed secret left to checksum, the annotation has nothing to
+  do. Rotating an `existingSecret`-referenced credential's value still
+  needs a manual `kubectl rollout restart` (unchanged from before this
+  change, and now documented uniformly across every area rather than only
+  the ones that happened to reference an external Secret already —
+  see `docs/operations.md`'s JWT-rotation section).
 
-- One combined annotation (`checksum/secrets`), not one per area — a new
-  `team-manager.secretsChecksum` helper in `_helpers.tpl` concatenates the
-  rendered output of every `templates/*-secret.yaml` file (via
-  `include (print $.Template.BasePath "/<file>") .` per area, matching the
-  documented Helm pattern for this) and `sha256sum`s the result once.
-  Simpler than eight separate annotations, and every one of those templates
-  already renders to nothing (empty string) when its area's `create` is
-  `false` — so toggling `create` on/off, not just editing a plaintext
-  value, also changes the checksum and correctly triggers a rollout.
-- Deliberately does **not** attempt to checksum `existingSecret`-referenced
-  Secrets' actual *content* — the chart only ever sees that Secret's name,
-  never its data (same limitation `templates/NOTES.txt` already documents
-  for why it can't verify e.g. `METRICS_TOKEN` is non-empty). Rotating an
-  externally-managed Secret's value is already the deployer's own
-  responsibility/tooling (e.g. Reloader, or the two-step
-  `COOKIE_ENCRYPTION_KEYS` rotation runbook in `CLAUDE.md`) — out of scope
-  here, and not a regression since no such mechanism existed before this
-  change either.
+### `database` split into structural fields, `DATABASE_URL` composed by the chart
+
+Also raised in the same review feedback: `database.secret` held the
+*entire* `DATABASE_URL` connection string as one opaque Secret-backed
+value, rather than following the same "structural fields plain, only the
+actual secret Secret-backed" shape the S3/SMTP/push areas already used.
+
+- `database.host`/`port`/`name`/`username`/`sslmode` become plain values;
+  only `database.secret.keys.password` is Secret-backed.
+- The backend (`backend/internal/config/config.go`) still needs a single
+  `DATABASE_URL` env var — `net/url.Parse`-validated, `postgres://`/
+  `postgresql://` scheme required — so this chart must compose one from
+  the pieces above. **The backend image is distroless**
+  (`gcr.io/distroless/static-debian12`, see `backend/Dockerfile` —
+  confirmed by inspection before choosing this approach), so there is no
+  shell available to build the string with a wrapper script the way a
+  Bitnami-style chart typically would.
+- Instead, `templates/_helpers.tpl`'s new `team-manager.databaseEnv` named
+  template uses **Kubernetes' own `$(VAR_NAME)` env-var expansion**
+  (kubelet-native, not shell — resolves references to *earlier* entries in
+  the same container's `env` list, including ones sourced via
+  `secretKeyRef`): `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USERNAME` (plain) and
+  `DB_PASSWORD` (`secretKeyRef`) are declared first, then `DATABASE_URL`'s
+  `value` references all five as `postgres://$(DB_USERNAME):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)`.
+  Shared via `include` between the main Deployment/migrate initContainer
+  (`_env.tpl`) and the backup CronJob's pg-dump container
+  (`backup-cronjob.yaml`), so the composition logic exists in exactly one
+  place.
+- **Known limitation, documented in `values.yaml`'s `database` comment and
+  this design doc rather than silently accepted**: Kubernetes' `$(VAR_NAME)`
+  expansion does no URL-encoding. A password containing a URL-reserved
+  character (`@ : / ? # %`, ...) breaks the composed `DATABASE_URL`'s
+  parsing (ambiguous delimiter, or an outright `ErrInvalidDatabaseURL`
+  crash-loop) — there is no shell here to percent-encode it, and
+  Kubernetes' expansion mechanism has no encoding mode. Mitigation:
+  generate the password from an alphanumeric-only charset (e.g.
+  `openssl rand -hex 24`), which is already standard practice for a
+  generated database credential and sidesteps the whole class of problem.
+  This is a real, accepted trade-off, not an oversight — the alternative
+  (keeping `DATABASE_URL` as one opaque Secret value, unsplit) was
+  rejected by the same review feedback that asked for the split in the
+  first place; a shell-based encode-and-wrap approach was considered and
+  rejected because the backend image has no shell to run one in.
 
 ### Escape hatches
 
@@ -226,15 +264,27 @@ since they touch the same files.
 
 ## Risks / Trade-offs
 
-- `existingSecretKey(s)` fields widen `values.schema.json`'s surface
-  per area (one or more new string properties each) — mechanical, low-risk,
-  but touches every area's schema block, so the schema diff for this change
-  is large even though behaviorally most of it is "add an optional string
-  field with today's literal as its documented default".
-- `checksum/secrets` being one combined annotation (not per-area) means
-  changing *any* chart-managed secret's plaintext value restarts *all*
-  replicas, even if only one area actually changed — acceptable, since a
-  rolling restart is already what any Deployment spec change does chart-
-  wide, and per-area checksums would need eight separate annotations for a
-  marginal benefit (avoiding restarts a plaintext-secret-value change was
-  going to require anyway, just not atomically-per-area).
+- `secret.keys` maps widen `values.schema.json`'s surface per area (one or
+  more new string properties each) — mechanical, low-risk, but touches
+  every area's schema block, so the schema diff for this change is large.
+- Removing `create: true` is a genuine loss of convenience for local/CI/
+  test deployments that used to spin up a fully working release from
+  `--set` alone with no external Secret required — now every credential
+  needs a real Secret to exist in-cluster before `helm install` (not
+  before `helm template`/`lint`, which never touch a live cluster).
+  Accepted deliberately (see the "No chart-managed Secret" decision above)
+  rather than mitigated, since re-adding any chart-rendered-Secret path
+  would reopen the exact risk removing it closed.
+- The `database.secret.keys.password` URL-encoding limitation (see the
+  `database` decision above) is a real, documented constraint on what
+  characters a generated password may contain — not eliminated, only
+  mitigated by recommending alphanumeric-only generation. A password from
+  an existing external system that already contains a reserved character
+  would need to be rotated to a compliant one before it can be used here.
+- This is another round of **breaking** changes to `values.yaml`'s shape
+  on top of the ones this same change already made (per-area Secrets,
+  `existingSecretKey(s)`) — acceptable per the same "no tagged release
+  exists yet" rationale as before, but worth noting that this chart's
+  `values.yaml` shape has now changed twice within one still-open change;
+  `values-staging.yaml`/`values-prod.yaml` are rewritten again alongside
+  it so nothing in this repo is left on the intermediate shape.

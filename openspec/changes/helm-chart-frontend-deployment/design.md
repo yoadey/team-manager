@@ -1,8 +1,8 @@
 ## Context
 
 The backend-only chart already has a rich, opinionated set of conventions
-(per-area `create`-or-`existingSecret` Secrets, `checksum/secrets`-triggered
-rollouts, `team-manager.labels`/`selectorLabels` helpers, `component`
+(per-area externally-managed Secrets with kebab-case `secret.keys`
+overrides, `team-manager.labels`/`selectorLabels` helpers, `component`
 labeling, escape hatches, digest-pinnable images) established across this
 change and the immediately preceding `helm-chart-best-practices` change.
 The frontend addition should read as a natural extension of those

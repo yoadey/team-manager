@@ -27,13 +27,6 @@ spec:
         # prometheus.io/port in .Values.podAnnotations too -- a duplicate key
         # there is emitted after (and so wins over) this line.
         prometheus.io/port: {{ .Values.service.targetPort | quote }}
-        # Ties the pod template to the content of every chart-managed
-        # (secret.create=true) area's Secret -- see _helpers.tpl's
-        # team-manager.secretsChecksum -- so a `helm upgrade` that only
-        # changes a plaintext secret value (which doesn't otherwise change
-        # anything in this pod spec, since containers reference Secrets by
-        # name/key, not by value) still triggers a rollout.
-        checksum/secrets: {{ include "team-manager.secretsChecksum" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

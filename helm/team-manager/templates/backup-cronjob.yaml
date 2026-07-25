@@ -94,14 +94,7 @@ spec:
               fi
               echo "Dump complete: teammanager-${TIMESTAMP}.dump ($ENTRY_COUNT TOC entries)"
             env:
-            {{- $dbSecret := include "team-manager.secretName" (list $ "database" .Values.database.secret) }}
-            {{- if $dbSecret }}
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ $dbSecret }}
-                  key: {{ .Values.database.secret.existingSecretKey }}
-            {{- end }}
+            {{- include "team-manager.databaseEnv" $ | nindent 12 }}
             - name: TMPDIR
               value: /tmp-scratch
             resources:
@@ -157,19 +150,19 @@ spec:
               value: /tmp-scratch
             - name: TMPDIR
               value: /tmp-scratch
-            {{- if .Values.backup.s3.credentialsSecretName }}
+            {{- if .Values.backup.s3.secret.existingSecret }}
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.backup.s3.credentialsSecretName }}
-                  key: AWS_ACCESS_KEY_ID
+                  name: {{ .Values.backup.s3.secret.existingSecret }}
+                  key: {{ .Values.backup.s3.secret.keys.accessKeyId }}
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.backup.s3.credentialsSecretName }}
-                  key: AWS_SECRET_ACCESS_KEY
+                  name: {{ .Values.backup.s3.secret.existingSecret }}
+                  key: {{ .Values.backup.s3.secret.keys.secretAccessKey }}
             {{- end }}
-            # When backup.s3.credentialsSecretName is unset, the AWS CLI falls
+            # When backup.s3.secret.existingSecret is unset, the AWS CLI falls
             # back to the pod's IAM role (e.g. IRSA via serviceAccount.annotations).
             resources:
               requests:

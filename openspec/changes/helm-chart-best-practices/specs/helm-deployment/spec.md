@@ -1,53 +1,55 @@
 ## MODIFIED Requirements
 
-### Requirement: Create-or-reference Secret per area
-Each area's `secret` block MUST support both referencing an externally
-managed Secret (`existingSecret: <name>`) and having the chart render and
-manage that one area's Secret itself from plaintext values (`create:
-true`). The key name(s) used within that Secret MUST be overridable via
-`existingSecretKey` (single-key areas) or `existingSecretKeys` (multi-key
-areas), defaulting to the chart's historical fixed key names, and the same
-configured key name MUST be used whether the Secret is externally managed
-or chart-managed.
+### Requirement: Externally-managed Secret per area, no chart-managed alternative
+Each area with credentials (`database`, `jwt`, `cookieEncryption`, `s3`,
+`smtp`, `push`, `pagination`, `observability.sentry`, `metrics`,
+`monitoring.scrapeToken`, `backup.s3`) MUST source its secret values
+exclusively from an externally-managed Secret named by
+`<area>.secret.existingSecret` — the chart MUST NOT render or manage a
+Secret object itself for any of these areas. The key name(s) used within
+that Secret MUST be overridable via a `<area>.secret.keys.<field>` map,
+defaulting to lowercase, dash-separated names distinct from the backend's
+own environment variable names.
 
-#### Scenario: External secret management (production)
-- **WHEN** `<area>.secret.create` is `false` and `<area>.secret.existingSecret`
-  names a Secret already present in the cluster
+#### Scenario: External secret management
+- **WHEN** `<area>.secret.existingSecret` names a Secret already present
+  in the cluster
 - **THEN** the chart references that Secret's keys — named per
-  `<area>.secret.existingSecretKey`/`existingSecretKeys` (the historical
-  fixed name by default) — via `secretKeyRef` and creates no Secret object
-  of its own for that area
-
-#### Scenario: Chart-managed secret (local/CI/test)
-- **WHEN** `<area>.secret.create` is `true` and plaintext fields are set
-- **THEN** the chart renders a `<fullname>-<area>` Secret from those
-  fields, keyed per that same `existingSecretKey`/`existingSecretKeys`
-  configuration, and references it via `secretKeyRef` with no separate
-  `existingSecret` needed
+  `<area>.secret.keys.<field>` (a lowercase, dash-separated default per
+  field, e.g. `password`, `access-key-id`) — via `secretKeyRef`, and
+  creates no Secret object of its own for that area
 
 #### Scenario: Externally-managed Secret with non-default key names
 - **WHEN** an operator's `existingSecret` was populated by tooling (e.g.
   External Secrets Operator) that doesn't use this chart's default key
-  names, and they set `<area>.secret.existingSecretKey` (or the relevant
-  field under `existingSecretKeys`) to match
+  names, and they set the relevant `<area>.secret.keys.<field>` to match
 - **THEN** the chart's `secretKeyRef` reads that overridden key name
   instead of the default, without requiring the operator to re-key their
   Secret
 
 ## ADDED Requirements
 
-### Requirement: Secret-content-change rollout
-When any area's `secret.create` is `true`, the Deployment's pod template
-MUST carry an annotation derived from the rendered content of every
-chart-managed secret template, so that changing a chart-managed secret's
-plaintext value (or toggling `create` on/off) on `helm upgrade` triggers a
-pod rollout.
+### Requirement: Database connection composed from structural fields
+`database.host`, `database.port`, `database.name`, and
+`database.username` MUST be plain (non-secret) values; only
+`database.secret.keys.password` is Secret-backed. The chart MUST compose
+the backend's required `DATABASE_URL` connection string from these pieces
+at container start, without requiring a shell in the container image.
 
-#### Scenario: Plaintext secret value changed on upgrade
-- **WHEN** `database.secret.create` is `true` and `database.secret.url` is
-  changed between two `helm upgrade` invocations
-- **THEN** the rendered Deployment's pod template annotation
-  `checksum/secrets` differs between the two renders
+#### Scenario: DATABASE_URL composed for the main container and migrate initContainer
+- **WHEN** `database.host`/`port`/`name`/`username` and
+  `database.secret.existingSecret` are all set
+- **THEN** both the migrate initContainer's and the main container's
+  `DATABASE_URL` env var resolves to
+  `postgres://<username>:<password>@<host>:<port>/<name>` (optionally with
+  `?sslmode=<database.sslmode>`), with `<password>` sourced from the
+  Secret via Kubernetes' native `$(VAR_NAME)` env-var expansion — not a
+  shell script
+
+#### Scenario: DATABASE_URL composed for the backup CronJob
+- **WHEN** `backup.enabled` is `true`
+- **THEN** the backup CronJob's pg-dump container's `DATABASE_URL` env var
+  is composed the same way, via the same shared template
 
 ### Requirement: Forward-compatibility escape hatches
 The chart MUST expose `extraEnv`, `extraVolumes`, `extraVolumeMounts`, and

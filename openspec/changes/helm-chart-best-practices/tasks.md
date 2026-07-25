@@ -1,44 +1,80 @@
-## 1. Configurable secret key names
+## 1. Configurable secret key names (superseded — see 1a)
 
-- [x] 1.1 `values.yaml`: add `database.secret.existingSecretKey: "DATABASE_URL"`,
-      `push.secret.existingSecretKey: "VAPID_PRIVATE_KEY"`,
-      `pagination.secret.existingSecretKey: "PAGINATION_HMAC_KEY"`,
-      `observability.sentry.secret.existingSecretKey: "SENTRY_DSN"`,
-      `metrics.secret.existingSecretKey: "METRICS_TOKEN"` (single-key areas).
-- [x] 1.2 `values.yaml`: add `jwt.secret.existingSecretKeys: {privateKey:
-      "JWT_PRIVATE_KEY", publicKey: "JWT_PUBLIC_KEY"}`,
-      `cookieEncryption.secret.existingSecretKeys: {key:
-      "COOKIE_ENCRYPTION_KEY", keys: "COOKIE_ENCRYPTION_KEYS"}`,
-      `s3.secret.existingSecretKeys: {accessKeyId: "S3_ACCESS_KEY_ID",
-      secretAccessKey: "S3_SECRET_ACCESS_KEY"}`,
-      `smtp.secret.existingSecretKeys: {username: "SMTP_USERNAME", password:
-      "SMTP_PASSWORD"}` (multi-key areas).
-- [x] 1.3 `templates/_env.tpl`: every `secretKeyRef.key` for the ten areas
-      above switches from a hardcoded literal to the corresponding
-      `.Values.<area>.secret.existingSecretKey[s...]` value.
-- [x] 1.4 Every `templates/<area>-secret.yaml` (database, jwt,
-      cookie-encryption, s3, smtp, pagination, sentry, metrics): `data:` key
-      name(s) switch from hardcoded literals to the same values-driven key
-      name(s) used in 1.3, so `create: true` and `existingSecret` always
-      agree on the key name.
-- [x] 1.5 `templates/backup-cronjob.yaml`: `DATABASE_URL` secretKeyRef's
-      `key:` switches to `.Values.database.secret.existingSecretKey`.
-- [x] 1.6 `values.schema.json`: add the new `existingSecretKey`/
-      `existingSecretKeys` properties to each of the ten areas'
-      `secret` object schemas (strings, `additionalProperties: false` on
-      each `existingSecretKeys` map with its area's fixed field names).
-- [x] 1.7 `docs/operations.md`: update each area's "existingSecret Secret
-      key(s): ..." mention to note the key name(s) are overridable via
-      `<area>.secret.existingSecretKey[s]`.
+- [x] 1.1-1.7 Implemented an intermediate `existingSecretKey`/
+      `existingSecretKeys` design (kept alongside `create: true`), then
+      **replaced by section 1a below** per review feedback before this
+      change was merged. Left unstruck in the history for an accurate
+      record of what actually happened; the checked-in chart matches 1a,
+      not this section.
 
-## 2. `checksum/secrets` annotation
+## 1a. Revision: no chart-managed Secret + kebab-case `keys` map + `database` split (supersedes 1 & 2)
 
-- [x] 2.1 `templates/_helpers.tpl`: new `team-manager.secretsChecksum`
-      named template concatenating
-      `include (print $.Template.BasePath "/<file>-secret.yaml") .` for
-      every one of the eight `<area>-secret.yaml` templates, `sha256sum`d.
-- [x] 2.2 `templates/deployment.yaml`: pod template annotations gain
-      `checksum/secrets: {{ include "team-manager.secretsChecksum" . }}`.
+- [x] 1a.1 `values.yaml`: remove `<area>.secret.create` and every
+      plaintext-value field it gated, on all ten areas
+      (`database`/`jwt`/`cookieEncryption`/`s3`/`smtp`/`push`/`pagination`/
+      `observability.sentry`/`metrics`/`monitoring.scrapeToken`) plus
+      `backup.s3.credentialsSecretName` -> `backup.s3.secret`. Replace
+      `existingSecretKey`/`existingSecretKeys` with a uniform
+      `secret.keys: {<field>: "<kebab-case-key>"}` map on every area,
+      defaults lowercase/dash-separated (`password`, `access-key-id`,
+      `private-key`, `hmac-key`, `dsn`, `token`, `key`/`keys`,
+      `username`/`password`, `private-key`/`public-key`) -- not the
+      backend's env var names.
+- [x] 1a.2 `values.yaml`: split `database` into plain `host`/`port`/`name`/
+      `username`/`sslmode` fields; `database.secret.keys.password` is the
+      only Secret-backed field. Document the URL-encoding limitation
+      inline (see design.md).
+- [x] 1a.3 `templates/_helpers.tpl`: delete `team-manager.secretName` and
+      `team-manager.secretsChecksum` (both moot with no chart-managed
+      Secret left). Add `team-manager.databaseEnv`, composing
+      `DATABASE_URL` from `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USERNAME`
+      (plain) + `DB_PASSWORD` (`secretKeyRef`) via Kubernetes' native
+      `$(VAR_NAME)` env-var expansion -- confirmed no shell exists in the
+      backend's distroless runtime image before choosing this over a
+      shell-wrapper approach.
+- [x] 1a.4 `templates/_env.tpl`: every `secretKeyRef.key` now reads
+      `$root.Values.<area>.secret.keys.<field>` directly (no more
+      create-or-reference resolution); database env vars come from
+      `{{ include "team-manager.databaseEnv" $root }}`.
+- [x] 1a.5 `templates/backup-cronjob.yaml`: pg-dump's `DATABASE_URL` env
+      vars come from the same `team-manager.databaseEnv` include; AWS
+      credentials read `backup.s3.secret.existingSecret`/`secret.keys`.
+- [x] 1a.6 `templates/servicemonitor.yaml`: `monitoring.scrapeToken`
+      restructured to the same `secret.{existingSecret,keys}` shape
+      (was `create`/`token`/`existingSecretName`/`existingSecretKey`).
+- [x] 1a.7 Delete every now-dead `templates/<area>-secret.yaml` (database,
+      jwt, cookie-encryption, s3, smtp, push, pagination, sentry, metrics)
+      and `templates/monitoring-scrape-token-secret.yaml`.
+- [x] 1a.8 `templates/deployment.yaml`: remove the `checksum/secrets` pod
+      annotation (moot -- nothing left to checksum).
+- [x] 1a.9 `values.schema.json`: rewrite every area's `secret` schema to
+      `{existingSecret: string, keys: {additionalProperties:false, ...}}`;
+      add `database.host`/`port`/`name`/`username`/`sslmode`.
+- [x] 1a.10 `templates/NOTES.txt`: rewrite every `.secret.create=true`
+      mention; add a `database.*` completeness warning (5 separate fields
+      now, easier to partially misconfigure than one opaque
+      `DATABASE_URL`).
+- [x] 1a.11 `docs/operations.md`: rewrite every `.secret.create=true`/
+      `existingSecretKey(s)` mention across Object storage/SMTP/VAPID/JWT
+      rotation/metrics/DR-restore sections.
+- [x] 1a.12 `README.md`: rewrite the "Secrets" section and every affected
+      values-table row.
+- [x] 1a.13 `values-staging.yaml`/`values-prod.yaml`: add
+      `database.host`/`name`/`username`(/`sslmode` in prod); update every
+      area's comment referencing the old field names.
+- [x] 1a.14 `.github/workflows/ci.yml`: rewrite the `helm-lint` job's
+      `--set` matrix -- every `.secret.create=true` combination becomes
+      `.secret.existingSecret=<dummy>` (+ non-default `.secret.keys.*`
+      overrides proving the override is actually read), `database.host`/
+      `name`/`username` added, `backup.s3.credentialsSecretName` ->
+      `backup.s3.secret.existingSecret`, `monitoring.scrapeToken.create`/
+      `.existingSecretName` -> `monitoring.scrapeToken.secret.existingSecret`.
+
+## 2. `checksum/secrets` annotation (removed -- see 1a.8)
+
+- [x] 2.1-2.2 Implemented, then removed per 1a.8 once `create: true` (the
+      only thing it was tracking) was removed. Left unstruck for an
+      accurate record.
 
 ## 3. Escape hatches
 
