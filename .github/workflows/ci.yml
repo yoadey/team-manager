@@ -1384,6 +1384,43 @@ jobs:
             --set priorityClassName=system-cluster-critical \
             --set-json 'topologySpreadConstraints=[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"team-manager"}}}]' \
             --set image.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111
+          # frontend.enabled is false in every shipped values file and
+          # every render above -- exercises the frontend Deployment/
+          # Service/Ingress/HPA/PDB/NetworkPolicy templates, every
+          # frontend.operator.* env var, and frontend.vapidPublicKey's
+          # default-from-push.publicKey resolution (push.publicKey is set,
+          # frontend.vapidPublicKey deliberately left unset).
+          render \
+            --set frontend.enabled=true --set frontend.image.tag=1.0.0 \
+            --set frontend.apiBaseUrl=https://api.team-manager.example.com \
+            --set frontend.sentryDsn=https://key@sentry.example.com/1 \
+            --set push.publicKey=dummy-vapid-public-key \
+            --set frontend.operator.name="Example e.V." \
+            --set frontend.operator.legalForm="Eingetragener Verein (e. V.)" \
+            --set frontend.operator.street="Musterstraße 1" \
+            --set-string frontend.operator.postalCode=12345 \
+            --set frontend.operator.city=Musterstadt \
+            --set frontend.operator.representedBy="Max Mustermann" \
+            --set-string frontend.operator.phone="+49 123 4567890" \
+            --set frontend.operator.email=info@example.com \
+            --set frontend.operator.registerCourt="AG Musterstadt" \
+            --set frontend.operator.registerNumber="VR 12345" \
+            --set frontend.operator.vatId=DE123456789 \
+            --set frontend.operator.dataProtectionEmail=datenschutz@example.com \
+            --set frontend.operator.s3Provider="self-hosted" \
+            --set frontend.operator.smtpProvider="self-hosted" \
+            --set frontend.operator.sentryProvider="self-hosted" \
+            --set frontend.operator.otelProvider="self-hosted" \
+            --set frontend.ingress.enabled=true \
+            --set frontend.autoscaling.enabled=true \
+            --set frontend.podDisruptionBudget.enabled=false \
+            --set-json 'frontend.extraEnv=[{"name":"EXTRA_ENV_VAR","value":"x"}]' \
+            --set-json 'frontend.extraVolumes=[{"name":"extra","emptyDir":{}}]' \
+            --set-json 'frontend.extraVolumeMounts=[{"name":"extra","mountPath":"/extra"}]' \
+            --set frontend.podLabels.team=platform \
+            --set frontend.priorityClassName=system-cluster-critical \
+            --set-json 'frontend.topologySpreadConstraints=[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"team-manager-frontend"}}}]' \
+            --set frontend.image.digest=sha256:2222222222222222222222222222222222222222222222222222222222222222
 
       # values.schema.json's additionalProperties:false (set on every
       # chart-specific object) should reject an unknown/typo'd key rather

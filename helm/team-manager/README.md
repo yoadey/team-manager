@@ -1,8 +1,8 @@
 # team-manager
 
-Helm chart for the Teamverwaltung sports-club management application's Go
-backend API (and, via `ingress`, whatever serves the React frontend in
-front of it).
+Helm chart for the Teamverwaltung sports-club management application: the
+Go backend API (always deployed), and optionally the React frontend SPA
+(`frontend.enabled: true`, off by default).
 
 ## Prerequisites
 
@@ -37,6 +37,31 @@ helm upgrade --install team-manager helm/team-manager \
 enums, unknown/typo'd keys) before anything renders — a mistake here fails
 `helm template`/`install`/`upgrade`/`lint` immediately rather than at
 pod-startup crash-loop time.
+
+## Frontend
+
+Off by default. A minimal deployment:
+
+```bash
+helm upgrade --install team-manager helm/team-manager \
+  --set image.tag=1.2.3 \
+  --set frontend.enabled=true \
+  --set frontend.image.tag=1.2.3 \
+  --set frontend.apiBaseUrl=https://api.team-manager.example.com \
+  --set frontend.ingress.enabled=true \
+  --set frontend.ingress.hosts[0].host=team-manager.example.com \
+  --set frontend.ingress.hosts[0].paths[0].path=/ \
+  --set frontend.ingress.hosts[0].paths[0].pathType=Prefix \
+  # ... one existingSecret per backend area, see "Secrets" above
+```
+
+Frontend pods carry their own `app.kubernetes.io/name`
+(`team-manager-frontend`), entirely independent of the backend's — see
+`frontend.*` in the values table below, and
+[`docs/operations.md`](../../docs/operations.md)'s "Frontend image:
+pointing it at a backend" and "Legal setup before going public" sections
+for what each value does and which `frontend.operator.*` fields are
+required before going public.
 
 ## Upgrading
 
@@ -161,6 +186,26 @@ default key name(s) and which fields are required when
 | `backup.retentionDays` | int | `30` | Informational only — enforce via bucket lifecycle rules. |
 | `backup.s3.*` | — | see `values.yaml` | S3 upload target/credentials for the backup dump. |
 | `backup.serviceAccount.*` | — | see `values.yaml` | Dedicated ServiceAccount for the backup CronJob (default: shares the main one). |
+| `frontend.enabled` | bool | `false` | Deploy the frontend SPA alongside the backend. |
+| `frontend.replicaCount` | int | `2` | Frontend pod replica count (ignored when `frontend.autoscaling.enabled`). |
+| `frontend.image.repository` | string | `ghcr.io/yoadey/team-manager-frontend` | Frontend container image repository. |
+| `frontend.image.pullPolicy` | string | `IfNotPresent` | Frontend image pull policy. |
+| `frontend.image.tag` | string | `""` | Frontend image tag; defaults to `Chart.AppVersion` when empty. **Always set explicitly for a real deploy.** |
+| `frontend.image.digest` | string | `""` | Pins the frontend image by digest instead of tag when set. |
+| `frontend.apiBaseUrl` | string | `""` | The backend's public URL this frontend talks to. Unset serves the built-in mock backend. |
+| `frontend.sentryDsn` | string | `""` | Frontend Sentry DSN; not secret (shipped to the browser regardless). |
+| `frontend.vapidPublicKey` | string | `""` | VAPID public key shown to the browser; resolves to `push.publicKey` when unset — must match whichever backend `apiBaseUrl` points at. |
+| `frontend.operator.*` | string | all `""` | Operator legal-notice identity (`name`/`legalForm`/`street`/`postalCode`/`city`/`representedBy`/`phone`/`email`/`registerCourt`/`registerNumber`/`vatId`/`dataProtectionEmail`/`s3Provider`/`smtpProvider`/`sentryProvider`/`otelProvider`) — see `docs/operations.md`'s "Legal setup before going public". |
+| `frontend.resources` | object | `requests: 25m/32Mi`, `limits: 250m/64Mi` | Frontend container resource requests/limits. |
+| `frontend.livenessProbe` / `readinessProbe` | object | both `httpGet: /healthz` | Frontend probe timing. |
+| `frontend.podSecurityContext` | object | non-root, `seccompProfile: RuntimeDefault` | Frontend pod-level `securityContext`. |
+| `frontend.securityContext` | object | `allowPrivilegeEscalation: false`, capabilities dropped, `seccompProfile: RuntimeDefault` | Frontend container-level `securityContext` — deliberately no `readOnlyRootFilesystem` (see `values.yaml`'s comment). |
+| `frontend.service.*` | — | `ClusterIP`, port `80`, targetPort `8080` | Frontend Service. |
+| `frontend.ingress.*` | — | disabled | Frontend's own Ingress, independent of the backend's top-level `ingress`. |
+| `frontend.autoscaling.*` | — | disabled | Frontend HPA. |
+| `frontend.podDisruptionBudget.*` | — | enabled, `minAvailable: 1` | Frontend PDB. |
+| `frontend.networkPolicy.*` | — | enabled | Frontend NetworkPolicy — egress is unconditionally DNS-only (not configurable), ingress source restrictable via `.ingress.from`. |
+| `frontend.priorityClassName` / `topologySpreadConstraints` / `podAnnotations` / `podLabels` / `extraEnv` / `extraVolumes` / `extraVolumeMounts` / `nodeSelector` / `tolerations` / `affinity` | — | see `values.yaml` | Same shape/purpose as the backend's equivalents. |
 
 This table is hand-maintained alongside `values.yaml`'s own per-key
 comments — treat `values.yaml` as authoritative if the two ever disagree.

@@ -562,11 +562,20 @@ the *same* value as the backend's `VAPID_PUBLIC_KEY` — a mismatch fails
 `PushManager.subscribe()` client-side with a benign-looking error, not a
 clear "wrong key" message.
 
-Note: there is currently no Helm/Kubernetes manifest for deploying the
-frontend image itself (only the backend has one under `helm/team-manager/`);
-until one exists, deploy the frontend container by whatever means fits your
-infrastructure (a plain Deployment/Service, a static host that proxies to the
-image, etc.), setting `API_BASE_URL` as above.
+**Kubernetes**: `helm/team-manager` can deploy the frontend alongside the
+backend — set `frontend.enabled=true`, `frontend.image.tag`, and
+`frontend.apiBaseUrl` (the backend's public URL, i.e. wherever this
+chart's own `ingress` — or your own separately-managed backend — is
+reachable), plus `frontend.sentryDsn`/`frontend.vapidPublicKey`/
+`frontend.operator.*` as needed (all plain values, no Secret — see
+`helm/team-manager/README.md`'s "Frontend" section and values table). It's
+off by default and renders its own independent `frontend.ingress` — the
+backend's OpenAPI routes have no shared path prefix, so the two Ingresses
+are normally on separate hostnames (e.g. `team-manager.example.com` for
+the frontend, `api.team-manager.example.com` for the backend). If you'd
+rather deploy the frontend container by some other means (a static host
+that proxies to the image, etc.), that still works the same way, setting
+`API_BASE_URL` as above.
 
 ### Helm chart
 

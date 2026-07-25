@@ -130,12 +130,19 @@ service:
   port: 80
   targetPort: 8080
 
+# The backend API's own Ingress. The frontend (see the `frontend` section
+# at the end of this file) has its own separate `frontend.ingress` --
+# they're independent Ingress resources, typically on separate hostnames
+# (e.g. team-manager.example.com for the frontend,
+# api.team-manager.example.com for this one), since the backend's OpenAPI
+# routes have no shared path prefix (/auth/login, /teams, ... directly at
+# the root) that a single Ingress could split on unambiguously.
 ingress:
   enabled: false
   className: ""
   annotations: {}
   hosts:
-    - host: team-manager.example.com
+    - host: api.team-manager.example.com
       paths:
         - path: /
           pathType: Prefix
@@ -599,3 +606,177 @@ backup:
     annotations: {}
     # Defaults to "<fullname>-backup" when create is true and this is empty.
     name: ""
+
+# Frontend (ghcr.io/yoadey/team-manager-frontend) -- the static SPA, served
+# by nginx-unprivileged. Off by default, matching this chart's convention
+# for every other infra-cost-affecting optional feature (ingress,
+# monitoring, backup) -- set enabled: true to deploy it alongside the
+# backend. Frontend pods carry their own app.kubernetes.io/name
+# (team-manager-frontend, not team-manager), so none of the backend's
+# NetworkPolicy/PodDisruptionBudget/Service selectors above ever match
+# them, and vice versa. Reuses the shared serviceAccount above (see
+# serviceAccount.automount) -- nginx makes no Kubernetes API calls and no
+# calls to any cloud API, so there's no reason for it to have its own
+# ServiceAccount identity the way backup.serviceAccount does.
+frontend:
+  enabled: false
+  replicaCount: 2
+
+  image:
+    repository: ghcr.io/yoadey/team-manager-frontend
+    pullPolicy: IfNotPresent
+    # Same caveat as the backend's image.tag above: defaults to
+    # Chart.AppVersion, which is a fixed placeholder, not "the latest
+    # released version". ALWAYS set explicitly for a real deployment.
+    tag: ""
+    digest: ""
+
+  # The backend's public URL this frontend release talks to (e.g.
+  # "https://api.team-manager.example.com", see ingress.hosts above).
+  # Resolved at container start, not baked into the image -- the same
+  # built image can point at any backend. Left unset serves the frontend's
+  # built-in in-memory mock backend (a quick demo/preview, not a real
+  # deployment) -- always set this for staging/production. If this
+  # resolves to a different origin than where the frontend itself is
+  # served, that origin also needs to be in the backend's
+  # server.allowedOrigins above, or the browser's CORS preflight fails.
+  apiBaseUrl: ""
+  # Sentry DSN for frontend error tracking; disabled when unset. Not a
+  # secret -- it's shipped to the browser as plain JavaScript regardless
+  # of how it's injected server-side, so (unlike the backend's
+  # observability.sentry.secret) this is a plain value, not Secret-backed.
+  sentryDsn: ""
+  # VAPID public key for Web Push, shown to the browser's PushManager.
+  # Left empty here (the default), it resolves to push.publicKey above --
+  # the two MUST match (see push.publicKey's own comment) or
+  # PushManager.subscribe() fails client-side with a benign-looking error,
+  # not a clear "wrong key" message. Only set this explicitly to
+  # deliberately point this frontend release at a different backend/VAPID
+  # keypair than push.* above describes.
+  vapidPublicKey: ""
+
+  # Operator legal-notice/privacy-policy identity, shown on the
+  # legal-notice page and in the privacy policy -- see docs/operations.md's
+  # "Legal setup before going public" for which fields are always-required
+  # (name/street/postalCode/city/phone/email -- leaving any of these unset
+  # renders an explicit [OPERATOR: ...] placeholder marker) vs.
+  # optional-with-omission (everything else). None of these are secret --
+  # they're a club's already-public contact details, required by law to
+  # be shown on the page itself.
+  operator:
+    name: ""
+    legalForm: "" # e.g. "Eingetragener Verein (e. V.)"
+    street: ""
+    postalCode: ""
+    city: ""
+    representedBy: ""
+    phone: ""
+    email: ""
+    registerCourt: "" # required together with registerNumber
+    registerNumber: ""
+    vatId: ""
+    dataProtectionEmail: "" # falls back to operator.email if unset
+    s3Provider: "" # required (Art. 28 GDPR disclosure) if s3.endpoint is set
+    smtpProvider: "" # required if smtp.host is set
+    sentryProvider: "" # required if sentryDsn (above) is set
+    otelProvider: "" # required if observability.otelExporterEndpoint is set
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /healthz
+    initialDelaySeconds: 3
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  # No readOnlyRootFilesystem: the runtime-config entrypoint script
+  # (frontend/docker/docker-entrypoint-runtime-config.sh) overwrites
+  # config.js/index.html under /usr/share/nginx/html on every container
+  # start -- a read-only root filesystem would break that. Every other
+  # hardening control still applies.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: team-manager.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # No egress knobs here (unlike the backend's networkPolicy.egress) --
+  # the frontend container never originates outbound traffic itself, every
+  # API call happens browser-side against apiBaseUrl above, so its
+  # NetworkPolicy's egress is unconditionally DNS-only.
+  networkPolicy:
+    enabled: true
+    ingress:
+      from: []
+
+  priorityClassName: ""
+  topologySpreadConstraints: []
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - team-manager-frontend
+            topologyKey: kubernetes.io/hostname

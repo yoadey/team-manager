@@ -120,6 +120,64 @@ Usage: {{ include "team-manager.secretsChecksum" . }}
 {{- end }}
 
 {{/*
+Frontend name/fullname -- deliberately distinct from team-manager.name/
+fullname (not just a "-frontend" suffix applied ad hoc at each call site)
+so every frontend resource's app.kubernetes.io/name differs from the
+backend's. Without this, frontend pods sharing the backend's selectorLabels
+would be silently caught by the backend's NetworkPolicy/PodDisruptionBudget/
+Service selectors too (Kubernetes label selectors match on presence, not
+exclusivity -- the same hazard pdb.yaml's component-exclusion comment
+documents for the backup CronJob's pods) with no way to exclude them from
+a Service selector at all (unlike matchExpressions-based selectors,
+Service.spec.selector only supports flat label equality).
+*/}}
+{{- define "team-manager.frontend.name" -}}
+{{- printf "%s-frontend" (include "team-manager.name" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "team-manager.frontend.fullname" -}}
+{{- printf "%s-frontend" (include "team-manager.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Frontend selector labels -- see team-manager.frontend.name above for why
+these must differ from team-manager.selectorLabels.
+*/}}
+{{- define "team-manager.frontend.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "team-manager.frontend.name" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+Frontend common labels -- same shape as team-manager.labels, built on
+team-manager.frontend.selectorLabels instead, versioned from
+frontend.image.tag (not the backend's image.tag), and labeled
+component: frontend rather than backend.
+*/}}
+{{- define "team-manager.frontend.labels" -}}
+helm.sh/chart: {{ include "team-manager.chart" . }}
+{{ include "team-manager.frontend.selectorLabels" . }}
+{{- with .Values.frontend.image.tag | default .Chart.AppVersion }}
+app.kubernetes.io/version: {{ . | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/component: frontend
+{{- end }}
+
+{{/*
+Frontend image reference -- same digest-takes-precedence-over-tag logic as
+team-manager.image, against frontend.image instead of image.
+Usage: image: {{ include "team-manager.frontend.image" . }}
+*/}}
+{{- define "team-manager.frontend.image" -}}
+{{- if .Values.frontend.image.digest -}}
+"{{ .Values.frontend.image.repository }}@{{ .Values.frontend.image.digest }}"
+{{- else -}}
+"{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}"
+{{- end -}}
+{{- end }}
+
+{{/*
 Backup CronJob ServiceAccount name. Falls back to the main ServiceAccount
 (team-manager.serviceAccountName) when backup.serviceAccount.create is false
 and no name override is given, preserving prior behavior. Set
