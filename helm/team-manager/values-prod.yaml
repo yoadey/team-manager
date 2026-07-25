@@ -1,6 +1,8 @@
 # Production overrides — HA, autoscaling, strict resource limits.
 replicaCount: 3
 
+# The backend API's own ingress -- see the frontend section below for the
+# user-facing team-manager.example.com host.
 ingress:
   enabled: true
   className: nginx
@@ -9,14 +11,14 @@ ingress:
     nginx.ingress.kubernetes.io/proxy-body-size: "10m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
   hosts:
-    - host: team-manager.example.com
+    - host: api.team-manager.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: team-manager-prod-tls
+    - secretName: team-manager-prod-api-tls
       hosts:
-        - team-manager.example.com
+        - api.team-manager.example.com
 
 server:
   allowedOrigins:
@@ -44,13 +46,19 @@ observability:
 # Every credential below is its own Secret -- no combined "God Secret" -- so
 # rotating one area (e.g. S3 access key) never touches another area's
 # (e.g. JWT signing key) blast radius. Create each Secret out-of-band
-# (external-secrets + Vault/AWS SM, or manually) with the fixed key names
-# documented per section in values.yaml; s3.endpoint/s3.bucket and
-# smtp.host/smtp.fromAddress still need a values override too (see
-# docs/operations.md's "Object storage (image uploads)" and "Outbound email
-# (SMTP)" sections) — templates/NOTES.txt warns at deploy time if either is
-# missing.
+# (external-secrets + Vault/AWS SM, or manually) with the default key names
+# documented per section in values.yaml -- or, if your secret store's own
+# naming convention differs (e.g. an External Secrets Operator sync), set
+# the matching <area>.secret.keys override instead of re-keying the
+# Secret. s3.endpoint/s3.bucket and smtp.host/smtp.fromAddress still need
+# a values override too (see docs/operations.md's "Object storage (image
+# uploads)" and "Outbound email (SMTP)" sections) — templates/NOTES.txt
+# warns at deploy time if either is missing.
 database:
+  host: "postgres-prod.default.svc.cluster.local"
+  name: "teammanager"
+  username: "teammanager"
+  sslmode: "require"
   secret:
     existingSecret: "team-manager-prod-database"
 
@@ -110,3 +118,44 @@ backup:
     # Uses the pod's IAM role by default (see serviceAccount.annotations for
     # IRSA); set backup.s3.credentialsSecretName to use static credentials
     # instead.
+
+frontend:
+  enabled: true
+  replicaCount: 3
+  # See the backend image.tag note in values-staging.yaml -- always set
+  # frontend.image.tag explicitly for a real deploy.
+  apiBaseUrl: "https://api.team-manager.example.com"
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: team-manager.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: team-manager-prod-frontend-tls
+        hosts:
+          - team-manager.example.com
+  # frontend.operator.* deliberately left unset here -- a club's real
+  # legal-notice contact details (name, business address, phone, email)
+  # aren't committed to this public repository's example overlay. Set them
+  # via --set/an untracked overlay at actual deploy time; see
+  # docs/operations.md's "Legal setup before going public".
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2

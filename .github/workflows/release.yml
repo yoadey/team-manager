@@ -216,7 +216,7 @@ jobs:
           rm -f get-helm-3.sh
 
       - name: helm lint
-        run: helm lint helm/team-manager
+        run: helm lint --strict helm/team-manager
 
       - name: Package chart
         run: |

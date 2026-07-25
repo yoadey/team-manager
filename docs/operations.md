@@ -164,13 +164,21 @@ care:
 2. **Restore into the real target**, not a scratch DB this time —
    `pg_restore --no-owner --clean --if-exists --dbname=<production DSN>
    <dump>`. If the target host/database name is changing (e.g. failing over
-   to a new Postgres instance), update `DATABASE_URL` in the Secret
-   referenced by `database.secret.existingSecret` *before* the next step.
+   to a new Postgres instance), update `database.host`/`database.name`
+   (plain `values.yaml` fields the chart composes `DATABASE_URL` from —
+   see `helm/team-manager/README.md`'s "Secrets" section) and/or the
+   password key in the Secret referenced by `database.secret.existingSecret`,
+   then `helm upgrade` *before* the next step.
 3. **Restart every pod**, not just scale back up — `DATABASE_URL` (like
    `JWT_PRIVATE_KEY`/`COOKIE_ENCRYPTION_KEY(S)` elsewhere in this doc) is
    read once via `config.Load()` at process start
    (`backend/internal/config/config.go`), so an already-running pod (if any
-   survived) won't pick up a changed Secret without a restart.
+   survived) won't pick up a changed value without a restart —
+   `helm upgrade` triggers one automatically for the plain `database.host`/
+   `name`/`username`/`sslmode` fields (they're rendered directly into the
+   pod spec), but changing only the Secret's password key still needs a
+   manual `kubectl rollout restart` (same reasoning as the JWT key rotation
+   section above).
 4. **Mind the schema-version gap.** The restored dump reflects whatever
    goose migration state existed at backup time, which may be *behind* the
    currently-deployed app version (if migrations shipped between the backup
@@ -282,11 +290,10 @@ quick manual smoke test, but uploaded images vanish on restart and aren't
 shared across replicas, so never rely on it beyond that.
 
 **Kubernetes**: set the plaintext `s3.endpoint`/`s3.region`/`s3.bucket`/
-`s3.usePathStyle`/`s3.publicBaseUrl` values in your overlay, and either
-populate `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` in the Secret referenced
-by `s3.secret.existingSecret`, or set `s3.secret.create=true` with
-`s3.secret.accessKeyId`/`secretAccessKey` to have the chart render and
-manage that Secret itself. The chart's NetworkPolicy
+`s3.usePathStyle`/`s3.publicBaseUrl` values in your overlay, and populate
+`s3.secret.existingSecret` with a Secret keyed per `s3.secret.keys`
+(defaults `access-key-id`/`secret-access-key`; override to match your
+Secret's actual key names). The chart's NetworkPolicy
 (`networkPolicy.egress.s3`, `templates/networkpolicy.yaml`) already opens
 egress to the S3 endpoint whenever `s3.endpoint` is set — override
 `networkPolicy.egress.s3.port`/`.to` to match a self-hosted endpoint's
@@ -313,10 +320,9 @@ only written to the server log, fine for manual testing but obviously not a
 real delivery path.
 
 **Kubernetes**: set the plaintext `smtp.host`/`smtp.port`/`smtp.fromAddress`
-values in your overlay, and either populate `SMTP_USERNAME`/`SMTP_PASSWORD`
-in the Secret referenced by `smtp.secret.existingSecret`, or set
-`smtp.secret.create=true` with `smtp.secret.username`/`password` to have the
-chart render and manage that Secret itself. The chart's NetworkPolicy
+values in your overlay, and optionally populate `smtp.secret.existingSecret`
+with a Secret keyed per `smtp.secret.keys` (defaults `username`/`password`,
+both may be blank for an open relay). The chart's NetworkPolicy
 (`networkPolicy.egress.smtp`, `templates/networkpolicy.yaml`) already opens
 egress to the SMTP relay whenever `smtp.host` is set — override
 `networkPolicy.egress.smtp.port`/`.to` to match your relay's actual
@@ -349,10 +355,11 @@ only written to the server log, fine for manual testing but no real
 delivery. Generate a real keypair with `npx web-push generate-vapid-keys`.
 
 **Kubernetes**: set the plaintext `push.publicKey`/`push.subject` values in
-your overlay, and either populate `VAPID_PRIVATE_KEY` in the Secret
-referenced by `push.secret.existingSecret`, or set `push.secret.create=true`
-with `push.secret.privateKey` to have the chart render and manage that
-Secret itself. `templates/NOTES.txt` warns at deploy time if
+your overlay, and populate `push.secret.existingSecret` with a Secret keyed
+per `push.secret.keys.privateKey` (default `private-key`). The chart also
+composes `frontend.vapidPublicKey` from `push.publicKey` automatically when
+the frontend is deployed via this same chart (`frontend.enabled: true`) —
+see `helm/team-manager/README.md`. `templates/NOTES.txt` warns at deploy time if
 `session.cookie.secure` is `true` and `push.publicKey`/`push.subject` aren't
 both set. No dedicated NetworkPolicy egress rule is needed — push services
 are reached over HTTPS/443, already covered by the chart's general HTTPS
@@ -379,20 +386,18 @@ rotating them invalidates every existing session immediately (all holders
 must re-authenticate). To rotate:
 
 1. Generate a new RSA-2048 key pair.
-2. Update the `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` keys in the Secret
-   referenced by `jwt.secret.existingSecret` during a maintenance window
-   (accept that all active sessions are invalidated).
+2. Update the keys named by `jwt.secret.keys.privateKey`/`publicKey`
+   (defaults `private-key`/`public-key`) in the Secret referenced by
+   `jwt.secret.existingSecret` during a maintenance window (accept that
+   all active sessions are invalidated).
 3. **Restart every backend pod**: `kubectl rollout restart deployment/<fullname>
    -n <namespace>`. This step is not optional and easy to miss — editing a
    Kubernetes Secret does not restart pods that reference it via
-   `secretKeyRef`, and `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` are only read once,
-   at process start (`loadJWTKeys`). When `jwt.secret.existingSecret` is used
-   (a Secret you manage yourself; the chart only references it), there is no
-   `checksum/secret` pod-annotation to trigger this automatically the way an
-   in-chart-templated Secret (`jwt.secret.create=true`) would either — a
-   plain `Secret` update never restarts the pods that mounted it regardless
-   of which side created the object. Skipping this
-   step doesn't do nothing — it's worse than that: already-running replicas
+   `secretKeyRef` (this chart never creates/manages the Secret itself, only
+   references it — there is no chart-side mechanism to trigger a rollout
+   automatically), and `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` are only read
+   once, at process start (`loadJWTKeys`). Skipping this step doesn't do
+   nothing — it's worse than that: already-running replicas
    keep validating/issuing tokens with the *old* keypair indefinitely, while
    any replica that happens to restart on its own for an unrelated reason
    (HPA scale-out, node reschedule) silently picks up the new key and starts
@@ -452,9 +457,9 @@ over a private network. To expose it on an untrusted network, set
 **`METRICS_TOKEN` is not merely a recommendation once `COOKIE_SECURE=true`**
 (the production default): the backend fails startup outright
 (`os.Exit(1)`, every replica crash-loops, not just a logged warning) if
-`METRICS_TOKEN` is empty in that case. Either populate `METRICS_TOKEN` in
-the Secret referenced by `metrics.secret.existingSecret` (or set
-`metrics.secret.create=true` with `metrics.secret.token`), or set
+`METRICS_TOKEN` is empty in that case. Either populate
+`metrics.secret.existingSecret` with a Secret keyed per
+`metrics.secret.keys.token` (default `token`), or set
 `metrics.allowOpen=true` if `/metrics` is already restricted at the network
 layer and you accept it being unauthenticated. The Helm chart's
 `templates/NOTES.txt` prints a reminder about this at deploy time, since
@@ -553,11 +558,20 @@ the *same* value as the backend's `VAPID_PUBLIC_KEY` — a mismatch fails
 `PushManager.subscribe()` client-side with a benign-looking error, not a
 clear "wrong key" message.
 
-Note: there is currently no Helm/Kubernetes manifest for deploying the
-frontend image itself (only the backend has one under `helm/team-manager/`);
-until one exists, deploy the frontend container by whatever means fits your
-infrastructure (a plain Deployment/Service, a static host that proxies to the
-image, etc.), setting `API_BASE_URL` as above.
+**Kubernetes**: `helm/team-manager` can deploy the frontend alongside the
+backend — set `frontend.enabled=true`, `frontend.image.tag`, and
+`frontend.apiBaseUrl` (the backend's public URL, i.e. wherever this
+chart's own `ingress` — or your own separately-managed backend — is
+reachable), plus `frontend.sentryDsn`/`frontend.vapidPublicKey`/
+`frontend.operator.*` as needed (all plain values, no Secret — see
+`helm/team-manager/README.md`'s "Frontend" section and values table). It's
+off by default and renders its own independent `frontend.ingress` — the
+backend's OpenAPI routes have no shared path prefix, so the two Ingresses
+are normally on separate hostnames (e.g. `team-manager.example.com` for
+the frontend, `api.team-manager.example.com` for the backend). If you'd
+rather deploy the frontend container by some other means (a static host
+that proxies to the image, etc.), that still works the same way, setting
+`API_BASE_URL` as above.
 
 ### Helm chart
 

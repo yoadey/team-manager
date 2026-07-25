@@ -1,0 +1,175 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "team-manager.frontend.fullname" . }}
+  labels:
+    {{- include "team-manager.frontend.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.frontend.autoscaling.enabled }}
+  replicas: {{ .Values.frontend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "team-manager.frontend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.frontend.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "team-manager.frontend.labels" . | nindent 8 }}
+        {{- with .Values.frontend.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "team-manager.serviceAccountName" . }}
+      {{- with .Values.frontend.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.frontend.podSecurityContext | nindent 8 }}
+      containers:
+        - name: frontend
+          securityContext:
+            {{- toYaml .Values.frontend.securityContext | nindent 12 }}
+          image: {{ include "team-manager.frontend.image" . }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.frontend.service.targetPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.frontend.livenessProbe.httpGet.path }}
+              port: {{ .Values.frontend.service.targetPort }}
+            initialDelaySeconds: {{ .Values.frontend.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.frontend.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.frontend.readinessProbe.httpGet.path }}
+              port: {{ .Values.frontend.service.targetPort }}
+            initialDelaySeconds: {{ .Values.frontend.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.frontend.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.frontend.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.frontend.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          {{- with .Values.frontend.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            {{- with .Values.frontend.apiBaseUrl }}
+            - name: API_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.sentryDsn }}
+            - name: SENTRY_DSN
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (.Values.frontend.vapidPublicKey | default .Values.push.publicKey) }}
+            - name: VAPID_PUBLIC_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.name }}
+            - name: OPERATOR_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.legalForm }}
+            - name: OPERATOR_LEGAL_FORM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.street }}
+            - name: OPERATOR_STREET
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.postalCode }}
+            - name: OPERATOR_POSTAL_CODE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.city }}
+            - name: OPERATOR_CITY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.representedBy }}
+            - name: OPERATOR_REPRESENTED_BY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.phone }}
+            - name: OPERATOR_PHONE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.email }}
+            - name: OPERATOR_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.registerCourt }}
+            - name: OPERATOR_REGISTER_COURT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.registerNumber }}
+            - name: OPERATOR_REGISTER_NUMBER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.vatId }}
+            - name: OPERATOR_VAT_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.dataProtectionEmail }}
+            - name: OPERATOR_DATA_PROTECTION_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.s3Provider }}
+            - name: OPERATOR_S3_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.smtpProvider }}
+            - name: OPERATOR_SMTP_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.sentryProvider }}
+            - name: OPERATOR_SENTRY_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.operator.otelProvider }}
+            - name: OPERATOR_OTEL_PROVIDER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      # Explicit (possibly empty) volumes array -- see deployment.yaml's
+      # own comment on this same pattern (EKS IRSA webhook JSON-patch
+      # compatibility); applies equally here since frontend pods share the
+      # backend's serviceAccount.
+      {{- if .Values.frontend.extraVolumes }}
+      volumes:
+        {{- toYaml .Values.frontend.extraVolumes | nindent 8 }}
+      {{- else }}
+      volumes: []
+      {{- end }}
+      {{- with .Values.frontend.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.frontend.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

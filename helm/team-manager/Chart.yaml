@@ -15,5 +15,7 @@ keywords:
   - sports
   - golang
 home: https://github.com/yoadey/team-manager
+sources:
+  - https://github.com/yoadey/team-manager
 maintainers:
   - name: yoadey

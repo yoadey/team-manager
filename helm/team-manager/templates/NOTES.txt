@@ -47,14 +47,31 @@ spoof X-Forwarded-For and bypass rate limiting entirely, which is worse
 than leaving it unset.
 {{- end }}
 
+{{- if or (not .Values.database.host) (not .Values.database.name) (not .Values.database.username) (not .Values.database.secret.existingSecret) }}
+
+WARNING: database.host/name/username/secret.existingSecret are not all
+set, so DATABASE_URL (composed from these plus database.secret.keys.password
+-- see values.yaml's database comment) is incomplete or empty, and the
+backend hard-fails startup (exit 1, every replica crash-loops, including
+the migrate initContainer) with ErrInvalidDatabaseURL or
+ErrDatabaseURLRequired. Set all four via a values override, e.g.:
+
+  helm upgrade --install {{ .Release.Name }} . \
+    --set database.host=postgres.example.com \
+    --set database.name=teammanager \
+    --set database.username=teammanager \
+    --set database.secret.existingSecret=team-manager-database
+{{- end }}
+
 {{- if and .Values.session.cookie.secure (not .Values.metrics.allowOpen) }}
 
 REMINDER: session.cookie.secure is true, so the backend hard-fails startup
-(exit 1, every replica crash-loops) unless your metrics.secret Secret
-({{ include "team-manager.secretName" (list $ "metrics" .Values.metrics.secret) | default "metrics.secret.existingSecret / metrics.secret.create" }})
-has a non-empty METRICS_TOKEN key — this chart cannot verify that from
-here, since it only sees the Secret's name, not its contents. If you
-haven't set one, either populate METRICS_TOKEN in that Secret, or set
+(exit 1, every replica crash-loops) unless the Secret referenced by
+metrics.secret.existingSecret ({{ .Values.metrics.secret.existingSecret | default "-- not set --" }})
+has a non-empty value under its metrics.secret.keys.token key
+({{ .Values.metrics.secret.keys.token }}) — this chart cannot verify that
+from here, since it only sees the Secret's name, not its contents. If you
+haven't set one, either populate that key in the Secret, or set
 metrics.allowOpen=true if /metrics is already restricted at the network
 layer and you accept it being unauthenticated.
 {{- end }}
@@ -66,9 +83,9 @@ backend hard-fails startup (exit 1, every replica crash-loops) — image
 uploads (team/user photos, team logos) require object storage to be
 configured, unlike METRICS_TOKEN above this chart CAN see this from here.
 Set s3.endpoint/s3.region/s3.bucket/s3.usePathStyle via a values override,
-and either populate s3.secret.existingSecret (S3_ACCESS_KEY_ID/
-S3_SECRET_ACCESS_KEY) or set s3.secret.create=true with the plaintext
-fields — see docs/operations.md's "Object storage (image uploads)" section.
+and populate s3.secret.existingSecret with a Secret keyed per
+s3.secret.keys.accessKeyId/secretAccessKey — see docs/operations.md's
+"Object storage (image uploads)" section.
 {{- end }}
 
 {{- if and .Values.session.cookie.secure (or (not .Values.smtp.host) (not .Values.smtp.fromAddress)) }}
@@ -78,10 +95,9 @@ not both set, so the backend hard-fails startup (exit 1, every replica
 crash-loops, including the migrate initContainer since config.Load() runs
 before --migrate-only is handled) — self-registration verification email
 requires SMTP to be configured. Set smtp.host/smtp.port/smtp.fromAddress via
-a values override, and optionally populate smtp.secret.existingSecret
-(SMTP_USERNAME/SMTP_PASSWORD, both may be blank for an open relay) or set
-smtp.secret.create=true with the plaintext fields — see
-docs/operations.md's "Outbound email (SMTP)" section.
+a values override, and optionally populate smtp.secret.existingSecret with a
+Secret keyed per smtp.secret.keys.username/password (both may be blank for
+an open relay) — see docs/operations.md's "Outbound email (SMTP)" section.
 {{- end }}
 
 {{- if and .Values.session.cookie.secure (or (not .Values.push.publicKey) (not .Values.push.subject)) }}
@@ -91,11 +107,10 @@ not both set, so the backend hard-fails startup (exit 1, every replica
 crash-loops, including the migrate initContainer since config.Load() runs
 before --migrate-only is handled) — Web Push requires a VAPID keypair to be
 configured. Set push.publicKey/push.subject via a values override (generate
-a keypair with e.g. `npx web-push generate-vapid-keys`), and either populate
-VAPID_PRIVATE_KEY in the Secret referenced by push.secret.existingSecret, or
-set push.secret.create=true with push.secret.privateKey to have the chart
-render and manage that Secret itself. push.publicKey is not secret — it must
-also be set as the frontend's VITE_VAPID_PUBLIC_KEY/VAPID_PUBLIC_KEY runtime
+a keypair with e.g. `npx web-push generate-vapid-keys`), and populate
+push.secret.existingSecret with a Secret keyed per
+push.secret.keys.privateKey. push.publicKey is not secret — it must also be
+set as the frontend's VITE_VAPID_PUBLIC_KEY/VAPID_PUBLIC_KEY runtime
 config, see docs/operations.md.
 {{- end }}
 

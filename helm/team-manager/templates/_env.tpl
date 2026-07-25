@@ -1,11 +1,9 @@
 {{/*
 Renders the full list of backend container env vars, shared by the migrate
-initContainer and the main container (templates/deployment.yaml) and by
-the backup CronJob's DATABASE_URL (templates/backup-cronjob.yaml, via the
-database-only variant below). config.Load() runs unconditionally before
-the --migrate-only branch in main.go, so the initContainer needs every var
-the main container does, even ones (e.g. S3/SMTP credentials) migrate-only
-never itself uses.
+initContainer and the main container (templates/deployment.yaml).
+config.Load() runs unconditionally before the --migrate-only branch in
+main.go, so the initContainer needs every var the main container does,
+even ones (e.g. S3/SMTP credentials) migrate-only never itself uses.
 Usage: {{ include "team-manager.env" $ | nindent 12 }}
 */}}
 {{- define "team-manager.env" -}}
@@ -100,34 +98,25 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
 - name: VAPID_SUBJECT
   value: {{ . | quote }}
 {{- end }}
-{{- $dbSecret := include "team-manager.secretName" (list $root "database" $root.Values.database.secret) }}
-{{- if $dbSecret }}
-- name: DATABASE_URL
-  valueFrom:
-    secretKeyRef:
-      name: {{ $dbSecret }}
-      key: DATABASE_URL
-{{- end }}
-{{- $jwtSecret := include "team-manager.secretName" (list $root "jwt" $root.Values.jwt.secret) }}
-{{- if $jwtSecret }}
+{{ include "team-manager.databaseEnv" $root }}
+{{- if $root.Values.jwt.secret.existingSecret }}
 - name: JWT_PRIVATE_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ $jwtSecret }}
-      key: JWT_PRIVATE_KEY
+      name: {{ $root.Values.jwt.secret.existingSecret }}
+      key: {{ $root.Values.jwt.secret.keys.privateKey }}
 - name: JWT_PUBLIC_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ $jwtSecret }}
-      key: JWT_PUBLIC_KEY
+      name: {{ $root.Values.jwt.secret.existingSecret }}
+      key: {{ $root.Values.jwt.secret.keys.publicKey }}
 {{- end }}
-{{- $cookieSecret := include "team-manager.secretName" (list $root "cookie-encryption" $root.Values.cookieEncryption.secret) }}
-{{- if $cookieSecret }}
+{{- if $root.Values.cookieEncryption.secret.existingSecret }}
 - name: COOKIE_ENCRYPTION_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ $cookieSecret }}
-      key: COOKIE_ENCRYPTION_KEY
+      name: {{ $root.Values.cookieEncryption.secret.existingSecret }}
+      key: {{ $root.Values.cookieEncryption.secret.keys.key }}
       # Optional: config.go's loadCookieEncryptionKeys checks
       # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never even looks
       # at this singular key -- a Secret populated per the zero-downtime-
@@ -138,73 +127,70 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
 - name: COOKIE_ENCRYPTION_KEYS
   valueFrom:
     secretKeyRef:
-      name: {{ $cookieSecret }}
-      key: COOKIE_ENCRYPTION_KEYS
+      name: {{ $root.Values.cookieEncryption.secret.existingSecret }}
+      key: {{ $root.Values.cookieEncryption.secret.keys.keys }}
       optional: true
 {{- end }}
-{{- $s3Secret := include "team-manager.secretName" (list $root "s3" $root.Values.s3.secret) }}
-{{- if $s3Secret }}
+{{- if $root.Values.s3.secret.existingSecret }}
 - name: S3_ACCESS_KEY_ID
   valueFrom:
     secretKeyRef:
-      name: {{ $s3Secret }}
-      key: S3_ACCESS_KEY_ID
+      name: {{ $root.Values.s3.secret.existingSecret }}
+      key: {{ $root.Values.s3.secret.keys.accessKeyId }}
 - name: S3_SECRET_ACCESS_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ $s3Secret }}
-      key: S3_SECRET_ACCESS_KEY
+      name: {{ $root.Values.s3.secret.existingSecret }}
+      key: {{ $root.Values.s3.secret.keys.secretAccessKey }}
 {{- end }}
-{{- $pushSecret := include "team-manager.secretName" (list $root "push" $root.Values.push.secret) }}
-{{- if $pushSecret }}
+{{- if $root.Values.push.secret.existingSecret }}
 - name: VAPID_PRIVATE_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ $pushSecret }}
-      key: VAPID_PRIVATE_KEY
+      name: {{ $root.Values.push.secret.existingSecret }}
+      key: {{ $root.Values.push.secret.keys.privateKey }}
 {{- end }}
-{{- $smtpSecret := include "team-manager.secretName" (list $root "smtp" $root.Values.smtp.secret) }}
-{{- if $smtpSecret }}
+{{- if $root.Values.smtp.secret.existingSecret }}
 - name: SMTP_USERNAME
   valueFrom:
     secretKeyRef:
-      name: {{ $smtpSecret }}
-      key: SMTP_USERNAME
+      name: {{ $root.Values.smtp.secret.existingSecret }}
+      key: {{ $root.Values.smtp.secret.keys.username }}
       # Optional: config.go explicitly allows a blank username for an open
       # relay.
       optional: true
 - name: SMTP_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ $smtpSecret }}
-      key: SMTP_PASSWORD
+      name: {{ $root.Values.smtp.secret.existingSecret }}
+      key: {{ $root.Values.smtp.secret.keys.password }}
       optional: true
 {{- end }}
-{{- $paginationSecret := include "team-manager.secretName" (list $root "pagination" $root.Values.pagination.secret) }}
-{{- if $paginationSecret }}
+{{- if $root.Values.pagination.secret.existingSecret }}
 - name: PAGINATION_HMAC_KEY
   valueFrom:
     secretKeyRef:
-      name: {{ $paginationSecret }}
-      key: PAGINATION_HMAC_KEY
+      name: {{ $root.Values.pagination.secret.existingSecret }}
+      key: {{ $root.Values.pagination.secret.keys.hmacKey }}
       optional: true
 {{- end }}
-{{- $sentrySecret := include "team-manager.secretName" (list $root "sentry" $root.Values.observability.sentry.secret) }}
-{{- if $sentrySecret }}
+{{- if $root.Values.observability.sentry.secret.existingSecret }}
 - name: SENTRY_DSN
   valueFrom:
     secretKeyRef:
-      name: {{ $sentrySecret }}
-      key: SENTRY_DSN
+      name: {{ $root.Values.observability.sentry.secret.existingSecret }}
+      key: {{ $root.Values.observability.sentry.secret.keys.dsn }}
       optional: true
 {{- end }}
-{{- $metricsSecret := include "team-manager.secretName" (list $root "metrics" $root.Values.metrics.secret) }}
-{{- if $metricsSecret }}
+{{- if $root.Values.metrics.secret.existingSecret }}
 - name: METRICS_TOKEN
   valueFrom:
     secretKeyRef:
-      name: {{ $metricsSecret }}
-      key: METRICS_TOKEN
+      name: {{ $root.Values.metrics.secret.existingSecret }}
+      key: {{ $root.Values.metrics.secret.keys.token }}
       optional: true
+{{- end }}
+{{- with $root.Values.extraEnv }}
+{{ toYaml . }}
 {{- end }}
 {{- end }}

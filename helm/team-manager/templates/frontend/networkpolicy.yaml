@@ -1,0 +1,38 @@
+{{- if and .Values.frontend.enabled .Values.frontend.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "team-manager.frontend.fullname" . }}
+  labels:
+    {{- include "team-manager.frontend.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "team-manager.frontend.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow HTTP from ingress controller. Restrict the source via
+    # frontend.networkPolicy.ingress.from (see values.yaml) -- left
+    # unrestricted (any source in the cluster) by default, matching the
+    # backend NetworkPolicy's own default.
+    - ports:
+        - port: {{ .Values.frontend.service.targetPort }}
+          protocol: TCP
+      {{- with .Values.frontend.networkPolicy.ingress.from }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  egress:
+    # DNS only -- the frontend container never originates outbound
+    # application traffic itself. Every API call the SPA makes happens
+    # browser-side against frontend.apiBaseUrl, not proxied through this
+    # nginx pod server-side, so unlike the backend's NetworkPolicy there is
+    # no Postgres/S3/SMTP/HTTPS egress this pod could ever need.
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+{{- end }}
