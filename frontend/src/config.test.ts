@@ -56,6 +56,40 @@ describe('config.sentryDsn', () => {
   });
 });
 
+describe('config.operator', () => {
+  it('is all-undefined when no runtime config is injected', async () => {
+    const { config } = await import('./config');
+    expect(config.operator.name).toBeUndefined();
+    expect(config.operator.email).toBeUndefined();
+    expect(config.operator.s3Provider).toBeUndefined();
+  });
+
+  it('reads each OPERATOR_* runtime var into its corresponding field', async () => {
+    window.__RUNTIME_CONFIG__ = {
+      OPERATOR_NAME: 'Stefan May',
+      OPERATOR_STREET: 'Robensstraße 56',
+      OPERATOR_POSTAL_CODE: '52070',
+      OPERATOR_CITY: 'Aachen',
+      OPERATOR_EMAIL: 'info@yoadey.de',
+      OPERATOR_S3_PROVIDER: 'self-hosted',
+    };
+    const { config } = await import('./config');
+    expect(config.operator.name).toBe('Stefan May');
+    expect(config.operator.street).toBe('Robensstraße 56');
+    expect(config.operator.postalCode).toBe('52070');
+    expect(config.operator.city).toBe('Aachen');
+    expect(config.operator.email).toBe('info@yoadey.de');
+    expect(config.operator.s3Provider).toBe('self-hosted');
+    expect(config.operator.legalForm).toBeUndefined();
+  });
+
+  it('treats a blank OPERATOR_* value as unset', async () => {
+    window.__RUNTIME_CONFIG__ = { OPERATOR_NAME: '   ' };
+    const { config } = await import('./config');
+    expect(config.operator.name).toBeUndefined();
+  });
+});
+
 describe('config.storageKeyPrefix', () => {
   afterEach(() => {
     vi.unstubAllEnvs();

@@ -1105,7 +1105,7 @@ jobs:
       - name: Boot the image and verify the runtime-config entrypoint
         run: |
           set -euo pipefail
-          cid=$(docker run -d -p 18080:8080 -e API_BASE_URL=https://api.example.com team-manager-frontend:ci)
+          cid=$(docker run -d -p 18080:8080 -e API_BASE_URL=https://api.example.com -e OPERATOR_NAME="CI Test Operator" team-manager-frontend:ci)
           trap 'docker logs "$cid"; docker rm -f "$cid" >/dev/null' EXIT
           for i in $(seq 1 30); do
             curl -sf http://localhost:18080/healthz && break
@@ -1118,6 +1118,7 @@ jobs:
           config_js=$(curl -sf http://localhost:18080/config.js)
           echo "$config_js"
           echo "$config_js" | grep -q 'https://api.example.com'
+          echo "$config_js" | grep -q 'CI Test Operator'
           curl -sf http://localhost:18080/ | grep -q 'https://api.example.com'
 
   dast:
