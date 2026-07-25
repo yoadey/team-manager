@@ -34,18 +34,19 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     },
     can: vi.fn().mockReturnValue(false),
     openPollForm: vi.fn(),
+    openPollVoters: vi.fn(),
     removePoll: vi.fn(),
     togglePollOption: vi.fn(),
   };
 }
 
-function makeOption(text: string, pct = 50) {
+function makeOption(text: string, pct = 50, voters: { name: string; color: string; photo: string | null }[] = []) {
   return {
     id: text,
     text,
     count: 3,
     pct,
-    voters: [],
+    voters,
   };
 }
 
@@ -117,6 +118,37 @@ describe('PollsPage', () => {
     expect(app.togglePollOption).toHaveBeenCalledWith(poll, 'Montag');
   });
 
+  it('offers the voter-details entry for a non-anonymous poll with votes', async () => {
+    const poll = makePoll({
+      options: [
+        makeOption('Montag', 60, [
+          { name: 'Anna Beispiel', color: '#4285F4', photo: null },
+          { name: 'Ben Muster', color: '#EA4335', photo: null },
+        ]),
+        makeOption('Dienstag', 40),
+      ],
+    });
+    const app = makeApp({ polls: [poll] });
+    mockUseApp.mockReturnValue(app);
+    render(<PollsPage />);
+    // Voter identities live in the details sheet now, not inline on the card.
+    expect(screen.queryByText(/Anna Beispiel/)).toBeNull();
+    const btn = screen.getByText('Wer hat gewählt?');
+    await userEvent.click(btn);
+    expect(app.openPollVoters).toHaveBeenCalledWith(poll);
+  });
+
+  it('does not offer the voter-details entry for an anonymous poll', () => {
+    const poll = makePoll({
+      anonymous: true,
+      options: [makeOption('Montag', 60, [{ name: 'Anna Beispiel', color: '#4285F4', photo: null }])],
+    });
+    mockUseApp.mockReturnValue(makeApp({ polls: [poll] }));
+    render(<PollsPage />);
+    expect(screen.queryByText(/Anna Beispiel/)).toBeNull();
+    expect(screen.queryByText('Wer hat gewählt?')).toBeNull();
+  });
+
   it('calls removePoll when clicking delete (admin)', async () => {
     const poll = makePoll();
     const app = makeApp({ polls: [poll] });
@@ -124,7 +156,7 @@ describe('PollsPage', () => {
     mockUseApp.mockReturnValue(app);
     render(<PollsPage />);
     await userEvent.click(screen.getByLabelText('Umfrage löschen'));
-    expect(app.removePoll).toHaveBeenCalledWith('poll1');
+    expect(app.removePoll).toHaveBeenCalledWith('poll1', 'Welcher Termin passt?');
   });
 
   it('renders anonymous poll with Anonym chip', () => {

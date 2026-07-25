@@ -45,7 +45,7 @@ const selectUserFields = `
 	(photo_object_key IS NOT NULL AND length(photo_object_key) > 0) AS has_photo,
 	birthday, address,
 	COALESCE(password_hash, '') AS password_hash,
-	created_at
+	created_at, email_verified_at
 `
 
 // scanUser scans a row into a UserRow. The row must select the columns in
@@ -58,7 +58,7 @@ func scanUser(row interface {
 	err := row.Scan(
 		&u.Id, &u.Name, &u.Email, &u.Phone, &u.AvatarColor,
 		&u.HasPhoto,
-		&u.Birthday, &u.Address, &u.PasswordHash, &u.CreatedAt,
+		&u.Birthday, &u.Address, &u.PasswordHash, &u.CreatedAt, &u.EmailVerifiedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("auth.scanUser: %w", err)
@@ -87,8 +87,9 @@ func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*UserRo
 // FindUserByID looks up a user by primary key. This is on the hot path --
 // invoked on essentially every authenticated request via
 // Service.ValidateToken/Handler.AuthMiddleware -- so it only selects a
-// HasPhoto boolean rather than the full photo_data BLOB; use
-// FindUserPhotoByID for the one path that actually needs the raw bytes.
+// HasPhoto boolean rather than the photo's object key; the photo itself is
+// served via a presigned object-store URL (see internal/storage), never
+// streamed through this lookup.
 func (r *Repository) FindUserByID(ctx context.Context, id string) (*UserRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -170,6 +171,109 @@ func (r *Repository) DeleteSession(ctx context.Context, tokenHash string) error 
 	return nil
 }
 
+// ErrEmailTaken is returned by CreateUnverifiedUser when a user already
+// exists with the given email (the ON CONFLICT DO NOTHING branch).
+var ErrEmailTaken = errors.New("auth: email already registered")
+
+// CreateUnverifiedUser inserts a new, unverified user row (email_verified_at
+// left NULL) with the given bcrypt password hash. name is a placeholder
+// display name (the email's local part -- self-registration collects no
+// separate name field); the user can change it later via their team member
+// profile. Returns ErrEmailTaken if a user with this email already exists --
+// the caller (Service.Register) uses that to distinguish the
+// already-registered branches of its enumeration-safe response without a
+// separate existence check racing the insert.
+func (r *Repository) CreateUnverifiedUser(ctx context.Context, name, email, passwordHash string) (*UserRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	q := fmt.Sprintf(`
+		INSERT INTO users (name, email, password_hash)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (email) DO NOTHING
+		RETURNING %s
+	`, selectUserFields)
+	row := r.pool.QueryRow(ctx, q, name, strings.ToLower(strings.TrimSpace(email)), passwordHash)
+	u, err := scanUser(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrEmailTaken
+		}
+		return nil, fmt.Errorf("auth.Repository.CreateUnverifiedUser: %w", err)
+	}
+	return u, nil
+}
+
+// MarkEmailVerified sets email_verified_at to now() for userID.
+func (r *Repository) MarkEmailVerified(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx,
+		`UPDATE users SET email_verified_at = now() WHERE id = $1 AND email_verified_at IS NULL`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.MarkEmailVerified: %w", err)
+	}
+	return nil
+}
+
+// CreateEmailVerificationToken inserts a new verification token row keyed by
+// its SHA-256 hash (the raw token is never persisted).
+func (r *Repository) CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, tokenHash, expiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.CreateEmailVerificationToken: %w", err)
+	}
+	return nil
+}
+
+// FindEmailVerificationToken returns the token row matching tokenHash,
+// provided it has not expired and has not already been consumed. Returns
+// pgx.ErrNoRows otherwise (expired, consumed, or never existed -- the caller
+// doesn't need to distinguish these, all three are simply "invalid token").
+func (r *Repository) FindEmailVerificationToken(ctx context.Context, tokenHash string) (*EmailVerificationTokenRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	t := &EmailVerificationTokenRow{}
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, user_id, token_hash, expires_at, consumed_at, created_at
+		FROM email_verification_tokens
+		WHERE token_hash = $1 AND expires_at > now() AND consumed_at IS NULL
+	`, tokenHash).Scan(&t.Id, &t.UserId, &t.TokenHash, &t.ExpiresAt, &t.ConsumedAt, &t.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("auth.Repository.FindEmailVerificationToken: %w", err)
+	}
+	return t, nil
+}
+
+// ConsumeEmailVerificationToken marks the token identified by tokenHash as
+// consumed, guarded by "WHERE consumed_at IS NULL" so a concurrent
+// double-submit of the same token can only succeed once. Returns
+// pgx.ErrNoRows if the token doesn't exist or was already consumed.
+func (r *Repository) ConsumeEmailVerificationToken(ctx context.Context, tokenHash string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE email_verification_tokens SET consumed_at = now() WHERE token_hash = $1 AND consumed_at IS NULL`,
+		tokenHash,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.ConsumeEmailVerificationToken: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 // EraseUser performs GDPR Art. 17 erasure by anonymization in a single
 // transaction: it overwrites the user's personal data in place, strips
 // free-text PII from their comments, attendance reasons and absence reasons,
@@ -237,7 +341,7 @@ func (r *Repository) EraseUser(ctx context.Context, userID string) error {
 		{`UPDATE users SET
 			name = $2, email = 'deleted+' || id::text || '@invalid',
 			phone = NULL, birthday = NULL, address = NULL,
-			photo_data = NULL, photo_mime = NULL, photo_object_key = NULL,
+			photo_object_key = NULL,
 			password_hash = NULL, deleted_at = now()
 		  WHERE id = $1 AND deleted_at IS NULL`, []any{userID, anonName}},
 		{`UPDATE event_comments SET text = '' WHERE user_id = $1`, []any{userID}},

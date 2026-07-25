@@ -2,6 +2,7 @@ package members_test
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -306,5 +307,50 @@ func TestMemberService_GetMemberPhotoURL_NoPhotoReturnsErrNoRows(t *testing.T) {
 
 	svc := members.NewService(repo, storage.NewFakeStore(), nil)
 	_, err := svc.GetMemberPhotoURL(context.Background(), uuid.New().String(), uuid.New().String())
+	require.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+// TestMemberService_GetMemberPhotoBytes_StreamsStoredBytes covers the
+// proxy-mode delivery path (config.Config.ImageDeliveryProxyEnabled): instead
+// of a presigned URL, the service streams the object store's bytes directly.
+func TestMemberService_GetMemberPhotoBytes_StreamsStoredBytes(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	membershipID := uuid.New()
+	key := "users/some-user/photo"
+
+	repo := &mockMemberRepo{
+		getMemberPhoto: func(_ context.Context, gotTeamID, gotMembershipID string) (string, error) {
+			assert.Equal(t, teamID.String(), gotTeamID)
+			assert.Equal(t, membershipID.String(), gotMembershipID)
+			return key, nil
+		},
+	}
+
+	store := storage.NewFakeStore()
+	require.NoError(t, store.Put(context.Background(), key, []byte("photo-bytes"), "image/jpeg"))
+
+	svc := members.NewService(repo, store, nil)
+	rc, contentType, err := svc.GetMemberPhotoBytes(context.Background(), teamID.String(), membershipID.String())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rc.Close()) })
+	assert.Equal(t, "image/jpeg", contentType)
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("photo-bytes"), data)
+}
+
+func TestMemberService_GetMemberPhotoBytes_NoPhotoReturnsErrNoRows(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockMemberRepo{
+		getMemberPhoto: func(context.Context, string, string) (string, error) {
+			return "", pgx.ErrNoRows
+		},
+	}
+
+	svc := members.NewService(repo, storage.NewFakeStore(), nil)
+	_, _, err := svc.GetMemberPhotoBytes(context.Background(), uuid.New().String(), uuid.New().String())
 	require.ErrorIs(t, err, pgx.ErrNoRows)
 }

@@ -4,3500 +4,3922 @@
  */
 
 export interface paths {
-  '/auth/providers': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List available login providers */
+        get: operations["listProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List available login providers */
-    get: operations['listProviders'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/login': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authenticate with email + password */
+        post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Authenticate with email + password */
-    post: operations['login'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/logout': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/auth/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Self-register a new account with email + password
+         * @description Creates an unverified account and emails a verification link. The response is always the same generic message regardless of whether the email was available, already registered and verified, or already registered and still pending verification — this endpoint never reveals account existence. Disabled server-side via `SELF_REGISTRATION_ENABLED`.
+         */
+        post: operations["register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Invalidate current session */
-    post: operations['logout'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/me': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/auth/verify-email": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consume an email verification token and establish a session
+         * @description Marks the account verified and returns a session, identical in shape to `login`'s response, so the client can reuse its normal post-login bootstrap.
+         */
+        post: operations["verifyEmail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get authenticated user profile */
-    get: operations['getCurrentUser'];
-    put?: never;
-    post?: never;
-    /**
-     * Erase the authenticated account (GDPR Art. 17, by anonymization)
-     * @description Anonymizes the user's personal data (name, email, phone, birthday, address, photo) and strips free-text PII from their comments and absence reasons, then deletes all of their sessions. Membership, attendance and finance records are retained in anonymized form so that shared and legally required data (e.g. accounting) stays intact. The request is authorized by the active session; to confirm intent the caller must echo the account's own email address (works regardless of login method, including OIDC accounts that have no password).
-     */
-    delete: operations['deleteCurrentUser'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/me/data-export': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/auth/resend-verification": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resend the email verification link
+         * @description Always returns the same generic response regardless of whether the email has no account, an already-verified account, or a still- unverified account — only the last case actually sends a new email.
+         */
+        post: operations["resendVerification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /**
-     * Export the authenticated user's personal data (GDPR Art. 15)
-     * @description Returns a single JSON document with all personal data held about the authenticated user: profile, memberships and roles, attendance, comments, absences, authored news, created polls, votes, penalty assignments and contributions.
-     */
-    get: operations['getMyDataExport'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/auth/me/photo': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Invalidate current session */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get user profile photo */
-    get: operations['getMyPhoto'];
-    /** Upload / replace profile photo (scaled to max 800×800 px) */
-    put: operations['uploadMyPhoto'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get authenticated user profile */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        /**
+         * Erase the authenticated account (GDPR Art. 17, by anonymization)
+         * @description Anonymizes the user's personal data (name, email, phone, birthday, address, photo) and strips free-text PII from their comments and absence reasons, then deletes all of their sessions. Membership, attendance and finance records are retained in anonymized form so that shared and legally required data (e.g. accounting) stays intact. The request is authorized by the active session; to confirm intent the caller must echo the account's own email address (works regardless of login method, including OIDC accounts that have no password).
+         */
+        delete: operations["deleteCurrentUser"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List teams the authenticated user belongs to */
-    get: operations['listTeams'];
-    put?: never;
-    /** Create a new team */
-    post: operations['createTeam'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/auth/me/data-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the authenticated user's personal data (GDPR Art. 15)
+         * @description Returns a single JSON document with all personal data held about the authenticated user: profile, memberships and roles, attendance, comments, absences, authored news, created polls, votes, penalty assignments and contributions.
+         */
+        get: operations["getMyDataExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get a single team */
-    get: operations['getTeam'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update team settings */
-    patch: operations['updateTeam'];
-    trace?: never;
-  };
-  '/teams/{teamId}/photo': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/auth/me/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get user profile photo */
+        get: operations["getMyPhoto"];
+        /** Upload / replace profile photo (scaled to max 800×800 px) */
+        put: operations["uploadMyPhoto"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get team photo */
-    get: operations['getTeamPhoto'];
-    /** Upload team photo (scaled to max 800×800 px) */
-    put: operations['uploadTeamPhoto'];
-    post?: never;
-    /** Remove team photo (revert to icon) */
-    delete: operations['deleteTeamPhoto'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/logo': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/users/me/push-subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register (or update) this browser's Web Push subscription */
+        post: operations["registerPushSubscription"];
+        /** Unregister a Web Push subscription */
+        delete: operations["deletePushSubscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get team logo */
-    get: operations['getTeamLogo'];
-    /** Upload team logo (scaled to max 800×800 px) */
-    put: operations['uploadTeamLogo'];
-    post?: never;
-    /** Remove team logo (revert to icon) */
-    delete: operations['deleteTeamLogo'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/invite': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List teams the authenticated user belongs to */
+        get: operations["listTeams"];
+        put?: never;
+        /** Create a new team */
+        post: operations["createTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Generate a 7-day invite link */
-    post: operations['createInvite'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/invites/{code}/accept': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        code: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get a single team */
+        get: operations["getTeam"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update team settings */
+        patch: operations["updateTeam"];
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /**
-     * Redeem an invite code, adding the authenticated user to its team
-     * @description Idempotent: redeeming a code for a team the caller already belongs to just returns that team rather than erroring.
-     */
-    post: operations['acceptInvite'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/members': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get team photo */
+        get: operations["getTeamPhoto"];
+        /** Upload team photo (scaled to max 800×800 px) */
+        put: operations["uploadTeamPhoto"];
+        post?: never;
+        /** Remove team photo (revert to icon) */
+        delete: operations["deleteTeamPhoto"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List team members */
-    get: operations['listMembers'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/members/{membershipId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        membershipId: components['parameters']['membershipId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get team logo */
+        get: operations["getTeamLogo"];
+        /** Upload team logo (scaled to max 800×800 px) */
+        put: operations["uploadTeamLogo"];
+        post?: never;
+        /** Remove team logo (revert to icon) */
+        delete: operations["deleteTeamLogo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Remove member from team */
-    delete: operations['removeMember'];
-    options?: never;
-    head?: never;
-    /** Update member profile */
-    patch: operations['updateMember'];
-    trace?: never;
-  };
-  '/teams/{teamId}/members/{membershipId}/photo': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        membershipId: components['parameters']['membershipId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a 7-day invite link */
+        post: operations["createInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get a team member's profile photo */
-    get: operations['getMemberPhoto'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/members/{membershipId}/roles': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        membershipId: components['parameters']['membershipId'];
-      };
-      cookie?: never;
+    "/invites/{code}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem an invite code, adding the authenticated user to its team
+         * @description Idempotent: redeeming a code for a team the caller already belongs to just returns that team rather than erroring.
+         */
+        post: operations["acceptInvite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    /** Replace member role assignments */
-    put: operations['setMemberRoles'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/roles': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List team members */
+        get: operations["listMembers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List team roles */
-    get: operations['listRoles'];
-    put?: never;
-    /** Create a custom role */
-    post: operations['createRole'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/roles/{roleId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        roleId: components['parameters']['roleId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/members/{membershipId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove member from team */
+        delete: operations["removeMember"];
+        options?: never;
+        head?: never;
+        /** Update member profile */
+        patch: operations["updateMember"];
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Delete role */
-    delete: operations['deleteRole'];
-    options?: never;
-    head?: never;
-    /** Update role */
-    patch: operations['updateRole'];
-    trace?: never;
-  };
-  '/teams/{teamId}/events': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/members/{membershipId}/photo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        /** Get a team member's profile photo */
+        get: operations["getMemberPhoto"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List events */
-    get: operations['listEvents'];
-    put?: never;
-    /** Create event (recurring → creates series + instances) */
-    post: operations['createEvent'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/events/{eventId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/members/{membershipId}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace member role assignments */
+        put: operations["setMemberRoles"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Get single event with attendance summary */
-    get: operations['getEvent'];
-    put?: never;
-    post?: never;
-    /** Delete event */
-    delete: operations['deleteEvent'];
-    options?: never;
-    head?: never;
-    /** Update event */
-    patch: operations['updateEvent'];
-    trace?: never;
-  };
-  '/teams/{teamId}/events/{eventId}/status': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/roles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List team roles */
+        get: operations["listRoles"];
+        put?: never;
+        /** Create a custom role */
+        post: operations["createRole"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Activate or cancel event */
-    post: operations['setEventStatus'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/events/{eventId}/comments': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/roles/{roleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                roleId: components["parameters"]["roleId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete role */
+        delete: operations["deleteRole"];
+        options?: never;
+        head?: never;
+        /** Update role */
+        patch: operations["updateRole"];
+        trace?: never;
     };
-    /** List comments for event (keyset-paginated, oldest-first) */
-    get: operations['listEventComments'];
-    put?: never;
-    /** Add comment to event */
-    post: operations['addEventComment'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/events/{eventId}/comments/{commentId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-        commentId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List events */
+        get: operations["listEvents"];
+        put?: never;
+        /** Create event (recurring → creates series + instances) */
+        post: operations["createEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Delete comment */
-    delete: operations['deleteEventComment'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/events/{eventId}/attendance': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/events/{eventId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        /** Get single event with attendance summary */
+        get: operations["getEvent"];
+        put?: never;
+        post?: never;
+        /** Delete event */
+        delete: operations["deleteEvent"];
+        options?: never;
+        head?: never;
+        /** Update event */
+        patch: operations["updateEvent"];
+        trace?: never;
     };
-    /** Get attendance matrix for event */
-    get: operations['listAttendance'];
-    put?: never;
-    /** Set attendance status for a user */
-    post: operations['setAttendance'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/events/{eventId}/attendance/nominations': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/events/{eventId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate or cancel event */
+        post: operations["setEventStatus"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    /** Nominate or denominate a member for event */
-    put: operations['setNomination'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/absences': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/events/{eventId}/comments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        /** List comments for event (keyset-paginated, oldest-first) */
+        get: operations["listEventComments"];
+        put?: never;
+        /** Add comment to event */
+        post: operations["addEventComment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List absences for the team */
-    get: operations['listAbsences'];
-    put?: never;
-    /** Create absence entry */
-    post: operations['createAbsence'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/absences/mine': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/events/{eventId}/comments/{commentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete comment */
+        delete: operations["deleteEventComment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List authenticated user's own absences */
-    get: operations['listMyAbsences'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/absences/{absenceId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        absenceId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/events/{eventId}/attendance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        /** Get attendance matrix for event */
+        get: operations["listAttendance"];
+        put?: never;
+        /** Set attendance status for a user */
+        post: operations["setAttendance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Delete absence */
-    delete: operations['deleteAbsence'];
-    options?: never;
-    head?: never;
-    /** Update absence */
-    patch: operations['updateAbsence'];
-    trace?: never;
-  };
-  '/teams/{teamId}/news': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/events/{eventId}/attendance/nominations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Nominate or denominate a member for event */
+        put: operations["setNomination"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List team news */
-    get: operations['listNews'];
-    put?: never;
-    /** Create news item */
-    post: operations['createNews'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/news/{newsId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        newsId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/calendar-feed/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue (or rotate) the caller's calendar subscription link for this team */
+        post: operations["issueCalendarFeedToken"];
+        /** Revoke the caller's calendar subscription link for this team */
+        delete: operations["revokeCalendarFeedToken"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Delete news item */
-    delete: operations['deleteNews'];
-    options?: never;
-    head?: never;
-    /** Update news item */
-    patch: operations['updateNews'];
-    trace?: never;
-  };
-  '/teams/{teamId}/polls': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/calendar-feed/{token}.ics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        /** Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model. */
+        get: operations["getCalendarFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** List polls with vote counts */
-    get: operations['listPolls'];
-    put?: never;
-    /** Create poll */
-    post: operations['createPoll'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/polls/{pollId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        pollId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/absences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List absences for the team */
+        get: operations["listAbsences"];
+        put?: never;
+        /** Create absence entry */
+        post: operations["createAbsence"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Delete poll */
-    delete: operations['deletePoll'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/polls/{pollId}/vote': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        pollId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/absences/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List authenticated user's own absences */
+        get: operations["listMyAbsences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Cast vote on poll */
-    post: operations['votePoll'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/notifications': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/absences/{absenceId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                absenceId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete absence */
+        delete: operations["deleteAbsence"];
+        options?: never;
+        head?: never;
+        /** Update absence */
+        patch: operations["updateAbsence"];
+        trace?: never;
     };
-    /** List team notifications (last 62 days) */
-    get: operations['listNotifications'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/notifications/seen': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/news": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List team news */
+        get: operations["listNews"];
+        put?: never;
+        /** Create news item */
+        post: operations["createNews"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Mark all notifications as seen */
-    post: operations['markNotificationsSeen'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/finances': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/news/{newsId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                newsId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete news item */
+        delete: operations["deleteNews"];
+        options?: never;
+        head?: never;
+        /** Update news item */
+        patch: operations["updateNews"];
+        trace?: never;
     };
-    /** Get full financial overview */
-    get: operations['getFinanceOverview'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/transactions': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/polls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List polls with vote counts */
+        get: operations["listPolls"];
+        put?: never;
+        /** Create poll */
+        post: operations["createPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /**
-     * List transactions (keyset-paginated)
-     * @description Returns transactions newest-first with keyset pagination, so a team's full history is reachable without the hard row cap the finance overview applies to its embedded transaction list.
-     */
-    get: operations['listTransactions'];
-    put?: never;
-    /** Add income or expense */
-    post: operations['createTransaction'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/transactions/{transactionId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        transactionId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/polls/{pollId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                pollId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete poll */
+        delete: operations["deletePoll"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Delete transaction */
-    delete: operations['deleteTransaction'];
-    options?: never;
-    head?: never;
-    /** Update transaction */
-    patch: operations['updateTransaction'];
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/penalties': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/polls/{pollId}/vote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                pollId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cast vote on poll */
+        post: operations["votePoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Create penalty template */
-    post: operations['createPenalty'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/penalties/{penaltyId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        penaltyId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List team notifications (last 62 days) */
+        get: operations["listNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Delete penalty template and all assignments */
-    delete: operations['deletePenalty'];
-    options?: never;
-    head?: never;
-    /** Update penalty template */
-    patch: operations['updatePenalty'];
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/penalty-assignments': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/notifications/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark all notifications as seen */
+        post: operations["markNotificationsSeen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    /** Assign penalty to member */
-    post: operations['createPenaltyAssignment'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/penalty-assignments/{assignmentId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        assignmentId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/finances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get full financial overview */
+        get: operations["getFinanceOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    /** Remove penalty assignment */
-    delete: operations['deletePenaltyAssignment'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        assignmentId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/finances/transactions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List transactions (keyset-paginated)
+         * @description Returns transactions newest-first with keyset pagination, so a team's full history is reachable without the hard row cap the finance overview applies to its embedded transaction list.
+         */
+        get: operations["listTransactions"];
+        put?: never;
+        /** Add income or expense */
+        post: operations["createTransaction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    /** Set the paid status of a penalty assignment (idempotent) */
-    put: operations['setPenaltyPaid'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/contributions/{contributionId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        contributionId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/finances/transactions/{transactionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                transactionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete transaction */
+        delete: operations["deleteTransaction"];
+        options?: never;
+        head?: never;
+        /** Update transaction */
+        patch: operations["updateTransaction"];
+        trace?: never;
     };
-    get?: never;
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    /** Update contribution amount or label */
-    patch: operations['updateContribution'];
-    trace?: never;
-  };
-  '/teams/{teamId}/finances/contributions/{contributionId}/paid': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        contributionId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/finances/penalties": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create penalty template */
+        post: operations["createPenalty"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    get?: never;
-    /** Set the paid status of a contribution (idempotent) */
-    put: operations['setContributionPaid'];
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/stats': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/finances/penalties/{penaltyId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                penaltyId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete penalty template and all assignments */
+        delete: operations["deletePenalty"];
+        options?: never;
+        head?: never;
+        /** Update penalty template */
+        patch: operations["updatePenalty"];
+        trace?: never;
     };
-    /** Team attendance statistics */
-    get: operations['getStatsOverview'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/stats/attendance-matrix': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
+    "/teams/{teamId}/finances/penalty-assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assign penalty to member */
+        post: operations["createPenaltyAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Per-member-per-event attendance matrix */
-    get: operations['getAttendanceMatrix'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/teams/{teamId}/stats/members/{userId}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        userId: string;
-      };
-      cookie?: never;
+    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove penalty assignment */
+        delete: operations["deletePenaltyAssignment"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
     };
-    /** Individual member attendance statistics */
-    get: operations['getMemberStats'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
+    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Set the paid status of a penalty assignment (idempotent) */
+        put: operations["setPenaltyPaid"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/finances/contributions/{contributionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                contributionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update contribution amount or label */
+        patch: operations["updateContribution"];
+        trace?: never;
+    };
+    "/teams/{teamId}/finances/contributions/{contributionId}/paid": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                contributionId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Set the paid status of a contribution (idempotent) */
+        put: operations["setContributionPaid"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Team attendance statistics */
+        get: operations["getStatsOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats/attendance-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Per-member-per-event attendance matrix */
+        get: operations["getAttendanceMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        /** Individual member attendance statistics */
+        get: operations["getMemberStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/stats/absences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Per-member, per-event absence table for the date range */
+        get: operations["getStatsAbsences"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
-  schemas: {
-    /** @description RFC 9457 Problem Details */
-    Problem: {
-      type?: string;
-      title?: string;
-      status?: number;
-      detail?: string;
-    };
-    /** @enum {string} */
-    PermLevel: 'none' | 'read' | 'write';
-    /** @description Per-module permission levels */
-    Permissions: {
-      events: components['schemas']['PermLevel'];
-      members: components['schemas']['PermLevel'];
-      finances: components['schemas']['PermLevel'];
-      news: components['schemas']['PermLevel'];
-      polls: components['schemas']['PermLevel'];
-      settings: components['schemas']['PermLevel'];
-    };
-    /** @enum {string} */
-    EventType: 'training' | 'auftritt' | 'event';
-    /** @enum {string} */
-    EventStatus: 'active' | 'cancelled';
-    /** @enum {string} */
-    AttendanceStatus: 'yes' | 'no' | 'maybe' | 'pending' | 'not_nominated';
-    /** @enum {string} */
-    ResponseMode: 'opt_in' | 'opt_out';
-    /** @enum {string} */
-    TransactionType: 'income' | 'expense';
-    /** @enum {string} */
-    ContributionStatus: 'paid' | 'open';
-    /** @enum {string} */
-    NotificationType:
-      | 'attendance'
-      | 'event_created'
-      | 'event_updated'
-      | 'event_cancelled'
-      | 'event_reactivated'
-      | 'event_deleted'
-      | 'news'
-      | 'poll'
-      | 'absence';
-    Provider: {
-      id: string;
-      name: string;
-      sub: string;
-      glyph: string;
-      bg: string;
-      fg: string;
-      border?: string;
-    };
-    LoginRequest: {
-      /** Format: email */
-      email: string;
-      password: string;
-    };
-    LoginResponse: {
-      token: string;
-      user: components['schemas']['User'];
-    };
-    DeleteAccountRequest: {
-      /**
-       * Format: email
-       * @description The account's own email address, retyped to confirm the irreversible erasure. Must match the authenticated user's email.
-       */
-      confirmEmail: string;
-    };
-    User: {
-      /** Format: uuid */
-      id: string;
-      name: string;
-      /** Format: email */
-      email: string;
-      phone?: string;
-      avatarColor: string;
-      /** Format: date */
-      birthday?: string;
-      address?: string;
-      hasPhoto?: boolean;
-    };
-    Team: {
-      /** Format: uuid */
-      id: string;
-      name: string;
-      short?: string;
-      icon?: string;
-      iconBg?: string;
-      iconFg?: string;
-      description?: string;
-      hasPhoto?: boolean;
-      hasLogo?: boolean;
-      reasonVisibilityRoleIds?: string[];
-    };
-    TeamForUser: components['schemas']['Team'] & {
-      myRoles: components['schemas']['Role'][];
-      myPerms: components['schemas']['Permissions'];
-      /** Format: uuid */
-      membershipId: string;
-      memberCount: number;
-    };
-    AcceptInviteResponse: components['schemas']['TeamForUser'] & {
-      /** @description True when the caller was already a member of this team before redeeming the code (the request was a no-op join-wise). */
-      alreadyMember: boolean;
-    };
-    CreateTeamRequest: {
-      name: string;
-      icon?: string;
-      iconBg?: string;
-      iconFg?: string;
-    };
-    UpdateTeamRequest: {
-      name?: string;
-      short?: string;
-      icon?: string;
-      iconBg?: string;
-      iconFg?: string;
-      description?: string;
-      reasonVisibilityRoleIds?: string[];
-    };
-    Invite: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      code: string;
-      link: string;
-      /** Format: date-time */
-      createdAt: string;
-      /** Format: date-time */
-      expiresAt: string;
-    };
-    Role: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      name: string;
-      system: boolean;
-      color?: string;
-      permissions: components['schemas']['Permissions'];
-    };
-    CreateRoleRequest: {
-      name: string;
-      color?: string;
-      permissions: components['schemas']['Permissions'];
-    };
-    UpdateRoleRequest: {
-      name?: string;
-      color?: string;
-      permissions?: components['schemas']['Permissions'];
-    };
-    Member: {
-      /** Format: uuid */
-      membershipId: string;
-      /** Format: uuid */
-      userId: string;
-      name: string;
-      /** Format: email */
-      email: string;
-      phone?: string;
-      /** Format: date */
-      birthday?: string;
-      address?: string;
-      avatarColor: string;
-      hasPhoto?: boolean;
-      group?: string;
-      roles: components['schemas']['Role'][];
-      primaryRole?: components['schemas']['Role'];
-      perms?: components['schemas']['Permissions'];
-      /** Format: date-time */
-      joinedAt: string;
-    };
-    UpdateMemberRequest: {
-      name?: string;
-      /** Format: email */
-      email?: string;
-      phone?: string;
-      /** Format: date */
-      birthday?: string;
-      address?: string;
-      roleIds?: string[];
-      group?: string;
-    };
-    SetRolesRequest: {
-      roleIds: string[];
-    };
-    EventSummary: {
-      yes: number;
-      no: number;
-      maybe: number;
-      pending: number;
-      notNominated: number;
-      nominated: number;
-      total: number;
-    };
-    TeamEvent: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      /** Format: uuid */
-      seriesId?: string;
-      type: components['schemas']['EventType'];
-      title: string;
-      /** Format: date */
-      date: string;
-      location?: string;
-      note?: string;
-      result?: string;
-      /** @description HH:mm */
-      meetTime?: string;
-      /** @description HH:mm */
-      startTime?: string;
-      /** @description HH:mm */
-      endTime?: string;
-      meetTimeMandatory?: boolean;
-      responseMode?: components['schemas']['ResponseMode'];
-      nominatedRoleIds?: string[];
-      recurring: boolean;
-      status: components['schemas']['EventStatus'];
-      summary: components['schemas']['EventSummary'];
-      myStatus?: components['schemas']['AttendanceStatus'];
-      myAuto?: boolean;
-      myReason?: string;
-    };
-    CreateEventRequest: {
-      type: components['schemas']['EventType'];
-      title: string;
-      /** Format: date */
-      date: string;
-      location?: string;
-      note?: string;
-      meetTime?: string;
-      startTime?: string;
-      endTime?: string;
-      meetTimeMandatory?: boolean;
-      responseMode?: components['schemas']['ResponseMode'];
-      nominatedRoleIds?: string[];
-      recurring?: boolean;
-      repeatWeeks?: number;
-    };
-    UpdateEventRequest: {
-      type?: components['schemas']['EventType'];
-      title?: string;
-      /** Format: date */
-      date?: string;
-      location?: string;
-      note?: string;
-      meetTime?: string;
-      startTime?: string;
-      endTime?: string;
-      meetTimeMandatory?: boolean;
-      responseMode?: components['schemas']['ResponseMode'];
-      nominatedRoleIds?: string[];
-    };
-    SetEventStatusRequest: {
-      status: components['schemas']['EventStatus'];
-    };
-    EventComment: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      eventId: string;
-      /** Format: uuid */
-      userId: string;
-      text: string;
-      /** Format: date-time */
-      createdAt: string;
-      authorName?: string;
-      authorColor?: string;
-      hasAuthorPhoto?: boolean;
-    };
-    AddCommentRequest: {
-      text: string;
-    };
-    AttendanceRecord: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      eventId: string;
-      /** Format: uuid */
-      userId: string;
-      status: components['schemas']['AttendanceStatus'];
-      reason?: string;
-      reasonId?: string;
-      /** @enum {string} */
-      reasonVisibility?: 'trainers' | 'team';
-      /** Format: date-time */
-      at?: string;
-    };
-    AttendanceRow: {
-      /** Format: uuid */
-      userId: string;
-      name: string;
-      avatarColor: string;
-      hasPhoto?: boolean;
-      group?: string;
-      primaryRole?: components['schemas']['Role'];
-      status: components['schemas']['AttendanceStatus'];
-      reason?: string;
-      reasonId?: string;
-      /** @enum {string} */
-      reasonVisibility?: 'trainers' | 'team';
-      auto?: boolean;
-      absent?: boolean;
-    };
-    SetAttendanceRequest: {
-      /** Format: uuid */
-      userId: string;
-      status: components['schemas']['AttendanceStatus'];
-      reason?: string;
-      reasonId?: string;
-      /** @enum {string} */
-      reasonVisibility?: 'trainers' | 'team';
-    };
-    SetNominationRequest: {
-      /** Format: uuid */
-      userId: string;
-      nominated: boolean;
-    };
-    Absence: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      userId: string;
-      /** Format: date */
-      from: string;
-      /** Format: date */
-      to: string;
-      reason?: string;
-      /** Format: date-time */
-      createdAt: string;
-      memberName?: string;
-      memberAvatarColor?: string;
-      hasPhoto?: boolean;
-      roleColor?: string;
-      roleName?: string;
-    };
-    CreateAbsenceRequest: {
-      /** Format: uuid */
-      userId: string;
-      /** Format: date */
-      from: string;
-      /** Format: date */
-      to: string;
-      reason?: string;
-    };
-    UpdateAbsenceRequest: {
-      /** Format: date */
-      from?: string;
-      /** Format: date */
-      to?: string;
-      reason?: string;
-    };
-    NewsItem: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      /** Format: uuid */
-      authorId: string;
-      title: string;
-      body: string;
-      pinned: boolean;
-      /** Format: date-time */
-      createdAt: string;
-      authorName?: string;
-      authorColor?: string;
-      hasAuthorPhoto?: boolean;
-    };
-    CreateNewsRequest: {
-      title: string;
-      body: string;
-      /** @default false */
-      pinned: boolean;
-    };
-    UpdateNewsRequest: {
-      title?: string;
-      body?: string;
-      pinned?: boolean;
-    };
-    PollOption: {
-      /** Format: uuid */
-      id: string;
-      text: string;
-      count: number;
-      /** Format: float */
-      pct: number;
-      voters?: {
-        /**
-         * Format: uuid
-         * @description Voter's stable user id. Present only for non-anonymous polls; omitted entirely for anonymous polls, which expose no identities.
-         */
-        userId?: string;
-        /**
-         * Format: uuid
-         * @description Voter's membership id in the poll's team, used to build the member photo URL. Present only for non-anonymous polls.
-         */
-        membershipId?: string;
-        name?: string;
-        color?: string;
-        hasPhoto?: boolean;
-      }[];
-    };
-    Poll: {
-      /** Format: uuid */
-      id: string;
-      question: string;
-      multiple: boolean;
-      anonymous: boolean;
-      /** Format: date-time */
-      createdAt: string;
-      totalVotes: number;
-      myVote?: string[];
-      options: components['schemas']['PollOption'][];
-    };
-    CreatePollRequest: {
-      question: string;
-      options: string[];
-      /** @default false */
-      multiple: boolean;
-      /** @default false */
-      anonymous: boolean;
-    };
-    VotePollRequest: {
-      /** @description Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. Capped to match CreatePollRequest.options' maxItems, since a poll can never have more options than that to vote for. */
-      optionIds: string[];
-    };
-    AppNotification: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      type: components['schemas']['NotificationType'];
-      /** Format: uuid */
-      actorId?: string;
-      status?: components['schemas']['AttendanceStatus'];
-      title?: string;
-      /** Format: uuid */
-      eventId?: string;
-      eventTitle?: string;
-      /** Format: date */
-      eventDate?: string;
-      note?: string;
-      /** Format: date-time */
-      createdAt: string;
-      actorName?: string;
-      actorColor?: string;
-      hasActorPhoto?: boolean;
-      unread?: boolean;
-    };
-    NotificationsResult: {
-      items: components['schemas']['AppNotification'][];
-      unreadCount: number;
-    };
-    Transaction: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      type: components['schemas']['TransactionType'];
-      title: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount: number;
-      /** Format: date */
-      date: string;
-      category?: string;
-    };
-    CreateTransactionRequest: {
-      type: components['schemas']['TransactionType'];
-      title: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount: number;
-      category?: string;
-      /**
-       * Format: date
-       * @description Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
-       */
-      date?: string;
-    };
-    UpdateTransactionRequest: {
-      type?: components['schemas']['TransactionType'];
-      title?: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount?: number;
-      category?: string;
-      /**
-       * Format: date
-       * @description Transaction date.
-       */
-      date?: string;
-    };
-    Penalty: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      label: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount: number;
-    };
-    CreatePenaltyRequest: {
-      label: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount: number;
-    };
-    UpdatePenaltyRequest: {
-      label?: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount?: number;
-    };
-    PenaltyAssignment: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      /** Format: uuid */
-      userId: string;
-      /**
-       * Format: uuid
-       * @description The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
-       */
-      penaltyId?: string | null;
-      paid: boolean;
-      /** Format: date */
-      date: string;
-      memberName?: string;
-      memberAvatarColor?: string;
-      hasPhoto?: boolean;
-      label?: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount?: number;
-    };
-    CreatePenaltyAssignmentRequest: {
-      /** Format: uuid */
-      userId: string;
-      /** Format: uuid */
-      penaltyId: string;
-    };
-    SetPaidRequest: {
-      /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
-      paid: boolean;
-    };
-    OpenPenalty: {
-      /** Format: uuid */
-      userId: string;
-      name: string;
-      avatarColor: string;
-      hasPhoto?: boolean;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount: number;
-    };
-    Contribution: {
-      /** Format: uuid */
-      id: string;
-      /** Format: uuid */
-      teamId: string;
-      /** Format: uuid */
-      userId: string;
-      /** @description YYYY-MM */
-      month: string;
-      label?: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount: number;
-      status: components['schemas']['ContributionStatus'];
-      memberName?: string;
-      memberAvatarColor?: string;
-      hasPhoto?: boolean;
-    };
-    UpdateContributionRequest: {
-      label?: string;
-      /**
-       * Format: int64
-       * @description Amount in cents (e.g. 1050 = 10.50)
-       */
-      amount?: number;
-    };
-    FinanceOverview: {
-      /**
-       * Format: int64
-       * @description Balance in cents (income minus expense)
-       */
-      balance: number;
-      /**
-       * Format: int64
-       * @description Total income in cents
-       */
-      income: number;
-      /**
-       * Format: int64
-       * @description Total expense in cents
-       */
-      expense: number;
-      transactions: components['schemas']['Transaction'][];
-      penalties: components['schemas']['Penalty'][];
-      assignments: components['schemas']['PenaltyAssignment'][];
-      openPenalties: components['schemas']['OpenPenalty'][];
-      /**
-       * Format: int64
-       * @description Sum of all open (unpaid) penalties across all members, in cents
-       */
-      openPenaltySum: number;
-      contributions: components['schemas']['Contribution'][];
-      contribOpen: number;
-    };
-    MemberAttendanceStats: {
-      /** Format: float */
-      quote: number;
-      counted: number;
-      yes: number;
-    };
-    MemberStat: {
-      /** Format: uuid */
-      userId: string;
-      name: string;
-      avatarColor: string;
-      hasPhoto?: boolean;
-      /** Format: float */
-      quote: number;
-      counted: number;
-      yes: number;
-    };
-    EventStat: {
-      /** Format: uuid */
-      id: string;
-      title: string;
-      type: components['schemas']['EventType'];
-      /** Format: date */
-      date: string;
-      yes: number;
-      nominated: number;
-      /** Format: float */
-      pct: number;
-      enough: boolean;
-    };
-    StatsOverview: {
-      /** Format: float */
-      avg: number;
-      members: components['schemas']['MemberStat'][];
-      events: components['schemas']['EventStat'][];
-      pastCount: number;
-      /** Format: date */
-      from: string;
-      /** Format: date */
-      to: string;
-    };
-    AttendanceMatrixColumn: {
-      /** Format: uuid */
-      id: string;
-      title: string;
-      type: components['schemas']['EventType'];
-      /** Format: date */
-      date: string;
-    };
-    AttendanceMatrixRow: {
-      /** Format: uuid */
-      userId: string;
-      name: string;
-      avatarColor: string;
-      hasPhoto?: boolean;
-      yes: number;
-      counted: number;
-      /** @description Effective attendance status keyed by event id; missing key ⇒ pending. Only yes/no/maybe/pending are emitted (not_nominated folds to pending). */
-      cells: {
-        [key: string]: components['schemas']['AttendanceStatus'];
-      };
-    };
-    AttendanceMatrix: {
-      /** Format: date */
-      from: string;
-      /** Format: date */
-      to: string;
-      /** @description Columns, ordered by date ascending. */
-      events: components['schemas']['AttendanceMatrixColumn'][];
-      /** @description Rows, ordered by attendance (most yes first), then name. */
-      members: components['schemas']['AttendanceMatrixRow'][];
-    };
-  };
-  responses: {
-    /** @description Unauthorized */
-    Unauthorized: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/problem+json': components['schemas']['Problem'];
-      };
-    };
-    /** @description Not Found */
-    NotFound: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/problem+json': components['schemas']['Problem'];
-      };
-    };
-    /** @description Forbidden */
-    Forbidden: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/problem+json': components['schemas']['Problem'];
-      };
-    };
-    /** @description Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection. */
-    TooManyRequests: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/problem+json': components['schemas']['Problem'];
-      };
-    };
-    /** @description Payload Too Large. All request bodies are capped at 4 MB by default; image upload endpoints additionally enforce their own lower limit. */
-    PayloadTooLarge: {
-      headers: {
-        [name: string]: unknown;
-      };
-      content: {
-        'application/problem+json': components['schemas']['Problem'];
-      };
-    };
-    /** @description Redirect to a short-lived presigned URL for the image, hosted by the object store rather than this API. Access is membership-gated before the URL is issued; the URL itself carries no further authorization. */
-    PhotoRedirect: {
-      headers: {
-        /** @description Presigned URL to fetch the image bytes from. */
-        Location?: string;
-        [name: string]: unknown;
-      };
-      content?: never;
-    };
-  };
-  parameters: {
-    teamId: string;
-    membershipId: string;
-    eventId: string;
-    roleId: string;
-    limit: number;
-    /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-    cursor: string;
-  };
-  requestBodies: never;
-  headers: never;
-  pathItems: never;
+    schemas: {
+        /** @description RFC 9457 Problem Details */
+        Problem: {
+            type?: string;
+            title?: string;
+            status?: number;
+            detail?: string;
+        };
+        /** @enum {string} */
+        PermLevel: "none" | "read" | "write";
+        /** @description Per-module permission levels */
+        Permissions: {
+            events: components["schemas"]["PermLevel"];
+            members: components["schemas"]["PermLevel"];
+            finances: components["schemas"]["PermLevel"];
+            news: components["schemas"]["PermLevel"];
+            polls: components["schemas"]["PermLevel"];
+            settings: components["schemas"]["PermLevel"];
+        };
+        /** @enum {string} */
+        EventType: "training" | "auftritt" | "event";
+        /** @enum {string} */
+        EventStatus: "active" | "cancelled";
+        /** @enum {string} */
+        AttendanceStatus: "yes" | "no" | "maybe" | "pending" | "not_nominated";
+        /** @enum {string} */
+        ResponseMode: "opt_in" | "opt_out";
+        /** @enum {string} */
+        TransactionType: "income" | "expense";
+        /** @enum {string} */
+        ContributionStatus: "paid" | "open";
+        /** @enum {string} */
+        NotificationType: "attendance" | "event_created" | "event_updated" | "event_cancelled" | "event_reactivated" | "event_deleted" | "news" | "poll" | "absence";
+        Provider: {
+            id: string;
+            name: string;
+            sub: string;
+            glyph: string;
+            bg: string;
+            fg: string;
+            border?: string;
+        };
+        LoginRequest: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        LoginResponse: {
+            token: string;
+            user: components["schemas"]["User"];
+        };
+        RegisterRequest: {
+            /** Format: email */
+            email: string;
+            password: string;
+        };
+        RegisterResponse: {
+            message: string;
+        };
+        VerifyEmailRequest: {
+            token: string;
+        };
+        ResendVerificationRequest: {
+            /** Format: email */
+            email: string;
+        };
+        DeleteAccountRequest: {
+            /**
+             * Format: email
+             * @description The account's own email address, retyped to confirm the irreversible erasure. Must match the authenticated user's email.
+             */
+            confirmEmail: string;
+        };
+        User: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            /** Format: email */
+            email: string;
+            phone?: string;
+            avatarColor: string;
+            /** Format: date */
+            birthday?: string;
+            address?: string;
+            hasPhoto?: boolean;
+        };
+        Team: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            short?: string;
+            icon?: string;
+            iconBg?: string;
+            iconFg?: string;
+            description?: string;
+            hasPhoto?: boolean;
+            hasLogo?: boolean;
+            reasonVisibilityRoleIds?: string[];
+        };
+        TeamForUser: components["schemas"]["Team"] & {
+            myRoles: components["schemas"]["Role"][];
+            myPerms: components["schemas"]["Permissions"];
+            /** Format: uuid */
+            membershipId: string;
+            memberCount: number;
+        };
+        AcceptInviteResponse: components["schemas"]["TeamForUser"] & {
+            /** @description True when the caller was already a member of this team before redeeming the code (the request was a no-op join-wise). */
+            alreadyMember: boolean;
+        };
+        CreateTeamRequest: {
+            name: string;
+            icon?: string;
+            iconBg?: string;
+            iconFg?: string;
+        };
+        UpdateTeamRequest: {
+            name?: string;
+            short?: string;
+            icon?: string;
+            iconBg?: string;
+            iconFg?: string;
+            description?: string;
+            reasonVisibilityRoleIds?: string[];
+        };
+        Invite: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            code: string;
+            link: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        Role: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            name: string;
+            system: boolean;
+            color?: string;
+            permissions: components["schemas"]["Permissions"];
+        };
+        CreateRoleRequest: {
+            name: string;
+            color?: string;
+            permissions: components["schemas"]["Permissions"];
+        };
+        UpdateRoleRequest: {
+            name?: string;
+            color?: string;
+            permissions?: components["schemas"]["Permissions"];
+        };
+        Member: {
+            /** Format: uuid */
+            membershipId: string;
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            /** Format: email */
+            email: string;
+            phone?: string;
+            /** Format: date */
+            birthday?: string;
+            address?: string;
+            avatarColor: string;
+            hasPhoto?: boolean;
+            group?: string;
+            roles: components["schemas"]["Role"][];
+            primaryRole?: components["schemas"]["Role"];
+            perms?: components["schemas"]["Permissions"];
+            /** Format: date-time */
+            joinedAt: string;
+        };
+        UpdateMemberRequest: {
+            name?: string;
+            /** Format: email */
+            email?: string;
+            phone?: string;
+            /** Format: date */
+            birthday?: string;
+            address?: string;
+            roleIds?: string[];
+            group?: string;
+        };
+        SetRolesRequest: {
+            roleIds: string[];
+        };
+        EventSummary: {
+            yes: number;
+            no: number;
+            maybe: number;
+            pending: number;
+            notNominated: number;
+            nominated: number;
+            total: number;
+        };
+        TeamEvent: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            /** Format: uuid */
+            seriesId?: string;
+            type: components["schemas"]["EventType"];
+            title: string;
+            /** Format: date */
+            date: string;
+            location?: string;
+            note?: string;
+            result?: string;
+            /** @description HH:mm */
+            meetTime?: string;
+            /** @description HH:mm */
+            startTime?: string;
+            /** @description HH:mm */
+            endTime?: string;
+            meetTimeMandatory?: boolean;
+            responseMode?: components["schemas"]["ResponseMode"];
+            nominatedRoleIds?: string[];
+            recurring: boolean;
+            status: components["schemas"]["EventStatus"];
+            summary: components["schemas"]["EventSummary"];
+            myStatus?: components["schemas"]["AttendanceStatus"];
+            myAuto?: boolean;
+            myReason?: string;
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
+             */
+            rsvpDeadline?: string;
+        };
+        CreateEventRequest: {
+            type: components["schemas"]["EventType"];
+            title: string;
+            /** Format: date */
+            date: string;
+            location?: string;
+            note?: string;
+            meetTime?: string;
+            startTime?: string;
+            endTime?: string;
+            meetTimeMandatory?: boolean;
+            responseMode?: components["schemas"]["ResponseMode"];
+            nominatedRoleIds?: string[];
+            recurring?: boolean;
+            repeatWeeks?: number;
+            /**
+             * Format: date
+             * @description Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
+             */
+            endDate?: string;
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
+             */
+            rsvpDeadline?: string;
+        };
+        UpdateEventRequest: {
+            type?: components["schemas"]["EventType"];
+            title?: string;
+            /** Format: date */
+            date?: string;
+            location?: string;
+            note?: string;
+            meetTime?: string;
+            startTime?: string;
+            endTime?: string;
+            meetTimeMandatory?: boolean;
+            responseMode?: components["schemas"]["ResponseMode"];
+            nominatedRoleIds?: string[];
+            /**
+             * Format: date-time
+             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response.
+             */
+            rsvpDeadline?: string;
+        };
+        SetEventStatusRequest: {
+            status: components["schemas"]["EventStatus"];
+        };
+        EventComment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            eventId: string;
+            /** Format: uuid */
+            userId: string;
+            text: string;
+            /** Format: date-time */
+            createdAt: string;
+            authorName?: string;
+            authorColor?: string;
+            hasAuthorPhoto?: boolean;
+        };
+        AddCommentRequest: {
+            text: string;
+        };
+        AttendanceRecord: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            eventId: string;
+            /** Format: uuid */
+            userId: string;
+            status: components["schemas"]["AttendanceStatus"];
+            reason?: string;
+            reasonId?: string;
+            /** @enum {string} */
+            reasonVisibility?: "trainers" | "team";
+            /** Format: date-time */
+            at?: string;
+        };
+        AttendanceRow: {
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            avatarColor: string;
+            hasPhoto?: boolean;
+            group?: string;
+            primaryRole?: components["schemas"]["Role"];
+            status: components["schemas"]["AttendanceStatus"];
+            reason?: string;
+            reasonId?: string;
+            /** @enum {string} */
+            reasonVisibility?: "trainers" | "team";
+            auto?: boolean;
+            absent?: boolean;
+        };
+        SetAttendanceRequest: {
+            /** Format: uuid */
+            userId: string;
+            status: components["schemas"]["AttendanceStatus"];
+            reason?: string;
+            reasonId?: string;
+            /** @enum {string} */
+            reasonVisibility?: "trainers" | "team";
+        };
+        SetNominationRequest: {
+            /** Format: uuid */
+            userId: string;
+            nominated: boolean;
+        };
+        Absence: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            userId: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            reason?: string;
+            /** Format: date-time */
+            createdAt: string;
+            memberName?: string;
+            memberAvatarColor?: string;
+            hasPhoto?: boolean;
+            roleColor?: string;
+            roleName?: string;
+        };
+        CreateAbsenceRequest: {
+            /** Format: uuid */
+            userId: string;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            reason?: string;
+        };
+        UpdateAbsenceRequest: {
+            /** Format: date */
+            from?: string;
+            /** Format: date */
+            to?: string;
+            reason?: string;
+        };
+        NewsItem: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            /** Format: uuid */
+            authorId: string;
+            title: string;
+            body: string;
+            pinned: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            authorName?: string;
+            authorColor?: string;
+            hasAuthorPhoto?: boolean;
+        };
+        CreateNewsRequest: {
+            title: string;
+            body: string;
+            /** @default false */
+            pinned: boolean;
+        };
+        UpdateNewsRequest: {
+            title?: string;
+            body?: string;
+            pinned?: boolean;
+        };
+        PollOption: {
+            /** Format: uuid */
+            id: string;
+            text: string;
+            count: number;
+            /** Format: float */
+            pct: number;
+            voters?: {
+                /**
+                 * Format: uuid
+                 * @description Voter's stable user id. Present only for non-anonymous polls; omitted entirely for anonymous polls, which expose no identities.
+                 */
+                userId?: string;
+                /**
+                 * Format: uuid
+                 * @description Voter's membership id in the poll's team, used to build the member photo URL. Present only for non-anonymous polls.
+                 */
+                membershipId?: string;
+                name?: string;
+                color?: string;
+                hasPhoto?: boolean;
+            }[];
+        };
+        Poll: {
+            /** Format: uuid */
+            id: string;
+            question: string;
+            multiple: boolean;
+            anonymous: boolean;
+            /** Format: date-time */
+            createdAt: string;
+            totalVotes: number;
+            myVote?: string[];
+            options: components["schemas"]["PollOption"][];
+        };
+        CreatePollRequest: {
+            question: string;
+            options: string[];
+            /** @default false */
+            multiple: boolean;
+            /** @default false */
+            anonymous: boolean;
+        };
+        VotePollRequest: {
+            /** @description Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. Capped to match CreatePollRequest.options' maxItems, since a poll can never have more options than that to vote for. */
+            optionIds: string[];
+        };
+        AppNotification: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            type: components["schemas"]["NotificationType"];
+            /** Format: uuid */
+            actorId?: string;
+            status?: components["schemas"]["AttendanceStatus"];
+            title?: string;
+            /** Format: uuid */
+            eventId?: string;
+            eventTitle?: string;
+            /** Format: date */
+            eventDate?: string;
+            note?: string;
+            /** Format: date-time */
+            createdAt: string;
+            actorName?: string;
+            actorColor?: string;
+            hasActorPhoto?: boolean;
+            unread?: boolean;
+        };
+        NotificationsResult: {
+            items: components["schemas"]["AppNotification"][];
+            unreadCount: number;
+        };
+        /** @description Mirrors the shape PushSubscription.toJSON() produces in the browser. */
+        PushSubscriptionRequest: {
+            endpoint: string;
+            keys: {
+                p256dh: string;
+                auth: string;
+            };
+        };
+        CalendarFeedToken: {
+            /**
+             * Format: uri
+             * @description Ready-to-use calendar subscription URL (https://...).
+             */
+            url: string;
+        };
+        Transaction: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            type: components["schemas"]["TransactionType"];
+            title: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount: number;
+            /** Format: date */
+            date: string;
+            category?: string;
+        };
+        CreateTransactionRequest: {
+            type: components["schemas"]["TransactionType"];
+            title: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount: number;
+            category?: string;
+            /**
+             * Format: date
+             * @description Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
+             */
+            date?: string;
+        };
+        UpdateTransactionRequest: {
+            type?: components["schemas"]["TransactionType"];
+            title?: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount?: number;
+            category?: string;
+            /**
+             * Format: date
+             * @description Transaction date.
+             */
+            date?: string;
+        };
+        Penalty: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            label: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount: number;
+        };
+        CreatePenaltyRequest: {
+            label: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount: number;
+        };
+        UpdatePenaltyRequest: {
+            label?: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount?: number;
+        };
+        PenaltyAssignment: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            /** Format: uuid */
+            userId: string;
+            /**
+             * Format: uuid
+             * @description The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
+             */
+            penaltyId?: string | null;
+            paid: boolean;
+            /** Format: date */
+            date: string;
+            memberName?: string;
+            memberAvatarColor?: string;
+            hasPhoto?: boolean;
+            label?: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount?: number;
+            note?: string;
+        };
+        CreatePenaltyAssignmentRequest: {
+            /** Format: uuid */
+            userId: string;
+            /** Format: uuid */
+            penaltyId: string;
+            /**
+             * Format: date
+             * @description The date the penalty was earned (e.g. to back-date an assignment recorded after the fact). Defaults to the server's current date when omitted.
+             */
+            date?: string;
+            /** @description Optional free-text note explaining the assignment. */
+            note?: string;
+        };
+        SetPaidRequest: {
+            /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
+            paid: boolean;
+        };
+        OpenPenalty: {
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            avatarColor: string;
+            hasPhoto?: boolean;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount: number;
+        };
+        Contribution: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            teamId: string;
+            /** Format: uuid */
+            userId: string;
+            /** @description YYYY-MM */
+            month: string;
+            label?: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount: number;
+            status: components["schemas"]["ContributionStatus"];
+            memberName?: string;
+            memberAvatarColor?: string;
+            hasPhoto?: boolean;
+        };
+        UpdateContributionRequest: {
+            label?: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount?: number;
+        };
+        FinanceOverview: {
+            /**
+             * Format: int64
+             * @description Balance in cents (income minus expense)
+             */
+            balance: number;
+            /**
+             * Format: int64
+             * @description Total income in cents
+             */
+            income: number;
+            /**
+             * Format: int64
+             * @description Total expense in cents
+             */
+            expense: number;
+            transactions: components["schemas"]["Transaction"][];
+            penalties: components["schemas"]["Penalty"][];
+            assignments: components["schemas"]["PenaltyAssignment"][];
+            openPenalties: components["schemas"]["OpenPenalty"][];
+            /**
+             * Format: int64
+             * @description Sum of all open (unpaid) penalties across all members, in cents
+             */
+            openPenaltySum: number;
+            contributions: components["schemas"]["Contribution"][];
+            contribOpen: number;
+        };
+        MemberAttendanceStats: {
+            /** Format: float */
+            quote: number;
+            counted: number;
+            yes: number;
+        };
+        MemberStat: {
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            avatarColor: string;
+            hasPhoto?: boolean;
+            /** Format: float */
+            quote: number;
+            counted: number;
+            yes: number;
+        };
+        EventStat: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            type: components["schemas"]["EventType"];
+            /** Format: date */
+            date: string;
+            yes: number;
+            nominated: number;
+            /** Format: float */
+            pct: number;
+            enough: boolean;
+        };
+        StatsOverview: {
+            /** Format: float */
+            avg: number;
+            members: components["schemas"]["MemberStat"][];
+            events: components["schemas"]["EventStat"][];
+            pastCount: number;
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+        AttendanceMatrixColumn: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            type: components["schemas"]["EventType"];
+            /** Format: date */
+            date: string;
+        };
+        AttendanceMatrixRow: {
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            avatarColor: string;
+            hasPhoto?: boolean;
+            yes: number;
+            counted: number;
+            /** @description Effective attendance status keyed by event id; missing key ⇒ pending. Only yes/no/maybe/pending are emitted (not_nominated folds to pending). */
+            cells: {
+                [key: string]: components["schemas"]["AttendanceStatus"];
+            };
+        };
+        AttendanceMatrix: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** @description Columns, ordered by date ascending. */
+            events: components["schemas"]["AttendanceMatrixColumn"][];
+            /** @description Rows, ordered by attendance (most yes first), then name. */
+            members: components["schemas"]["AttendanceMatrixRow"][];
+        };
+        AttendanceAbsenceRow: {
+            /** Format: uuid */
+            userId: string;
+            memberName: string;
+            /** Format: uuid */
+            eventId: string;
+            eventTitle: string;
+            /** Format: date */
+            eventDate: string;
+        };
+        AttendanceAbsenceTable: {
+            rows: components["schemas"]["AttendanceAbsenceRow"][];
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+        };
+    };
+    responses: {
+        /** @description Unauthorized */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Not Found */
+        NotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Forbidden */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection. */
+        TooManyRequests: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Payload Too Large. All request bodies are capped at 4 MB by default; image upload endpoints additionally enforce their own lower limit. */
+        PayloadTooLarge: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Redirect to a short-lived presigned URL for the image, hosted by the object store rather than this API. Access is membership-gated before the URL is issued; the URL itself carries no further authorization. */
+        PhotoRedirect: {
+            headers: {
+                /** @description Presigned URL to fetch the image bytes from. */
+                Location?: string;
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
+        /** @description The image bytes, streamed directly by the backend instead of a redirect. Returned instead of the 302 when the deployment is configured for proxy image delivery (IMAGE_DELIVERY_PROXY_ENABLED=true); access is membership-gated before any bytes are streamed, same as the redirect mode's presign gating. */
+        PhotoBytes: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "image/*": string;
+            };
+        };
+    };
+    parameters: {
+        teamId: string;
+        membershipId: string;
+        eventId: string;
+        roleId: string;
+        limit: number;
+        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+        cursor: string;
+    };
+    requestBodies: never;
+    headers: never;
+    pathItems: never;
 }
 export type $defs = Record<string, never>;
 export interface operations {
-  listProviders: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Provider'][];
-        };
-      };
-    };
-  };
-  login: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['LoginRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['LoginResponse'];
-        };
-      };
-      401: components['responses']['Unauthorized'];
-      429: components['responses']['TooManyRequests'];
-    };
-  };
-  logout: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  getCurrentUser: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['User'];
-        };
-      };
-      401: components['responses']['Unauthorized'];
-    };
-  };
-  deleteCurrentUser: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['DeleteAccountRequest'];
-      };
-    };
-    responses: {
-      /** @description Account anonymized; session cleared */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      401: components['responses']['Unauthorized'];
-    };
-  };
-  getMyDataExport: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Personal-data export document. */
-      200: {
-        headers: {
-          /** @description Suggests a download filename. */
-          'Content-Disposition'?: string;
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            [key: string]: unknown;
-          };
-        };
-      };
-      401: components['responses']['Unauthorized'];
-    };
-  };
-  getMyPhoto: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      302: components['responses']['PhotoRedirect'];
-      404: components['responses']['NotFound'];
-    };
-  };
-  uploadMyPhoto: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'multipart/form-data': {
-          /** Format: binary */
-          photo: string;
-        };
-      };
-    };
-    responses: {
-      /** @description Updated user */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['User'];
-        };
-      };
-      413: components['responses']['PayloadTooLarge'];
-    };
-  };
-  listTeams: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['TeamForUser'][];
-        };
-      };
-    };
-  };
-  createTeam: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateTeamRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['TeamForUser'];
-        };
-      };
-    };
-  };
-  getTeam: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Team'];
-        };
-      };
-      404: components['responses']['NotFound'];
-    };
-  };
-  updateTeam: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateTeamRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Team'];
-        };
-      };
-    };
-  };
-  getTeamPhoto: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      302: components['responses']['PhotoRedirect'];
-      404: components['responses']['NotFound'];
-    };
-  };
-  uploadTeamPhoto: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'multipart/form-data': {
-          /** Format: binary */
-          photo: string;
-        };
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Team'];
-        };
-      };
-      413: components['responses']['PayloadTooLarge'];
-    };
-  };
-  deleteTeamPhoto: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  getTeamLogo: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      302: components['responses']['PhotoRedirect'];
-      404: components['responses']['NotFound'];
-    };
-  };
-  uploadTeamLogo: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'multipart/form-data': {
-          /** Format: binary */
-          logo: string;
-        };
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Team'];
-        };
-      };
-      413: components['responses']['PayloadTooLarge'];
-    };
-  };
-  deleteTeamLogo: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  createInvite: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Invite'];
-        };
-      };
-    };
-  };
-  acceptInvite: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        code: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AcceptInviteResponse'];
-        };
-      };
-      404: components['responses']['NotFound'];
-    };
-  };
-  listMembers: {
-    parameters: {
-      query?: {
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['Member'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  removeMember: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        membershipId: components['parameters']['membershipId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  updateMember: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        membershipId: components['parameters']['membershipId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateMemberRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Member'];
-        };
-      };
-    };
-  };
-  getMemberPhoto: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        membershipId: components['parameters']['membershipId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      302: components['responses']['PhotoRedirect'];
-      404: components['responses']['NotFound'];
-    };
-  };
-  setMemberRoles: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        membershipId: components['parameters']['membershipId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SetRolesRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Member'];
-        };
-      };
-    };
-  };
-  listRoles: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Role'][];
-        };
-      };
-    };
-  };
-  createRole: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateRoleRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Role'];
-        };
-      };
-    };
-  };
-  deleteRole: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        roleId: components['parameters']['roleId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  updateRole: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        roleId: components['parameters']['roleId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateRoleRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Role'];
-        };
-      };
-    };
-  };
-  listEvents: {
-    parameters: {
-      query?: {
-        scope?: 'upcoming' | 'past' | 'all';
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['TeamEvent'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  createEvent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateEventRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['TeamEvent'];
-        };
-      };
-    };
-  };
-  getEvent: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['TeamEvent'];
-        };
-      };
-      404: components['responses']['NotFound'];
-    };
-  };
-  deleteEvent: {
-    parameters: {
-      query?: {
-        scope?: 'single' | 'series';
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  updateEvent: {
-    parameters: {
-      query?: {
-        scope?: 'single' | 'series';
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateEventRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['TeamEvent'];
-        };
-      };
-    };
-  };
-  setEventStatus: {
-    parameters: {
-      query?: {
-        scope?: 'single' | 'series';
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SetEventStatusRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['TeamEvent'];
-        };
-      };
-    };
-  };
-  listEventComments: {
-    parameters: {
-      query?: {
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['EventComment'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  addEventComment: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['AddCommentRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['EventComment'];
-        };
-      };
-    };
-  };
-  deleteEventComment: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-        commentId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  listAttendance: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AttendanceRow'][];
-        };
-      };
-    };
-  };
-  setAttendance: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SetAttendanceRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AttendanceRecord'];
-        };
-      };
-    };
-  };
-  setNomination: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        eventId: components['parameters']['eventId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SetNominationRequest'];
-      };
-    };
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  listAbsences: {
-    parameters: {
-      query?: {
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['Absence'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  createAbsence: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateAbsenceRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Absence'];
-        };
-      };
-    };
-  };
-  listMyAbsences: {
-    parameters: {
-      query?: {
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['Absence'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  deleteAbsence: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        absenceId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  updateAbsence: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        absenceId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateAbsenceRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Absence'];
-        };
-      };
-    };
-  };
-  listNews: {
-    parameters: {
-      query?: {
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['NewsItem'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  createNews: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateNewsRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NewsItem'];
-        };
-      };
-    };
-  };
-  deleteNews: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        newsId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  updateNews: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        newsId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateNewsRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NewsItem'];
-        };
-      };
-    };
-  };
-  listPolls: {
-    parameters: {
-      query?: {
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['Poll'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  createPoll: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreatePollRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Poll'];
-        };
-      };
-    };
-  };
-  deletePoll: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        pollId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  votePoll: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        pollId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['VotePollRequest'];
-      };
-    };
-    responses: {
-      /** @description Updated poll */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Poll'];
-        };
-      };
-    };
-  };
-  listNotifications: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['NotificationsResult'];
-        };
-      };
-    };
-  };
-  markNotificationsSeen: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  getFinanceOverview: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['FinanceOverview'];
-        };
-      };
-    };
-  };
-  listTransactions: {
-    parameters: {
-      query?: {
-        limit?: components['parameters']['limit'];
-        /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
-        cursor?: components['parameters']['cursor'];
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': {
-            items: components['schemas']['Transaction'][];
-            /** @description Cursor for the next page, or null when there are no more items. */
-            nextCursor: string | null;
-          };
-        };
-      };
-    };
-  };
-  createTransaction: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateTransactionRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Transaction'];
-        };
-      };
-    };
-  };
-  deleteTransaction: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        transactionId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  updateTransaction: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        transactionId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateTransactionRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Transaction'];
-        };
-      };
-    };
-  };
-  createPenalty: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreatePenaltyRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Penalty'];
-        };
-      };
-    };
-  };
-  deletePenalty: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        penaltyId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  updatePenalty: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        penaltyId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdatePenaltyRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Penalty'];
-        };
-      };
-    };
-  };
-  createPenaltyAssignment: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreatePenaltyAssignmentRequest'];
-      };
-    };
-    responses: {
-      /** @description Created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PenaltyAssignment'];
-        };
-      };
-    };
-  };
-  deletePenaltyAssignment: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        assignmentId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description No Content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-    };
-  };
-  setPenaltyPaid: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        assignmentId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SetPaidRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['PenaltyAssignment'];
-        };
-      };
-    };
-  };
-  updateContribution: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        contributionId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['UpdateContributionRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Contribution'];
-        };
-      };
-    };
-  };
-  setContributionPaid: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        contributionId: string;
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['SetPaidRequest'];
-      };
-    };
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Contribution'];
-        };
-      };
-    };
-  };
-  getStatsOverview: {
-    parameters: {
-      query?: {
-        from?: string;
-        to?: string;
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['StatsOverview'];
-        };
-      };
-    };
-  };
-  getAttendanceMatrix: {
-    parameters: {
-      query?: {
-        from?: string;
-        to?: string;
-      };
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['AttendanceMatrix'];
-        };
-      };
-    };
-  };
-  getMemberStats: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        teamId: components['parameters']['teamId'];
-        userId: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description OK */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['MemberAttendanceStats'];
-        };
-      };
-    };
-  };
+    listProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Provider"][];
+                };
+            };
+        };
+    };
+    login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterRequest"];
+            };
+        };
+        responses: {
+            /** @description Registration accepted. If the email can be registered, a verification link has been sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    verifyEmail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VerifyEmailRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    resendVerification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResendVerificationRequest"];
+            };
+        };
+        responses: {
+            /** @description If a still-unverified account exists for this email, a new verification link has been sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    deleteCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description Account anonymized; session cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getMyDataExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Personal-data export document. */
+            200: {
+                headers: {
+                    /** @description Suggests a download filename. */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getMyPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            302: components["responses"]["PhotoRedirect"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    uploadMyPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    photo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    registerPushSubscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushSubscriptionRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    deletePushSubscription: {
+        parameters: {
+            query: {
+                endpoint: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listTeams: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamForUser"][];
+                };
+            };
+        };
+    };
+    createTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTeamRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamForUser"];
+                };
+            };
+        };
+    };
+    getTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTeamRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+        };
+    };
+    getTeamPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PhotoBytes"];
+            302: components["responses"]["PhotoRedirect"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    uploadTeamPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    photo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    deleteTeamPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getTeamLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PhotoBytes"];
+            302: components["responses"]["PhotoRedirect"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    uploadTeamLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    logo: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            413: components["responses"]["PayloadTooLarge"];
+        };
+    };
+    deleteTeamLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Invite"];
+                };
+            };
+        };
+    };
+    acceptInvite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptInviteResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMembers: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Member"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    removeMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+        };
+    };
+    getMemberPhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: components["responses"]["PhotoBytes"];
+            302: components["responses"]["PhotoRedirect"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setMemberRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                membershipId: components["parameters"]["membershipId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRolesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Member"];
+                };
+            };
+        };
+    };
+    listRoles: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"][];
+                };
+            };
+        };
+    };
+    createRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+        };
+    };
+    deleteRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                roleId: components["parameters"]["roleId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                roleId: components["parameters"]["roleId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Role"];
+                };
+            };
+        };
+    };
+    listEvents: {
+        parameters: {
+            query?: {
+                scope?: "upcoming" | "past" | "all";
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["TeamEvent"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    createEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamEvent"];
+                };
+            };
+        };
+    };
+    getEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamEvent"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteEvent: {
+        parameters: {
+            query?: {
+                scope?: "single" | "series";
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateEvent: {
+        parameters: {
+            query?: {
+                scope?: "single" | "series";
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateEventRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamEvent"];
+                };
+            };
+        };
+    };
+    setEventStatus: {
+        parameters: {
+            query?: {
+                scope?: "single" | "series";
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetEventStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamEvent"];
+                };
+            };
+        };
+    };
+    listEventComments: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["EventComment"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    addEventComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddCommentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventComment"];
+                };
+            };
+        };
+    };
+    deleteEventComment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+                commentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listAttendance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceRow"][];
+                };
+            };
+        };
+    };
+    setAttendance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAttendanceRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceRecord"];
+                };
+            };
+        };
+    };
+    setNomination: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                eventId: components["parameters"]["eventId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetNominationRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    issueCalendarFeedToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedToken"];
+                };
+            };
+        };
+    };
+    revokeCalendarFeedToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getCalendarFeed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description iCalendar document. Content-Type is text/calendar, not application/json -- oapi-codegen models this as a raw-bytes response. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/calendar": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listAbsences: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Absence"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    createAbsence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAbsenceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Absence"];
+                };
+            };
+        };
+    };
+    listMyAbsences: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Absence"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    deleteAbsence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                absenceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateAbsence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                absenceId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateAbsenceRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Absence"];
+                };
+            };
+        };
+    };
+    listNews: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["NewsItem"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    createNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNewsRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsItem"];
+                };
+            };
+        };
+    };
+    deleteNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                newsId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateNews: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                newsId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateNewsRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewsItem"];
+                };
+            };
+        };
+    };
+    listPolls: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Poll"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    createPoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePollRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Poll"];
+                };
+            };
+        };
+    };
+    deletePoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                pollId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    votePoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                pollId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VotePollRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated poll */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Poll"];
+                };
+            };
+        };
+    };
+    listNotifications: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationsResult"];
+                };
+            };
+        };
+    };
+    markNotificationsSeen: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getFinanceOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinanceOverview"];
+                };
+            };
+        };
+    };
+    listTransactions: {
+        parameters: {
+            query?: {
+                limit?: components["parameters"]["limit"];
+                /** @description Opaque keyset-pagination cursor returned as nextCursor by a prior page. */
+                cursor?: components["parameters"]["cursor"];
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Transaction"][];
+                        /** @description Cursor for the next page, or null when there are no more items. */
+                        nextCursor: string | null;
+                    };
+                };
+            };
+        };
+    };
+    createTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTransactionRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Transaction"];
+                };
+            };
+        };
+    };
+    deleteTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                transactionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updateTransaction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                transactionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTransactionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Transaction"];
+                };
+            };
+        };
+    };
+    createPenalty: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePenaltyRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Penalty"];
+                };
+            };
+        };
+    };
+    deletePenalty: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                penaltyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    updatePenalty: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                penaltyId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePenaltyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Penalty"];
+                };
+            };
+        };
+    };
+    createPenaltyAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePenaltyAssignmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenaltyAssignment"];
+                };
+            };
+        };
+    };
+    deletePenaltyAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setPenaltyPaid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                assignmentId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPaidRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PenaltyAssignment"];
+                };
+            };
+        };
+    };
+    updateContribution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                contributionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateContributionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contribution"];
+                };
+            };
+        };
+    };
+    setContributionPaid: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                contributionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetPaidRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contribution"];
+                };
+            };
+        };
+    };
+    getStatsOverview: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsOverview"];
+                };
+            };
+        };
+    };
+    getAttendanceMatrix: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceMatrix"];
+                };
+            };
+        };
+    };
+    getMemberStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberAttendanceStats"];
+                };
+            };
+        };
+    };
+    getStatsAbsences: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceAbsenceTable"];
+                };
+            };
+        };
+    };
 }

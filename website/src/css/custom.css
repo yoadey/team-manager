@@ -1,0 +1,25 @@
+/**
+ * Minimal theme tweaks. Docusaurus' default classic theme already handles
+ * light/dark mode; only the primary color is adjusted here to loosely match
+ * the app's branding.
+ */
+
+:root {
+  --ifm-color-primary: #2563eb;
+  --ifm-color-primary-dark: #1d4fd1;
+  --ifm-color-primary-darker: #1b4ac6;
+  --ifm-color-primary-darkest: #163da3;
+  --ifm-color-primary-light: #3b74ef;
+  --ifm-color-primary-lighter: #4a80f0;
+  --ifm-color-primary-lightest: #6f9af3;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #60a5fa;
+  --ifm-color-primary-dark: #3f92f9;
+  --ifm-color-primary-darker: #2f8af8;
+  --ifm-color-primary-darkest: #0f71e4;
+  --ifm-color-primary-light: #81b8fb;
+  --ifm-color-primary-lighter: #91c1fb;
+  --ifm-color-primary-lightest: #c0dcfd;
+}

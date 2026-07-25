@@ -74,7 +74,7 @@ type financeRepo interface {
 	ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error)
 	GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error)
 	CountAssignments(ctx context.Context, teamID uuid.UUID) (int, error)
-	CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error)
+	CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID, date time.Time, note *string) (*PenaltyAssignmentRow, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
 	SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*PenaltyAssignmentRow, error)
 	UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
@@ -384,7 +384,11 @@ func (s *Service) CreateAssignment(ctx context.Context, teamID uuid.UUID, body *
 		return nil, ErrTooManyAssignments
 	}
 
-	a, err := s.repo.CreateAssignment(ctx, teamID, userID, penaltyID)
+	date := time.Now()
+	if body.Date != nil {
+		date = body.Date.Time
+	}
+	a, err := s.repo.CreateAssignment(ctx, teamID, userID, penaltyID, date, body.Note)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// The membership check above passed, but the atomic WHERE
@@ -511,6 +515,7 @@ func toGenAssignment(a PenaltyAssignmentRow) gen.PenaltyAssignment {
 		PenaltyId:         a.PenaltyID,
 		Paid:              a.Paid,
 		Date:              openapi_types.Date{Time: a.Date},
+		Note:              a.Note,
 		Label:             a.PenaltyLabel,
 		Amount:            a.PenaltyAmount,
 		MemberName:        a.MemberName,

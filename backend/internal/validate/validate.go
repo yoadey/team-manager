@@ -18,6 +18,13 @@ const (
 	maxTextLen     = 10_000
 	minPasswordLen = 8
 	maxPasswordLen = 128
+	// maxPasswordBytes matches bcrypt's hard input limit (see
+	// auth.maxPasswordBytes). A password can pass the 128-*rune* check above
+	// and still exceed 72 *bytes* once multi-byte UTF-8 characters (e.g.
+	// emoji, CJK) are counted, which would otherwise only surface later as
+	// auth.Service.HashPassword's less specific ErrPasswordTooLong instead of
+	// a clean validation error here.
+	maxPasswordBytes = 72
 	// maxAmountCents caps a single monetary amount at 1,000,000.00 (in the
 	// club's currency, stored as integer cents). Generous for any club
 	// transaction, while keeping SUM(amount) aggregates (see
@@ -38,18 +45,19 @@ const (
 
 // Sentinel errors for static analysis compliance.
 var (
-	ErrEmailRequired      = errors.New("email is required")
-	ErrEmailInvalid       = errors.New("email is not a valid address")
-	ErrPasswordTooShort   = errors.New("password must be at least 8 characters")
-	ErrPasswordTooLong    = errors.New("password must not exceed 128 characters")
-	ErrFieldRequired      = errors.New("is required")
-	ErrFieldTooLong       = errors.New("is too long")
-	ErrAmountNotPositive  = errors.New("must be greater than zero")
-	ErrAmountTooLarge     = errors.New("exceeds the maximum allowed amount")
-	ErrTimeOfDayInvalid   = errors.New("must be a 24-hour HH:MM time")
-	ErrTooManyItems       = errors.New("has too many items")
-	ErrFieldNullByte      = errors.New("must not contain a null byte")
-	ErrBirthdayOutOfRange = errors.New("must be between 1900-01-01 and today")
+	ErrEmailRequired        = errors.New("email is required")
+	ErrEmailInvalid         = errors.New("email is not a valid address")
+	ErrPasswordTooShort     = errors.New("password must be at least 8 characters")
+	ErrPasswordTooLong      = errors.New("password must not exceed 128 characters")
+	ErrPasswordTooManyBytes = errors.New("password must not exceed 72 bytes")
+	ErrFieldRequired        = errors.New("is required")
+	ErrFieldTooLong         = errors.New("is too long")
+	ErrAmountNotPositive    = errors.New("must be greater than zero")
+	ErrAmountTooLarge       = errors.New("exceeds the maximum allowed amount")
+	ErrTimeOfDayInvalid     = errors.New("must be a 24-hour HH:MM time")
+	ErrTooManyItems         = errors.New("has too many items")
+	ErrFieldNullByte        = errors.New("must not contain a null byte")
+	ErrBirthdayOutOfRange   = errors.New("must be between 1900-01-01 and today")
 )
 
 // timeOfDayRE matches a 24-hour "HH:MM" time-of-day string, the format the
@@ -171,6 +179,8 @@ func UUIDItems(n int, field string) error {
 // PasswordStrength checks that s is within the accepted length window.
 // A minimum of 8 and a maximum of 128 characters is enforced; further
 // complexity requirements are deliberately avoided to follow NIST SP 800-63B.
+// A password within the 128-rune window can still exceed bcrypt's 72-*byte*
+// limit (multi-byte UTF-8 input), so byte length is checked separately.
 func PasswordStrength(s string) error {
 	n := utf8.RuneCountInString(s)
 	if n < minPasswordLen {
@@ -178,6 +188,9 @@ func PasswordStrength(s string) error {
 	}
 	if n > maxPasswordLen {
 		return ErrPasswordTooLong
+	}
+	if len(s) > maxPasswordBytes {
+		return ErrPasswordTooManyBytes
 	}
 	return nil
 }

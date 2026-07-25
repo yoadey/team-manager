@@ -32,6 +32,9 @@ spec:
         {{- end }}
       labels:
         {{- include "team-manager.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -39,6 +42,9 @@ spec:
       {{- end }}
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       serviceAccountName: {{ include "team-manager.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       {{- if .Values.migrations.runAsInitContainer }}
@@ -46,87 +52,19 @@ spec:
         - name: migrate
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "team-manager.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--migrate-only"]
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           env:
-            - name: ALLOWED_ORIGINS
-              value: {{ .Values.allowedOrigins | quote }}
-            {{- range $key, $val := .Values.env }}
-            - name: {{ $key }}
-              value: {{ $val | quote }}
-            {{- end }}
-            {{- if .Values.existingSecret }}
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: DATABASE_URL
-            - name: JWT_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: JWT_PRIVATE_KEY
-            - name: JWT_PUBLIC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: JWT_PUBLIC_KEY
-            - name: S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: S3_ACCESS_KEY_ID
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: S3_SECRET_ACCESS_KEY
-            - name: COOKIE_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: COOKIE_ENCRYPTION_KEY
-                  # Optional: config.go's loadCookieEncryptionKeys checks
-                  # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never
-                  # even looks at this singular key -- a Secret populated per
-                  # the zero-downtime-rotation guidance in CLAUDE.md (only
-                  # COOKIE_ENCRYPTION_KEYS set) must not fail pod scheduling
-                  # just because this optional fallback key is absent.
-                  optional: true
-            - name: SENTRY_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: SENTRY_DSN
-                  optional: true
-            - name: METRICS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: METRICS_TOKEN
-                  optional: true
-            - name: PAGINATION_HMAC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: PAGINATION_HMAC_KEY
-                  optional: true
-            - name: COOKIE_ENCRYPTION_KEYS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: COOKIE_ENCRYPTION_KEYS
-                  optional: true
-            {{- end }}
+            {{- include "team-manager.env" $ | nindent 12 }}
       {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "team-manager.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -157,6 +95,10 @@ spec:
             failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             # Without GOMEMLIMIT, the Go GC only targets ~2x live heap and has
             # no awareness of the container's cgroup memory limit -- under a
@@ -176,75 +118,7 @@ spec:
                 resourceFieldRef:
                   containerName: {{ .Chart.Name }}
                   resource: limits.memory
-            - name: ALLOWED_ORIGINS
-              value: {{ .Values.allowedOrigins | quote }}
-            {{- range $key, $val := .Values.env }}
-            - name: {{ $key }}
-              value: {{ $val | quote }}
-            {{- end }}
-            {{- if .Values.existingSecret }}
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: DATABASE_URL
-            - name: JWT_PRIVATE_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: JWT_PRIVATE_KEY
-            - name: JWT_PUBLIC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: JWT_PUBLIC_KEY
-            - name: S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: S3_ACCESS_KEY_ID
-            - name: S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: S3_SECRET_ACCESS_KEY
-            - name: COOKIE_ENCRYPTION_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: COOKIE_ENCRYPTION_KEY
-                  # Optional: config.go's loadCookieEncryptionKeys checks
-                  # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never
-                  # even looks at this singular key -- a Secret populated per
-                  # the zero-downtime-rotation guidance in CLAUDE.md (only
-                  # COOKIE_ENCRYPTION_KEYS set) must not fail pod scheduling
-                  # just because this optional fallback key is absent.
-                  optional: true
-            - name: SENTRY_DSN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: SENTRY_DSN
-                  optional: true
-            - name: METRICS_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: METRICS_TOKEN
-                  optional: true
-            - name: PAGINATION_HMAC_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: PAGINATION_HMAC_KEY
-                  optional: true
-            - name: COOKIE_ENCRYPTION_KEYS
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.existingSecret }}
-                  key: COOKIE_ENCRYPTION_KEYS
-                  optional: true
-            {{- end }}
+            {{- include "team-manager.env" $ | nindent 12 }}
       # Explicit (possibly empty) volumes array: some Kubernetes admission
       # webhooks that inject a volume by name (e.g. EKS's IRSA pod-identity
       # webhook, if serviceAccount.annotations carries an IAM role ARN) apply
@@ -253,13 +127,22 @@ spec:
       # that serviceAccount.automount defaults to false (no more
       # kubelet-injected token volume). See
       # https://github.com/aws/amazon-eks-pod-identity-webhook/issues/17.
+      {{- if .Values.extraVolumes }}
+      volumes:
+        {{- toYaml .Values.extraVolumes | nindent 8 }}
+      {{- else }}
       volumes: []
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.affinity }}
       affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.tolerations }}

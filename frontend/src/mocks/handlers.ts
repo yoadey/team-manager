@@ -30,6 +30,18 @@ import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date
 
 type S = components['schemas'];
 
+// Spreads `{ [key]: value }` only when `value` isn't undefined -- lets the
+// toWireXxx() DTO builders below omit an optional wire field entirely
+// instead of sending `{ key: undefined }`, which `exactOptionalPropertyTypes`
+// rejects for fields the OpenAPI spec types as `key?: T` (no explicit
+// `| undefined`). Omitting vs. including-as-undefined is wire-identical
+// (HttpResponse.json / JSON.stringify drop undefined-valued keys either
+// way) -- this only satisfies the type checker's stricter object-literal
+// shape.
+function opt<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return (value === undefined ? {} : { [key]: value }) as { [P in K]?: V };
+}
+
 // A small artificial per-request delay, applied to every handler below.
 // Without it, two chained requests issued a tick apart (e.g. AppContext's
 // session-restore effect awaiting `teams.listForCurrentUser()` then, once
@@ -71,12 +83,29 @@ function toWireUser(u: UserRow): S['User'] {
     id: u.id,
     name: u.name,
     email: u.email,
-    phone: u.phone || undefined,
     avatarColor: u.avatarColor,
-    birthday: u.birthday || undefined,
-    address: u.address || undefined,
     hasPhoto: u.hasPhoto,
+    ...opt('phone', u.phone || undefined),
+    ...opt('birthday', u.birthday || undefined),
+    ...opt('address', u.address || undefined),
   };
+}
+
+// ---- self-registration (mock equivalent of auth.Service.Register etc.) ----
+
+// Fixed, generic response for register/resend-verification, returned
+// identically regardless of account state -- mirrors the real backend's
+// enumeration-safety contract (see openspec/changes/self-service-registration).
+const REGISTRATION_ACCEPTED_MESSAGE = 'If this email can be registered, a verification link has been sent.';
+const verificationTokenTTLMs = 48 * 60 * 60 * 1000;
+
+function issueVerificationToken(userId: string): void {
+  // rid() is fine for demo entity ids but not for this: the token stands in
+  // for a secret, unguessable value, the same property the real backend's
+  // crypto/rand-generated token has. crypto.randomUUID() is a CSPRNG, so it
+  // is used here instead of rid().
+  const token = crypto.randomUUID();
+  db.verificationTokens[token] = { userId, expiresAt: new Date(Date.now() + verificationTokenTTLMs).toISOString() };
 }
 
 function toWireRole(r: RoleDto): S['Role'] {
@@ -94,7 +123,7 @@ function toWireTeam(t: TeamRow): S['Team'] {
     description: t.description,
     hasPhoto: t.hasPhoto,
     hasLogo: t.hasLogo,
-    reasonVisibilityRoleIds: t.reasonVisibilityRoles,
+    ...opt('reasonVisibilityRoleIds', t.reasonVisibilityRoles),
   };
 }
 
@@ -119,26 +148,22 @@ function toWireMember(m: (typeof db.memberships)[number]): S['Member'] {
     userId: u.id,
     name: u.name,
     email: u.email,
-    phone: u.phone || undefined,
-    birthday: u.birthday || undefined,
-    address: u.address || undefined,
     avatarColor: u.avatarColor,
     hasPhoto: u.hasPhoto,
-    group: m.group || undefined,
     roles: roles.map(toWireRole),
-    primaryRole: pr ? toWireRole(pr) : undefined,
     perms: mergePerms(roles),
     joinedAt: m.joinedAt,
+    ...opt('phone', u.phone || undefined),
+    ...opt('birthday', u.birthday || undefined),
+    ...opt('address', u.address || undefined),
+    ...opt('group', m.group || undefined),
+    ...opt('primaryRole', pr ? toWireRole(pr) : undefined),
   };
 }
 
 function eventSummary(e: EventDto, teamId: string): S['EventSummary'] {
   const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-  let yes = 0,
-    no = 0,
-    maybe = 0,
-    pending = 0,
-    notNom = 0;
+  let yes = 0, no = 0, maybe = 0, pending = 0, notNom = 0;
   memberIds.forEach((uid) => {
     const s = effectiveStatus(e, uid).status;
     if (s === 'yes') yes++;
@@ -147,15 +172,7 @@ function eventSummary(e: EventDto, teamId: string): S['EventSummary'] {
     else if (s === 'not_nominated') notNom++;
     else pending++;
   });
-  return {
-    yes,
-    no,
-    maybe,
-    pending,
-    notNominated: notNom,
-    nominated: memberIds.length - notNom,
-    total: memberIds.length,
-  };
+  return { yes, no, maybe, pending, notNominated: notNom, nominated: memberIds.length - notNom, total: memberIds.length };
 }
 
 function toWireEvent(e: EventDto): S['TeamEvent'] {
@@ -163,25 +180,26 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
   return {
     id: e.id,
     teamId: e.teamId,
-    seriesId: e.seriesId ?? undefined,
     type: e.type,
     title: e.title,
     date: e.date,
-    location: e.location || undefined,
-    note: e.note || undefined,
-    result: e.result,
-    meetTime: e.meetTime ?? undefined,
-    startTime: e.startTime ?? undefined,
-    endTime: e.endTime ?? undefined,
     meetTimeMandatory: e.meetTimeMandatory,
     responseMode: e.responseMode,
-    nominatedRoleIds: e.nominatedRoleIds,
     recurring: e.recurring,
     status: e.status,
     summary: eventSummary(e, e.teamId),
     myStatus: mine.status,
     myAuto: mine.auto,
     myReason: mine.reason,
+    ...opt('nominatedRoleIds', e.nominatedRoleIds),
+    ...opt('result', e.result),
+    ...opt('seriesId', e.seriesId ?? undefined),
+    ...opt('location', e.location || undefined),
+    ...opt('note', e.note || undefined),
+    ...opt('meetTime', e.meetTime ?? undefined),
+    ...opt('startTime', e.startTime ?? undefined),
+    ...opt('endTime', e.endTime ?? undefined),
+    ...opt('rsvpDeadline', e.rsvpDeadline ?? undefined),
   };
 }
 
@@ -195,14 +213,14 @@ function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S
     name: u.name,
     avatarColor: u.avatarColor,
     hasPhoto: u.hasPhoto,
-    group: m.group || undefined,
-    primaryRole: pr ? toWireRole(pr) : undefined,
     status: es.status,
-    reason: es.reason || undefined,
-    reasonId: es.reasonId ?? undefined,
-    reasonVisibility: es.reasonVisibility ?? undefined,
     auto: es.auto,
     absent: es.absent,
+    ...opt('group', m.group || undefined),
+    ...opt('primaryRole', pr ? toWireRole(pr) : undefined),
+    ...opt('reason', es.reason || undefined),
+    ...opt('reasonId', es.reasonId ?? undefined),
+    ...opt('reasonVisibility', es.reasonVisibility ?? undefined),
   };
 }
 
@@ -214,9 +232,9 @@ function toWireComment(c: (typeof db.eventComments)[number]): S['EventComment'] 
     userId: c.userId,
     text: c.text,
     createdAt: c.createdAt,
-    authorName: u?.name,
-    authorColor: u?.avatarColor,
-    hasAuthorPhoto: u?.hasPhoto,
+    ...opt('authorName', u?.name),
+    ...opt('authorColor', u?.avatarColor),
+    ...opt('hasAuthorPhoto', u?.hasPhoto),
   };
 }
 
@@ -229,13 +247,13 @@ function toWireAbsence(a: (typeof db.absences)[number], teamId: string): S['Abse
     userId: a.userId,
     from: a.from,
     to: a.to,
-    reason: a.reason || undefined,
     createdAt: a.createdAt,
-    memberName: u?.name,
-    memberAvatarColor: u?.avatarColor,
-    hasPhoto: u?.hasPhoto,
-    roleColor: pr?.color,
-    roleName: pr?.name,
+    ...opt('reason', a.reason || undefined),
+    ...opt('memberName', u?.name),
+    ...opt('memberAvatarColor', u?.avatarColor),
+    ...opt('hasPhoto', u?.hasPhoto),
+    ...opt('roleColor', pr?.color),
+    ...opt('roleName', pr?.name),
   };
 }
 
@@ -249,23 +267,17 @@ function toWireNews(n: (typeof db.news)[number]): S['NewsItem'] {
     body: n.body,
     pinned: n.pinned,
     createdAt: n.createdAt,
-    authorName: u?.name,
-    authorColor: u?.avatarColor,
-    hasAuthorPhoto: u?.hasPhoto,
+    ...opt('authorName', u?.name),
+    ...opt('authorColor', u?.avatarColor),
+    ...opt('hasAuthorPhoto', u?.hasPhoto),
   };
 }
 
 function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
   const total = p.votes.length;
   const counts: Record<string, number> = {};
-  p.options.forEach((o) => {
-    counts[o.id] = 0;
-  });
-  p.votes.forEach((v) =>
-    v.optionIds.forEach((oid) => {
-      if (counts[oid] !== undefined) counts[oid]++;
-    }),
-  );
+  p.options.forEach((o) => { counts[o.id] = 0; });
+  p.votes.forEach((v) => v.optionIds.forEach((oid) => { if (counts[oid] !== undefined) counts[oid]++; }));
   const mine = p.votes.find((v) => v.userId === session.userId);
   return {
     id: p.id,
@@ -274,28 +286,31 @@ function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
     anonymous: p.anonymous,
     createdAt: p.createdAt,
     totalVotes: total,
-    myVote: mine ? [...mine.optionIds] : undefined,
-    options: p.options.map((o) => ({
-      id: o.id,
-      text: o.text,
-      count: counts[o.id],
-      pct: total ? Math.round((counts[o.id] / total) * 100) : 0,
-      voters: p.anonymous
-        ? []
-        : p.votes
-            .filter((v) => v.optionIds.includes(o.id))
-            .map((v) => {
-              const u = db.users.find((x) => x.id === v.userId);
-              const m = db.memberships.find((x) => x.teamId === p.teamId && x.userId === v.userId);
-              return {
-                userId: v.userId,
-                membershipId: m?.id ?? undefined,
-                name: u?.name,
-                color: u?.avatarColor,
-                hasPhoto: u?.hasPhoto,
-              };
-            }),
-    })),
+    ...opt('myVote', mine ? [...mine.optionIds] : undefined),
+    options: p.options.map((o) => {
+      const count = counts[o.id] ?? 0;
+      return {
+        id: o.id,
+        text: o.text,
+        count,
+        pct: total ? Math.round((count / total) * 100) : 0,
+        voters: p.anonymous
+          ? []
+          : p.votes
+              .filter((v) => v.optionIds.includes(o.id))
+              .map((v) => {
+                const u = db.users.find((x) => x.id === v.userId);
+                const m = db.memberships.find((x) => x.teamId === p.teamId && x.userId === v.userId);
+                return {
+                  userId: v.userId,
+                  ...opt('membershipId', m?.id),
+                  ...opt('name', u?.name),
+                  ...opt('color', u?.avatarColor),
+                  ...opt('hasPhoto', u?.hasPhoto),
+                };
+              }),
+      };
+    }),
   };
 }
 
@@ -305,31 +320,23 @@ function toWireNotification(n: (typeof db.notifications)[number], seen: string |
     id: n.id,
     teamId: n.teamId,
     type: n.type,
-    actorId: n.actorId,
-    status: n.status,
-    title: n.title,
-    eventId: n.eventId ?? undefined,
-    eventTitle: n.eventTitle,
-    eventDate: n.eventDate,
-    note: n.note,
     createdAt: n.createdAt,
-    actorName: u?.name,
-    actorColor: u?.avatarColor,
-    hasActorPhoto: u?.hasPhoto,
     unread: seen ? n.createdAt > seen : true,
+    ...opt('actorId', n.actorId),
+    ...opt('status', n.status),
+    ...opt('title', n.title),
+    ...opt('eventId', n.eventId ?? undefined),
+    ...opt('eventTitle', n.eventTitle),
+    ...opt('eventDate', n.eventDate),
+    ...opt('note', n.note),
+    ...opt('actorName', u?.name),
+    ...opt('actorColor', u?.avatarColor),
+    ...opt('hasActorPhoto', u?.hasPhoto),
   };
 }
 
 function toWireTransaction(t: (typeof db.transactions)[number]): S['Transaction'] {
-  return {
-    id: t.id,
-    teamId: t.teamId,
-    type: t.type,
-    title: t.title,
-    amount: t.amount,
-    date: t.date,
-    category: t.category || undefined,
-  };
+  return { id: t.id, teamId: t.teamId, type: t.type, title: t.title, amount: t.amount, date: t.date, ...opt('category', t.category || undefined) };
 }
 function toWirePenalty(p: (typeof db.penalties)[number]): S['Penalty'] {
   return { id: p.id, teamId: p.teamId, label: p.label, amount: p.amount };
@@ -343,11 +350,12 @@ function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['Penalty
     penaltyId: a.penaltyId,
     paid: a.paid,
     date: a.date,
-    memberName: u?.name,
-    memberAvatarColor: u?.avatarColor,
-    hasPhoto: u?.hasPhoto,
-    label: a.label,
-    amount: a.amount,
+    ...opt('memberName', u?.name),
+    ...opt('memberAvatarColor', u?.avatarColor),
+    ...opt('hasPhoto', u?.hasPhoto),
+    ...opt('label', a.label),
+    ...opt('amount', a.amount),
+    ...opt('note', a.note),
   };
 }
 function toWireContribution(c: (typeof db.contributions)[number]): S['Contribution'] {
@@ -357,12 +365,12 @@ function toWireContribution(c: (typeof db.contributions)[number]): S['Contributi
     teamId: c.teamId,
     userId: c.userId,
     month: c.month,
-    label: c.label || undefined,
     amount: c.amount,
     status: c.status,
-    memberName: u?.name,
-    memberAvatarColor: u?.avatarColor,
-    hasPhoto: u?.hasPhoto,
+    ...opt('label', c.label || undefined),
+    ...opt('memberName', u?.name),
+    ...opt('memberAvatarColor', u?.avatarColor),
+    ...opt('hasPhoto', u?.hasPhoto),
   };
 }
 
@@ -375,14 +383,7 @@ export const handlers = [
   http.get(P('/auth/providers'), async () => {
     await mockDelay();
     const body: S['Provider'][] = [
-      {
-        id: 'password',
-        name: 'Passwort',
-        sub: DEMO_LOGIN_EMAIL + ' / ' + DEMO_PASSWORD,
-        glyph: 'P',
-        bg: '#1565C0',
-        fg: '#FFFFFF',
-      },
+      { id: 'password', name: 'Passwort', sub: DEMO_LOGIN_EMAIL + ' / ' + DEMO_PASSWORD, glyph: 'P', bg: '#1565C0', fg: '#FFFFFF' },
     ];
     return HttpResponse.json(body);
   }),
@@ -404,16 +405,89 @@ export const handlers = [
     if (DEMO_SSO_PROVIDER_IDS.includes(body.email)) {
       const u = requireUser(DEMO_LOGIN_USER_ID);
       session.userId = u.id;
-      const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+      const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
       return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
     }
     const u = db.users.find((x) => x.email.toLowerCase() === body.email?.toLowerCase());
+    // Self-registered accounts (created via POST /auth/register) carry their
+    // own password on the row; the fixed demo account never has one set.
+    if (u?.password !== undefined) {
+      if (body.password !== u.password) return problem(401, 'Invalid email or password');
+      if (!u.emailVerifiedAt) return problem(403, 'please verify your email before logging in');
+      session.userId = u.id;
+      const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+      return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
+    }
     if (!u || u.id !== DEMO_LOGIN_USER_ID || body.password !== DEMO_PASSWORD) {
       return problem(401, 'Invalid email or password');
     }
     session.userId = u.id;
-    const resp: S['LoginResponse'] = { token: 'demo.' + rid('tk'), user: toWireUser(u) };
+    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
     return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
+  }),
+
+  // Enumeration-safe: the response is identical whether the email was
+  // available, already registered and verified, or already registered and
+  // still pending -- see Service.Register's design on the backend.
+  http.post(P('/auth/register'), async ({ request }) => {
+    const body = (await request.json()) as S['RegisterRequest'];
+    await mockDelay();
+    const email = (body.email ?? '').toLowerCase();
+    const resp: S['RegisterResponse'] = { message: REGISTRATION_ACCEPTED_MESSAGE };
+
+    const existing = db.users.find((x) => x.email.toLowerCase() === email);
+    if (existing) {
+      // Verified: leave the account and its password untouched, no token issued.
+      // Still-pending: issue a fresh token, but never overwrite the password.
+      if (!existing.emailVerifiedAt) issueVerificationToken(existing.id);
+      return HttpResponse.json(resp, { status: 202 });
+    }
+
+    // Unlike rid()'s other demo-entity ids, this one is passed straight into
+    // issueVerificationToken() below, so it needs the same CSPRNG guarantee
+    // as the verification token itself.
+    const id = crypto.randomUUID();
+    const newUser: UserRow = {
+      id,
+      name: email.split('@')[0] || email,
+      email: body.email,
+      phone: '',
+      avatarColor: '#6366f1',
+      photo: null,
+      hasPhoto: false,
+      birthday: '',
+      address: '',
+      password: body.password,
+      emailVerifiedAt: null,
+    };
+    db.users.push(newUser);
+    issueVerificationToken(id);
+    return HttpResponse.json(resp, { status: 202 });
+  }),
+
+  http.post(P('/auth/verify-email'), async ({ request }) => {
+    const body = (await request.json()) as S['VerifyEmailRequest'];
+    await mockDelay();
+    const entry = body.token ? db.verificationTokens[body.token] : undefined;
+    if (!entry || new Date(entry.expiresAt).getTime() < Date.now()) {
+      return problem(401, 'Invalid or expired verification token');
+    }
+    delete db.verificationTokens[body.token];
+    const u = requireUser(entry.userId);
+    u.emailVerifiedAt = new Date().toISOString();
+    session.userId = u.id;
+    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+    return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
+  }),
+
+  http.post(P('/auth/resend-verification'), async ({ request }) => {
+    const body = (await request.json()) as S['ResendVerificationRequest'];
+    await mockDelay();
+    const email = (body.email ?? '').toLowerCase();
+    const u = db.users.find((x) => x.email.toLowerCase() === email);
+    if (u && !u.emailVerifiedAt) issueVerificationToken(u.id);
+    const resp: S['RegisterResponse'] = { message: REGISTRATION_ACCEPTED_MESSAGE };
+    return HttpResponse.json(resp, { status: 202 });
   }),
 
   http.post(P('/auth/logout'), async () => {
@@ -472,9 +546,7 @@ export const handlers = [
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
     const teamIds = db.memberships.filter((m) => m.userId === auth).map((m) => m.teamId);
-    const body: S['TeamForUser'][] = db.teams
-      .filter((t) => teamIds.includes(t.id))
-      .map((t) => toWireTeamForUser(t, auth));
+    const body: S['TeamForUser'][] = db.teams.filter((t) => teamIds.includes(t.id)).map((t) => toWireTeamForUser(t, auth));
     return HttpResponse.json(body);
   }),
 
@@ -497,48 +569,17 @@ export const handlers = [
       description: '',
     };
     db.teams.push(team);
-    const roles: RoleDto[] = [
-      {
-        id: rid('role'),
-        teamId: team.id,
-        name: 'Admin / Trainer',
-        system: true,
-        color: '#1565C0',
-        permissions: {
-          events: 'write',
-          members: 'write',
-          finances: 'write',
-          news: 'write',
-          polls: 'write',
-          settings: 'write',
-        },
-      },
-      {
-        id: rid('role'),
-        teamId: team.id,
-        name: 'Mitglied',
-        system: true,
-        color: '#5B6470',
-        permissions: {
-          events: 'read',
-          members: 'read',
-          finances: 'read',
-          news: 'read',
-          polls: 'read',
-          settings: 'none',
-        },
-      },
+    // Tuple-typed (not RoleDto[]) so `adminRole`/`memberRole` stay non-optional
+    // under noUncheckedIndexedAccess -- this is always exactly these two seeded
+    // roles, never an arbitrary-length array.
+    const roles: [RoleDto, RoleDto] = [
+      { id: rid('role'), teamId: team.id, name: 'Admin / Trainer', system: true, color: '#1565C0', permissions: { events: 'write', members: 'write', finances: 'write', news: 'write', polls: 'write', settings: 'write' } },
+      { id: rid('role'), teamId: team.id, name: 'Mitglied', system: true, color: '#5B6470', permissions: { events: 'read', members: 'read', finances: 'read', news: 'read', polls: 'read', settings: 'none' } },
     ];
+    const [adminRole] = roles;
     db.roles.push(...roles);
-    team.reasonVisibilityRoles = [roles[0].id];
-    db.memberships.push({
-      id: rid('mem'),
-      teamId: team.id,
-      userId: auth,
-      roleIds: [roles[0].id],
-      group: '',
-      joinedAt: new Date().toISOString(),
-    });
+    team.reasonVisibilityRoles = [adminRole.id];
+    db.memberships.push({ id: rid('mem'), teamId: team.id, userId: auth, roleIds: [adminRole.id], group: '', joinedAt: new Date().toISOString() });
     return HttpResponse.json(toWireTeamForUser(team, auth), { status: 201 });
   }),
 
@@ -594,7 +635,11 @@ export const handlers = [
   http.post(P('/teams/:teamId/invite'), async ({ params }) => {
     await mockDelay();
     const teamId = params.teamId as string;
-    const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    // An invite code grants team membership, so it's a security-sensitive
+    // value like the tokens above -- generate it with a CSPRNG, not Math.random().
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => (b % 36).toString(36))
+      .join('')
+      .toUpperCase();
     const inv: S['Invite'] = {
       id: rid('inv'),
       teamId,
@@ -622,14 +667,7 @@ export const handlers = [
       // (Kassenwart, Teamkapitän, ...) would otherwise risk handing a new
       // member a privileged role if the true default role were ever deleted.
       const memberRole = db.roles.find((r) => r.teamId === inv.teamId && r.name === DEFAULT_MEMBER_ROLE_NAME);
-      db.memberships.push({
-        id: rid('mem'),
-        teamId: inv.teamId,
-        userId: auth,
-        roleIds: memberRole ? [memberRole.id] : [],
-        group: '',
-        joinedAt: new Date().toISOString(),
-      });
+      db.memberships.push({ id: rid('mem'), teamId: inv.teamId, userId: auth, roleIds: memberRole ? [memberRole.id] : [], group: '', joinedAt: new Date().toISOString() });
     }
     const t = db.teams.find((x) => x.id === inv.teamId)!;
     const body: S['AcceptInviteResponse'] = { ...toWireTeamForUser(t, auth), alreadyMember };
@@ -639,10 +677,7 @@ export const handlers = [
   // ---- members ----
   http.get(P('/teams/:teamId/members'), async ({ params }) => {
     await mockDelay();
-    const items = db.memberships
-      .filter((m) => m.teamId === params.teamId)
-      .map(toWireMember)
-      .sort((a, b) => a.name.localeCompare(b.name, 'de'));
+    const items = db.memberships.filter((m) => m.teamId === params.teamId).map(toWireMember).sort((a, b) => a.name.localeCompare(b.name, 'de'));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -692,14 +727,7 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateRoleRequest'];
-    const r: RoleDto = {
-      id: rid('role'),
-      teamId,
-      name: body.name,
-      system: false,
-      color: body.color || '#888888',
-      permissions: body.permissions,
-    };
+    const r: RoleDto = { id: rid('role'), teamId, name: body.name, system: false, color: body.color || '#888888', permissions: body.permissions };
     db.roles.push(r);
     return HttpResponse.json(toWireRole(r), { status: 201 });
   }),
@@ -751,18 +779,34 @@ export const handlers = [
       date,
       location: body.location || '',
       note: body.note || '',
-      result: undefined,
       meetTime: body.meetTime ?? null,
       startTime: body.startTime ?? null,
       endTime: body.endTime ?? null,
       meetTimeMandatory: body.meetTimeMandatory ?? false,
       responseMode: body.responseMode || 'opt_in',
-      nominatedRoleIds: body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined,
       recurring: !!body.recurring,
       seriesId: null,
       status: 'active',
+      rsvpDeadline: body.rsvpDeadline ?? null,
+      ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
-    if (body.recurring && body.repeatWeeks && body.repeatWeeks > 1) {
+    // endDate is the alternative to repeatWeeks for a recurring series (see
+    // backend/internal/events/repository.go's seriesDates): weekly
+    // occurrences from date up to and including endDate, capped the same
+    // way the backend caps repeatWeeks, instead of a fixed count.
+    if (body.recurring && body.endDate) {
+      const seriesId = rid('series');
+      const start = parseDateOnlyLocal(body.date);
+      const end = parseDateOnlyLocal(body.endDate);
+      for (let w = 0; w < 104; w++) {
+        const d = new Date(start);
+        d.setDate(d.getDate() + w * 7);
+        if (d.getTime() > end.getTime()) break;
+        const e = mk(formatDateOnly(d));
+        e.seriesId = seriesId;
+        created.push(e);
+      }
+    } else if (body.recurring && body.repeatWeeks && body.repeatWeeks > 1) {
       const seriesId = rid('series');
       for (let w = 0; w < body.repeatWeeks; w++) {
         const d = parseDateOnlyLocal(body.date);
@@ -776,17 +820,19 @@ export const handlers = [
     }
     created.forEach((e) => db.events.push(e));
     if (body.nominatedRoleIds) created.forEach((e) => applyNominations(e, body.nominatedRoleIds!));
+    const first = created[0];
+    if (!first) return problem(500, 'Failed to create event');
     pushNotif({
       teamId,
       type: 'event_created',
-      actorId: session.userId ?? undefined,
-      title: created[0].title,
-      eventId: created[0].id,
-      eventTitle: created[0].title,
-      eventDate: created[0].date,
+      title: first.title,
+      eventId: first.id,
+      eventTitle: first.title,
+      eventDate: first.date,
       note: created.length > 1 ? `Serie mit ${created.length} Terminen` : '',
+      ...opt('actorId', session.userId ?? undefined),
     });
-    return HttpResponse.json(toWireEvent(created[0]), { status: 201 });
+    return HttpResponse.json(toWireEvent(first), { status: 201 });
   }),
 
   http.get(P('/teams/:teamId/events/:eventId'), async ({ params }) => {
@@ -815,18 +861,10 @@ export const handlers = [
       if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
       if (body.startTime !== undefined) ev.startTime = body.startTime || null;
       if (body.endTime !== undefined) ev.endTime = body.endTime || null;
+      if (body.rsvpDeadline !== undefined) ev.rsvpDeadline = body.rsvpDeadline || null;
       if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
     });
-    pushNotif({
-      teamId: e.teamId,
-      type: 'event_updated',
-      actorId: session.userId ?? undefined,
-      title: e.title,
-      eventId: e.id,
-      eventTitle: e.title,
-      eventDate: e.date,
-      note: scope === 'series' ? 'ganze Serie' : '',
-    });
+    pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e));
   }),
 
@@ -838,19 +876,8 @@ export const handlers = [
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
     const body = (await request.json()) as S['SetEventStatusRequest'];
     const targets = scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId) : [e];
-    targets.forEach((ev) => {
-      ev.status = body.status;
-    });
-    pushNotif({
-      teamId: e.teamId,
-      type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated',
-      actorId: session.userId ?? undefined,
-      title: e.title,
-      eventId: e.id,
-      eventTitle: e.title,
-      eventDate: e.date,
-      note: scope === 'series' ? 'ganze Serie' : '',
-    });
+    targets.forEach((ev) => { ev.status = body.status; });
+    pushNotif({ teamId: e.teamId, type: body.status === 'cancelled' ? 'event_cancelled' : 'event_reactivated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWireEvent(e));
   }),
 
@@ -859,20 +886,8 @@ export const handlers = [
     const e = eventDate(params.eventId as string);
     const url = new URL(request.url);
     const scope = (url.searchParams.get('scope') as 'single' | 'series' | null) ?? 'single';
-    const ids =
-      e && scope === 'series' && e.seriesId
-        ? db.events.filter((x) => x.seriesId === e.seriesId).map((x) => x.id)
-        : [params.eventId as string];
-    if (e)
-      pushNotif({
-        teamId: e.teamId,
-        type: 'event_deleted',
-        actorId: session.userId ?? undefined,
-        title: e.title,
-        eventTitle: e.title,
-        eventDate: e.date,
-        note: scope === 'series' ? 'ganze Serie' : '',
-      });
+    const ids = e && scope === 'series' && e.seriesId ? db.events.filter((x) => x.seriesId === e.seriesId).map((x) => x.id) : [params.eventId as string];
+    if (e) pushNotif({ teamId: e.teamId, type: 'event_deleted', title: e.title, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
     db.events = db.events.filter((x) => !ids.includes(x.id));
     db.attendance = db.attendance.filter((a) => !ids.includes(a.eventId));
     db.eventComments = db.eventComments.filter((c) => !ids.includes(c.eventId));
@@ -884,10 +899,7 @@ export const handlers = [
     // Keyset { items, nextCursor } envelope (oldest-first). The mock returns
     // everything in one page (nextCursor: null), which fetchAllPages consumes
     // exactly like the real multi-page envelope.
-    const items = db.eventComments
-      .filter((c) => c.eventId === params.eventId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(toWireComment);
+    const items = db.eventComments.filter((c) => c.eventId === params.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toWireComment);
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -896,13 +908,7 @@ export const handlers = [
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
     const body = (await request.json()) as S['AddCommentRequest'];
-    const c = {
-      id: rid('cm'),
-      eventId: params.eventId as string,
-      userId: auth,
-      text: body.text,
-      createdAt: new Date().toISOString(),
-    };
+    const c = { id: rid('cm'), eventId: params.eventId as string, userId: auth, text: body.text, createdAt: new Date().toISOString() };
     db.eventComments.push(c);
     return HttpResponse.json(toWireComment(c), { status: 201 });
   }),
@@ -927,15 +933,7 @@ export const handlers = [
     const body = (await request.json()) as S['SetAttendanceRequest'];
     let a = db.attendance.find((x) => x.eventId === eventId && x.userId === body.userId);
     if (!a) {
-      a = {
-        id: rid('att'),
-        eventId,
-        userId: body.userId,
-        status: body.status,
-        reason: '',
-        reasonId: null,
-        reasonVisibility: null,
-      };
+      a = { id: rid('att'), eventId, userId: body.userId, status: body.status, reason: '', reasonId: null, reasonVisibility: null };
       db.attendance.push(a);
     }
     a.status = body.status;
@@ -945,25 +943,17 @@ export const handlers = [
     a.at = new Date().toISOString();
     const e = eventDate(eventId);
     if (e && (body.status === 'yes' || body.status === 'no' || body.status === 'maybe')) {
-      pushNotif({
-        teamId: e.teamId,
-        type: 'attendance',
-        actorId: body.userId,
-        status: body.status,
-        eventId: e.id,
-        eventTitle: e.title,
-        eventDate: e.date,
-      });
+      pushNotif({ teamId: e.teamId, type: 'attendance', actorId: body.userId, status: body.status, eventId: e.id, eventTitle: e.title, eventDate: e.date });
     }
     const record: S['AttendanceRecord'] = {
       id: a.id,
       eventId: a.eventId,
       userId: a.userId,
       status: a.status,
-      reason: a.reason || undefined,
-      reasonId: a.reasonId ?? undefined,
-      reasonVisibility: a.reasonVisibility ?? undefined,
-      at: a.at,
+      ...opt('reason', a.reason || undefined),
+      ...opt('reasonId', a.reasonId ?? undefined),
+      ...opt('reasonVisibility', a.reasonVisibility ?? undefined),
+      ...opt('at', a.at),
     };
     return HttpResponse.json(record);
   }),
@@ -977,21 +967,11 @@ export const handlers = [
       // applyNominations() in db.ts. A member who already has a real RSVP
       // ('yes'/'no'/'maybe') keeps it; re-nominating them must not silently
       // revert an actual response back to pending.
-      db.attendance = db.attendance.filter(
-        (x) => !(x.eventId === eventId && x.userId === body.userId && x.status === 'not_nominated'),
-      );
+      db.attendance = db.attendance.filter((x) => !(x.eventId === eventId && x.userId === body.userId && x.status === 'not_nominated'));
     } else {
       let a = db.attendance.find((x) => x.eventId === eventId && x.userId === body.userId);
       if (!a) {
-        a = {
-          id: rid('att'),
-          eventId,
-          userId: body.userId,
-          status: 'not_nominated',
-          reason: '',
-          reasonId: null,
-          reasonVisibility: null,
-        };
+        a = { id: rid('att'), eventId, userId: body.userId, status: 'not_nominated', reason: '', reasonId: null, reasonVisibility: null };
         db.attendance.push(a);
       }
       a.status = 'not_nominated';
@@ -1001,13 +981,35 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  // ---- calendar feed ----
+  // The GET /calendar-feed/{token}.ics feed itself is backend-server-rendered
+  // (a calendar app fetches it directly, not through this app's API client)
+  // and out of scope for the mock service layer -- only the two
+  // token-management endpoints below are mocked.
+  http.post(P('/teams/:teamId/calendar-feed/token'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const teamId = params.teamId as string;
+    const token = rid('calfeed');
+    db.calendarFeedTokens[`${auth}:${teamId}`] = token;
+    const body: S['CalendarFeedToken'] = { url: `${location.origin}/api/v1/calendar-feed/${token}.ics` };
+    return HttpResponse.json(body);
+  }),
+
+  http.delete(P('/teams/:teamId/calendar-feed/token'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    delete db.calendarFeedTokens[`${auth}:${params.teamId as string}`];
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   // ---- absences ----
   http.get(P('/teams/:teamId/absences'), async ({ params }) => {
     await mockDelay();
     const memberIds = db.memberships.filter((m) => m.teamId === params.teamId).map((m) => m.userId);
-    const items = db.absences
-      .filter((a) => memberIds.includes(a.userId))
-      .map((a) => toWireAbsence(a, params.teamId as string));
+    const items = db.absences.filter((a) => memberIds.includes(a.userId)).map((a) => toWireAbsence(a, params.teamId as string));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -1022,14 +1024,7 @@ export const handlers = [
   http.post(P('/teams/:teamId/absences'), async ({ params, request }) => {
     await mockDelay();
     const body = (await request.json()) as S['CreateAbsenceRequest'];
-    const a = {
-      id: rid('abs'),
-      userId: body.userId,
-      from: body.from,
-      to: body.to,
-      reason: body.reason || '',
-      createdAt: new Date().toISOString(),
-    };
+    const a = { id: rid('abs'), userId: body.userId, from: body.from, to: body.to, reason: body.reason || '', createdAt: new Date().toISOString() };
     db.absences.push(a);
     const mem = db.memberships.find((m) => m.userId === body.userId && m.teamId === params.teamId);
     if (mem) pushNotif({ teamId: mem.teamId, type: 'absence', actorId: body.userId, title: a.reason });
@@ -1070,15 +1065,7 @@ export const handlers = [
     if (typeof auth !== 'string') return auth;
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateNewsRequest'];
-    const n = {
-      id: rid('news'),
-      teamId,
-      authorId: auth,
-      title: body.title,
-      body: body.body,
-      pinned: !!body.pinned,
-      createdAt: new Date().toISOString(),
-    };
+    const n = { id: rid('news'), teamId, authorId: auth, title: body.title, body: body.body, pinned: !!body.pinned, createdAt: new Date().toISOString() };
     db.news.push(n);
     pushNotif({ teamId, type: 'news', actorId: auth, title: body.title });
     return HttpResponse.json(toWireNews(n), { status: 201 });
@@ -1105,10 +1092,7 @@ export const handlers = [
   // ---- polls ----
   http.get(P('/teams/:teamId/polls'), async ({ params }) => {
     await mockDelay();
-    const items = db.polls
-      .filter((p) => p.teamId === params.teamId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .map(toWirePoll);
+    const items = db.polls.filter((p) => p.teamId === params.teamId).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(toWirePoll);
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -1127,7 +1111,7 @@ export const handlers = [
       votes: [],
     };
     db.polls.push(p);
-    pushNotif({ teamId, type: 'poll', actorId: session.userId ?? undefined, title: body.question });
+    pushNotif({ teamId, type: 'poll', title: body.question, ...opt('actorId', session.userId ?? undefined) });
     return HttpResponse.json(toWirePoll(p), { status: 201 });
   }),
 
@@ -1177,6 +1161,26 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  // ---- push subscriptions ----
+  http.post(P('/users/me/push-subscriptions'), async ({ request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const body = (await request.json()) as S['PushSubscriptionRequest'];
+    db.pushSubscriptions = db.pushSubscriptions.filter((s) => s.endpoint !== body.endpoint);
+    db.pushSubscriptions.push({ userId: auth, endpoint: body.endpoint, p256dh: body.keys.p256dh, authKey: body.keys.auth });
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.delete(P('/users/me/push-subscriptions'), async ({ request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const endpoint = new URL(request.url).searchParams.get('endpoint');
+    db.pushSubscriptions = db.pushSubscriptions.filter((s) => !(s.userId === auth && s.endpoint === endpoint));
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   // ---- finances ----
   http.get(P('/teams/:teamId/finances'), async ({ params }) => {
     await mockDelay();
@@ -1187,15 +1191,11 @@ export const handlers = [
     const penalties = db.penalties.filter((p) => p.teamId === teamId);
     const assignments = db.penaltyAssignments.filter((p) => p.teamId === teamId);
     const openByUser: Record<string, number> = {};
-    assignments
-      .filter((a) => !a.paid)
-      .forEach((a) => {
-        openByUser[a.userId] = (openByUser[a.userId] || 0) + (a.amount || 0);
-      });
+    assignments.filter((a) => !a.paid).forEach((a) => { openByUser[a.userId] = (openByUser[a.userId] || 0) + (a.amount || 0); });
     const openPenalties: S['OpenPenalty'][] = Object.keys(openByUser)
       .map((uid) => {
         const u = requireUser(uid);
-        return { userId: uid, name: u.name, avatarColor: u.avatarColor, hasPhoto: u.hasPhoto, amount: openByUser[uid] };
+        return { userId: uid, name: u.name, avatarColor: u.avatarColor, hasPhoto: u.hasPhoto, amount: openByUser[uid] ?? 0 };
       })
       .sort((a, b) => b.amount - a.amount);
     const contributions = db.contributions.filter((c) => c.teamId === teamId);
@@ -1221,7 +1221,9 @@ export const handlers = [
   http.get(P('/teams/:teamId/finances/transactions'), async ({ params }) => {
     await mockDelay();
     const teamId = params.teamId as string;
-    const tx = db.transactions.filter((x) => x.teamId === teamId).sort((a, b) => b.date.localeCompare(a.date));
+    const tx = db.transactions
+      .filter((x) => x.teamId === teamId)
+      .sort((a, b) => b.date.localeCompare(a.date));
     return HttpResponse.json({ items: tx.map(toWireTransaction), nextCursor: null });
   }),
 
@@ -1229,15 +1231,7 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
-    const t = {
-      id: rid('tx'),
-      teamId,
-      type: body.type,
-      title: body.title,
-      amount: body.amount,
-      date: body.date || todayLocalDate(),
-      category: body.category || '',
-    };
+    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: body.date || todayLocalDate(), category: body.category || '' };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
   }),
@@ -1307,9 +1301,10 @@ export const handlers = [
       userId: body.userId,
       penaltyId: body.penaltyId,
       paid: false,
-      date: todayLocalDate(),
+      date: body.date || todayLocalDate(),
       label: penalty.label,
       amount: penalty.amount,
+      ...opt('note', body.note || undefined),
     };
     db.penaltyAssignments.push(a);
     return HttpResponse.json(toWireAssignment(a), { status: 201 });
@@ -1317,8 +1312,7 @@ export const handlers = [
 
   http.delete(P('/teams/:teamId/finances/penalty-assignments/:assignmentId'), async ({ params }) => {
     await mockDelay();
-    if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId))
-      return problem(404, 'Penalty assignment not found');
+    if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId)) return problem(404, 'Penalty assignment not found');
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.id !== params.assignmentId);
     return new HttpResponse(null, { status: 204 });
   }),
@@ -1360,37 +1354,25 @@ export const handlers = [
     const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
     const to = url.searchParams.get('to') || today;
     const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
-    const events = db.events
-      .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to)
-      .sort((a, b) => a.date.localeCompare(b.date));
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
 
     const memberStats: S['MemberStat'][] = memberIds
       .map((uid) => {
         const u = requireUser(uid);
-        let yes = 0,
-          counted = 0;
+        let yes = 0, counted = 0;
         events.forEach((e) => {
           const s = rawCountedStatus(e.id, uid);
           if (!s) return;
           counted++;
           if (s === 'yes') yes++;
         });
-        return {
-          userId: u.id,
-          name: u.name,
-          avatarColor: u.avatarColor,
-          hasPhoto: u.hasPhoto,
-          quote: counted ? yes / counted : 0,
-          counted,
-          yes,
-        };
+        return { userId: u.id, name: u.name, avatarColor: u.avatarColor, hasPhoto: u.hasPhoto, quote: counted ? yes / counted : 0, counted, yes };
       })
       .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de'));
     const avg = memberStats.length ? memberStats.reduce((s, m) => s + m.quote, 0) / memberStats.length : 0;
 
     const eventStats: S['EventStat'][] = events.map((e) => {
-      let yes = 0,
-        counted = 0;
+      let yes = 0, counted = 0;
       memberIds.forEach((uid) => {
         const s = rawCountedStatus(e.id, uid);
         if (!s) return;
@@ -1401,14 +1383,25 @@ export const handlers = [
       return { id: e.id, title: e.title, type: e.type, date: e.date, yes, nominated: counted, pct, enough: pct >= 0.5 };
     });
 
-    const body: S['StatsOverview'] = {
-      avg,
-      members: memberStats,
-      events: eventStats,
-      pastCount: events.length,
-      from,
-      to,
-    };
+    const body: S['StatsOverview'] = { avg, members: memberStats, events: eventStats, pastCount: events.length, from, to };
+    return HttpResponse.json(body);
+  }),
+
+  http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params }) => {
+    await mockDelay();
+    const teamId = params.teamId as string;
+    const userId = params.userId as string;
+    const to = todayLocalDate();
+    const from = threeMonthsBeforeLocal(to);
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to);
+    let yes = 0, counted = 0;
+    events.forEach((e) => {
+      const s = rawCountedStatus(e.id, userId);
+      if (!s) return;
+      counted++;
+      if (s === 'yes') yes++;
+    });
+    const body: S['MemberAttendanceStats'] = { quote: counted ? yes / counted : 0, counted, yes };
     return HttpResponse.json(body);
   }),
 
@@ -1460,24 +1453,26 @@ export const handlers = [
     return HttpResponse.json(body);
   }),
 
-  http.get(P('/teams/:teamId/stats/members/:userId'), async ({ params }) => {
+  http.get(P('/teams/:teamId/stats/absences'), async ({ params, request }) => {
     await mockDelay();
     const teamId = params.teamId as string;
-    const userId = params.userId as string;
-    const to = todayLocalDate();
-    const from = threeMonthsBeforeLocal(to);
-    const events = db.events.filter(
-      (e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to,
-    );
-    let yes = 0,
-      counted = 0;
+    const url = new URL(request.url);
+    const today = todayLocalDate();
+    const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
+    const to = url.searchParams.get('to') || today;
+    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const events = db.events.filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to).sort((a, b) => a.date.localeCompare(b.date));
+
+    const rows: S['AttendanceAbsenceRow'][] = [];
     events.forEach((e) => {
-      const s = rawCountedStatus(e.id, userId);
-      if (!s) return;
-      counted++;
-      if (s === 'yes') yes++;
+      memberIds.forEach((uid) => {
+        if (rawCountedStatus(e.id, uid) !== 'no') return;
+        const u = requireUser(uid);
+        rows.push({ userId: u.id, memberName: u.name, eventId: e.id, eventTitle: e.title, eventDate: e.date });
+      });
     });
-    const body: S['MemberAttendanceStats'] = { quote: counted ? yes / counted : 0, counted, yes };
+
+    const body: S['AttendanceAbsenceTable'] = { rows, from, to };
     return HttpResponse.json(body);
   }),
 ];

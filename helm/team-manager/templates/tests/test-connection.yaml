@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "team-manager.fullname" . }}-test-connection
+  labels:
+    {{- include "team-manager.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  containers:
+    - name: healthz
+      # Digest-pinned (resolved 2026-07-25 from registry-1.docker.io,
+      # curlimages/curl 8.21.0, the latest release at pin time) so a
+      # tag-hijack of a mutable upstream tag can't silently reach this
+      # release's Service -- same rationale as the backup CronJob's
+      # postgresImageDigest/awsCliImage pins. Re-resolve periodically.
+      image: "curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13"
+      command:
+        - curl
+        - --fail
+        - --silent
+        - --show-error
+        - "http://{{ include "team-manager.fullname" . }}:{{ .Values.service.port }}/healthz"
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 32Mi
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}

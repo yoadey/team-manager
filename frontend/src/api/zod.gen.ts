@@ -1,5 +1,5 @@
-import { makeApi, Zodios, type ZodiosOptions } from '@zodios/core';
-import { z } from 'zod';
+import { makeApi, Zodios, type ZodiosOptions } from "@zodios/core";
+import { z } from "zod";
 
 const Provider = z
   .object({
@@ -12,7 +12,9 @@ const Provider = z
     border: z.string().optional(),
   })
   .passthrough();
-const LoginRequest = z.object({ email: z.string().email(), password: z.string().min(8).max(128) }).passthrough();
+const LoginRequest = z
+  .object({ email: z.string().email(), password: z.string().min(8).max(128) })
+  .passthrough();
 const User = z
   .object({
     id: z.string().uuid(),
@@ -26,7 +28,23 @@ const User = z
   })
   .passthrough();
 const LoginResponse = z.object({ token: z.string(), user: User }).passthrough();
-const DeleteAccountRequest = z.object({ confirmEmail: z.string().email() }).passthrough();
+const RegisterRequest = z
+  .object({ email: z.string().email(), password: z.string().min(8).max(128) })
+  .passthrough();
+const RegisterResponse = z.object({ message: z.string() }).passthrough();
+const VerifyEmailRequest = z.object({ token: z.string() }).passthrough();
+const ResendVerificationRequest = z
+  .object({ email: z.string().email() })
+  .passthrough();
+const DeleteAccountRequest = z
+  .object({ confirmEmail: z.string().email() })
+  .passthrough();
+const PushSubscriptionRequest = z
+  .object({
+    endpoint: z.string(),
+    keys: z.object({ p256dh: z.string(), auth: z.string() }).passthrough(),
+  })
+  .passthrough();
 const Team = z
   .object({
     id: z.string().uuid(),
@@ -41,7 +59,7 @@ const Team = z
     reasonVisibilityRoleIds: z.array(z.string().uuid()).optional(),
   })
   .passthrough();
-const PermLevel = z.enum(['none', 'read', 'write']);
+const PermLevel = z.enum(["none", "read", "write"]);
 const Permissions = z
   .object({
     events: PermLevel,
@@ -70,7 +88,7 @@ const TeamForUser = Team.and(
       membershipId: z.string().uuid(),
       memberCount: z.number().int(),
     })
-    .passthrough(),
+    .passthrough()
 );
 const CreateTeamRequest = z
   .object({
@@ -102,7 +120,9 @@ const Invite = z
     expiresAt: z.string().datetime({ offset: true }),
   })
   .passthrough();
-const AcceptInviteResponse = TeamForUser.and(z.object({ alreadyMember: z.boolean() }).passthrough());
+const AcceptInviteResponse = TeamForUser.and(
+  z.object({ alreadyMember: z.boolean() }).passthrough()
+);
 const Member = z
   .object({
     membershipId: z.string().uuid(),
@@ -133,7 +153,9 @@ const UpdateMemberRequest = z
   })
   .partial()
   .passthrough();
-const SetRolesRequest = z.object({ roleIds: z.array(z.string().uuid()) }).passthrough();
+const SetRolesRequest = z
+  .object({ roleIds: z.array(z.string().uuid()) })
+  .passthrough();
 const CreateRoleRequest = z
   .object({
     name: z.string(),
@@ -149,9 +171,9 @@ const UpdateRoleRequest = z
   })
   .partial()
   .passthrough();
-const EventType = z.enum(['training', 'auftritt', 'event']);
-const ResponseMode = z.enum(['opt_in', 'opt_out']);
-const EventStatus = z.enum(['active', 'cancelled']);
+const EventType = z.enum(["training", "auftritt", "event"]);
+const ResponseMode = z.enum(["opt_in", "opt_out"]);
+const EventStatus = z.enum(["active", "cancelled"]);
 const EventSummary = z
   .object({
     yes: z.number().int(),
@@ -163,7 +185,13 @@ const EventSummary = z
     total: z.number().int(),
   })
   .passthrough();
-const AttendanceStatus = z.enum(['yes', 'no', 'maybe', 'pending', 'not_nominated']);
+const AttendanceStatus = z.enum([
+  "yes",
+  "no",
+  "maybe",
+  "pending",
+  "not_nominated",
+]);
 const TeamEvent = z
   .object({
     id: z.string().uuid(),
@@ -187,6 +215,7 @@ const TeamEvent = z
     myStatus: AttendanceStatus.optional(),
     myAuto: z.boolean().optional(),
     myReason: z.string().optional(),
+    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
 const CreateEventRequest = z
@@ -204,6 +233,8 @@ const CreateEventRequest = z
     nominatedRoleIds: z.array(z.string().uuid()).optional(),
     recurring: z.boolean().optional(),
     repeatWeeks: z.number().int().gte(1).lte(104).optional(),
+    endDate: z.string().optional(),
+    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
 const UpdateEventRequest = z
@@ -219,6 +250,7 @@ const UpdateEventRequest = z
     meetTimeMandatory: z.boolean(),
     responseMode: ResponseMode,
     nominatedRoleIds: z.array(z.string().uuid()),
+    rsvpDeadline: z.string().datetime({ offset: true }),
   })
   .partial()
   .passthrough();
@@ -247,7 +279,7 @@ const AttendanceRow = z
     status: AttendanceStatus,
     reason: z.string().optional(),
     reasonId: z.string().optional(),
-    reasonVisibility: z.enum(['trainers', 'team']).optional(),
+    reasonVisibility: z.enum(["trainers", "team"]).optional(),
     auto: z.boolean().optional(),
     absent: z.boolean().optional(),
   })
@@ -258,7 +290,7 @@ const SetAttendanceRequest = z
     status: AttendanceStatus,
     reason: z.string().max(500).optional(),
     reasonId: z.string().optional(),
-    reasonVisibility: z.enum(['trainers', 'team']).optional(),
+    reasonVisibility: z.enum(["trainers", "team"]).optional(),
   })
   .passthrough();
 const AttendanceRecord = z
@@ -269,11 +301,14 @@ const AttendanceRecord = z
     status: AttendanceStatus,
     reason: z.string().optional(),
     reasonId: z.string().optional(),
-    reasonVisibility: z.enum(['trainers', 'team']).optional(),
+    reasonVisibility: z.enum(["trainers", "team"]).optional(),
     at: z.string().datetime({ offset: true }).optional(),
   })
   .passthrough();
-const SetNominationRequest = z.object({ userId: z.string().uuid(), nominated: z.boolean() }).passthrough();
+const SetNominationRequest = z
+  .object({ userId: z.string().uuid(), nominated: z.boolean() })
+  .passthrough();
+const CalendarFeedToken = z.object({ url: z.string().url() }).passthrough();
 const Absence = z
   .object({
     id: z.string().uuid(),
@@ -297,7 +332,10 @@ const CreateAbsenceRequest = z
     reason: z.string().optional(),
   })
   .passthrough();
-const UpdateAbsenceRequest = z.object({ from: z.string(), to: z.string(), reason: z.string() }).partial().passthrough();
+const UpdateAbsenceRequest = z
+  .object({ from: z.string(), to: z.string(), reason: z.string() })
+  .partial()
+  .passthrough();
 const NewsItem = z
   .object({
     id: z.string().uuid(),
@@ -344,7 +382,7 @@ const PollOption = z
             hasPhoto: z.boolean(),
           })
           .partial()
-          .passthrough(),
+          .passthrough()
       )
       .optional(),
   })
@@ -369,17 +407,19 @@ const CreatePollRequest = z
     anonymous: z.boolean().optional().default(false),
   })
   .passthrough();
-const VotePollRequest = z.object({ optionIds: z.array(z.string().uuid()).max(4) }).passthrough();
+const VotePollRequest = z
+  .object({ optionIds: z.array(z.string().uuid()).max(4) })
+  .passthrough();
 const NotificationType = z.enum([
-  'attendance',
-  'event_created',
-  'event_updated',
-  'event_cancelled',
-  'event_reactivated',
-  'event_deleted',
-  'news',
-  'poll',
-  'absence',
+  "attendance",
+  "event_created",
+  "event_updated",
+  "event_cancelled",
+  "event_reactivated",
+  "event_deleted",
+  "news",
+  "poll",
+  "absence",
 ]);
 const AppNotification = z
   .object({
@@ -400,8 +440,10 @@ const AppNotification = z
     unread: z.boolean().optional(),
   })
   .passthrough();
-const NotificationsResult = z.object({ items: z.array(AppNotification), unreadCount: z.number().int() }).passthrough();
-const TransactionType = z.enum(['income', 'expense']);
+const NotificationsResult = z
+  .object({ items: z.array(AppNotification), unreadCount: z.number().int() })
+  .passthrough();
+const TransactionType = z.enum(["income", "expense"]);
 const Transaction = z
   .object({
     id: z.string().uuid(),
@@ -434,6 +476,7 @@ const PenaltyAssignment = z
     hasPhoto: z.boolean().optional(),
     label: z.string().optional(),
     amount: z.number().int().optional(),
+    note: z.string().max(10000).optional(),
   })
   .passthrough();
 const OpenPenalty = z
@@ -445,7 +488,7 @@ const OpenPenalty = z
     amount: z.number().int(),
   })
   .passthrough();
-const ContributionStatus = z.enum(['paid', 'open']);
+const ContributionStatus = z.enum(["paid", "open"]);
 const Contribution = z
   .object({
     id: z.string().uuid(),
@@ -501,7 +544,12 @@ const UpdatePenaltyRequest = z
   .partial()
   .passthrough();
 const CreatePenaltyAssignmentRequest = z
-  .object({ userId: z.string().uuid(), penaltyId: z.string().uuid() })
+  .object({
+    userId: z.string().uuid(),
+    penaltyId: z.string().uuid(),
+    date: z.string().optional(),
+    note: z.string().max(10000).optional(),
+  })
   .passthrough();
 const SetPaidRequest = z.object({ paid: z.boolean() }).passthrough();
 const UpdateContributionRequest = z
@@ -575,6 +623,22 @@ const MemberAttendanceStats = z
     yes: z.number().int(),
   })
   .passthrough();
+const AttendanceAbsenceRow = z
+  .object({
+    userId: z.string().uuid(),
+    memberName: z.string(),
+    eventId: z.string().uuid(),
+    eventTitle: z.string(),
+    eventDate: z.string(),
+  })
+  .passthrough();
+const AttendanceAbsenceTable = z
+  .object({
+    rows: z.array(AttendanceAbsenceRow),
+    from: z.string(),
+    to: z.string(),
+  })
+  .passthrough();
 const Problem = z
   .object({
     type: z.string(),
@@ -590,7 +654,12 @@ export const schemas = {
   LoginRequest,
   User,
   LoginResponse,
+  RegisterRequest,
+  RegisterResponse,
+  VerifyEmailRequest,
+  ResendVerificationRequest,
   DeleteAccountRequest,
+  PushSubscriptionRequest,
   Team,
   PermLevel,
   Permissions,
@@ -620,6 +689,7 @@ export const schemas = {
   SetAttendanceRequest,
   AttendanceRecord,
   SetNominationRequest,
+  CalendarFeedToken,
   Absence,
   CreateAbsenceRequest,
   UpdateAbsenceRequest,
@@ -655,19 +725,21 @@ export const schemas = {
   AttendanceMatrixRow,
   AttendanceMatrix,
   MemberAttendanceStats,
+  AttendanceAbsenceRow,
+  AttendanceAbsenceTable,
   Problem,
 };
 
 const endpoints = makeApi([
   {
-    method: 'post',
-    path: '/auth/login',
-    alias: 'login',
-    requestFormat: 'json',
+    method: "post",
+    path: "/auth/login",
+    alias: "login",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: LoginRequest,
       },
     ],
@@ -686,17 +758,17 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'post',
-    path: '/auth/logout',
-    alias: 'logout',
-    requestFormat: 'json',
+    method: "post",
+    path: "/auth/logout",
+    alias: "logout",
+    requestFormat: "json",
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/auth/me',
-    alias: 'getCurrentUser',
-    requestFormat: 'json',
+    method: "get",
+    path: "/auth/me",
+    alias: "getCurrentUser",
+    requestFormat: "json",
     response: User,
     errors: [
       {
@@ -707,16 +779,16 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'delete',
-    path: '/auth/me',
-    alias: 'deleteCurrentUser',
+    method: "delete",
+    path: "/auth/me",
+    alias: "deleteCurrentUser",
     description: `Anonymizes the user&#x27;s personal data (name, email, phone, birthday, address, photo) and strips free-text PII from their comments and absence reasons, then deletes all of their sessions. Membership, attendance and finance records are retained in anonymized form so that shared and legally required data (e.g. accounting) stays intact. The request is authorized by the active session; to confirm intent the caller must echo the account&#x27;s own email address (works regardless of login method, including OIDC accounts that have no password).
 `,
-    requestFormat: 'json',
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: z.object({ confirmEmail: z.string().email() }).passthrough(),
       },
     ],
@@ -730,12 +802,12 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'get',
-    path: '/auth/me/data-export',
-    alias: 'getMyDataExport',
+    method: "get",
+    path: "/auth/me/data-export",
+    alias: "getMyDataExport",
     description: `Returns a single JSON document with all personal data held about the authenticated user: profile, memberships and roles, attendance, comments, absences, authored news, created polls, votes, penalty assignments and contributions.
 `,
-    requestFormat: 'json',
+    requestFormat: "json",
     response: z.object({}).partial().passthrough(),
     errors: [
       {
@@ -746,10 +818,10 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'get',
-    path: '/auth/me/photo',
-    alias: 'getMyPhoto',
-    requestFormat: 'json',
+    method: "get",
+    path: "/auth/me/photo",
+    alias: "getMyPhoto",
+    requestFormat: "json",
     response: z.void(),
     errors: [
       {
@@ -765,14 +837,14 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'put',
-    path: '/auth/me/photo',
-    alias: 'uploadMyPhoto',
-    requestFormat: 'form-data',
+    method: "put",
+    path: "/auth/me/photo",
+    alias: "uploadMyPhoto",
+    requestFormat: "form-data",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: z.object({ photo: z.instanceof(File) }).passthrough(),
       },
     ],
@@ -786,22 +858,117 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'get',
-    path: '/auth/providers',
-    alias: 'listProviders',
-    requestFormat: 'json',
+    method: "get",
+    path: "/auth/providers",
+    alias: "listProviders",
+    requestFormat: "json",
     response: z.array(Provider),
   },
   {
-    method: 'post',
-    path: '/invites/:code/accept',
-    alias: 'acceptInvite',
-    description: `Idempotent: redeeming a code for a team the caller already belongs to just returns that team rather than erroring.`,
-    requestFormat: 'json',
+    method: "post",
+    path: "/auth/register",
+    alias: "register",
+    description: `Creates an unverified account and emails a verification link. The response is always the same generic message regardless of whether the email was available, already registered and verified, or already registered and still pending verification — this endpoint never reveals account existence. Disabled server-side via &#x60;SELF_REGISTRATION_ENABLED&#x60;.
+`,
+    requestFormat: "json",
     parameters: [
       {
-        name: 'code',
-        type: 'Path',
+        name: "body",
+        type: "Body",
+        schema: RegisterRequest,
+      },
+    ],
+    response: z.object({ message: z.string() }).passthrough(),
+    errors: [
+      {
+        status: 403,
+        description: `Forbidden`,
+        schema: z.void(),
+      },
+      {
+        status: 429,
+        description: `Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection.`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/auth/resend-verification",
+    alias: "resendVerification",
+    description: `Always returns the same generic response regardless of whether the email has no account, an already-verified account, or a still- unverified account — only the last case actually sends a new email.
+`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ email: z.string().email() }).passthrough(),
+      },
+    ],
+    response: z.object({ message: z.string() }).passthrough(),
+    errors: [
+      {
+        status: 429,
+        description: `Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection.`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/auth/verify-email",
+    alias: "verifyEmail",
+    description: `Marks the account verified and returns a session, identical in shape to &#x60;login&#x60;&#x27;s response, so the client can reuse its normal post-login bootstrap.
+`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ token: z.string() }).passthrough(),
+      },
+    ],
+    response: LoginResponse,
+    errors: [
+      {
+        status: 401,
+        description: `Unauthorized`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "get",
+    path: "/calendar-feed/:token.ics",
+    alias: "getCalendarFeed",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "token",
+        type: "Path",
+        schema: z.string(),
+      },
+    ],
+    response: z.void(),
+    errors: [
+      {
+        status: 404,
+        description: `Not Found`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/invites/:code/accept",
+    alias: "acceptInvite",
+    description: `Idempotent: redeeming a code for a team the caller already belongs to just returns that team rather than erroring.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "code",
+        type: "Path",
         schema: z.string(),
       },
     ],
@@ -815,35 +982,35 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'get',
-    path: '/teams',
-    alias: 'listTeams',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams",
+    alias: "listTeams",
+    requestFormat: "json",
     response: z.array(TeamForUser),
   },
   {
-    method: 'post',
-    path: '/teams',
-    alias: 'createTeam',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams",
+    alias: "createTeam",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreateTeamRequest,
       },
     ],
     response: TeamForUser,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId',
-    alias: 'getTeam',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId",
+    alias: "getTeam",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
@@ -857,196 +1024,233 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId',
-    alias: 'updateTeam',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId",
+    alias: "updateTeam",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateTeamRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Team,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/absences',
-    alias: 'listAbsences',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/absences",
+    alias: "listAbsences",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
-    response: z.object({ items: z.array(Absence), nextCursor: z.string().nullable() }).passthrough(),
+    response: z
+      .object({ items: z.array(Absence), nextCursor: z.string().nullable() })
+      .passthrough(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/absences',
-    alias: 'createAbsence',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/absences",
+    alias: "createAbsence",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreateAbsenceRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Absence,
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/absences/:absenceId',
-    alias: 'updateAbsence',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/absences/:absenceId",
+    alias: "updateAbsence",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateAbsenceRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'absenceId',
-        type: 'Path',
+        name: "absenceId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Absence,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/absences/:absenceId',
-    alias: 'deleteAbsence',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/absences/:absenceId",
+    alias: "deleteAbsence",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'absenceId',
-        type: 'Path',
+        name: "absenceId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/absences/mine',
-    alias: 'listMyAbsences',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/absences/mine",
+    alias: "listMyAbsences",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
-    response: z.object({ items: z.array(Absence), nextCursor: z.string().nullable() }).passthrough(),
+    response: z
+      .object({ items: z.array(Absence), nextCursor: z.string().nullable() })
+      .passthrough(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/events',
-    alias: 'listEvents',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/calendar-feed/token",
+    alias: "issueCalendarFeedToken",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.object({ url: z.string().url() }).passthrough(),
+  },
+  {
+    method: "delete",
+    path: "/teams/:teamId/calendar-feed/token",
+    alias: "revokeCalendarFeedToken",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.void(),
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/events",
+    alias: "listEvents",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'scope',
-        type: 'Query',
-        schema: z.enum(['upcoming', 'past', 'all']).optional().default('upcoming'),
+        name: "scope",
+        type: "Query",
+        schema: z
+          .enum(["upcoming", "past", "all"])
+          .optional()
+          .default("upcoming"),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
-    response: z.object({ items: z.array(TeamEvent), nextCursor: z.string().nullable() }).passthrough(),
+    response: z
+      .object({ items: z.array(TeamEvent), nextCursor: z.string().nullable() })
+      .passthrough(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/events',
-    alias: 'createEvent',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/events",
+    alias: "createEvent",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreateEventRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: TeamEvent,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/events/:eventId',
-    alias: 'getEvent',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/events/:eventId",
+    alias: "getEvent",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
@@ -1060,149 +1264,149 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/events/:eventId',
-    alias: 'updateEvent',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/events/:eventId",
+    alias: "updateEvent",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateEventRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'scope',
-        type: 'Query',
-        schema: z.enum(['single', 'series']).optional().default('single'),
+        name: "scope",
+        type: "Query",
+        schema: z.enum(["single", "series"]).optional().default("single"),
       },
     ],
     response: TeamEvent,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/events/:eventId',
-    alias: 'deleteEvent',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/events/:eventId",
+    alias: "deleteEvent",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'scope',
-        type: 'Query',
-        schema: z.enum(['single', 'series']).optional().default('single'),
+        name: "scope",
+        type: "Query",
+        schema: z.enum(["single", "series"]).optional().default("single"),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/events/:eventId/attendance',
-    alias: 'listAttendance',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/events/:eventId/attendance",
+    alias: "listAttendance",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.array(AttendanceRow),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/events/:eventId/attendance',
-    alias: 'setAttendance',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/events/:eventId/attendance",
+    alias: "setAttendance",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: SetAttendanceRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: AttendanceRecord,
   },
   {
-    method: 'put',
-    path: '/teams/:teamId/events/:eventId/attendance/nominations',
-    alias: 'setNomination',
-    requestFormat: 'json',
+    method: "put",
+    path: "/teams/:teamId/events/:eventId/attendance/nominations",
+    alias: "setNomination",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: SetNominationRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/events/:eventId/comments',
-    alias: 'listEventComments',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/events/:eventId/comments",
+    alias: "listEventComments",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
@@ -1214,288 +1418,288 @@ const endpoints = makeApi([
       .passthrough(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/events/:eventId/comments',
-    alias: 'addEventComment',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/events/:eventId/comments",
+    alias: "addEventComment",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: z.object({ text: z.string().min(1) }).passthrough(),
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: EventComment,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/events/:eventId/comments/:commentId',
-    alias: 'deleteEventComment',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/events/:eventId/comments/:commentId",
+    alias: "deleteEventComment",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'commentId',
-        type: 'Path',
+        name: "commentId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/events/:eventId/status',
-    alias: 'setEventStatus',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/events/:eventId/status",
+    alias: "setEventStatus",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: SetEventStatusRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'eventId',
-        type: 'Path',
+        name: "eventId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'scope',
-        type: 'Query',
-        schema: z.enum(['single', 'series']).optional().default('single'),
+        name: "scope",
+        type: "Query",
+        schema: z.enum(["single", "series"]).optional().default("single"),
       },
     ],
     response: TeamEvent,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/finances',
-    alias: 'getFinanceOverview',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/finances",
+    alias: "getFinanceOverview",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: FinanceOverview,
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/finances/contributions/:contributionId',
-    alias: 'updateContribution',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/finances/contributions/:contributionId",
+    alias: "updateContribution",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateContributionRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'contributionId',
-        type: 'Path',
+        name: "contributionId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Contribution,
   },
   {
-    method: 'put',
-    path: '/teams/:teamId/finances/contributions/:contributionId/paid',
-    alias: 'setContributionPaid',
-    requestFormat: 'json',
+    method: "put",
+    path: "/teams/:teamId/finances/contributions/:contributionId/paid",
+    alias: "setContributionPaid",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: z.object({ paid: z.boolean() }).passthrough(),
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'contributionId',
-        type: 'Path',
+        name: "contributionId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Contribution,
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/finances/penalties',
-    alias: 'createPenalty',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/finances/penalties",
+    alias: "createPenalty",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreatePenaltyRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Penalty,
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/finances/penalties/:penaltyId',
-    alias: 'updatePenalty',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/finances/penalties/:penaltyId",
+    alias: "updatePenalty",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdatePenaltyRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'penaltyId',
-        type: 'Path',
+        name: "penaltyId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Penalty,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/finances/penalties/:penaltyId',
-    alias: 'deletePenalty',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/finances/penalties/:penaltyId",
+    alias: "deletePenalty",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'penaltyId',
-        type: 'Path',
+        name: "penaltyId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/finances/penalty-assignments',
-    alias: 'createPenaltyAssignment',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/finances/penalty-assignments",
+    alias: "createPenaltyAssignment",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreatePenaltyAssignmentRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: PenaltyAssignment,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/finances/penalty-assignments/:assignmentId',
-    alias: 'deletePenaltyAssignment',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/finances/penalty-assignments/:assignmentId",
+    alias: "deletePenaltyAssignment",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'assignmentId',
-        type: 'Path',
+        name: "assignmentId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'put',
-    path: '/teams/:teamId/finances/penalty-assignments/:assignmentId/paid',
-    alias: 'setPenaltyPaid',
-    requestFormat: 'json',
+    method: "put",
+    path: "/teams/:teamId/finances/penalty-assignments/:assignmentId/paid",
+    alias: "setPenaltyPaid",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: z.object({ paid: z.boolean() }).passthrough(),
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'assignmentId',
-        type: 'Path',
+        name: "assignmentId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: PenaltyAssignment,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/finances/transactions',
-    alias: 'listTransactions',
+    method: "get",
+    path: "/teams/:teamId/finances/transactions",
+    alias: "listTransactions",
     description: `Returns transactions newest-first with keyset pagination, so a team&#x27;s full history is reachable without the hard row cap the finance overview applies to its embedded transaction list.`,
-    requestFormat: 'json',
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
@@ -1507,90 +1711,90 @@ const endpoints = makeApi([
       .passthrough(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/finances/transactions',
-    alias: 'createTransaction',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/finances/transactions",
+    alias: "createTransaction",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreateTransactionRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Transaction,
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/finances/transactions/:transactionId',
-    alias: 'updateTransaction',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/finances/transactions/:transactionId",
+    alias: "updateTransaction",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateTransactionRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'transactionId',
-        type: 'Path',
+        name: "transactionId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Transaction,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/finances/transactions/:transactionId',
-    alias: 'deleteTransaction',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/finances/transactions/:transactionId",
+    alias: "deleteTransaction",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'transactionId',
-        type: 'Path',
+        name: "transactionId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/invite',
-    alias: 'createInvite',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/invite",
+    alias: "createInvite",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Invite,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/logo',
-    alias: 'getTeamLogo',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/logo",
+    alias: "getTeamLogo",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
@@ -1609,19 +1813,19 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'put',
-    path: '/teams/:teamId/logo',
-    alias: 'uploadTeamLogo',
-    requestFormat: 'form-data',
+    method: "put",
+    path: "/teams/:teamId/logo",
+    alias: "uploadTeamLogo",
+    requestFormat: "form-data",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: z.object({ logo: z.instanceof(File) }).passthrough(),
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
@@ -1635,100 +1839,102 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/logo',
-    alias: 'deleteTeamLogo',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/logo",
+    alias: "deleteTeamLogo",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/members',
-    alias: 'listMembers',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/members",
+    alias: "listMembers",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
-    response: z.object({ items: z.array(Member), nextCursor: z.string().nullable() }).passthrough(),
+    response: z
+      .object({ items: z.array(Member), nextCursor: z.string().nullable() })
+      .passthrough(),
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/members/:membershipId',
-    alias: 'updateMember',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/members/:membershipId",
+    alias: "updateMember",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateMemberRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'membershipId',
-        type: 'Path',
+        name: "membershipId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Member,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/members/:membershipId',
-    alias: 'removeMember',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/members/:membershipId",
+    alias: "removeMember",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'membershipId',
-        type: 'Path',
+        name: "membershipId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/members/:membershipId/photo',
-    alias: 'getMemberPhoto',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/members/:membershipId/photo",
+    alias: "getMemberPhoto",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'membershipId',
-        type: 'Path',
+        name: "membershipId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
@@ -1747,152 +1953,154 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'put',
-    path: '/teams/:teamId/members/:membershipId/roles',
-    alias: 'setMemberRoles',
-    requestFormat: 'json',
+    method: "put",
+    path: "/teams/:teamId/members/:membershipId/roles",
+    alias: "setMemberRoles",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: SetRolesRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'membershipId',
-        type: 'Path',
+        name: "membershipId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Member,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/news',
-    alias: 'listNews',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/news",
+    alias: "listNews",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
-    response: z.object({ items: z.array(NewsItem), nextCursor: z.string().nullable() }).passthrough(),
+    response: z
+      .object({ items: z.array(NewsItem), nextCursor: z.string().nullable() })
+      .passthrough(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/news',
-    alias: 'createNews',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/news",
+    alias: "createNews",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreateNewsRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: NewsItem,
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/news/:newsId',
-    alias: 'updateNews',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/news/:newsId",
+    alias: "updateNews",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateNewsRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'newsId',
-        type: 'Path',
+        name: "newsId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: NewsItem,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/news/:newsId',
-    alias: 'deleteNews',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/news/:newsId",
+    alias: "deleteNews",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'newsId',
-        type: 'Path',
+        name: "newsId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/notifications',
-    alias: 'listNotifications',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/notifications",
+    alias: "listNotifications",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: NotificationsResult,
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/notifications/seen',
-    alias: 'markNotificationsSeen',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/notifications/seen",
+    alias: "markNotificationsSeen",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/photo',
-    alias: 'getTeamPhoto',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/photo",
+    alias: "getTeamPhoto",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
@@ -1911,19 +2119,19 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'put',
-    path: '/teams/:teamId/photo',
-    alias: 'uploadTeamPhoto',
-    requestFormat: 'form-data',
+    method: "put",
+    path: "/teams/:teamId/photo",
+    alias: "uploadTeamPhoto",
+    requestFormat: "form-data",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: z.object({ photo: z.instanceof(File) }).passthrough(),
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
@@ -1937,247 +2145,301 @@ const endpoints = makeApi([
     ],
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/photo',
-    alias: 'deleteTeamPhoto',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/photo",
+    alias: "deleteTeamPhoto",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/polls',
-    alias: 'listPolls',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/polls",
+    alias: "listPolls",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'limit',
-        type: 'Query',
+        name: "limit",
+        type: "Query",
         schema: z.number().int().gte(1).lte(500).optional().default(50),
       },
       {
-        name: 'cursor',
-        type: 'Query',
+        name: "cursor",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
-    response: z.object({ items: z.array(Poll), nextCursor: z.string().nullable() }).passthrough(),
+    response: z
+      .object({ items: z.array(Poll), nextCursor: z.string().nullable() })
+      .passthrough(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/polls',
-    alias: 'createPoll',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/polls",
+    alias: "createPoll",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreatePollRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Poll,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/polls/:pollId',
-    alias: 'deletePoll',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/polls/:pollId",
+    alias: "deletePoll",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'pollId',
-        type: 'Path',
+        name: "pollId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/polls/:pollId/vote',
-    alias: 'votePoll',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/polls/:pollId/vote",
+    alias: "votePoll",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: VotePollRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'pollId',
-        type: 'Path',
+        name: "pollId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Poll,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/roles',
-    alias: 'listRoles',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/roles",
+    alias: "listRoles",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.array(Role),
   },
   {
-    method: 'post',
-    path: '/teams/:teamId/roles',
-    alias: 'createRole',
-    requestFormat: 'json',
+    method: "post",
+    path: "/teams/:teamId/roles",
+    alias: "createRole",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: CreateRoleRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Role,
   },
   {
-    method: 'patch',
-    path: '/teams/:teamId/roles/:roleId',
-    alias: 'updateRole',
-    requestFormat: 'json',
+    method: "patch",
+    path: "/teams/:teamId/roles/:roleId",
+    alias: "updateRole",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'body',
-        type: 'Body',
+        name: "body",
+        type: "Body",
         schema: UpdateRoleRequest,
       },
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'roleId',
-        type: 'Path',
+        name: "roleId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: Role,
   },
   {
-    method: 'delete',
-    path: '/teams/:teamId/roles/:roleId',
-    alias: 'deleteRole',
-    requestFormat: 'json',
+    method: "delete",
+    path: "/teams/:teamId/roles/:roleId",
+    alias: "deleteRole",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'roleId',
-        type: 'Path',
+        name: "roleId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: z.void(),
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/stats',
-    alias: 'getStatsOverview',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/stats",
+    alias: "getStatsOverview",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'from',
-        type: 'Query',
+        name: "from",
+        type: "Query",
         schema: z.string().optional(),
       },
       {
-        name: 'to',
-        type: 'Query',
+        name: "to",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
     response: StatsOverview,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/stats/attendance-matrix',
-    alias: 'getAttendanceMatrix',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/stats/absences",
+    alias: "getStatsAbsences",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'from',
-        type: 'Query',
+        name: "from",
+        type: "Query",
         schema: z.string().optional(),
       },
       {
-        name: 'to',
-        type: 'Query',
+        name: "to",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+    ],
+    response: AttendanceAbsenceTable,
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/stats/attendance-matrix",
+    alias: "getAttendanceMatrix",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "from",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+      {
+        name: "to",
+        type: "Query",
         schema: z.string().optional(),
       },
     ],
     response: AttendanceMatrix,
   },
   {
-    method: 'get',
-    path: '/teams/:teamId/stats/members/:userId',
-    alias: 'getMemberStats',
-    requestFormat: 'json',
+    method: "get",
+    path: "/teams/:teamId/stats/members/:userId",
+    alias: "getMemberStats",
+    requestFormat: "json",
     parameters: [
       {
-        name: 'teamId',
-        type: 'Path',
+        name: "teamId",
+        type: "Path",
         schema: z.string().uuid(),
       },
       {
-        name: 'userId',
-        type: 'Path',
+        name: "userId",
+        type: "Path",
         schema: z.string().uuid(),
       },
     ],
     response: MemberAttendanceStats,
+  },
+  {
+    method: "post",
+    path: "/users/me/push-subscriptions",
+    alias: "registerPushSubscription",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: PushSubscriptionRequest,
+      },
+    ],
+    response: z.void(),
+  },
+  {
+    method: "delete",
+    path: "/users/me/push-subscriptions",
+    alias: "deletePushSubscription",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "endpoint",
+        type: "Query",
+        schema: z.string(),
+      },
+    ],
+    response: z.void(),
   },
 ]);
 

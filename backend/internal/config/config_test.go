@@ -207,6 +207,8 @@ func TestLoad_CookieKeyFromHex(t *testing.T) {
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	setRequiredVAPIDEnv(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -223,6 +225,8 @@ func TestLoad_CookieKeyFromBase64(t *testing.T) {
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	setRequiredVAPIDEnv(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -249,6 +253,8 @@ func TestLoad_CookieEncryptionKeysPlural(t *testing.T) {
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	setRequiredVAPIDEnv(t)
 
 	cfg, err := config.Load()
 	require.NoError(t, err)
@@ -377,6 +383,26 @@ func setRequiredS3Env(t *testing.T) {
 	t.Setenv("S3_SECRET_ACCESS_KEY", "secret")
 }
 
+// setRequiredSMTPEnv sets the two SMTP_* vars loadSMTPConfig requires when
+// COOKIE_SECURE=true, so tests only interested in some other production-mode
+// behavior don't also have to fail on ErrSMTPConfigRequired.
+func setRequiredSMTPEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM_ADDRESS", "no-reply@example.com")
+}
+
+// setRequiredVAPIDEnv sets the three VAPID_* vars loadVAPIDConfig requires
+// when COOKIE_SECURE=true, so tests only interested in some other
+// production-mode behavior don't also have to fail on
+// ErrVAPIDConfigRequired.
+func setRequiredVAPIDEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("VAPID_PUBLIC_KEY", "vapid-public-key")
+	t.Setenv("VAPID_PRIVATE_KEY", "vapid-private-key")
+	t.Setenv("VAPID_SUBJECT", "mailto:ops@example.com")
+}
+
 func TestLoad_S3ConfigRequiredWhenSecure(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
 	t.Setenv("COOKIE_SECURE", "true")
@@ -399,6 +425,8 @@ func TestLoad_S3ConfigPartialRequiredWhenSecure(t *testing.T) {
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	setRequiredVAPIDEnv(t)
 	t.Setenv("S3_SECRET_ACCESS_KEY", "")
 
 	_, err := config.Load()
@@ -426,6 +454,8 @@ func TestLoad_S3ConfigParsed(t *testing.T) {
 	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
 	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
 	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	setRequiredVAPIDEnv(t)
 	t.Setenv("S3_REGION", "eu-central-1")
 	t.Setenv("S3_USE_PATH_STYLE", "true")
 	t.Setenv("S3_PUBLIC_BASE_URL", "https://images.example.com")
@@ -439,6 +469,206 @@ func TestLoad_S3ConfigParsed(t *testing.T) {
 	assert.Equal(t, "secret", cfg.S3SecretAccessKey)
 	assert.True(t, cfg.S3UsePathStyle)
 	assert.Equal(t, "https://images.example.com", cfg.S3PublicBaseURL)
+}
+
+func TestLoad_SMTPConfigRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	t.Setenv("SMTP_HOST", "")
+	t.Setenv("SMTP_FROM_ADDRESS", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrSMTPConfigRequired)
+}
+
+func TestLoad_SMTPConfigPartialRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_FROM_ADDRESS", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrSMTPConfigRequired)
+}
+
+func TestLoad_SMTPConfigOptionalInDev(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("SMTP_HOST", "")
+	t.Setenv("SMTP_FROM_ADDRESS", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.SMTPHost)
+	assert.Empty(t, cfg.SMTPFromAddress)
+}
+
+func TestLoad_SMTPConfigParsed(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	setRequiredVAPIDEnv(t)
+	t.Setenv("SMTP_HOST", "smtp.example.com")
+	t.Setenv("SMTP_PORT", "2525")
+	t.Setenv("SMTP_USERNAME", "smtp-user")
+	t.Setenv("SMTP_PASSWORD", "smtp-pass")
+	t.Setenv("SMTP_FROM_ADDRESS", "no-reply@example.com")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "smtp.example.com", cfg.SMTPHost)
+	assert.Equal(t, "2525", cfg.SMTPPort)
+	assert.Equal(t, "smtp-user", cfg.SMTPUsername)
+	assert.Equal(t, "smtp-pass", cfg.SMTPPassword)
+	assert.Equal(t, "no-reply@example.com", cfg.SMTPFromAddress)
+}
+
+func TestLoad_VAPIDConfigRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	t.Setenv("VAPID_PUBLIC_KEY", "")
+	t.Setenv("VAPID_PRIVATE_KEY", "")
+	t.Setenv("VAPID_SUBJECT", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrVAPIDConfigRequired)
+}
+
+func TestLoad_VAPIDConfigPartialRequiredWhenSecure(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	t.Setenv("VAPID_PUBLIC_KEY", "vapid-public-key")
+	t.Setenv("VAPID_PRIVATE_KEY", "")
+	t.Setenv("VAPID_SUBJECT", "")
+
+	_, err := config.Load()
+	require.ErrorIs(t, err, config.ErrVAPIDConfigRequired)
+}
+
+func TestLoad_VAPIDConfigOptionalInDev(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("VAPID_PUBLIC_KEY", "")
+	t.Setenv("VAPID_PRIVATE_KEY", "")
+	t.Setenv("VAPID_SUBJECT", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.VAPIDPublicKey)
+	assert.Empty(t, cfg.VAPIDPrivateKey)
+}
+
+func TestLoad_VAPIDConfigParsed(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "true")
+	t.Setenv("COOKIE_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	t.Setenv("JWT_PRIVATE_KEY", "private-key-pem")
+	t.Setenv("JWT_PUBLIC_KEY", "public-key-pem")
+	setRequiredS3Env(t)
+	setRequiredSMTPEnv(t)
+	t.Setenv("VAPID_PUBLIC_KEY", "vapid-public-key")
+	t.Setenv("VAPID_PRIVATE_KEY", "vapid-private-key")
+	t.Setenv("VAPID_SUBJECT", "mailto:ops@example.com")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "vapid-public-key", cfg.VAPIDPublicKey)
+	assert.Equal(t, "vapid-private-key", cfg.VAPIDPrivateKey)
+	assert.Equal(t, "mailto:ops@example.com", cfg.VAPIDSubject)
+}
+
+func TestLoad_SMTPPortDefault(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("SMTP_HOST", "")
+	t.Setenv("SMTP_PORT", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "587", cfg.SMTPPort)
+}
+
+func TestLoad_SelfRegistrationEnabledDefaultsTrue(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("SELF_REGISTRATION_ENABLED", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.SelfRegistrationEnabled)
+}
+
+func TestLoad_SelfRegistrationEnabledFalse(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("SELF_REGISTRATION_ENABLED", "false")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.SelfRegistrationEnabled)
+}
+
+func TestLoad_ImageDeliveryProxyEnabledDefaultsFalse(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("IMAGE_DELIVERY_PROXY_ENABLED", "")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.False(t, cfg.ImageDeliveryProxyEnabled)
+}
+
+func TestLoad_ImageDeliveryProxyEnabledTrue(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("IMAGE_DELIVERY_PROXY_ENABLED", "true")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.True(t, cfg.ImageDeliveryProxyEnabled)
+}
+
+func TestLoad_ImageDeliveryProxyEnabledInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("IMAGE_DELIVERY_PROXY_ENABLED", "not-a-bool")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "IMAGE_DELIVERY_PROXY_ENABLED")
+}
+
+func TestLoad_RegistrationTimingDefaults(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 48*time.Hour, cfg.EmailVerificationTTL)
+	assert.Equal(t, 5, cfg.RegisterRateLimitPerMin)
+	assert.Equal(t, 3, cfg.ResendVerificationRateLimitPerMin)
+	assert.Equal(t, 7, cfg.RetentionUnverifiedAccountDays)
 }
 
 func TestLoad_S3UsePathStyleInvalid(t *testing.T) {

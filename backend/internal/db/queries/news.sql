@@ -4,7 +4,7 @@
 -- query instead of the caller having to build the predicate conditionally.
 SELECT n.id, n.team_id, n.author_id, n.title, n.body, n.pinned, n.created_at,
        u.name AS author_name, u.avatar_color AS author_color,
-       (u.photo_data IS NOT NULL)::boolean AS has_photo
+       (u.photo_object_key IS NOT NULL)::boolean AS has_photo
 FROM news n
 JOIN users u ON u.id = n.author_id
 WHERE n.team_id = $1
@@ -40,7 +40,7 @@ DELETE FROM news WHERE id = $1 AND team_id = $2;
 -- name: GetNewsByID :one
 SELECT n.id, n.team_id, n.author_id, n.title, n.body, n.pinned, n.created_at,
        u.name AS author_name, u.avatar_color AS author_color,
-       (u.photo_data IS NOT NULL)::boolean AS has_photo
+       (u.photo_object_key IS NOT NULL)::boolean AS has_photo
 FROM news n
 JOIN users u ON u.id = n.author_id
 WHERE n.id = $1;

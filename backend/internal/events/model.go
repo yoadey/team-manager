@@ -27,6 +27,10 @@ type EventRow struct {
 	NominatedRoleIds  []uuid.UUID
 	Status            string
 	CreatedAt         time.Time
+	// RsvpDeadline is the optional cutoff after which a non-privileged
+	// member can no longer change their attendance response for this event
+	// (see Service.SetAttendance).
+	RsvpDeadline *time.Time
 }
 
 // EventSeriesRow mirrors the event_series DB table.
@@ -44,7 +48,15 @@ type EventSeriesRow struct {
 	ResponseMode      *string
 	NominatedRoleIds  []uuid.UUID
 	RepeatWeeks       int
-	CreatedAt         time.Time
+	// RepeatEndDate is the alternative to RepeatWeeks: when set, the series
+	// was originally defined by an end date rather than a fixed occurrence
+	// count (RepeatWeeks still holds the derived occurrence count either
+	// way -- see Repository.CreateSeries).
+	RepeatEndDate *time.Time
+	// RsvpDeadline is the template value each generated occurrence's own
+	// EventRow.RsvpDeadline is seeded from.
+	RsvpDeadline *time.Time
+	CreatedAt    time.Time
 }
 
 // AttendanceDBRow is the DB representation of the attendance table.
@@ -152,6 +164,13 @@ type CreateEventParams struct {
 	NominatedRoleIds  []uuid.UUID
 	Recurring         bool
 	RepeatWeeks       int
+	// RepeatEndDate, when set, takes precedence over RepeatWeeks: the
+	// repository generates weekly occurrences from Date up to and
+	// including RepeatEndDate instead of a fixed count.
+	RepeatEndDate *time.Time
+	// RsvpDeadline is the optional response cutoff, set on the created
+	// event (or seeded onto every occurrence of a created series).
+	RsvpDeadline *time.Time
 }
 
 // UpdateEventParams holds the fields used to update an event.
@@ -167,4 +186,5 @@ type UpdateEventParams struct {
 	MeetTimeMandatory *bool
 	ResponseMode      *string
 	NominatedRoleIds  []uuid.UUID
+	RsvpDeadline      *time.Time
 }

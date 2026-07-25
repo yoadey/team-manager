@@ -263,7 +263,7 @@ func (r *Repository) ListVotesByPollIDs(ctx context.Context, pollIDs []uuid.UUID
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT pv.poll_id, pv.option_id, pv.user_id, m.id,
-		        u.name, u.avatar_color, (u.photo_data IS NOT NULL)
+		        u.name, u.avatar_color, (u.photo_object_key IS NOT NULL)
 		 FROM poll_votes pv
 		 JOIN polls p ON p.id = pv.poll_id
 		 JOIN users u ON u.id = pv.user_id
@@ -293,7 +293,7 @@ func (r *Repository) ListVotes(ctx context.Context, pollID uuid.UUID) ([]*PollVo
 	rows, err := r.db.Query(
 		ctx,
 		`SELECT pv.poll_id, pv.option_id, pv.user_id, m.id,
-		        u.name, u.avatar_color, (u.photo_data IS NOT NULL)
+		        u.name, u.avatar_color, (u.photo_object_key IS NOT NULL)
 		 FROM poll_votes pv
 		 JOIN polls p ON p.id = pv.poll_id
 		 JOIN users u ON u.id = pv.user_id

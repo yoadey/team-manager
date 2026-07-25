@@ -21,6 +21,7 @@ type mockRepo struct {
 	memberStatsFn       func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MemberStatRow, error)
 	eventStatsFn        func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.EventStatRow, error)
 	singleMemberStatsFn func(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error)
+	absenceStatsFn      func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.AbsenceRow, error)
 	withReadTxFn        func(ctx context.Context, fn func(stats.OverviewReader) error) error
 	attendanceMatrixFn  func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MatrixColumnRow, []stats.MatrixCellRow, error)
 }
@@ -35,6 +36,10 @@ func (m *mockRepo) EventStats(ctx context.Context, teamID uuid.UUID, from, to st
 
 func (m *mockRepo) SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error) {
 	return m.singleMemberStatsFn(ctx, teamID, userID, from, to)
+}
+
+func (m *mockRepo) AbsenceStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.AbsenceRow, error) {
+	return m.absenceStatsFn(ctx, teamID, from, to)
 }
 
 // WithReadTx runs fn directly against the mock itself (which already
@@ -351,6 +356,88 @@ func TestService_GetAttendanceMatrix_DefaultsDateRangeWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, gotTo.AddDate(0, -3, 0).Format("2006-01-02"), gotFrom.Format("2006-01-02"),
 		"matrix must reuse the overview's 3-month default window")
+}
+
+func TestService_GetAbsences_MapsRows(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	userID := uuid.New()
+	eventID := uuid.New()
+	repo := &mockRepo{
+		absenceStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.AbsenceRow, error) {
+			return []stats.AbsenceRow{
+				{UserID: userID, Name: "Dana", EventID: eventID, EventTitle: "Training", Date: "2026-02-10"},
+			}, nil
+		},
+	}
+
+	svc := stats.NewService(repo)
+	table, err := svc.GetAbsences(context.Background(), teamID, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, table.Rows, 1)
+	assert.Equal(t, userID, table.Rows[0].UserId)
+	assert.Equal(t, "Dana", table.Rows[0].MemberName)
+	assert.Equal(t, eventID, table.Rows[0].EventId)
+	assert.Equal(t, "Training", table.Rows[0].EventTitle)
+	assert.Equal(t, "2026-02-10", table.Rows[0].EventDate.Format("2006-01-02"))
+}
+
+func TestService_GetAbsences_EmptyWhenNoAbsences(t *testing.T) {
+	t.Parallel()
+
+	repo := &mockRepo{
+		absenceStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.AbsenceRow, error) {
+			return nil, nil
+		},
+	}
+
+	svc := stats.NewService(repo)
+	table, err := svc.GetAbsences(context.Background(), uuid.New(), nil, nil)
+	require.NoError(t, err)
+	assert.Empty(t, table.Rows)
+}
+
+// GetAbsences must use the same defaultDateRange clamping/defaulting as
+// GetOverview, so a caller passing the quota view's active from/to gets the
+// identical effective window covered by the absence table.
+func TestService_GetAbsences_UsesExplicitDateRange(t *testing.T) {
+	t.Parallel()
+
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		absenceStatsFn: func(_ context.Context, _ uuid.UUID, from, to string) ([]stats.AbsenceRow, error) {
+			capturedFrom, capturedTo = from, to
+			return nil, nil
+		},
+	}
+
+	from := openapi_types.Date{Time: mustParseDate(t, "2026-02-01")}
+	to := openapi_types.Date{Time: mustParseDate(t, "2026-02-28")}
+
+	svc := stats.NewService(repo)
+	table, err := svc.GetAbsences(context.Background(), uuid.New(), &from, &to)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-02-01", capturedFrom)
+	assert.Equal(t, "2026-02-28", capturedTo)
+	assert.Equal(t, "2026-02-01", table.From.Format("2006-01-02"))
+	assert.Equal(t, "2026-02-28", table.To.Format("2006-01-02"))
+}
+
+func TestService_GetAbsences_PropagatesRepositoryError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("db unavailable")
+	repo := &mockRepo{
+		absenceStatsFn: func(context.Context, uuid.UUID, string, string) ([]stats.AbsenceRow, error) {
+			return nil, wantErr
+		},
+	}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetAbsences(context.Background(), uuid.New(), nil, nil)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
 }
 
 func mustParseDate(t *testing.T, s string) time.Time {

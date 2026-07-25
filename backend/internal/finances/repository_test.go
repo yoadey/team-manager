@@ -231,7 +231,7 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
 	require.NoError(t, err)
 
-	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
 	require.NotNil(t, assign)
 
@@ -300,11 +300,11 @@ func TestFinancesRepository_DeletePenalty_PreservesAssignments(t *testing.T) {
 	require.NoError(t, err)
 
 	// One paid and one unpaid assignment of the same penalty.
-	paid, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	paid, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
 	_, err = repo.SetAssignmentPaid(ctx, paid.ID, teamID, true)
 	require.NoError(t, err)
-	_, err = repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	_, err = repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
 
 	// Delete the catalog penalty.
@@ -354,7 +354,7 @@ func TestFinancesRepository_CreateAssignment_RejectsPenaltyFromAnotherTeam(t *te
 	require.NoError(t, err)
 
 	// Assigning team B's penalty within team A must be rejected.
-	_, err = repo.CreateAssignment(ctx, teamA, userID, penB.ID)
+	_, err = repo.CreateAssignment(ctx, teamA, userID, penB.ID, time.Now(), nil)
 	assert.ErrorIs(t, err, finances.ErrPenaltyNotInTeam)
 }
 
@@ -377,7 +377,7 @@ func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *
 	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 500)
 	require.NoError(t, err)
 
-	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
 	require.NotNil(t, assign.PenaltyAmount)
 	assert.Equal(t, int64(500), *assign.PenaltyAmount)
@@ -398,7 +398,7 @@ func TestFinancesRepository_Assignment_KeepsAmountSnapshotAfterPenaltyEdited(t *
 	assert.Equal(t, int64(500), *fetched.PenaltyAmount)
 
 	// A new assignment created after the edit does pick up the new amount.
-	assign2, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	assign2, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
 	require.NotNil(t, assign2.PenaltyAmount)
 	assert.Equal(t, int64(5000), *assign2.PenaltyAmount)
@@ -435,21 +435,114 @@ func TestFinancesRepository_CreateAssignment_MaxAmountPenalty_Succeeds(t *testin
 	pen, err := repo.CreatePenalty(ctx, teamID, "Max Fine", maxAmountCents)
 	require.NoError(t, err)
 
-	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID)
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
 	require.NotNil(t, assign.PenaltyAmount)
 	assert.Equal(t, int64(maxAmountCents), *assign.PenaltyAmount)
 }
 
+// TestFinancesRepository_CreateAssignment_PersistsPastDate verifies that a
+// caller-supplied earned-date in the past is stored as given, not silently
+// replaced with today's date (penalty_assignments.date used to always default
+// to CURRENT_DATE since CreateAssignment never accepted an explicit value).
+func TestFinancesRepository_CreateAssignment_PersistsPastDate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 500)
+	require.NoError(t, err)
+
+	pastDate := time.Now().UTC().AddDate(0, -1, 0).Truncate(24 * time.Hour)
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, pastDate, nil)
+	require.NoError(t, err)
+	assert.True(t, pastDate.Equal(assign.Date), "expected date %v, got %v", pastDate, assign.Date)
+	assert.NotEqual(t, time.Now().UTC().Truncate(24*time.Hour), assign.Date, "must not silently default to today")
+
+	fetched, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
+	require.NoError(t, err)
+	assert.True(t, pastDate.Equal(fetched.Date))
+}
+
+// TestFinancesRepository_CreateAssignment_PersistsNote verifies that a
+// caller-supplied note is stored and can be read back.
+func TestFinancesRepository_CreateAssignment_PersistsNote(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 500)
+	require.NoError(t, err)
+
+	note := "Missed training without excuse"
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), &note)
+	require.NoError(t, err)
+	require.NotNil(t, assign.Note)
+	assert.Equal(t, note, *assign.Note)
+
+	fetched, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
+	require.NoError(t, err)
+	require.NotNil(t, fetched.Note)
+	assert.Equal(t, note, *fetched.Note)
+}
+
+// TestFinancesRepository_CreateAssignment_WithoutNote_Succeeds verifies that
+// omitting the note (nil) creates the assignment successfully with no note
+// recorded, rather than failing or storing an empty string.
+func TestFinancesRepository_CreateAssignment_WithoutNote_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	pen, err := repo.CreatePenalty(ctx, teamID, "Late arrival", 500)
+	require.NoError(t, err)
+
+	assign, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
+	require.NoError(t, err)
+	assert.Nil(t, assign.Note)
+}
+
 // TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert is a
-// regression test for a rolling-deploy hazard in migration
-// 00025_penalty_assignment_amount_snapshot.sql: under Kubernetes'
-// RollingUpdate strategy (the default with replicaCount > 1), old-version
-// pods still running the pre-snapshot binary keep issuing
+// regression test for a rolling-deploy hazard: penalty_assignments.amount/
+// label (see 00001_init.sql's comment) are deliberately nullable rather than
+// NOT NULL, since under Kubernetes' RollingUpdate strategy (the default with
+// replicaCount > 1) an old-version pod's binary could still issue
 // "INSERT INTO penalty_assignments (team_id, user_id, penalty_id) ..." with
-// no amount/label for the whole rollout window. If those two columns were
-// ever made NOT NULL (they deliberately are not -- see the migration's own
-// comment), every one of those concurrent old-pod inserts would fail. This
+// no amount/label during a rollout window that adds a NOT NULL constraint --
+// every one of those concurrent old-pod inserts would then fail. This
 // directly exercises that exact old-binary INSERT shape against the current
 // schema and asserts it still succeeds, leaving amount/label NULL --
 // tolerated end-to-end since PenaltyAssignmentRow.PenaltyAmount/PenaltyLabel
@@ -725,13 +818,13 @@ func TestFinancesRepository_CreateAssignment_RejectsNonMemberUser(t *testing.T) 
 	require.NoError(t, err)
 
 	// uid was never given a membership row by seedFinanceFixtures.
-	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID, time.Now(), nil)
 	assert.ErrorIs(t, err, pgx.ErrNoRows, "CreateAssignment must reject a userID that is not a member of teamID")
 
 	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
 	require.NoError(t, err)
 
-	a, err := repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	a, err := repo.CreateAssignment(ctx, teamID, userID, penalty.ID, time.Now(), nil)
 	require.NoError(t, err, "CreateAssignment scoped to an actual team member must succeed")
 	assert.Equal(t, userID, a.UserID)
 }
@@ -763,7 +856,7 @@ func TestFinancesRepository_CreateAssignment_RejectsDeletedPenalty(t *testing.T)
 
 	require.NoError(t, repo.DeletePenalty(ctx, penalty.ID, teamID))
 
-	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID)
+	_, err = repo.CreateAssignment(ctx, teamID, userID, penalty.ID, time.Now(), nil)
 	assert.ErrorIs(t, err, finances.ErrPenaltyNotInTeam, "CreateAssignment must map a penalty FK violation to ErrPenaltyNotInTeam")
 }
 

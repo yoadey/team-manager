@@ -8,6 +8,8 @@ export const penaltyAssignFormSchema = z.object({
   // block every submission. `.min(1)` still catches "nothing selected".
   userId: z.string().min(1, { message: t('finances.assignPersonError') }),
   penaltyId: z.string().min(1, { message: t('finances.assignPenaltyError') }),
+  date: z.string().min(1, { message: t('finances.assignDateError') }),
+  note: z.string().trim().max(10000).optional().or(z.literal('')),
 });
 
 export type PenaltyAssignFormValues = z.infer<typeof penaltyAssignFormSchema>;

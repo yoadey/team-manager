@@ -54,6 +54,7 @@ import {
   buildPath,
   currentPath,
   parsePendingInvite,
+  parseVerifyEmailToken,
   ROUTE_MODULE,
   type Route,
   type UrlState,
@@ -73,6 +74,7 @@ export type SheetType =
   | 'teams'
   | 'profile'
   | 'more'
+  | 'legal'
   | 'teamSettings'
   | 'createTeam'
   | 'invite'
@@ -119,9 +121,15 @@ export interface SheetState {
   /** Carried by the `pollVoters` sheet: the already-loaded poll whose per-option
    * voter lists / matrix are being shown. */
   poll?: Poll | null;
-  eventId?: string;
+  // Explicit `| undefined` -- openEventForm sets `eventId: event?.id`, so
+  // `undefined` (create mode, no event yet) is a meaningful value here.
+  eventId?: string | undefined;
   membershipId?: string;
-  member?: Member | null;
+  // Explicit `| undefined` -- openMemberDetail sets `member:` from a find()
+  // that's genuinely `undefined` for a membershipId no longer in the local
+  // list (e.g. a stale bookmarked/back-forward URL for a removed member);
+  // MemberSheets.tsx's `!sheet.member` check treats that the same as `null`.
+  member?: Member | null | undefined;
   stats?: MemberAttendanceStats | null;
   userId?: string;
   name?: string;
@@ -132,6 +140,8 @@ export interface SheetState {
    * each sheet's own typed FormValues shape, cast at the read site. Replaces the old shared
    * `state.form` buffer -- scoped to the sheet instance instead of the whole app. */
   formInitial?: unknown;
+  /** Which static legal page the `legal` sheet renders. */
+  legalPage?: 'impressum' | 'datenschutz';
 }
 
 export interface AppState {
@@ -267,6 +277,10 @@ export interface AppContextValue {
   // auth
   doLogin: (pid: string) => Promise<void>;
   doPasswordLogin: (email: string, password: string) => Promise<void>;
+  /** Resolves true on success, false on failure (state.error is set either way). */
+  doRegister: (email: string, password: string) => Promise<boolean>;
+  /** Resolves true on success, false on failure (state.error is set either way). */
+  doResendVerification: (email: string) => Promise<boolean>;
   logout: () => void;
   deleteAccount: (confirmEmail: string) => Promise<void>;
   exportMyData: () => Promise<void>;
@@ -275,6 +289,9 @@ export interface AppContextValue {
   goEventsPending: () => void;
   goEventsAbsences: () => void;
   closeSheet: () => void;
+  /** Opens the static legal-notice/privacy-policy sheet. Team-independent and
+   * available before login (see Login/Register), unlike openProfile/openMore. */
+  openLegal: (page: 'impressum' | 'datenschutz') => void;
   activePageSheet: () => SheetState | null;
   selectTeam: (id: string) => Promise<void>;
   setEventsView: (v: 'list' | 'calendar' | 'absences') => void;
@@ -343,7 +360,8 @@ export interface AppContextValue {
   // calendar export
   openCalExport: () => void;
   downloadIcs: () => void;
-  copyCalUrl: () => void;
+  copyCalUrl: (url: string) => void;
+  regenerateCalUrl: () => void;
   // news
   openNewsForm: (n?: NewsItem) => void;
   saveNews: (f: NewsFormValues) => Promise<void>;
@@ -369,7 +387,7 @@ export interface AppContextValue {
   openPollVoters: (poll: Poll) => void;
   savePoll: (f: PollFormValues) => Promise<void>;
   togglePollOption: (poll: Poll, optId: string) => void;
-  removePoll: (id: string) => void;
+  removePoll: (id: string, question: string) => void;
 }
 
 /** Actions + helpers, without the mutable `state`. Stable across renders. */
@@ -482,7 +500,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const toastMsg = useCallback(
     (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
-      setState({ toast: { message: m, action, kind } });
+      setState({ toast: { message: m, ...(action ? { action } : {}), ...(kind ? { kind } : {}) } });
       toastTimer.current = setTimeout(() => setState({ toast: null }), 2600);
     },
     [setState],
@@ -827,7 +845,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setState({ user, teams: [], activeTeamId: null, phase: 'noTeam', busy: null });
         return null;
       }
-      const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0].id;
+      // teams[0]! is safe: the `!teams.length` branch above already returned,
+      // so teams has at least one element here.
+      const activeTeamId = joinedTeamId && teams.some((tm) => tm.id === joinedTeamId) ? joinedTeamId : teams[0]!.id;
       if (opts?.restoreLocation) {
         // Session restore (a page reload, or a bookmarked/shared deep link
         // like /finances or /events?view=absences) must not silently bounce
@@ -920,11 +940,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [api, S, setState, establishSession],
   );
 
+  // doRegister/doResendVerification don't call establishSession -- the
+  // account isn't logged in yet (self-registration requires clicking the
+  // emailed verification link first). Register.tsx renders its own local
+  // "check your email" confirmation state on success; these actions only
+  // surface busy/error the same way every other action does.
+  const doRegister = useCallback(
+    async (email: string, password: string) => {
+      const owner = 'register';
+      setState({ busy: owner, error: null });
+      try {
+        await api.auth.register(email, password);
+        if (S().busy === owner) setState({ busy: null });
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('error.network');
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
+        return false;
+      }
+    },
+    [api, S, setState],
+  );
+
+  const doResendVerification = useCallback(
+    async (email: string) => {
+      const owner = 'resendVerification';
+      setState({ busy: owner, error: null });
+      try {
+        await api.auth.resendVerification(email);
+        if (S().busy === owner) setState({ busy: null });
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('error.network');
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
+        return false;
+      }
+    },
+    [api, S, setState],
+  );
+
   // ---------- nav ----------
   const closeSheet = useCallback(() => {
     const s = S().sheet;
     setState({ sheet: s && s.back ? s.back : null });
   }, [S, setState]);
+  // Unlike openProfile/openMore, this reads/writes no team-scoped state, so it
+  // works identically before login (Login/Register) and inside the app
+  // (ProfileSheet) -- SheetHost renders state.sheet regardless of state.phase.
+  const openLegal = useCallback(
+    (page: 'impressum' | 'datenschutz') => setState({ sheet: { type: 'legal', legalPage: page } }),
+    [setState],
+  );
   const go = useCallback(
     (route: Route) => {
       // History is mirrored centrally by the URL-sync effect (state -> URL).
@@ -1040,6 +1108,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openCalExport,
     downloadIcs,
     copyCalUrl,
+    regenerateCalUrl,
     openNewsForm,
     saveNews,
     removeNews,
@@ -1134,7 +1203,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const target = buildPath(next);
     if (target === lastSyncedPath.current) return;
     const [prevPath, prevQuery] = lastSyncedPath.current.split('?');
-    const prev = parseLocation(prevPath, prevQuery ? '?' + prevQuery : '');
+    const prev = parseLocation(prevPath ?? '', prevQuery ? '?' + prevQuery : '');
     const isNavigation = prev.route !== next.route || (!prev.detailId && !!next.detail);
     if (isNavigation) history.pushState(null, '', target);
     else history.replaceState(null, '', target);
@@ -1159,6 +1228,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (bootstrapStarted.current) return;
     bootstrapStarted.current = true;
     (async () => {
+      // A self-registration verification link (/verify-email/<token>) brought
+      // the user here, pre-session -- consume it before the normal
+      // currentUser() cookie-restore check below, since a brand-new visitor
+      // has no session cookie yet. On success this establishes a session the
+      // exact same way a password login does (reusing establishSession, so a
+      // pending team invite in the URL still gets redeemed); on failure fall
+      // through to the normal login screen with an explanatory error.
+      const verifyToken = parseVerifyEmailToken(window.location.pathname);
+      if (verifyToken) {
+        try {
+          await api.auth.verifyEmail(verifyToken);
+          const user = await api.auth.currentUser();
+          history.replaceState({}, '', '/');
+          await establishSession(user);
+        } catch {
+          history.replaceState({}, '', '/');
+          const providers = await api.auth.providers().catch(() => []);
+          setState({ phase: 'login', providers, error: t('auth.verifyEmailFailed') });
+        }
+        return;
+      }
       try {
         // Restore an existing session from the HttpOnly cookie. If one is active,
         // the user stays logged in across reloads without seeing the login screen.
@@ -1210,6 +1300,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setState,
       doLogin,
       doPasswordLogin,
+      doRegister,
+      doResendVerification,
       logout,
       deleteAccount,
       exportMyData,
@@ -1217,6 +1309,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       goEventsPending,
       goEventsAbsences,
       closeSheet,
+      openLegal,
       activePageSheet,
       selectTeam,
       setEventsView,
@@ -1267,6 +1360,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openCalExport,
       downloadIcs,
       copyCalUrl,
+      regenerateCalUrl,
       openNewsForm,
       saveNews,
       removeNews,
@@ -1308,10 +1402,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAccount,
       exportMyData,
       doPasswordLogin,
+      doRegister,
+      doResendVerification,
       go,
       goEventsPending,
       goEventsAbsences,
       closeSheet,
+      openLegal,
       activePageSheet,
       selectTeam,
       setEventsView,
@@ -1362,6 +1459,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openCalExport,
       downloadIcs,
       copyCalUrl,
+      regenerateCalUrl,
       openNewsForm,
       saveNews,
       removeNews,

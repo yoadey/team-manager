@@ -276,7 +276,7 @@ describe('RoleFormSheet', () => {
   it('clicking a "Schreiben" button marks it pressed', () => {
     const app = makeFormApp();
     render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
-    const writeButton = screen.getAllByText('Schreiben')[0].closest('button')!;
+    const writeButton = screen.getAllByText('Schreiben')[0]!.closest('button')!;
     fireEvent.click(writeButton);
     expect(writeButton).toHaveAttribute('aria-pressed', 'true');
   });
@@ -284,7 +284,7 @@ describe('RoleFormSheet', () => {
   it('clicking "Lesen" marks it pressed', () => {
     const app = makeFormApp();
     render(<RoleFormSheet app={app as never} sheet={makeFormSheet()} />);
-    const readButton = screen.getAllByText('Lesen')[0].closest('button')!;
+    const readButton = screen.getAllByText('Lesen')[0]!.closest('button')!;
     fireEvent.click(readButton);
     expect(readButton).toHaveAttribute('aria-pressed', 'true');
   });
@@ -296,7 +296,7 @@ describe('RoleFormSheet', () => {
       perms: { events: 'write', members: 'none', finances: 'none', news: 'none', polls: 'none', settings: 'none' },
     });
     render(<RoleFormSheet app={app as never} sheet={sheet} />);
-    const noneButton = screen.getAllByText('—')[0].closest('button')!;
+    const noneButton = screen.getAllByText('—')[0]!.closest('button')!;
     fireEvent.click(noneButton);
     expect(noneButton).toHaveAttribute('aria-pressed', 'true');
   });
@@ -305,7 +305,7 @@ describe('RoleFormSheet', () => {
     const app = makeFormApp();
     const sheet = makeFormSheet({ name: 'Trainer' });
     render(<RoleFormSheet app={app as never} sheet={sheet} />);
-    const writeButton = screen.getAllByText('Schreiben')[0].closest('button')!;
+    const writeButton = screen.getAllByText('Schreiben')[0]!.closest('button')!;
     fireEvent.click(writeButton);
     const saveBtn = screen.getByRole('button', { name: /Rolle speichern/i });
     fireEvent.click(saveBtn);

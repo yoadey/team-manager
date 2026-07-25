@@ -202,7 +202,7 @@ describe('useMemberActions', () => {
       result.current.openMemberForm(member);
     });
     expect(setState).toHaveBeenCalled();
-    const call = setState.mock.calls[0][0];
+    const call = setState.mock.calls[0]![0];
     const patch = typeof call === 'function' ? call(stateRef) : call;
     expect(patch.sheet).toMatchObject({ type: 'memberForm', mode: 'edit' });
     expect((patch.sheet as never as { formInitial: unknown }).formInitial).toMatchObject({
@@ -483,7 +483,7 @@ describe('useMemberActions', () => {
     act(() => {
       result.current.removeMember('ms1');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
 
     // User switches the active team while the confirm dialog is still open.
     stateRef = { ...stateRef, activeTeamId: 'team2' };
@@ -506,7 +506,7 @@ describe('useMemberActions', () => {
         danger: true,
       }),
     );
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
     expect(cfg.message).toContain('Alice');
   });
 
@@ -515,7 +515,7 @@ describe('useMemberActions', () => {
     act(() => {
       result.current.removeMember('ms1');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
     await act(async () => {
       await cfg.onConfirm();
     });
@@ -536,7 +536,7 @@ describe('useMemberActions', () => {
     act(() => {
       result.current.removeMember('ms1');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
 
     let confirmPromise!: Promise<void>;
     act(() => {

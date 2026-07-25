@@ -94,7 +94,7 @@ export function PollsPage() {
               />
               {canDelete ? (
                 <ButtonBase
-                  onClick={() => app.removePoll(p.id)}
+                  onClick={() => app.removePoll(p.id, p.question)}
                   aria-label={t('polls.deleteLabel')}
                   sx={{
                     width: '30px',

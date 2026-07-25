@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
@@ -392,6 +393,22 @@ type AppNotification struct {
 	Unread        *bool               `json:"unread,omitempty"`
 }
 
+// AttendanceAbsenceRow defines model for AttendanceAbsenceRow.
+type AttendanceAbsenceRow struct {
+	EventDate  openapi_types.Date `json:"eventDate"`
+	EventId    openapi_types.UUID `json:"eventId"`
+	EventTitle string             `json:"eventTitle"`
+	MemberName string             `json:"memberName"`
+	UserId     openapi_types.UUID `json:"userId"`
+}
+
+// AttendanceAbsenceTable defines model for AttendanceAbsenceTable.
+type AttendanceAbsenceTable struct {
+	From openapi_types.Date     `json:"from"`
+	Rows []AttendanceAbsenceRow `json:"rows"`
+	To   openapi_types.Date     `json:"to"`
+}
+
 // AttendanceMatrix defines model for AttendanceMatrix.
 type AttendanceMatrix struct {
 	// Events Columns, ordered by date ascending.
@@ -461,6 +478,12 @@ type AttendanceRowReasonVisibility string
 // AttendanceStatus defines model for AttendanceStatus.
 type AttendanceStatus string
 
+// CalendarFeedToken defines model for CalendarFeedToken.
+type CalendarFeedToken struct {
+	// Url Ready-to-use calendar subscription URL (https://...).
+	Url string `json:"url"`
+}
+
 // Contribution defines model for Contribution.
 type Contribution struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
@@ -491,7 +514,10 @@ type CreateAbsenceRequest struct {
 
 // CreateEventRequest defines model for CreateEventRequest.
 type CreateEventRequest struct {
-	Date              openapi_types.Date    `json:"date"`
+	Date openapi_types.Date `json:"date"`
+
+	// EndDate Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
+	EndDate           *openapi_types.Date   `json:"endDate,omitempty"`
 	EndTime           *string               `json:"endTime,omitempty"`
 	Location          *string               `json:"location,omitempty"`
 	MeetTime          *string               `json:"meetTime,omitempty"`
@@ -501,9 +527,12 @@ type CreateEventRequest struct {
 	Recurring         *bool                 `json:"recurring,omitempty"`
 	RepeatWeeks       *int                  `json:"repeatWeeks,omitempty"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-	StartTime         *string               `json:"startTime,omitempty"`
-	Title             string                `json:"title"`
-	Type              EventType             `json:"type"`
+
+	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
+	RsvpDeadline *time.Time `json:"rsvpDeadline,omitempty"`
+	StartTime    *string    `json:"startTime,omitempty"`
+	Title        string     `json:"title"`
+	Type         EventType  `json:"type"`
 }
 
 // CreateNewsRequest defines model for CreateNewsRequest.
@@ -515,6 +544,11 @@ type CreateNewsRequest struct {
 
 // CreatePenaltyAssignmentRequest defines model for CreatePenaltyAssignmentRequest.
 type CreatePenaltyAssignmentRequest struct {
+	// Date The date the penalty was earned (e.g. to back-date an assignment recorded after the fact). Defaults to the server's current date when omitted.
+	Date *openapi_types.Date `json:"date,omitempty"`
+
+	// Note Optional free-text note explaining the assignment.
+	Note      *string            `json:"note,omitempty"`
 	PenaltyId openapi_types.UUID `json:"penaltyId"`
 	UserId    openapi_types.UUID `json:"userId"`
 }
@@ -744,6 +778,7 @@ type PenaltyAssignment struct {
 	Label             *string            `json:"label,omitempty"`
 	MemberAvatarColor *string            `json:"memberAvatarColor,omitempty"`
 	MemberName        *string            `json:"memberName,omitempty"`
+	Note              *string            `json:"note,omitempty"`
 	Paid              bool               `json:"paid"`
 
 	// PenaltyId The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
@@ -813,6 +848,31 @@ type Provider struct {
 	Id     string  `json:"id"`
 	Name   string  `json:"name"`
 	Sub    string  `json:"sub"`
+}
+
+// PushSubscriptionRequest Mirrors the shape PushSubscription.toJSON() produces in the browser.
+type PushSubscriptionRequest struct {
+	Endpoint string `json:"endpoint"`
+	Keys     struct {
+		Auth   string `json:"auth"`
+		P256dh string `json:"p256dh"`
+	} `json:"keys"`
+}
+
+// RegisterRequest defines model for RegisterRequest.
+type RegisterRequest struct {
+	Email    openapi_types.Email `json:"email"`
+	Password string              `json:"password"`
+}
+
+// RegisterResponse defines model for RegisterResponse.
+type RegisterResponse struct {
+	Message string `json:"message"`
+}
+
+// ResendVerificationRequest defines model for ResendVerificationRequest.
+type ResendVerificationRequest struct {
+	Email openapi_types.Email `json:"email"`
 }
 
 // ResponseMode defines model for ResponseMode.
@@ -908,7 +968,10 @@ type TeamEvent struct {
 	Recurring         bool                  `json:"recurring"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
 	Result            *string               `json:"result,omitempty"`
-	SeriesId          *openapi_types.UUID   `json:"seriesId,omitempty"`
+
+	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
+	RsvpDeadline *time.Time          `json:"rsvpDeadline,omitempty"`
+	SeriesId     *openapi_types.UUID `json:"seriesId,omitempty"`
 
 	// StartTime HH:mm
 	StartTime *string            `json:"startTime,omitempty"`
@@ -978,9 +1041,12 @@ type UpdateEventRequest struct {
 	NominatedRoleIds  *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
 	Note              *string               `json:"note,omitempty"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-	StartTime         *string               `json:"startTime,omitempty"`
-	Title             *string               `json:"title,omitempty"`
-	Type              *EventType            `json:"type,omitempty"`
+
+	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response.
+	RsvpDeadline *time.Time `json:"rsvpDeadline,omitempty"`
+	StartTime    *string    `json:"startTime,omitempty"`
+	Title        *string    `json:"title,omitempty"`
+	Type         *EventType `json:"type,omitempty"`
 }
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.
@@ -1052,6 +1118,11 @@ type User struct {
 	Phone       *string             `json:"phone,omitempty"`
 }
 
+// VerifyEmailRequest defines model for VerifyEmailRequest.
+type VerifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
 // VotePollRequest defines model for VotePollRequest.
 type VotePollRequest struct {
 	// OptionIds Empty array clears the caller's vote. Voting UIs let a user un-select their last remaining choice on a multi-select poll, which submits an empty array to retract the vote entirely. Capped to match CreatePollRequest.options' maxItems, since a poll can never have more options than that to vote for.
@@ -1075,6 +1146,9 @@ type RoleId = openapi_types.UUID
 
 // TeamId defines model for teamId.
 type TeamId = openapi_types.UUID
+
+// Forbidden RFC 9457 Problem Details
+type Forbidden = Problem
 
 // NotFound RFC 9457 Problem Details
 type NotFound = Problem
@@ -1204,10 +1278,21 @@ type GetStatsOverviewParams struct {
 	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// GetStatsAbsencesParams defines parameters for GetStatsAbsences.
+type GetStatsAbsencesParams struct {
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
 // GetAttendanceMatrixParams defines parameters for GetAttendanceMatrix.
 type GetAttendanceMatrixParams struct {
 	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
 	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// DeletePushSubscriptionParams defines parameters for DeletePushSubscription.
+type DeletePushSubscriptionParams struct {
+	Endpoint string `form:"endpoint" json:"endpoint"`
 }
 
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
@@ -1218,6 +1303,15 @@ type DeleteCurrentUserJSONRequestBody = DeleteAccountRequest
 
 // UploadMyPhotoMultipartRequestBody defines body for UploadMyPhoto for multipart/form-data ContentType.
 type UploadMyPhotoMultipartRequestBody UploadMyPhotoMultipartBody
+
+// RegisterJSONRequestBody defines body for Register for application/json ContentType.
+type RegisterJSONRequestBody = RegisterRequest
+
+// ResendVerificationJSONRequestBody defines body for ResendVerification for application/json ContentType.
+type ResendVerificationJSONRequestBody = ResendVerificationRequest
+
+// VerifyEmailJSONRequestBody defines body for VerifyEmail for application/json ContentType.
+type VerifyEmailJSONRequestBody = VerifyEmailRequest
 
 // CreateTeamJSONRequestBody defines body for CreateTeam for application/json ContentType.
 type CreateTeamJSONRequestBody = CreateTeamRequest
@@ -1303,6 +1397,9 @@ type CreateRoleJSONRequestBody = CreateRoleRequest
 // UpdateRoleJSONRequestBody defines body for UpdateRole for application/json ContentType.
 type UpdateRoleJSONRequestBody = UpdateRoleRequest
 
+// RegisterPushSubscriptionJSONRequestBody defines body for RegisterPushSubscription for application/json ContentType.
+type RegisterPushSubscriptionJSONRequestBody = PushSubscriptionRequest
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Authenticate with email + password
@@ -1329,6 +1426,18 @@ type ServerInterface interface {
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(w http.ResponseWriter, r *http.Request)
+	// Self-register a new account with email + password
+	// (POST /auth/register)
+	Register(w http.ResponseWriter, r *http.Request)
+	// Resend the email verification link
+	// (POST /auth/resend-verification)
+	ResendVerification(w http.ResponseWriter, r *http.Request)
+	// Consume an email verification token and establish a session
+	// (POST /auth/verify-email)
+	VerifyEmail(w http.ResponseWriter, r *http.Request)
+	// Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model.
+	// (GET /calendar-feed/{token}.ics)
+	GetCalendarFeed(w http.ResponseWriter, r *http.Request, token string)
 	// Redeem an invite code, adding the authenticated user to its team
 	// (POST /invites/{code}/accept)
 	AcceptInvite(w http.ResponseWriter, r *http.Request, code string)
@@ -1359,6 +1468,12 @@ type ServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID)
+	// Revoke the caller's calendar subscription link for this team
+	// (DELETE /teams/{teamId}/calendar-feed/token)
+	RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Issue (or rotate) the caller's calendar subscription link for this team
+	// (POST /teams/{teamId}/calendar-feed/token)
+	IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// List events
 	// (GET /teams/{teamId}/events)
 	ListEvents(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListEventsParams)
@@ -1515,12 +1630,21 @@ type ServerInterface interface {
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsOverviewParams)
+	// Per-member, per-event absence table for the date range
+	// (GET /teams/{teamId}/stats/absences)
+	GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams)
 	// Per-member-per-event attendance matrix
 	// (GET /teams/{teamId}/stats/attendance-matrix)
 	GetAttendanceMatrix(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetAttendanceMatrixParams)
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID)
+	// Unregister a Web Push subscription
+	// (DELETE /users/me/push-subscriptions)
+	DeletePushSubscription(w http.ResponseWriter, r *http.Request, params DeletePushSubscriptionParams)
+	// Register (or update) this browser's Web Push subscription
+	// (POST /users/me/push-subscriptions)
+	RegisterPushSubscription(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -1572,6 +1696,30 @@ func (_ Unimplemented) UploadMyPhoto(w http.ResponseWriter, r *http.Request) {
 // List available login providers
 // (GET /auth/providers)
 func (_ Unimplemented) ListProviders(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Self-register a new account with email + password
+// (POST /auth/register)
+func (_ Unimplemented) Register(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Resend the email verification link
+// (POST /auth/resend-verification)
+func (_ Unimplemented) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Consume an email verification token and establish a session
+// (POST /auth/verify-email)
+func (_ Unimplemented) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model.
+// (GET /calendar-feed/{token}.ics)
+func (_ Unimplemented) GetCalendarFeed(w http.ResponseWriter, r *http.Request, token string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1632,6 +1780,18 @@ func (_ Unimplemented) DeleteAbsence(w http.ResponseWriter, r *http.Request, tea
 // Update absence
 // (PATCH /teams/{teamId}/absences/{absenceId})
 func (_ Unimplemented) UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke the caller's calendar subscription link for this team
+// (DELETE /teams/{teamId}/calendar-feed/token)
+func (_ Unimplemented) RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Issue (or rotate) the caller's calendar subscription link for this team
+// (POST /teams/{teamId}/calendar-feed/token)
+func (_ Unimplemented) IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1947,6 +2107,12 @@ func (_ Unimplemented) GetStatsOverview(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Per-member, per-event absence table for the date range
+// (GET /teams/{teamId}/stats/absences)
+func (_ Unimplemented) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Per-member-per-event attendance matrix
 // (GET /teams/{teamId}/stats/attendance-matrix)
 func (_ Unimplemented) GetAttendanceMatrix(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetAttendanceMatrixParams) {
@@ -1956,6 +2122,18 @@ func (_ Unimplemented) GetAttendanceMatrix(w http.ResponseWriter, r *http.Reques
 // Individual member attendance statistics
 // (GET /teams/{teamId}/stats/members/{userId})
 func (_ Unimplemented) GetMemberStats(w http.ResponseWriter, r *http.Request, teamId TeamId, userId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Unregister a Web Push subscription
+// (DELETE /users/me/push-subscriptions)
+func (_ Unimplemented) DeletePushSubscription(w http.ResponseWriter, r *http.Request, params DeletePushSubscriptionParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register (or update) this browser's Web Push subscription
+// (POST /users/me/push-subscriptions)
+func (_ Unimplemented) RegisterPushSubscription(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2107,6 +2285,74 @@ func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// Register operation middleware
+func (siw *ServerInterfaceWrapper) Register(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Register(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResendVerification operation middleware
+func (siw *ServerInterfaceWrapper) ResendVerification(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResendVerification(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// VerifyEmail operation middleware
+func (siw *ServerInterfaceWrapper) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.VerifyEmail(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCalendarFeed operation middleware
+func (siw *ServerInterfaceWrapper) GetCalendarFeed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "token" -------------
+	var token string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "token", chi.URLParam(r, "token"), &token, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "token", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCalendarFeed(w, r, token)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2479,6 +2725,70 @@ func (siw *ServerInterfaceWrapper) UpdateAbsence(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAbsence(w, r, teamId, absenceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeCalendarFeedToken operation middleware
+func (siw *ServerInterfaceWrapper) RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeCalendarFeedToken(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// IssueCalendarFeedToken operation middleware
+func (siw *ServerInterfaceWrapper) IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.IssueCalendarFeedToken(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4677,6 +4987,67 @@ func (siw *ServerInterfaceWrapper) GetStatsOverview(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetStatsAbsences operation middleware
+func (siw *ServerInterfaceWrapper) GetStatsAbsences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetStatsAbsencesParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStatsAbsences(w, r, teamId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetAttendanceMatrix operation middleware
 func (siw *ServerInterfaceWrapper) GetAttendanceMatrix(w http.ResponseWriter, r *http.Request) {
 
@@ -4770,6 +5141,65 @@ func (siw *ServerInterfaceWrapper) GetMemberStats(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMemberStats(w, r, teamId, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePushSubscription operation middleware
+func (siw *ServerInterfaceWrapper) DeletePushSubscription(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeletePushSubscriptionParams
+
+	// ------------- Required query parameter "endpoint" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "endpoint", r.URL.Query(), &params.Endpoint, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "endpoint"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "endpoint", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePushSubscription(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegisterPushSubscription operation middleware
+func (siw *ServerInterfaceWrapper) RegisterPushSubscription(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegisterPushSubscription(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4917,6 +5347,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/auth/providers", wrapper.ListProviders)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/register", wrapper.Register)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/resend-verification", wrapper.ResendVerification)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/verify-email", wrapper.VerifyEmail)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/calendar-feed/{token}.ics", wrapper.GetCalendarFeed)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/invites/{code}/accept", wrapper.AcceptInvite)
 	})
 	r.Group(func(r chi.Router) {
@@ -4945,6 +5387,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/teams/{teamId}/absences/{absenceId}", wrapper.UpdateAbsence)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/calendar-feed/token", wrapper.RevokeCalendarFeedToken)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams/{teamId}/calendar-feed/token", wrapper.IssueCalendarFeedToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/events", wrapper.ListEvents)
@@ -5103,18 +5551,36 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/teams/{teamId}/stats", wrapper.GetStatsOverview)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/stats/absences", wrapper.GetStatsAbsences)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/attendance-matrix", wrapper.GetAttendanceMatrix)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats/members/{userId}", wrapper.GetMemberStats)
 	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/users/me/push-subscriptions", wrapper.DeletePushSubscription)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/users/me/push-subscriptions", wrapper.RegisterPushSubscription)
+	})
 
 	return r
 }
 
+type ForbiddenApplicationProblemPlusJSONResponse Problem
+
 type NotFoundApplicationProblemPlusJSONResponse Problem
 
 type PayloadTooLargeApplicationProblemPlusJSONResponse Problem
+
+type PhotoBytesImageResponse struct {
+	Body io.Reader
+
+	ContentType   string
+	ContentLength int64
+}
 
 type PhotoRedirectResponseHeaders struct {
 	Location *string
@@ -5404,6 +5870,180 @@ func (response ListProviders200JSONResponse) VisitListProvidersResponse(w http.R
 	return err
 }
 
+type RegisterRequestObject struct {
+	Body *RegisterJSONRequestBody
+}
+
+type RegisterResponseObject interface {
+	VisitRegisterResponse(w http.ResponseWriter) error
+}
+
+type Register202JSONResponse RegisterResponse
+
+func (response Register202JSONResponse) VisitRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Register403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response Register403ApplicationProblemPlusJSONResponse) VisitRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type Register429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response Register429ApplicationProblemPlusJSONResponse) VisitRegisterResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResendVerificationRequestObject struct {
+	Body *ResendVerificationJSONRequestBody
+}
+
+type ResendVerificationResponseObject interface {
+	VisitResendVerificationResponse(w http.ResponseWriter) error
+}
+
+type ResendVerification202JSONResponse RegisterResponse
+
+func (response ResendVerification202JSONResponse) VisitResendVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResendVerification429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ResendVerification429ApplicationProblemPlusJSONResponse) VisitResendVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type VerifyEmailRequestObject struct {
+	Body *VerifyEmailJSONRequestBody
+}
+
+type VerifyEmailResponseObject interface {
+	VisitVerifyEmailResponse(w http.ResponseWriter) error
+}
+
+type VerifyEmail200JSONResponse LoginResponse
+
+func (response VerifyEmail200JSONResponse) VisitVerifyEmailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type VerifyEmail401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response VerifyEmail401ApplicationProblemPlusJSONResponse) VisitVerifyEmailResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCalendarFeedRequestObject struct {
+	Token string `json:"token"`
+}
+
+type GetCalendarFeedResponseObject interface {
+	VisitGetCalendarFeedResponse(w http.ResponseWriter) error
+}
+
+type GetCalendarFeed200TextcalendarResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetCalendarFeed200TextcalendarResponse) VisitGetCalendarFeedResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/calendar")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetCalendarFeed404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetCalendarFeed404ApplicationProblemPlusJSONResponse) VisitGetCalendarFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type AcceptInviteRequestObject struct {
 	Code string `json:"code"`
 }
@@ -5655,6 +6295,44 @@ type UpdateAbsenceResponseObject interface {
 type UpdateAbsence200JSONResponse Absence
 
 func (response UpdateAbsence200JSONResponse) VisitUpdateAbsenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeCalendarFeedTokenRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type RevokeCalendarFeedTokenResponseObject interface {
+	VisitRevokeCalendarFeedTokenResponse(w http.ResponseWriter) error
+}
+
+type RevokeCalendarFeedToken204Response struct {
+}
+
+func (response RevokeCalendarFeedToken204Response) VisitRevokeCalendarFeedTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type IssueCalendarFeedTokenRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type IssueCalendarFeedTokenResponseObject interface {
+	VisitIssueCalendarFeedTokenResponse(w http.ResponseWriter) error
+}
+
+type IssueCalendarFeedToken200JSONResponse CalendarFeedToken
+
+func (response IssueCalendarFeedToken200JSONResponse) VisitIssueCalendarFeedTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6296,6 +6974,23 @@ type GetTeamLogoResponseObject interface {
 	VisitGetTeamLogoResponse(w http.ResponseWriter) error
 }
 
+type GetTeamLogo200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetTeamLogo200ImageResponse) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
 type GetTeamLogo302Response = PhotoRedirectResponse
 
 func (response GetTeamLogo302Response) VisitGetTeamLogoResponse(w http.ResponseWriter) error {
@@ -6437,6 +7132,23 @@ type GetMemberPhotoRequestObject struct {
 
 type GetMemberPhotoResponseObject interface {
 	VisitGetMemberPhotoResponse(w http.ResponseWriter) error
+}
+
+type GetMemberPhoto200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetMemberPhoto200ImageResponse) VisitGetMemberPhotoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
 }
 
 type GetMemberPhoto302Response = PhotoRedirectResponse
@@ -6641,6 +7353,23 @@ type GetTeamPhotoRequestObject struct {
 
 type GetTeamPhotoResponseObject interface {
 	VisitGetTeamPhotoResponse(w http.ResponseWriter) error
+}
+
+type GetTeamPhoto200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetTeamPhoto200ImageResponse) VisitGetTeamPhotoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
 }
 
 type GetTeamPhoto302Response = PhotoRedirectResponse
@@ -6909,6 +7638,29 @@ func (response GetStatsOverview200JSONResponse) VisitGetStatsOverviewResponse(w 
 	return err
 }
 
+type GetStatsAbsencesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Params GetStatsAbsencesParams
+}
+
+type GetStatsAbsencesResponseObject interface {
+	VisitGetStatsAbsencesResponse(w http.ResponseWriter) error
+}
+
+type GetStatsAbsences200JSONResponse AttendanceAbsenceTable
+
+func (response GetStatsAbsences200JSONResponse) VisitGetStatsAbsencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetAttendanceMatrixRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 	Params GetAttendanceMatrixParams
@@ -6955,6 +7707,38 @@ func (response GetMemberStats200JSONResponse) VisitGetMemberStatsResponse(w http
 	return err
 }
 
+type DeletePushSubscriptionRequestObject struct {
+	Params DeletePushSubscriptionParams
+}
+
+type DeletePushSubscriptionResponseObject interface {
+	VisitDeletePushSubscriptionResponse(w http.ResponseWriter) error
+}
+
+type DeletePushSubscription204Response struct {
+}
+
+func (response DeletePushSubscription204Response) VisitDeletePushSubscriptionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RegisterPushSubscriptionRequestObject struct {
+	Body *RegisterPushSubscriptionJSONRequestBody
+}
+
+type RegisterPushSubscriptionResponseObject interface {
+	VisitRegisterPushSubscriptionResponse(w http.ResponseWriter) error
+}
+
+type RegisterPushSubscription204Response struct {
+}
+
+func (response RegisterPushSubscription204Response) VisitRegisterPushSubscriptionResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// Authenticate with email + password
@@ -6981,6 +7765,18 @@ type StrictServerInterface interface {
 	// List available login providers
 	// (GET /auth/providers)
 	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
+	// Self-register a new account with email + password
+	// (POST /auth/register)
+	Register(ctx context.Context, request RegisterRequestObject) (RegisterResponseObject, error)
+	// Resend the email verification link
+	// (POST /auth/resend-verification)
+	ResendVerification(ctx context.Context, request ResendVerificationRequestObject) (ResendVerificationResponseObject, error)
+	// Consume an email verification token and establish a session
+	// (POST /auth/verify-email)
+	VerifyEmail(ctx context.Context, request VerifyEmailRequestObject) (VerifyEmailResponseObject, error)
+	// Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model.
+	// (GET /calendar-feed/{token}.ics)
+	GetCalendarFeed(ctx context.Context, request GetCalendarFeedRequestObject) (GetCalendarFeedResponseObject, error)
 	// Redeem an invite code, adding the authenticated user to its team
 	// (POST /invites/{code}/accept)
 	AcceptInvite(ctx context.Context, request AcceptInviteRequestObject) (AcceptInviteResponseObject, error)
@@ -7011,6 +7807,12 @@ type StrictServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(ctx context.Context, request UpdateAbsenceRequestObject) (UpdateAbsenceResponseObject, error)
+	// Revoke the caller's calendar subscription link for this team
+	// (DELETE /teams/{teamId}/calendar-feed/token)
+	RevokeCalendarFeedToken(ctx context.Context, request RevokeCalendarFeedTokenRequestObject) (RevokeCalendarFeedTokenResponseObject, error)
+	// Issue (or rotate) the caller's calendar subscription link for this team
+	// (POST /teams/{teamId}/calendar-feed/token)
+	IssueCalendarFeedToken(ctx context.Context, request IssueCalendarFeedTokenRequestObject) (IssueCalendarFeedTokenResponseObject, error)
 	// List events
 	// (GET /teams/{teamId}/events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
@@ -7167,12 +7969,21 @@ type StrictServerInterface interface {
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(ctx context.Context, request GetStatsOverviewRequestObject) (GetStatsOverviewResponseObject, error)
+	// Per-member, per-event absence table for the date range
+	// (GET /teams/{teamId}/stats/absences)
+	GetStatsAbsences(ctx context.Context, request GetStatsAbsencesRequestObject) (GetStatsAbsencesResponseObject, error)
 	// Per-member-per-event attendance matrix
 	// (GET /teams/{teamId}/stats/attendance-matrix)
 	GetAttendanceMatrix(ctx context.Context, request GetAttendanceMatrixRequestObject) (GetAttendanceMatrixResponseObject, error)
 	// Individual member attendance statistics
 	// (GET /teams/{teamId}/stats/members/{userId})
 	GetMemberStats(ctx context.Context, request GetMemberStatsRequestObject) (GetMemberStatsResponseObject, error)
+	// Unregister a Web Push subscription
+	// (DELETE /users/me/push-subscriptions)
+	DeletePushSubscription(ctx context.Context, request DeletePushSubscriptionRequestObject) (DeletePushSubscriptionResponseObject, error)
+	// Register (or update) this browser's Web Push subscription
+	// (POST /users/me/push-subscriptions)
+	RegisterPushSubscription(ctx context.Context, request RegisterPushSubscriptionRequestObject) (RegisterPushSubscriptionResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -7410,6 +8221,125 @@ func (sh *strictHandler) ListProviders(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListProvidersResponseObject); ok {
 		if err := validResponse.VisitListProvidersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// Register operation middleware
+func (sh *strictHandler) Register(w http.ResponseWriter, r *http.Request) {
+	var request RegisterRequestObject
+
+	var body RegisterJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Register(ctx, request.(RegisterRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Register")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegisterResponseObject); ok {
+		if err := validResponse.VisitRegisterResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResendVerification operation middleware
+func (sh *strictHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var request ResendVerificationRequestObject
+
+	var body ResendVerificationJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResendVerification(ctx, request.(ResendVerificationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResendVerification")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResendVerificationResponseObject); ok {
+		if err := validResponse.VisitResendVerificationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// VerifyEmail operation middleware
+func (sh *strictHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var request VerifyEmailRequestObject
+
+	var body VerifyEmailJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.VerifyEmail(ctx, request.(VerifyEmailRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "VerifyEmail")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(VerifyEmailResponseObject); ok {
+		if err := validResponse.VisitVerifyEmailResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCalendarFeed operation middleware
+func (sh *strictHandler) GetCalendarFeed(w http.ResponseWriter, r *http.Request, token string) {
+	var request GetCalendarFeedRequestObject
+
+	request.Token = token
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCalendarFeed(ctx, request.(GetCalendarFeedRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCalendarFeed")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCalendarFeedResponseObject); ok {
+		if err := validResponse.VisitGetCalendarFeedResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7698,6 +8628,58 @@ func (sh *strictHandler) UpdateAbsence(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAbsenceResponseObject); ok {
 		if err := validResponse.VisitUpdateAbsenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeCalendarFeedToken operation middleware
+func (sh *strictHandler) RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request RevokeCalendarFeedTokenRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeCalendarFeedToken(ctx, request.(RevokeCalendarFeedTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeCalendarFeedToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeCalendarFeedTokenResponseObject); ok {
+		if err := validResponse.VisitRevokeCalendarFeedTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// IssueCalendarFeedToken operation middleware
+func (sh *strictHandler) IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request IssueCalendarFeedTokenRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.IssueCalendarFeedToken(ctx, request.(IssueCalendarFeedTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "IssueCalendarFeedToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(IssueCalendarFeedTokenResponseObject); ok {
+		if err := validResponse.VisitIssueCalendarFeedTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9264,6 +10246,33 @@ func (sh *strictHandler) GetStatsOverview(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GetStatsAbsences operation middleware
+func (sh *strictHandler) GetStatsAbsences(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsAbsencesParams) {
+	var request GetStatsAbsencesRequestObject
+
+	request.TeamId = teamId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStatsAbsences(ctx, request.(GetStatsAbsencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStatsAbsences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStatsAbsencesResponseObject); ok {
+		if err := validResponse.VisitGetStatsAbsencesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetAttendanceMatrix operation middleware
 func (sh *strictHandler) GetAttendanceMatrix(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetAttendanceMatrixParams) {
 	var request GetAttendanceMatrixRequestObject
@@ -9311,6 +10320,63 @@ func (sh *strictHandler) GetMemberStats(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMemberStatsResponseObject); ok {
 		if err := validResponse.VisitGetMemberStatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeletePushSubscription operation middleware
+func (sh *strictHandler) DeletePushSubscription(w http.ResponseWriter, r *http.Request, params DeletePushSubscriptionParams) {
+	var request DeletePushSubscriptionRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePushSubscription(ctx, request.(DeletePushSubscriptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePushSubscription")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeletePushSubscriptionResponseObject); ok {
+		if err := validResponse.VisitDeletePushSubscriptionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RegisterPushSubscription operation middleware
+func (sh *strictHandler) RegisterPushSubscription(w http.ResponseWriter, r *http.Request) {
+	var request RegisterPushSubscriptionRequestObject
+
+	var body RegisterPushSubscriptionJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RegisterPushSubscription(ctx, request.(RegisterPushSubscriptionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RegisterPushSubscription")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RegisterPushSubscriptionResponseObject); ok {
+		if err := validResponse.VisitRegisterPushSubscriptionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

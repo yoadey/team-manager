@@ -23,6 +23,7 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
     recurring: false,
     seriesId: null,
     status: 'active',
+    rsvpDeadline: null,
     summary: { yes: 0, no: 0, maybe: 0, pending: 0 } as never,
     myStatus: 'pending',
     myAuto: false,
@@ -104,8 +105,8 @@ describe('useCalExportActions', () => {
       result.current.downloadIcs();
     });
 
-    expect(capturedIcsText).toContain('Performance / Tournament');
-    expect(capturedIcsText).not.toContain('Auftritt / Turnier');
+    expect(capturedIcsText).toContain('Competition / Performance');
+    expect(capturedIcsText).not.toContain('Wettkampf / Auftritt');
     expect(capturedIcsText).not.toContain('Treffen');
     expect(capturedIcsText).not.toContain('Typ:');
   });
@@ -122,7 +123,7 @@ describe('useCalExportActions', () => {
       result.current.downloadIcs();
     });
 
-    expect(capturedIcsText).toContain('Auftritt / Turnier');
+    expect(capturedIcsText).toContain('Wettkampf / Auftritt');
   });
 });
 
@@ -245,12 +246,14 @@ describe('useCalExportActions (sheet/filter/copy)', () => {
     expect(toastMsg).toHaveBeenCalledWith('1 Termine als .ics exportiert');
   });
 
+  const testFeedUrl = 'https://app.example.com/api/v1/calendar-feed/abc123.ics';
+
   it('copyCalUrl sets copied and shows toast', async () => {
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     stateRef = makeFilterCopyState({ sheet: { type: 'calExport' } as never });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.copyCalUrl();
+      await result.current.copyCalUrl(testFeedUrl);
     });
     expect(toastMsg).toHaveBeenCalledWith('Abo-Link kopiert');
   });
@@ -260,7 +263,7 @@ describe('useCalExportActions (sheet/filter/copy)', () => {
     stateRef = makeFilterCopyState({ sheet: { type: 'calExport' } as never });
     const { result } = renderActions();
     await act(async () => {
-      await result.current.copyCalUrl();
+      await result.current.copyCalUrl(testFeedUrl);
     });
     expect(toastMsg).toHaveBeenCalledWith('Kopieren fehlgeschlagen', undefined, 'error');
   });
@@ -281,7 +284,7 @@ describe('useCalExportActions (sheet/filter/copy)', () => {
 
     let copyPromise!: Promise<void>;
     act(() => {
-      copyPromise = result.current.copyCalUrl();
+      copyPromise = result.current.copyCalUrl(testFeedUrl);
     });
 
     // User switches teams and opens THAT team's own (also empty) calExport sheet.

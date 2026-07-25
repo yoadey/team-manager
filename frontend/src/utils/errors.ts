@@ -24,7 +24,9 @@ export class NetworkError extends Error {
 /** Thrown when the server rejects input (HTTP 400 / 422). */
 export class ValidationError extends Error {
   readonly kind = 'validation' as const;
-  readonly field?: string;
+  // Explicit `| undefined` -- "no field associated with this error" is a
+  // real, distinct case (a form-wide error), not just "field unset".
+  readonly field?: string | undefined;
   constructor(message: string, field?: string) {
     super(message);
     this.name = 'ValidationError';

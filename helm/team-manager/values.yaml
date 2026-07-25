@@ -1,5 +1,29 @@
 # Default values for team-manager.
 # Override per-environment with values-staging.yaml / values-prod.yaml.
+#
+# Structure: every backend configuration surface is grouped into a typed
+# section below (server, session, database, jwt, s3, smtp, ...) and
+# validated by values.schema.json at `helm template`/`install`/`upgrade`/
+# `lint` time. There is no flat env map and no single combined Secret --
+# each section with sensitive values has its own `secret` block:
+#
+#   <section>:
+#     secret:
+#       existingSecret: ""   # required -- name of a Secret you manage yourself (no in-chart alternative:
+#                             # this chart never creates/holds secret material itself)
+#       keys:
+#         <field>: "<key>"   # key name(s) inside that Secret, e.g. "password", "access-key-id" --
+#                             # lowercase, dash-separated (Kubernetes Secret key convention), deliberately
+#                             # NOT the backend's own env var names -- override to match your existingSecret's
+#                             # actual key names (e.g. one populated by External Secrets Operator from a
+#                             # store with its own naming convention)
+#
+# Every value below that's structurally part of a connection (host/port/
+# username/...) is its own plain field, not folded into one opaque
+# connection-string value -- where the backend needs a single value (e.g.
+# DATABASE_URL), this chart composes it from the plain fields plus the
+# Secret-sourced ones (see database's comment below for how, and its one
+# real limitation).
 
 replicaCount: 2
 
@@ -42,6 +66,14 @@ image:
   # 1.2.3, matching a real vX.Y.Z release tag with the v stripped) for any
   # real deployment. templates/NOTES.txt warns about this at deploy time.
   tag: ""
+  # Pins the image by digest instead of tag when set (takes precedence over
+  # tag/appVersion above) -- same rationale as backup.postgresImageDigest/
+  # backup.s3.awsCliImage below: a tag-hijack of a mutable upstream tag
+  # can't silently change what's running. Left empty by default since,
+  # unlike the backup job's images, this repo's own release process is the
+  # source of the tag, and a chart-shipped default digest would go stale
+  # the same way a default image.tag would.
+  digest: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -56,12 +88,35 @@ serviceAccount:
   annotations: {}
   name: ""
 
+# Pod scheduling priority (must name a PriorityClass already present in the
+# cluster). Left empty by default -- Kubernetes' own default priority
+# applies.
+priorityClassName: ""
+
+# Constrains how pod replicas spread across topology domains (zones, nodes,
+# ...) -- e.g. [{maxSkew: 1, topologyKey: topology.kubernetes.io/zone,
+# whenUnsatisfiable: ScheduleAnyway, labelSelector: {matchLabels: ...}}].
+# Left empty by default; complements (does not replace) the podAntiAffinity
+# default below.
+topologySpreadConstraints: []
+
 podAnnotations:
   prometheus.io/scrape: "true"
   # prometheus.io/port is deliberately not set here -- deployment.yaml
   # templates it directly from .Values.service.targetPort so it can never
   # drift from the port the container actually listens on.
   prometheus.io/path: "/metrics"
+
+podLabels: {}
+
+# Escape hatches for needs this chart doesn't model directly -- appended
+# as-is (raw Kubernetes EnvVar/Volume/VolumeMount objects) after this
+# chart's own generated env vars/volumes, in both the migrate initContainer
+# and the main container (extraEnv), or the main container/pod spec only
+# (extraVolumes/extraVolumeMounts).
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
 
 podSecurityContext:
   runAsNonRoot: true
@@ -84,12 +139,19 @@ service:
   port: 80
   targetPort: 8080
 
+# The backend API's own Ingress. The frontend (see the `frontend` section
+# at the end of this file) has its own separate `frontend.ingress` --
+# they're independent Ingress resources, typically on separate hostnames
+# (e.g. team-manager.example.com for the frontend,
+# api.team-manager.example.com for this one), since the backend's OpenAPI
+# routes have no shared path prefix (/auth/login, /teams, ... directly at
+# the root) that a single Ingress could split on unambiguously.
 ingress:
   enabled: false
   className: ""
   annotations: {}
   hosts:
-    - host: team-manager.example.com
+    - host: api.team-manager.example.com
       paths:
         - path: /
           pathType: Prefix
@@ -165,46 +227,192 @@ affinity:
                   - team-manager
           topologyKey: kubernetes.io/hostname
 
-# Application environment variables.
-# Secrets (DATABASE_URL, JWT keys, COOKIE_ENCRYPTION_KEY) must be supplied
-# via an external secret store (e.g. external-secrets + Vault/AWS SM) and
-# referenced below — never store plaintext secrets in values files.
-env:
-  PORT: "8080"
-  COOKIE_SECURE: "true"
-  SESSION_TTL_HOURS: "720"
-  OTEL_SERVICE_NAME: "team-manager-backend"
-  # Object storage (internal/storage) for team/user photos and logos.
-  # S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY are secrets -- supplied via
-  # existingSecret below, not here. Like JWT/cookie keys, config.Load() hard-
-  # fails startup (os.Exit(1)) when COOKIE_SECURE=true (the default here) and
-  # any of S3_ENDPOINT/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY is
-  # unset -- fill in a real endpoint/bucket below before deploying, or you'll
-  # get a guaranteed crash-loop.
-  S3_ENDPOINT: "" # e.g. "s3.eu-central-1.amazonaws.com" or "minio.example.com" (self-hosted)
-  S3_REGION: "eu-central-1"
-  S3_BUCKET: "" # e.g. "team-manager-images"
-  S3_USE_PATH_STYLE: "false" # "true" for most self-hosted S3-compatible stores (MinIO)
-  # S3_PUBLIC_BASE_URL: "" # only needed when the backend's S3 endpoint isn't the one browsers can reach
+# Core HTTP server / request-handling configuration (PORT, ALLOWED_ORIGINS,
+# rate limiting, logging, error-response and deprecation headers).
+server:
+  port: "8080"
+  # ALLOWED_ORIGINS: one entry per allowed frontend origin; joined with ","
+  # when rendered.
+  allowedOrigins:
+    - "https://team-manager.example.com"
+  # TRUSTED_PROXY_CIDRS: CIDRs of reverse proxies/load balancers allowed to
+  # set X-Forwarded-For/X-Real-IP/True-Client-IP for rate limiting. Empty
+  # (default) trusts nothing -- rate limiting keys on the raw TCP peer
+  # address, so header spoofing cannot bypass it. Set this when deploying
+  # behind a reverse proxy/LB (e.g. ingress.enabled below), or the real
+  # clients behind it will all share one rate-limit bucket. See
+  # docs/operations.md's "Rate limiting" section.
+  trustedProxyCidrs: []
+  logLevel: "info" # debug|info|warn|error
+  rateLimitRps: 100
+  # Base URI prefix for the `type` field of RFC 9457 problem+json error
+  # responses (e.g. "https://docs.example.com/errors"); left as relative
+  # paths when empty.
+  errorTypeBaseUri: ""
+  # When set, emitted as both the RFC 8594 Deprecation and Sunset response
+  # headers on every request (e.g. "@1735689600" or an HTTP-date).
+  apiDeprecationDate: ""
 
-# Reference to an existing Secret containing sensitive values.
-# The Secret must have keys: DATABASE_URL, JWT_PRIVATE_KEY, JWT_PUBLIC_KEY,
-# COOKIE_ENCRYPTION_KEY, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, and
-# optionally SENTRY_DSN, PAGINATION_HMAC_KEY, COOKIE_ENCRYPTION_KEYS (plural —
-# takes precedence over the singular key above when set; use it for
-# zero-downtime key rotation, see docs/operations.md).
-# METRICS_TOKEN is listed as optional in the Deployment template (it's fine
-# to omit when env.COOKIE_SECURE is "false", e.g. local/dev), but the
-# backend hard-fails startup (os.Exit(1), not just a warning) when
-# COOKIE_SECURE is "true" (the default, and what every shipped environment
-# overlay uses) and METRICS_TOKEN is empty — unless env.METRICS_ALLOW_OPEN
-# is also set to "true". Set a METRICS_TOKEN key in this Secret for any
-# COOKIE_SECURE=true deployment, or you'll get a guaranteed crash-loop.
-# templates/NOTES.txt reminds you of this at deploy time.
-existingSecret: ""
+# Session cookie configuration.
+session:
+  ttlHours: 720
+  loginRateLimitPerMin: 5
+  cookie:
+    name: "tv_session"
+    # Cookie Secure flag. Set false only for local http. Also gates several
+    # startup hard-requirements below (JWT keys, cookie encryption key, SMTP,
+    # S3, METRICS_TOKEN) -- see each section's comment.
+    secure: true
 
-# ALLOWED_ORIGINS as a comma-separated list.
-allowedOrigins: "https://team-manager.example.com"
+# The backend needs a single DATABASE_URL connection string
+# (postgres://user:password@host:port/dbname), but this chart never lets a
+# password sit in values.yaml/--set (see secret.existingSecret above) --
+# so DATABASE_URL is composed at container-start from the plain fields
+# below plus the Secret-sourced password, using Kubernetes' own
+# $(VAR_NAME) env-var expansion (templates/_env.tpl) rather than a shell
+# wrapper script: the backend image is distroless (no shell at all, see
+# backend/Dockerfile), so a shell-based approach isn't available here even
+# if it were otherwise desirable.
+#
+# LIMITATION: Kubernetes' $(VAR_NAME) expansion does no URL-encoding, and
+# there's no shell here to add any -- so secret.keys.password's value MUST
+# NOT contain any character that's reserved in a URL (@ : / ? # % and a
+# few others), or the composed DATABASE_URL parses incorrectly (wrong
+# host/user split, or an outright ErrInvalidDatabaseURL crash-loop).
+# Generate the password from an alphanumeric-only charset (e.g.
+# `openssl rand -hex 24`) to sidestep this entirely -- standard practice
+# for a generated DB credential anyway.
+database:
+  host: "" # e.g. "postgres.default.svc.cluster.local" or a managed DB's endpoint
+  port: 5432
+  name: "" # e.g. "teammanager"
+  username: "" # e.g. "teammanager"
+  # Appended as "?sslmode=<value>" when set (e.g. "require", "verify-full").
+  # Left empty, DATABASE_URL carries no sslmode parameter at all -- pgx's
+  # own default (same as before this chart composed the URL itself).
+  sslmode: ""
+  secret:
+    existingSecret: "" # required -- no inline-value alternative
+    keys:
+      password: "password"
+
+# JWT_PRIVATE_KEY/JWT_PUBLIC_KEY (RSA-2048 PEM, RS256 session signing).
+# **Required** when session.cookie.secure=true -- an ephemeral per-process
+# key invalidates sessions on restart and fails verification across
+# replicas.
+jwt:
+  secret:
+    existingSecret: "" # required -- no inline-value alternative
+    keys:
+      privateKey: "private-key"
+      publicKey: "public-key"
+
+# AES-256 cookie encryption key(s). **Required** when
+# session.cookie.secure=true. Set the `keys` (plural) Secret key instead
+# of `key` for zero-downtime rotation -- see docs/operations.md's "Cookie
+# encryption key rotation".
+cookieEncryption:
+  secret:
+    existingSecret: "" # required -- no inline-value alternative
+    keys:
+      key: "key"
+      keys: "keys"
+
+# S3-compatible object storage (internal/storage) for team/user photos and
+# team logos. **Required** (endpoint/bucket/credentials) when
+# session.cookie.secure=true.
+s3:
+  endpoint: "" # e.g. "s3.eu-central-1.amazonaws.com" or "minio.example.com" (self-hosted)
+  region: "eu-central-1"
+  bucket: "" # e.g. "team-manager-images"
+  usePathStyle: false # true for most self-hosted S3-compatible stores (MinIO)
+  # Overrides the scheme+host of presigned image URLs after signing. Needed
+  # when the backend's S3 endpoint (e.g. in-cluster/Compose service DNS)
+  # differs from the endpoint a browser can reach.
+  publicBaseUrl: ""
+  secret:
+    existingSecret: "" # required -- no inline-value alternative
+    keys:
+      accessKeyId: "access-key-id"
+      secretAccessKey: "secret-access-key"
+
+# Outbound SMTP (internal/mailer) for self-registration verification email.
+# host/fromAddress are **required** when session.cookie.secure=true --
+# config.Load() hard-fails startup (for both the migrate initContainer and
+# the main container, since config.Load() runs before the --migrate-only
+# branch) without them. Username/password may be blank for an open relay
+# (leave secret.existingSecret unset for that case).
+# Unset host in dev falls back to a logging fake mailer (the verification
+# link is only written to the server log).
+smtp:
+  host: "" # e.g. "smtp.example.com"
+  port: "587"
+  fromAddress: "" # e.g. "no-reply@example.com"
+  secret:
+    existingSecret: "" # required -- no inline-value alternative; leave unset for an open relay
+    keys:
+      username: "username"
+      password: "password"
+
+# Web Push (internal/push) VAPID keypair authenticating this server to
+# browser push services. publicKey/subject are **required** (with the
+# secret's privateKey) when session.cookie.secure=true. publicKey is not
+# secret -- it must also be set as the frontend's VITE_VAPID_PUBLIC_KEY/
+# VAPID_PUBLIC_KEY runtime config (see docs/operations.md). Generate a
+# keypair with e.g. `npx web-push generate-vapid-keys`.
+push:
+  publicKey: ""
+  subject: "" # e.g. "mailto:ops@example.com"
+  secret:
+    existingSecret: "" # required -- no inline-value alternative
+    keys:
+      privateKey: "private-key"
+
+selfRegistration:
+  enabled: true
+  emailVerificationTtlHours: 48
+  registerRateLimitPerMin: 5
+  resendVerificationRateLimitPerMin: 3
+
+retention:
+  notificationsDays: 90
+  sessionsDays: 30
+  auditLogDays: 365
+  unverifiedAccountsDays: 7
+
+# Optional AES-256-equivalent key that HMAC-signs keyset pagination cursors
+# so clients can't craft arbitrary ones. Unsigned (plain base64) cursors are
+# used when unset; a warning is logged at startup when unset with
+# session.cookie.secure=true.
+pagination:
+  secret:
+    existingSecret: "" # required -- no inline-value alternative; leave unset for unsigned cursors
+    keys:
+      hmacKey: "hmac-key"
+
+# Bearer token guarding the backend's own /metrics endpoint (separate from
+# monitoring.scrapeToken below, which is the Prometheus *scraper's* copy of
+# the same value). **Required** when session.cookie.secure=true unless
+# allowOpen is set -- see templates/NOTES.txt's deploy-time reminder.
+metrics:
+  allowOpen: false
+  secret:
+    existingSecret: "" # required -- no inline-value alternative
+    keys:
+      token: "token"
+
+observability:
+  otelServiceName: "team-manager-backend"
+  # OTLP/HTTP collector URL; enables OpenTelemetry tracing when set.
+  otelExporterEndpoint: ""
+  # Environment label attached to Sentry events.
+  environment: ""
+  # Sentry DSN for backend error tracking; disabled when unset.
+  sentry:
+    secret:
+      existingSecret: "" # required -- no inline-value alternative; leave unset to disable Sentry
+      keys:
+        dsn: "dsn"
 
 networkPolicy:
   enabled: true
@@ -227,13 +435,13 @@ networkPolicy:
     # an external/managed database). Left empty by default so egress is only
     # port-restricted, matching prior behavior.
     postgres:
-      # DATABASE_URL is an opaque Secret value this chart never inspects, so
-      # if it points at a connection pooler (e.g. PgBouncer, commonly 6432)
-      # or any proxy fronting a managed Postgres instance instead of a direct
-      # 5432 connection, override this to match -- otherwise egress is
-      # silently dropped once networkPolicy.enabled is true, surfacing only
-      # as connection timeouts with no obvious link back to this policy. Same
-      # rationale as networkPolicy.egress.s3.port below.
+      # database.secret's URL is an opaque value this chart never inspects,
+      # so if it points at a connection pooler (e.g. PgBouncer, commonly
+      # 6432) or any proxy fronting a managed Postgres instance instead of a
+      # direct 5432 connection, override this to match -- otherwise egress
+      # is silently dropped once networkPolicy.enabled is true, surfacing
+      # only as connection timeouts with no obvious link back to this
+      # policy. Same rationale as networkPolicy.egress.s3.port below.
       port: 5432
       to: []
       # to:
@@ -241,7 +449,8 @@ networkPolicy:
       #       cidr: 10.0.1.0/24
     https:
       to: []
-    # Only rendered when backup.enabled and backup.s3.enabled are both true.
+    # Only rendered when backup.enabled and backup.s3.enabled are both true,
+    # or s3.endpoint is set.
     # The https rule above hardcodes port 443, which is fine for real AWS S3
     # but not for a self-hosted S3-compatible endpoint (backup.s3.endpoint,
     # e.g. MinIO) that conventionally listens on a different port such as
@@ -253,6 +462,12 @@ networkPolicy:
     s3:
       port: 443
       to: []
+    # Only rendered when smtp.host is set. SMTP relays commonly listen on
+    # 587 (STARTTLS, the default here)/465/25, not 443, so this is kept
+    # separate from the https rule above rather than folded into it.
+    smtp:
+      port: 587
+      to: []
 
 podDisruptionBudget:
   enabled: true
@@ -262,26 +477,25 @@ monitoring:
   enabled: false        # Set to true when Prometheus Operator is installed
   namespace: ""         # Override to deploy ServiceMonitor to a different namespace
   scrapeInterval: "30s"
-  # If set, creates a Secret with this bearer token for the ServiceMonitor's
-  # scrape credential. Must match the METRICS_TOKEN key inside the app's own
-  # `existingSecret` — the two are independent Secrets with no validation
-  # tying them together; a mismatch causes Prometheus to get silent 401s from
-  # /metrics with no obvious link back to this setting.
-  #
-  # This is the one place under `monitoring` that doesn't follow the
-  # existingSecret-only convention used everywhere else a credential appears
-  # in this chart (see the top-level existingSecret comment above) — the raw
-  # token has to be typed into a values override or passed via --set, which
-  # (unlike a real Secret reference) has no rotation story and can land in
-  # shell history or a committed overlay file. Prefer metricsTokenSecretName
-  # below for anything beyond local/dev.
-  metricsToken: ""
-  # Name of an existing, externally-managed Secret holding the bearer token
-  # (keyed by metricsTokenSecretKey). Takes precedence over metricsToken
-  # above when set, and skips creating the chart-managed metrics-token
-  # Secret entirely.
-  metricsTokenSecretName: ""
-  metricsTokenSecretKey: "token"
+  # The bearer token Prometheus itself uses to scrape /metrics -- a Secret
+  # deliberately separate from metrics.secret above (this backend's own
+  # METRICS_TOKEN): Prometheus Operator resolves a ServiceMonitor's
+  # bearerTokenSecret within the ServiceMonitor's OWN namespace, which can
+  # differ from the release namespace (see the `namespace` override above),
+  # so the value has to be duplicated into a Secret that actually lives
+  # there. Must match metrics.secret's resolved METRICS_TOKEN value -- the
+  # two are independent Secrets with no validation tying them together; a
+  # mismatch causes Prometheus to get silent 401s from /metrics with no
+  # obvious link back to this setting.
+  # Must live in monitoring.namespace (per the cross-namespace note above),
+  # not necessarily .Release.Namespace -- Prometheus Operator resolves a
+  # ServiceMonitor's bearerTokenSecret in the ServiceMonitor's own
+  # namespace.
+  scrapeToken:
+    secret:
+      existingSecret: "" # required -- no inline-value alternative
+      keys:
+        token: "token"
   additionalLabels: {}  # Labels to help Prometheus Operator find this ServiceMonitor
   grafanaDashboard:
     # Renders a ConfigMap holding the bundled Grafana dashboard, labeled
@@ -356,7 +570,13 @@ backup:
     prefix: "team-manager"
     region: "eu-central-1"
     endpoint: ""            # Override for S3-compatible storage (MinIO, etc.)
-    credentialsSecretName: "" # Secret with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY; leave empty to use the pod's IAM role (e.g. IRSA via backup.serviceAccount.annotations below)
+    # Leave secret.existingSecret unset to use the pod's IAM role instead
+    # (e.g. IRSA via backup.serviceAccount.annotations below).
+    secret:
+      existingSecret: ""
+      keys:
+        accessKeyId: "access-key-id"
+        secretAccessKey: "secret-access-key"
   # The backup CronJob shares the main serviceAccount (above) by default, so
   # by default this section has no effect. Set create: true to give the
   # backup Job its own ServiceAccount instead -- otherwise an IRSA role ARN
@@ -369,3 +589,177 @@ backup:
     annotations: {}
     # Defaults to "<fullname>-backup" when create is true and this is empty.
     name: ""
+
+# Frontend (ghcr.io/yoadey/team-manager-frontend) -- the static SPA, served
+# by nginx-unprivileged. Off by default, matching this chart's convention
+# for every other infra-cost-affecting optional feature (ingress,
+# monitoring, backup) -- set enabled: true to deploy it alongside the
+# backend. Frontend pods carry their own app.kubernetes.io/name
+# (team-manager-frontend, not team-manager), so none of the backend's
+# NetworkPolicy/PodDisruptionBudget/Service selectors above ever match
+# them, and vice versa. Reuses the shared serviceAccount above (see
+# serviceAccount.automount) -- nginx makes no Kubernetes API calls and no
+# calls to any cloud API, so there's no reason for it to have its own
+# ServiceAccount identity the way backup.serviceAccount does.
+frontend:
+  enabled: false
+  replicaCount: 2
+
+  image:
+    repository: ghcr.io/yoadey/team-manager-frontend
+    pullPolicy: IfNotPresent
+    # Same caveat as the backend's image.tag above: defaults to
+    # Chart.AppVersion, which is a fixed placeholder, not "the latest
+    # released version". ALWAYS set explicitly for a real deployment.
+    tag: ""
+    digest: ""
+
+  # The backend's public URL this frontend release talks to (e.g.
+  # "https://api.team-manager.example.com", see ingress.hosts above).
+  # Resolved at container start, not baked into the image -- the same
+  # built image can point at any backend. Left unset serves the frontend's
+  # built-in in-memory mock backend (a quick demo/preview, not a real
+  # deployment) -- always set this for staging/production. If this
+  # resolves to a different origin than where the frontend itself is
+  # served, that origin also needs to be in the backend's
+  # server.allowedOrigins above, or the browser's CORS preflight fails.
+  apiBaseUrl: ""
+  # Sentry DSN for frontend error tracking; disabled when unset. Not a
+  # secret -- it's shipped to the browser as plain JavaScript regardless
+  # of how it's injected server-side, so (unlike the backend's
+  # observability.sentry.secret) this is a plain value, not Secret-backed.
+  sentryDsn: ""
+  # VAPID public key for Web Push, shown to the browser's PushManager.
+  # Left empty here (the default), it resolves to push.publicKey above --
+  # the two MUST match (see push.publicKey's own comment) or
+  # PushManager.subscribe() fails client-side with a benign-looking error,
+  # not a clear "wrong key" message. Only set this explicitly to
+  # deliberately point this frontend release at a different backend/VAPID
+  # keypair than push.* above describes.
+  vapidPublicKey: ""
+
+  # Operator legal-notice/privacy-policy identity, shown on the
+  # legal-notice page and in the privacy policy -- see docs/operations.md's
+  # "Legal setup before going public" for which fields are always-required
+  # (name/street/postalCode/city/phone/email -- leaving any of these unset
+  # renders an explicit [OPERATOR: ...] placeholder marker) vs.
+  # optional-with-omission (everything else). None of these are secret --
+  # they're a club's already-public contact details, required by law to
+  # be shown on the page itself.
+  operator:
+    name: ""
+    legalForm: "" # e.g. "Eingetragener Verein (e. V.)"
+    street: ""
+    postalCode: ""
+    city: ""
+    representedBy: ""
+    phone: ""
+    email: ""
+    registerCourt: "" # required together with registerNumber
+    registerNumber: ""
+    vatId: ""
+    dataProtectionEmail: "" # falls back to operator.email if unset
+    s3Provider: "" # required (Art. 28 GDPR disclosure) if s3.endpoint is set
+    smtpProvider: "" # required if smtp.host is set
+    sentryProvider: "" # required if sentryDsn (above) is set
+    otelProvider: "" # required if observability.otelExporterEndpoint is set
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 64Mi
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+    initialDelaySeconds: 5
+    periodSeconds: 15
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /healthz
+    initialDelaySeconds: 3
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  podSecurityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+
+  # No readOnlyRootFilesystem: the runtime-config entrypoint script
+  # (frontend/docker/docker-entrypoint-runtime-config.sh) overwrites
+  # config.js/index.html under /usr/share/nginx/html on every container
+  # start -- a read-only root filesystem would break that. Every other
+  # hardening control still applies.
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 8080
+
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: team-manager.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+  # No egress knobs here (unlike the backend's networkPolicy.egress) --
+  # the frontend container never originates outbound traffic itself, every
+  # API call happens browser-side against apiBaseUrl above, so its
+  # NetworkPolicy's egress is unconditionally DNS-only.
+  networkPolicy:
+    enabled: true
+    ingress:
+      from: []
+
+  priorityClassName: ""
+  topologySpreadConstraints: []
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - team-manager-frontend
+            topologyKey: kubernetes.io/hostname

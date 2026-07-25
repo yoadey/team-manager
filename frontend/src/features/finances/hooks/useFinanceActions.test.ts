@@ -299,7 +299,7 @@ describe('useFinanceActions', () => {
     act(() => {
       result.current.deleteAssignment('a1');
     });
-    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
+    const onConfirm = askConfirm.mock.calls[0]![0].onConfirm;
     await act(async () => {
       await onConfirm();
     });
@@ -315,7 +315,7 @@ describe('useFinanceActions', () => {
     act(() => {
       result.current.deleteAssignment('a1');
     });
-    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
+    const onConfirm = askConfirm.mock.calls[0]![0].onConfirm;
 
     stateRef = { ...stateRef, activeTeamId: 'team2' };
     rerender();

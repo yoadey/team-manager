@@ -12,6 +12,12 @@ frontend/.env.*.local
 frontend/sbom.json
 frontend/.lighthouseci/
 
+# Docs site (website/)
+website/node_modules
+website/build
+website/.docusaurus
+website/.cache-loader
+
 # Backend
 backend/bin/
 backend/tmp/

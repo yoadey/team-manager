@@ -4,15 +4,15 @@ import type { SheetProps } from '@/sheets/types';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, PrimaryButton } from '@/components/ui';
 import { useEventsQuery } from '../hooks/useEventQueries';
+import { useCalendarFeedUrlQuery } from '../hooks/useCalExportActions';
 import { t } from '@/i18n';
 
 export function CalExportSheet({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
-  const team = app.activeTeam()!;
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
   const cnt = (events || []).filter((e) => e.status !== 'cancelled').length;
-  const url = 'https://teamverwaltung.app/cal/' + ((team && team.id) || 'team') + '.ics';
+  const { data: url, isLoading: urlLoading, isError: urlError } = useCalendarFeedUrlQuery(app.api, state.activeTeamId);
 
   const hint = (icon: string, title: string, text: string) => (
     <Box key={title} sx={{ display: 'flex', gap: '12px', alignItems: 'flex-start', p: '12px 0' }}>
@@ -94,11 +94,12 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
               whiteSpace: 'nowrap',
             }}
           >
-            {url}
+            {urlLoading ? t('events.calLoading') : urlError ? t('events.calLoadFailed') : url}
           </Box>
           <ButtonBase
             key="c"
-            onClick={() => app.copyCalUrl()}
+            disabled={!url}
+            onClick={() => url && app.copyCalUrl(url)}
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -112,36 +113,38 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
               fontWeight: 600,
               cursor: 'pointer',
               flex: '0 0 auto',
+              opacity: url ? 1 : 0.5,
             }}
           >
             <Sym name="content_copy" size={15} color={tk.onPrimary} />
             {sheet.copied ? t('events.calCopied') : t('events.calCopy')}
           </ButtonBase>
         </Box>
+        <ButtonBase
+          key="renew"
+          onClick={() => app.regenerateCalUrl()}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            mt: '8px',
+            border: 'none',
+            background: 'none',
+            color: NEUTRAL.secondary,
+            fontSize: '11px',
+            cursor: 'pointer',
+            p: 0,
+          }}
+        >
+          <Sym name="autorenew" size={13} color={NEUTRAL.secondary} />
+          {t('events.calRenew')}
+        </ButtonBase>
       </Box>
 
       <Box key="hints" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '6px' }}>
         {hint('calendar_month', t('events.calGoogle'), t('events.calGoogleDesc'))}
         {hint('phone_iphone', t('events.calApple'), t('events.calAppleDesc'))}
         {hint('download', t('events.calOneTime'), t('events.calOneTimeDesc'))}
-      </Box>
-
-      <Box
-        key="note"
-        sx={{
-          display: 'flex',
-          gap: '10px',
-          background: NEUTRAL.warnBg,
-          border: '1px solid #F0DBA8',
-          borderRadius: '13px',
-          p: '12px 14px',
-          fontSize: '12px',
-          color: NEUTRAL.warn,
-          lineHeight: 1.5,
-        }}
-      >
-        <Sym name="info" size={18} color={NEUTRAL.warn} />
-        {t('events.calPrototypeNote')}
       </Box>
     </Box>
   );

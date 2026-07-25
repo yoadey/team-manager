@@ -3,22 +3,81 @@
 // checked here so a malformed `.env` fails loudly/predictably instead of
 // producing `NaN` delays or silently-empty settings deep in the app.
 
+/** Operator identity/contact + processor-disclosure fields for the legal-notice
+ * and privacy-policy pages (see features/legal/content.ts). Runtime-only —
+ * these have no VITE_* build-time equivalent, so an unset field is simply
+ * absent rather than falling back to a build-time env var. */
+export type OperatorConfigField =
+  | 'name'
+  | 'legalForm'
+  | 'street'
+  | 'postalCode'
+  | 'city'
+  | 'representedBy'
+  | 'phone'
+  | 'email'
+  | 'registerCourt'
+  | 'registerNumber'
+  | 'vatId'
+  | 'dataProtectionEmail'
+  | 's3Provider'
+  | 'smtpProvider'
+  | 'sentryProvider'
+  | 'otelProvider';
+
+const OPERATOR_RUNTIME_KEYS: Record<OperatorConfigField, string> = {
+  name: 'OPERATOR_NAME',
+  legalForm: 'OPERATOR_LEGAL_FORM',
+  street: 'OPERATOR_STREET',
+  postalCode: 'OPERATOR_POSTAL_CODE',
+  city: 'OPERATOR_CITY',
+  representedBy: 'OPERATOR_REPRESENTED_BY',
+  phone: 'OPERATOR_PHONE',
+  email: 'OPERATOR_EMAIL',
+  registerCourt: 'OPERATOR_REGISTER_COURT',
+  registerNumber: 'OPERATOR_REGISTER_NUMBER',
+  vatId: 'OPERATOR_VAT_ID',
+  dataProtectionEmail: 'OPERATOR_DATA_PROTECTION_EMAIL',
+  s3Provider: 'OPERATOR_S3_PROVIDER',
+  smtpProvider: 'OPERATOR_SMTP_PROVIDER',
+  sentryProvider: 'OPERATOR_SENTRY_PROVIDER',
+  otelProvider: 'OPERATOR_OTEL_PROVIDER',
+};
+
+type RuntimeConfigKey = 'API_BASE_URL' | 'SENTRY_DSN' | 'VAPID_PUBLIC_KEY' | (typeof OPERATOR_RUNTIME_KEYS)[OperatorConfigField];
+
 declare global {
   interface Window {
     // Populated by /config.js, loaded before this module runs (see
     // index.html). frontend/public/config.js checks in defaults for local
     // dev/tests/preview; the production Docker image regenerates it from the
-    // container's API_BASE_URL/SENTRY_DSN env vars at startup (see
+    // container's API_BASE_URL/SENTRY_DSN/OPERATOR_* env vars at startup (see
     // frontend/docker/) so one built image can point at any backend/Sentry
-    // project without rebuilding.
-    __RUNTIME_CONFIG__?: { API_BASE_URL?: string; SENTRY_DSN?: string };
+    // project, and carry any operator's own legal-notice/privacy-policy
+    // identity data, without rebuilding.
+    __RUNTIME_CONFIG__?: Partial<Record<RuntimeConfigKey, string>>;
   }
 }
 
 /** Reads a runtime-injected __RUNTIME_CONFIG__ value, treating blank as unset. */
-function runtimeConfig(key: 'API_BASE_URL' | 'SENTRY_DSN'): string | undefined {
+function runtimeConfig(key: RuntimeConfigKey): string | undefined {
   const v = typeof window !== 'undefined' ? window.__RUNTIME_CONFIG__?.[key] : undefined;
   return v && v.trim() !== '' ? v.trim() : undefined;
+}
+
+/**
+ * Operator identity/contact/processor-disclosure fields, read straight from
+ * __RUNTIME_CONFIG__ (no build-time VITE_* fallback — see
+ * features/legal/content.ts for how an unset field renders: a placeholder
+ * marker for the always-required fields, an omitted section for the
+ * optional ones).
+ */
+function resolveOperatorConfig(): Record<OperatorConfigField, string | undefined> {
+  const entries = Object.entries(OPERATOR_RUNTIME_KEYS) as [OperatorConfigField, string][];
+  return Object.fromEntries(entries.map(([field, runtimeKey]) => [field, runtimeConfig(runtimeKey)])) as Record<
+    OperatorConfigField,
+    string | undefined
+  >;
 }
 
 /**
@@ -39,6 +98,18 @@ function resolveApiBaseUrl(): string {
  */
 function resolveSentryDsn(): string {
   return runtimeConfig('SENTRY_DSN') ?? stringEnv(import.meta.env.VITE_SENTRY_DSN, '');
+}
+
+/**
+ * The VAPID public key passed to PushManager.subscribe() as
+ * applicationServerKey, preferring the runtime-injected value over the
+ * build-time VITE_VAPID_PUBLIC_KEY Vite env var -- same rationale as
+ * resolveSentryDsn: a released image must be able to pick up a rotated
+ * backend VAPID keypair without a rebuild, and the release pipeline never
+ * passes this as a build arg.
+ */
+function resolveVapidPublicKey(): string {
+  return runtimeConfig('VAPID_PUBLIC_KEY') ?? stringEnv(import.meta.env.VITE_VAPID_PUBLIC_KEY, '');
 }
 
 /** Parse a non-negative integer env var, falling back when missing/invalid. */
@@ -70,6 +141,8 @@ export const config = {
   mockDelayMin,
   mockDelayMax,
   sentryDsn: resolveSentryDsn(),
+  vapidPublicKey: resolveVapidPublicKey(),
+  operator: resolveOperatorConfig(),
 } as const;
 
 // NOTE: `VITE_ALLOW_MOCK` (production fail-safe opt-in for the MSW demo

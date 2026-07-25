@@ -5,7 +5,10 @@ import { useInvalidateTeamQuery } from '@/query/useInvalidateTeamQuery';
 import { useInvalidateEvents } from './useEventMutations';
 
 export interface SaveAbsenceInput {
-  id?: string;
+  // Explicit `| undefined` -- callers (useAbsenceActions.ts) pass
+  // `mode === 'edit' ? f.id : undefined` to select update-vs-create, so
+  // `undefined` is a meaningful value here, not just "field omitted".
+  id?: string | undefined;
   payload: { from: string; to: string; reason: string };
   /** Required when creating (no `id`); ignored for an update. */
   userId?: string;

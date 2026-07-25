@@ -23,7 +23,7 @@ describe('reportActionError', () => {
     const toastMsg = vi.fn();
     reportActionError({ setState, toastMsg }, new Error('kaputt'), 'error.save');
     expect(toastMsg).toHaveBeenCalledTimes(1);
-    expect(toastMsg.mock.calls[0][0]).toContain('kaputt');
+    expect(toastMsg.mock.calls[0]?.[0]).toContain('kaputt');
   });
 
   it('does not touch state (no busy flag left to manage)', () => {
@@ -37,21 +37,21 @@ describe('reportActionError', () => {
     const setState = vi.fn();
     const toastMsg = vi.fn();
     reportActionError({ setState, toastMsg }, new Error('x'));
-    expect(toastMsg.mock.calls[0][0]).toContain('Aktion fehlgeschlagen');
+    expect(toastMsg.mock.calls[0]?.[0]).toContain('Aktion fehlgeschlagen');
   });
 
   it('maps NetworkError to error.network i18n key', () => {
     const setState = vi.fn();
     const toastMsg = vi.fn();
     reportActionError({ setState, toastMsg }, new NetworkError());
-    expect(toastMsg.mock.calls[0][0]).toBe('Verbindung zum Service fehlgeschlagen');
+    expect(toastMsg.mock.calls[0]?.[0]).toBe('Verbindung zum Service fehlgeschlagen');
   });
 
   it('maps AuthError to error.login i18n key', () => {
     const setState = vi.fn();
     const toastMsg = vi.fn();
     reportActionError({ setState, toastMsg }, new AuthError());
-    expect(toastMsg.mock.calls[0][0]).toBe('Anmeldung fehlgeschlagen');
+    expect(toastMsg.mock.calls[0]?.[0]).toBe('Anmeldung fehlgeschlagen');
   });
 
   it('AuthError triggers onAuthError (session must be cleared)', () => {
@@ -67,7 +67,7 @@ describe('reportActionError', () => {
     const toastMsg = vi.fn();
     const onAuthError = vi.fn();
     reportActionError({ setState, toastMsg, onAuthError }, new ForbiddenError());
-    expect(toastMsg.mock.calls[0][0]).toBe('Dafür fehlt dir die Berechtigung');
+    expect(toastMsg.mock.calls[0]?.[0]).toBe('Dafür fehlt dir die Berechtigung');
     expect(onAuthError).not.toHaveBeenCalled();
   });
 
@@ -82,7 +82,7 @@ describe('reportActionError', () => {
     for (const err of cases) {
       const toastMsg = vi.fn();
       reportActionError({ setState, toastMsg }, err);
-      expect(toastMsg.mock.calls[0][2]).toBe('error');
+      expect(toastMsg.mock.calls[0]?.[2]).toBe('error');
     }
   });
 });

@@ -17,3 +17,16 @@
 # when @lhci/cli ships a fixed inquirer/tmp chain on its current major.
 GHSA-52f5-9888-hmc6
 GHSA-ph9p-34f9-6g65
+
+# GHSA-mh99-v99m-4gvg: `brace-expansion` <=5.0.7 (DoS via unbounded expansion
+# length). The vulnerable range covers every published version, so no
+# non-breaking fix exists yet -- `npm audit`'s only `fixAvailable` is a
+# semver-major downgrade of eslint-plugin-jsx-a11y to a five-year-stale
+# 6.4.1. Reached exclusively through devDependency build/lint tooling
+# (`@cyclonedx/cyclonedx-npm`'s SBOM generation, `eslint-plugin-jsx-a11y`,
+# `openapi-typescript`'s bundled `@redocly/openapi-core`, `typescript-eslint`)
+# via their `minimatch`/`glob` dependencies -- none of these ever ship to
+# users or production, and none of them feed attacker-controlled glob
+# patterns in this repo's CI usage (all operate on the repo's own known file
+# globs). Revisit once any of these tools bumps past the vulnerable range.
+GHSA-mh99-v99m-4gvg

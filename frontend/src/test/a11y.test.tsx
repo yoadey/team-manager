@@ -58,11 +58,13 @@ vi.mock('@/features/members/hooks/useMemberQueries', () => ({
   useMembersQuery: vi.fn().mockReturnValue({ data: [] }),
 }));
 
-// Stats.tsx imports useStatsQuery via this exact relative path (see the
-// identical pattern in pages/Stats.test.tsx), so the mock must match it.
+// Stats.tsx imports useStatsQuery/useAbsenceTableQuery via this exact
+// relative path (see the identical pattern in pages/Stats.test.tsx), so the
+// mock must match it.
 vi.mock('@/pages/hooks/useStatsQueries', () => ({
   useStatsQuery: vi.fn(),
   useAttendanceMatrixQuery: vi.fn().mockReturnValue({ data: undefined }),
+  useAbsenceTableQuery: vi.fn().mockReturnValue({ data: undefined }),
 }));
 
 // FinancesPage.tsx imports useFinanceOverviewQuery via this exact relative
@@ -74,12 +76,13 @@ vi.mock('@/features/finances/hooks/useFinanceQueries', () => ({
 import { useApp } from '@/context/AppContext';
 import { useMembersQuery } from '@/features/members/hooks/useMemberQueries';
 import { useEventDetailQuery } from '@/features/events/hooks/useEventQueries';
-import { useStatsQuery } from '@/pages/hooks/useStatsQueries';
+import { useAbsenceTableQuery, useStatsQuery } from '@/pages/hooks/useStatsQueries';
 import { useFinanceOverviewQuery } from '@/features/finances/hooks/useFinanceQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseMembersQuery = useMembersQuery as ReturnType<typeof vi.fn>;
 const mockUseEventDetailQuery = useEventDetailQuery as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
+const mockUseAbsenceTableQuery = useAbsenceTableQuery as ReturnType<typeof vi.fn>;
 const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
 // ─── Shared app state builders ───────────────────────────────────────────────
@@ -262,6 +265,7 @@ describe('Accessibility: Stats', () => {
   it('custom date-range inputs have no axe violations', async () => {
     const { Stats } = await import('@/pages/Stats');
     mockUseStatsQuery.mockReturnValue({ data: undefined });
+    mockUseAbsenceTableQuery.mockReturnValue({ data: undefined });
     mockUseApp.mockReturnValue({
       api: {},
       state: {

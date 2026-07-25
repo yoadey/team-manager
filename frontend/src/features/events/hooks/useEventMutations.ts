@@ -16,6 +16,8 @@ type EventPayload = {
   startT?: string;
   endT?: string;
   nominatedRoleIds?: string[];
+  /** ISO 8601 timestamp, or undefined for "no deadline". */
+  rsvpDeadline?: string | undefined;
 };
 
 /**
@@ -112,7 +114,14 @@ export function useRemoveEventCommentMutation(api: typeof defaultApi, teamId: st
 }
 
 export type SaveEventArgs =
-  | { mode: 'create'; payload: EventPayload & { recurring?: boolean; repeatWeeks?: number } }
+  | {
+      mode: 'create';
+      payload: EventPayload & {
+        recurring?: boolean | undefined;
+        repeatWeeks?: number | undefined;
+        endDate?: string | undefined;
+      };
+    }
   | { mode: 'edit'; eventId: string; scope: 'single' | 'series'; payload: EventPayload };
 
 export function useSaveEventMutation(api: typeof defaultApi, teamId: string | null) {

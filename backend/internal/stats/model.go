@@ -41,3 +41,13 @@ type MatrixCellRow struct {
 	EventID     *uuid.UUID
 	Eff         string // yes | no | maybe | pending
 }
+
+// AbsenceRow holds one member's absence (effective status "no") from one
+// event, for the absence table view.
+type AbsenceRow struct {
+	UserID     uuid.UUID
+	Name       string
+	EventID    uuid.UUID
+	EventTitle string
+	Date       string // YYYY-MM-DD
+}

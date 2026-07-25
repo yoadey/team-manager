@@ -90,7 +90,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
-            type=raw,value=latest,enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
             type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -170,3 +170,93 @@ jobs:
             --predicate ${{ matrix.component }}-image-sbom.spdx.json \
             --type spdxjson \
             "${{ env.REGISTRY }}/${{ github.repository }}-${{ matrix.component }}@${{ steps.build.outputs.digest }}"
+
+  helm-chart:
+    name: Package & push Helm chart (OCI)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # Required for keyless cosign signing of the pushed chart digest via
+      # GitHub's own OIDC token, same as the images job above.
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Resolve chart version
+        id: version
+        env:
+          # See the images job's "Resolve version" step for why this comes
+          # from env rather than being interpolated directly into the script.
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          if [ -n "$VERSION_INPUT" ]; then
+            raw="$VERSION_INPUT"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            raw="${GITHUB_REF_NAME}"
+          else
+            raw="0.0.0-sha-${GITHUB_SHA::12}"
+          fi
+          # helm package --version requires strict SemVer 2.0.0 with no
+          # leading "v"; both the tag trigger (v*.*.*) and the
+          # workflow_dispatch input use the "vX.Y.Z" convention.
+          echo "value=${raw#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Helm
+        # Pinned and hash-verified identically to ci.yml's helm-lint job --
+        # see that job's comment for why the installer script's content hash
+        # is checked instead of trusting the live v3.16.3 tag ref. Re-derive
+        # this hash deliberately if bumping the version.
+        env:
+          GET_HELM_3_SHA256: c909b416fe831e0bf21442e068cef0312cfc7313a39cc0ad0cf1a91fdf47860d
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/helm/helm/v3.16.3/scripts/get-helm-3 -o get-helm-3.sh
+          echo "${GET_HELM_3_SHA256}  get-helm-3.sh" | sha256sum -c -
+          bash get-helm-3.sh --no-sudo --version v3.16.3
+          rm -f get-helm-3.sh
+
+      - name: helm lint
+        run: helm lint --strict helm/team-manager
+
+      - name: Package chart
+        run: |
+          mkdir -p /tmp/helm-package
+          helm package helm/team-manager \
+            --version "${{ steps.version.outputs.value }}" \
+            --app-version "${{ steps.version.outputs.value }}" \
+            --destination /tmp/helm-package
+
+      - name: Log in to GHCR (Helm OCI registry)
+        # `helm push` resolves credentials from Helm's own registry config
+        # (~/.config/helm/registry/config.json, written by `helm registry
+        # login`), not the Docker config the images job's docker/login-action
+        # step writes -- that login does not carry over to this job.
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ${{ env.REGISTRY }} --username "${{ github.actor }}" --password-stdin
+
+      - name: Push chart to OCI registry
+        id: push
+        run: |
+          set -euo pipefail
+          helm push "/tmp/helm-package/team-manager-${{ steps.version.outputs.value }}.tgz" \
+            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts" 2>&1 | tee /tmp/helm-push.log
+          digest=$(grep -oP 'Digest: \K\S+' /tmp/helm-push.log)
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR (for cosign)
+        # cosign resolves registry credentials from the Docker config
+        # (~/.docker/config.json), not Helm's own registry config the step
+        # above writes to ~/.config/helm/registry/config.json -- without
+        # this, `cosign sign` below has no credentials for ghcr.io and fails
+        # with "UNAUTHORIZED: unauthenticated" even though the chart push
+        # itself (using Helm's separate credential store) already succeeded.
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign chart (keyless)
+        run: cosign sign --yes "${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/team-manager@${{ steps.push.outputs.digest }}"

@@ -51,6 +51,7 @@ vi.mock('@/api/map', () => {
     mapContribution: tag('contribution'),
     mapStatsOverview: tag('statsOverview'),
     mapAttendanceMatrix: tag('attendanceMatrix'),
+    mapAttendanceAbsenceTable: tag('attendanceAbsenceTable'),
     // Real (not tagged) — serviceLayerReal calls these directly on request
     // bodies, not just on responses, so tests exercising request payloads
     // need the actual conversion, not an identity stub.
@@ -176,7 +177,7 @@ describe('auth', () => {
     const dataUrl = 'data:image/jpeg;base64,' + btoa('hello');
     const res = await realApi.auth.setPhoto(dataUrl);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0];
+    const [, init] = fetchMock.mock.calls[0]!;
     // The backend registers PUT (not POST) for /auth/me/photo.
     expect(init.method).toBe('PUT');
     expect(init.credentials).toBe('include');
@@ -283,7 +284,7 @@ describe('teams', () => {
     const dataUrl = 'data:image/png;base64,' + btoa('img');
     await realApi.teams.create({ name: 'A', photo: dataUrl });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toContain('/api/v1/teams/t1/photo');
     expect(init.method).toBe('PUT');
     expect(client.GET).toHaveBeenCalledWith('/teams/{teamId}', { params: { path: { teamId: 't1' } } });
@@ -308,7 +309,7 @@ describe('teams', () => {
     await realApi.teams.updateSettings('t1', { photo: dataUrl });
     expect(client.PATCH).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toContain('/api/v1/teams/t1/photo');
     expect(init.method).toBe('PUT');
     vi.unstubAllGlobals();
@@ -324,8 +325,8 @@ describe('teams', () => {
     await realApi.teams.updateSettings('t1', { name: 'New', photo: photoUrl, logo: logoUrl });
     expect(client.PATCH).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls[0][0]).toContain('/photo');
-    expect(fetchMock.mock.calls[1][0]).toContain('/logo');
+    expect(fetchMock.mock.calls[0]![0]).toContain('/photo');
+    expect(fetchMock.mock.calls[1]![0]).toContain('/logo');
     vi.unstubAllGlobals();
   });
 
@@ -561,6 +562,25 @@ describe('events', () => {
       2,
       '/teams/{teamId}/events/{eventId}/comments',
       expect.objectContaining({ params: expect.objectContaining({ query: { limit: 500, cursor: 'c1' } }) }),
+    );
+  });
+
+  it('issueCalendarFeedToken posts and returns the url', async () => {
+    client.POST.mockResolvedValueOnce(ok({ url: 'https://app.example.com/api/v1/calendar-feed/abc.ics' }));
+    const url = await realApi.events.issueCalendarFeedToken('t1');
+    expect(client.POST).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-feed/token',
+      expect.objectContaining({ params: { path: { teamId: 't1' } } }),
+    );
+    expect(url).toBe('https://app.example.com/api/v1/calendar-feed/abc.ics');
+  });
+
+  it('revokeCalendarFeedToken deletes', async () => {
+    client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
+    await realApi.events.revokeCalendarFeedToken('t1');
+    expect(client.DELETE).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-feed/token',
+      expect.objectContaining({ params: { path: { teamId: 't1' } } }),
     );
   });
 });
@@ -807,6 +827,16 @@ describe('stats', () => {
     );
     expect(res).toMatchObject({ __mapped: 'attendanceMatrix' });
   });
+
+  it('absenceTable forwards the date range and maps the response', async () => {
+    client.GET.mockResolvedValueOnce(ok({ rows: [] }));
+    const result = await realApi.stats.absenceTable('t1', { from: '2026-01-01', to: '2026-02-01' });
+    expect(client.GET).toHaveBeenCalledWith(
+      '/teams/{teamId}/stats/absences',
+      expect.objectContaining({ params: { path: { teamId: 't1' }, query: { from: '2026-01-01', to: '2026-02-01' } } }),
+    );
+    expect(result).toMatchObject({ __mapped: 'attendanceAbsenceTable' });
+  });
 });
 
 // ─── notifications ────────────────────────────────────────────────────────────
@@ -820,6 +850,38 @@ describe('notifications', () => {
   it('markSeen posts and returns true', async () => {
     client.POST.mockResolvedValueOnce(ok(undefined, 204));
     expect(await realApi.notifications.markSeen('t1')).toBe(true);
+  });
+});
+
+describe('push', () => {
+  const validSubscription: PushSubscriptionJSON = {
+    endpoint: 'https://push.example/abc',
+    keys: { p256dh: 'p256dh-value', auth: 'auth-value' },
+  };
+
+  it('subscribe posts the endpoint and keys', async () => {
+    client.POST.mockResolvedValueOnce(ok(undefined, 204));
+    await realApi.push.subscribe(validSubscription);
+    expect(client.POST).toHaveBeenCalledWith(
+      '/users/me/push-subscriptions',
+      expect.objectContaining({
+        body: { endpoint: 'https://push.example/abc', keys: { p256dh: 'p256dh-value', auth: 'auth-value' } },
+      }),
+    );
+  });
+
+  it('subscribe rejects a subscription missing endpoint or keys without calling the API', async () => {
+    await expect(realApi.push.subscribe({ endpoint: '', keys: undefined } as never)).rejects.toThrow();
+    expect(client.POST).not.toHaveBeenCalled();
+  });
+
+  it('unsubscribe deletes with the endpoint as a query param', async () => {
+    client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
+    await realApi.push.unsubscribe('https://push.example/abc');
+    expect(client.DELETE).toHaveBeenCalledWith(
+      '/users/me/push-subscriptions',
+      expect.objectContaining({ params: { query: { endpoint: 'https://push.example/abc' } } }),
+    );
   });
 });
 

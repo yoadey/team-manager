@@ -118,7 +118,7 @@ export interface AttendanceMatrixRow {
   name: string;
   avatarColor: string;
   photo: string | null;
-  hasPhoto?: boolean;
+  hasPhoto?: boolean | undefined;
   yes: number;
   counted: number;
   cells: Record<string, AttendanceCellStatus>;
@@ -129,6 +129,20 @@ export interface AttendanceMatrix {
   to: string | null;
   events: AttendanceMatrixColumn[];
   members: AttendanceMatrixRow[];
+}
+
+export interface AttendanceAbsenceRow {
+  userId: string;
+  memberName: string;
+  eventId: string;
+  eventTitle: string;
+  eventDate: string;
+}
+
+export interface AttendanceAbsenceTable {
+  rows: AttendanceAbsenceRow[];
+  from: string;
+  to: string;
 }
 
 export interface Provider {

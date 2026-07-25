@@ -69,7 +69,6 @@ type MemberRow struct {
 	Birthday     *time.Time
 	Address      *string
 	AvatarColor  string
-	PhotoData    []byte
 	Group        *string
 	JoinedAt     time.Time
 	Roles        []RoleRow

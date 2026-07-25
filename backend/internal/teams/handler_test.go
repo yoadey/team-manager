@@ -28,18 +28,20 @@ import (
 // ─── mock service ─────────────────────────────────────────────────────────────
 
 type mockTeamService struct {
-	listForUser     func(ctx context.Context, userID string) ([]gen.TeamForUser, error)
-	createTeam      func(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error)
-	getTeam         func(ctx context.Context, teamID string) (*gen.Team, error)
-	updateTeam      func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
-	createInvite    func(ctx context.Context, teamID string) (*gen.Invite, error)
-	acceptInvite    func(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
-	getTeamPhotoURL func(ctx context.Context, teamID string) (string, error)
-	updatePhoto     func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
-	deletePhoto     func(ctx context.Context, teamID string) error
-	getTeamLogoURL  func(ctx context.Context, teamID string) (string, error)
-	updateLogo      func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
-	deleteLogo      func(ctx context.Context, teamID string) error
+	listForUser       func(ctx context.Context, userID string) ([]gen.TeamForUser, error)
+	createTeam        func(ctx context.Context, userID, name string, icon, iconBg, iconFg *string) (*gen.TeamForUser, error)
+	getTeam           func(ctx context.Context, teamID string) (*gen.Team, error)
+	updateTeam        func(ctx context.Context, teamID string, patch teams.TeamPatch) (*gen.Team, error)
+	createInvite      func(ctx context.Context, teamID string) (*gen.Invite, error)
+	acceptInvite      func(ctx context.Context, code, userID string) (*gen.AcceptInviteResponse, error)
+	getTeamPhotoURL   func(ctx context.Context, teamID string) (string, error)
+	getTeamPhotoBytes func(ctx context.Context, teamID string) (io.ReadCloser, string, error)
+	updatePhoto       func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
+	deletePhoto       func(ctx context.Context, teamID string) error
+	getTeamLogoURL    func(ctx context.Context, teamID string) (string, error)
+	getTeamLogoBytes  func(ctx context.Context, teamID string) (io.ReadCloser, string, error)
+	updateLogo        func(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error)
+	deleteLogo        func(ctx context.Context, teamID string) error
 }
 
 func (m *mockTeamService) ListForUser(ctx context.Context, userID string) ([]gen.TeamForUser, error) {
@@ -70,6 +72,10 @@ func (m *mockTeamService) GetTeamPhotoURL(ctx context.Context, teamID string) (s
 	return m.getTeamPhotoURL(ctx, teamID)
 }
 
+func (m *mockTeamService) GetTeamPhotoBytes(ctx context.Context, teamID string) (io.ReadCloser, string, error) {
+	return m.getTeamPhotoBytes(ctx, teamID)
+}
+
 func (m *mockTeamService) UpdatePhoto(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error) {
 	return m.updatePhoto(ctx, teamID, data, mimeType)
 }
@@ -80,6 +86,10 @@ func (m *mockTeamService) DeletePhoto(ctx context.Context, teamID string) error 
 
 func (m *mockTeamService) GetTeamLogoURL(ctx context.Context, teamID string) (string, error) {
 	return m.getTeamLogoURL(ctx, teamID)
+}
+
+func (m *mockTeamService) GetTeamLogoBytes(ctx context.Context, teamID string) (io.ReadCloser, string, error) {
+	return m.getTeamLogoBytes(ctx, teamID)
 }
 
 func (m *mockTeamService) UpdateLogo(ctx context.Context, teamID string, data []byte, mimeType string) (*gen.Team, error) {
@@ -114,6 +124,11 @@ func (f *fakeAuthSvc) EraseAccount(_ context.Context, _, _ string) error { retur
 func (f *fakeAuthSvc) ExportUserData(_ context.Context, _ string) (*auth.ExportData, error) {
 	return &auth.ExportData{}, nil
 }
+func (f *fakeAuthSvc) Register(_ context.Context, _, _ string) error { return nil }
+func (f *fakeAuthSvc) VerifyEmail(_ context.Context, _ string) (string, *auth.UserRow, error) {
+	return "token", f.user, nil
+}
+func (f *fakeAuthSvc) ResendVerification(_ context.Context, _ string) error { return nil }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -243,6 +258,85 @@ func TestTeamHandler_GetTeamLogo_RedirectsToPresignedURL(t *testing.T) {
 	require.NoError(t, resp.VisitGetTeamLogoResponse(w))
 	assert.Equal(t, http.StatusFound, w.Code)
 	assert.Contains(t, w.Header().Get("Location"), "teams/t1/logo")
+}
+
+// TestTeamHandler_GetTeamPhoto_ProxyMode_StreamsBytes covers scenario "Proxy
+// mode enabled" from openspec/changes/kleinere-findings/specs/image-delivery-proxy:
+// with SetImageDeliveryProxyEnabled(true), GetTeamPhoto streams the image
+// bytes directly instead of redirecting.
+func TestTeamHandler_GetTeamPhoto_ProxyMode_StreamsBytes(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	svc := &mockTeamService{
+		getTeamPhotoBytes: func(_ context.Context, gotTeamID string) (io.ReadCloser, string, error) {
+			assert.Equal(t, teamID.String(), gotTeamID)
+			return io.NopCloser(bytes.NewReader([]byte("jpeg-bytes"))), "image/jpeg", nil
+		},
+		getTeamPhotoURL: func(_ context.Context, _ string) (string, error) {
+			t.Fatal("redirect path must not be used in proxy mode")
+			return "", nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+	h.SetImageDeliveryProxyEnabled(true)
+
+	resp, err := h.GetTeamPhoto(context.Background(), gen.GetTeamPhotoRequestObject{TeamId: teamID})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetTeamPhotoResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/jpeg", w.Header().Get("Content-Type"))
+	assert.Empty(t, w.Header().Get("Location"))
+	assert.Equal(t, "jpeg-bytes", w.Body.String())
+}
+
+// TestTeamHandler_GetTeamPhoto_ProxyMode_NotFound covers the same "no photo"
+// case as redirect mode, but through the proxy-mode branch -- no bytes must
+// be streamed for a team with no photo set.
+func TestTeamHandler_GetTeamPhoto_ProxyMode_NotFound(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		getTeamPhotoBytes: func(_ context.Context, _ string) (io.ReadCloser, string, error) {
+			return nil, "", pgx.ErrNoRows
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+	h.SetImageDeliveryProxyEnabled(true)
+
+	resp, err := h.GetTeamPhoto(context.Background(), gen.GetTeamPhotoRequestObject{TeamId: uuid.New()})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetTeamPhotoResponse(w))
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// TestTeamHandler_GetTeamLogo_ProxyMode_StreamsBytes mirrors the photo
+// coverage above for the logo endpoint.
+func TestTeamHandler_GetTeamLogo_ProxyMode_StreamsBytes(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockTeamService{
+		getTeamLogoBytes: func(_ context.Context, _ string) (io.ReadCloser, string, error) {
+			return io.NopCloser(bytes.NewReader([]byte("png-bytes"))), "image/png", nil
+		},
+		getTeamLogoURL: func(_ context.Context, _ string) (string, error) {
+			t.Fatal("redirect path must not be used in proxy mode")
+			return "", nil
+		},
+	}
+	h := teams.NewHandler(svc, slog.Default(), nil)
+	h.SetImageDeliveryProxyEnabled(true)
+
+	resp, err := h.GetTeamLogo(context.Background(), gen.GetTeamLogoRequestObject{TeamId: uuid.New()})
+	require.NoError(t, err)
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetTeamLogoResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/png", w.Header().Get("Content-Type"))
+	assert.Empty(t, w.Header().Get("Location"))
+	assert.Equal(t, "png-bytes", w.Body.String())
 }
 
 func TestTeamHandler_UploadTeamLogo_StoresAndReturnsTeam(t *testing.T) {

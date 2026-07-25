@@ -25,12 +25,14 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
+	"github.com/yoadey/team-manager/backend/internal/calendarfeed"
 	"github.com/yoadey/team-manager/backend/internal/config"
 	"github.com/yoadey/team-manager/backend/internal/db"
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/jobs"
+	"github.com/yoadey/team-manager/backend/internal/mailer"
 	"github.com/yoadey/team-manager/backend/internal/members"
 	"github.com/yoadey/team-manager/backend/internal/middleware"
 	"github.com/yoadey/team-manager/backend/internal/news"
@@ -38,6 +40,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/observability"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/polls"
+	"github.com/yoadey/team-manager/backend/internal/push"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/server"
 	"github.com/yoadey/team-manager/backend/internal/stats"
@@ -179,6 +182,7 @@ func initAuthComponents(
 	pool *pgxpool.Pool,
 	cfg *config.Config,
 	objectStore storage.ObjectStore,
+	mailSender mailer.Mailer,
 	logger *slog.Logger,
 	auditLogger *audit.Logger,
 ) (*auth.Handler, *auth.SessionCookieCodec, error) {
@@ -186,7 +190,12 @@ func initAuthComponents(
 		slog.Warn("JWT_PRIVATE_KEY/JWT_PUBLIC_KEY not set; generating an ephemeral RSA key pair for this process — sessions will not survive a restart and won't verify across replicas")
 	}
 	repo := auth.NewRepository(pool)
-	svc, err := auth.NewService(repo, objectStore, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL)
+	svc, err := auth.NewService(repo, objectStore, cfg.JWTPrivateKey, cfg.JWTPublicKey, cfg.SessionTTL, auth.RegistrationConfig{
+		Mailer:                  mailSender,
+		PublicBaseURL:           cfg.PublicBaseURL,
+		EmailVerificationTTL:    cfg.EmailVerificationTTL,
+		SelfRegistrationEnabled: cfg.SelfRegistrationEnabled,
+	}, logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth service: %w", err)
 	}
@@ -195,6 +204,52 @@ func initAuthComponents(
 		return nil, nil, fmt.Errorf("cookie codec: %w", err)
 	}
 	return auth.NewHandler(svc, logger, codec, auditLogger), codec, nil
+}
+
+// initMailer constructs the Mailer used to send self-registration
+// verification email. Falls back to an in-memory fake (logs the link) when
+// SMTP_HOST is unset -- config.Load() already hard-requires it when
+// COOKIE_SECURE=true, so this path is only reachable in dev/test, mirroring
+// the JWT/cookie-key/object-store ephemeral fallbacks above.
+func initMailer(cfg *config.Config, logger *slog.Logger) mailer.Mailer {
+	if cfg.SMTPHost == "" {
+		slog.Warn("SMTP_HOST not set; using a logging fake mailer — verification emails will only appear in the server log")
+		return mailer.NewFakeMailer(logger)
+	}
+	m, err := mailer.NewSMTPMailer(mailer.SMTPConfig{
+		Host:        cfg.SMTPHost,
+		Port:        cfg.SMTPPort,
+		Username:    cfg.SMTPUsername,
+		Password:    cfg.SMTPPassword,
+		FromAddress: cfg.SMTPFromAddress,
+	})
+	if err != nil {
+		slog.Error("mailer init failed", "err", err)
+		os.Exit(1)
+	}
+	return m
+}
+
+// initVAPIDPusher constructs the Pusher used for Web Push delivery. Falls
+// back to an in-memory fake (logs the payload) when VAPID_PUBLIC_KEY is
+// unset -- config.Load() already hard-requires all three VAPID_* vars when
+// COOKIE_SECURE=true, so this path is only reachable in dev/test, mirroring
+// the mailer/object-store ephemeral fallbacks above.
+func initVAPIDPusher(cfg *config.Config, logger *slog.Logger) push.Pusher {
+	if cfg.VAPIDPublicKey == "" {
+		slog.Warn("VAPID_PUBLIC_KEY not set; using a logging fake pusher — push notifications will only appear in the server log")
+		return push.NewFakePusher(logger)
+	}
+	p, err := push.NewWebPusher(push.VAPIDConfig{
+		PublicKey:  cfg.VAPIDPublicKey,
+		PrivateKey: cfg.VAPIDPrivateKey,
+		Subject:    cfg.VAPIDSubject,
+	})
+	if err != nil {
+		slog.Error("pusher init failed", "err", err)
+		os.Exit(1)
+	}
+	return p
 }
 
 // initObjectStore constructs the ObjectStore used for team/user image
@@ -301,8 +356,20 @@ func main() {
 
 	// ─── River job queue ──────────────────────────────────────────────────────
 
-	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays)
-	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker)
+	// membersRepo is constructed here (ahead of the "Members" section below,
+	// which reuses this same instance) because PushDeps.Perms needs it to
+	// gate Web Push deliveries -- both membersRepo and the Members feature's
+	// own wiring only depend on pool, so building it early is safe.
+	membersRepo := members.NewRepository(pool)
+	pushRepo := push.NewRepository(pool)
+	pusher := initVAPIDPusher(cfg, logger)
+
+	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays, cfg.RetentionUnverifiedAccountDays)
+	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker, &jobs.PushDeps{
+		Pusher: pusher,
+		Repo:   pushRepo,
+		Perms:  membersRepo,
+	})
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
 		os.Exit(1)
@@ -325,7 +392,8 @@ func main() {
 
 	// ─── Auth ────────────────────────────────────────────────────────────────
 
-	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, logger, auditLogger)
+	mailSender := initMailer(cfg, logger)
+	authHandler, cookieCodec, err := initAuthComponents(pool, cfg, objectStore, mailSender, logger, auditLogger)
 	if err != nil {
 		slog.Error("auth init failed", "err", err)
 		os.Exit(1)
@@ -343,12 +411,22 @@ func main() {
 	teamsRepo := teams.NewRepository(pool)
 	teamsSvc := teams.NewService(teamsRepo, objectStore, cfg.PublicBaseURL)
 	teamsHandler := teams.NewHandler(teamsSvc, logger, auditLogger)
+	teamsHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
 
 	// ─── Members ─────────────────────────────────────────────────────────────
+	// membersRepo itself was already constructed above, ahead of the River
+	// job queue section, so PushDeps.Perms could reuse it.
 
-	membersRepo := members.NewRepository(pool)
 	membersSvc := members.NewService(membersRepo, objectStore, pager)
 	membersHandler := members.NewHandler(membersSvc, logger, auditLogger)
+	membersHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
+
+	// ─── Push ────────────────────────────────────────────────────────────────
+	// pushRepo itself was already constructed above, ahead of the River job
+	// queue section, so it could be passed into jobs.PushDeps.
+
+	pushSvc := push.NewService(pushRepo)
+	pushHandler := push.NewHandler(pushSvc, logger)
 
 	// ─── Roles ───────────────────────────────────────────────────────────────
 
@@ -361,6 +439,15 @@ func main() {
 	eventsRepo := events.NewRepository(pool)
 	eventsSvc := events.NewService(eventsRepo, jobsClient, pager, rolesRepo, membersRepo, logger)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
+
+	// ─── Calendar feed ───────────────────────────────────────────────────────
+	// Depends on membersRepo (membership + events permission, re-checked on
+	// every feed request), teamsRepo (feed calendar name) and eventsRepo
+	// (the events rendered into the feed).
+
+	calendarFeedRepo := calendarfeed.NewRepository(pool)
+	calendarFeedSvc := calendarfeed.NewService(calendarFeedRepo, membersRepo, membersRepo, teamsRepo, eventsRepo, cfg.PublicBaseURL)
+	calendarFeedHandler := calendarfeed.NewHandler(calendarFeedSvc, logger)
 
 	// ─── Absences ────────────────────────────────────────────────────────────
 
@@ -412,6 +499,8 @@ func main() {
 		notifHandler,
 		financesHandler,
 		statsHandler,
+		pushHandler,
+		calendarFeedHandler,
 	)
 
 	// Wrap the strict server in the generated strict handler adapter. The cookie
@@ -494,6 +583,29 @@ func main() {
 		})
 		r.Get("/auth/providers", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.ListProviders(w, req)
+		})
+		// Self-registration and its verification endpoints are rate-limited the
+		// same way as login -- each is a plausible target for volumetric abuse
+		// (account-creation spam / verification-token brute-forcing / mail-bomb
+		// via resend). verify-email itself is not separately rate-limited: its
+		// token is a high-entropy, single-use secret, not a guessable value.
+		r.With(middleware.PerIPRateLimit(cfg.RegisterRateLimitPerMin, time.Minute, trustedProxies)).Post("/auth/register", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.Register(w, req)
+		})
+		r.Post("/auth/verify-email", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.VerifyEmail(w, req)
+		})
+		r.With(middleware.PerIPRateLimit(cfg.ResendVerificationRateLimitPerMin, time.Minute, trustedProxies)).Post("/auth/resend-verification", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.ResendVerification(w, req)
+		})
+
+		// Calendar feed -- no JWT required by design (calendar apps poll this
+		// URL directly and cannot present a session cookie); the bare token in
+		// the path is the credential, checked inside calendarfeed.Service.
+		// Must be registered AFTER the generated mux above for the same
+		// "last registration wins" reason as the auth overrides.
+		r.Get("/calendar-feed/{token}.ics", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.GetCalendarFeed(w, req, chi.URLParam(req, "token"))
 		})
 	})
 

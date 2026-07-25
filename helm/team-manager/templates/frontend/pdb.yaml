@@ -1,0 +1,13 @@
+{{- if and .Values.frontend.enabled .Values.frontend.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "team-manager.frontend.fullname" . }}
+  labels:
+    {{- include "team-manager.frontend.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.frontend.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "team-manager.frontend.selectorLabels" . | nindent 6 }}
+{{- end }}

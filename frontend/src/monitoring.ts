@@ -2,6 +2,17 @@ import type { ErrorInfo } from 'react';
 import * as Sentry from '@sentry/react';
 import { config } from './config';
 
+// § 25 TDDDG (formerly TTDSG, the German ePrivacy transposition) requires
+// consent before storing/accessing non-essential information on the end
+// device. Determination (openspec/changes/webapp-legal-compliance task 3):
+// with only browserTracingIntegration() enabled (no replayIntegration() /
+// session-tracking, which is what Sentry's own docs tie sessionStorage use
+// to), Sentry.init + captureException/setUser wrote no cookies and no
+// localStorage/sessionStorage keys in a jsdom probe exercising this exact
+// config. No consent gate is required -- disclosure in the privacy policy
+// (see features/legal/content.ts's "Cookies und lokale Speicherung" section)
+// is sufficient. Re-verify this if replayIntegration or any session-tracking
+// integration is ever added here.
 export function initMonitoring(): void {
   if (!config.sentryDsn) return;
   Sentry.init({

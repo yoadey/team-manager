@@ -1072,6 +1072,10 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           scanners: vuln
+          # 19 CVEs (glib2, libacl, python3/python3-libs), none reachable
+          # from this container's sole command (`aws s3 cp`) -- see the
+          # file for full per-package justification and a re-check reminder.
+          trivyignores: .github/trivyignore-awscli-backup.txt
 
   security-container-frontend:
     name: Security · Container scan (Trivy, frontend)
@@ -1101,7 +1105,7 @@ jobs:
       - name: Boot the image and verify the runtime-config entrypoint
         run: |
           set -euo pipefail
-          cid=$(docker run -d -p 18080:8080 -e API_BASE_URL=https://api.example.com team-manager-frontend:ci)
+          cid=$(docker run -d -p 18080:8080 -e API_BASE_URL=https://api.example.com -e OPERATOR_NAME="CI Test Operator" team-manager-frontend:ci)
           trap 'docker logs "$cid"; docker rm -f "$cid" >/dev/null' EXIT
           for i in $(seq 1 30); do
             curl -sf http://localhost:18080/healthz && break
@@ -1114,6 +1118,7 @@ jobs:
           config_js=$(curl -sf http://localhost:18080/config.js)
           echo "$config_js"
           echo "$config_js" | grep -q 'https://api.example.com'
+          echo "$config_js" | grep -q 'CI Test Operator'
           curl -sf http://localhost:18080/ | grep -q 'https://api.example.com'
 
   dast:
@@ -1216,85 +1221,214 @@ jobs:
       # Lint and render against every values file this chart ships (base
       # values.yaml, plus each environment overlay) — a values-dependent
       # template error (e.g. a required field only set in one overlay) would
-      # otherwise only surface at actual deploy time.
+      # otherwise only surface at actual deploy time. --strict promotes
+      # WARNING-level lint findings (e.g. missing recommended fields) to
+      # failures -- plain `helm lint` silently passes charts with those.
       - name: helm lint
         run: |
           set -e
-          helm lint helm/team-manager
-          helm lint helm/team-manager -f helm/team-manager/values-staging.yaml
-          helm lint helm/team-manager -f helm/team-manager/values-prod.yaml
+          helm lint --strict helm/team-manager
+          helm lint --strict helm/team-manager -f helm/team-manager/values-staging.yaml
+          helm lint --strict helm/team-manager -f helm/team-manager/values-prod.yaml
 
       - name: helm template
         run: |
           set -e
-          helm template team-manager helm/team-manager > /dev/null
-          helm template team-manager helm/team-manager -f helm/team-manager/values-staging.yaml > /dev/null
-          helm template team-manager helm/team-manager -f helm/team-manager/values-prod.yaml > /dev/null
+          # pipefail: render() below pipes `helm template | kubeconform` --
+          # without this, a failing `helm template` (the first command in
+          # the pipe) would be masked by kubeconform's own exit code (the
+          # last command), the same class of bug this repo's
+          # backup-cronjob.yaml pg_dump comment already documents for a
+          # `pg_dump | gzip` pipe under dash's non-pipefail default.
+          set -o pipefail
+          # kubeconform validates every render below against the real
+          # Kubernetes OpenAPI schema for the cluster version this chart
+          # requires (Chart.yaml's kubeVersion floor) -- catches
+          # structurally-invalid manifests (wrong field names/types,
+          # apiVersion typos) that neither `helm lint` nor
+          # values.schema.json check, since both only reason about this
+          # chart's own values, not the Kubernetes resources it renders.
+          # -ignore-missing-schemas skips kinds kubeconform has no schema
+          # for (the Prometheus Operator CRDs ServiceMonitor/PrometheusRule
+          # this chart optionally renders) rather than failing on them.
+          # Digest-pinned (resolved 2026-07-25 from ghcr.io, kubeconform
+          # v0.8.0, the latest release at pin time) so a tag-hijack of a
+          # mutable upstream tag can't silently swap what validates CI's
+          # manifests -- same rationale as this repo's other digest-pinned
+          # third-party images. Re-resolve periodically.
+          kubeconform() {
+            docker run --rm -i \
+              "ghcr.io/yannh/kubeconform@sha256:faffaf43f95aa6425306e1ab8d6fcad72acb9049158f38e574c085ea1ec0f64e" \
+              -strict -summary -ignore-missing-schemas -kubernetes-version 1.23.0 -
+          }
+          render() {
+            # --kube-version: without a live cluster to query, Helm's own
+            # template-rendering fallback is a hardcoded v1.20.0 (see
+            # helm.sh/helm/v3/pkg/chartutil.DefaultCapabilities), which is
+            # incompatible with Chart.yaml's own `kubeVersion: >=1.23.0-0`
+            # constraint -- every `helm template` invocation in this job
+            # would otherwise fail immediately on that mismatch, before
+            # rendering (or kubeconform-validating) anything. Matches
+            # Chart.yaml's floor exactly, and doubles as this job's coverage
+            # that the floor itself is satisfiable (autoscaling/v2, this
+            # chart's actual minimum requirement per Chart.yaml's own
+            # comment, is GA in 1.23).
+            helm template team-manager helm/team-manager --kube-version 1.23.0 "$@" | kubeconform
+          }
+          render
+          render -f helm/team-manager/values-staging.yaml
+          render -f helm/team-manager/values-prod.yaml
           # monitoring.enabled/grafanaDashboard.enabled are false in every
           # shipped values file, so without this the ServiceMonitor/
           # PrometheusRule/Grafana-dashboard-ConfigMap templates would never
           # actually render in CI and a syntax error in them would only
           # surface the first time an operator opts in at deploy time.
-          # monitoring.metricsToken is also empty everywhere (including
-          # above), so the metrics-token-secret.yaml Secret and
-          # servicemonitor.yaml's bearerTokenSecret block are exercised here too.
-          helm template team-manager helm/team-manager \
+          # monitoring.scrapeToken.secret.existingSecret is also unset
+          # everywhere (including above), so servicemonitor.yaml's
+          # bearerTokenSecret block is exercised here too.
+          render \
             --set monitoring.enabled=true --set monitoring.grafanaDashboard.enabled=true \
-            --set monitoring.metricsToken=dummy > /dev/null
+            --set monitoring.scrapeToken.secret.existingSecret=dummy-scrape-secret
           # backup.enabled is only true in values-prod.yaml, which also sets
           # backup.s3.enabled=true -- so backup-cronjob.yaml's `{{- else }}`
           # branch (the no-op-warning container, taken when S3 upload is
           # disabled) is never rendered by any of the invocations above.
-          helm template team-manager helm/team-manager \
-            --set backup.enabled=true --set backup.s3.enabled=false > /dev/null
-          # monitoring.metricsTokenSecretName (external-Secret reference,
-          # added to fix the existingSecret-only convention gap) is empty in
-          # every shipped values file and unset by the monitoring.enabled
-          # render above too, so its branch of servicemonitor.yaml's
-          # bearerTokenSecret block was never rendered anywhere.
-          helm template team-manager helm/team-manager \
-            --set monitoring.enabled=true --set monitoring.metricsTokenSecretName=dummy-secret > /dev/null
-          # backup.s3.credentialsSecretName (static AWS credentials, the one
+          render \
+            --set backup.enabled=true --set backup.s3.enabled=false
+          # backup.s3.secret.existingSecret (static AWS credentials, the one
           # alternative to IRSA) is empty in every shipped values file,
           # including values-prod.yaml's IRSA-based backup.enabled=true
-          # render above -- so backup-cronjob.yaml's credentialsSecretName
-          # branch (the AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY secretKeyRefs)
-          # has no template-syntax coverage at all. backup.s3.endpoint (the
-          # S3-compatible-storage/MinIO override -- see values.yaml and
-          # networkpolicy.yaml's egress.s3.port comment) is likewise empty
-          # everywhere, so backup-cronjob.yaml's --endpoint-url branch is
-          # covered here too rather than needing its own separate render.
-          helm template team-manager helm/team-manager \
+          # render above -- so backup-cronjob.yaml's AWS_ACCESS_KEY_ID/
+          # AWS_SECRET_ACCESS_KEY secretKeyRefs have no template-syntax
+          # coverage at all. backup.s3.endpoint (the S3-compatible-storage/
+          # MinIO override -- see values.yaml and networkpolicy.yaml's
+          # egress.s3.port comment) is likewise empty everywhere, so
+          # backup-cronjob.yaml's --endpoint-url branch is covered here too
+          # rather than needing its own separate render.
+          render \
             --set backup.enabled=true --set backup.s3.enabled=true \
-            --set backup.s3.bucket=x --set backup.s3.credentialsSecretName=dummy-creds \
-            --set backup.s3.endpoint=https://minio.example.com:9000 > /dev/null
+            --set backup.s3.bucket=x --set backup.s3.secret.existingSecret=dummy-creds \
+            --set backup.s3.endpoint=https://minio.example.com:9000
           # deploymentStrategy is `{}` (empty map, so Deployment.spec.strategy
           # is omitted entirely) in every shipped values file, so the
           # `{{- with .Values.deploymentStrategy }}` branch in deployment.yaml
           # otherwise has no template-syntax coverage -- this is the
           # docs/operations.md-recommended `Recreate` override for a
           # backward-incompatible migration deploy.
-          helm template team-manager helm/team-manager \
-            --set deploymentStrategy.type=Recreate > /dev/null
-          # monitoring.namespace combined with the chart-managed
-          # monitoring.metricsToken Secret is never exercised above -- this
-          # is the combination that caught metrics-token-secret.yaml
-          # rendering into .Release.Namespace while servicemonitor.yaml
-          # rendered into monitoring.namespace, so the bearerTokenSecret
-          # reference silently failed to resolve.
-          helm template team-manager helm/team-manager \
+          render \
+            --set deploymentStrategy.type=Recreate
+          # monitoring.namespace combined with a referenced
+          # monitoring.scrapeToken Secret is never exercised above -- this
+          # is the combination that caught the scrape-token Secret rendering
+          # into .Release.Namespace while servicemonitor.yaml rendered into
+          # monitoring.namespace, so the bearerTokenSecret reference
+          # silently failed to resolve.
+          render \
             --set monitoring.enabled=true --set monitoring.namespace=monitoring \
-            --set monitoring.metricsToken=dummy > /dev/null
+            --set monitoring.scrapeToken.secret.existingSecret=dummy-scrape-secret
           # backup.serviceAccount.create (a dedicated ServiceAccount for the
           # backup CronJob, so an IRSA annotation for S3 access doesn't also
           # get injected into the main app Deployment's pods) has no
           # coverage in any render above.
-          helm template team-manager helm/team-manager \
-            --set backup.enabled=true --set backup.serviceAccount.create=true > /dev/null
+          render \
+            --set backup.enabled=true --set backup.serviceAccount.create=true
           # serviceAccount.create is `true` in every shipped values file, so
           # team-manager.serviceAccountName's `{{- else }}` branch (used when
           # pointing the chart at an externally-managed ServiceAccount
           # instead of letting it create one) has no template-syntax
           # coverage in any render above.
-          helm template team-manager helm/team-manager \
-            --set serviceAccount.create=false --set serviceAccount.name=external-sa > /dev/null
+          render \
+            --set serviceAccount.create=false --set serviceAccount.name=external-sa
+          # database.host/name/username/secret.existingSecret are all
+          # empty in the base values.yaml (schema-valid, but nothing in the
+          # chart's own render coverage so far exercises DATABASE_URL's
+          # composition, per-area secret.existingSecret resolution, or
+          # smtp.host being set (SMTP env vars + the NetworkPolicy smtp
+          # egress rule). Every area's secret.keys is also overridden here
+          # to a non-default, non-kebab-case-default name, proving
+          # _env.tpl's secretKeyRef.key actually reads the override rather
+          # than silently falling back to the chart's own default.
+          render \
+            --set session.cookie.secure=true \
+            --set database.host=postgres.example.com --set database.name=teammanager --set database.username=teammanager \
+            --set database.secret.existingSecret=database-secret --set database.secret.keys.password=CUSTOM_PASSWORD_KEY \
+            --set jwt.secret.existingSecret=jwt-secret \
+            --set jwt.secret.keys.privateKey=CUSTOM_PRIVATE_KEY --set jwt.secret.keys.publicKey=CUSTOM_PUBLIC_KEY \
+            --set cookieEncryption.secret.existingSecret=cookie-secret \
+            --set cookieEncryption.secret.keys.key=CUSTOM_KEY --set cookieEncryption.secret.keys.keys=CUSTOM_KEYS \
+            --set s3.endpoint=s3.example.com --set s3.bucket=x \
+            --set s3.secret.existingSecret=s3-secret \
+            --set s3.secret.keys.accessKeyId=CUSTOM_ACCESS_KEY --set s3.secret.keys.secretAccessKey=CUSTOM_SECRET_KEY \
+            --set smtp.host=smtp.example.com --set smtp.fromAddress=no-reply@example.com \
+            --set smtp.secret.existingSecret=smtp-secret \
+            --set smtp.secret.keys.username=CUSTOM_USERNAME --set smtp.secret.keys.password=CUSTOM_SMTP_PASSWORD \
+            --set push.publicKey=dummy --set push.subject=mailto:test@example.com \
+            --set push.secret.existingSecret=push-secret --set push.secret.keys.privateKey=CUSTOM_VAPID_KEY \
+            --set pagination.secret.existingSecret=pagination-secret --set pagination.secret.keys.hmacKey=CUSTOM_HMAC_KEY \
+            --set observability.sentry.secret.existingSecret=sentry-secret --set observability.sentry.secret.keys.dsn=CUSTOM_DSN_KEY \
+            --set metrics.secret.existingSecret=metrics-secret --set metrics.secret.keys.token=CUSTOM_TOKEN_KEY
+          # extraEnv/extraVolumes/extraVolumeMounts/podLabels (the
+          # forward-compatibility escape hatches), priorityClassName,
+          # topologySpreadConstraints, and image.digest are all empty/unset
+          # in every shipped values file and every render above.
+          render \
+            --set-json 'extraEnv=[{"name":"EXTRA_ENV_VAR","value":"x"}]' \
+            --set-json 'extraVolumes=[{"name":"extra","emptyDir":{}}]' \
+            --set-json 'extraVolumeMounts=[{"name":"extra","mountPath":"/extra"}]' \
+            --set podLabels.team=platform \
+            --set priorityClassName=system-cluster-critical \
+            --set-json 'topologySpreadConstraints=[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"team-manager"}}}]' \
+            --set image.digest=sha256:1111111111111111111111111111111111111111111111111111111111111111
+          # frontend.enabled is false in every shipped values file and
+          # every render above -- exercises the frontend Deployment/
+          # Service/Ingress/HPA/PDB/NetworkPolicy templates, every
+          # frontend.operator.* env var, and frontend.vapidPublicKey's
+          # default-from-push.publicKey resolution (push.publicKey is set,
+          # frontend.vapidPublicKey deliberately left unset).
+          render \
+            --set frontend.enabled=true --set frontend.image.tag=1.0.0 \
+            --set frontend.apiBaseUrl=https://api.team-manager.example.com \
+            --set frontend.sentryDsn=https://key@sentry.example.com/1 \
+            --set push.publicKey=dummy-vapid-public-key \
+            --set frontend.operator.name="Example e.V." \
+            --set frontend.operator.legalForm="Eingetragener Verein (e. V.)" \
+            --set frontend.operator.street="Musterstraße 1" \
+            --set-string frontend.operator.postalCode=12345 \
+            --set frontend.operator.city=Musterstadt \
+            --set frontend.operator.representedBy="Max Mustermann" \
+            --set-string frontend.operator.phone="+49 123 4567890" \
+            --set frontend.operator.email=info@example.com \
+            --set frontend.operator.registerCourt="AG Musterstadt" \
+            --set frontend.operator.registerNumber="VR 12345" \
+            --set frontend.operator.vatId=DE123456789 \
+            --set frontend.operator.dataProtectionEmail=datenschutz@example.com \
+            --set frontend.operator.s3Provider="self-hosted" \
+            --set frontend.operator.smtpProvider="self-hosted" \
+            --set frontend.operator.sentryProvider="self-hosted" \
+            --set frontend.operator.otelProvider="self-hosted" \
+            --set frontend.ingress.enabled=true \
+            --set frontend.autoscaling.enabled=true \
+            --set frontend.podDisruptionBudget.enabled=false \
+            --set-json 'frontend.extraEnv=[{"name":"EXTRA_ENV_VAR","value":"x"}]' \
+            --set-json 'frontend.extraVolumes=[{"name":"extra","emptyDir":{}}]' \
+            --set-json 'frontend.extraVolumeMounts=[{"name":"extra","mountPath":"/extra"}]' \
+            --set frontend.podLabels.team=platform \
+            --set frontend.priorityClassName=system-cluster-critical \
+            --set-json 'frontend.topologySpreadConstraints=[{"maxSkew":1,"topologyKey":"topology.kubernetes.io/zone","whenUnsatisfiable":"ScheduleAnyway","labelSelector":{"matchLabels":{"app.kubernetes.io/name":"team-manager-frontend"}}}]' \
+            --set frontend.image.digest=sha256:2222222222222222222222222222222222222222222222222222222222222222
+
+      # values.schema.json's additionalProperties:false (set on every
+      # chart-specific object) should reject an unknown/typo'd key rather
+      # than silently accepting and ignoring it -- verify the negative case
+      # actually fails, not just that the positive cases above succeed.
+      - name: helm template rejects unknown values keys
+        run: |
+          set +e
+          helm template team-manager helm/team-manager --set s3.enpoint=typo > /tmp/schema-typo.log 2>&1
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::helm template accepted an unknown key (s3.enpoint) -- values.schema.json's additionalProperties:false is not being enforced"
+            exit 1
+          fi
+          grep -q "Additional property enpoint is not allowed" /tmp/schema-typo.log

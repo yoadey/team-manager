@@ -8,7 +8,9 @@ function useInvalidateNews(teamId: string | null) {
 }
 
 export interface SaveNewsInput {
-  id?: string;
+  // Explicit `| undefined` -- the create/update decision is made by the
+  // caller passing `undefined` for a new item, not by omitting the key.
+  id?: string | undefined;
   payload: { title: string; body: string; pinned: boolean };
 }
 

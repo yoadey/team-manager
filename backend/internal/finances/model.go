@@ -41,6 +41,7 @@ type PenaltyAssignmentRow struct {
 	PenaltyID         *uuid.UUID
 	Paid              bool
 	Date              time.Time
+	Note              *string
 	PenaltyLabel      *string
 	PenaltyAmount     *int64
 	MemberName        *string

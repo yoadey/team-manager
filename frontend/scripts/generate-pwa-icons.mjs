@@ -141,6 +141,5 @@ for (const size of [192, 512]) {
   const png = encodePng(renderRGBA(size), size);
   const file = join(OUT_DIR, `icon-${size}.png`);
   writeFileSync(file, png);
-  // eslint-disable-next-line no-console
   console.log(`wrote ${file} (${png.length} bytes)`);
 }

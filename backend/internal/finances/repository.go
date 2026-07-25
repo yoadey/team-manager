@@ -416,10 +416,10 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
+		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date, pa.note,
 		       pa.label, pa.amount,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1
@@ -435,7 +435,7 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 	for rows.Next() {
 		var a PenaltyAssignmentRow
 		if err := rows.Scan(
-			&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date,
+			&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note,
 			&a.PenaltyLabel, &a.PenaltyAmount,
 			&a.MemberName, &a.MemberAvatarColor, &a.HasPhoto,
 		); err != nil {
@@ -454,15 +454,15 @@ func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID
 	defer cancel()
 	a := &PenaltyAssignmentRow{}
 	err := r.db.QueryRow(ctx, `
-		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date,
+		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date, pa.note,
 		       pa.label, pa.amount,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.id = $1 AND pa.team_id = $2
 	`, id, teamID).Scan(
-		&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date,
+		&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note,
 		&a.PenaltyLabel, &a.PenaltyAmount,
 		&a.MemberName, &a.MemberAvatarColor, &a.HasPhoto,
 	)
@@ -491,7 +491,9 @@ func (r *Repository) CountAssignments(ctx context.Context, teamID uuid.UUID) (in
 	return count, nil
 }
 
-// CreateAssignment inserts a penalty assignment for a user.
+// CreateAssignment inserts a penalty assignment for a user, with a
+// caller-supplied earned-date (independent of when it is recorded) and an
+// optional free-text note.
 // CreateAssignment inserts a penalty assignment. penalty_assignments.user_id
 // only references users(id), not memberships -- there's no FK enforcing team
 // membership -- so the INSERT re-checks membership atomically via WHERE
@@ -520,7 +522,7 @@ func (r *Repository) CountAssignments(ctx context.Context, teamID uuid.UUID) (in
 // intended ErrPenaltyNotInTeam into an unmapped "null value ... violates
 // not-null constraint" error. Passing real, non-null amount/label values
 // into the INSERT keeps the FK check as the one that fires on a race.
-func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID) (*PenaltyAssignmentRow, error) {
+func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID, date time.Time, note *string) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -541,11 +543,11 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 
 	a := &PenaltyAssignmentRow{}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO penalty_assignments (team_id, user_id, penalty_id, amount, label)
-		SELECT $1, $2, $3, $4, $5
+		INSERT INTO penalty_assignments (team_id, user_id, penalty_id, amount, label, date, note)
+		SELECT $1, $2, $3, $4, $5, $6, $7
 		WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)
-		RETURNING id, team_id, user_id, penalty_id, paid, date, label, amount
-	`, teamID, userID, penaltyID, amount, label).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
+		RETURNING id, team_id, user_id, penalty_id, paid, date, note, label, amount
+	`, teamID, userID, penaltyID, amount, label, date, note).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -595,8 +597,8 @@ func (r *Repository) SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID
 	// name/avatar CreateAssignment's own fallback omits.
 	err := r.db.QueryRow(ctx, `
 		UPDATE penalty_assignments SET paid = $3 WHERE id = $1 AND team_id = $2
-		RETURNING id, team_id, user_id, penalty_id, paid, date, label, amount
-	`, id, teamID, paid).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.PenaltyLabel, &a.PenaltyAmount)
+		RETURNING id, team_id, user_id, penalty_id, paid, date, note, label, amount
+	`, id, teamID, paid).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -616,7 +618,7 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 	rows, err := r.db.Query(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM contributions c
 		JOIN users u ON u.id = c.user_id
 		WHERE c.team_id = $1
@@ -720,7 +722,7 @@ func (r *Repository) getContributionByID(ctx context.Context, id, teamID uuid.UU
 	err := r.db.QueryRow(ctx, `
 		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
 		       u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo
+		       (u.photo_object_key IS NOT NULL) AS has_photo
 		FROM contributions c
 		JOIN users u ON u.id = c.user_id
 		WHERE c.id = $1 AND c.team_id = $2
@@ -783,12 +785,12 @@ func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UU
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
 		SELECT pa.user_id, u.name, u.avatar_color,
-		       (u.photo_data IS NOT NULL) AS has_photo,
+		       (u.photo_object_key IS NOT NULL) AS has_photo,
 		       COALESCE(SUM(pa.amount), 0)::BIGINT AS total_amount
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
 		WHERE pa.team_id = $1 AND pa.paid = false
-		GROUP BY pa.user_id, u.name, u.avatar_color, (u.photo_data IS NOT NULL)
+		GROUP BY pa.user_id, u.name, u.avatar_color, (u.photo_object_key IS NOT NULL)
 		ORDER BY total_amount DESC
 	`, teamID)
 	if err != nil {

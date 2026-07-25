@@ -19,6 +19,16 @@ var (
 		Help:      "Total password login attempts by outcome (success / failure).",
 	}, []string{"outcome"})
 
+	// RegisterAttempts counts self-registration attempts split by outcome.
+	// outcome label values: "success" (a generic 202, regardless of which of
+	// Register's three enumeration-safe branches was taken), "disabled"
+	// (SELF_REGISTRATION_ENABLED=false), "invalid" (validation failure).
+	RegisterAttempts = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "register_attempts_total",
+		Help:      "Total self-registration attempts by outcome.",
+	}, []string{"outcome"})
+
 	// RateLimitHits counts requests rejected by the rate limiter.
 	// context label values: "global" (per-IP general limit), "login" (login endpoint).
 	RateLimitHits = promauto.NewCounterVec(prometheus.CounterOpts{
@@ -94,5 +104,33 @@ var (
 		Namespace: "teammanager",
 		Name:      "notification_job_failures_total",
 		Help:      "Total internal/jobs.NotificationWorker.Work failures.",
+	})
+
+	// PushDeliverySuccess counts Web Push notifications successfully accepted
+	// by the recipient's push service.
+	PushDeliverySuccess = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "push_delivery_success_total",
+		Help:      "Total Web Push notifications successfully delivered to a push service.",
+	})
+
+	// PushDeliveryFailures counts internal/jobs.PushDeliveryWorker.Work
+	// failures other than a gone/expired subscription (see
+	// PushSubscriptionsPruned) -- transient errors River retries.
+	PushDeliveryFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "push_delivery_failures_total",
+		Help:      "Total internal/jobs.PushDeliveryWorker.Work failures (excluding pruned/gone subscriptions).",
+	})
+
+	// PushSubscriptionsPruned counts push_subscriptions rows deleted because
+	// the push service reported the endpoint gone (404/410) -- expected,
+	// routine cleanup, tracked separately from PushDeliveryFailures so a
+	// dashboard doesn't conflate "browser uninstalled the app" with "push
+	// delivery is broken".
+	PushSubscriptionsPruned = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "push_subscriptions_pruned_total",
+		Help:      "Total push_subscriptions rows deleted after the push service reported the endpoint gone.",
 	})
 )

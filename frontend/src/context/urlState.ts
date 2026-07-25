@@ -128,3 +128,15 @@ export function parsePendingInvite(pathname: string): PendingInvite | null {
   if (segs.length !== 3 || segs[0] !== 'join' || !segs[1] || !segs[2]) return null;
   return { teamId: decodeURIComponent(segs[1]), code: decodeURIComponent(segs[2]) };
 }
+
+/**
+ * Parses a `/verify-email/<token>` self-registration verification link path
+ * (the shape auth.Service.issueVerificationToken builds on the backend — see
+ * PublicBaseURL + "/verify-email/" + rawToken). Returns the raw token, or
+ * null if the path doesn't match.
+ */
+export function parseVerifyEmailToken(pathname: string): string | null {
+  const segs = pathname.replace(/^\//, '').split('/');
+  if (segs.length !== 2 || segs[0] !== 'verify-email' || !segs[1]) return null;
+  return decodeURIComponent(segs[1]);
+}

@@ -422,7 +422,7 @@ describe('MemberFormSheet', () => {
     fireEvent.change(fileInput, { target: { files: [new File(['x'], 'photo.png', { type: 'image/png' })] } });
 
     expect(app.onFile).toHaveBeenCalledTimes(1);
-    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0][1] as (d: string) => void;
+    const onFileCb = (app.onFile as ReturnType<typeof vi.fn>).mock.calls[0]![1] as (d: string) => void;
     act(() => onFileCb('data:image/png;base64,photodata'));
 
     // The photo lives purely in this form's own RHF state now -- no

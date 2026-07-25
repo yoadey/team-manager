@@ -305,6 +305,11 @@ func (h *Handler) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePen
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	if req.Body.Note != nil {
+		if err := validate.MaxLen(*req.Body.Note, 10000, "note"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	a, err := h.svc.CreateAssignment(ctx, req.TeamId, req.Body)
 	if err != nil {
 		if errors.Is(err, ErrPenaltyNotInTeam) || errors.Is(err, ErrUserNotInTeam) || errors.Is(err, ErrTooManyAssignments) {

@@ -7,9 +7,206 @@ import { buildTokens, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
+import { useMembersQuery } from '@/features/members';
 import { useEventsQuery } from '../hooks/useEventQueries';
 import { useAbsencesQuery } from '../hooks/useAbsenceQueries';
 import type { Absence, TeamEvent } from '../types';
+import { synthesizeBirthdayEvents, groupBirthdaysByDate, type BirthdayEntry } from './synthesizeBirthdayEvents';
+
+// Fixed color pair for the birthday chip, deliberately not one of typeMeta's
+// event-type colors (nor NEUTRAL) so a birthday pseudo-event reads as
+// visually distinct from both real events and absences at a glance.
+const BIRTHDAY_COLOR = { bg: '#FCE4EC', on: '#7A1750' };
+
+function groupEventsByDate(events: TeamEvent[] | undefined): Record<string, TeamEvent[]> {
+  const byDate: Record<string, TeamEvent[]> = {};
+  (events ?? []).forEach((e) => {
+    (byDate[e.date] = byDate[e.date] || []).push(e);
+  });
+  return byDate;
+}
+
+function groupAbsencesByDate(absences: Absence[] | undefined, show: boolean): Record<string, Absence[]> {
+  const byDate: Record<string, Absence[]> = {};
+  if (!show || !absences) return byDate;
+  absences.forEach((a) => {
+    let d = parseDateOnlyLocal(a.from);
+    const end = parseDateOnlyLocal(a.to);
+    while (d <= end) {
+      const ds = formatDateOnly(d);
+      (byDate[ds] = byDate[ds] || []).push(a);
+      // Increment by calendar day, not a fixed 24h in ms -- across a DST
+      // transition the local day is 23 or 25 hours, so +86400000 either
+      // lands on the same date twice or skips a day entirely.
+      d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+    }
+  });
+  return byDate;
+}
+
+function EventChip({ event, mobile, onOpen }: { event: TeamEvent; mobile: boolean; onOpen: () => void }) {
+  const tm = typeMeta(event.type);
+  return (
+    <ButtonBase
+      onClick={onOpen}
+      sx={{
+        display: 'block',
+        width: '100%',
+        textAlign: 'left',
+        justifyContent: 'flex-start',
+        border: 'none',
+        background: tm.bg,
+        color: tm.on,
+        borderRadius: '5px',
+        p: '2px 5px',
+        fontSize: mobile ? '9px' : '10px',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      {mobile ? event.title : hhmm(event.startTime) + ' ' + event.title}
+    </ButtonBase>
+  );
+}
+
+function AbsenceChip({ absence, mobile }: { absence: Absence; mobile: boolean }) {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '3px',
+        background: NEUTRAL.line2,
+        borderRadius: '5px',
+        p: '1px 4px',
+        fontSize: mobile ? '8px' : '9px',
+        color: NEUTRAL.secondary,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      <Box
+        component="span"
+        sx={{ width: '6px', height: '6px', borderRadius: '50%', background: absence.roleColor, flex: '0 0 auto' }}
+      />
+      {(absence.name || '').split(' ')[0]}
+    </Box>
+  );
+}
+
+// Synthetic pseudo-event -- styled like AbsenceChip's pill shape (not
+// EventChip's block button, since it isn't clickable/openable) but with a
+// dedicated icon + color pair so it can't be mistaken for a real event or an
+// absence.
+function BirthdayChip({ entry, mobile }: { entry: BirthdayEntry; mobile: boolean }) {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '3px',
+        background: BIRTHDAY_COLOR.bg,
+        borderRadius: '5px',
+        p: '1px 4px',
+        fontSize: mobile ? '8px' : '9px',
+        fontWeight: 600,
+        color: BIRTHDAY_COLOR.on,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      <Sym name="cake" size={mobile ? 9 : 10} color={BIRTHDAY_COLOR.on} />
+      {entry.name}
+    </Box>
+  );
+}
+
+interface CalendarDayCellProps {
+  date: Date;
+  inMonth: boolean;
+  isToday: boolean;
+  mobile: boolean;
+  primary: string;
+  primaryContainer: string;
+  events: TeamEvent[];
+  absences: Absence[];
+  birthdays: BirthdayEntry[];
+  onOpenEvent: (id: string) => void;
+}
+
+function CalendarDayCell({
+  date,
+  inMonth,
+  isToday,
+  mobile,
+  primary,
+  primaryContainer,
+  events,
+  absences,
+  birthdays,
+  onOpenEvent,
+}: CalendarDayCellProps) {
+  const eventLimit = mobile ? 2 : 3;
+  const absenceLimit = mobile ? 1 : 2;
+  const visibleEvents = events.slice(0, eventLimit);
+  const visibleAbsences = absences.slice(0, absenceLimit);
+
+  return (
+    <Box
+      sx={{
+        minHeight: mobile ? '58px' : '76px',
+        border: `1px solid ${NEUTRAL.line2}`,
+        borderRadius: '9px',
+        p: mobile ? '3px' : '5px',
+        background: inMonth ? NEUTRAL.card : NEUTRAL.sidebar,
+        opacity: inMonth ? 1 : 0.55,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '2px',
+        overflow: 'hidden',
+      }}
+    >
+      <Box
+        sx={{
+          fontSize: mobile ? '11px' : '12px',
+          fontWeight: isToday ? 800 : 500,
+          color: isToday ? primary : NEUTRAL.onSurfaceVariant,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          width: '20px',
+          height: '20px',
+          borderRadius: '50%',
+          background: isToday ? primaryContainer : 'transparent',
+          alignSelf: 'flex-start',
+        }}
+      >
+        {date.getDate()}
+      </Box>
+      {visibleEvents.map((e) => (
+        <EventChip key={e.id} event={e} mobile={mobile} onOpen={() => onOpenEvent(e.id)} />
+      ))}
+      {events.length > eventLimit ? (
+        <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>{'+' + (events.length - eventLimit)}</Box>
+      ) : null}
+      {birthdays.map((b) => (
+        <BirthdayChip key={'b' + b.membershipId} entry={b} mobile={mobile} />
+      ))}
+      {visibleAbsences.map((a, idx) => (
+        <AbsenceChip key={'a' + idx} absence={a} mobile={mobile} />
+      ))}
+      {absences.length > absenceLimit ? (
+        <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>
+          {'+' + (absences.length - absenceLimit) + ' ' + t('events.absentShort')}
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
 
 export function EventCalendar() {
   const app = useApp();
@@ -19,6 +216,13 @@ export function EventCalendar() {
   const mobile = compact;
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
   const { data: absences } = useAbsencesQuery(app.api, state.activeTeamId, state.calShowAbsences);
+  // Birthdays are gated by the same rule as the member profile's birthday
+  // field (members:write -- the "Trainerteam"/coaching-team roles; see
+  // members.contactNote). A member without that permission gets an empty
+  // birthday list rather than a filtered one, so no birthday entry ever
+  // reaches the DOM for them.
+  const canSeeBirthdays = app.can('members', 'write');
+  const { data: members } = useMembersQuery(app.api, canSeeBirthdays ? state.activeTeamId : null);
 
   const cur = state.calMonth || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const year = cur.getFullYear();
@@ -27,26 +231,19 @@ export function EventCalendar() {
   const startDow = (first.getDay() + 6) % 7;
   const today = todayLocalDate();
 
-  const evByDate: Record<string, TeamEvent[]> = {};
-  (events ?? []).forEach((e) => {
-    (evByDate[e.date] = evByDate[e.date] || []).push(e);
-  });
-
-  const absByDate: Record<string, Absence[]> = {};
-  if (state.calShowAbsences && absences) {
-    absences.forEach((a) => {
-      let d = parseDateOnlyLocal(a.from);
-      const end = parseDateOnlyLocal(a.to);
-      while (d <= end) {
-        const ds = formatDateOnly(d);
-        (absByDate[ds] = absByDate[ds] || []).push(a);
-        // Increment by calendar day, not a fixed 24h in ms -- across a DST
-        // transition the local day is 23 or 25 hours, so +86400000 either
-        // lands on the same date twice or skips a day entirely.
-        d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
-      }
-    });
-  }
+  const evByDate = groupEventsByDate(events);
+  const absByDate = groupAbsencesByDate(absences, state.calShowAbsences);
+  // Grid range: the 42 rendered cells run from `1 - startDow` to `1 -
+  // startDow + 41` days of the visible month (see the cell loop below), so
+  // the synthesis range must match exactly or a birthday landing in a
+  // leading/trailing cell from an adjacent month (possibly a different
+  // calendar year, e.g. a December grid's early-January trailing cells)
+  // would be silently dropped.
+  const gridStart = new Date(year, month, 1 - startDow);
+  const gridEnd = new Date(year, month, 1 - startDow + 41);
+  const birthdaysByDate = canSeeBirthdays
+    ? groupBirthdaysByDate(synthesizeBirthdayEvents(members, gridStart, gridEnd))
+    : {};
 
   const cells: React.ReactNode[] = [];
   const dtf = new Intl.DateTimeFormat(getIntlLocale(), { weekday: mobile ? 'narrow' : 'short' });
@@ -66,107 +263,20 @@ export function EventCalendar() {
   for (let i = 0; i < 42; i++) {
     const d = new Date(year, month, 1 - startDow + i);
     const ds = formatDateOnly(d);
-    const inMonth = d.getMonth() === month;
-    const evs = evByDate[ds] || [];
-    const abs = absByDate[ds] || [];
-    const isToday = ds === today;
-    const chips = evs.slice(0, mobile ? 2 : 3).map((e) => {
-      const tm = typeMeta(e.type);
-      return (
-        <ButtonBase
-          key={e.id}
-          onClick={() => app.openEventDetail(e.id)}
-          sx={{
-            display: 'block',
-            width: '100%',
-            textAlign: 'left',
-            justifyContent: 'flex-start',
-            border: 'none',
-            background: tm.bg,
-            color: tm.on,
-            borderRadius: '5px',
-            p: '2px 5px',
-            fontSize: mobile ? '9px' : '10px',
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {mobile ? e.title : hhmm(e.startTime) + ' ' + e.title}
-        </ButtonBase>
-      );
-    });
-    const absChips = abs.slice(0, mobile ? 1 : 2).map((a, idx) => (
-      <Box
-        key={'a' + idx}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '3px',
-          background: NEUTRAL.line2,
-          borderRadius: '5px',
-          p: '1px 4px',
-          fontSize: mobile ? '8px' : '9px',
-          color: NEUTRAL.secondary,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        <Box
-          component="span"
-          sx={{ width: '6px', height: '6px', borderRadius: '50%', background: a.roleColor, flex: '0 0 auto' }}
-        />
-        {(a.name || '').split(' ')[0]}
-      </Box>
-    ));
     cells.push(
-      <Box
+      <CalendarDayCell
         key={'c' + i}
-        sx={{
-          minHeight: mobile ? '58px' : '76px',
-          border: `1px solid ${NEUTRAL.line2}`,
-          // Smaller radius on mobile so day cells sit flush and leave more room
-          // for the day's entries (paired with the zero grid gap below).
-          borderRadius: mobile ? '4px' : '9px',
-          p: mobile ? '3px' : '5px',
-          background: inMonth ? NEUTRAL.card : NEUTRAL.sidebar,
-          opacity: inMonth ? 1 : 0.55,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '2px',
-          overflow: 'hidden',
-        }}
-      >
-        <Box
-          sx={{
-            fontSize: mobile ? '11px' : '12px',
-            fontWeight: isToday ? 800 : 500,
-            color: isToday ? tk.primary : NEUTRAL.onSurfaceVariant,
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            width: '20px',
-            height: '20px',
-            borderRadius: '50%',
-            background: isToday ? tk.primaryContainer : 'transparent',
-            alignSelf: 'flex-start',
-          }}
-        >
-          {d.getDate()}
-        </Box>
-        {chips}
-        {evs.length > (mobile ? 2 : 3) ? (
-          <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>{'+' + (evs.length - (mobile ? 2 : 3))}</Box>
-        ) : null}
-        {absChips}
-        {abs.length > (mobile ? 1 : 2) ? (
-          <Box sx={{ fontSize: '9px', color: NEUTRAL.faint, pl: '3px' }}>
-            {'+' + (abs.length - (mobile ? 1 : 2)) + ' ' + t('events.absentShort')}
-          </Box>
-        ) : null}
-      </Box>,
+        date={d}
+        inMonth={d.getMonth() === month}
+        isToday={ds === today}
+        mobile={mobile}
+        primary={tk.primary}
+        primaryContainer={tk.primaryContainer}
+        events={evByDate[ds] || []}
+        absences={absByDate[ds] || []}
+        birthdays={birthdaysByDate[ds] || []}
+        onOpenEvent={app.openEventDetail}
+      />,
     );
   }
 

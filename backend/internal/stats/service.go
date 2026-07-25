@@ -17,6 +17,7 @@ type statsRepo interface {
 	MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]MemberStatRow, error)
 	EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error)
 	SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*MemberStatRow, error)
+	AbsenceStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]AbsenceRow, error)
 	WithReadTx(ctx context.Context, fn func(OverviewReader) error) error
 	AttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to string) ([]MatrixColumnRow, []MatrixCellRow, error)
 }
@@ -231,6 +232,36 @@ func (s *Service) GetAttendanceMatrix(ctx context.Context, teamID uuid.UUID, fro
 		To:      parseDateOrZero(toStr),
 		Events:  genCols,
 		Members: genRows,
+	}, nil
+}
+
+// GetAbsences builds the absence table (member, event, date) for the given
+// team and date range, using the same defaultDateRange clamping as
+// GetOverview so a caller passing the quota view's active from/to gets the
+// identical effective window.
+func (s *Service) GetAbsences(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error) {
+	fromStr, toStr := defaultDateRange(from, to)
+
+	rows, err := s.repo.AbsenceStats(ctx, teamID, fromStr, toStr)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Service.GetAbsences: %w", err)
+	}
+
+	genRows := make([]gen.AttendanceAbsenceRow, 0, len(rows))
+	for _, r := range rows {
+		genRows = append(genRows, gen.AttendanceAbsenceRow{
+			UserId:     r.UserID,
+			MemberName: r.Name,
+			EventId:    r.EventID,
+			EventTitle: r.EventTitle,
+			EventDate:  parseDateOrZero(r.Date),
+		})
+	}
+
+	return &gen.AttendanceAbsenceTable{
+		Rows: genRows,
+		From: parseDateOrZero(fromStr),
+		To:   parseDateOrZero(toStr),
 	}, nil
 }
 

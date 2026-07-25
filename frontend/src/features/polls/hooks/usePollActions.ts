@@ -129,11 +129,11 @@ export function usePollActions({
   );
 
   const removePoll = useCallback(
-    (id: string) => {
+    (id: string, question: string) => {
       const deletedTeamId = teamId!;
       askConfirm({
         title: t('polls.deleteConfirmTitle'),
-        message: t('polls.deleteConfirmMsg'),
+        message: t('polls.deleteConfirmMsg', { question }),
         confirmLabel: t('common.delete'),
         danger: true,
         onConfirm: async () => {

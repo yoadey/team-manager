@@ -43,6 +43,15 @@ type AuditLog struct {
 	Attrs      []byte
 }
 
+type CalendarFeedToken struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	TeamID    uuid.UUID
+	Token     string
+	CreatedAt time.Time
+	RevokedAt pgtype.Timestamptz
+}
+
 type Contribution struct {
 	ID        uuid.UUID
 	TeamID    uuid.UUID
@@ -52,6 +61,15 @@ type Contribution struct {
 	Amount    int64
 	Status    string
 	UpdatedAt time.Time
+}
+
+type EmailVerificationToken struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	TokenHash  string
+	ExpiresAt  time.Time
+	ConsumedAt pgtype.Timestamptz
+	CreatedAt  time.Time
 }
 
 type Event struct {
@@ -74,6 +92,7 @@ type Event struct {
 	Status            string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	RsvpDeadline      pgtype.Timestamptz
 }
 
 type EventComment struct {
@@ -99,6 +118,8 @@ type EventSeries struct {
 	NominatedRoleIds  []uuid.UUID
 	RepeatWeeks       int32
 	CreatedAt         time.Time
+	RepeatEndDate     pgtype.Date
+	RsvpDeadline      pgtype.Timestamptz
 }
 
 type Invite struct {
@@ -151,8 +172,8 @@ type Notification struct {
 	EventTitle pgtype.Text
 	EventDate  pgtype.Date
 	Note       pgtype.Text
-	CreatedAt  time.Time
 	RiverJobID pgtype.Int8
+	CreatedAt  time.Time
 }
 
 type OidcAccount struct {
@@ -179,6 +200,7 @@ type PenaltyAssignment struct {
 	Date      pgtype.Date
 	Amount    pgtype.Int8
 	Label     pgtype.Text
+	Note      pgtype.Text
 }
 
 type Poll struct {
@@ -203,6 +225,16 @@ type PollVote struct {
 	PollID   uuid.UUID
 	OptionID uuid.UUID
 	UserID   uuid.UUID
+}
+
+type PushSubscription struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	Endpoint   string
+	P256dh     string
+	AuthKey    string
+	CreatedAt  time.Time
+	LastUsedAt pgtype.Timestamptz
 }
 
 type Role struct {
@@ -231,15 +263,11 @@ type Team struct {
 	Icon                    pgtype.Text
 	IconBg                  pgtype.Text
 	IconFg                  pgtype.Text
-	PhotoData               []byte
-	PhotoMime               pgtype.Text
-	LogoData                []byte
-	LogoMime                pgtype.Text
+	PhotoObjectKey          pgtype.Text
+	LogoObjectKey           pgtype.Text
 	Description             pgtype.Text
 	ReasonVisibilityRoleIds []uuid.UUID
 	CreatedAt               time.Time
-	PhotoObjectKey          pgtype.Text
-	LogoObjectKey           pgtype.Text
 }
 
 type Transaction struct {
@@ -255,17 +283,16 @@ type Transaction struct {
 }
 
 type User struct {
-	ID             uuid.UUID
-	Name           string
-	Email          string
-	Phone          pgtype.Text
-	AvatarColor    string
-	PhotoData      []byte
-	PhotoMime      pgtype.Text
-	Birthday       pgtype.Date
-	Address        pgtype.Text
-	PasswordHash   pgtype.Text
-	CreatedAt      time.Time
-	DeletedAt      pgtype.Timestamptz
-	PhotoObjectKey pgtype.Text
+	ID              uuid.UUID
+	Name            string
+	Email           string
+	Phone           pgtype.Text
+	AvatarColor     string
+	PhotoObjectKey  pgtype.Text
+	Birthday        pgtype.Date
+	Address         pgtype.Text
+	PasswordHash    pgtype.Text
+	EmailVerifiedAt pgtype.Timestamptz
+	DeletedAt       pgtype.Timestamptz
+	CreatedAt       time.Time
 }

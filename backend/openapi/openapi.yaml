@@ -10,8 +10,11 @@ info:
     limit, `RATE_LIMIT_RPS`) or `413 Payload Too Large` (request body cap,
     4 MB by default) — see the `TooManyRequests`/`PayloadTooLarge` reusable
     responses. These aren't repeated on every operation below to keep the
-    spec readable; `/auth/login` documents its own stricter rate limit
-    explicitly since it differs from the global default.
+    spec readable; `/auth/login`, `/auth/register` and
+    `/auth/resend-verification` document their own stricter per-IP rate
+    limits explicitly since they differ from the global default
+    (`LOGIN_RATE_LIMIT_PER_MIN`, `REGISTER_RATE_LIMIT_PER_MIN`,
+    `RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`).
   version: "1.0.0"
   contact:
     name: Team Manager
@@ -36,6 +39,7 @@ tags:
   - name: news
   - name: polls
   - name: notifications
+  - name: push
   - name: finances
   - name: stats
 
@@ -81,6 +85,93 @@ paths:
                 $ref: "#/components/schemas/LoginResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/register:
+    post:
+      tags: [auth]
+      operationId: register
+      summary: Self-register a new account with email + password
+      description: >
+        Creates an unverified account and emails a verification link. The
+        response is always the same generic message regardless of whether the
+        email was available, already registered and verified, or already
+        registered and still pending verification — this endpoint never
+        reveals account existence. Disabled server-side via
+        `SELF_REGISTRATION_ENABLED`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "202":
+          description: >-
+            Registration accepted. If the email can be registered, a
+            verification link has been sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/verify-email:
+    post:
+      tags: [auth]
+      operationId: verifyEmail
+      summary: Consume an email verification token and establish a session
+      description: >
+        Marks the account verified and returns a session, identical in shape
+        to `login`'s response, so the client can reuse its normal
+        post-login bootstrap.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/resend-verification:
+    post:
+      tags: [auth]
+      operationId: resendVerification
+      summary: Resend the email verification link
+      description: >
+        Always returns the same generic response regardless of whether the
+        email has no account, an already-verified account, or a still-
+        unverified account — only the last case actually sends a new email.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResendVerificationRequest"
+      responses:
+        "202":
+          description: >-
+            If a still-unverified account exists for this email, a new
+            verification link has been sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -193,6 +284,41 @@ paths:
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
 
+  # ── Push notifications ───────────────────────────────────────────────────────
+  # User-scoped (no {teamId}), like /auth/me/photo above -- a subscription
+  # covers push delivery for every team the user belongs to, so it needs no
+  # x-rbac-module: genrbac only requires that extension on team-scoped
+  # ({teamId}-bearing) operations; membership in the authenticated session is
+  # already sufficient here, same as /auth/me/photo.
+
+  /users/me/push-subscriptions:
+    post:
+      tags: [push]
+      operationId: registerPushSubscription
+      summary: Register (or update) this browser's Web Push subscription
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushSubscriptionRequest"
+      responses:
+        "204":
+          description: No Content
+    delete:
+      tags: [push]
+      operationId: deletePushSubscription
+      summary: Unregister a Web Push subscription
+      parameters:
+        - name: endpoint
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: No Content
+
   # ── Teams ───────────────────────────────────────────────────────────────────
 
   /teams:
@@ -272,6 +398,8 @@ paths:
       x-rbac-module: public
       summary: Get team photo
       responses:
+        "200":
+          $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
         "404":
@@ -319,6 +447,8 @@ paths:
       x-rbac-module: public
       summary: Get team logo
       responses:
+        "200":
+          $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
         "404":
@@ -469,6 +599,8 @@ paths:
       x-rbac-module: members
       summary: Get a team member's profile photo
       responses:
+        "200":
+          $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
         "404":
@@ -837,6 +969,64 @@ paths:
       responses:
         "204":
           description: No Content
+
+  # ── Calendar feed ─────────────────────────────────────────────────────────────
+
+  /teams/{teamId}/calendar-feed/token:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [events]
+      operationId: issueCalendarFeedToken
+      x-rbac-module: events
+      x-rbac-self-service: true
+      summary: Issue (or rotate) the caller's calendar subscription link for this team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarFeedToken"
+    delete:
+      tags: [events]
+      operationId: revokeCalendarFeedToken
+      x-rbac-module: events
+      x-rbac-self-service: true
+      summary: Revoke the caller's calendar subscription link for this team
+      responses:
+        "204":
+          description: No Content
+
+  /calendar-feed/{token}.ics:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [events]
+      operationId: getCalendarFeed
+      summary: >-
+        Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by
+        design: calendar apps poll this URL directly and cannot present a
+        session cookie. The token itself is the credential -- see
+        internal/calendarfeed for the authorization model.
+      security: []
+      responses:
+        "200":
+          description: >-
+            iCalendar document. Content-Type is text/calendar, not
+            application/json -- oapi-codegen models this as a raw-bytes
+            response.
+          content:
+            text/calendar:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ── Absences ────────────────────────────────────────────────────────────────
 
@@ -1528,6 +1718,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/MemberAttendanceStats"
 
+  /teams/{teamId}/stats/absences:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: getStatsAbsences
+      x-rbac-module: events
+      summary: Per-member, per-event absence table for the date range
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceAbsenceTable"
+
 # ─── Components ───────────────────────────────────────────────────────────────
 components:
   securitySchemes:
@@ -1628,6 +1845,18 @@ components:
             type: string
             format: uri
           description: Presigned URL to fetch the image bytes from.
+    PhotoBytes:
+      description: >-
+        The image bytes, streamed directly by the backend instead of a
+        redirect. Returned instead of the 302 when the deployment is
+        configured for proxy image delivery (IMAGE_DELIVERY_PROXY_ENABLED=true);
+        access is membership-gated before any bytes are streamed, same as
+        the redirect mode's presign gating.
+      content:
+        image/*:
+          schema:
+            type: string
+            format: binary
 
   schemas:
 
@@ -1746,6 +1975,40 @@ components:
           type: string
         user:
           $ref: "#/components/schemas/User"
+
+    RegisterRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+
+    RegisterResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+
+    VerifyEmailRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    ResendVerificationRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
 
     DeleteAccountRequest:
       type: object
@@ -2098,6 +2361,12 @@ components:
           type: boolean
         myReason:
           type: string
+        rsvpDeadline:
+          type: string
+          format: date-time
+          description: >-
+            Optional cutoff after which a non-privileged member can no longer
+            change their attendance response for this event.
 
     CreateEventRequest:
       type: object
@@ -2139,6 +2408,21 @@ components:
           type: integer
           minimum: 1
           maximum: 104
+        endDate:
+          type: string
+          format: date
+          description: >-
+            Alternative to repeatWeeks for a recurring series: generates
+            weekly occurrences from date up to and including endDate instead
+            of a fixed count. Mutually exclusive with repeatWeeks -- when
+            both are set, endDate takes precedence.
+        rsvpDeadline:
+          type: string
+          format: date-time
+          description: >-
+            Optional cutoff after which a non-privileged member can no longer
+            change their attendance response. For a recurring series, seeds
+            every generated occurrence's own rsvpDeadline.
 
     UpdateEventRequest:
       type: object
@@ -2173,6 +2457,12 @@ components:
           items:
             type: string
             format: uuid
+        rsvpDeadline:
+          type: string
+          format: date-time
+          description: >-
+            Optional cutoff after which a non-privileged member can no
+            longer change their attendance response.
 
     SetEventStatusRequest:
       type: object
@@ -2583,6 +2873,36 @@ components:
         unreadCount:
           type: integer
 
+    # ── Push notifications ────────────────────────────────────────────────────
+
+    PushSubscriptionRequest:
+      type: object
+      required: [endpoint, keys]
+      description: >-
+        Mirrors the shape PushSubscription.toJSON() produces in the browser.
+      properties:
+        endpoint:
+          type: string
+        keys:
+          type: object
+          required: [p256dh, auth]
+          properties:
+            p256dh:
+              type: string
+            auth:
+              type: string
+
+    # ── Calendar feed ──────────────────────────────────────────────────────────
+
+    CalendarFeedToken:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Ready-to-use calendar subscription URL (https://...).
+
     # ── Finances ─────────────────────────────────────────────────────────────
 
     Transaction:
@@ -2736,6 +3056,9 @@ components:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+        note:
+          type: string
+          maxLength: 10000
 
     CreatePenaltyAssignmentRequest:
       type: object
@@ -2747,6 +3070,17 @@ components:
         penaltyId:
           type: string
           format: uuid
+        date:
+          type: string
+          format: date
+          description: >-
+            The date the penalty was earned (e.g. to back-date an assignment
+            recorded after the fact). Defaults to the server's current date
+            when omitted.
+        note:
+          type: string
+          maxLength: 10000
+          description: Optional free-text note explaining the assignment.
 
     SetPaidRequest:
       type: object
@@ -3006,3 +3340,36 @@ components:
           description: Rows, ordered by attendance (most yes first), then name.
           items:
             $ref: "#/components/schemas/AttendanceMatrixRow"
+
+    AttendanceAbsenceRow:
+      type: object
+      required: [userId, memberName, eventId, eventTitle, eventDate]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        memberName:
+          type: string
+        eventId:
+          type: string
+          format: uuid
+        eventTitle:
+          type: string
+        eventDate:
+          type: string
+          format: date
+
+    AttendanceAbsenceTable:
+      type: object
+      required: [rows, from, to]
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: "#/components/schemas/AttendanceAbsenceRow"
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date

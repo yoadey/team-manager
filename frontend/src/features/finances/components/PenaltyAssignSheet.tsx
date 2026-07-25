@@ -3,7 +3,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
-import { Field, PrimaryButton, inputSx, labelSx } from '@/components/ui';
+import { Field, PrimaryButton, TextArea, TextInput, inputSx, labelSx } from '@/components/ui';
 import { useMembersQuery } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
 import { penaltyAssignFormSchema, type PenaltyAssignFormValues } from './penaltyAssignFormSchema';
@@ -131,6 +131,12 @@ export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
     >
       {memSel}
       {penOpts}
+      <Field label={t('finances.assignDate')} required error={!!errors.date} errorText={errors.date?.message}>
+        <TextInput type="date" {...register('date')} />
+      </Field>
+      <Field label={t('finances.assignNote')} error={!!errors.note} errorText={errors.note?.message}>
+        <TextArea placeholder={t('finances.assignNotePlaceholder')} minHeight={64} maxLength={10000} {...register('note')} />
+      </Field>
       <PrimaryButton
         label={t('finances.assignSave')}
         onClick={handleSubmit(onSubmit)}

@@ -172,14 +172,15 @@ describe('usePollActions', () => {
     expect(api.polls.vote).toHaveBeenCalledWith('poll1', ['opt1', 'opt2'], 'team1');
   });
 
-  it('removePoll calls askConfirm', () => {
+  it('removePoll calls askConfirm with the poll question in the message', () => {
     const { result } = renderActions();
     act(() => {
-      result.current.removePoll('poll1');
+      result.current.removePoll('poll1', 'Frage?');
     });
     expect(askConfirm).toHaveBeenCalledWith(
       expect.objectContaining({
         title: 'Umfrage löschen?',
+        message: expect.stringContaining('Frage?'),
         danger: true,
       }),
     );
@@ -188,9 +189,9 @@ describe('usePollActions', () => {
   it('removePoll onConfirm removes poll and shows toast', async () => {
     const { result } = renderActions();
     act(() => {
-      result.current.removePoll('poll1');
+      result.current.removePoll('poll1', 'Frage?');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
     await act(async () => {
       await cfg.onConfirm();
     });
@@ -206,9 +207,9 @@ describe('usePollActions', () => {
   it('removePoll onConfirm deletes against the team the confirm dialog was opened for, even after a team switch', async () => {
     const { result, rerender } = renderActions();
     act(() => {
-      result.current.removePoll('poll1');
+      result.current.removePoll('poll1', 'Frage?');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
 
     stateRef = { ...stateRef, activeTeamId: 'team2' };
     rerender();

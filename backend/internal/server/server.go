@@ -8,12 +8,14 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/absences"
 	"github.com/yoadey/team-manager/backend/internal/auth"
+	"github.com/yoadey/team-manager/backend/internal/calendarfeed"
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/members"
 	"github.com/yoadey/team-manager/backend/internal/news"
 	"github.com/yoadey/team-manager/backend/internal/notifications"
 	"github.com/yoadey/team-manager/backend/internal/polls"
+	"github.com/yoadey/team-manager/backend/internal/push"
 	"github.com/yoadey/team-manager/backend/internal/roles"
 	"github.com/yoadey/team-manager/backend/internal/stats"
 	"github.com/yoadey/team-manager/backend/internal/teams"
@@ -299,6 +301,30 @@ func (StrictUnimplemented) GetMemberStats(_ context.Context, _ gen.GetMemberStat
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) RegisterPushSubscription(_ context.Context, _ gen.RegisterPushSubscriptionRequestObject) (gen.RegisterPushSubscriptionResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) DeletePushSubscription(_ context.Context, _ gen.DeletePushSubscriptionRequestObject) (gen.DeletePushSubscriptionResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) IssueCalendarFeedToken(_ context.Context, _ gen.IssueCalendarFeedTokenRequestObject) (gen.IssueCalendarFeedTokenResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) RevokeCalendarFeedToken(_ context.Context, _ gen.RevokeCalendarFeedTokenRequestObject) (gen.RevokeCalendarFeedTokenResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) GetCalendarFeed(_ context.Context, _ gen.GetCalendarFeedRequestObject) (gen.GetCalendarFeedResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) GetStatsAbsences(_ context.Context, _ gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 // ─── Server ──────────────────────────────────────────────────────────────────
 
 // Server implements gen.StrictServerInterface by composing feature handlers.
@@ -328,6 +354,8 @@ type Server struct {
 	Notifications *notifications.Handler
 	Finances      *finances.Handler
 	Stats         *stats.Handler
+	Push          *push.Handler
+	CalendarFeed  *calendarfeed.Handler
 }
 
 // New creates a Server wired to the provided feature handlers.
@@ -356,6 +384,8 @@ func New(
 	notificationsHandler *notifications.Handler,
 	financesHandler *finances.Handler,
 	statsHandler *stats.Handler,
+	pushHandler *push.Handler,
+	calendarFeedHandler *calendarfeed.Handler,
 ) *Server {
 	return &Server{
 		Auth:          authHandler,
@@ -369,6 +399,8 @@ func New(
 		Notifications: notificationsHandler,
 		Finances:      financesHandler,
 		Stats:         statsHandler,
+		Push:          pushHandler,
+		CalendarFeed:  calendarFeedHandler,
 	}
 }
 
@@ -404,6 +436,18 @@ func (s *Server) UploadMyPhoto(ctx context.Context, req gen.UploadMyPhotoRequest
 
 func (s *Server) ListProviders(ctx context.Context, req gen.ListProvidersRequestObject) (gen.ListProvidersResponseObject, error) {
 	return s.Auth.ListProviders(ctx, req)
+}
+
+func (s *Server) Register(ctx context.Context, req gen.RegisterRequestObject) (gen.RegisterResponseObject, error) {
+	return s.Auth.Register(ctx, req)
+}
+
+func (s *Server) VerifyEmail(ctx context.Context, req gen.VerifyEmailRequestObject) (gen.VerifyEmailResponseObject, error) {
+	return s.Auth.VerifyEmail(ctx, req)
+}
+
+func (s *Server) ResendVerification(ctx context.Context, req gen.ResendVerificationRequestObject) (gen.ResendVerificationResponseObject, error) {
+	return s.Auth.ResendVerification(ctx, req)
 }
 
 // ─── Teams delegations ────────────────────────────────────────────────────────
@@ -680,4 +724,32 @@ func (s *Server) GetMemberStats(ctx context.Context, req gen.GetMemberStatsReque
 
 func (s *Server) GetAttendanceMatrix(ctx context.Context, req gen.GetAttendanceMatrixRequestObject) (gen.GetAttendanceMatrixResponseObject, error) {
 	return s.Stats.GetAttendanceMatrix(ctx, req)
+}
+
+// ─── Push delegations ─────────────────────────────────────────────────────────
+
+func (s *Server) RegisterPushSubscription(ctx context.Context, req gen.RegisterPushSubscriptionRequestObject) (gen.RegisterPushSubscriptionResponseObject, error) {
+	return s.Push.RegisterPushSubscription(ctx, req)
+}
+
+func (s *Server) DeletePushSubscription(ctx context.Context, req gen.DeletePushSubscriptionRequestObject) (gen.DeletePushSubscriptionResponseObject, error) {
+	return s.Push.DeletePushSubscription(ctx, req)
+}
+
+// ─── Calendar feed delegations ────────────────────────────────────────────────
+
+func (s *Server) IssueCalendarFeedToken(ctx context.Context, req gen.IssueCalendarFeedTokenRequestObject) (gen.IssueCalendarFeedTokenResponseObject, error) {
+	return s.CalendarFeed.IssueCalendarFeedToken(ctx, req)
+}
+
+func (s *Server) RevokeCalendarFeedToken(ctx context.Context, req gen.RevokeCalendarFeedTokenRequestObject) (gen.RevokeCalendarFeedTokenResponseObject, error) {
+	return s.CalendarFeed.RevokeCalendarFeedToken(ctx, req)
+}
+
+func (s *Server) GetCalendarFeed(ctx context.Context, req gen.GetCalendarFeedRequestObject) (gen.GetCalendarFeedResponseObject, error) {
+	return s.CalendarFeed.GetCalendarFeed(ctx, req)
+}
+
+func (s *Server) GetStatsAbsences(ctx context.Context, req gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
+	return s.Stats.GetStatsAbsences(ctx, req)
 }

@@ -168,14 +168,14 @@ describe('Home', () => {
   it('navigates to events when clicking "Alle ansehen" events link', async () => {
     render(<Home />);
     const links = screen.getAllByText('Alle ansehen');
-    await userEvent.click(links[0]);
+    await userEvent.click(links[0]!);
     expect(mockGo).toHaveBeenCalledWith('events');
   });
 
   it('navigates to news when clicking "Alle ansehen" news link', async () => {
     render(<Home />);
     const links = screen.getAllByText('Alle ansehen');
-    await userEvent.click(links[1]);
+    await userEvent.click(links[1]!);
     expect(mockGo).toHaveBeenCalledWith('news');
   });
 

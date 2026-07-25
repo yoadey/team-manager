@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"context"
+	"io"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ func TestFakeStorePutPresignGetDelete(t *testing.T) {
 
 	require.NoError(t, s.Put(ctx, "teams/t1/photo", []byte("hello"), "image/jpeg"))
 	assert.True(t, s.Has("teams/t1/photo"))
-	data, ok := s.Get("teams/t1/photo")
+	data, ok := s.Contents("teams/t1/photo")
 	require.True(t, ok)
 	assert.Equal(t, []byte("hello"), data)
 
@@ -43,7 +44,29 @@ func TestFakeStorePutOverwrites(t *testing.T) {
 
 	require.NoError(t, s.Put(ctx, "k", []byte("v1"), "image/jpeg"))
 	require.NoError(t, s.Put(ctx, "k", []byte("v2"), "image/png"))
-	data, ok := s.Get("k")
+	data, ok := s.Contents("k")
 	require.True(t, ok)
 	assert.Equal(t, []byte("v2"), data)
+}
+
+func TestFakeStoreGet(t *testing.T) {
+	ctx := context.Background()
+	s := storage.NewFakeStore()
+
+	_, _, err := s.Get(ctx, "teams/t1/photo")
+	require.ErrorIs(t, err, storage.ErrObjectNotFound)
+
+	require.NoError(t, s.Put(ctx, "teams/t1/photo", []byte("hello"), "image/jpeg"))
+
+	rc, contentType, err := s.Get(ctx, "teams/t1/photo")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rc.Close()) })
+	assert.Equal(t, "image/jpeg", contentType)
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), data)
+
+	require.NoError(t, s.Delete(ctx, "teams/t1/photo"))
+	_, _, err = s.Get(ctx, "teams/t1/photo")
+	require.ErrorIs(t, err, storage.ErrObjectNotFound)
 }

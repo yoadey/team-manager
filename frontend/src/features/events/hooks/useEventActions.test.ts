@@ -166,7 +166,7 @@ describe('useEventDetailActions', () => {
       });
     });
     expect(setState).toHaveBeenCalledWith(expect.any(Function));
-    const call = setState.mock.calls[0][0];
+    const call = setState.mock.calls[0]![0];
     const patch = typeof call === 'function' ? call(stateRef) : call;
     expect(patch.sheet).toMatchObject({ type: 'comment', userId: 'u2', formInitial: 'injured' });
   });
@@ -209,7 +209,7 @@ describe('useEventDetailActions', () => {
     act(() => {
       result.current.removeEventComment('ev1', 'c1');
     });
-    const onConfirm = askConfirm.mock.calls[0][0].onConfirm;
+    const onConfirm = askConfirm.mock.calls[0]![0].onConfirm;
     await act(async () => {
       await onConfirm();
     });
@@ -358,7 +358,7 @@ describe('useEventActionFeatures', () => {
       result.current.askEventAction('cancel', event);
     });
     expect(setState).toHaveBeenCalled();
-    const patch = setState.mock.calls[0][0];
+    const patch = setState.mock.calls[0]![0];
     const resolved = typeof patch === 'function' ? patch(stateRef) : patch;
     expect(resolved.sheet).toMatchObject({ type: 'seriesAction', action: 'cancel' });
   });
@@ -406,7 +406,7 @@ describe('useEventActionFeatures', () => {
     act(() => {
       result.current.runEventAction('delete', event, 'single');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
 
     let confirmPromise!: Promise<void>;
     await act(async () => {
@@ -477,7 +477,7 @@ describe('useEventActionFeatures', () => {
     await act(async () => {
       await result.current.runEventAction('delete', event, 'single');
     });
-    const cfg = askConfirm.mock.calls[0][0];
+    const cfg = askConfirm.mock.calls[0]![0];
     await act(async () => {
       await cfg.onConfirm();
     });

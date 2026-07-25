@@ -24,6 +24,7 @@ export interface PenaltyAssignment {
   penaltyId: string | null;
   paid: boolean;
   date: string;
+  note?: string;
   name?: string;
   avatarColor?: string;
   photo?: string | null;

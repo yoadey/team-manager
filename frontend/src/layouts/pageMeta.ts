@@ -29,8 +29,16 @@ export function pageMeta(
   if (pageSheet) return pageSheetMeta(app, pageSheet, eventDetailEvent);
   const noop = () => {};
   type M = [string, string, boolean, string?, string?, (() => void)?];
+  // `home` is also the fallback for a route value that doesn't match any
+  // known Route (e.g. corrupted persisted state) -- bound to its own const
+  // (not looked up by indexing `defs.home`/`defs['home']`, which would be
+  // M | undefined under noUncheckedIndexedAccess) so the fallback stays a
+  // real M independent of the `defs[state.route]` lookup, which must stay
+  // `Record<string, M>` (not `Record<Route, M>`) precisely because
+  // `state.route` isn't guaranteed to be a valid Route at runtime.
+  const homeDef: M = [tl('page.homeTitle'), tl('page.homeSubtitle'), false];
   const defs: Record<string, M> = {
-    home: [tl('page.homeTitle'), tl('page.homeSubtitle'), false],
+    home: homeDef,
     events: [
       tl('nav.events'),
       tl('page.eventsSubtitle'),
@@ -77,7 +85,7 @@ export function pageMeta(
     ],
     team: [tl('nav.team'), tl('page.teamSubtitle'), false],
   };
-  const d = defs[state.route] || defs['home'];
+  const d = defs[state.route] ?? homeDef;
   return {
     title: d[0],
     subtitle: d[1],
