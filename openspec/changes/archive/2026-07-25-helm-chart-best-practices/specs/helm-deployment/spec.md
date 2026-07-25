@@ -1,6 +1,11 @@
 ## MODIFIED Requirements
 
-### Requirement: Externally-managed Secret per area, no chart-managed alternative
+### Requirement: Create-or-reference Secret per area
+(Retitled in effect to "externally-managed Secret only" — the
+chart-managed/`create: true` half of this requirement's original name no
+longer exists, see below; the header is kept unchanged so this delta
+applies against the archived requirement of the same name.)
+
 Each area with credentials (`database`, `jwt`, `cookieEncryption`, `s3`,
 `smtp`, `push`, `pagination`, `observability.sentry`, `metrics`,
 `monitoring.scrapeToken`, `backup.s3`) MUST source its secret values
@@ -11,13 +16,22 @@ that Secret MUST be overridable via a `<area>.secret.keys.<field>` map,
 defaulting to lowercase, dash-separated names distinct from the backend's
 own environment variable names.
 
-#### Scenario: External secret management
+#### Scenario: External secret management (production)
 - **WHEN** `<area>.secret.existingSecret` names a Secret already present
   in the cluster
 - **THEN** the chart references that Secret's keys — named per
   `<area>.secret.keys.<field>` (a lowercase, dash-separated default per
   field, e.g. `password`, `access-key-id`) — via `secretKeyRef`, and
   creates no Secret object of its own for that area
+
+#### Scenario: Chart-managed secret (local/CI/test)
+- **WHEN** a values file sets `<area>.secret.create: true` (the mode this
+  scenario previously described)
+- **THEN** `helm template`/`install`/`upgrade`/`lint` fails with a schema
+  validation error (`Additional property create is not allowed`) — this
+  mode was removed; `<area>.secret.existingSecret` is the only supported
+  way to supply credentials, so that secret material never has to pass
+  through `values.yaml`/`--set`/a committed overlay/Helm's release history
 
 #### Scenario: Externally-managed Secret with non-default key names
 - **WHEN** an operator's `existingSecret` was populated by tooling (e.g.
