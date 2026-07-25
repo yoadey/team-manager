@@ -148,8 +148,9 @@ The TypeScript client is also generated from this spec via `openapi-typescript` 
 
 Before pointing a public domain at a real deployment, see
 [`docs/operations.md`'s "Legal setup before going public"](docs/operations.md#legal-setup-before-going-public) —
-filling in the legal-notice/privacy-policy content (`frontend/src/features/legal/content.ts`),
-which optional integrations require a data-processing agreement, and the
+setting the `OPERATOR_*` container env vars that fill in the legal-notice/
+privacy-policy content (`frontend/src/features/legal/content.ts`), which
+optional integrations require a data-processing agreement, and the
 self-registration minimum-age gate.
 
 ## Environment Variables

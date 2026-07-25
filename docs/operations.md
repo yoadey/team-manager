@@ -6,47 +6,75 @@ environment-variable reference in `CLAUDE.md`.
 ## Legal setup before going public
 
 Read this before pointing a public domain at a real deployment. Each instance
-is run by exactly one operator (the club or whoever hosts it for a club), so
-the legal-notice and privacy-policy content ships as editable source, not a
-runtime setting — the same way you'd edit `README.md` before deploying your
-fork, and unlike the container-start `SENTRY_DSN`/`VAPID_PUBLIC_KEY` overrides
-described under "Frontend image: pointing it at a backend" below (those are
-short scalar values; a legal notice is multi-paragraph prose, a poor fit for
-an env var). See `openspec/changes/webapp-legal-compliance/design.md`
-Decision 1 for the full reasoning.
+is run by exactly one operator (the club or whoever hosts it for a club).
+Operator identity/contact data is resolved at **container start**, the same
+mechanism the frontend already uses for `API_BASE_URL`/`SENTRY_DSN`/
+`VAPID_PUBLIC_KEY` (see "Frontend image: pointing it at a backend" below) —
+so the same built image can carry any operator's own legal-notice data
+without a rebuild. The generic legal boilerplate (liability, dispute
+resolution, GDPR purposes/rights/retention text) stays build-time source in
+`frontend/src/features/legal/content.ts`, since it doesn't vary per operator
+and is a poor fit for an env var either way. See
+`openspec/changes/operator-data-runtime-config/design.md` for the full
+reasoning (supersedes the build-time-only approach in
+`openspec/changes/archive/2026-07-24-webapp-legal-compliance/design.md`
+Decision 1).
 
 **This is engineering's best-effort translation of publicly known German/EU
 requirements into shipped defaults and this checklist — it is not legal
 advice.** Get real legal review before a genuine public launch.
 
-1. **Fill in the legal-notice and privacy-policy placeholders.** Edit
-   `frontend/src/features/legal/content.ts` — every `[BETREIBER: ...]` /
-   `[OPERATOR: ...]` marker must be replaced before you build the production
-   image. These pages are reachable without login (footer on the login/
-   registration screen) and from the profile sheet ("Rechtliches") inside the
-   app, per `§5 DDG`'s "leicht erkennbar, unmittelbar erreichbar" requirement.
-   Shipping with unfilled markers is intentional — it's a loud, obvious gap
-   rather than a page that looks complete but is legally empty — but don't
-   deploy publicly with markers still in place.
+1. **Set the `OPERATOR_*` environment variables on the frontend container.**
+   No rebuild required — set these alongside `API_BASE_URL` per "Frontend
+   image: pointing it at a backend" below. These pages are reachable without
+   login (footer on the login/registration screen) and from the profile
+   sheet ("Rechtliches") inside the app, per `§5 DDG`'s "leicht erkennbar,
+   unmittelbar erreichbar" requirement.
 
-2. **Data-processing agreements (Art. 28 GDPR) for enabled integrations.**
-   Each of these is optional and off by default; if you turn one on for your
-   deployment, you need a signed AVV/DPA with that provider before going
-   live, and should add a line to the privacy policy's "Empfänger und
-   Auftragsverarbeiter" / "Recipients and processors" section naming them:
+   Always-required — leaving any of these unset renders an explicit
+   `[BETREIBER: ...]`/`[OPERATOR: ...]` placeholder marker on the legal-notice
+   page (intentional: a loud, obvious gap beats a page that looks complete
+   but is legally empty — don't deploy publicly with markers still showing):
+   - `OPERATOR_NAME`, `OPERATOR_STREET`, `OPERATOR_POSTAL_CODE`,
+     `OPERATOR_CITY` — the `§5 DDG` name/address block.
+   - `OPERATOR_PHONE`, `OPERATOR_EMAIL` — the "Kontakt"/"Contact" section.
+
+   Optional — leaving any of these unset omits the corresponding
+   section/list item entirely (not a placeholder, since these genuinely
+   don't apply to every operator/deployment):
+   - `OPERATOR_LEGAL_FORM` (e.g. "Eingetragener Verein (e. V.)") —
+     appended to the name/address block.
+   - `OPERATOR_REPRESENTED_BY` — "Vertreten durch"/"Represented by" section.
+   - `OPERATOR_REGISTER_COURT` + `OPERATOR_REGISTER_NUMBER` (both required
+     together) — "Registereintrag"/"Register entry" section.
+   - `OPERATOR_VAT_ID` — "Umsatzsteuer-Identifikationsnummer"/"VAT
+     identification number" section.
+   - `OPERATOR_DATA_PROTECTION_EMAIL` — the privacy policy's "Verantwortlicher"/
+     "Controller" contact line; falls back to `OPERATOR_EMAIL` if unset.
+
+2. **Data-processing agreements (Art. 28 GDPR) for enabled integrations,
+   and the matching `OPERATOR_*_PROVIDER` disclosure.** Each of these is
+   optional and off by default; if you turn one on for your deployment, you
+   need a signed AVV/DPA with that provider before going live, **and** you
+   must set the matching frontend env var below or the privacy policy's
+   "Empfänger und Auftragsverarbeiter"/"Recipients and processors" section
+   silently omits that processor (it does not infer disclosure from these
+   backend vars being set — the actual provider/region has to be stated
+   explicitly):
    - `S3_ENDPOINT` (+ `S3_BUCKET`/credentials) — object storage for photo/logo
-     uploads.
+     uploads → set `OPERATOR_S3_PROVIDER` (e.g. "self-hosted on our own
+     infrastructure" or the vendor name + region).
    - `SMTP_HOST` (+ `SMTP_FROM_ADDRESS`) — outbound self-registration
-     verification email.
+     verification email → set `OPERATOR_SMTP_PROVIDER`.
    - `SENTRY_DSN` (backend) / `VITE_SENTRY_DSN` (frontend, set at container
      start per "Frontend image: pointing it at a backend" below) — error
-     tracking. See `frontend/src/monitoring.ts`'s comment above
-     `initMonitoring` for the current cookie/storage determination (no
-     consent banner needed for the integrations actually enabled there,
-     re-verify if that changes) before you decide whether a consent banner
-     is also needed for your deployment.
+     tracking → set `OPERATOR_SENTRY_PROVIDER`. See
+     `frontend/src/monitoring.ts`'s comment above `initMonitoring` for the
+     current cookie/storage determination (no consent banner needed for the
+     integrations actually enabled there, re-verify if that changes) before
+     you decide whether a consent banner is also needed for your deployment.
    - `OTEL_EXPORTER_OTLP_ENDPOINT` — tracing/telemetry collector, if it's a
-     third-party or otherwise external service.
+     third-party or otherwise external service → set `OPERATOR_OTEL_PROVIDER`.
 
 3. **Cross-check the data-subject-rights and retention documentation.**
    `SECURITY.md`'s "Data Protection (GDPR)" section and
@@ -486,15 +514,20 @@ tag (images are immutable per digest).
 
 The frontend image is built once per release and is environment-agnostic —
 which backend it talks to (and which Sentry project, if any, it reports
-errors to, and which VAPID keypair it uses for Web Push) is resolved at
-**container start**, not baked in at build time, so the same image tag can
-be deployed to staging and production unchanged. Set the `API_BASE_URL`
-and (optionally) `SENTRY_DSN`/`VAPID_PUBLIC_KEY` environment variables on
-the container:
+errors to, and which VAPID keypair it uses for Web Push, and whose
+legal-notice/privacy-policy data it shows) is resolved at **container
+start**, not baked in at build time, so the same image tag can be deployed
+to staging and production, for any operator, unchanged. Set the
+`API_BASE_URL` and (optionally) `SENTRY_DSN`/`VAPID_PUBLIC_KEY`/`OPERATOR_*`
+(see "Legal setup before going public" above) environment variables on the
+container:
 
 ```
 docker run -e API_BASE_URL=https://api.example.com -e SENTRY_DSN=https://key@o0.ingest.sentry.io/1 \
   -e VAPID_PUBLIC_KEY=<same value as the backend's VAPID_PUBLIC_KEY> \
+  -e OPERATOR_NAME="Stefan May" -e OPERATOR_STREET="Robensstraße 56" \
+  -e OPERATOR_POSTAL_CODE=52070 -e OPERATOR_CITY=Aachen \
+  -e OPERATOR_EMAIL=info@example.com \
   ghcr.io/<org>/team-manager-frontend:vX.Y.Z
 ```
 

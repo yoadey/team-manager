@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import type { SheetProps } from '@/sheets/types';
 import { NEUTRAL } from '@/styles/tokens';
 import { getLocale, subscribeLocale } from '@/i18n';
-import { LEGAL_CONTENT } from '../content';
+import { getLegalContent } from '../content';
 
 // Subscribes to the module-level i18n store directly (same pattern as
 // layouts/AppShell.tsx and components/SheetHost.tsx) so a locale switch while
@@ -16,7 +16,7 @@ function useLocaleSubscription(): void {
 export function LegalSheet({ sheet }: SheetProps) {
   useLocaleSubscription();
   const page = sheet.legalPage ?? 'impressum';
-  const content = LEGAL_CONTENT[getLocale()][page];
+  const content = getLegalContent(getLocale(), page);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

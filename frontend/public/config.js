@@ -24,4 +24,25 @@ window.__RUNTIME_CONFIG__ = {
   API_BASE_URL: '',
   SENTRY_DSN: '',
   VAPID_PUBLIC_KEY: '',
+  // Operator identity/contact + processor-disclosure fields for the legal-notice
+  // and privacy-policy pages (frontend/src/features/legal/content.ts). Blank
+  // here (as in local dev) renders the [BETREIBER:]/[OPERATOR:] placeholder
+  // markers for the always-required fields and omits the optional sections —
+  // see docs/operations.md's "Legal setup before going public" section.
+  OPERATOR_NAME: '',
+  OPERATOR_LEGAL_FORM: '',
+  OPERATOR_STREET: '',
+  OPERATOR_POSTAL_CODE: '',
+  OPERATOR_CITY: '',
+  OPERATOR_REPRESENTED_BY: '',
+  OPERATOR_PHONE: '',
+  OPERATOR_EMAIL: '',
+  OPERATOR_REGISTER_COURT: '',
+  OPERATOR_REGISTER_NUMBER: '',
+  OPERATOR_VAT_ID: '',
+  OPERATOR_DATA_PROTECTION_EMAIL: '',
+  OPERATOR_S3_PROVIDER: '',
+  OPERATOR_SMTP_PROVIDER: '',
+  OPERATOR_SENTRY_PROVIDER: '',
+  OPERATOR_OTEL_PROVIDER: '',
 };
