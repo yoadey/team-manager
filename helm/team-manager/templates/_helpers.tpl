@@ -38,6 +38,7 @@ helm.sh/chart: {{ include "team-manager.chart" . }}
 app.kubernetes.io/version: {{ . | quote }}
 {{- end }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/component: backend
 {{- end }}
 
 {{/*
@@ -80,6 +81,42 @@ Usage: {{ include "team-manager.secretName" (list $ "database" .Values.database.
 {{- else -}}
 {{- $secret.existingSecret -}}
 {{- end -}}
+{{- end }}
+
+{{/*
+Main application image reference. image.digest, when set, takes precedence
+over image.tag (mirroring how backup.postgresImageDigest/
+backup.s3.awsCliImage's digest suffix already work) -- pins the exact image
+content against a tag-hijack of a mutable tag, at the cost of needing a
+manual re-pin whenever a new version is released (unlike image.tag, nothing
+in this chart's release process resolves/bumps a digest automatically).
+Usage: image: {{ include "team-manager.image" . }}
+*/}}
+{{- define "team-manager.image" -}}
+{{- if .Values.image.digest -}}
+"{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+{{- else -}}
+"{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+{{- end -}}
+{{- end }}
+
+{{/*
+Sha256sum of the concatenated rendered content of every per-area secret
+template (see templates/*-secret.yaml) -- used as the Deployment pod
+template's `checksum/secrets` annotation so that changing a chart-managed
+(secret.create=true) area's plaintext value, or toggling `create` on/off,
+triggers a rollout. Each of these templates already renders to an empty
+string when its area's `create` is false, so this also changes (and
+correctly triggers a rollout) when an area switches between
+chart-managed and externally-referenced.
+Usage: {{ include "team-manager.secretsChecksum" . }}
+*/}}
+{{- define "team-manager.secretsChecksum" -}}
+{{- $content := "" -}}
+{{- range (list "database-secret.yaml" "jwt-secret.yaml" "cookie-encryption-secret.yaml" "s3-secret.yaml" "smtp-secret.yaml" "pagination-secret.yaml" "sentry-secret.yaml" "metrics-secret.yaml") -}}
+{{- $content = printf "%s%s" $content (include (print $.Template.BasePath "/" .) $) -}}
+{{- end -}}
+{{- $content | sha256sum -}}
 {{- end }}
 
 {{/*

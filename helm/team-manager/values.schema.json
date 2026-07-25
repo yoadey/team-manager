@@ -14,9 +14,16 @@
       "properties": {
         "repository": { "type": "string", "minLength": 1 },
         "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
-        "tag": { "type": "string" }
+        "tag": { "type": "string" },
+        "digest": { "type": "string" }
       }
     },
+    "priorityClassName": { "type": "string" },
+    "topologySpreadConstraints": { "type": "array" },
+    "podLabels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "extraEnv": { "type": "array" },
+    "extraVolumes": { "type": "array" },
+    "extraVolumeMounts": { "type": "array" },
     "imagePullSecrets": {
       "type": "array",
       "items": {
@@ -138,6 +145,7 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKey": { "type": "string", "minLength": 1 },
             "url": { "type": "string" }
           }
         }
@@ -153,6 +161,14 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKeys": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "privateKey": { "type": "string", "minLength": 1 },
+                "publicKey": { "type": "string", "minLength": 1 }
+              }
+            },
             "privateKey": { "type": "string" },
             "publicKey": { "type": "string" }
           }
@@ -169,6 +185,14 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKeys": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "keys": { "type": "string", "minLength": 1 }
+              }
+            },
             "key": { "type": "string" },
             "keys": { "type": "string" }
           }
@@ -190,6 +214,14 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKeys": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "accessKeyId": { "type": "string", "minLength": 1 },
+                "secretAccessKey": { "type": "string", "minLength": 1 }
+              }
+            },
             "accessKeyId": { "type": "string" },
             "secretAccessKey": { "type": "string" }
           }
@@ -209,6 +241,14 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKeys": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "username": { "type": "string", "minLength": 1 },
+                "password": { "type": "string", "minLength": 1 }
+              }
+            },
             "username": { "type": "string" },
             "password": { "type": "string" }
           }
@@ -227,6 +267,7 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKey": { "type": "string", "minLength": 1 },
             "privateKey": { "type": "string" }
           }
         }
@@ -262,6 +303,7 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKey": { "type": "string", "minLength": 1 },
             "hmacKey": { "type": "string" }
           }
         }
@@ -278,6 +320,7 @@
           "properties": {
             "create": { "type": "boolean" },
             "existingSecret": { "type": "string" },
+            "existingSecretKey": { "type": "string", "minLength": 1 },
             "token": { "type": "string" }
           }
         }
@@ -300,6 +343,7 @@
               "properties": {
                 "create": { "type": "boolean" },
                 "existingSecret": { "type": "string" },
+                "existingSecretKey": { "type": "string", "minLength": 1 },
                 "dsn": { "type": "string" }
               }
             }

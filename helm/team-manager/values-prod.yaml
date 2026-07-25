@@ -44,8 +44,11 @@ observability:
 # Every credential below is its own Secret -- no combined "God Secret" -- so
 # rotating one area (e.g. S3 access key) never touches another area's
 # (e.g. JWT signing key) blast radius. Create each Secret out-of-band
-# (external-secrets + Vault/AWS SM, or manually) with the fixed key names
-# documented per section in values.yaml; s3.endpoint/s3.bucket and
+# (external-secrets + Vault/AWS SM, or manually) with the default key names
+# documented per section in values.yaml -- or, if your secret store's own
+# naming convention differs (e.g. an External Secrets Operator sync), set
+# the matching <area>.secret.existingSecretKey[s] override instead of
+# re-keying the Secret. s3.endpoint/s3.bucket and
 # smtp.host/smtp.fromAddress still need a values override too (see
 # docs/operations.md's "Object storage (image uploads)" and "Outbound email
 # (SMTP)" sections) — templates/NOTES.txt warns at deploy time if either is

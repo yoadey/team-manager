@@ -60,6 +60,10 @@ observability:
       existingSecret: "team-manager-staging-sentry"
 
 # One Secret per credential area -- see the same note in values-prod.yaml.
+# Each area also has an existingSecretKey[s] override (see values.yaml) if
+# these Secrets are ever populated by tooling that doesn't use this chart's
+# default key names -- not needed here since they're created to match those
+# defaults.
 database:
   secret:
     existingSecret: "team-manager-staging-database"

@@ -106,7 +106,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $dbSecret }}
-      key: DATABASE_URL
+      key: {{ $root.Values.database.secret.existingSecretKey }}
 {{- end }}
 {{- $jwtSecret := include "team-manager.secretName" (list $root "jwt" $root.Values.jwt.secret) }}
 {{- if $jwtSecret }}
@@ -114,12 +114,12 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $jwtSecret }}
-      key: JWT_PRIVATE_KEY
+      key: {{ $root.Values.jwt.secret.existingSecretKeys.privateKey }}
 - name: JWT_PUBLIC_KEY
   valueFrom:
     secretKeyRef:
       name: {{ $jwtSecret }}
-      key: JWT_PUBLIC_KEY
+      key: {{ $root.Values.jwt.secret.existingSecretKeys.publicKey }}
 {{- end }}
 {{- $cookieSecret := include "team-manager.secretName" (list $root "cookie-encryption" $root.Values.cookieEncryption.secret) }}
 {{- if $cookieSecret }}
@@ -127,7 +127,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $cookieSecret }}
-      key: COOKIE_ENCRYPTION_KEY
+      key: {{ $root.Values.cookieEncryption.secret.existingSecretKeys.key }}
       # Optional: config.go's loadCookieEncryptionKeys checks
       # COOKIE_ENCRYPTION_KEYS (plural) first and, if set, never even looks
       # at this singular key -- a Secret populated per the zero-downtime-
@@ -139,7 +139,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $cookieSecret }}
-      key: COOKIE_ENCRYPTION_KEYS
+      key: {{ $root.Values.cookieEncryption.secret.existingSecretKeys.keys }}
       optional: true
 {{- end }}
 {{- $s3Secret := include "team-manager.secretName" (list $root "s3" $root.Values.s3.secret) }}
@@ -148,12 +148,12 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $s3Secret }}
-      key: S3_ACCESS_KEY_ID
+      key: {{ $root.Values.s3.secret.existingSecretKeys.accessKeyId }}
 - name: S3_SECRET_ACCESS_KEY
   valueFrom:
     secretKeyRef:
       name: {{ $s3Secret }}
-      key: S3_SECRET_ACCESS_KEY
+      key: {{ $root.Values.s3.secret.existingSecretKeys.secretAccessKey }}
 {{- end }}
 {{- $pushSecret := include "team-manager.secretName" (list $root "push" $root.Values.push.secret) }}
 {{- if $pushSecret }}
@@ -161,7 +161,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $pushSecret }}
-      key: VAPID_PRIVATE_KEY
+      key: {{ $root.Values.push.secret.existingSecretKey }}
 {{- end }}
 {{- $smtpSecret := include "team-manager.secretName" (list $root "smtp" $root.Values.smtp.secret) }}
 {{- if $smtpSecret }}
@@ -169,7 +169,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $smtpSecret }}
-      key: SMTP_USERNAME
+      key: {{ $root.Values.smtp.secret.existingSecretKeys.username }}
       # Optional: config.go explicitly allows a blank username for an open
       # relay.
       optional: true
@@ -177,7 +177,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $smtpSecret }}
-      key: SMTP_PASSWORD
+      key: {{ $root.Values.smtp.secret.existingSecretKeys.password }}
       optional: true
 {{- end }}
 {{- $paginationSecret := include "team-manager.secretName" (list $root "pagination" $root.Values.pagination.secret) }}
@@ -186,7 +186,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $paginationSecret }}
-      key: PAGINATION_HMAC_KEY
+      key: {{ $root.Values.pagination.secret.existingSecretKey }}
       optional: true
 {{- end }}
 {{- $sentrySecret := include "team-manager.secretName" (list $root "sentry" $root.Values.observability.sentry.secret) }}
@@ -195,7 +195,7 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $sentrySecret }}
-      key: SENTRY_DSN
+      key: {{ $root.Values.observability.sentry.secret.existingSecretKey }}
       optional: true
 {{- end }}
 {{- $metricsSecret := include "team-manager.secretName" (list $root "metrics" $root.Values.metrics.secret) }}
@@ -204,7 +204,10 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   valueFrom:
     secretKeyRef:
       name: {{ $metricsSecret }}
-      key: METRICS_TOKEN
+      key: {{ $root.Values.metrics.secret.existingSecretKey }}
       optional: true
+{{- end }}
+{{- with $root.Values.extraEnv }}
+{{ toYaml . }}
 {{- end }}
 {{- end }}

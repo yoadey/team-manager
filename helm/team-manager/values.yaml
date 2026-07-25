@@ -57,6 +57,14 @@ image:
   # 1.2.3, matching a real vX.Y.Z release tag with the v stripped) for any
   # real deployment. templates/NOTES.txt warns about this at deploy time.
   tag: ""
+  # Pins the image by digest instead of tag when set (takes precedence over
+  # tag/appVersion above) -- same rationale as backup.postgresImageDigest/
+  # backup.s3.awsCliImage below: a tag-hijack of a mutable upstream tag
+  # can't silently change what's running. Left empty by default since,
+  # unlike the backup job's images, this repo's own release process is the
+  # source of the tag, and a chart-shipped default digest would go stale
+  # the same way a default image.tag would.
+  digest: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -71,12 +79,35 @@ serviceAccount:
   annotations: {}
   name: ""
 
+# Pod scheduling priority (must name a PriorityClass already present in the
+# cluster). Left empty by default -- Kubernetes' own default priority
+# applies.
+priorityClassName: ""
+
+# Constrains how pod replicas spread across topology domains (zones, nodes,
+# ...) -- e.g. [{maxSkew: 1, topologyKey: topology.kubernetes.io/zone,
+# whenUnsatisfiable: ScheduleAnyway, labelSelector: {matchLabels: ...}}].
+# Left empty by default; complements (does not replace) the podAntiAffinity
+# default below.
+topologySpreadConstraints: []
+
 podAnnotations:
   prometheus.io/scrape: "true"
   # prometheus.io/port is deliberately not set here -- deployment.yaml
   # templates it directly from .Values.service.targetPort so it can never
   # drift from the port the container actually listens on.
   prometheus.io/path: "/metrics"
+
+podLabels: {}
+
+# Escape hatches for needs this chart doesn't model directly -- appended
+# as-is (raw Kubernetes EnvVar/Volume/VolumeMount objects) after this
+# chart's own generated env vars/volumes, in both the migrate initContainer
+# and the main container (extraEnv), or the main container/pod spec only
+# (extraVolumes/extraVolumeMounts).
+extraEnv: []
+extraVolumes: []
+extraVolumeMounts: []
 
 podSecurityContext:
   runAsNonRoot: true
@@ -218,22 +249,32 @@ session:
     secure: true
 
 # DATABASE_URL. Required always (no in-chart fallback).
-# existingSecret Secret key: DATABASE_URL.
+# existingSecret Secret key: DATABASE_URL by default -- override
+# existingSecretKey if your existingSecret uses a different key name (e.g.
+# synced by External Secrets Operator from a store with its own naming
+# convention). The same key name is also used when secret.create=true.
 database:
   secret:
     create: false
     existingSecret: ""
+    existingSecretKey: "DATABASE_URL"
     url: "" # only used when secret.create=true
 
 # JWT_PRIVATE_KEY/JWT_PUBLIC_KEY (RSA-2048 PEM, RS256 session signing).
 # Auto-generated in dev when unset, but **required** when
 # session.cookie.secure=true -- an ephemeral per-process key invalidates
 # sessions on restart and fails verification across replicas.
-# existingSecret Secret keys: JWT_PRIVATE_KEY, JWT_PUBLIC_KEY.
+# existingSecret Secret keys: JWT_PRIVATE_KEY, JWT_PUBLIC_KEY by default --
+# override existingSecretKeys.privateKey/publicKey if your existingSecret
+# uses different key names. The same key names are also used when
+# secret.create=true.
 jwt:
   secret:
     create: false
     existingSecret: ""
+    existingSecretKeys:
+      privateKey: "JWT_PRIVATE_KEY"
+      publicKey: "JWT_PUBLIC_KEY"
     privateKey: "" # only used when secret.create=true
     publicKey: "" # only used when secret.create=true
 
@@ -242,19 +283,27 @@ jwt:
 # comma-separated, newest first) instead of `key` for zero-downtime
 # rotation -- see docs/operations.md's "Cookie encryption key rotation".
 # existingSecret Secret keys: COOKIE_ENCRYPTION_KEY, COOKIE_ENCRYPTION_KEYS
-# (both optional individually, but at least one must resolve when
-# session.cookie.secure=true).
+# by default (both optional individually, but at least one must resolve when
+# session.cookie.secure=true) -- override existingSecretKeys.key/keys if
+# your existingSecret uses different key names. The same key names are also
+# used when secret.create=true.
 cookieEncryption:
   secret:
     create: false
     existingSecret: ""
+    existingSecretKeys:
+      key: "COOKIE_ENCRYPTION_KEY"
+      keys: "COOKIE_ENCRYPTION_KEYS"
     key: "" # only used when secret.create=true
     keys: "" # only used when secret.create=true; takes precedence over key when both resolve
 
 # S3-compatible object storage (internal/storage) for team/user photos and
 # team logos. **Required** (endpoint/bucket/credentials) when
 # session.cookie.secure=true.
-# existingSecret Secret keys: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY.
+# existingSecret Secret keys: S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY by
+# default -- override existingSecretKeys.accessKeyId/secretAccessKey if your
+# existingSecret uses different key names. The same key names are also used
+# when secret.create=true.
 s3:
   endpoint: "" # e.g. "s3.eu-central-1.amazonaws.com" or "minio.example.com" (self-hosted)
   region: "eu-central-1"
@@ -267,6 +316,9 @@ s3:
   secret:
     create: false
     existingSecret: ""
+    existingSecretKeys:
+      accessKeyId: "S3_ACCESS_KEY_ID"
+      secretAccessKey: "S3_SECRET_ACCESS_KEY"
     accessKeyId: "" # only used when secret.create=true
     secretAccessKey: "" # only used when secret.create=true
 
@@ -277,7 +329,10 @@ s3:
 # branch) without them. Username/password may be blank for an open relay.
 # Unset host in dev falls back to a logging fake mailer (the verification
 # link is only written to the server log).
-# existingSecret Secret keys: SMTP_USERNAME, SMTP_PASSWORD (both optional).
+# existingSecret Secret keys: SMTP_USERNAME, SMTP_PASSWORD by default (both
+# optional) -- override existingSecretKeys.username/password if your
+# existingSecret uses different key names. The same key names are also used
+# when secret.create=true.
 smtp:
   host: "" # e.g. "smtp.example.com"
   port: "587"
@@ -285,6 +340,9 @@ smtp:
   secret:
     create: false
     existingSecret: ""
+    existingSecretKeys:
+      username: "SMTP_USERNAME"
+      password: "SMTP_PASSWORD"
     username: "" # only used when secret.create=true
     password: "" # only used when secret.create=true
 
@@ -294,13 +352,16 @@ smtp:
 # secret -- it must also be set as the frontend's VITE_VAPID_PUBLIC_KEY/
 # VAPID_PUBLIC_KEY runtime config (see docs/operations.md). Generate a
 # keypair with e.g. `npx web-push generate-vapid-keys`.
-# existingSecret Secret key: VAPID_PRIVATE_KEY.
+# existingSecret Secret key: VAPID_PRIVATE_KEY by default -- override
+# existingSecretKey if your existingSecret uses a different key name. The
+# same key name is also used when secret.create=true.
 push:
   publicKey: ""
   subject: "" # e.g. "mailto:ops@example.com"
   secret:
     create: false
     existingSecret: ""
+    existingSecretKey: "VAPID_PRIVATE_KEY"
     privateKey: "" # only used when secret.create=true
 
 selfRegistration:
@@ -319,23 +380,29 @@ retention:
 # so clients can't craft arbitrary ones. Unsigned (plain base64) cursors are
 # used when unset; a warning is logged at startup when unset with
 # session.cookie.secure=true.
-# existingSecret Secret key: PAGINATION_HMAC_KEY.
+# existingSecret Secret key: PAGINATION_HMAC_KEY by default -- override
+# existingSecretKey if your existingSecret uses a different key name. The
+# same key name is also used when secret.create=true.
 pagination:
   secret:
     create: false
     existingSecret: ""
+    existingSecretKey: "PAGINATION_HMAC_KEY"
     hmacKey: "" # only used when secret.create=true
 
 # Bearer token guarding the backend's own /metrics endpoint (separate from
 # monitoring.scrapeToken below, which is the Prometheus *scraper's* copy of
 # the same value). **Required** when session.cookie.secure=true unless
 # allowOpen is set -- see templates/NOTES.txt's deploy-time reminder.
-# existingSecret Secret key: METRICS_TOKEN.
+# existingSecret Secret key: METRICS_TOKEN by default -- override
+# existingSecretKey if your existingSecret uses a different key name. The
+# same key name is also used when secret.create=true.
 metrics:
   allowOpen: false
   secret:
     create: false
     existingSecret: ""
+    existingSecretKey: "METRICS_TOKEN"
     token: "" # only used when secret.create=true
 
 observability:
@@ -345,11 +412,14 @@ observability:
   # Environment label attached to Sentry events.
   environment: ""
   # Sentry DSN for backend error tracking; disabled when unset.
-  # existingSecret Secret key: SENTRY_DSN.
+  # existingSecret Secret key: SENTRY_DSN by default -- override
+  # existingSecretKey if your existingSecret uses a different key name. The
+  # same key name is also used when secret.create=true.
   sentry:
     secret:
       create: false
       existingSecret: ""
+      existingSecretKey: "SENTRY_DSN"
       dsn: "" # only used when secret.create=true
 
 networkPolicy:
