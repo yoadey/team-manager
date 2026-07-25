@@ -126,10 +126,39 @@ export function PollsPage() {
             >
               {opts}
             </Box>
-            <Box sx={{ mt: '10px', fontSize: '12px', color: NEUTRAL.faint }}>
-              {p.anonymous
-                ? t('polls.votesAnon', { n: p.totalVotes, count: p.totalVotes })
-                : t('polls.votes', { n: p.totalVotes, count: p.totalVotes })}
+            <Box
+              sx={{
+                mt: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+              }}
+            >
+              <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
+                {p.anonymous
+                  ? t('polls.votesAnon', { n: p.totalVotes, count: p.totalVotes })
+                  : t('polls.votes', { n: p.totalVotes, count: p.totalVotes })}
+              </Box>
+              {!p.anonymous && p.totalVotes > 0 ? (
+                <ButtonBase
+                  onClick={() => app.openPollVoters(p)}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: tk.primary,
+                    cursor: 'pointer',
+                    borderRadius: '8px',
+                    p: '2px 4px',
+                  }}
+                >
+                  <Sym name="visibility" size={16} color={tk.primary} />
+                  {t('polls.viewVoters')}
+                </ButtonBase>
+              ) : null}
             </Box>
           </Card>
         );

@@ -303,8 +303,14 @@ export function mapPoll(p: S['Poll']): Poll {
       count: o.count,
       pct: o.pct,
       voters: (o.voters ?? []).map((v) => ({
+        userId: v.userId ?? '',
+        membershipId: v.membershipId ?? null,
         name: v.name ?? '',
         color: v.color ?? '#888',
+        // Photos for poll voters are wired once `consistent-profile-photos`
+        // lands its shared avatar URL rule; until then the avatar falls back
+        // to coloured initials. `membershipId` is already carried above so
+        // that follow-up only has to build the URL.
         photo: null,
       })),
     })),

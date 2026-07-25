@@ -1,9 +1,21 @@
+export interface PollVoter {
+  /** Stable user id — matrix rows key off this. Empty string only for the
+   *  anonymous case, which never produces voter entries anyway. */
+  userId: string;
+  /** Membership id in the poll's team, used to build the photo URL. `null`
+   *  when the voter is no longer a team member (vote survives, photo can't). */
+  membershipId: string | null;
+  name: string;
+  color: string;
+  photo: string | null;
+}
+
 export interface PollOption {
   id: string;
   text: string;
   count: number;
   pct: number;
-  voters: { name: string; color: string; photo: string | null }[];
+  voters: PollVoter[];
 }
 
 export interface Poll {

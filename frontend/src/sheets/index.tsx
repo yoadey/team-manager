@@ -67,6 +67,7 @@ export function sheetMeta(
     newsForm: s.mode === 'edit' ? t('sheet.newsFormEdit') : t('sheet.newsFormCreate'),
     txForm: s.mode === 'edit' ? t('sheet.txFormEdit') : t('sheet.txFormCreate'),
     pollForm: t('sheet.pollForm'),
+    pollVoters: t('sheet.pollVoters'),
     penaltyForm: s.mode === 'create' ? t('sheet.penaltyFormCreate') : t('sheet.penaltyFormEdit'),
     penaltyCatalog: t('sheet.penaltyCatalog'),
     penaltyAssign: t('sheet.penaltyAssign'),

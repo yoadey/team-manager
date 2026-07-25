@@ -59,6 +59,13 @@ export function usePollActions({
     setState({ sheet: { type: 'pollForm', formInitial: form } });
   }, [setState]);
 
+  const openPollVoters = useCallback(
+    (poll: Poll) => {
+      setState({ sheet: { type: 'pollVoters', poll } });
+    },
+    [setState],
+  );
+
   // Guards against the lost-update race where two quick clicks on different
   // options of the same multi-select poll both read the same stale
   // poll.myVote and fire overlapping vote requests — whichever response
@@ -143,5 +150,5 @@ export function usePollActions({
     [askConfirm, deletePollAsync, loadNotifications, setState, teamId, toastMsg, logout],
   );
 
-  return { openPollForm, savePoll, togglePollOption, removePoll, savingPoll };
+  return { openPollForm, openPollVoters, savePoll, togglePollOption, removePoll, savingPoll };
 }

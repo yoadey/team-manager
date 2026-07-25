@@ -275,18 +275,33 @@ func assemblePoll(pr *PollRow, options []*PollOptionRow, votes []*PollVoteRow, c
 			voterList := make([]struct {
 				Color    *string `json:"color,omitempty"`
 				HasPhoto *bool   `json:"hasPhoto,omitempty"`
-				Name     *string `json:"name,omitempty"`
+
+				// MembershipId Voter's membership id in the poll's team, used to build the member photo URL. Present only for non-anonymous polls.
+				MembershipId *openapi_types.UUID `json:"membershipId,omitempty"`
+				Name         *string             `json:"name,omitempty"`
+
+				// UserId Voter's stable user id. Present only for non-anonymous polls; omitted entirely for anonymous polls, which expose no identities.
+				UserId *openapi_types.UUID `json:"userId,omitempty"`
 			}, 0, len(voters))
 			for _, v := range voters {
 				hasPhoto := v.HasPhoto
+				userID := v.UserId
 				voterList = append(voterList, struct {
 					Color    *string `json:"color,omitempty"`
 					HasPhoto *bool   `json:"hasPhoto,omitempty"`
-					Name     *string `json:"name,omitempty"`
+
+					// MembershipId Voter's membership id in the poll's team, used to build the member photo URL. Present only for non-anonymous polls.
+					MembershipId *openapi_types.UUID `json:"membershipId,omitempty"`
+					Name         *string             `json:"name,omitempty"`
+
+					// UserId Voter's stable user id. Present only for non-anonymous polls; omitted entirely for anonymous polls, which expose no identities.
+					UserId *openapi_types.UUID `json:"userId,omitempty"`
 				}{
-					Color:    v.UserColor,
-					HasPhoto: &hasPhoto,
-					Name:     v.UserName,
+					Color:        v.UserColor,
+					HasPhoto:     &hasPhoto,
+					MembershipId: v.MembershipId, // nil for ex-members -> omitted
+					Name:         v.UserName,
+					UserId:       &userID,
 				})
 			}
 			po.Voters = &voterList

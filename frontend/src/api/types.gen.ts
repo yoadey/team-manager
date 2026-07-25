@@ -1352,6 +1352,16 @@ export interface components {
       /** Format: float */
       pct: number;
       voters?: {
+        /**
+         * Format: uuid
+         * @description Voter's stable user id. Present only for non-anonymous polls; omitted entirely for anonymous polls, which expose no identities.
+         */
+        userId?: string;
+        /**
+         * Format: uuid
+         * @description Voter's membership id in the poll's team, used to build the member photo URL. Present only for non-anonymous polls.
+         */
+        membershipId?: string;
         name?: string;
         color?: string;
         hasPhoto?: boolean;

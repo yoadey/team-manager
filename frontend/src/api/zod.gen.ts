@@ -337,6 +337,8 @@ const PollOption = z
       .array(
         z
           .object({
+            userId: z.string().uuid(),
+            membershipId: z.string().uuid(),
             name: z.string(),
             color: z.string(),
             hasPhoto: z.boolean(),

@@ -286,7 +286,14 @@ function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
             .filter((v) => v.optionIds.includes(o.id))
             .map((v) => {
               const u = db.users.find((x) => x.id === v.userId);
-              return { name: u?.name, color: u?.avatarColor, hasPhoto: u?.hasPhoto };
+              const m = db.memberships.find((x) => x.teamId === p.teamId && x.userId === v.userId);
+              return {
+                userId: v.userId,
+                membershipId: m?.id ?? undefined,
+                name: u?.name,
+                color: u?.avatarColor,
+                hasPhoto: u?.hasPhoto,
+              };
             }),
     })),
   };
