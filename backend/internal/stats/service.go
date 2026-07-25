@@ -3,6 +3,7 @@ package stats
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ type statsRepo interface {
 	EventStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]EventStatRow, error)
 	SingleMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*MemberStatRow, error)
 	WithReadTx(ctx context.Context, fn func(OverviewReader) error) error
+	AttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to string) ([]MatrixColumnRow, []MatrixCellRow, error)
 }
 
 // Service implements stats business logic.
@@ -151,6 +153,84 @@ func (s *Service) GetMemberStats(ctx context.Context, teamID, userID uuid.UUID, 
 		Yes:     m.Yes,
 		Counted: m.Counted,
 		Quote:   quote(m.Yes, m.Counted),
+	}, nil
+}
+
+// GetAttendanceMatrix builds the per-member-per-event attendance matrix for the
+// team and date range. Cells use the same effective status as the quotes;
+// rows are ordered by attendance (most yes first) then name, columns by date.
+func (s *Service) GetAttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceMatrix, error) {
+	fromStr, toStr := defaultDateRange(from, to)
+
+	cols, cells, err := s.repo.AttendanceMatrix(ctx, teamID, fromStr, toStr)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Service.GetAttendanceMatrix: %w", err)
+	}
+
+	genCols := make([]gen.AttendanceMatrixColumn, 0, len(cols))
+	for _, c := range cols {
+		genCols = append(genCols, gen.AttendanceMatrixColumn{
+			Id:    c.EventID,
+			Title: c.Title,
+			Type:  gen.EventType(c.Type),
+			Date:  parseDateOrZero(c.Date),
+		})
+	}
+
+	// Assemble rows keyed by member, preserving first-seen order (the cells
+	// query is ORDER BY name) so equal-yes rows fall back to name order after
+	// the stable sort below.
+	type rowAcc struct {
+		row   *gen.AttendanceMatrixRow
+		cells map[string]gen.AttendanceStatus
+	}
+	byUser := make(map[uuid.UUID]*rowAcc)
+	order := make([]uuid.UUID, 0, len(cells))
+	for _, c := range cells {
+		acc, ok := byUser[c.UserID]
+		if !ok {
+			hp := c.HasPhoto
+			acc = &rowAcc{
+				row: &gen.AttendanceMatrixRow{
+					UserId:      c.UserID,
+					Name:        c.Name,
+					AvatarColor: c.AvatarColor,
+					HasPhoto:    &hp,
+				},
+				cells: make(map[string]gen.AttendanceStatus),
+			}
+			byUser[c.UserID] = acc
+			order = append(order, c.UserID)
+		}
+		if c.EventID == nil {
+			continue // placeholder row for a member with no events in range
+		}
+		acc.cells[c.EventID.String()] = gen.AttendanceStatus(c.Eff)
+		switch c.Eff {
+		case "yes":
+			acc.row.Yes++
+			acc.row.Counted++
+		case "no", "maybe":
+			acc.row.Counted++
+		}
+	}
+
+	genRows := make([]gen.AttendanceMatrixRow, 0, len(order))
+	for _, id := range order {
+		acc := byUser[id]
+		acc.row.Cells = acc.cells
+		genRows = append(genRows, *acc.row)
+	}
+	// Stable sort keeps the name order from the query as the tiebreaker.
+	sort.SliceStable(genRows, func(i, j int) bool {
+		return genRows[i].Yes > genRows[j].Yes
+	})
+
+	return &gen.AttendanceMatrix{
+		From:    parseDateOrZero(fromStr),
+		To:      parseDateOrZero(toStr),
+		Events:  genCols,
+		Members: genRows,
 	}, nil
 }
 

@@ -22,4 +22,8 @@ export const queryKeys = {
   // rather than reusing/overwriting the previous range's cached data.
   stats: (teamId: string, range: DateRange | null) =>
     ['teams', teamId, 'stats', range?.from ?? null, range?.to ?? null] as const,
+  // Range-scoped like `stats`, plus a distinct 'matrix' segment so the matrix
+  // tab caches independently of the overview for the same team+range.
+  statsMatrix: (teamId: string, range: DateRange | null) =>
+    ['teams', teamId, 'stats', 'matrix', range?.from ?? null, range?.to ?? null] as const,
 };

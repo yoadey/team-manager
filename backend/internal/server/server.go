@@ -677,3 +677,7 @@ func (s *Server) GetStatsOverview(ctx context.Context, req gen.GetStatsOverviewR
 func (s *Server) GetMemberStats(ctx context.Context, req gen.GetMemberStatsRequestObject) (gen.GetMemberStatsResponseObject, error) {
 	return s.Stats.GetMemberStats(ctx, req)
 }
+
+func (s *Server) GetAttendanceMatrix(ctx context.Context, req gen.GetAttendanceMatrixRequestObject) (gen.GetAttendanceMatrixResponseObject, error) {
+	return s.Stats.GetAttendanceMatrix(ctx, req)
+}

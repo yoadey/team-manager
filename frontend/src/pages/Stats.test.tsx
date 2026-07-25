@@ -21,8 +21,45 @@ function makeStats() {
   };
 }
 
-function makeApp(statsOverride: unknown = null, statsRange: { from: string; to: string } | null = null) {
+function makeMatrix() {
+  return {
+    from: '2026-01-01',
+    to: '2026-03-31',
+    events: [
+      { id: 'ev1', title: 'Training', date: '2026-01-01', type: 'training' },
+      { id: 'ev2', title: 'Auftritt', date: '2026-01-06', type: 'auftritt' },
+      { id: 'ev3', title: 'Feier', date: '2026-01-07', type: 'event' },
+    ],
+    members: [
+      {
+        userId: 'u1',
+        name: 'Peter',
+        avatarColor: '#F00',
+        photo: null,
+        yes: 2,
+        counted: 3,
+        cells: { ev1: 'yes', ev2: 'no', ev3: 'yes' },
+      },
+      {
+        userId: 'u2',
+        name: 'Marie',
+        avatarColor: '#0F0',
+        photo: null,
+        yes: 1,
+        counted: 3,
+        cells: { ev1: 'yes', ev2: 'maybe', ev3: 'no' },
+      },
+    ],
+  };
+}
+
+function makeApp(
+  statsOverride: unknown = null,
+  statsRange: { from: string; to: string } | null = null,
+  matrixOverride: unknown = null,
+) {
   mockUseStatsQuery.mockReturnValue({ data: statsOverride ?? undefined } as never);
+  mockUseMatrixQuery.mockReturnValue({ data: matrixOverride ?? undefined } as never);
   return {
     api: {},
     state: {
@@ -47,12 +84,14 @@ vi.mock('@/context/AppContext', () => ({
 // NewsPage.test.tsx).
 vi.mock('./hooks/useStatsQueries', () => ({
   useStatsQuery: vi.fn(),
+  useAttendanceMatrixQuery: vi.fn(),
 }));
 
 import { useApp } from '@/context/AppContext';
-import { useStatsQuery } from './hooks/useStatsQueries';
+import { useStatsQuery, useAttendanceMatrixQuery } from './hooks/useStatsQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
+const mockUseMatrixQuery = useAttendanceMatrixQuery as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
   beforeEach(() => {
@@ -184,5 +223,47 @@ describe('Stats', () => {
     render(<Stats />);
     // Filter bar renders — no crash
     expect(screen.getByText('Gesamt')).toBeTruthy();
+  });
+
+  it('renders the Übersicht/Matrix tab toggle', () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats()));
+    render(<Stats />);
+    expect(screen.getByText('Übersicht')).toBeTruthy();
+    expect(screen.getByText('Matrix')).toBeTruthy();
+  });
+
+  it('switches to the matrix tab and renders the member × event grid', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Matrix'));
+
+    // Members appear as rows (sorted order comes from the backend/mock).
+    expect(screen.getByText('Peter')).toBeTruthy();
+    expect(screen.getByText('Marie')).toBeTruthy();
+    // Column header uses the compact d.m. format.
+    expect(screen.getByText('1.1.')).toBeTruthy();
+    expect(screen.getByText('6.1.')).toBeTruthy();
+    // The overview sections are no longer shown on the matrix tab.
+    expect(screen.queryByText('Quote pro Person')).toBeNull();
+  });
+
+  it('filters matrix columns by event type via the checkboxes', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Matrix'));
+    expect(screen.getByText('7.1.')).toBeTruthy(); // the 'event'-type column
+
+    // Uncheck the "event" type filter → its column disappears.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Team-Event' }));
+    expect(screen.queryByText('7.1.')).toBeNull();
+    // Other type columns remain.
+    expect(screen.getByText('1.1.')).toBeTruthy();
+  });
+
+  it('shows a spinner on the matrix tab while the matrix loads', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null));
+    render(<Stats />);
+    await userEvent.click(screen.getByText('Matrix'));
+    expect(screen.getByRole('status')).toBeTruthy();
   });
 });

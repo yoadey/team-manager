@@ -127,7 +127,9 @@ export function EventCalendar() {
         sx={{
           minHeight: mobile ? '58px' : '76px',
           border: `1px solid ${NEUTRAL.line2}`,
-          borderRadius: '9px',
+          // Smaller radius on mobile so day cells sit flush and leave more room
+          // for the day's entries (paired with the zero grid gap below).
+          borderRadius: mobile ? '4px' : '9px',
           p: mobile ? '3px' : '5px',
           background: inMonth ? NEUTRAL.card : NEUTRAL.sidebar,
           opacity: inMonth ? 1 : 0.55,
@@ -231,7 +233,7 @@ export function EventCalendar() {
         </Box>
         <Box
           data-testid="calendar-grid"
-          sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}
+          sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? 0 : '6px' }}
         >
           {cells}
         </Box>

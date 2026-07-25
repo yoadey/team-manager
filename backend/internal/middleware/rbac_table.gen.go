@@ -39,6 +39,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "DELETE", Segments: []string{"logo"}, Module: "settings", SelfService: false},                                                   // deleteTeamLogo
 	{Method: "DELETE", Segments: []string{"photo"}, Module: "settings", SelfService: false},                                                  // deleteTeamPhoto
 	{Method: "DELETE", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},            // deleteTransaction
+	{Method: "GET", Segments: []string{"stats", "attendance-matrix"}, Module: "events", SelfService: false},                                  // getAttendanceMatrix
 	{Method: "GET", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                         // getEvent
 	{Method: "GET", Segments: []string{"finances"}, Module: "finances", SelfService: false},                                                  // getFinanceOverview
 	{Method: "GET", Segments: []string{"members", "{membershipId}", "photo"}, Module: "members", SelfService: false},                         // getMemberPhoto

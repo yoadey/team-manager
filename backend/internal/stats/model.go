@@ -21,3 +21,23 @@ type EventStatRow struct {
 	Yes     int
 	Counted int
 }
+
+// MatrixColumnRow is one event column of the attendance matrix.
+type MatrixColumnRow struct {
+	EventID uuid.UUID
+	Title   string
+	Type    string
+	Date    string // YYYY-MM-DD
+}
+
+// MatrixCellRow is one member's effective status for one event. EventID is nil
+// for a member who has no events in range (a LEFT JOIN placeholder row that
+// still lets the member appear as an empty matrix row).
+type MatrixCellRow struct {
+	UserID      uuid.UUID
+	Name        string
+	AvatarColor string
+	HasPhoto    bool
+	EventID     *uuid.UUID
+	Eff         string // yes | no | maybe | pending
+}

@@ -1,18 +1,40 @@
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
-import { buildTokens, fmtDate, NEUTRAL, todayStr, typeMeta } from '@/styles/tokens';
+import { buildTokens, fmtDate, NEUTRAL, statusMeta, todayStr, typeMeta } from '@/styles/tokens';
 import { ALL_TIME_FROM_DATE, monthsAgoLocal } from '@/utils/date';
 import { Av, Chip, EmptyState, SectionTitle, SpinnerBox, Sym, inputSx } from '@/components/ui';
 import { t as tr } from '@/i18n';
-import type { DateRange } from '@/types';
-import { useStatsQuery } from './hooks/useStatsQueries';
+import type { AttendanceCellStatus, AttendanceMatrix, DateRange, EventType } from '@/types';
+import { useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
+
+// Glyph + colour for each matrix cell state: ✓ ja (grün), ? vielleicht
+// (orange), ✗ nein (rot), – unbekannt (grau).
+const CELL_META: Record<AttendanceCellStatus, { icon: string; color: string }> = {
+  yes: { icon: 'check', color: NEUTRAL.success },
+  maybe: { icon: 'question_mark', color: NEUTRAL.warn },
+  no: { icon: 'close', color: NEUTRAL.error },
+  pending: { icon: 'remove', color: NEUTRAL.faint },
+};
+
+const MATRIX_TYPES: EventType[] = ['training', 'auftritt', 'event'];
+
+// Compact numeric column header (e.g. "1.1.") matching the user's mental model
+// of a season grid, from a YYYY-MM-DD date.
+function shortDay(ds: string): string {
+  const [, m, d] = ds.split('-');
+  return `${Number(d)}.${Number(m)}.`;
+}
 
 export function Stats() {
   const app = useApp();
   const { state } = app;
   const t = buildTokens(state.primaryColor);
+  const [tab, setTab] = useState<'overview' | 'matrix'>('overview');
+  const [types, setTypes] = useState<Set<EventType>>(() => new Set(MATRIX_TYPES));
   const { data: st } = useStatsQuery(app.api, state.activeTeamId, state.statsRange);
+  const { data: mx } = useAttendanceMatrixQuery(app.api, state.activeTeamId, state.statsRange, tab === 'matrix');
 
   const today = todayStr();
   const ago = (months: number) => monthsAgoLocal(today, months);
@@ -87,10 +109,59 @@ export function Stats() {
     </Box>
   );
 
+  const tabBar = (
+    <Box key="tabs" sx={{ display: 'flex', gap: '8px', mb: '16px' }}>
+      {(['overview', 'matrix'] as const).map((k) => {
+        const sel = tab === k;
+        return (
+          <ButtonBase
+            key={k}
+            onClick={() => setTab(k)}
+            aria-pressed={sel}
+            sx={{
+              p: '8px 16px',
+              borderRadius: '999px',
+              fontSize: '13px',
+              fontWeight: 600,
+              border: '1.5px solid ' + (sel ? t.primary : NEUTRAL.inputBorder),
+              background: sel ? t.primaryContainer : NEUTRAL.card,
+              color: sel ? t.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+            }}
+          >
+            {tr(k === 'overview' ? 'stats.tabOverview' : 'stats.tabMatrix')}
+          </ButtonBase>
+        );
+      })}
+    </Box>
+  );
+
+  if (tab === 'matrix') {
+    const toggleType = (ty: EventType) =>
+      setTypes((prev) => {
+        const next = new Set(prev);
+        // Keep at least one type selected so the grid never collapses to zero
+        // columns from filtering alone (distinct from a genuinely empty range).
+        if (next.has(ty)) {
+          if (next.size > 1) next.delete(ty);
+        } else {
+          next.add(ty);
+        }
+        return next;
+      });
+    return (
+      <Box sx={{ maxWidth: '760px' }}>
+        {filterBar}
+        {tabBar}
+        <MatrixView mx={mx} types={types} onToggleType={toggleType} primary={t.primary} />
+      </Box>
+    );
+  }
+
   if (!st)
     return (
       <Box sx={{ maxWidth: '760px' }}>
         {filterBar}
+        {tabBar}
         <SpinnerBox />
       </Box>
     );
@@ -252,9 +323,196 @@ export function Stats() {
   return (
     <Box sx={{ maxWidth: '760px' }}>
       {filterBar}
+      {tabBar}
       {ring}
       {memberBars}
       {eventsSec}
+    </Box>
+  );
+}
+
+function MatrixView({
+  mx,
+  types,
+  onToggleType,
+  primary,
+}: {
+  mx: AttendanceMatrix | undefined;
+  types: Set<EventType>;
+  onToggleType: (t: EventType) => void;
+  primary: string;
+}) {
+  const typeFilter = (
+    <Box
+      role="group"
+      aria-label={tr('stats.matrixFilterLabel')}
+      sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px', mb: '14px' }}
+    >
+      <Box component="span" sx={{ fontSize: '13px', color: NEUTRAL.secondary, fontWeight: 600 }}>
+        {tr('stats.matrixFilterLabel')}
+      </Box>
+      {MATRIX_TYPES.map((ty) => {
+        const on = types.has(ty);
+        const tm = typeMeta(ty);
+        return (
+          <ButtonBase
+            key={ty}
+            role="checkbox"
+            aria-checked={on}
+            onClick={() => onToggleType(ty)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              p: '6px 12px',
+              borderRadius: '999px',
+              fontSize: '13px',
+              fontWeight: 600,
+              border: '1.5px solid ' + (on ? primary : NEUTRAL.inputBorder),
+              background: on ? tm.bg : NEUTRAL.card,
+              color: on ? tm.on : NEUTRAL.onSurfaceVariant,
+            }}
+          >
+            <Sym name={on ? 'check_box' : 'check_box_outline_blank'} size={18} color={on ? tm.color : NEUTRAL.faint} />
+            {tm.label}
+          </ButtonBase>
+        );
+      })}
+    </Box>
+  );
+
+  if (!mx)
+    return (
+      <Box>
+        {typeFilter}
+        <SpinnerBox />
+      </Box>
+    );
+
+  const columns = mx.events.filter((e) => types.has(e.type));
+
+  const thBase = {
+    borderBottom: `1px solid ${NEUTRAL.line}`,
+    padding: '8px 6px',
+    fontSize: '12px',
+    fontWeight: 700,
+    color: NEUTRAL.secondary,
+    background: NEUTRAL.card,
+  } as const;
+  const nameColSx = {
+    position: 'sticky',
+    left: 0,
+    zIndex: 1,
+    background: NEUTRAL.card,
+    textAlign: 'left',
+    minWidth: '150px',
+    boxShadow: `1px 0 0 ${NEUTRAL.line}`,
+  } as const;
+
+  return (
+    <Box>
+      {typeFilter}
+      {columns.length === 0 ? (
+        <EmptyState icon="grid_on" text={tr('stats.matrixEmpty')} />
+      ) : (
+        <Box sx={{ overflowX: 'auto', border: `1px solid ${NEUTRAL.line}`, borderRadius: '14px' }}>
+          <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'auto' }}>
+            <Box component="thead">
+              <Box component="tr">
+                <Box component="th" scope="col" sx={{ ...thBase, ...nameColSx }}>
+                  {tr('stats.matrixMemberHeader')}
+                </Box>
+                {columns.map((c) => {
+                  const tm = typeMeta(c.type);
+                  return (
+                    <Box
+                      key={c.id}
+                      component="th"
+                      scope="col"
+                      title={`${c.title} · ${fmtDate(c.date)}`}
+                      sx={{ ...thBase, textAlign: 'center', minWidth: '40px', whiteSpace: 'nowrap' }}
+                    >
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px' }}>
+                        <Sym name={tm.icon} size={14} color={tm.color} />
+                        {shortDay(c.date)}
+                      </Box>
+                    </Box>
+                  );
+                })}
+                <Box
+                  component="th"
+                  scope="col"
+                  aria-label={tr('stats.matrixTotalAria')}
+                  sx={{ ...thBase, textAlign: 'center', minWidth: '44px' }}
+                >
+                  {tr('stats.matrixTotalHeader')}
+                </Box>
+              </Box>
+            </Box>
+            <Box component="tbody">
+              {mx.members.map((m) => (
+                <Box component="tr" key={m.userId}>
+                  <Box
+                    component="th"
+                    scope="row"
+                    sx={{
+                      ...nameColSx,
+                      borderBottom: `1px solid ${NEUTRAL.line}`,
+                      padding: '6px 8px',
+                      fontWeight: 600,
+                      fontSize: '13px',
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Av name={m.name} photo={m.photo} color={m.avatarColor} size={26} />
+                      <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</Box>
+                    </Box>
+                  </Box>
+                  {columns.map((c) => {
+                    const status: AttendanceCellStatus = m.cells[c.id] ?? 'pending';
+                    const cm = CELL_META[status];
+                    return (
+                      <Box
+                        key={c.id}
+                        component="td"
+                        sx={{
+                          borderBottom: `1px solid ${NEUTRAL.line}`,
+                          textAlign: 'center',
+                          padding: '6px',
+                        }}
+                      >
+                        <Sym
+                          name={cm.icon}
+                          size={18}
+                          color={cm.color}
+                          label={tr('stats.matrixCellAria', {
+                            name: m.name,
+                            date: fmtDate(c.date),
+                            status: statusMeta(status).label,
+                          })}
+                        />
+                      </Box>
+                    );
+                  })}
+                  <Box
+                    component="td"
+                    sx={{
+                      borderBottom: `1px solid ${NEUTRAL.line}`,
+                      textAlign: 'center',
+                      padding: '6px',
+                      fontSize: '13px',
+                      fontWeight: 800,
+                      color: NEUTRAL.success,
+                    }}
+                  >
+                    {m.yes}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 }

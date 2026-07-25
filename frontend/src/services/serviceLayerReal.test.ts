@@ -50,6 +50,7 @@ vi.mock('@/api/map', () => {
     mapPenaltyAssignment: tag('penaltyAssignment'),
     mapContribution: tag('contribution'),
     mapStatsOverview: tag('statsOverview'),
+    mapAttendanceMatrix: tag('attendanceMatrix'),
     // Real (not tagged) — serviceLayerReal calls these directly on request
     // bodies, not just on responses, so tests exercising request payloads
     // need the actual conversion, not an identity stub.
@@ -526,7 +527,9 @@ describe('events', () => {
     expect((await realApi.events.listComments('e1', 't1'))[0]).toMatchObject({ __mapped: 'eventComment' });
     expect(client.GET).toHaveBeenCalledWith(
       '/teams/{teamId}/events/{eventId}/comments',
-      expect.objectContaining({ params: { path: { teamId: 't1', eventId: 'e1' }, query: { limit: 500, cursor: undefined } } }),
+      expect.objectContaining({
+        params: { path: { teamId: 't1', eventId: 'e1' }, query: { limit: 500, cursor: undefined } },
+      }),
     );
 
     client.POST.mockResolvedValueOnce(ok({ id: 'c1' }));
@@ -542,9 +545,9 @@ describe('events', () => {
   // real backend, while the mock returns every comment unconditionally.
   it('listComments walks every keyset page and forwards the cursor', async () => {
     const fullPage = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}` }));
-    client.GET
-      .mockResolvedValueOnce(ok({ items: fullPage, nextCursor: 'c1' }))
-      .mockResolvedValueOnce(ok({ items: [{ id: 'c500' }], nextCursor: null }));
+    client.GET.mockResolvedValueOnce(ok({ items: fullPage, nextCursor: 'c1' })).mockResolvedValueOnce(
+      ok({ items: [{ id: 'c500' }], nextCursor: null }),
+    );
     const res = await realApi.events.listComments('e1', 't1');
     expect(res).toHaveLength(501);
     expect(client.GET).toHaveBeenCalledTimes(2);
@@ -793,6 +796,16 @@ describe('stats', () => {
       '/teams/{teamId}/stats',
       expect.objectContaining({ params: { path: { teamId: 't1' }, query: { from: '2026-01-01', to: '2026-02-01' } } }),
     );
+  });
+
+  it('attendanceMatrix forwards the date range and maps the matrix', async () => {
+    client.GET.mockResolvedValueOnce(ok({ events: [], members: [] }));
+    const res = await realApi.stats.attendanceMatrix('t1', { from: '2026-01-01', to: '2026-02-01' });
+    expect(client.GET).toHaveBeenCalledWith(
+      '/teams/{teamId}/stats/attendance-matrix',
+      expect.objectContaining({ params: { path: { teamId: 't1' }, query: { from: '2026-01-01', to: '2026-02-01' } } }),
+    );
+    expect(res).toMatchObject({ __mapped: 'attendanceMatrix' });
   });
 });
 

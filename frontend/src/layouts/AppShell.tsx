@@ -170,7 +170,17 @@ export function Shell() {
   if (compact) {
     return (
       <Box
-        sx={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, background: NEUTRAL.surface }}
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          // 100dvh tracks the *dynamically* sized viewport, so the bottom nav
+          // stays above the mobile browser's address/toolbar instead of being
+          // covered by it (100vh is the largest viewport, toolbar hidden).
+          height: '100vh',
+          '@supports (height: 100dvh)': { height: '100dvh' },
+          minHeight: 0,
+          background: NEUTRAL.surface,
+        }}
       >
         <Box component="a" href="#main-content" sx={skipLinkSx}>
           {tl('shell.skipToMain')}
@@ -298,7 +308,13 @@ export function Shell() {
         <Box
           component="main"
           id="main-content"
-          sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '14px 14px 90px', position: 'relative' }}
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            overflow: 'auto',
+            p: '14px 14px calc(90px + env(safe-area-inset-bottom))',
+            position: 'relative',
+          }}
         >
           {content}
         </Box>
@@ -309,7 +325,7 @@ export function Shell() {
             sx={{
               position: 'fixed',
               right: 18,
-              bottom: 88,
+              bottom: 'calc(88px + env(safe-area-inset-bottom))',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
@@ -334,12 +350,16 @@ export function Shell() {
           aria-label={tl('nav.mainNav')}
           sx={{
             flex: '0 0 auto',
-            height: 72,
+            minHeight: 72,
             background: NEUTRAL.sidebar,
             borderTop: `1px solid ${NEUTRAL.line3}`,
             display: 'flex',
             alignItems: 'stretch',
-            p: '8px 6px',
+            // Reserve the device safe area (home indicator / gesture bar) below
+            // the nav so the symbols aren't overlapped on notched phones.
+            pt: '8px',
+            px: '6px',
+            pb: 'calc(8px + env(safe-area-inset-bottom))',
           }}
         >
           {bottomDefs

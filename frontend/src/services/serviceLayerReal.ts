@@ -26,9 +26,20 @@ import {
   mapPenaltyAssignment,
   mapContribution,
   mapStatsOverview,
+  mapAttendanceMatrix,
   eurosToCents,
 } from '@/api/map';
-import type { User, Team, TeamForUser, Role, Invite, Provider, DateRange, StatsOverview } from '@/types';
+import type {
+  User,
+  Team,
+  TeamForUser,
+  Role,
+  Invite,
+  Provider,
+  DateRange,
+  StatsOverview,
+  AttendanceMatrix,
+} from '@/types';
 import type { TeamEvent, AttendanceRow, EventComment, Absence } from '@/features/events';
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
@@ -947,6 +958,14 @@ export const realApi = {
       });
       const o = await check(res);
       return mapStatsOverview(o);
+    },
+
+    async attendanceMatrix(teamId: string, range?: DateRange | null): Promise<AttendanceMatrix> {
+      const res = await apiClient.GET('/teams/{teamId}/stats/attendance-matrix', {
+        params: { path: { teamId }, query: { from: range?.from ?? undefined, to: range?.to ?? undefined } },
+      });
+      const m = await check(res);
+      return mapAttendanceMatrix(m);
     },
   },
 

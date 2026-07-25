@@ -1479,6 +1479,33 @@ paths:
               schema:
                 $ref: "#/components/schemas/StatsOverview"
 
+  /teams/{teamId}/stats/attendance-matrix:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [stats]
+      operationId: getAttendanceMatrix
+      x-rbac-module: events
+      summary: Per-member-per-event attendance matrix
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttendanceMatrix"
+
   /teams/{teamId}/stats/members/{userId}:
     parameters:
       - $ref: "#/components/parameters/teamId"
@@ -2906,3 +2933,64 @@ components:
         to:
           type: string
           format: date
+
+    AttendanceMatrixColumn:
+      type: object
+      required: [id, title, type, date]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        type:
+          $ref: "#/components/schemas/EventType"
+        date:
+          type: string
+          format: date
+
+    AttendanceMatrixRow:
+      type: object
+      required: [userId, name, avatarColor, yes, counted, cells]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        avatarColor:
+          type: string
+        hasPhoto:
+          type: boolean
+        yes:
+          type: integer
+        counted:
+          type: integer
+        cells:
+          type: object
+          description: >-
+            Effective attendance status keyed by event id; missing key ⇒ pending.
+            Only yes/no/maybe/pending are emitted (not_nominated folds to pending).
+          additionalProperties:
+            $ref: "#/components/schemas/AttendanceStatus"
+
+    AttendanceMatrix:
+      type: object
+      required: [from, to, events, members]
+      properties:
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        events:
+          type: array
+          description: Columns, ordered by date ascending.
+          items:
+            $ref: "#/components/schemas/AttendanceMatrixColumn"
+        members:
+          type: array
+          description: Rows, ordered by attendance (most yes first), then name.
+          items:
+            $ref: "#/components/schemas/AttendanceMatrixRow"

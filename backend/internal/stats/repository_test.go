@@ -186,6 +186,72 @@ func TestStatsRepository_MemberStats_AbsenceDefaultsToNotAttending(t *testing.T)
 	assert.Equal(t, 1, rows[0].Counted, "a covering absence is a counted 'no'")
 }
 
+func TestStatsRepository_AttendanceMatrix(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := stats.NewRepository(pool)
+	ctx := context.Background()
+
+	tid := uuid.New().String()
+	alice, bob := uuid.New().String(), uuid.New().String()
+
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Matrix Team')`, tid)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Matrix Alice', 'malice@example.com', '#a1a1a1'), ($2, 'Matrix Bob', 'mbob@example.com', '#b2b2b2')`,
+		alice, bob)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO memberships (team_id, user_id) VALUES ($1, $2), ($1, $3)`, tid, alice, bob)
+	require.NoError(t, err)
+
+	// Two events on different dates; the earlier one is an opt_out training.
+	d1 := time.Now().UTC().AddDate(0, 0, -2).Format("2006-01-02")
+	d2 := time.Now().UTC().Format("2006-01-02")
+	var e1, e2 string
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status, response_mode) VALUES ($1, 'training', 'Training One', $2, 'active', 'opt_out') RETURNING id`,
+		tid, d1).Scan(&e1)
+	require.NoError(t, err)
+	err = pool.QueryRow(ctx,
+		`INSERT INTO events (team_id, type, title, date, status) VALUES ($1, 'auftritt', 'Match Two', $2, 'active') RETURNING id`,
+		tid, d2).Scan(&e2)
+	require.NoError(t, err)
+
+	// Alice: explicit 'no' on e2 (e1 opt_out with no response defaults to yes).
+	// Bob: explicit 'yes' on e2 (e1 opt_out defaults to yes) → Bob attends both.
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'no')`, e2, alice)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO attendance (event_id, user_id, status) VALUES ($1, $2, 'yes')`, e2, bob)
+	require.NoError(t, err)
+
+	from := time.Now().UTC().AddDate(0, 0, -3).Format("2006-01-02")
+	to := time.Now().UTC().AddDate(0, 0, 1).Format("2006-01-02")
+
+	cols, cells, err := repo.AttendanceMatrix(ctx, uuid.MustParse(tid), from, to)
+	require.NoError(t, err)
+
+	// Columns ordered by date ascending.
+	require.Len(t, cols, 2)
+	assert.Equal(t, e1, cols[0].EventID.String())
+	assert.Equal(t, "training", cols[0].Type)
+	assert.Equal(t, e2, cols[1].EventID.String())
+
+	// Cells: 2 members × 2 events = 4 rows. Resolve to a lookup for assertions.
+	type key struct{ user, event string }
+	got := map[key]string{}
+	for _, c := range cells {
+		require.NotNil(t, c.EventID)
+		got[key{c.UserID.String(), c.EventID.String()}] = c.Eff
+	}
+	require.Len(t, got, 4)
+	assert.Equal(t, "yes", got[key{alice, e1}], "opt_out with no response → yes")
+	assert.Equal(t, "no", got[key{alice, e2}])
+	assert.Equal(t, "yes", got[key{bob, e1}])
+	assert.Equal(t, "yes", got[key{bob, e2}])
+}
+
 func TestStatsRepository_SingleMemberStats(t *testing.T) {
 	t.Parallel()
 

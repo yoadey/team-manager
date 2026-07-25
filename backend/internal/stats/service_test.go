@@ -22,6 +22,7 @@ type mockRepo struct {
 	eventStatsFn        func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.EventStatRow, error)
 	singleMemberStatsFn func(ctx context.Context, teamID, userID uuid.UUID, from, to string) (*stats.MemberStatRow, error)
 	withReadTxFn        func(ctx context.Context, fn func(stats.OverviewReader) error) error
+	attendanceMatrixFn  func(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MatrixColumnRow, []stats.MatrixCellRow, error)
 }
 
 func (m *mockRepo) MemberStats(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MemberStatRow, error) {
@@ -44,6 +45,10 @@ func (m *mockRepo) WithReadTx(ctx context.Context, fn func(stats.OverviewReader)
 		return m.withReadTxFn(ctx, fn)
 	}
 	return fn(m)
+}
+
+func (m *mockRepo) AttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to string) ([]stats.MatrixColumnRow, []stats.MatrixCellRow, error) {
+	return m.attendanceMatrixFn(ctx, teamID, from, to)
 }
 
 // ─── tests ───────────────────────────────────────────────────────────────────
@@ -251,6 +256,101 @@ func TestService_GetMemberStats_UsesExplicitRangeWhenGiven(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "2026-01-01", capturedFrom)
 	assert.Equal(t, "2026-01-31", capturedTo)
+}
+
+func TestService_GetAttendanceMatrix_AssemblesSortsAndReconciles(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	e1, e2 := uuid.New(), uuid.New()
+	alice, bob := uuid.New(), uuid.New()
+
+	repo := &mockRepo{
+		attendanceMatrixFn: func(context.Context, uuid.UUID, string, string) ([]stats.MatrixColumnRow, []stats.MatrixCellRow, error) {
+			cols := []stats.MatrixColumnRow{
+				{EventID: e1, Title: "Training A", Type: "training", Date: "2026-01-01"},
+				{EventID: e2, Title: "Match B", Type: "auftritt", Date: "2026-01-06"},
+			}
+			// Cells arrive name-ordered (Alice before Bob), but Bob attends more,
+			// so Bob must sort first. Alice: yes + pending. Bob: yes + yes.
+			cells := []stats.MatrixCellRow{
+				{UserID: alice, Name: "Alice", AvatarColor: "#a", EventID: &e1, Eff: "yes"},
+				{UserID: alice, Name: "Alice", AvatarColor: "#a", EventID: &e2, Eff: "pending"},
+				{UserID: bob, Name: "Bob", AvatarColor: "#b", EventID: &e1, Eff: "yes"},
+				{UserID: bob, Name: "Bob", AvatarColor: "#b", EventID: &e2, Eff: "yes"},
+			}
+			return cols, cells, nil
+		},
+	}
+
+	svc := stats.NewService(repo)
+	m, err := svc.GetAttendanceMatrix(context.Background(), teamID, nil, nil)
+	require.NoError(t, err)
+
+	require.Len(t, m.Events, 2)
+	assert.Equal(t, e1, m.Events[0].Id, "columns keep the query order (date asc)")
+	assert.Equal(t, e2, m.Events[1].Id)
+
+	require.Len(t, m.Members, 2)
+	assert.Equal(t, "Bob", m.Members[0].Name, "most-attending member sorts first")
+	assert.Equal(t, "Alice", m.Members[1].Name)
+
+	// Row aggregate reconciles with the cells: Bob 2 yes, Alice 1 yes.
+	assert.Equal(t, 2, m.Members[0].Yes)
+	assert.Equal(t, 2, m.Members[0].Counted)
+	assert.Equal(t, 1, m.Members[1].Yes)
+	assert.Equal(t, 1, m.Members[1].Counted, "pending is not counted, only yes/no/maybe")
+
+	// Cells keyed by event id.
+	assert.Equal(t, gen.AttendanceStatus("yes"), m.Members[1].Cells[e1.String()])
+	assert.Equal(t, gen.AttendanceStatus("pending"), m.Members[1].Cells[e2.String()])
+}
+
+func TestService_GetAttendanceMatrix_MemberWithNoEvents(t *testing.T) {
+	t.Parallel()
+
+	solo := uuid.New()
+	repo := &mockRepo{
+		attendanceMatrixFn: func(context.Context, uuid.UUID, string, string) ([]stats.MatrixColumnRow, []stats.MatrixCellRow, error) {
+			// LEFT JOIN placeholder: a member with no events in range yields one
+			// row with a nil EventID. The member must still appear, cells empty.
+			cells := []stats.MatrixCellRow{
+				{UserID: solo, Name: "Solo", AvatarColor: "#s", EventID: nil, Eff: "pending"},
+			}
+			return nil, cells, nil
+		},
+	}
+
+	svc := stats.NewService(repo)
+	m, err := svc.GetAttendanceMatrix(context.Background(), uuid.New(), nil, nil)
+	require.NoError(t, err)
+	require.Len(t, m.Members, 1)
+	assert.Equal(t, "Solo", m.Members[0].Name)
+	assert.Equal(t, 0, m.Members[0].Yes)
+	assert.Empty(t, m.Members[0].Cells, "a placeholder nil-event row must not create a cell")
+}
+
+func TestService_GetAttendanceMatrix_DefaultsDateRangeWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	var capturedFrom, capturedTo string
+	repo := &mockRepo{
+		attendanceMatrixFn: func(_ context.Context, _ uuid.UUID, from, to string) ([]stats.MatrixColumnRow, []stats.MatrixCellRow, error) {
+			capturedFrom, capturedTo = from, to
+			return nil, nil, nil
+		},
+	}
+
+	svc := stats.NewService(repo)
+	_, err := svc.GetAttendanceMatrix(context.Background(), uuid.New(), nil, nil)
+	require.NoError(t, err)
+
+	gotFrom, err := time.Parse("2006-01-02", capturedFrom)
+	require.NoError(t, err)
+	gotTo, err := time.Parse("2006-01-02", capturedTo)
+	require.NoError(t, err)
+	assert.Equal(t, gotTo.AddDate(0, -3, 0).Format("2006-01-02"), gotFrom.Format("2006-01-02"),
+		"matrix must reuse the overview's 3-month default window")
 }
 
 func mustParseDate(t *testing.T, s string) time.Time {

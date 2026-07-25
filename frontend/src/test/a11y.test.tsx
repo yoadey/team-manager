@@ -62,6 +62,7 @@ vi.mock('@/features/members/hooks/useMemberQueries', () => ({
 // identical pattern in pages/Stats.test.tsx), so the mock must match it.
 vi.mock('@/pages/hooks/useStatsQueries', () => ({
   useStatsQuery: vi.fn(),
+  useAttendanceMatrixQuery: vi.fn().mockReturnValue({ data: undefined }),
 }));
 
 // FinancesPage.tsx imports useFinanceOverviewQuery via this exact relative
@@ -217,7 +218,9 @@ describe('Accessibility: EventDetailSheet', () => {
           summary: { yes: 3, no: 1, maybe: 0, pending: 2, notNominated: 0, nominated: 6, total: 6 },
         },
         rows: [],
-        comments: [{ id: 'c1', userId: 'u2', userName: 'Anna Müller', text: 'Bin dabei!', createdAt: '2026-06-20T10:00:00Z' }],
+        comments: [
+          { id: 'c1', userId: 'u2', userName: 'Anna Müller', text: 'Bin dabei!', createdAt: '2026-06-20T10:00:00Z' },
+        ],
       },
       isLoading: false,
       isError: false,

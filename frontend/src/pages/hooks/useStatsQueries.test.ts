@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { useStatsQuery } from './useStatsQueries';
+import { useStatsQuery, useAttendanceMatrixQuery } from './useStatsQueries';
 import { createQueryWrapper, createTestQueryClient } from '@/test/queryTestUtils';
-import type { StatsOverview } from '@/types';
+import type { AttendanceMatrix, StatsOverview } from '@/types';
 
 function makeStats(overrides: Partial<StatsOverview> = {}): StatsOverview {
   return {
@@ -96,5 +96,37 @@ describe('useStatsQuery', () => {
     await Promise.resolve();
 
     expect(result.current.data?.avg).toBe(20);
+  });
+});
+
+function makeMatrix(overrides: Partial<AttendanceMatrix> = {}): AttendanceMatrix {
+  return { from: null, to: null, events: [], members: [], ...overrides };
+}
+
+describe('useAttendanceMatrixQuery', () => {
+  it('does not fetch while there is no active team', () => {
+    const api = { stats: { attendanceMatrix: vi.fn() } };
+    renderHook(() => useAttendanceMatrixQuery(api as never, null, null), { wrapper: createQueryWrapper() });
+    expect(api.stats.attendanceMatrix).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch while disabled (matrix tab closed), even with a team id', () => {
+    const api = { stats: { attendanceMatrix: vi.fn() } };
+    renderHook(() => useAttendanceMatrixQuery(api as never, 'team1', null, false), {
+      wrapper: createQueryWrapper(),
+    });
+    expect(api.stats.attendanceMatrix).not.toHaveBeenCalled();
+  });
+
+  it('fetches the team-and-range-scoped matrix once enabled with a team id', async () => {
+    const api = {
+      stats: { attendanceMatrix: vi.fn().mockResolvedValue(makeMatrix({ members: [{ userId: 'u1' } as never] })) },
+    };
+    const range = { from: '2026-01-01', to: '2026-03-01' };
+    const { result } = renderHook(() => useAttendanceMatrixQuery(api as never, 'team1', range, true), {
+      wrapper: createQueryWrapper(),
+    });
+    await waitFor(() => expect(result.current.data?.members.length).toBe(1));
+    expect(api.stats.attendanceMatrix).toHaveBeenCalledWith('team1', range);
   });
 });
