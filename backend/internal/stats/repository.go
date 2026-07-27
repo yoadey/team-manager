@@ -320,7 +320,7 @@ func matrixCells(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to st
 			u.id,
 			u.name,
 			u.avatar_color,
-			(u.photo_object_key IS NOT NULL OR u.photo_data IS NOT NULL) AS has_photo,
+			(u.photo_object_key IS NOT NULL) AS has_photo,
 			e.id AS event_id,
 			CASE WHEN e.id IS NULL THEN 'pending' ELSE `+attendance.EffectiveStatusExpr+` END AS eff
 		FROM memberships m
