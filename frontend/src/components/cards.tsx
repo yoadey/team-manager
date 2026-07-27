@@ -48,15 +48,16 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
 
   // Icon-only RSVP button mirroring EventDetailSheet's yes/maybe/no controls
   // (same icons + colors) so the overview and detail views stay consistent.
-  const rsvpBtn = (
-    st: AttendanceStatus,
-    icon: string,
-    activeColor: string,
-    activeBg: string,
-    passiveBg: string,
-    passiveColor: string,
-    label: string,
-  ) => {
+  const rsvpBtn = (opts: {
+    st: AttendanceStatus;
+    icon: string;
+    activeColor: string;
+    activeBg: string;
+    passiveBg: string;
+    passiveColor: string;
+    label: string;
+  }) => {
+    const { st, icon, activeColor, activeBg, passiveBg, passiveColor, label } = opts;
     const on = e.myStatus === st;
     return (
       <ButtonBase
@@ -176,17 +177,33 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
             aria-label={t('events.rsvpGroupLabel', { title: e.title })}
             sx={{ display: 'flex', gap: '5px' }}
           >
-            {rsvpBtn(
-              'yes',
-              'check_circle',
-              '#fff',
-              NEUTRAL.success,
-              NEUTRAL.successBg,
-              NEUTRAL.success,
-              t('events.rsvpYes'),
-            )}
-            {rsvpBtn('maybe', 'help', '#fff', NEUTRAL.warn, NEUTRAL.warnBg, NEUTRAL.warn, t('events.rsvpMaybe'))}
-            {rsvpBtn('no', 'cancel', '#fff', NEUTRAL.error, NEUTRAL.errorBg, NEUTRAL.error, t('events.rsvpNo'))}
+            {rsvpBtn({
+              st: 'yes',
+              icon: 'check_circle',
+              activeColor: '#fff',
+              activeBg: NEUTRAL.success,
+              passiveBg: NEUTRAL.successBg,
+              passiveColor: NEUTRAL.success,
+              label: t('events.rsvpYes'),
+            })}
+            {rsvpBtn({
+              st: 'maybe',
+              icon: 'help',
+              activeColor: '#fff',
+              activeBg: NEUTRAL.warn,
+              passiveBg: NEUTRAL.warnBg,
+              passiveColor: NEUTRAL.warn,
+              label: t('events.rsvpMaybe'),
+            })}
+            {rsvpBtn({
+              st: 'no',
+              icon: 'cancel',
+              activeColor: '#fff',
+              activeBg: NEUTRAL.error,
+              passiveBg: NEUTRAL.errorBg,
+              passiveColor: NEUTRAL.error,
+              label: t('events.rsvpNo'),
+            })}
           </Box>
         ) : isPast || cancelled ? null : (
           <Chip label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />
