@@ -126,24 +126,39 @@ export function PollsPage() {
             >
               {opts}
             </Box>
-            {!p.anonymous && p.options.some((o) => o.voters.length) ? (
-              <Box sx={{ mt: '10px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {p.options
-                  .filter((o) => o.voters.length)
-                  .map((o) => (
-                    <Box key={o.id} sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
-                      <Box component="span" sx={{ fontWeight: 600 }}>
-                        {o.text}:
-                      </Box>{' '}
-                      {o.voters.map((v) => v.name).join(', ')}
-                    </Box>
-                  ))}
+            <Box
+              sx={{
+                mt: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+              }}
+            >
+              <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
+                {p.anonymous
+                  ? t('polls.votesAnon', { n: p.totalVotes, count: p.totalVotes })
+                  : t('polls.votes', { n: p.totalVotes, count: p.totalVotes })}
               </Box>
-            ) : null}
-            <Box sx={{ mt: '10px', fontSize: '12px', color: NEUTRAL.faint }}>
-              {p.anonymous
-                ? t('polls.votesAnon', { n: p.totalVotes, count: p.totalVotes })
-                : t('polls.votes', { n: p.totalVotes, count: p.totalVotes })}
+              {!p.anonymous && p.totalVotes > 0 ? (
+                <ButtonBase
+                  onClick={() => app.openPollVoters(p)}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    color: tk.primary,
+                    cursor: 'pointer',
+                    borderRadius: '8px',
+                    p: '2px 4px',
+                  }}
+                >
+                  <Sym name="visibility" size={16} color={tk.primary} />
+                  {t('polls.viewVoters')}
+                </ButtonBase>
+              ) : null}
             </Box>
           </Card>
         );

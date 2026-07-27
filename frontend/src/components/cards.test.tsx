@@ -1,16 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { EventCard } from './cards';
 import { NewsCard } from './cards';
 import { setLocale } from '@/i18n';
 
-const { mockOpenEventDetail } = vi.hoisted(() => ({ mockOpenEventDetail: vi.fn() }));
+const { mockOpenEventDetail, mockSetMyStatus } = vi.hoisted(() => ({
+  mockOpenEventDetail: vi.fn(),
+  mockSetMyStatus: vi.fn(),
+}));
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn().mockReturnValue({
     state: { primaryColor: '#4285F4' },
   }),
-  useAppActions: vi.fn().mockReturnValue({ openEventDetail: mockOpenEventDetail }),
+  useAppActions: vi.fn().mockReturnValue({ openEventDetail: mockOpenEventDetail, setMyStatus: mockSetMyStatus }),
 }));
 
 function makeEvent(overrides: Record<string, unknown> = {}) {
@@ -51,11 +54,23 @@ function makeNews(overrides: Record<string, unknown> = {}) {
 describe('EventCard', () => {
   beforeEach(() => {
     mockOpenEventDetail.mockClear();
+    mockSetMyStatus.mockClear();
   });
 
   it('renders event title', () => {
     render(<EventCard e={makeEvent()} />);
     expect(screen.getByText('Jahresabschluss')).toBeTruthy();
+  });
+
+  it('sets attendance from an inline RSVP icon on an upcoming event', () => {
+    render(<EventCard e={makeEvent({ myStatus: 'maybe' })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Zusagen' }));
+    expect(mockSetMyStatus).toHaveBeenCalledWith('ev1', 'yes', undefined);
+  });
+
+  it('does not show inline RSVP controls on a past event', () => {
+    render(<EventCard e={makeEvent({ date: '2000-01-01' })} />);
+    expect(screen.queryByRole('button', { name: 'Zusagen' })).toBeNull();
   });
 
   it('renders attendance counts', () => {

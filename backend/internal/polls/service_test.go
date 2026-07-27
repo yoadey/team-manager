@@ -121,10 +121,11 @@ func (m *mockRepo) WithReadTx(ctx context.Context, fn func(polls.PollListReader)
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 var (
-	teamID   = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
-	userID   = uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-	pollID   = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-	optionID = uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	teamID       = uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	userID       = uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+	pollID       = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	optionID     = uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	membershipID = uuid.MustParse("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")
 )
 
 func makePollRow() *polls.PollRow {
@@ -183,6 +184,81 @@ func TestService_ListByTeam(t *testing.T) {
 	assert.Equal(t, "Best player?", result[0].Question)
 	require.Len(t, result[0].Options, 1)
 	assert.Equal(t, "Alice", result[0].Options[0].Text)
+}
+
+// A non-anonymous poll exposes each voter's stable userId and membershipId
+// (the latter is what the client needs to build the member photo URL), so the
+// UI can render per-option voter lists and the user×option matrix.
+func TestService_ListByTeam_NonAnonymousExposesVoterIdentities(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow() // Anonymous: false
+	opt := makeOptionRow()
+	name := "Alice"
+	color := "#abc"
+
+	repo := &mockRepo{
+		listByTeam: func(_ context.Context, _ uuid.UUID, _ int, _ *polls.ListCursor) ([]*polls.PollRow, error) {
+			return []*polls.PollRow{pr}, nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{opt}, nil
+		},
+		listVotes: func(_ context.Context, _ uuid.UUID) ([]*polls.PollVoteRow, error) {
+			return []*polls.PollVoteRow{
+				{PollId: pollID, OptionId: optionID, UserId: userID, MembershipId: &membershipID, UserName: &name, UserColor: &color, HasPhoto: true},
+			}, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	result, _, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Len(t, result[0].Options, 1)
+	require.NotNil(t, result[0].Options[0].Voters)
+	voters := *result[0].Options[0].Voters
+	require.Len(t, voters, 1)
+	require.NotNil(t, voters[0].UserId)
+	assert.Equal(t, userID, *voters[0].UserId)
+	require.NotNil(t, voters[0].MembershipId)
+	assert.Equal(t, membershipID, *voters[0].MembershipId)
+}
+
+// An anonymous poll must never leak who voted: aggregate counts are still
+// reported, but no voter list (and thus no identities) is returned at all.
+func TestService_ListByTeam_AnonymousHidesVoterIdentities(t *testing.T) {
+	t.Parallel()
+
+	pr := makePollRow()
+	pr.Anonymous = true
+	opt := makeOptionRow()
+	name := "Alice"
+	color := "#abc"
+
+	repo := &mockRepo{
+		listByTeam: func(_ context.Context, _ uuid.UUID, _ int, _ *polls.ListCursor) ([]*polls.PollRow, error) {
+			return []*polls.PollRow{pr}, nil
+		},
+		listOptions: func(_ context.Context, _ uuid.UUID) ([]*polls.PollOptionRow, error) {
+			return []*polls.PollOptionRow{opt}, nil
+		},
+		listVotes: func(_ context.Context, _ uuid.UUID) ([]*polls.PollVoteRow, error) {
+			return []*polls.PollVoteRow{
+				{PollId: pollID, OptionId: optionID, UserId: userID, MembershipId: &membershipID, UserName: &name, UserColor: &color, HasPhoto: true},
+			}, nil
+		},
+	}
+
+	svc := polls.NewService(repo, nil, nil, slog.Default())
+	result, _, err := svc.ListByTeam(context.Background(), teamID, userID, 50, "")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Len(t, result[0].Options, 1)
+	assert.Equal(t, 1, result[0].Options[0].Count)
+	assert.Nil(t, result[0].Options[0].Voters)
 }
 
 // Regression test: ListByTeam used to issue three independent, unprotected

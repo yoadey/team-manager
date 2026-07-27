@@ -1038,6 +1038,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/stats/attendance-matrix": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Per-member-per-event attendance matrix */
+        get: operations["getAttendanceMatrix"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{teamId}/stats/members/{userId}": {
         parameters: {
             query?: never;
@@ -1495,6 +1514,16 @@ export interface components {
             /** Format: float */
             pct: number;
             voters?: {
+                /**
+                 * Format: uuid
+                 * @description Voter's stable user id. Present only for non-anonymous polls; omitted entirely for anonymous polls, which expose no identities.
+                 */
+                userId?: string;
+                /**
+                 * Format: uuid
+                 * @description Voter's membership id in the poll's team, used to build the member photo URL. Present only for non-anonymous polls.
+                 */
+                membershipId?: string;
                 name?: string;
                 color?: string;
                 hasPhoto?: boolean;
@@ -1791,6 +1820,37 @@ export interface components {
             from: string;
             /** Format: date */
             to: string;
+        };
+        AttendanceMatrixColumn: {
+            /** Format: uuid */
+            id: string;
+            title: string;
+            type: components["schemas"]["EventType"];
+            /** Format: date */
+            date: string;
+        };
+        AttendanceMatrixRow: {
+            /** Format: uuid */
+            userId: string;
+            name: string;
+            avatarColor: string;
+            hasPhoto?: boolean;
+            yes: number;
+            counted: number;
+            /** @description Effective attendance status keyed by event id; missing key ⇒ pending. Only yes/no/maybe/pending are emitted (not_nominated folds to pending). */
+            cells: {
+                [key: string]: components["schemas"]["AttendanceStatus"];
+            };
+        };
+        AttendanceMatrix: {
+            /** Format: date */
+            from: string;
+            /** Format: date */
+            to: string;
+            /** @description Columns, ordered by date ascending. */
+            events: components["schemas"]["AttendanceMatrixColumn"][];
+            /** @description Rows, ordered by attendance (most yes first), then name. */
+            members: components["schemas"]["AttendanceMatrixRow"][];
         };
         AttendanceAbsenceRow: {
             /** Format: uuid */
@@ -3785,6 +3845,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatsOverview"];
+                };
+            };
+        };
+    };
+    getAttendanceMatrix: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttendanceMatrix"];
                 };
             };
         };

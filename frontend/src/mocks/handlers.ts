@@ -300,7 +300,14 @@ function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
               .filter((v) => v.optionIds.includes(o.id))
               .map((v) => {
                 const u = db.users.find((x) => x.id === v.userId);
-                return { ...opt('name', u?.name), ...opt('color', u?.avatarColor), ...opt('hasPhoto', u?.hasPhoto) };
+                const m = db.memberships.find((x) => x.teamId === p.teamId && x.userId === v.userId);
+                return {
+                  userId: v.userId,
+                  ...opt('membershipId', m?.id),
+                  ...opt('name', u?.name),
+                  ...opt('color', u?.avatarColor),
+                  ...opt('hasPhoto', u?.hasPhoto),
+                };
               }),
       };
     }),
@@ -1395,6 +1402,54 @@ export const handlers = [
       if (s === 'yes') yes++;
     });
     const body: S['MemberAttendanceStats'] = { quote: counted ? yes / counted : 0, counted, yes };
+    return HttpResponse.json(body);
+  }),
+
+  // Attendance matrix: member × event grid. Uses effectiveStatus (opt_out→yes,
+  // covering absence→no, else pending) to mirror the real backend's
+  // effective-status matrix, folding not_nominated into pending so the UI has a
+  // single "unknown" bucket. Rows sorted by yes desc then name; columns by date.
+  http.get(P('/teams/:teamId/stats/attendance-matrix'), async ({ params, request }) => {
+    await mockDelay();
+    const teamId = params.teamId as string;
+    const url = new URL(request.url);
+    const today = todayLocalDate();
+    const from = url.searchParams.get('from') || threeMonthsBeforeLocal(today);
+    const to = url.searchParams.get('to') || today;
+    const memberIds = db.memberships.filter((m) => m.teamId === teamId).map((m) => m.userId);
+    const events = db.events
+      .filter((e) => e.teamId === teamId && e.status !== 'cancelled' && e.date >= from && e.date <= to)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+
+    const columns: S['AttendanceMatrixColumn'][] = events.map((e) => ({
+      id: e.id,
+      title: e.title,
+      type: e.type,
+      date: e.date,
+    }));
+
+    const members: S['AttendanceMatrixRow'][] = memberIds
+      .map((uid) => {
+        const u = requireUser(uid);
+        const cells: Record<string, S['AttendanceStatus']> = {};
+        let yes = 0,
+          counted = 0;
+        events.forEach((e) => {
+          const raw = effectiveStatus(e, uid).status;
+          const s: S['AttendanceStatus'] = raw === 'not_nominated' ? 'pending' : raw;
+          cells[e.id] = s;
+          if (s === 'yes') {
+            yes++;
+            counted++;
+          } else if (s === 'no' || s === 'maybe') {
+            counted++;
+          }
+        });
+        return { userId: u.id, name: u.name, avatarColor: u.avatarColor, hasPhoto: u.hasPhoto, yes, counted, cells };
+      })
+      .sort((a, b) => b.yes - a.yes || a.name.localeCompare(b.name, 'de'));
+
+    const body: S['AttendanceMatrix'] = { from, to, events: columns, members };
     return HttpResponse.json(body);
   }),
 

@@ -1,0 +1,38 @@
+## ADDED Requirements
+
+### Requirement: Per-member-per-event attendance matrix
+The statistics capability MUST expose an attendance matrix for a team over a date range: one row per current member, one column per active event in range, and a cell giving that member's effective attendance for that event. Cell status MUST be derived from the same effective-attendance definition as the per-member quotes (explicit response, else a covering absence → not attending, else an opt-out default → attending, else pending), so a cell never contradicts the overview.
+
+#### Scenario: Cell reflects effective status
+- **WHEN** an opt-out event in range has a member who never explicitly responded
+- **THEN** that member's cell for that event is "yes" (attending), matching the overview quote and event summary
+
+#### Scenario: No response on a normal event
+- **WHEN** a normal (opt-in) event in range has a member with no explicit response, no covering absence
+- **THEN** that member's cell for that event is "pending" (unbekannt)
+
+#### Scenario: Row aggregate reconciles with the matrix
+- **WHEN** the matrix is returned
+- **THEN** each row's reported `yes` count equals the number of that member's "yes" cells across the columns
+
+### Requirement: Matrix ordering
+The matrix MUST order rows by attendance frequency (most attending first) and columns chronologically, so the grid reads consistently with the overview.
+
+#### Scenario: Rows sorted by attendance
+- **WHEN** two members have different "yes" counts in range
+- **THEN** the member with more "yes" appears in an earlier row
+
+#### Scenario: Columns sorted by date
+- **WHEN** the matrix has multiple events
+- **THEN** the columns are ordered by event date ascending
+
+### Requirement: Matrix range and authorization
+The matrix endpoint MUST apply the same date-range defaulting and clamping as the stats overview, and MUST require the same `events`-module read authorization; an unauthenticated request MUST be rejected.
+
+#### Scenario: Default range when unspecified
+- **WHEN** the matrix is requested without `from`/`to`
+- **THEN** the same default window as the overview (last 3 months) is used
+
+#### Scenario: Unauthenticated request
+- **WHEN** the matrix is requested without a valid session
+- **THEN** the request is rejected with 401

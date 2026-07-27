@@ -25,9 +25,10 @@ import (
 // ─── mock service ────────────────────────────────────────────────────────────
 
 type mockStatsService struct {
-	getOverview    func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error)
-	getMemberStats func(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error)
-	getAbsences    func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error)
+	getOverview      func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error)
+	getMemberStats   func(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error)
+	getAttendanceMat func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceMatrix, error)
+	getAbsences      func(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error)
 }
 
 func (m *mockStatsService) GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error) {
@@ -36,6 +37,10 @@ func (m *mockStatsService) GetOverview(ctx context.Context, teamID uuid.UUID, fr
 
 func (m *mockStatsService) GetMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error) {
 	return m.getMemberStats(ctx, teamID, userID, from, to)
+}
+
+func (m *mockStatsService) GetAttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceMatrix, error) {
+	return m.getAttendanceMat(ctx, teamID, from, to)
 }
 
 func (m *mockStatsService) GetAbsences(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error) {
@@ -67,6 +72,37 @@ func TestHandler_GetStatsOverview_Unauthenticated(t *testing.T) {
 	h := stats.NewHandler(&mockStatsService{}, slog.Default())
 	_, err := h.GetStatsOverview(context.Background(), gen.GetStatsOverviewRequestObject{TeamId: statsTeamID})
 	require.Error(t, err)
+}
+
+func TestHandler_GetAttendanceMatrix_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := stats.NewHandler(&mockStatsService{}, slog.Default())
+	_, err := h.GetAttendanceMatrix(context.Background(), gen.GetAttendanceMatrixRequestObject{TeamId: statsTeamID})
+	require.Error(t, err)
+}
+
+func TestHandler_GetAttendanceMatrix_Success(t *testing.T) {
+	t.Parallel()
+
+	matrix := &gen.AttendanceMatrix{
+		From:    openapi_types.Date{Time: time.Now().AddDate(0, -3, 0)},
+		To:      openapi_types.Date{Time: time.Now()},
+		Events:  []gen.AttendanceMatrixColumn{},
+		Members: []gen.AttendanceMatrixRow{},
+	}
+	svc := &mockStatsService{
+		getAttendanceMat: func(_ context.Context, _ uuid.UUID, _, _ *openapi_types.Date) (*gen.AttendanceMatrix, error) {
+			return matrix, nil
+		},
+	}
+	h := stats.NewHandler(svc, slog.Default())
+
+	resp, err := h.GetAttendanceMatrix(statsAuthedCtx(), gen.GetAttendanceMatrixRequestObject{TeamId: statsTeamID})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetAttendanceMatrixResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestHandler_GetStatsOverview_Success(t *testing.T) {

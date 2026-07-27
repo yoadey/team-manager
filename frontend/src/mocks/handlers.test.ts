@@ -92,7 +92,9 @@ describe('teams', () => {
     await api.teams.acceptInvite(invite.code);
     const after = await api.members.list('t_a');
     const rejoined = after.find((m) => m.userId === DEMO_LOGIN_USER_ID)!;
-    expect(rejoined.roles.every((r) => r.permissions.finances !== 'write' && r.permissions.settings !== 'write')).toBe(true);
+    expect(rejoined.roles.every((r) => r.permissions.finances !== 'write' && r.permissions.settings !== 'write')).toBe(
+      true,
+    );
   });
 });
 
@@ -165,7 +167,13 @@ describe('events & attendance', () => {
   });
 
   it('creates a recurring series with one event per week', async () => {
-    await api.events.create('t_a', { type: 'training', title: 'Serie', date: '2099-01-05', recurring: true, repeatWeeks: 4 });
+    await api.events.create('t_a', {
+      type: 'training',
+      title: 'Serie',
+      date: '2099-01-05',
+      recurring: true,
+      repeatWeeks: 4,
+    });
     const after = await api.events.list('t_a', 'all');
     expect(after.filter((e) => e.title === 'Serie')).toHaveLength(4);
   });
@@ -193,12 +201,44 @@ describe('events & attendance', () => {
   });
 });
 
+describe('stats attendance matrix', () => {
+  beforeEach(login);
+
+  it('returns a member × event grid with cells, ordered by attendance then name', async () => {
+    const range = { from: '1970-01-01', to: '2099-12-31' };
+    const matrix = await api.stats.attendanceMatrix('t_a', range);
+
+    expect(matrix.events.length).toBeGreaterThan(0);
+    expect(matrix.members.length).toBeGreaterThan(0);
+
+    // Rows are sorted by yes-count descending (most-present first).
+    for (let i = 1; i < matrix.members.length; i++) {
+      expect(matrix.members[i - 1]!.yes).toBeGreaterThanOrEqual(matrix.members[i]!.yes);
+    }
+
+    // Every member has a cell for every column, and each cell is one of the
+    // four UI states (not_nominated is folded to pending by the mapper).
+    const eventIds = matrix.events.map((e) => e.id);
+    for (const m of matrix.members) {
+      for (const id of eventIds) {
+        expect(['yes', 'no', 'maybe', 'pending']).toContain(m.cells[id]);
+      }
+    }
+  });
+});
+
 describe('absences', () => {
   beforeEach(login);
 
   it('creates an absence and lists it among personal absences', async () => {
     const me = await api.auth.currentUser();
-    const created = await api.absences.create({ teamId: 't_a', userId: me!.id, from: '2099-05-01', to: '2099-05-05', reason: 'Urlaub' });
+    const created = await api.absences.create({
+      teamId: 't_a',
+      userId: me!.id,
+      from: '2099-05-01',
+      to: '2099-05-05',
+      reason: 'Urlaub',
+    });
     expect(created.reason).toBe('Urlaub');
     const mine = await api.absences.listMine('t_a');
     expect(mine.some((a) => a.id === created.id)).toBe(true);

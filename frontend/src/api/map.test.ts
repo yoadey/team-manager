@@ -13,6 +13,7 @@ import {
   mapMemberStat,
   mapEventStat,
   mapStatsOverview,
+  mapAttendanceMatrix,
   mapAttendanceAbsenceRow,
   mapAttendanceAbsenceTable,
   mapPoll,
@@ -169,14 +170,20 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
 // the worst color bucket.
 describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
   it('mapMemberStat scales quote', () => {
-    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }).quote).toBe(50);
-    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 1, counted: 4, yes: 4 }).quote).toBe(100);
+    expect(
+      mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }).quote,
+    ).toBe(50);
+    expect(
+      mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 1, counted: 4, yes: 4 }).quote,
+    ).toBe(100);
   });
 
   it('mapMemberStat maps counted:0 to quote:null ("no data"), not 0%', () => {
     // A member with 0 counted events attended none of zero, not 0% of some —
     // Stats.tsx renders these as distinct states (gray "–" vs. red "0%").
-    expect(mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0, counted: 0, yes: 0 }).quote).toBeNull();
+    expect(
+      mapMemberStat({ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0, counted: 0, yes: 0 }).quote,
+    ).toBeNull();
   });
 
   it('mapEventStat scales pct and passes enough through unchanged', () => {
@@ -199,7 +206,16 @@ describe('stats mappers convert 0-1 fractions to 0-100 percentages', () => {
       avg: 0.667,
       members: [{ userId: 'u1', name: 'Alice', avatarColor: '#000', quote: 0.5, counted: 4, yes: 2 }],
       events: [
-        { id: 'e1', title: 'Training', type: 'training', date: '2024-06-01', yes: 3, nominated: 4, pct: 0.75, enough: true },
+        {
+          id: 'e1',
+          title: 'Training',
+          type: 'training',
+          date: '2024-06-01',
+          yes: 3,
+          nominated: 4,
+          pct: 0.75,
+          enough: true,
+        },
       ],
       pastCount: 1,
       from: '2024-01-01',
@@ -244,6 +260,33 @@ describe('attendance absence table mappers pass fields through unchanged', () =>
   it('mapAttendanceAbsenceTable returns an empty rows array (not an error) when there are no absences', () => {
     const table = mapAttendanceAbsenceTable({ rows: [], from: '2026-01-01', to: '2026-03-01' });
     expect(table.rows).toEqual([]);
+  });
+
+  it('mapAttendanceMatrix preserves columns, rows and cells, folding not_nominated to pending', () => {
+    const m = mapAttendanceMatrix({
+      from: '2026-01-01',
+      to: '2026-03-31',
+      events: [
+        { id: 'e1', title: 'Training', type: 'training', date: '2026-01-01' },
+        { id: 'e2', title: 'Auftritt', type: 'auftritt', date: '2026-01-06' },
+      ],
+      members: [
+        {
+          userId: 'u1',
+          name: 'Peter',
+          avatarColor: '#000',
+          yes: 1,
+          counted: 2,
+          // not_nominated is a valid AttendanceStatus on the wire but must
+          // collapse to the single "unknown" cell bucket (pending) for the UI.
+          cells: { e1: 'yes', e2: 'not_nominated' },
+        },
+      ],
+    });
+    expect(m.events.map((e) => e.id)).toEqual(['e1', 'e2']);
+    expect(m.members[0]!.name).toBe('Peter');
+    expect(m.members[0]!.photo).toBeNull();
+    expect(m.members[0]!.cells).toEqual({ e1: 'yes', e2: 'pending' });
   });
 });
 

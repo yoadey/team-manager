@@ -8,6 +8,7 @@ import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, getLocale, subscribeLocale, t } from '@/i18n';
 import type { TeamEvent } from '@/features/events';
 import type { NewsItem } from '@/features/news';
+import type { AttendanceStatus } from '@/types';
 import { Av, Chip, Sym, metaItem } from './ui';
 import { Linkify } from './Linkify';
 
@@ -31,87 +32,136 @@ function useLocaleSubscription(): void {
  *  month abbreviation stuck in the old language. */
 export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
   useLocaleSubscription();
-  const { openEventDetail } = useAppActions();
+  const { openEventDetail, setMyStatus } = useAppActions();
   const compact = useCompact();
   const today = todayLocalDate();
   const tm = typeMeta(e.type);
   const sm = statusMeta(e.myStatus);
   const isPast = e.date < today;
   const cancelled = e.status === 'cancelled';
+  const notNominated = e.myStatus === 'not_nominated';
+  // RSVP straight from the overview only where it's meaningful: upcoming,
+  // active, and the member is actually nominated. Otherwise fall back to the
+  // read-only status chip (or nothing, for past/cancelled), as before.
+  const canRsvp = !isPast && !cancelled && !notNominated;
   const day = parseDateOnlyLocal(e.date);
 
+  // Icon-only RSVP button mirroring EventDetailSheet's yes/maybe/no controls
+  // (same icons + colors) so the overview and detail views stay consistent.
+  const rsvpBtn = (opts: {
+    st: AttendanceStatus;
+    icon: string;
+    activeColor: string;
+    activeBg: string;
+    passiveBg: string;
+    passiveColor: string;
+    label: string;
+  }) => {
+    const { st, icon, activeColor, activeBg, passiveBg, passiveColor, label } = opts;
+    const on = e.myStatus === st;
+    return (
+      <ButtonBase
+        key={st}
+        onClick={() => setMyStatus(e.id, st, e.myReason)}
+        aria-label={label}
+        aria-pressed={on}
+        sx={{
+          width: 32,
+          height: 32,
+          borderRadius: '9px',
+          border: 'none',
+          flex: '0 0 auto',
+          background: on ? activeBg : passiveBg,
+          color: on ? activeColor : passiveColor,
+        }}
+      >
+        <Sym name={icon} size={19} color={on ? activeColor : passiveColor} />
+      </ButtonBase>
+    );
+  };
+
   return (
-    <ButtonBase
-      onClick={() => openEventDetail(e.id)}
+    <Box
       sx={{
         display: 'flex',
         gap: '13px',
         width: '100%',
-        textAlign: 'left',
         background: NEUTRAL.card,
         border: `1px solid ${NEUTRAL.line}`,
         borderRadius: '18px',
         p: '13px 15px',
         alignItems: 'stretch',
         opacity: cancelled ? 0.62 : isPast ? 0.92 : 1,
-        justifyContent: 'flex-start',
       }}
     >
-      <Box
+      <ButtonBase
+        onClick={() => openEventDetail(e.id)}
         sx={{
-          flex: '0 0 50px',
+          flex: 1,
+          minWidth: 0,
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: tm.bg,
-          color: tm.on,
-          borderRadius: '12px',
-          p: '8px 0',
+          gap: '13px',
+          textAlign: 'left',
+          alignItems: 'stretch',
+          justifyContent: 'flex-start',
         }}
       >
-        <Box sx={{ fontSize: '20px', fontWeight: 800, lineHeight: 1 }}>{day.getDate()}</Box>
-        <Box sx={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
-          {new Intl.DateTimeFormat(getIntlLocale(), { month: 'short' }).format(day).replace('.', '')}
-        </Box>
-      </Box>
-      <Box
-        sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px', justifyContent: 'center' }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-          <Chip label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} />
-          {e.recurring ? <Sym name="repeat" size={15} color={NEUTRAL.faint} /> : null}
-          {cancelled ? (
-            <Chip label={t('events.cancelledLabel')} color={NEUTRAL.error} bg={NEUTRAL.errorBg} icon="event_busy" />
-          ) : null}
-        </Box>
         <Box
           sx={{
-            fontSize: '15px',
-            fontWeight: 600,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            textDecoration: cancelled ? 'line-through' : 'none',
-          }}
-        >
-          {e.title}
-        </Box>
-        <Box
-          sx={{
+            flex: '0 0 50px',
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
-            gap: '12px',
-            fontSize: '12px',
-            color: NEUTRAL.secondary,
-            flexWrap: 'wrap',
+            justifyContent: 'center',
+            background: tm.bg,
+            color: tm.on,
+            borderRadius: '12px',
+            p: '8px 0',
           }}
         >
-          {metaItem('schedule', hhmm(e.startTime) + '–' + hhmm(e.endTime), 'time')}
-          {e.meetTime ? metaItem('login', t('events.meetTime', { time: hhmm(e.meetTime) }), 'meet') : null}
-          {e.location && !compact ? metaItem('place', e.location, 'loc') : null}
+          <Box sx={{ fontSize: '20px', fontWeight: 800, lineHeight: 1 }}>{day.getDate()}</Box>
+          <Box sx={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
+            {new Intl.DateTimeFormat(getIntlLocale(), { month: 'short' }).format(day).replace('.', '')}
+          </Box>
         </Box>
-      </Box>
+        <Box
+          sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '5px', justifyContent: 'center' }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+            <Chip label={tm.label} color={tm.color} bg={tm.bg} icon={tm.icon} />
+            {e.recurring ? <Sym name="repeat" size={15} color={NEUTRAL.faint} /> : null}
+            {cancelled ? (
+              <Chip label={t('events.cancelledLabel')} color={NEUTRAL.error} bg={NEUTRAL.errorBg} icon="event_busy" />
+            ) : null}
+          </Box>
+          <Box
+            sx={{
+              fontSize: '15px',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              textDecoration: cancelled ? 'line-through' : 'none',
+            }}
+          >
+            {e.title}
+          </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              fontSize: '12px',
+              color: NEUTRAL.secondary,
+              flexWrap: 'wrap',
+            }}
+          >
+            {metaItem('schedule', hhmm(e.startTime) + '–' + hhmm(e.endTime), 'time')}
+            {e.meetTime ? metaItem('login', t('events.meetTime', { time: hhmm(e.meetTime) }), 'meet') : null}
+            {e.location && !compact ? metaItem('place', e.location, 'loc') : null}
+          </Box>
+        </Box>
+      </ButtonBase>
       <Box
         sx={{
           display: 'flex',
@@ -121,7 +171,43 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
           gap: '6px',
         }}
       >
-        {isPast || cancelled ? null : <Chip label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />}
+        {canRsvp ? (
+          <Box
+            role="group"
+            aria-label={t('events.rsvpGroupLabel', { title: e.title })}
+            sx={{ display: 'flex', gap: '5px' }}
+          >
+            {rsvpBtn({
+              st: 'yes',
+              icon: 'check_circle',
+              activeColor: '#fff',
+              activeBg: NEUTRAL.success,
+              passiveBg: NEUTRAL.successBg,
+              passiveColor: NEUTRAL.success,
+              label: t('events.rsvpYes'),
+            })}
+            {rsvpBtn({
+              st: 'maybe',
+              icon: 'help',
+              activeColor: '#fff',
+              activeBg: NEUTRAL.warn,
+              passiveBg: NEUTRAL.warnBg,
+              passiveColor: NEUTRAL.warn,
+              label: t('events.rsvpMaybe'),
+            })}
+            {rsvpBtn({
+              st: 'no',
+              icon: 'cancel',
+              activeColor: '#fff',
+              activeBg: NEUTRAL.error,
+              passiveBg: NEUTRAL.errorBg,
+              passiveColor: NEUTRAL.error,
+              label: t('events.rsvpNo'),
+            })}
+          </Box>
+        ) : isPast || cancelled ? null : (
+          <Chip label={sm.label} color={sm.color} bg={sm.bg} icon={sm.icon} />
+        )}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '12px', fontWeight: 600 }}>
           <Box
             component="span"
@@ -148,7 +234,7 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
           ) : null}
         </Box>
       </Box>
-    </ButtonBase>
+    </Box>
   );
 });
 

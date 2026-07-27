@@ -254,3 +254,96 @@ func (r *Repository) SingleMemberStats(ctx context.Context, teamID, userID uuid.
 	}
 	return s, nil
 }
+
+// AttendanceMatrix returns the columns (active events in range) and the cells
+// (every current member's effective status per event) for the attendance
+// matrix. Both queries run inside one read-only, repeatable-read transaction so
+// columns and cells observe a single consistent snapshot, mirroring
+// GetOverview's WithReadTx guard. The effective status uses the shared
+// attendance.EffectiveStatusExpr, so a cell can never contradict the quotes.
+func (r *Repository) AttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to string) ([]MatrixColumnRow, []MatrixCellRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, nil, fmt.Errorf("stats.Repository.AttendanceMatrix: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	cols, err := matrixColumns(ctx, tx, teamID, from, to)
+	if err != nil {
+		return nil, nil, err
+	}
+	cells, err := matrixCells(ctx, tx, teamID, from, to)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, fmt.Errorf("stats.Repository.AttendanceMatrix: commit: %w", err)
+	}
+	return cols, cells, nil
+}
+
+func matrixColumns(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to string) ([]MatrixColumnRow, error) {
+	rows, err := db.Query(ctx, `
+		SELECT e.id, e.title, e.type, e.date::text
+		FROM events e
+		WHERE e.team_id = $1
+		  AND e.date BETWEEN $2 AND $3
+		  AND e.status = 'active'
+		ORDER BY e.date, e.id
+	`, teamID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Repository.matrixColumns: %w", err)
+	}
+	defer rows.Close()
+
+	var out []MatrixColumnRow
+	for rows.Next() {
+		var c MatrixColumnRow
+		if err := rows.Scan(&c.EventID, &c.Title, &c.Type, &c.Date); err != nil {
+			return nil, fmt.Errorf("stats.Repository.matrixColumns scan: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func matrixCells(ctx context.Context, db pgxIface, teamID uuid.UUID, from, to string) ([]MatrixCellRow, error) {
+	// Roster-driven, mirroring MemberStats: every current member is joined
+	// against every active event in range (LEFT JOIN so a member with no events
+	// still yields one placeholder row with a NULL event_id and stays visible as
+	// an empty matrix row). Effective status is the shared expression.
+	rows, err := db.Query(ctx, `
+		SELECT
+			u.id,
+			u.name,
+			u.avatar_color,
+			(u.photo_object_key IS NOT NULL) AS has_photo,
+			e.id AS event_id,
+			CASE WHEN e.id IS NULL THEN 'pending' ELSE `+attendance.EffectiveStatusExpr+` END AS eff
+		FROM memberships m
+		JOIN users u ON u.id = m.user_id
+		LEFT JOIN events e ON e.team_id = m.team_id
+			AND e.date BETWEEN $2 AND $3
+			AND e.status = 'active'
+		LEFT JOIN attendance a ON a.event_id = e.id AND a.user_id = u.id
+		WHERE m.team_id = $1
+		ORDER BY u.name
+	`, teamID, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("stats.Repository.matrixCells: %w", err)
+	}
+	defer rows.Close()
+
+	var out []MatrixCellRow
+	for rows.Next() {
+		var c MatrixCellRow
+		if err := rows.Scan(&c.UserID, &c.Name, &c.AvatarColor, &c.HasPhoto, &c.EventID, &c.Eff); err != nil {
+			return nil, fmt.Errorf("stats.Repository.matrixCells scan: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}

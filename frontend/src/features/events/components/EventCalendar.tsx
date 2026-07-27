@@ -343,7 +343,7 @@ export function EventCalendar() {
         </Box>
         <Box
           data-testid="calendar-grid"
-          sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? '4px' : '6px' }}
+          sx={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: mobile ? 0 : '6px' }}
         >
           {cells}
         </Box>

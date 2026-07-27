@@ -18,6 +18,7 @@ import (
 type statsService interface {
 	GetOverview(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.StatsOverview, error)
 	GetMemberStats(ctx context.Context, teamID, userID uuid.UUID, from, to *openapi_types.Date) (*gen.MemberAttendanceStats, error)
+	GetAttendanceMatrix(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceMatrix, error)
 	GetAbsences(ctx context.Context, teamID uuid.UUID, from, to *openapi_types.Date) (*gen.AttendanceAbsenceTable, error)
 }
 
@@ -43,6 +44,19 @@ func (h *Handler) GetStatsOverview(ctx context.Context, req gen.GetStatsOverview
 		return nil, apierror.Internal("failed to get stats overview")
 	}
 	return gen.GetStatsOverview200JSONResponse(*overview), nil
+}
+
+// GetAttendanceMatrix returns the per-member-per-event attendance matrix.
+func (h *Handler) GetAttendanceMatrix(ctx context.Context, req gen.GetAttendanceMatrixRequestObject) (gen.GetAttendanceMatrixResponseObject, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	matrix, err := h.svc.GetAttendanceMatrix(ctx, req.TeamId, req.Params.From, req.Params.To)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "GetAttendanceMatrix failed", "err", err)
+		return nil, apierror.Internal("failed to get attendance matrix")
+	}
+	return gen.GetAttendanceMatrix200JSONResponse(*matrix), nil
 }
 
 // GetMemberStats returns attendance statistics for a single member.

@@ -21,12 +21,46 @@ function makeStats() {
   };
 }
 
+function makeMatrix() {
+  return {
+    from: '2026-01-01',
+    to: '2026-03-31',
+    events: [
+      { id: 'ev1', title: 'Training', date: '2026-01-01', type: 'training' },
+      { id: 'ev2', title: 'Auftritt', date: '2026-01-06', type: 'auftritt' },
+      { id: 'ev3', title: 'Feier', date: '2026-01-07', type: 'event' },
+    ],
+    members: [
+      {
+        userId: 'u1',
+        name: 'Peter',
+        avatarColor: '#F00',
+        photo: null,
+        yes: 2,
+        counted: 3,
+        cells: { ev1: 'yes', ev2: 'no', ev3: 'yes' },
+      },
+      {
+        userId: 'u2',
+        name: 'Marie',
+        avatarColor: '#0F0',
+        photo: null,
+        yes: 1,
+        counted: 3,
+        cells: { ev1: 'yes', ev2: 'maybe', ev3: 'no' },
+      },
+    ],
+  };
+}
+
 function makeApp(
   statsOverride: unknown = null,
   statsRange: { from: string; to: string } | null = null,
+  matrixOverride: unknown = null,
   absenceTableOverride: unknown = null,
 ) {
   mockUseStatsQuery.mockReturnValue({ data: statsOverride ?? undefined } as never);
+  mockUseMatrixQuery.mockReturnValue({ data: matrixOverride ?? undefined } as never);
   mockUseAbsenceTableQuery.mockReturnValue({ data: absenceTableOverride ?? undefined } as never);
   return {
     api: {},
@@ -52,13 +86,15 @@ vi.mock('@/context/AppContext', () => ({
 // PollsPage.test.tsx/NewsPage.test.tsx).
 vi.mock('./hooks/useStatsQueries', () => ({
   useStatsQuery: vi.fn(),
+  useAttendanceMatrixQuery: vi.fn(),
   useAbsenceTableQuery: vi.fn(),
 }));
 
 import { useApp } from '@/context/AppContext';
-import { useAbsenceTableQuery, useStatsQuery } from './hooks/useStatsQueries';
+import { useAbsenceTableQuery, useAttendanceMatrixQuery, useStatsQuery } from './hooks/useStatsQueries';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 const mockUseStatsQuery = useStatsQuery as ReturnType<typeof vi.fn>;
+const mockUseMatrixQuery = useAttendanceMatrixQuery as ReturnType<typeof vi.fn>;
 const mockUseAbsenceTableQuery = useAbsenceTableQuery as ReturnType<typeof vi.fn>;
 
 describe('Stats', () => {
@@ -193,9 +229,52 @@ describe('Stats', () => {
     expect(screen.getByText('Gesamt')).toBeTruthy();
   });
 
+  it('renders the Quote/Matrix/Fehlzeiten tab toggle', () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats()));
+    render(<Stats />);
+    expect(screen.getByRole('tab', { name: 'Quote' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Matrix' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Fehlzeiten' })).toBeTruthy();
+  });
+
+  it('switches to the matrix tab and renders the member × event grid', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+
+    // Members appear as rows (sorted order comes from the backend/mock).
+    expect(screen.getByText('Peter')).toBeTruthy();
+    expect(screen.getByText('Marie')).toBeTruthy();
+    // Column header uses the compact d.m. format.
+    expect(screen.getByText('1.1.')).toBeTruthy();
+    expect(screen.getByText('6.1.')).toBeTruthy();
+    // The overview sections are no longer shown on the matrix tab.
+    expect(screen.queryByText('Quote pro Person')).toBeNull();
+  });
+
+  it('filters matrix columns by event type via the checkboxes', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, makeMatrix()));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+    expect(screen.getByText('7.1.')).toBeTruthy(); // the 'event'-type column
+
+    // Uncheck the "event" type filter → its column disappears.
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Team-Event' }));
+    expect(screen.queryByText('7.1.')).toBeNull();
+    // Other type columns remain.
+    expect(screen.getByText('1.1.')).toBeTruthy();
+  });
+
+  it('shows a spinner on the matrix tab while the matrix loads', async () => {
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null));
+    render(<Stats />);
+    await userEvent.click(screen.getByRole('tab', { name: 'Matrix' }));
+    expect(screen.getByRole('status')).toBeTruthy();
+  });
+
   it('renders the absence table tab with rows when switched to', async () => {
     mockUseApp.mockReturnValue(
-      makeApp(makeStats(), null, {
+      makeApp(makeStats(), null, null, {
         rows: [
           { userId: 'u1', memberName: 'Anna Müller', eventId: 'ev1', eventTitle: 'Training', eventDate: '2026-03-01' },
           { userId: 'u2', memberName: 'Bob Schmidt', eventId: 'ev2', eventTitle: 'Spiel', eventDate: '2026-03-05' },
@@ -205,7 +284,7 @@ describe('Stats', () => {
       }),
     );
     render(<Stats />);
-    await userEvent.click(screen.getByText('Fehlzeiten'));
+    await userEvent.click(screen.getByRole('tab', { name: 'Fehlzeiten' }));
     expect(screen.getByText('Fehlzeiten je Person')).toBeTruthy();
     expect(screen.getByText('Anna Müller')).toBeTruthy();
     expect(screen.getByText('Bob Schmidt')).toBeTruthy();
@@ -214,18 +293,16 @@ describe('Stats', () => {
   });
 
   it('shows an empty state (not an empty table) when there are no absences in range', async () => {
-    mockUseApp.mockReturnValue(
-      makeApp(makeStats(), null, { rows: [], from: '2025-12-01', to: '2026-03-05' }),
-    );
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null, { rows: [], from: '2025-12-01', to: '2026-03-05' }));
     render(<Stats />);
-    await userEvent.click(screen.getByText('Fehlzeiten'));
+    await userEvent.click(screen.getByRole('tab', { name: 'Fehlzeiten' }));
     expect(screen.getByText('Keine Fehlzeiten im gewählten Zeitraum')).toBeTruthy();
   });
 
   it('shows a spinner for the absence tab while its data has not loaded yet', async () => {
-    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null));
+    mockUseApp.mockReturnValue(makeApp(makeStats(), null, null, null));
     render(<Stats />);
-    await userEvent.click(screen.getByText('Fehlzeiten'));
+    await userEvent.click(screen.getByRole('tab', { name: 'Fehlzeiten' }));
     expect(screen.getByRole('status')).toBeTruthy();
   });
 

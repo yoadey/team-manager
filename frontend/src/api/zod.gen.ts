@@ -375,6 +375,8 @@ const PollOption = z
       .array(
         z
           .object({
+            userId: z.string().uuid(),
+            membershipId: z.string().uuid(),
             name: z.string(),
             color: z.string(),
             hasPhoto: z.boolean(),
@@ -587,6 +589,33 @@ const StatsOverview = z
     to: z.string(),
   })
   .passthrough();
+const AttendanceMatrixColumn = z
+  .object({
+    id: z.string().uuid(),
+    title: z.string(),
+    type: EventType,
+    date: z.string(),
+  })
+  .passthrough();
+const AttendanceMatrixRow = z
+  .object({
+    userId: z.string().uuid(),
+    name: z.string(),
+    avatarColor: z.string(),
+    hasPhoto: z.boolean().optional(),
+    yes: z.number().int(),
+    counted: z.number().int(),
+    cells: z.record(AttendanceStatus),
+  })
+  .passthrough();
+const AttendanceMatrix = z
+  .object({
+    from: z.string(),
+    to: z.string(),
+    events: z.array(AttendanceMatrixColumn),
+    members: z.array(AttendanceMatrixRow),
+  })
+  .passthrough();
 const MemberAttendanceStats = z
   .object({
     quote: z.number(),
@@ -692,6 +721,9 @@ export const schemas = {
   MemberStat,
   EventStat,
   StatsOverview,
+  AttendanceMatrixColumn,
+  AttendanceMatrixRow,
+  AttendanceMatrix,
   MemberAttendanceStats,
   AttendanceAbsenceRow,
   AttendanceAbsenceTable,
@@ -2337,6 +2369,30 @@ const endpoints = makeApi([
       },
     ],
     response: AttendanceAbsenceTable,
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/stats/attendance-matrix",
+    alias: "getAttendanceMatrix",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "from",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+      {
+        name: "to",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+    ],
+    response: AttendanceMatrix,
   },
   {
     method: "get",

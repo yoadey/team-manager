@@ -102,6 +102,35 @@ export interface MemberAttendanceStats {
   yes: number;
 }
 
+// Effective attendance shown in a matrix cell. The backend only emits these
+// four (not_nominated folds to pending); an absent cell key means pending too.
+export type AttendanceCellStatus = 'yes' | 'no' | 'maybe' | 'pending';
+
+export interface AttendanceMatrixColumn {
+  id: string;
+  title: string;
+  type: EventType;
+  date: string;
+}
+
+export interface AttendanceMatrixRow {
+  userId: string;
+  name: string;
+  avatarColor: string;
+  photo: string | null;
+  hasPhoto?: boolean | undefined;
+  yes: number;
+  counted: number;
+  cells: Record<string, AttendanceCellStatus>;
+}
+
+export interface AttendanceMatrix {
+  from: string | null;
+  to: string | null;
+  events: AttendanceMatrixColumn[];
+  members: AttendanceMatrixRow[];
+}
+
 export interface AttendanceAbsenceRow {
   userId: string;
   memberName: string;

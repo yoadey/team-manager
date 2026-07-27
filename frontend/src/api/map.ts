@@ -21,6 +21,10 @@ import type {
   MemberStat,
   EventStat,
   StatsOverview,
+  AttendanceMatrix,
+  AttendanceMatrixColumn,
+  AttendanceMatrixRow,
+  AttendanceCellStatus,
   AttendanceAbsenceRow,
   AttendanceAbsenceTable,
   Provider,
@@ -310,8 +314,14 @@ export function mapPoll(p: S['Poll']): Poll {
       count: o.count,
       pct: o.pct,
       voters: (o.voters ?? []).map((v) => ({
+        userId: v.userId ?? '',
+        membershipId: v.membershipId ?? null,
         name: v.name ?? '',
         color: v.color ?? '#888',
+        // Photos for poll voters are wired once `consistent-profile-photos`
+        // lands its shared avatar URL rule; until then the avatar falls back
+        // to coloured initials. `membershipId` is already carried above so
+        // that follow-up only has to build the URL.
         photo: null,
       })),
     })),
@@ -458,6 +468,43 @@ export function mapStatsOverview(o: S['StatsOverview']): StatsOverview {
     pastCount: o.pastCount,
     from: o.from,
     to: o.to,
+  };
+}
+
+function mapMatrixColumn(c: S['AttendanceMatrixColumn']): AttendanceMatrixColumn {
+  return { id: c.id, title: c.title, type: c.type, date: c.date };
+}
+
+// The wire cell type is AttendanceStatus (yes/no/maybe/pending/not_nominated),
+// but the backend only emits the first four for the matrix; not_nominated (were
+// it ever present) folds to pending so the UI has exactly one "unknown" bucket.
+function narrowCell(s: S['AttendanceStatus']): AttendanceCellStatus {
+  return s === 'yes' || s === 'no' || s === 'maybe' ? s : 'pending';
+}
+
+function mapMatrixRow(r: S['AttendanceMatrixRow']): AttendanceMatrixRow {
+  const cells: Record<string, AttendanceCellStatus> = {};
+  for (const [eventId, status] of Object.entries(r.cells)) cells[eventId] = narrowCell(status);
+  return {
+    userId: r.userId,
+    name: r.name,
+    avatarColor: r.avatarColor,
+    // Like mapMemberStat, the matrix row schema carries no presigned photo URL,
+    // so the avatar falls back to initials/color (see the file header note).
+    photo: null,
+    hasPhoto: r.hasPhoto,
+    yes: r.yes,
+    counted: r.counted,
+    cells,
+  };
+}
+
+export function mapAttendanceMatrix(m: S['AttendanceMatrix']): AttendanceMatrix {
+  return {
+    from: m.from,
+    to: m.to,
+    events: m.events.map(mapMatrixColumn),
+    members: m.members.map(mapMatrixRow),
   };
 }
 

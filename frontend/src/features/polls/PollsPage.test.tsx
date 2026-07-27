@@ -34,6 +34,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     },
     can: vi.fn().mockReturnValue(false),
     openPollForm: vi.fn(),
+    openPollVoters: vi.fn(),
     removePoll: vi.fn(),
     togglePollOption: vi.fn(),
   };
@@ -117,7 +118,7 @@ describe('PollsPage', () => {
     expect(app.togglePollOption).toHaveBeenCalledWith(poll, 'Montag');
   });
 
-  it('shows voter names per option for a non-anonymous poll', () => {
+  it('offers the voter-details entry for a non-anonymous poll with votes', async () => {
     const poll = makePoll({
       options: [
         makeOption('Montag', 60, [
@@ -127,12 +128,17 @@ describe('PollsPage', () => {
         makeOption('Dienstag', 40),
       ],
     });
-    mockUseApp.mockReturnValue(makeApp({ polls: [poll] }));
+    const app = makeApp({ polls: [poll] });
+    mockUseApp.mockReturnValue(app);
     render(<PollsPage />);
-    expect(screen.getByText(/Anna Beispiel, Ben Muster/)).toBeTruthy();
+    // Voter identities live in the details sheet now, not inline on the card.
+    expect(screen.queryByText(/Anna Beispiel/)).toBeNull();
+    const btn = screen.getByText('Wer hat gewählt?');
+    await userEvent.click(btn);
+    expect(app.openPollVoters).toHaveBeenCalledWith(poll);
   });
 
-  it('does not show voter names for an anonymous poll', () => {
+  it('does not offer the voter-details entry for an anonymous poll', () => {
     const poll = makePoll({
       anonymous: true,
       options: [makeOption('Montag', 60, [{ name: 'Anna Beispiel', color: '#4285F4', photo: null }])],
@@ -140,6 +146,7 @@ describe('PollsPage', () => {
     mockUseApp.mockReturnValue(makeApp({ polls: [poll] }));
     render(<PollsPage />);
     expect(screen.queryByText(/Anna Beispiel/)).toBeNull();
+    expect(screen.queryByText('Wer hat gewählt?')).toBeNull();
   });
 
   it('calls removePoll when clicking delete (admin)', async () => {

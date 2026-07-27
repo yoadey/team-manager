@@ -722,6 +722,10 @@ func (s *Server) GetMemberStats(ctx context.Context, req gen.GetMemberStatsReque
 	return s.Stats.GetMemberStats(ctx, req)
 }
 
+func (s *Server) GetAttendanceMatrix(ctx context.Context, req gen.GetAttendanceMatrixRequestObject) (gen.GetAttendanceMatrixResponseObject, error) {
+	return s.Stats.GetAttendanceMatrix(ctx, req)
+}
+
 // ─── Push delegations ─────────────────────────────────────────────────────────
 
 func (s *Server) RegisterPushSubscription(ctx context.Context, req gen.RegisterPushSubscriptionRequestObject) (gen.RegisterPushSubscriptionResponseObject, error) {

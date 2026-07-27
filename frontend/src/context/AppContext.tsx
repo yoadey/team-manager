@@ -94,6 +94,7 @@ export type SheetType =
   | 'penaltyForm'
   | 'contribForm'
   | 'pollForm'
+  | 'pollVoters'
   | 'roles'
   | 'roleForm'
   | 'confirm';
@@ -117,6 +118,9 @@ export interface SheetState {
   /** Used by the `seriesAction` confirm sheet only -- the `eventDetail` sheet
    * fetches its event via `useEventDetailQuery(eventId)` instead of carrying it. */
   event?: TeamEvent | null;
+  /** Carried by the `pollVoters` sheet: the already-loaded poll whose per-option
+   * voter lists / matrix are being shown. */
+  poll?: Poll | null;
   // Explicit `| undefined` -- openEventForm sets `eventId: event?.id`, so
   // `undefined` (create mode, no event yet) is a meaningful value here.
   eventId?: string | undefined;
@@ -380,6 +384,7 @@ export interface AppContextValue {
   setStatsRange: (range: DateRange | null) => void;
   // polls
   openPollForm: () => void;
+  openPollVoters: (poll: Poll) => void;
   savePoll: (f: PollFormValues) => Promise<void>;
   togglePollOption: (poll: Poll, optId: string) => void;
   removePoll: (id: string, question: string) => void;
@@ -1123,6 +1128,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setContributionPaid,
     setStatsRange,
     openPollForm,
+    openPollVoters,
     savePoll,
     togglePollOption,
     removePoll,
@@ -1374,6 +1380,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setContributionPaid,
       setStatsRange,
       openPollForm,
+      openPollVoters,
       savePoll,
       togglePollOption,
       removePoll,
@@ -1472,6 +1479,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setContributionPaid,
       setStatsRange,
       openPollForm,
+      openPollVoters,
       savePoll,
       togglePollOption,
       removePoll,
