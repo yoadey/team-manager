@@ -5,11 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 )
+
+// maxPushErrorBodyBytes bounds how much of a non-2xx push service response
+// body is read into an error message -- push services return small JSON
+// diagnostics on auth failures (e.g. a VAPID key mismatch), and this caps
+// how much of that a misbehaving service could bloat a log line with.
+const maxPushErrorBodyBytes = 2048
 
 // ErrVAPIDKeysRequired is returned by NewWebPusher when either VAPID key is empty.
 var ErrVAPIDKeysRequired = errors.New("push.NewWebPusher: VAPIDPublicKey and VAPIDPrivateKey are both required")
@@ -80,7 +88,12 @@ func (p *WebPusher) Send(ctx context.Context, sub Subscription, payload Payload)
 		return ErrGone
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("push.WebPusher.Send: %w: status %d", ErrPushServiceStatus, resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPushErrorBodyBytes))
+		snippet := strings.TrimSpace(strings.ReplaceAll(string(body), "\n", " "))
+		if snippet == "" {
+			return fmt.Errorf("push.WebPusher.Send: %w: status %d", ErrPushServiceStatus, resp.StatusCode)
+		}
+		return fmt.Errorf("push.WebPusher.Send: %w: status %d: %s", ErrPushServiceStatus, resp.StatusCode, snippet)
 	}
 	return nil
 }

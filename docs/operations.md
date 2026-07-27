@@ -365,6 +365,22 @@ both set. No dedicated NetworkPolicy egress rule is needed — push services
 are reached over HTTPS/443, already covered by the chart's general HTTPS
 egress rule.
 
+**Troubleshooting a `status 401` in `jobs.PushDeliveryWorker` logs**: the
+error now includes a snippet of the push service's own response body
+(`internal/push/webpush.go`), which usually names the problem directly. A
+401 means the push service rejected the VAPID authentication itself — it
+is not scoped to one subscription, so it will recur for every delivery
+until fixed. The most common cause is a `VAPID_PUBLIC_KEY` mismatch: the
+frontend's `VITE_VAPID_PUBLIC_KEY`/`VAPID_PUBLIC_KEY` must be byte-for-byte
+identical to the backend's `VAPID_PUBLIC_KEY` (see "Frontend image:
+pointing it at a backend" below), and — unlike `COOKIE_ENCRYPTION_KEYS` or
+`JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` — there is no rotation mechanism for
+VAPID keys today: rotating the backend's keypair invalidates every
+existing browser subscription (they were created against the old public
+key) until each browser unsubscribes and re-subscribes against the new
+one. A malformed `VAPID_SUBJECT` (not a `mailto:`/`https:` URI) can also
+trigger a 401.
+
 ## Cookie encryption key rotation
 
 `COOKIE_ENCRYPTION_KEYS` supports zero-downtime rotation, but — same
