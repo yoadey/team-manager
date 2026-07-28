@@ -139,6 +139,12 @@ func (r *Repository) HasGrant(ctx context.Context, ownerTeamID, viewerTeamID uui
 	return exists, nil
 }
 
+// maxRedactedEvents caps how many of an owner team's events a single
+// ListRedactedEvents call returns -- defensive backstop, mirroring
+// calendarfeed.Service's maxFeedEvents, against pathologically long-lived
+// teams with an unbounded event history when the caller passes no date range.
+const maxRedactedEvents = 2000
+
 // ListRedactedEvents returns ownerTeamID's non-cancelled events as the
 // schedule-only projection (see RedactedEventRow's doc comment), optionally
 // bounded to the inclusive [from, to] date range, earliest first.
@@ -163,7 +169,8 @@ func (r *Repository) ListRedactedEvents(ctx context.Context, ownerTeamID uuid.UU
 		args = append(args, *to)
 		q += fmt.Sprintf(" AND date <= $%d", len(args))
 	}
-	q += " ORDER BY date ASC"
+	args = append(args, maxRedactedEvents)
+	q += fmt.Sprintf(" ORDER BY date ASC LIMIT $%d", len(args))
 
 	rows, err := r.pool.Query(ctx, q, args...)
 	if err != nil {
