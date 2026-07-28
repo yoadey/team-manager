@@ -18,7 +18,7 @@ CREATE TABLE calendar_shares (
 -- The reverse lookup direction ("which owner teams have shared with
 -- viewer_team_id", listSharedCalendarSources) isn't served by the PK's
 -- leading column -- see the follow-up indexes migration for that index,
--- built CONCURRENTLY since CREATE INDEX without it takes a table-level lock.
+-- built without holding a table-level lock for the duration.
 
 -- +goose Down
 
