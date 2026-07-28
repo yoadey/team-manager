@@ -23,6 +23,8 @@ type NotificationRow struct {
 	ActorName  *string
 	ActorColor *string
 	HasPhoto   bool
+	// Joined from memberships (nil if the actor is no longer a member of TeamId)
+	ActorMembershipId *uuid.UUID
 	// Computed
 	Unread bool
 }

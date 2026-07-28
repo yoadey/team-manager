@@ -30,9 +30,11 @@ func (r *Repository) ListByTeamAndUser(ctx context.Context, teamID, userID uuid.
 			n.event_id, n.event_title, n.event_date, n.note, n.created_at,
 			u.name AS actor_name, u.avatar_color AS actor_color,
 			COALESCE(u.photo_object_key IS NOT NULL, false) AS has_photo,
+			m.id AS actor_membership_id,
 			CASE WHEN ns.seen_at IS NULL OR n.created_at > ns.seen_at THEN true ELSE false END AS unread
 		FROM notifications n
 		LEFT JOIN users u ON u.id = n.actor_id
+		LEFT JOIN memberships m ON m.user_id = n.actor_id AND m.team_id = n.team_id
 		LEFT JOIN notif_seen ns ON ns.team_id = n.team_id AND ns.user_id = $2
 		WHERE n.team_id = $1
 		  AND n.created_at >= now() - interval '62 days'
@@ -54,7 +56,7 @@ func (r *Repository) ListByTeamAndUser(ctx context.Context, teamID, userID uuid.
 		err := rows.Scan(
 			&nr.Id, &nr.TeamId, &nr.Type, &nr.ActorId, &nr.Status, &nr.Title,
 			&nr.EventId, &nr.EventTitle, &nr.EventDate, &nr.Note, &nr.CreatedAt,
-			&nr.ActorName, &nr.ActorColor, &nr.HasPhoto,
+			&nr.ActorName, &nr.ActorColor, &nr.HasPhoto, &nr.ActorMembershipId,
 			&nr.Unread,
 		)
 		if err != nil {

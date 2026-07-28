@@ -73,14 +73,15 @@ type AttendanceDBRow struct {
 
 // CommentRow matches event_comments enriched with user fields.
 type CommentRow struct {
-	Id            uuid.UUID
-	EventId       uuid.UUID
-	UserId        uuid.UUID
-	Text          string
-	CreatedAt     time.Time
-	ActorName     *string
-	ActorColor    *string
-	HasActorPhoto *bool
+	Id                 uuid.UUID
+	EventId            uuid.UUID
+	UserId             uuid.UUID
+	Text               string
+	CreatedAt          time.Time
+	ActorName          *string
+	ActorColor         *string
+	HasActorPhoto      *bool
+	AuthorMembershipId *uuid.UUID
 }
 
 // AttendanceEnriched is a roster row (one per current team member) enriched

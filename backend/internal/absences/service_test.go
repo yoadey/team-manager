@@ -87,6 +87,29 @@ func TestService_ListByTeam(t *testing.T) {
 	assert.Equal(t, *row.MemberName, *result[0].MemberName)
 }
 
+func TestService_ListByTeam_PopulatesMemberMembershipId(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.MustParse("cccccccc-cccc-cccc-cccc-cccccccccccc")
+	membershipID := uuid.MustParse("dddddddd-dddd-dddd-dddd-dddddddddddd")
+	row := makeAbsenceRow()
+	row.MembershipId = &membershipID
+
+	repo := &mockRepo{
+		listByTeam: func(_ context.Context, _ uuid.UUID, _ int, _ *absences.ListCursor) ([]*absences.AbsenceRow, error) {
+			return []*absences.AbsenceRow{row}, nil
+		},
+	}
+
+	svc := absences.NewService(repo, nil)
+	result, _, err := svc.ListByTeam(context.Background(), teamID, 50, "")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.NotNil(t, result[0].MemberMembershipId, "Absence.MemberMembershipId must be populated so the frontend can build the member's photo URL")
+	assert.Equal(t, membershipID, *result[0].MemberMembershipId)
+}
+
 func TestService_ListByUser(t *testing.T) {
 	t.Parallel()
 

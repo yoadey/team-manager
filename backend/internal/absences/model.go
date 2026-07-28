@@ -19,6 +19,8 @@ type AbsenceRow struct {
 	MemberName        *string
 	MemberAvatarColor *string
 	HasPhoto          bool
+	// Joined from memberships (nil if the user is no longer a member of TeamId)
+	MembershipId *uuid.UUID
 	// Joined from roles (primary role)
 	RoleName  *string
 	RoleColor *string

@@ -265,12 +265,14 @@ const EventComment = z
     authorName: z.string().optional(),
     authorColor: z.string().optional(),
     hasAuthorPhoto: z.boolean().optional(),
+    authorMembershipId: z.string().uuid().optional(),
   })
   .passthrough();
 const AddCommentRequest = z.object({ text: z.string().min(1) }).passthrough();
 const AttendanceRow = z
   .object({
     userId: z.string().uuid(),
+    membershipId: z.string().uuid().optional(),
     name: z.string(),
     avatarColor: z.string(),
     hasPhoto: z.boolean().optional(),
@@ -320,6 +322,7 @@ const Absence = z
     memberName: z.string().optional(),
     memberAvatarColor: z.string().optional(),
     hasPhoto: z.boolean().optional(),
+    memberMembershipId: z.string().uuid().optional(),
     roleColor: z.string().optional(),
     roleName: z.string().optional(),
   })
@@ -437,6 +440,7 @@ const AppNotification = z
     actorName: z.string().optional(),
     actorColor: z.string().optional(),
     hasActorPhoto: z.boolean().optional(),
+    actorMembershipId: z.string().uuid().optional(),
     unread: z.boolean().optional(),
   })
   .passthrough();

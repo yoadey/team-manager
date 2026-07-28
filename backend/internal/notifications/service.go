@@ -184,6 +184,9 @@ func toGenNotification(row *NotificationRow) gen.AppNotification {
 	if row.ActorColor != nil {
 		n.ActorColor = row.ActorColor
 	}
+	if row.ActorMembershipId != nil {
+		n.ActorMembershipId = row.ActorMembershipId
+	}
 	if row.Status != nil {
 		s := gen.AttendanceStatus(*row.Status)
 		n.Status = &s

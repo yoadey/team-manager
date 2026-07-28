@@ -1396,6 +1396,8 @@ export interface components {
             authorName?: string;
             authorColor?: string;
             hasAuthorPhoto?: boolean;
+            /** Format: uuid */
+            authorMembershipId?: string;
         };
         AddCommentRequest: {
             text: string;
@@ -1418,6 +1420,8 @@ export interface components {
         AttendanceRow: {
             /** Format: uuid */
             userId: string;
+            /** Format: uuid */
+            membershipId?: string;
             name: string;
             avatarColor: string;
             hasPhoto?: boolean;
@@ -1460,6 +1464,8 @@ export interface components {
             memberName?: string;
             memberAvatarColor?: string;
             hasPhoto?: boolean;
+            /** Format: uuid */
+            memberMembershipId?: string;
             roleColor?: string;
             roleName?: string;
         };
@@ -1574,6 +1580,8 @@ export interface components {
             actorName?: string;
             actorColor?: string;
             hasActorPhoto?: boolean;
+            /** Format: uuid */
+            actorMembershipId?: string;
             unread?: boolean;
         };
         NotificationsResult: {

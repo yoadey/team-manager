@@ -2495,6 +2495,9 @@ components:
           type: string
         hasAuthorPhoto:
           type: boolean
+        authorMembershipId:
+          type: string
+          format: uuid
 
     AddCommentRequest:
       type: object
@@ -2537,6 +2540,9 @@ components:
       required: [userId, name, avatarColor, status]
       properties:
         userId:
+          type: string
+          format: uuid
+        membershipId:
           type: string
           format: uuid
         name:
@@ -2620,6 +2626,9 @@ components:
           type: string
         hasPhoto:
           type: boolean
+        memberMembershipId:
+          type: string
+          format: uuid
         roleColor:
           type: string
         roleName:
@@ -2859,6 +2868,9 @@ components:
           type: string
         hasActorPhoto:
           type: boolean
+        actorMembershipId:
+          type: string
+          format: uuid
         unread:
           type: boolean
 

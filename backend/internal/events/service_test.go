@@ -1030,6 +1030,30 @@ func TestEventService_ListAttendance_ShowsOwnDeclineReason(t *testing.T) {
 	assert.Equal(t, reason, *rows[0].Reason)
 }
 
+func TestEventService_ListAttendance_PopulatesMembershipId(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	teamID := uuid.New()
+	viewerID := uuid.New()
+	membershipID := uuid.New()
+
+	repo := &mockSvcRepo{
+		listAttendanceFn: func(_ context.Context, _, _ string) ([]events.AttendanceEnriched, error) {
+			return []events.AttendanceEnriched{
+				{UserId: viewerID, MembershipId: membershipID, Status: "yes", Name: "Self"},
+			}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	rows, err := svc.ListAttendance(context.Background(), eventID.String(), teamID.String(), viewerID.String())
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.NotNil(t, rows[0].MembershipId, "AttendanceRow.MembershipId must be populated so the frontend can build the member's photo URL")
+	assert.Equal(t, membershipID, *rows[0].MembershipId)
+}
+
 func TestEventService_ListAttendance_ShowsDeclineReasonWithMatchingRole(t *testing.T) {
 	t.Parallel()
 
@@ -1197,4 +1221,27 @@ func TestEventService_AddComment_BelowCap_Allowed(t *testing.T) {
 	_, err := svc.AddComment(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), "hi")
 	require.NoError(t, err)
 	assert.True(t, called, "repository AddComment must be called when below the cap")
+}
+
+func TestEventService_AddComment_PopulatesAuthorMembershipId(t *testing.T) {
+	t.Parallel()
+
+	membershipID := uuid.New()
+	repo := &mockSvcRepo{
+		countCommentsFn: func(context.Context, string, string) (int, error) {
+			return 0, nil
+		},
+		addCommentFn: func(context.Context, string, string, string, string) (*events.CommentRow, error) {
+			return &events.CommentRow{
+				Id: uuid.New(), Text: "hi", CreatedAt: time.Now(),
+				AuthorMembershipId: &membershipID,
+			}, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	c, err := svc.AddComment(context.Background(), uuid.New().String(), uuid.New().String(), uuid.New().String(), "hi")
+	require.NoError(t, err)
+	require.NotNil(t, c.AuthorMembershipId, "EventComment.AuthorMembershipId must be populated so the frontend can build the author's photo URL")
+	assert.Equal(t, membershipID, *c.AuthorMembershipId)
 }

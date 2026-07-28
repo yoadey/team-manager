@@ -210,6 +210,7 @@ function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S
   const pr = primaryRole(roles);
   return {
     userId: u.id,
+    membershipId: m.id,
     name: u.name,
     avatarColor: u.avatarColor,
     hasPhoto: u.hasPhoto,
@@ -224,8 +225,9 @@ function toWireAttendanceRow(e: EventDto, m: (typeof db.memberships)[number]): S
   };
 }
 
-function toWireComment(c: (typeof db.eventComments)[number]): S['EventComment'] {
+function toWireComment(c: (typeof db.eventComments)[number], teamId: string): S['EventComment'] {
   const u = db.users.find((x) => x.id === c.userId);
+  const m = db.memberships.find((x) => x.teamId === teamId && x.userId === c.userId);
   return {
     id: c.id,
     eventId: c.eventId,
@@ -235,6 +237,7 @@ function toWireComment(c: (typeof db.eventComments)[number]): S['EventComment'] 
     ...opt('authorName', u?.name),
     ...opt('authorColor', u?.avatarColor),
     ...opt('hasAuthorPhoto', u?.hasPhoto),
+    ...opt('authorMembershipId', m?.id),
   };
 }
 
@@ -252,6 +255,7 @@ function toWireAbsence(a: (typeof db.absences)[number], teamId: string): S['Abse
     ...opt('memberName', u?.name),
     ...opt('memberAvatarColor', u?.avatarColor),
     ...opt('hasPhoto', u?.hasPhoto),
+    ...opt('memberMembershipId', m?.id),
     ...opt('roleColor', pr?.color),
     ...opt('roleName', pr?.name),
   };
@@ -316,6 +320,7 @@ function toWirePoll(p: (typeof db.polls)[number]): S['Poll'] {
 
 function toWireNotification(n: (typeof db.notifications)[number], seen: string | null): S['AppNotification'] {
   const u = db.users.find((x) => x.id === n.actorId);
+  const m = db.memberships.find((x) => x.teamId === n.teamId && x.userId === n.actorId);
   return {
     id: n.id,
     teamId: n.teamId,
@@ -332,6 +337,7 @@ function toWireNotification(n: (typeof db.notifications)[number], seen: string |
     ...opt('actorName', u?.name),
     ...opt('actorColor', u?.avatarColor),
     ...opt('hasActorPhoto', u?.hasPhoto),
+    ...opt('actorMembershipId', m?.id),
   };
 }
 
@@ -899,7 +905,10 @@ export const handlers = [
     // Keyset { items, nextCursor } envelope (oldest-first). The mock returns
     // everything in one page (nextCursor: null), which fetchAllPages consumes
     // exactly like the real multi-page envelope.
-    const items = db.eventComments.filter((c) => c.eventId === params.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(toWireComment);
+    const items = db.eventComments
+      .filter((c) => c.eventId === params.eventId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((c) => toWireComment(c, params.teamId as string));
     return HttpResponse.json({ items, nextCursor: null });
   }),
 
@@ -910,7 +919,7 @@ export const handlers = [
     const body = (await request.json()) as S['AddCommentRequest'];
     const c = { id: rid('cm'), eventId: params.eventId as string, userId: auth, text: body.text, createdAt: new Date().toISOString() };
     db.eventComments.push(c);
-    return HttpResponse.json(toWireComment(c), { status: 201 });
+    return HttpResponse.json(toWireComment(c, params.teamId as string), { status: 201 });
   }),
 
   http.delete(P('/teams/:teamId/events/:eventId/comments/:commentId'), async ({ params }) => {
