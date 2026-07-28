@@ -52,6 +52,9 @@ vi.mock('@/api/map', () => {
     mapStatsOverview: tag('statsOverview'),
     mapAttendanceMatrix: tag('attendanceMatrix'),
     mapAttendanceAbsenceTable: tag('attendanceAbsenceTable'),
+    mapCalendarShare: tag('calendarShare'),
+    mapSharedCalendarSource: tag('sharedCalendarSource'),
+    mapSharedCalendarEvent: tag('sharedCalendarEvent'),
     // Real (not tagged) — serviceLayerReal calls these directly on request
     // bodies, not just on responses, so tests exercising request payloads
     // need the actual conversion, not an identity stub.
@@ -439,6 +442,52 @@ describe('roles', () => {
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.roles.remove('r1', 't1')).resolves.toBeUndefined();
+  });
+});
+
+describe('calendarShares', () => {
+  it('list, create, remove hit the calendar-share endpoints', async () => {
+    client.GET.mockResolvedValueOnce(ok([{ viewerTeamId: 'v1' }]));
+    expect((await realApi.calendarShares.list('t1'))[0]).toMatchObject({ __mapped: 'calendarShare' });
+    expect(client.GET).toHaveBeenCalledWith('/teams/{teamId}/calendar-shares', expect.anything());
+
+    client.POST.mockResolvedValueOnce(ok({ viewerTeamId: 'v1' }));
+    const created = await realApi.calendarShares.create('t1', 'v1');
+    expect(created).toMatchObject({ __mapped: 'calendarShare' });
+    expect(client.POST).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-shares',
+      expect.objectContaining({ body: { viewerTeamId: 'v1' } }),
+    );
+
+    client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
+    await expect(realApi.calendarShares.remove('t1', 'v1')).resolves.toBeUndefined();
+    expect(client.DELETE).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-shares/{viewerTeamId}',
+      expect.objectContaining({ params: { path: { teamId: 't1', viewerTeamId: 'v1' } } }),
+    );
+  });
+});
+
+describe('sharedCalendars', () => {
+  it('listSources hits the shared-calendars endpoint', async () => {
+    client.GET.mockResolvedValueOnce(ok([{ ownerTeamId: 'o1' }]));
+    expect((await realApi.sharedCalendars.listSources('t1'))[0]).toMatchObject({ __mapped: 'sharedCalendarSource' });
+    expect(client.GET).toHaveBeenCalledWith('/teams/{teamId}/shared-calendars', expect.anything());
+  });
+
+  it('listEvents passes the owner team id and optional date range', async () => {
+    client.GET.mockResolvedValueOnce(ok([{ id: 'e1' }]));
+    const res = await realApi.sharedCalendars.listEvents('t1', 'o1', { from: '2026-01-01', to: '2026-01-31' });
+    expect(res[0]).toMatchObject({ __mapped: 'sharedCalendarEvent' });
+    expect(client.GET).toHaveBeenCalledWith(
+      '/teams/{teamId}/shared-calendars/{ownerTeamId}/events',
+      expect.objectContaining({
+        params: {
+          path: { teamId: 't1', ownerTeamId: 'o1' },
+          query: { from: '2026-01-01', to: '2026-01-31' },
+        },
+      }),
+    );
   });
 });
 

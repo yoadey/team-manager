@@ -10,7 +10,7 @@ import { useMemberActions, useInvalidateMembers } from '@/features/members';
 import { useNewsActions } from '@/features/news';
 import { useNotificationActions } from '@/features/notifications';
 import { usePollActions } from '@/features/polls';
-import { useTeamActions, useRoleActions } from '@/features/team';
+import { useTeamActions, useRoleActions, useCalendarShareActions } from '@/features/team';
 import type { AppState, ConfirmConfig } from './AppContext';
 import type { api as defaultApi } from '@/services';
 import type { Role, TeamForUser } from '@/types';
@@ -97,6 +97,14 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     toastMsg,
     logout,
   });
+  const calendarShareActions = useCalendarShareActions({
+    api,
+    S,
+    setState,
+    askConfirm,
+    toastMsg,
+    logout,
+  });
   const teamActions = useTeamActions({
     api,
     S,
@@ -146,6 +154,7 @@ export function useFeatureActions(deps: FeatureActionDeps) {
     ...notifActions,
     ...memberActions,
     ...roleActions,
+    ...calendarShareActions,
     ...teamActions,
     ...absenceActions,
     ...calExportActions,

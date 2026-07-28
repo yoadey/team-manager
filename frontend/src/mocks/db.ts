@@ -178,6 +178,15 @@ export interface DemoDb {
    * one simply overwrites it, since the mock has no revocation history to
    * preserve). */
   calendarFeedTokens: Record<string, string>;
+  /** Mock equivalent of the backend's calendar_shares table. */
+  calendarShares: CalendarShareRow[];
+}
+
+/** A calendar-share grant: ownerTeamId lets viewerTeamId read its (redacted) schedule. */
+export interface CalendarShareRow {
+  ownerTeamId: string;
+  viewerTeamId: string;
+  createdAt: string;
 }
 
 export interface PushSubscriptionRow {
@@ -221,6 +230,7 @@ export function createSeedData(): DemoDb {
     verificationTokens: {},
     pushSubscriptions: [],
     calendarFeedTokens: {},
+    calendarShares: [],
   };
 
   const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({

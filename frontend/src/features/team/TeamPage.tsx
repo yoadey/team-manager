@@ -133,8 +133,18 @@ export function TeamPage() {
       {app.can('settings', 'write')
         ? card('tune', t('team.teamSettings'), t('team.teamSettingsDesc'), () => app.openTeamSettings(), false)
         : null}
+      {app.can('settings', 'write')
+        ? card('calendar_month', t('team.calendarShares'), t('team.calendarSharesCardDesc'), () => app.openCalendarShares(), false)
+        : null}
       {card('admin_panel_settings', t('team.rolesAndRights'), t('team.rolesDesc'), () => app.openRoles(), false)}
       {card('groups', t('team.members'), t('team.membersDesc'), () => app.go('members'), false)}
+      {card(
+        'calendar_view_month',
+        t('team.sharedCalendars'),
+        t('team.sharedCalendarsCardDesc'),
+        () => app.openSharedCalendars(),
+        false,
+      )}
     </Box>
   );
 

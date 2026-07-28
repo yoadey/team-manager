@@ -756,6 +756,81 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  // ---- calendar shares ----
+  http.get(P('/teams/:teamId/calendar-shares'), async ({ params }) => {
+    await mockDelay();
+    const body: S['CalendarShare'][] = db.calendarShares
+      .filter((s) => s.ownerTeamId === params.teamId)
+      .map((s) => ({
+        viewerTeamId: s.viewerTeamId,
+        viewerTeamName: db.teams.find((t) => t.id === s.viewerTeamId)?.name ?? 'Unknown',
+        createdAt: s.createdAt,
+      }));
+    return HttpResponse.json(body);
+  }),
+
+  http.post(P('/teams/:teamId/calendar-shares'), async ({ params, request }) => {
+    await mockDelay();
+    const ownerTeamId = params.teamId as string;
+    const body = (await request.json()) as S['CreateCalendarShareRequest'];
+    if (body.viewerTeamId === ownerTeamId) return problem(400, 'cannot share a calendar with its own team');
+    const viewerTeam = db.teams.find((t) => t.id === body.viewerTeamId);
+    if (!viewerTeam) return problem(404, 'viewer team not found');
+    let share = db.calendarShares.find((s) => s.ownerTeamId === ownerTeamId && s.viewerTeamId === body.viewerTeamId);
+    if (!share) {
+      share = { ownerTeamId, viewerTeamId: body.viewerTeamId, createdAt: new Date().toISOString() };
+      db.calendarShares.push(share);
+    }
+    const response: S['CalendarShare'] = { viewerTeamId: share.viewerTeamId, viewerTeamName: viewerTeam.name, createdAt: share.createdAt };
+    return HttpResponse.json(response, { status: 201 });
+  }),
+
+  http.delete(P('/teams/:teamId/calendar-shares/:viewerTeamId'), async ({ params }) => {
+    await mockDelay();
+    db.calendarShares = db.calendarShares.filter(
+      (s) => !(s.ownerTeamId === params.teamId && s.viewerTeamId === params.viewerTeamId),
+    );
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  // ---- shared calendars ----
+  http.get(P('/teams/:teamId/shared-calendars'), async ({ params }) => {
+    await mockDelay();
+    const body: S['SharedCalendarSource'][] = db.calendarShares
+      .filter((s) => s.viewerTeamId === params.teamId)
+      .map((s) => ({
+        ownerTeamId: s.ownerTeamId,
+        ownerTeamName: db.teams.find((t) => t.id === s.ownerTeamId)?.name ?? 'Unknown',
+      }));
+    return HttpResponse.json(body);
+  }),
+
+  http.get(P('/teams/:teamId/shared-calendars/:ownerTeamId/events'), async ({ params, request }) => {
+    await mockDelay();
+    const hasGrant = db.calendarShares.some(
+      (s) => s.ownerTeamId === params.ownerTeamId && s.viewerTeamId === params.teamId,
+    );
+    if (!hasGrant) return problem(404, 'not found');
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    const body: S['SharedCalendarEvent'][] = db.events
+      .filter((e) => e.teamId === params.ownerTeamId && e.status === 'active')
+      .filter((e) => (from ? e.date >= from : true))
+      .filter((e) => (to ? e.date <= to : true))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((e) => ({
+        id: e.id,
+        type: e.type,
+        title: e.title,
+        date: e.date,
+        ...opt('startTime', e.startTime ?? undefined),
+        ...opt('endTime', e.endTime ?? undefined),
+        ...opt('location', e.location || undefined),
+      }));
+    return HttpResponse.json(body);
+  }),
+
   // ---- events ----
   http.get(P('/teams/:teamId/events'), async ({ params, request }) => {
     await mockDelay();

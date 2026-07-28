@@ -22,6 +22,9 @@ import {
   mapNotification,
   mapPoll,
   mapTeamEvent,
+  mapCalendarShare,
+  mapSharedCalendarSource,
+  mapSharedCalendarEvent,
 } from './map';
 
 describe('centsToEuros / eurosToCents', () => {
@@ -419,5 +422,43 @@ describe('mapTeamEvent preserves myReason from the backend', () => {
 
   it('maps a missing myReason to the empty-string default', () => {
     expect(mapTeamEvent(baseEvent as unknown as Parameters<typeof mapTeamEvent>[0]).myReason).toBe('');
+  });
+});
+
+describe('calendar-share mappers', () => {
+  it('mapCalendarShare passes fields through unchanged', () => {
+    const wire = { viewerTeamId: 'v1', viewerTeamName: 'Viewer Team', createdAt: '2026-01-01T00:00:00Z' };
+    expect(mapCalendarShare(wire as unknown as Parameters<typeof mapCalendarShare>[0])).toEqual(wire);
+  });
+
+  it('mapSharedCalendarSource passes fields through unchanged', () => {
+    const wire = { ownerTeamId: 'o1', ownerTeamName: 'Owner Team' };
+    expect(mapSharedCalendarSource(wire as unknown as Parameters<typeof mapSharedCalendarSource>[0])).toEqual(wire);
+  });
+
+  it('mapSharedCalendarEvent defaults optional fields to null, never undefined', () => {
+    const wire = { id: 'e1', type: 'training', title: 'Training', date: '2026-01-01' };
+    expect(mapSharedCalendarEvent(wire as unknown as Parameters<typeof mapSharedCalendarEvent>[0])).toEqual({
+      id: 'e1',
+      type: 'training',
+      title: 'Training',
+      date: '2026-01-01',
+      startTime: null,
+      endTime: null,
+      location: null,
+    });
+  });
+
+  it('mapSharedCalendarEvent passes present optional fields through', () => {
+    const wire = {
+      id: 'e1',
+      type: 'training',
+      title: 'Training',
+      date: '2026-01-01',
+      startTime: '18:00',
+      endTime: '20:00',
+      location: 'Halle 1',
+    };
+    expect(mapSharedCalendarEvent(wire as unknown as Parameters<typeof mapSharedCalendarEvent>[0])).toEqual(wire);
   });
 });

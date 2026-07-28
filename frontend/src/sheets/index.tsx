@@ -66,6 +66,8 @@ export function sheetMeta(
     createTeam: t('sheet.createTeam'),
     invite: t('sheet.invite'),
     teamSettings: t('sheet.teamSettings'),
+    calendarShares: t('sheet.calendarShares'),
+    sharedCalendars: t('sheet.sharedCalendars'),
     absenceForm: s.mode === 'edit' ? t('sheet.absenceFormEdit') : t('sheet.absenceFormCreate'),
     newsForm: s.mode === 'edit' ? t('sheet.newsFormEdit') : t('sheet.newsFormCreate'),
     txForm: s.mode === 'edit' ? t('sheet.txFormEdit') : t('sheet.txFormCreate'),
