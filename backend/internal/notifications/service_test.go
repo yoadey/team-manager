@@ -71,6 +71,32 @@ func TestService_List_CountsOnlyUnread(t *testing.T) {
 	assert.Equal(t, 2, result.UnreadCount, "unread count must only count rows with Unread=true")
 }
 
+func TestService_List_PopulatesActorMembershipId(t *testing.T) {
+	t.Parallel()
+
+	teamID, userID, actorID := uuid.New(), uuid.New(), uuid.New()
+	membershipID := uuid.New()
+	title := "Training added"
+	rows := []*notifications.NotificationRow{
+		{
+			Id: uuid.New(), TeamId: teamID, Type: "event_created", Title: &title, CreatedAt: time.Now(),
+			ActorId: &actorID, ActorMembershipId: &membershipID,
+		},
+	}
+	repo := &mockRepo{
+		listByTeamAndUserFn: func(context.Context, uuid.UUID, uuid.UUID) ([]*notifications.NotificationRow, error) {
+			return rows, nil
+		},
+	}
+
+	svc := notifications.NewService(repo, &mockPermChecker{perms: allWritePerms()})
+	result, err := svc.List(context.Background(), teamID, userID)
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	require.NotNil(t, result.Items[0].ActorMembershipId, "AppNotification.ActorMembershipId must be populated so the frontend can build the actor's photo URL")
+	assert.Equal(t, membershipID, *result.Items[0].ActorMembershipId)
+}
+
 func TestService_List_EmptyResult(t *testing.T) {
 	t.Parallel()
 

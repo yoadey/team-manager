@@ -69,6 +69,7 @@ const selectAbsenceFields = `
 	a.id, a.user_id, a.team_id, a.from_date, a.to_date, a.reason, a.created_at,
 	u.name AS member_name, u.avatar_color AS member_avatar_color,
 	(u.photo_object_key IS NOT NULL) AS has_photo,
+	m.id AS membership_id,
 	r.name AS role_name, r.color AS role_color
 `
 
@@ -96,7 +97,7 @@ func scanAbsence(row interface{ Scan(dest ...any) error }) (*AbsenceRow, error) 
 	ab := &AbsenceRow{}
 	err := row.Scan(
 		&ab.Id, &ab.UserId, &ab.TeamId, &ab.FromDate, &ab.ToDate, &ab.Reason, &ab.CreatedAt,
-		&ab.MemberName, &ab.MemberAvatarColor, &ab.HasPhoto,
+		&ab.MemberName, &ab.MemberAvatarColor, &ab.HasPhoto, &ab.MembershipId,
 		&ab.RoleName, &ab.RoleColor,
 	)
 	if err != nil {

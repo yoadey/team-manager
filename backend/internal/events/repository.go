@@ -1370,10 +1370,12 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 			c.id, c.event_id, c.user_id, c.text, c.created_at,
 			u.name,
 			u.avatar_color,
-			(u.photo_object_key IS NOT NULL) AS has_photo
+			(u.photo_object_key IS NOT NULL) AS has_photo,
+			m.id AS author_membership_id
 		FROM event_comments c
 		JOIN users u ON u.id = c.user_id
 		JOIN events e ON e.id = c.event_id
+		LEFT JOIN memberships m ON m.user_id = c.user_id AND m.team_id = e.team_id
 		WHERE c.event_id = $1 AND e.team_id = $2
 		  AND ($3::boolean IS FALSE
 		       OR (c.created_at, c.id) > ($4::timestamptz, $5::uuid))
@@ -1392,7 +1394,7 @@ func (r *Repository) ListComments(ctx context.Context, eventID, teamID string, l
 		var hasPhoto bool
 		err := rows.Scan(
 			&c.Id, &c.EventId, &c.UserId, &c.Text, &c.CreatedAt,
-			&c.ActorName, &c.ActorColor, &hasPhoto,
+			&c.ActorName, &c.ActorColor, &hasPhoto, &c.AuthorMembershipId,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("events.Repository.ListComments scan: %w", err)
@@ -1428,15 +1430,17 @@ func (r *Repository) AddComment(ctx context.Context, eventID, userID, teamID, te
 		SELECT
 			i.id, i.event_id, i.user_id, i.text, i.created_at,
 			u.name, u.avatar_color,
-			(u.photo_object_key IS NOT NULL) AS has_photo
+			(u.photo_object_key IS NOT NULL) AS has_photo,
+			m.id AS author_membership_id
 		FROM inserted i
 		JOIN users u ON u.id = i.user_id
+		LEFT JOIN memberships m ON m.user_id = i.user_id AND m.team_id = $4
 	`
 	c := &CommentRow{}
 	var hasPhoto bool
 	err := r.pool.QueryRow(ctx, q, eventID, userID, text, teamID).Scan(
 		&c.Id, &c.EventId, &c.UserId, &c.Text, &c.CreatedAt,
-		&c.ActorName, &c.ActorColor, &hasPhoto,
+		&c.ActorName, &c.ActorColor, &hasPhoto, &c.AuthorMembershipId,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

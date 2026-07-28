@@ -16,6 +16,10 @@ import {
   mapAttendanceMatrix,
   mapAttendanceAbsenceRow,
   mapAttendanceAbsenceTable,
+  mapAttendanceRow,
+  mapEventComment,
+  mapAbsence,
+  mapNotification,
   mapPoll,
   mapTeamEvent,
 } from './map';
@@ -159,6 +163,75 @@ describe('mapUser / mapTeam resolve hasPhoto/hasLogo to a display URL', () => {
   it('mapMember builds a per-team member photo URL when hasPhoto is true, closing the "no other members\' photos" gap', () => {
     const m = mapMember({ ...baseMember, hasPhoto: true }, 't1');
     expect(m.photo).toMatch(new RegExp('/api/v1/teams/t1/members/m1/photo\\?v=\\d+$'));
+  });
+});
+
+// consistent-profile-photos: every place a person is rendered resolves its
+// photo through the same membershipId -> /teams/{teamId}/members/{id}/photo
+// rule (memberPhotoUrl), so these all follow the same null-without-id /
+// URL-with-id shape as mapMember above.
+describe('person-photo mappers build a member photo URL from membershipId', () => {
+  it('mapAttendanceRow falls back to null without a membershipId or hasPhoto', () => {
+    const base = { userId: 'u1', name: 'Alice', avatarColor: '#000', status: 'yes' as const };
+    expect(mapAttendanceRow(base, 't1').photo).toBeNull();
+    expect(mapAttendanceRow({ ...base, membershipId: 'm1' }, 't1').photo).toBeNull();
+    expect(mapAttendanceRow({ ...base, hasPhoto: true }, 't1').photo).toBeNull();
+  });
+
+  it('mapAttendanceRow builds a photo URL when both membershipId and hasPhoto are set', () => {
+    const row = mapAttendanceRow(
+      { userId: 'u1', name: 'Alice', avatarColor: '#000', status: 'yes', membershipId: 'm1', hasPhoto: true },
+      't1',
+    );
+    expect(row.photo).toMatch(/^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/);
+  });
+
+  it('mapEventComment builds a photo URL from authorMembershipId/hasAuthorPhoto', () => {
+    const base = { id: 'c1', eventId: 'e1', userId: 'u1', text: 'hi', createdAt: '2025-01-01T00:00:00Z' };
+    expect(mapEventComment(base, 't1').photo).toBeNull();
+    expect(
+      mapEventComment({ ...base, authorMembershipId: 'm1', hasAuthorPhoto: true }, 't1').photo,
+    ).toMatch(/^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/);
+  });
+
+  it('mapAbsence builds a photo URL from memberMembershipId/hasPhoto', () => {
+    const base = { id: 'a1', userId: 'u1', from: '2025-01-01', to: '2025-01-02', createdAt: '2025-01-01T00:00:00Z' };
+    expect(mapAbsence(base, 't1').photo).toBeNull();
+    expect(mapAbsence({ ...base, memberMembershipId: 'm1', hasPhoto: true }, 't1').photo).toMatch(
+      /^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/,
+    );
+  });
+
+  it('mapNotification builds a photo URL from actorMembershipId/hasActorPhoto, scoped to the notification\'s own teamId', () => {
+    const base = { id: 'n1', teamId: 't1', type: 'event_created' as const, createdAt: '2025-01-01T00:00:00Z' };
+    expect(mapNotification(base).actorPhoto).toBeNull();
+    expect(mapNotification({ ...base, actorMembershipId: 'm1', hasActorPhoto: true }).actorPhoto).toMatch(
+      /^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/,
+    );
+  });
+
+  it('mapPoll builds voter photo URLs from membershipId/hasPhoto', () => {
+    const poll = mapPoll(
+      {
+        id: 'p1',
+        question: 'Q?',
+        multiple: false,
+        anonymous: false,
+        createdAt: '2025-01-01T00:00:00Z',
+        totalVotes: 1,
+        options: [
+          {
+            id: 'o1',
+            text: 'Yes',
+            count: 1,
+            pct: 100,
+            voters: [{ userId: 'u1', membershipId: 'm1', name: 'Alice', color: '#000', hasPhoto: true }],
+          },
+        ],
+      },
+      't1',
+    );
+    expect(poll.options[0]!.voters[0]!.photo).toMatch(/^.*\/api\/v1\/teams\/t1\/members\/m1\/photo\?v=\d+$/);
   });
 });
 
@@ -309,11 +382,11 @@ describe('mapPoll preserves myVote:null as the "not voted" sentinel', () => {
     // `nullable: true` in the OpenAPI schema), but the real backend's JSON
     // can genuinely be null (a nil Go slice) — hence the cast to simulate
     // what actually arrives over the wire.
-    expect(mapPoll({ ...base, myVote: null } as unknown as Parameters<typeof mapPoll>[0]).myVote).toBeNull();
+    expect(mapPoll({ ...base, myVote: null } as unknown as Parameters<typeof mapPoll>[0], 't1').myVote).toBeNull();
   });
 
   it('maps a real vote array through unchanged', () => {
-    expect(mapPoll({ ...base, myVote: ['opt1'] }).myVote).toEqual(['opt1']);
+    expect(mapPoll({ ...base, myVote: ['opt1'] }, 't1').myVote).toEqual(['opt1']);
   });
 });
 

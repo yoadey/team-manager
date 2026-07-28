@@ -163,6 +163,9 @@ func toGenAbsence(row *AbsenceRow) gen.Absence {
 	if row.MemberAvatarColor != nil {
 		a.MemberAvatarColor = row.MemberAvatarColor
 	}
+	if row.MembershipId != nil {
+		a.MemberMembershipId = row.MembershipId
+	}
 	if row.RoleName != nil {
 		a.RoleName = row.RoleName
 	}

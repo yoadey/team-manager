@@ -334,17 +334,18 @@ func (e SetEventStatusParamsScope) Valid() bool {
 
 // Absence defines model for Absence.
 type Absence struct {
-	CreatedAt         time.Time          `json:"createdAt"`
-	From              openapi_types.Date `json:"from"`
-	HasPhoto          *bool              `json:"hasPhoto,omitempty"`
-	Id                openapi_types.UUID `json:"id"`
-	MemberAvatarColor *string            `json:"memberAvatarColor,omitempty"`
-	MemberName        *string            `json:"memberName,omitempty"`
-	Reason            *string            `json:"reason,omitempty"`
-	RoleColor         *string            `json:"roleColor,omitempty"`
-	RoleName          *string            `json:"roleName,omitempty"`
-	To                openapi_types.Date `json:"to"`
-	UserId            openapi_types.UUID `json:"userId"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	From               openapi_types.Date  `json:"from"`
+	HasPhoto           *bool               `json:"hasPhoto,omitempty"`
+	Id                 openapi_types.UUID  `json:"id"`
+	MemberAvatarColor  *string             `json:"memberAvatarColor,omitempty"`
+	MemberMembershipId *openapi_types.UUID `json:"memberMembershipId,omitempty"`
+	MemberName         *string             `json:"memberName,omitempty"`
+	Reason             *string             `json:"reason,omitempty"`
+	RoleColor          *string             `json:"roleColor,omitempty"`
+	RoleName           *string             `json:"roleName,omitempty"`
+	To                 openapi_types.Date  `json:"to"`
+	UserId             openapi_types.UUID  `json:"userId"`
 }
 
 // AcceptInviteResponse defines model for AcceptInviteResponse.
@@ -376,21 +377,22 @@ type AddCommentRequest struct {
 
 // AppNotification defines model for AppNotification.
 type AppNotification struct {
-	ActorColor    *string             `json:"actorColor,omitempty"`
-	ActorId       *openapi_types.UUID `json:"actorId,omitempty"`
-	ActorName     *string             `json:"actorName,omitempty"`
-	CreatedAt     time.Time           `json:"createdAt"`
-	EventDate     *openapi_types.Date `json:"eventDate,omitempty"`
-	EventId       *openapi_types.UUID `json:"eventId,omitempty"`
-	EventTitle    *string             `json:"eventTitle,omitempty"`
-	HasActorPhoto *bool               `json:"hasActorPhoto,omitempty"`
-	Id            openapi_types.UUID  `json:"id"`
-	Note          *string             `json:"note,omitempty"`
-	Status        *AttendanceStatus   `json:"status,omitempty"`
-	TeamId        openapi_types.UUID  `json:"teamId"`
-	Title         *string             `json:"title,omitempty"`
-	Type          NotificationType    `json:"type"`
-	Unread        *bool               `json:"unread,omitempty"`
+	ActorColor        *string             `json:"actorColor,omitempty"`
+	ActorId           *openapi_types.UUID `json:"actorId,omitempty"`
+	ActorMembershipId *openapi_types.UUID `json:"actorMembershipId,omitempty"`
+	ActorName         *string             `json:"actorName,omitempty"`
+	CreatedAt         time.Time           `json:"createdAt"`
+	EventDate         *openapi_types.Date `json:"eventDate,omitempty"`
+	EventId           *openapi_types.UUID `json:"eventId,omitempty"`
+	EventTitle        *string             `json:"eventTitle,omitempty"`
+	HasActorPhoto     *bool               `json:"hasActorPhoto,omitempty"`
+	Id                openapi_types.UUID  `json:"id"`
+	Note              *string             `json:"note,omitempty"`
+	Status            *AttendanceStatus   `json:"status,omitempty"`
+	TeamId            openapi_types.UUID  `json:"teamId"`
+	Title             *string             `json:"title,omitempty"`
+	Type              NotificationType    `json:"type"`
+	Unread            *bool               `json:"unread,omitempty"`
 }
 
 // AttendanceAbsenceRow defines model for AttendanceAbsenceRow.
@@ -463,6 +465,7 @@ type AttendanceRow struct {
 	AvatarColor      string                         `json:"avatarColor"`
 	Group            *string                        `json:"group,omitempty"`
 	HasPhoto         *bool                          `json:"hasPhoto,omitempty"`
+	MembershipId     *openapi_types.UUID            `json:"membershipId,omitempty"`
 	Name             string                         `json:"name"`
 	PrimaryRole      *Role                          `json:"primaryRole,omitempty"`
 	Reason           *string                        `json:"reason,omitempty"`
@@ -605,14 +608,15 @@ type DeleteAccountRequest struct {
 
 // EventComment defines model for EventComment.
 type EventComment struct {
-	AuthorColor    *string            `json:"authorColor,omitempty"`
-	AuthorName     *string            `json:"authorName,omitempty"`
-	CreatedAt      time.Time          `json:"createdAt"`
-	EventId        openapi_types.UUID `json:"eventId"`
-	HasAuthorPhoto *bool              `json:"hasAuthorPhoto,omitempty"`
-	Id             openapi_types.UUID `json:"id"`
-	Text           string             `json:"text"`
-	UserId         openapi_types.UUID `json:"userId"`
+	AuthorColor        *string             `json:"authorColor,omitempty"`
+	AuthorMembershipId *openapi_types.UUID `json:"authorMembershipId,omitempty"`
+	AuthorName         *string             `json:"authorName,omitempty"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	EventId            openapi_types.UUID  `json:"eventId"`
+	HasAuthorPhoto     *bool               `json:"hasAuthorPhoto,omitempty"`
+	Id                 openapi_types.UUID  `json:"id"`
+	Text               string              `json:"text"`
+	UserId             openapi_types.UUID  `json:"userId"`
 }
 
 // EventStat defines model for EventStat.

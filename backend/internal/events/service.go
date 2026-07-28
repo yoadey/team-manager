@@ -769,30 +769,32 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 // toGenComment maps a CommentRow to gen.EventComment.
 func toGenComment(c *CommentRow) gen.EventComment {
 	return gen.EventComment{
-		Id:             c.Id,
-		EventId:        c.EventId,
-		UserId:         c.UserId,
-		Text:           c.Text,
-		CreatedAt:      c.CreatedAt,
-		AuthorName:     c.ActorName,
-		AuthorColor:    c.ActorColor,
-		HasAuthorPhoto: c.HasActorPhoto,
+		Id:                 c.Id,
+		EventId:            c.EventId,
+		UserId:             c.UserId,
+		Text:               c.Text,
+		CreatedAt:          c.CreatedAt,
+		AuthorName:         c.ActorName,
+		AuthorColor:        c.ActorColor,
+		HasAuthorPhoto:     c.HasActorPhoto,
+		AuthorMembershipId: c.AuthorMembershipId,
 	}
 }
 
 // toGenAttendanceRow maps an AttendanceEnriched to gen.AttendanceRow.
 func toGenAttendanceRow(a *AttendanceEnriched) gen.AttendanceRow {
 	row := gen.AttendanceRow{
-		UserId:      a.UserId,
-		Status:      gen.AttendanceStatus(a.Status),
-		Name:        a.Name,
-		AvatarColor: a.AvatarColor,
-		HasPhoto:    &a.HasPhoto,
-		Reason:      a.Reason,
-		ReasonId:    a.ReasonId,
-		Group:       a.Group,
-		Auto:        &a.Auto,
-		Absent:      &a.Absent,
+		UserId:       a.UserId,
+		MembershipId: &a.MembershipId,
+		Status:       gen.AttendanceStatus(a.Status),
+		Name:         a.Name,
+		AvatarColor:  a.AvatarColor,
+		HasPhoto:     &a.HasPhoto,
+		Reason:       a.Reason,
+		ReasonId:     a.ReasonId,
+		Group:        a.Group,
+		Auto:         &a.Auto,
+		Absent:       &a.Absent,
 	}
 	if a.ReasonVisibility != nil {
 		rv := gen.AttendanceRowReasonVisibility(*a.ReasonVisibility)

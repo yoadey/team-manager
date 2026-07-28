@@ -71,6 +71,18 @@ function photoUrl(hasPhoto: boolean | undefined, path: string): string | null {
   return `${apiOrigin}/api/v1${path}?v=${Date.now()}`;
 }
 
+// memberPhotoUrl builds the display URL for a team member's photo from their
+// membershipId (the id the backend's /teams/{teamId}/members/{membershipId}/photo
+// route addresses) -- the single URL rule every person-rendering call site
+// (attendance rows, comments, absences, notifications, poll voters, members)
+// shares, since a photo is always ultimately a member's photo. Returns null
+// when membershipId is missing (the person is no longer a team member) or
+// hasPhoto is falsy, same as photoUrl.
+function memberPhotoUrl(teamId: string, membershipId: string | null | undefined, hasPhoto: boolean | undefined): string | null {
+  if (!membershipId) return null;
+  return photoUrl(hasPhoto, `/teams/${teamId}/members/${membershipId}/photo`);
+}
+
 // The backend's attendance-quote fields (MemberStat.quote, EventStat.pct,
 // StatsOverview.avg, MemberAttendanceStats.quote) are 0-1 fractions
 // (internal/stats/service.go's quote() divides yes/counted); every frontend
@@ -168,7 +180,7 @@ export function mapMember(m: S['Member'], teamId: string): Member {
     birthday: m.birthday ?? '',
     address: m.address ?? '',
     avatarColor: m.avatarColor,
-    photo: photoUrl(m.hasPhoto, `/teams/${teamId}/members/${m.membershipId}/photo`),
+    photo: memberPhotoUrl(teamId, m.membershipId, m.hasPhoto),
     group: m.group ?? '',
     roles: (m.roles ?? []).map(mapRole),
     joinedAt: m.joinedAt,
@@ -234,12 +246,12 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
   };
 }
 
-export function mapAttendanceRow(r: S['AttendanceRow']): AttendanceRow {
+export function mapAttendanceRow(r: S['AttendanceRow'], teamId: string): AttendanceRow {
   return {
     userId: r.userId,
     name: r.name,
     avatarColor: r.avatarColor,
-    photo: null,
+    photo: memberPhotoUrl(teamId, r.membershipId, r.hasPhoto),
     group: r.group ?? '',
     primaryRole: r.primaryRole ? mapRole(r.primaryRole) : null,
     status: r.status,
@@ -251,20 +263,20 @@ export function mapAttendanceRow(r: S['AttendanceRow']): AttendanceRow {
   };
 }
 
-export function mapEventComment(c: S['EventComment']): EventComment {
+export function mapEventComment(c: S['EventComment'], teamId: string): EventComment {
   return {
     id: c.id,
     eventId: c.eventId,
     userId: c.userId,
     text: c.text,
     createdAt: c.createdAt,
-    photo: null,
+    photo: memberPhotoUrl(teamId, c.authorMembershipId, c.hasAuthorPhoto),
     ...opt('name', c.authorName),
     ...opt('color', c.authorColor),
   };
 }
 
-export function mapAbsence(a: S['Absence']): Absence {
+export function mapAbsence(a: S['Absence'], teamId: string): Absence {
   return {
     id: a.id,
     userId: a.userId,
@@ -272,7 +284,7 @@ export function mapAbsence(a: S['Absence']): Absence {
     to: a.to,
     reason: a.reason ?? '',
     createdAt: a.createdAt,
-    photo: null,
+    photo: memberPhotoUrl(teamId, a.memberMembershipId, a.hasPhoto),
     ...opt('name', a.memberName),
     ...opt('avatarColor', a.memberAvatarColor),
     ...opt('roleColor', a.roleColor),
@@ -295,7 +307,7 @@ export function mapNewsItem(n: S['NewsItem']): NewsItem {
   };
 }
 
-export function mapPoll(p: S['Poll']): Poll {
+export function mapPoll(p: S['Poll'], teamId: string): Poll {
   return {
     id: p.id,
     question: p.question,
@@ -318,11 +330,7 @@ export function mapPoll(p: S['Poll']): Poll {
         membershipId: v.membershipId ?? null,
         name: v.name ?? '',
         color: v.color ?? '#888',
-        // Photos for poll voters are wired once `consistent-profile-photos`
-        // lands its shared avatar URL rule; until then the avatar falls back
-        // to coloured initials. `membershipId` is already carried above so
-        // that follow-up only has to build the URL.
-        photo: null,
+        photo: memberPhotoUrl(teamId, v.membershipId, v.hasPhoto),
       })),
     })),
   };
@@ -334,7 +342,7 @@ export function mapNotification(n: S['AppNotification']): AppNotification {
     teamId: n.teamId,
     type: n.type as AppNotification['type'],
     createdAt: n.createdAt,
-    actorPhoto: null,
+    actorPhoto: memberPhotoUrl(n.teamId, n.actorMembershipId, n.hasActorPhoto),
     unread: n.unread ?? false,
     ...opt('actorId', n.actorId),
     ...opt('status', n.status as AppNotification['status']),
