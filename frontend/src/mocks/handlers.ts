@@ -26,6 +26,7 @@ import {
 import type { UserRow, TeamRow } from './db';
 import type { RoleDto } from '@/types';
 import type { EventDto } from '@/features/events';
+import { isRsvpCutoffPassed } from '@/features/events/rsvpCutoff';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 
 type S = components['schemas'];
@@ -200,6 +201,7 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('startTime', e.startTime ?? undefined),
     ...opt('endTime', e.endTime ?? undefined),
     ...opt('rsvpDeadline', e.rsvpDeadline ?? undefined),
+    ...opt('cancelLeadMinutes', e.cancelLeadMinutes ?? undefined),
   };
 }
 
@@ -869,6 +871,7 @@ export const handlers = [
       seriesId: null,
       status: 'active',
       rsvpDeadline: body.rsvpDeadline ?? null,
+      cancelLeadMinutes: body.cancelLeadMinutes ?? null,
       ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
     // endDate is the alternative to repeatWeeks for a recurring series (see
@@ -943,6 +946,7 @@ export const handlers = [
       if (body.startTime !== undefined) ev.startTime = body.startTime || null;
       if (body.endTime !== undefined) ev.endTime = body.endTime || null;
       if (body.rsvpDeadline !== undefined) ev.rsvpDeadline = body.rsvpDeadline || null;
+      if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
       if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
     });
     pushNotif({ teamId: e.teamId, type: 'event_updated', title: e.title, eventId: e.id, eventTitle: e.title, eventDate: e.date, note: scope === 'series' ? 'ganze Serie' : '', ...opt('actorId', session.userId ?? undefined) });
@@ -1015,6 +1019,20 @@ export const handlers = [
     await mockDelay();
     const eventId = params.eventId as string;
     const body = (await request.json()) as S['SetAttendanceRequest'];
+    const e = eventDate(eventId);
+    if (!e) return problem(404, 'Event not found');
+    if (e.status === 'cancelled') return problem(409, 'cannot change attendance on a cancelled event');
+    // Setting another member's attendance is only reachable through UI
+    // already gated behind events:write (see AttendanceRowItem's canEdit),
+    // matching the backend's identical "acting on another member requires
+    // events:write, which also bypasses the rsvpDeadline/cancelLeadMinutes
+    // cutoffs" rule (events.Service.SetAttendance) -- the mock has no
+    // broader RBAC model to consult, so self-vs-other is used as the proxy
+    // for whether the caller holds that permission.
+    const actingOnSelf = body.userId === session.userId;
+    if (actingOnSelf && isRsvpCutoffPassed(e)) {
+      return problem(409, 'the rsvp deadline or cancellation lead time has passed');
+    }
     let a = db.attendance.find((x) => x.eventId === eventId && x.userId === body.userId);
     if (!a) {
       a = { id: rid('att'), eventId, userId: body.userId, status: body.status, reason: '', reasonId: null, reasonVisibility: null };
@@ -1025,8 +1043,7 @@ export const handlers = [
     a.reasonId = body.reasonId || null;
     a.reasonVisibility = (body.reasonVisibility as S['AttendanceRow']['reasonVisibility']) || null;
     a.at = new Date().toISOString();
-    const e = eventDate(eventId);
-    if (e && (body.status === 'yes' || body.status === 'no' || body.status === 'maybe')) {
+    if (body.status === 'yes' || body.status === 'no' || body.status === 'maybe') {
       pushNotif({ teamId: e.teamId, type: 'attendance', actorId: body.userId, status: body.status, eventId: e.id, eventTitle: e.title, eventDate: e.date });
     }
     const record: S['AttendanceRecord'] = {

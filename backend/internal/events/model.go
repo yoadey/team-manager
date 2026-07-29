@@ -31,6 +31,13 @@ type EventRow struct {
 	// member can no longer change their attendance response for this event
 	// (see Service.SetAttendance).
 	RsvpDeadline *time.Time
+	// CancelLeadMinutes is the optional cutoff, expressed as minutes before
+	// the event's start (see EventStartInstant), after which a
+	// non-privileged member can no longer change their attendance response
+	// for this event (see Service.SetAttendance). Independent of
+	// RsvpDeadline -- either cutoff, if set and passed, blocks self-service
+	// changes.
+	CancelLeadMinutes *int
 }
 
 // EventSeriesRow mirrors the event_series DB table.
@@ -56,7 +63,10 @@ type EventSeriesRow struct {
 	// RsvpDeadline is the template value each generated occurrence's own
 	// EventRow.RsvpDeadline is seeded from.
 	RsvpDeadline *time.Time
-	CreatedAt    time.Time
+	// CancelLeadMinutes is the template value each generated occurrence's
+	// own EventRow.CancelLeadMinutes is seeded from.
+	CancelLeadMinutes *int
+	CreatedAt         time.Time
 }
 
 // AttendanceDBRow is the DB representation of the attendance table.
@@ -172,6 +182,10 @@ type CreateEventParams struct {
 	// RsvpDeadline is the optional response cutoff, set on the created
 	// event (or seeded onto every occurrence of a created series).
 	RsvpDeadline *time.Time
+	// CancelLeadMinutes is the optional lead-time-based response cutoff,
+	// set on the created event (or seeded onto every occurrence of a
+	// created series).
+	CancelLeadMinutes *int
 }
 
 // UpdateEventParams holds the fields used to update an event.
@@ -188,4 +202,5 @@ type UpdateEventParams struct {
 	ResponseMode      *string
 	NominatedRoleIds  []uuid.UUID
 	RsvpDeadline      *time.Time
+	CancelLeadMinutes *int
 }

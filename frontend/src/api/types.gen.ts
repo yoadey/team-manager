@@ -1413,6 +1413,8 @@ export interface components {
              * @description Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
              */
             rsvpDeadline?: string;
+            /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response for this event. */
+            cancelLeadMinutes?: number;
         };
         CreateEventRequest: {
             type: components["schemas"]["EventType"];
@@ -1439,6 +1441,8 @@ export interface components {
              * @description Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
              */
             rsvpDeadline?: string;
+            /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own cancelLeadMinutes, with each occurrence computing its own effective cutoff from its own start. */
+            cancelLeadMinutes?: number;
         };
         UpdateEventRequest: {
             type?: components["schemas"]["EventType"];
@@ -1458,6 +1462,8 @@ export interface components {
              * @description Optional cutoff after which a non-privileged member can no longer change their attendance response.
              */
             rsvpDeadline?: string;
+            /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. */
+            cancelLeadMinutes?: number;
         };
         SetEventStatusRequest: {
             status: components["schemas"]["EventStatus"];
@@ -2010,6 +2016,15 @@ export interface components {
         };
         /** @description Forbidden */
         Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+        /** @description Conflict. For example, an attendance change was rejected because the event's cancelled, or its rsvpDeadline/cancelLeadMinutes cutoff has passed for a caller without write permission on events. */
+        Conflict: {
             headers: {
                 [name: string]: unknown;
             };
@@ -3209,6 +3224,7 @@ export interface operations {
                     "application/json": components["schemas"]["AttendanceRecord"];
                 };
             };
+            409: components["responses"]["Conflict"];
         };
     };
     setNomination: {

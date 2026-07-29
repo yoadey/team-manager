@@ -136,6 +136,8 @@ export const eventFormSchema = z
     repeatMode: z.enum(['weeks', 'until']).optional(),
     repeatEndDate: z.string().trim().optional().or(z.literal('')),
     rsvpDeadline: z.string().trim().optional().or(z.literal('')),
+    cancelLeadHours: z.coerce.number().min(0).optional(),
+    cancelLeadMinutes: z.coerce.number().min(0).max(59).optional(),
     seriesId: z.string().optional().nullable(),
   })
   .superRefine((data, ctx) => {

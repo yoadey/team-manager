@@ -332,6 +332,11 @@ export const de = {
     recurEndDate: 'Enddatum',
     fieldRsvpDeadline: 'Rückmeldefrist',
     fieldRsvpDeadlineHint: 'Nach Ablauf können normale Mitglieder ihre Rückmeldung nicht mehr ändern.',
+    fieldCancelLeadTime: 'Absagefrist vor Beginn',
+    fieldCancelLeadHours: 'Stunden',
+    fieldCancelLeadMinutes: 'Minuten',
+    fieldCancelLeadTimeHint:
+      'Ab so viel Zeit vor Beginn können normale Mitglieder ihre Rückmeldung nicht mehr ändern. 0 Std. 0 Min. bedeutet keine Frist.',
     rsvpCountdown: 'Rückmeldefrist endet in {time}',
     rsvpCountdownHoursMinutes: '{hours} Std. {minutes} Min.',
     rsvpCountdownMinutes: '{minutes} Min.',

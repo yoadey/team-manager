@@ -4,16 +4,21 @@ import { EventCard } from './cards';
 import { NewsCard } from './cards';
 import { setLocale } from '@/i18n';
 
-const { mockOpenEventDetail, mockSetMyStatus } = vi.hoisted(() => ({
+const { mockOpenEventDetail, mockSetMyStatus, mockCan } = vi.hoisted(() => ({
   mockOpenEventDetail: vi.fn(),
   mockSetMyStatus: vi.fn(),
+  mockCan: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn().mockReturnValue({
     state: { primaryColor: '#4285F4' },
   }),
-  useAppActions: vi.fn().mockReturnValue({ openEventDetail: mockOpenEventDetail, setMyStatus: mockSetMyStatus }),
+  useAppActions: vi.fn().mockReturnValue({
+    openEventDetail: mockOpenEventDetail,
+    setMyStatus: mockSetMyStatus,
+    can: mockCan,
+  }),
 }));
 
 function makeEvent(overrides: Record<string, unknown> = {}) {
@@ -55,6 +60,8 @@ describe('EventCard', () => {
   beforeEach(() => {
     mockOpenEventDetail.mockClear();
     mockSetMyStatus.mockClear();
+    mockCan.mockClear();
+    mockCan.mockReturnValue(true);
   });
 
   it('renders event title', () => {
@@ -71,6 +78,21 @@ describe('EventCard', () => {
   it('does not show inline RSVP controls on a past event', () => {
     render(<EventCard e={makeEvent({ date: '2000-01-01' })} />);
     expect(screen.queryByRole('button', { name: 'Zusagen' })).toBeNull();
+  });
+
+  it('does not show inline RSVP controls once the cancellation lead time has passed', () => {
+    // Event itself is still upcoming (default date 2099-06-15), but an
+    // enormous lead time pushes the effective cutoff (start minus
+    // cancelLeadMinutes) well into the past.
+    mockCan.mockReturnValueOnce(false);
+    render(<EventCard e={makeEvent({ cancelLeadMinutes: 100_000_000, myStatus: 'maybe' })} />);
+    expect(screen.queryByRole('button', { name: 'Zusagen' })).toBeNull();
+  });
+
+  it('still shows inline RSVP controls past the cutoff for a caller holding events:write', () => {
+    mockCan.mockReturnValueOnce(true);
+    render(<EventCard e={makeEvent({ cancelLeadMinutes: 100_000_000, myStatus: 'maybe' })} />);
+    expect(screen.getByRole('button', { name: 'Zusagen' })).toBeTruthy();
   });
 
   it('renders attendance counts', () => {

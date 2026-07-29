@@ -37,6 +37,11 @@ var (
 	// permitting late responses (events:write) attempts to change their
 	// attendance after the event's rsvpDeadline has passed.
 	ErrRsvpDeadlinePassed = errors.New("events.Service.SetAttendance: rsvp deadline has passed")
+	// ErrCancelLeadTimePassed is returned when a member without a role
+	// permitting late responses (events:write) attempts to change their
+	// attendance after the event's cancelLeadMinutes-derived cutoff
+	// (EventStartInstant - cancelLeadMinutes) has passed.
+	ErrCancelLeadTimePassed = errors.New("events.Service.SetAttendance: cancellation lead time has passed")
 )
 
 // maxRepeatWeeks caps how many events a single recurring series may create.
@@ -250,6 +255,7 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		RepeatWeeks:       repeatWeeks,
 		RepeatEndDate:     repeatEndDate,
 		RsvpDeadline:      body.RsvpDeadline,
+		CancelLeadMinutes: body.CancelLeadMinutes,
 	}
 	if body.ResponseMode != nil {
 		rm := string(*body.ResponseMode)
@@ -325,6 +331,7 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		EndTime:           body.EndTime,
 		MeetTimeMandatory: body.MeetTimeMandatory,
 		RsvpDeadline:      body.RsvpDeadline,
+		CancelLeadMinutes: body.CancelLeadMinutes,
 	}
 	if body.Type != nil {
 		t := string(*body.Type)
@@ -552,7 +559,9 @@ func roleSetsIntersect(a, b []string) bool {
 // (ErrRsvpDeadlinePassed) unless the caller holds events:write -- the same
 // permission that lets an organizer set attendance for another member also
 // lets them (or anyone else holding it) respond, or adjust a response, past
-// the deadline; there is no separate "late response" permission.
+// the deadline; there is no separate "late response" permission. The same
+// applies, independently, once the event's cancelLeadMinutes-derived cutoff
+// has passed (ErrCancelLeadTimePassed).
 func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
 	// status="not_nominated" is exclusively SetNomination's domain (an
 	// events:write-gated organizer action, never self-service). Without this,
@@ -594,6 +603,21 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 		}
 	}
 
+	// Independently, reject a response once the event's cancelLeadMinutes-
+	// derived cutoff has passed (EventStartInstant - cancelLeadMinutes),
+	// unless the caller holds events:write. Either cutoff, whichever is
+	// set and passed, blocks a self-service change -- see the repository's
+	// identical, race-closing re-check inside the write itself.
+	if ev.CancelLeadMinutes != nil {
+		start := EventStartInstant(ev.Date, ev.StartTime, ev.MeetTime)
+		cutoff := start.Add(-time.Duration(*ev.CancelLeadMinutes) * time.Minute)
+		if time.Now().After(cutoff) {
+			if err := s.requireCallerEventsWrite(ctx, callerID, teamID, ErrCancelLeadTimePassed); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	statusStr := string(req.Status)
 	var reasonVisStr *string
 	if req.ReasonVisibility != nil {
@@ -612,10 +636,11 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 // requireCallerEventsWrite checks whether callerID currently holds
 // events:write for teamID, returning onDenied (the caller-facing sentinel
 // appropriate to whichever gate is calling this -- ErrSetAttendanceForbidden
-// for "acting on another member", ErrRsvpDeadlinePassed for "responding
-// after the deadline") when it doesn't, nil when it does. Shared by
-// SetAttendance's two independent events:write gates, which otherwise
-// duplicate the same permChecker plumbing.
+// for "acting on another member", ErrRsvpDeadlinePassed or
+// ErrCancelLeadTimePassed for "responding after the deadline") when it
+// doesn't, nil when it does. Shared by SetAttendance's three independent
+// events:write gates, which otherwise duplicate the same permChecker
+// plumbing.
 func (s *Service) requireCallerEventsWrite(ctx context.Context, callerID, teamID string, onDenied error) error {
 	if s.permChecker == nil {
 		return onDenied
@@ -745,6 +770,7 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 		EndTime:           row.EndTime,
 		MeetTimeMandatory: row.MeetTimeMandatory,
 		RsvpDeadline:      row.RsvpDeadline,
+		CancelLeadMinutes: row.CancelLeadMinutes,
 	}
 
 	if row.SeriesId != nil {

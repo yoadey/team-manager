@@ -7,6 +7,7 @@ import { buildTokens, fmtDate, hhmm, NEUTRAL, statusMeta, typeMeta } from '@/sty
 import { parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, getLocale, subscribeLocale, t } from '@/i18n';
 import type { TeamEvent } from '@/features/events';
+import { isRsvpCutoffPassed } from '@/features/events/rsvpCutoff';
 import type { NewsItem } from '@/features/news';
 import type { AttendanceStatus } from '@/types';
 import { Av, Chip, Sym, metaItem } from './ui';
@@ -32,7 +33,7 @@ function useLocaleSubscription(): void {
  *  month abbreviation stuck in the old language. */
 export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
   useLocaleSubscription();
-  const { openEventDetail, setMyStatus } = useAppActions();
+  const { openEventDetail, setMyStatus, can } = useAppActions();
   const compact = useCompact();
   const today = todayLocalDate();
   const tm = typeMeta(e.type);
@@ -43,7 +44,12 @@ export const EventCard = memo(function EventCard({ e }: { e: TeamEvent }) {
   // RSVP straight from the overview only where it's meaningful: upcoming,
   // active, and the member is actually nominated. Otherwise fall back to the
   // read-only status chip (or nothing, for past/cancelled), as before.
-  const canRsvp = !isPast && !cancelled && !notNominated;
+  // Once the event's rsvpDeadline/cancelLeadMinutes-derived cutoff has
+  // passed, inline RSVP is withdrawn the same way for a caller without
+  // events:write -- an organizer (events:write) may still respond past the
+  // cutoff, mirroring the server-side bypass (events.Service.SetAttendance).
+  const cutoffBlocksRsvp = !can('events', 'write') && isRsvpCutoffPassed(e);
+  const canRsvp = !isPast && !cancelled && !notNominated && !cutoffBlocksRsvp;
   const day = parseDateOnlyLocal(e.date);
 
   // Icon-only RSVP button mirroring EventDetailSheet's yes/maybe/no controls

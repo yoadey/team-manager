@@ -71,6 +71,7 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
     seriesId: null,
     status: 'active',
     rsvpDeadline: null,
+    cancelLeadMinutes: null,
     summary: { yes: 0, no: 0, maybe: 0, pending: 0, notNominated: 0, nominated: 0, total: 0 },
     myStatus: 'pending',
     myAuto: false,
