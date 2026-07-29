@@ -487,6 +487,13 @@ type CalendarFeedToken struct {
 	Url string `json:"url"`
 }
 
+// CalendarShare A grant of read-only calendar visibility from the owning team to another team.
+type CalendarShare struct {
+	CreatedAt      time.Time          `json:"createdAt"`
+	ViewerTeamId   openapi_types.UUID `json:"viewerTeamId"`
+	ViewerTeamName string             `json:"viewerTeamName"`
+}
+
 // Contribution defines model for Contribution.
 type Contribution struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
@@ -513,6 +520,11 @@ type CreateAbsenceRequest struct {
 	Reason *string            `json:"reason,omitempty"`
 	To     openapi_types.Date `json:"to"`
 	UserId openapi_types.UUID `json:"userId"`
+}
+
+// CreateCalendarShareRequest defines model for CreateCalendarShareRequest.
+type CreateCalendarShareRequest struct {
+	ViewerTeamId openapi_types.UUID `json:"viewerTeamId"`
 }
 
 // CreateEventRequest defines model for CreateEventRequest.
@@ -928,6 +940,27 @@ type SetRolesRequest struct {
 	RoleIds []openapi_types.UUID `json:"roleIds"`
 }
 
+// SharedCalendarEvent A redacted projection of an event for cross-team calendar sharing -- deliberately excludes attendance, participants, comments, and notes.
+type SharedCalendarEvent struct {
+	Date openapi_types.Date `json:"date"`
+
+	// EndTime HH:mm
+	EndTime  *string            `json:"endTime,omitempty"`
+	Id       openapi_types.UUID `json:"id"`
+	Location *string            `json:"location,omitempty"`
+
+	// StartTime HH:mm
+	StartTime *string   `json:"startTime,omitempty"`
+	Title     string    `json:"title"`
+	Type      EventType `json:"type"`
+}
+
+// SharedCalendarSource A team that has granted the requesting team read-only calendar visibility.
+type SharedCalendarSource struct {
+	OwnerTeamId   openapi_types.UUID `json:"ownerTeamId"`
+	OwnerTeamName string             `json:"ownerTeamName"`
+}
+
 // StatsOverview defines model for StatsOverview.
 type StatsOverview struct {
 	Avg       float32            `json:"avg"`
@@ -1276,6 +1309,12 @@ type ListPollsParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ListSharedCalendarEventsParams defines parameters for ListSharedCalendarEvents.
+type ListSharedCalendarEventsParams struct {
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+	To   *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+}
+
 // GetStatsOverviewParams defines parameters for GetStatsOverview.
 type GetStatsOverviewParams struct {
 	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
@@ -1328,6 +1367,9 @@ type CreateAbsenceJSONRequestBody = CreateAbsenceRequest
 
 // UpdateAbsenceJSONRequestBody defines body for UpdateAbsence for application/json ContentType.
 type UpdateAbsenceJSONRequestBody = UpdateAbsenceRequest
+
+// CreateCalendarShareJSONRequestBody defines body for CreateCalendarShare for application/json ContentType.
+type CreateCalendarShareJSONRequestBody = CreateCalendarShareRequest
 
 // CreateEventJSONRequestBody defines body for CreateEvent for application/json ContentType.
 type CreateEventJSONRequestBody = CreateEventRequest
@@ -1478,6 +1520,15 @@ type ServerInterface interface {
 	// Issue (or rotate) the caller's calendar subscription link for this team
 	// (POST /teams/{teamId}/calendar-feed/token)
 	IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// List teams this team has granted read-only calendar visibility to
+	// (GET /teams/{teamId}/calendar-shares)
+	ListCalendarShares(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Grant another team read-only visibility of this team's calendar
+	// (POST /teams/{teamId}/calendar-shares)
+	CreateCalendarShare(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Revoke a previously granted calendar share
+	// (DELETE /teams/{teamId}/calendar-shares/{viewerTeamId})
+	DeleteCalendarShare(w http.ResponseWriter, r *http.Request, teamId TeamId, viewerTeamId openapi_types.UUID)
 	// List events
 	// (GET /teams/{teamId}/events)
 	ListEvents(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListEventsParams)
@@ -1631,6 +1682,12 @@ type ServerInterface interface {
 	// Update role
 	// (PATCH /teams/{teamId}/roles/{roleId})
 	UpdateRole(w http.ResponseWriter, r *http.Request, teamId TeamId, roleId RoleId)
+	// List teams that have granted this team read-only calendar visibility
+	// (GET /teams/{teamId}/shared-calendars)
+	ListSharedCalendarSources(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Redacted schedule (time, location, title, type only) of ownerTeamId's calendar. Readable only when ownerTeamId currently has a calendar share granted to teamId -- no attendance, participants, comments, or notes are ever included in the projection.
+	// (GET /teams/{teamId}/shared-calendars/{ownerTeamId}/events)
+	ListSharedCalendarEvents(w http.ResponseWriter, r *http.Request, teamId TeamId, ownerTeamId openapi_types.UUID, params ListSharedCalendarEventsParams)
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(w http.ResponseWriter, r *http.Request, teamId TeamId, params GetStatsOverviewParams)
@@ -1796,6 +1853,24 @@ func (_ Unimplemented) RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Re
 // Issue (or rotate) the caller's calendar subscription link for this team
 // (POST /teams/{teamId}/calendar-feed/token)
 func (_ Unimplemented) IssueCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List teams this team has granted read-only calendar visibility to
+// (GET /teams/{teamId}/calendar-shares)
+func (_ Unimplemented) ListCalendarShares(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Grant another team read-only visibility of this team's calendar
+// (POST /teams/{teamId}/calendar-shares)
+func (_ Unimplemented) CreateCalendarShare(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Revoke a previously granted calendar share
+// (DELETE /teams/{teamId}/calendar-shares/{viewerTeamId})
+func (_ Unimplemented) DeleteCalendarShare(w http.ResponseWriter, r *http.Request, teamId TeamId, viewerTeamId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2102,6 +2177,18 @@ func (_ Unimplemented) DeleteRole(w http.ResponseWriter, r *http.Request, teamId
 // Update role
 // (PATCH /teams/{teamId}/roles/{roleId})
 func (_ Unimplemented) UpdateRole(w http.ResponseWriter, r *http.Request, teamId TeamId, roleId RoleId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List teams that have granted this team read-only calendar visibility
+// (GET /teams/{teamId}/shared-calendars)
+func (_ Unimplemented) ListSharedCalendarSources(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Redacted schedule (time, location, title, type only) of ownerTeamId's calendar. Readable only when ownerTeamId currently has a calendar share granted to teamId -- no attendance, participants, comments, or notes are ever included in the projection.
+// (GET /teams/{teamId}/shared-calendars/{ownerTeamId}/events)
+func (_ Unimplemented) ListSharedCalendarEvents(w http.ResponseWriter, r *http.Request, teamId TeamId, ownerTeamId openapi_types.UUID, params ListSharedCalendarEventsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2793,6 +2880,111 @@ func (siw *ServerInterfaceWrapper) IssueCalendarFeedToken(w http.ResponseWriter,
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.IssueCalendarFeedToken(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCalendarShares operation middleware
+func (siw *ServerInterfaceWrapper) ListCalendarShares(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCalendarShares(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCalendarShare operation middleware
+func (siw *ServerInterfaceWrapper) CreateCalendarShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCalendarShare(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCalendarShare operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCalendarShare(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "viewerTeamId" -------------
+	var viewerTeamId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "viewerTeamId", chi.URLParam(r, "viewerTeamId"), &viewerTeamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "viewerTeamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCalendarShare(w, r, teamId, viewerTeamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4930,6 +5122,108 @@ func (siw *ServerInterfaceWrapper) UpdateRole(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListSharedCalendarSources operation middleware
+func (siw *ServerInterfaceWrapper) ListSharedCalendarSources(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSharedCalendarSources(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSharedCalendarEvents operation middleware
+func (siw *ServerInterfaceWrapper) ListSharedCalendarEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "ownerTeamId" -------------
+	var ownerTeamId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "ownerTeamId", chi.URLParam(r, "ownerTeamId"), &ownerTeamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ownerTeamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSharedCalendarEventsParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSharedCalendarEvents(w, r, teamId, ownerTeamId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetStatsOverview operation middleware
 func (siw *ServerInterfaceWrapper) GetStatsOverview(w http.ResponseWriter, r *http.Request) {
 
@@ -5399,6 +5693,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/teams/{teamId}/calendar-feed/token", wrapper.IssueCalendarFeedToken)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/calendar-shares", wrapper.ListCalendarShares)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams/{teamId}/calendar-shares", wrapper.CreateCalendarShare)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{teamId}/calendar-shares/{viewerTeamId}", wrapper.DeleteCalendarShare)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/events", wrapper.ListEvents)
 	})
 	r.Group(func(r chi.Router) {
@@ -5550,6 +5853,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/teams/{teamId}/roles/{roleId}", wrapper.UpdateRole)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/shared-calendars", wrapper.ListSharedCalendarSources)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/shared-calendars/{ownerTeamId}/events", wrapper.ListSharedCalendarEvents)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/stats", wrapper.GetStatsOverview)
@@ -6346,6 +6655,84 @@ func (response IssueCalendarFeedToken200JSONResponse) VisitIssueCalendarFeedToke
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type ListCalendarSharesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type ListCalendarSharesResponseObject interface {
+	VisitListCalendarSharesResponse(w http.ResponseWriter) error
+}
+
+type ListCalendarShares200JSONResponse []CalendarShare
+
+func (response ListCalendarShares200JSONResponse) VisitListCalendarSharesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCalendarShareRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Body   *CreateCalendarShareJSONRequestBody
+}
+
+type CreateCalendarShareResponseObject interface {
+	VisitCreateCalendarShareResponse(w http.ResponseWriter) error
+}
+
+type CreateCalendarShare201JSONResponse CalendarShare
+
+func (response CreateCalendarShare201JSONResponse) VisitCreateCalendarShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCalendarShare404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCalendarShare404ApplicationProblemPlusJSONResponse) VisitCreateCalendarShareResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteCalendarShareRequestObject struct {
+	TeamId       TeamId             `json:"teamId"`
+	ViewerTeamId openapi_types.UUID `json:"viewerTeamId"`
+}
+
+type DeleteCalendarShareResponseObject interface {
+	VisitDeleteCalendarShareResponse(w http.ResponseWriter) error
+}
+
+type DeleteCalendarShare204Response struct {
+}
+
+func (response DeleteCalendarShare204Response) VisitDeleteCalendarShareResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
 }
 
 type ListEventsRequestObject struct {
@@ -7619,6 +8006,68 @@ func (response UpdateRole200JSONResponse) VisitUpdateRoleResponse(w http.Respons
 	return err
 }
 
+type ListSharedCalendarSourcesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type ListSharedCalendarSourcesResponseObject interface {
+	VisitListSharedCalendarSourcesResponse(w http.ResponseWriter) error
+}
+
+type ListSharedCalendarSources200JSONResponse []SharedCalendarSource
+
+func (response ListSharedCalendarSources200JSONResponse) VisitListSharedCalendarSourcesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedCalendarEventsRequestObject struct {
+	TeamId      TeamId             `json:"teamId"`
+	OwnerTeamId openapi_types.UUID `json:"ownerTeamId"`
+	Params      ListSharedCalendarEventsParams
+}
+
+type ListSharedCalendarEventsResponseObject interface {
+	VisitListSharedCalendarEventsResponse(w http.ResponseWriter) error
+}
+
+type ListSharedCalendarEvents200JSONResponse []SharedCalendarEvent
+
+func (response ListSharedCalendarEvents200JSONResponse) VisitListSharedCalendarEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSharedCalendarEvents404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListSharedCalendarEvents404ApplicationProblemPlusJSONResponse) VisitListSharedCalendarEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetStatsOverviewRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 	Params GetStatsOverviewParams
@@ -7817,6 +8266,15 @@ type StrictServerInterface interface {
 	// Issue (or rotate) the caller's calendar subscription link for this team
 	// (POST /teams/{teamId}/calendar-feed/token)
 	IssueCalendarFeedToken(ctx context.Context, request IssueCalendarFeedTokenRequestObject) (IssueCalendarFeedTokenResponseObject, error)
+	// List teams this team has granted read-only calendar visibility to
+	// (GET /teams/{teamId}/calendar-shares)
+	ListCalendarShares(ctx context.Context, request ListCalendarSharesRequestObject) (ListCalendarSharesResponseObject, error)
+	// Grant another team read-only visibility of this team's calendar
+	// (POST /teams/{teamId}/calendar-shares)
+	CreateCalendarShare(ctx context.Context, request CreateCalendarShareRequestObject) (CreateCalendarShareResponseObject, error)
+	// Revoke a previously granted calendar share
+	// (DELETE /teams/{teamId}/calendar-shares/{viewerTeamId})
+	DeleteCalendarShare(ctx context.Context, request DeleteCalendarShareRequestObject) (DeleteCalendarShareResponseObject, error)
 	// List events
 	// (GET /teams/{teamId}/events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
@@ -7970,6 +8428,12 @@ type StrictServerInterface interface {
 	// Update role
 	// (PATCH /teams/{teamId}/roles/{roleId})
 	UpdateRole(ctx context.Context, request UpdateRoleRequestObject) (UpdateRoleResponseObject, error)
+	// List teams that have granted this team read-only calendar visibility
+	// (GET /teams/{teamId}/shared-calendars)
+	ListSharedCalendarSources(ctx context.Context, request ListSharedCalendarSourcesRequestObject) (ListSharedCalendarSourcesResponseObject, error)
+	// Redacted schedule (time, location, title, type only) of ownerTeamId's calendar. Readable only when ownerTeamId currently has a calendar share granted to teamId -- no attendance, participants, comments, or notes are ever included in the projection.
+	// (GET /teams/{teamId}/shared-calendars/{ownerTeamId}/events)
+	ListSharedCalendarEvents(ctx context.Context, request ListSharedCalendarEventsRequestObject) (ListSharedCalendarEventsResponseObject, error)
 	// Team attendance statistics
 	// (GET /teams/{teamId}/stats)
 	GetStatsOverview(ctx context.Context, request GetStatsOverviewRequestObject) (GetStatsOverviewResponseObject, error)
@@ -8684,6 +9148,92 @@ func (sh *strictHandler) IssueCalendarFeedToken(w http.ResponseWriter, r *http.R
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(IssueCalendarFeedTokenResponseObject); ok {
 		if err := validResponse.VisitIssueCalendarFeedTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCalendarShares operation middleware
+func (sh *strictHandler) ListCalendarShares(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request ListCalendarSharesRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCalendarShares(ctx, request.(ListCalendarSharesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCalendarShares")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCalendarSharesResponseObject); ok {
+		if err := validResponse.VisitListCalendarSharesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateCalendarShare operation middleware
+func (sh *strictHandler) CreateCalendarShare(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request CreateCalendarShareRequestObject
+
+	request.TeamId = teamId
+
+	var body CreateCalendarShareJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateCalendarShare(ctx, request.(CreateCalendarShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateCalendarShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateCalendarShareResponseObject); ok {
+		if err := validResponse.VisitCreateCalendarShareResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteCalendarShare operation middleware
+func (sh *strictHandler) DeleteCalendarShare(w http.ResponseWriter, r *http.Request, teamId TeamId, viewerTeamId openapi_types.UUID) {
+	var request DeleteCalendarShareRequestObject
+
+	request.TeamId = teamId
+	request.ViewerTeamId = viewerTeamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteCalendarShare(ctx, request.(DeleteCalendarShareRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteCalendarShare")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteCalendarShareResponseObject); ok {
+		if err := validResponse.VisitDeleteCalendarShareResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -10216,6 +10766,60 @@ func (sh *strictHandler) UpdateRole(w http.ResponseWriter, r *http.Request, team
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateRoleResponseObject); ok {
 		if err := validResponse.VisitUpdateRoleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSharedCalendarSources operation middleware
+func (sh *strictHandler) ListSharedCalendarSources(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request ListSharedCalendarSourcesRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSharedCalendarSources(ctx, request.(ListSharedCalendarSourcesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSharedCalendarSources")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSharedCalendarSourcesResponseObject); ok {
+		if err := validResponse.VisitListSharedCalendarSourcesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSharedCalendarEvents operation middleware
+func (sh *strictHandler) ListSharedCalendarEvents(w http.ResponseWriter, r *http.Request, teamId TeamId, ownerTeamId openapi_types.UUID, params ListSharedCalendarEventsParams) {
+	var request ListSharedCalendarEventsRequestObject
+
+	request.TeamId = teamId
+	request.OwnerTeamId = ownerTeamId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSharedCalendarEvents(ctx, request.(ListSharedCalendarEventsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSharedCalendarEvents")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSharedCalendarEventsResponseObject); ok {
+		if err := validResponse.VisitListSharedCalendarEventsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

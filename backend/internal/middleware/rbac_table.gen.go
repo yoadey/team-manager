@@ -20,6 +20,7 @@ type rbacRouteEntry struct {
 var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: true},                             // addEventComment
 	{Method: "POST", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                   // createAbsence
+	{Method: "POST", Segments: []string{"calendar-shares"}, Module: "settings", SelfService: false},                                          // createCalendarShare
 	{Method: "POST", Segments: []string{"events"}, Module: "events", SelfService: false},                                                     // createEvent
 	{Method: "POST", Segments: []string{"invite"}, Module: "settings", SelfService: false},                                                   // createInvite
 	{Method: "POST", Segments: []string{"news"}, Module: "news", SelfService: false},                                                         // createNews
@@ -29,6 +30,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                    // createRole
 	{Method: "POST", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                                 // createTransaction
 	{Method: "DELETE", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                  // deleteAbsence
+	{Method: "DELETE", Segments: []string{"calendar-shares", "{viewerTeamId}"}, Module: "settings", SelfService: false},                      // deleteCalendarShare
 	{Method: "DELETE", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                      // deleteEvent
 	{Method: "DELETE", Segments: []string{"events", "{eventId}", "comments", "{commentId}"}, Module: "events", SelfService: true},            // deleteEventComment
 	{Method: "DELETE", Segments: []string{"news", "{newsId}"}, Module: "news", SelfService: false},                                           // deleteNews
@@ -52,6 +54,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"calendar-feed", "token"}, Module: "events", SelfService: true},                                      // issueCalendarFeedToken
 	{Method: "GET", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                    // listAbsences
 	{Method: "GET", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: false},                           // listAttendance
+	{Method: "GET", Segments: []string{"calendar-shares"}, Module: "settings", SelfService: false},                                           // listCalendarShares
 	{Method: "GET", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: false},                             // listEventComments
 	{Method: "GET", Segments: []string{"events"}, Module: "events", SelfService: false},                                                      // listEvents
 	{Method: "GET", Segments: []string{"members"}, Module: "members", SelfService: false},                                                    // listMembers
@@ -60,6 +63,8 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: []string{"notifications"}, Module: "public", SelfService: false},                                               // listNotifications
 	{Method: "GET", Segments: []string{"polls"}, Module: "polls", SelfService: false},                                                        // listPolls
 	{Method: "GET", Segments: []string{"roles"}, Module: "settings", SelfService: false},                                                     // listRoles
+	{Method: "GET", Segments: []string{"shared-calendars", "{ownerTeamId}", "events"}, Module: "public", SelfService: false},                 // listSharedCalendarEvents
+	{Method: "GET", Segments: []string{"shared-calendars"}, Module: "public", SelfService: false},                                            // listSharedCalendarSources
 	{Method: "GET", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                                  // listTransactions
 	{Method: "POST", Segments: []string{"notifications", "seen"}, Module: "public", SelfService: false},                                      // markNotificationsSeen
 	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                               // removeMember

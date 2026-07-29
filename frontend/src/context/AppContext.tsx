@@ -97,6 +97,8 @@ export type SheetType =
   | 'pollVoters'
   | 'roles'
   | 'roleForm'
+  | 'calendarShares'
+  | 'sharedCalendars'
   | 'confirm';
 
 export interface ConfirmConfig {
@@ -242,7 +244,17 @@ const initialState: AppState = {
 // oversized file has to be rejected client-side before FileReader reads it.
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
-const PAGE_SHEETS = ['eventDetail', 'eventForm', 'memberDetail', 'memberForm', 'teamSettings', 'roles', 'roleForm'];
+const PAGE_SHEETS = [
+  'eventDetail',
+  'eventForm',
+  'memberDetail',
+  'memberForm',
+  'teamSettings',
+  'roles',
+  'roleForm',
+  'calendarShares',
+  'sharedCalendars',
+];
 export const isPageSheet = (type?: string | null) => !!type && PAGE_SHEETS.includes(type);
 
 /**
@@ -338,6 +350,11 @@ export interface AppContextValue {
   openRoleForm: (role?: Role) => void;
   saveRole: (f: RoleFormValues) => Promise<void>;
   removeRole: (roleId: string) => void;
+  // calendar shares
+  openCalendarShares: () => void;
+  openSharedCalendars: () => void;
+  grantCalendarShare: (viewerTeamId: string) => Promise<void>;
+  revokeCalendarShare: (viewerTeamId: string, viewerTeamName: string) => void;
   // team
   openTeamSwitcher: () => void;
   openProfile: () => void;
@@ -1088,6 +1105,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openRoleForm,
     saveRole,
     removeRole,
+    openCalendarShares,
+    openSharedCalendars,
+    grantCalendarShare,
+    revokeCalendarShare,
     openTeamSwitcher,
     openProfile,
     openMore,
@@ -1340,6 +1361,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openRoleForm,
       saveRole,
       removeRole,
+      openCalendarShares,
+      openSharedCalendars,
+      grantCalendarShare,
+      revokeCalendarShare,
       openTeamSwitcher,
       openProfile,
       openMore,
@@ -1439,6 +1464,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openRoleForm,
       saveRole,
       removeRole,
+      openCalendarShares,
+      openSharedCalendars,
+      grantCalendarShare,
+      revokeCalendarShare,
       openTeamSwitcher,
       openProfile,
       openMore,

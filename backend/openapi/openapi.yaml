@@ -698,6 +698,64 @@ paths:
         "204":
           description: No Content
 
+  # ── Calendar shares (owner-team management) ─────────────────────────────────
+
+  /teams/{teamId}/calendar-shares:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [teams]
+      operationId: listCalendarShares
+      x-rbac-module: settings
+      summary: List teams this team has granted read-only calendar visibility to
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarShare"
+    post:
+      tags: [teams]
+      operationId: createCalendarShare
+      x-rbac-module: settings
+      summary: Grant another team read-only visibility of this team's calendar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCalendarShareRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarShare"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /teams/{teamId}/calendar-shares/{viewerTeamId}:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: viewerTeamId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    delete:
+      tags: [teams]
+      operationId: deleteCalendarShare
+      x-rbac-module: settings
+      summary: Revoke a previously granted calendar share
+      responses:
+        "204":
+          description: No Content
+
   # ── Events ──────────────────────────────────────────────────────────────────
 
   /teams/{teamId}/events:
@@ -1025,6 +1083,67 @@ paths:
               schema:
                 type: string
                 format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Shared calendars (viewer-team read side) ────────────────────────────────
+
+  /teams/{teamId}/shared-calendars:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [events]
+      operationId: listSharedCalendarSources
+      x-rbac-module: public
+      summary: List teams that have granted this team read-only calendar visibility
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedCalendarSource"
+
+  /teams/{teamId}/shared-calendars/{ownerTeamId}/events:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+      - name: ownerTeamId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      tags: [events]
+      operationId: listSharedCalendarEvents
+      x-rbac-module: public
+      summary: >-
+        Redacted schedule (time, location, title, type only) of ownerTeamId's
+        calendar. Readable only when ownerTeamId currently has a calendar
+        share granted to teamId -- no attendance, participants, comments, or
+        notes are ever included in the projection.
+      parameters:
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SharedCalendarEvent"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -2914,6 +3033,67 @@ components:
           type: string
           format: uri
           description: Ready-to-use calendar subscription URL (https://...).
+
+    # ── Calendar shares ──────────────────────────────────────────────────────
+
+    CalendarShare:
+      type: object
+      description: A grant of read-only calendar visibility from the owning team to another team.
+      required: [viewerTeamId, viewerTeamName, createdAt]
+      properties:
+        viewerTeamId:
+          type: string
+          format: uuid
+        viewerTeamName:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateCalendarShareRequest:
+      type: object
+      required: [viewerTeamId]
+      properties:
+        viewerTeamId:
+          type: string
+          format: uuid
+
+    SharedCalendarSource:
+      type: object
+      description: A team that has granted the requesting team read-only calendar visibility.
+      required: [ownerTeamId, ownerTeamName]
+      properties:
+        ownerTeamId:
+          type: string
+          format: uuid
+        ownerTeamName:
+          type: string
+
+    SharedCalendarEvent:
+      type: object
+      description: >-
+        A redacted projection of an event for cross-team calendar sharing --
+        deliberately excludes attendance, participants, comments, and notes.
+      required: [id, type, title, date]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: "#/components/schemas/EventType"
+        title:
+          type: string
+        date:
+          type: string
+          format: date
+        startTime:
+          type: string
+          description: "HH:mm"
+        endTime:
+          type: string
+          description: "HH:mm"
+        location:
+          type: string
 
     # ── Finances ─────────────────────────────────────────────────────────────
 

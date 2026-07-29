@@ -434,6 +434,46 @@ export interface paths {
         patch: operations["updateRole"];
         trace?: never;
     };
+    "/teams/{teamId}/calendar-shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List teams this team has granted read-only calendar visibility to */
+        get: operations["listCalendarShares"];
+        put?: never;
+        /** Grant another team read-only visibility of this team's calendar */
+        post: operations["createCalendarShare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/calendar-shares/{viewerTeamId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                viewerTeamId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke a previously granted calendar share */
+        delete: operations["deleteCalendarShare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams/{teamId}/events": {
         parameters: {
             query?: never;
@@ -610,6 +650,45 @@ export interface paths {
         };
         /** Fetch a team's events as an iCalendar (.ics) feed. Unauthenticated by design: calendar apps poll this URL directly and cannot present a session cookie. The token itself is the credential -- see internal/calendarfeed for the authorization model. */
         get: operations["getCalendarFeed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/shared-calendars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** List teams that have granted this team read-only calendar visibility */
+        get: operations["listSharedCalendarSources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{teamId}/shared-calendars/{ownerTeamId}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                ownerTeamId: string;
+            };
+            cookie?: never;
+        };
+        /** Redacted schedule (time, location, title, type only) of ownerTeamId's calendar. Readable only when ownerTeamId currently has a calendar share granted to teamId -- no attendance, participants, comments, or notes are ever included in the projection. */
+        get: operations["listSharedCalendarEvents"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1602,6 +1681,38 @@ export interface components {
              * @description Ready-to-use calendar subscription URL (https://...).
              */
             url: string;
+        };
+        /** @description A grant of read-only calendar visibility from the owning team to another team. */
+        CalendarShare: {
+            /** Format: uuid */
+            viewerTeamId: string;
+            viewerTeamName: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        CreateCalendarShareRequest: {
+            /** Format: uuid */
+            viewerTeamId: string;
+        };
+        /** @description A team that has granted the requesting team read-only calendar visibility. */
+        SharedCalendarSource: {
+            /** Format: uuid */
+            ownerTeamId: string;
+            ownerTeamName: string;
+        };
+        /** @description A redacted projection of an event for cross-team calendar sharing -- deliberately excludes attendance, participants, comments, and notes. */
+        SharedCalendarEvent: {
+            /** Format: uuid */
+            id: string;
+            type: components["schemas"]["EventType"];
+            title: string;
+            /** Format: date */
+            date: string;
+            /** @description HH:mm */
+            startTime?: string;
+            /** @description HH:mm */
+            endTime?: string;
+            location?: string;
         };
         Transaction: {
             /** Format: uuid */
@@ -2738,6 +2849,76 @@ export interface operations {
             };
         };
     };
+    listCalendarShares: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarShare"][];
+                };
+            };
+        };
+    };
+    createCalendarShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarShareRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarShare"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteCalendarShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                viewerTeamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listEvents: {
         parameters: {
             query?: {
@@ -3115,6 +3296,55 @@ export interface operations {
                 };
                 content: {
                     "text/calendar": string;
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listSharedCalendarSources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedCalendarSource"][];
+                };
+            };
+        };
+    };
+    listSharedCalendarEvents: {
+        parameters: {
+            query?: {
+                from?: string;
+                to?: string;
+            };
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                ownerTeamId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedCalendarEvent"][];
                 };
             };
             404: components["responses"]["NotFound"];

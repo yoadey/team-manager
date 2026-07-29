@@ -36,4 +36,10 @@ export const queryKeys = {
   // varies by date range for the same reason.
   statsAbsences: (teamId: string, range: DateRange | null) =>
     ['teams', teamId, 'statsAbsences', range?.from ?? null, range?.to ?? null] as const,
+  // Grants this team has made (owner-team perspective).
+  calendarShares: (teamId: string) => ['teams', teamId, 'calendarShares'] as const,
+  // Teams that have granted this team visibility (viewer-team perspective).
+  sharedCalendarSources: (teamId: string) => ['teams', teamId, 'sharedCalendarSources'] as const,
+  sharedCalendarEvents: (teamId: string, ownerTeamId: string) =>
+    ['teams', teamId, 'sharedCalendarEvents', ownerTeamId] as const,
 };

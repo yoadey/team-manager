@@ -28,6 +28,9 @@ import {
   mapStatsOverview,
   mapAttendanceMatrix,
   mapAttendanceAbsenceTable,
+  mapCalendarShare,
+  mapSharedCalendarSource,
+  mapSharedCalendarEvent,
   eurosToCents,
 } from '@/api/map';
 import type {
@@ -41,6 +44,9 @@ import type {
   StatsOverview,
   AttendanceMatrix,
   AttendanceAbsenceTable,
+  CalendarShare,
+  SharedCalendarSource,
+  SharedCalendarEvent,
 } from '@/types';
 import type { TeamEvent, AttendanceRow, EventComment, Absence } from '@/features/events';
 import type { Member } from '@/features/members';
@@ -445,6 +451,49 @@ export const realApi = {
         params: { path: { teamId, roleId } },
       });
       await checkOk(res);
+    },
+  },
+
+  calendarShares: {
+    async list(teamId: string): Promise<CalendarShare[]> {
+      const res = await apiClient.GET('/teams/{teamId}/calendar-shares', { params: { path: { teamId } } });
+      const shares = await check(res);
+      return shares.map(mapCalendarShare);
+    },
+
+    async create(teamId: string, viewerTeamId: string): Promise<CalendarShare> {
+      const res = await apiClient.POST('/teams/{teamId}/calendar-shares', {
+        params: { path: { teamId } },
+        body: { viewerTeamId },
+      });
+      const s = await check(res);
+      return mapCalendarShare(s);
+    },
+
+    async remove(teamId: string, viewerTeamId: string): Promise<void> {
+      const res = await apiClient.DELETE('/teams/{teamId}/calendar-shares/{viewerTeamId}', {
+        params: { path: { teamId, viewerTeamId } },
+      });
+      await checkOk(res);
+    },
+  },
+
+  sharedCalendars: {
+    async listSources(teamId: string): Promise<SharedCalendarSource[]> {
+      const res = await apiClient.GET('/teams/{teamId}/shared-calendars', { params: { path: { teamId } } });
+      const sources = await check(res);
+      return sources.map(mapSharedCalendarSource);
+    },
+
+    async listEvents(teamId: string, ownerTeamId: string, range?: DateRange | null): Promise<SharedCalendarEvent[]> {
+      const res = await apiClient.GET('/teams/{teamId}/shared-calendars/{ownerTeamId}/events', {
+        params: {
+          path: { teamId, ownerTeamId },
+          query: { ...opt('from', range?.from ?? undefined), ...opt('to', range?.to ?? undefined) },
+        },
+      });
+      const events = await check(res);
+      return events.map(mapSharedCalendarEvent);
     },
   },
 

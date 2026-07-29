@@ -171,6 +171,16 @@ const UpdateRoleRequest = z
   })
   .partial()
   .passthrough();
+const CalendarShare = z
+  .object({
+    viewerTeamId: z.string().uuid(),
+    viewerTeamName: z.string(),
+    createdAt: z.string().datetime({ offset: true }),
+  })
+  .passthrough();
+const CreateCalendarShareRequest = z
+  .object({ viewerTeamId: z.string().uuid() })
+  .passthrough();
 const EventType = z.enum(["training", "auftritt", "event"]);
 const ResponseMode = z.enum(["opt_in", "opt_out"]);
 const EventStatus = z.enum(["active", "cancelled"]);
@@ -311,6 +321,20 @@ const SetNominationRequest = z
   .object({ userId: z.string().uuid(), nominated: z.boolean() })
   .passthrough();
 const CalendarFeedToken = z.object({ url: z.string().url() }).passthrough();
+const SharedCalendarSource = z
+  .object({ ownerTeamId: z.string().uuid(), ownerTeamName: z.string() })
+  .passthrough();
+const SharedCalendarEvent = z
+  .object({
+    id: z.string().uuid(),
+    type: EventType,
+    title: z.string(),
+    date: z.string(),
+    startTime: z.string().optional(),
+    endTime: z.string().optional(),
+    location: z.string().optional(),
+  })
+  .passthrough();
 const Absence = z
   .object({
     id: z.string().uuid(),
@@ -678,6 +702,8 @@ export const schemas = {
   SetRolesRequest,
   CreateRoleRequest,
   UpdateRoleRequest,
+  CalendarShare,
+  CreateCalendarShareRequest,
   EventType,
   ResponseMode,
   EventStatus,
@@ -694,6 +720,8 @@ export const schemas = {
   AttendanceRecord,
   SetNominationRequest,
   CalendarFeedToken,
+  SharedCalendarSource,
+  SharedCalendarEvent,
   Absence,
   CreateAbsenceRequest,
   UpdateAbsenceRequest,
@@ -1182,6 +1210,65 @@ const endpoints = makeApi([
     parameters: [
       {
         name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.void(),
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/calendar-shares",
+    alias: "listCalendarShares",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.array(CalendarShare),
+  },
+  {
+    method: "post",
+    path: "/teams/:teamId/calendar-shares",
+    alias: "createCalendarShare",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ viewerTeamId: z.string().uuid() }).passthrough(),
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: CalendarShare,
+    errors: [
+      {
+        status: 404,
+        description: `Not Found`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "delete",
+    path: "/teams/:teamId/calendar-shares/:viewerTeamId",
+    alias: "deleteCalendarShare",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "viewerTeamId",
         type: "Path",
         schema: z.string().uuid(),
       },
@@ -2325,6 +2412,56 @@ const endpoints = makeApi([
       },
     ],
     response: z.void(),
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/shared-calendars",
+    alias: "listSharedCalendarSources",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.array(SharedCalendarSource),
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/shared-calendars/:ownerTeamId/events",
+    alias: "listSharedCalendarEvents",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "ownerTeamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+      {
+        name: "from",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+      {
+        name: "to",
+        type: "Query",
+        schema: z.string().optional(),
+      },
+    ],
+    response: z.array(SharedCalendarEvent),
+    errors: [
+      {
+        status: 404,
+        description: `Not Found`,
+        schema: z.void(),
+      },
+    ],
   },
   {
     method: "get",

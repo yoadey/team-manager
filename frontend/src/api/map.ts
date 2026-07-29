@@ -28,6 +28,9 @@ import type {
   AttendanceAbsenceRow,
   AttendanceAbsenceTable,
   Provider,
+  CalendarShare,
+  SharedCalendarSource,
+  SharedCalendarEvent,
 } from '@/types';
 import type { Member, MemberDto } from '@/features/members';
 import type { TeamEvent, AttendanceRow, EventSummary, EventComment, Absence } from '@/features/events';
@@ -167,6 +170,33 @@ export function mapInvite(inv: S['Invite']): Invite {
     link: inv.link,
     createdAt: inv.createdAt,
     expiresAt: inv.expiresAt,
+  };
+}
+
+export function mapCalendarShare(s: S['CalendarShare']): CalendarShare {
+  return {
+    viewerTeamId: s.viewerTeamId,
+    viewerTeamName: s.viewerTeamName,
+    createdAt: s.createdAt,
+  };
+}
+
+export function mapSharedCalendarSource(s: S['SharedCalendarSource']): SharedCalendarSource {
+  return {
+    ownerTeamId: s.ownerTeamId,
+    ownerTeamName: s.ownerTeamName,
+  };
+}
+
+export function mapSharedCalendarEvent(e: S['SharedCalendarEvent']): SharedCalendarEvent {
+  return {
+    id: e.id,
+    type: e.type,
+    title: e.title,
+    date: e.date,
+    startTime: e.startTime ?? null,
+    endTime: e.endTime ?? null,
+    location: e.location ?? null,
   };
 }
 

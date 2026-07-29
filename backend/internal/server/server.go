@@ -9,6 +9,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/absences"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/calendarfeed"
+	"github.com/yoadey/team-manager/backend/internal/calendarshare"
 	"github.com/yoadey/team-manager/backend/internal/finances"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 	"github.com/yoadey/team-manager/backend/internal/members"
@@ -356,6 +357,7 @@ type Server struct {
 	Stats         *stats.Handler
 	Push          *push.Handler
 	CalendarFeed  *calendarfeed.Handler
+	CalendarShare *calendarshare.Handler
 }
 
 // New creates a Server wired to the provided feature handlers.
@@ -386,6 +388,7 @@ func New(
 	statsHandler *stats.Handler,
 	pushHandler *push.Handler,
 	calendarFeedHandler *calendarfeed.Handler,
+	calendarShareHandler *calendarshare.Handler,
 ) *Server {
 	return &Server{
 		Auth:          authHandler,
@@ -401,6 +404,7 @@ func New(
 		Stats:         statsHandler,
 		Push:          pushHandler,
 		CalendarFeed:  calendarFeedHandler,
+		CalendarShare: calendarShareHandler,
 	}
 }
 
@@ -752,4 +756,26 @@ func (s *Server) GetCalendarFeed(ctx context.Context, req gen.GetCalendarFeedReq
 
 func (s *Server) GetStatsAbsences(ctx context.Context, req gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
 	return s.Stats.GetStatsAbsences(ctx, req)
+}
+
+// ─── Calendar share delegations ───────────────────────────────────────────────
+
+func (s *Server) ListCalendarShares(ctx context.Context, req gen.ListCalendarSharesRequestObject) (gen.ListCalendarSharesResponseObject, error) {
+	return s.CalendarShare.ListCalendarShares(ctx, req)
+}
+
+func (s *Server) CreateCalendarShare(ctx context.Context, req gen.CreateCalendarShareRequestObject) (gen.CreateCalendarShareResponseObject, error) {
+	return s.CalendarShare.CreateCalendarShare(ctx, req)
+}
+
+func (s *Server) DeleteCalendarShare(ctx context.Context, req gen.DeleteCalendarShareRequestObject) (gen.DeleteCalendarShareResponseObject, error) {
+	return s.CalendarShare.DeleteCalendarShare(ctx, req)
+}
+
+func (s *Server) ListSharedCalendarSources(ctx context.Context, req gen.ListSharedCalendarSourcesRequestObject) (gen.ListSharedCalendarSourcesResponseObject, error) {
+	return s.CalendarShare.ListSharedCalendarSources(ctx, req)
+}
+
+func (s *Server) ListSharedCalendarEvents(ctx context.Context, req gen.ListSharedCalendarEventsRequestObject) (gen.ListSharedCalendarEventsResponseObject, error) {
+	return s.CalendarShare.ListSharedCalendarEvents(ctx, req)
 }

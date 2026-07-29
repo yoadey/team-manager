@@ -52,6 +52,12 @@ type CalendarFeedToken struct {
 	RevokedAt pgtype.Timestamptz
 }
 
+type CalendarShare struct {
+	OwnerTeamID  uuid.UUID
+	ViewerTeamID uuid.UUID
+	CreatedAt    time.Time
+}
+
 type Contribution struct {
 	ID        uuid.UUID
 	TeamID    uuid.UUID

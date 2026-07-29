@@ -168,3 +168,31 @@ export interface DateRange {
   from: string | null;
   to: string | null;
 }
+
+/** A grant of read-only calendar visibility from this team to another team. */
+export interface CalendarShare {
+  viewerTeamId: string;
+  viewerTeamName: string;
+  createdAt: string;
+}
+
+/** A team that has granted this team read-only calendar visibility. */
+export interface SharedCalendarSource {
+  ownerTeamId: string;
+  ownerTeamName: string;
+}
+
+/**
+ * Redacted schedule-only projection of an event, read through a calendar
+ * share -- deliberately excludes attendance, participants, comments, and
+ * notes (see openapi.yaml's SharedCalendarEvent schema).
+ */
+export interface SharedCalendarEvent {
+  id: string;
+  type: EventType;
+  title: string;
+  date: string;
+  startTime: string | null;
+  endTime: string | null;
+  location: string | null;
+}

@@ -26,6 +26,7 @@ import (
 	"github.com/yoadey/team-manager/backend/internal/audit"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/calendarfeed"
+	"github.com/yoadey/team-manager/backend/internal/calendarshare"
 	"github.com/yoadey/team-manager/backend/internal/config"
 	"github.com/yoadey/team-manager/backend/internal/db"
 	"github.com/yoadey/team-manager/backend/internal/events"
@@ -449,6 +450,12 @@ func main() {
 	calendarFeedSvc := calendarfeed.NewService(calendarFeedRepo, membersRepo, membersRepo, teamsRepo, eventsRepo, cfg.PublicBaseURL)
 	calendarFeedHandler := calendarfeed.NewHandler(calendarFeedSvc, logger)
 
+	// ─── Calendar shares ─────────────────────────────────────────────────────
+
+	calendarShareRepo := calendarshare.NewRepository(pool)
+	calendarShareSvc := calendarshare.NewService(calendarShareRepo)
+	calendarShareHandler := calendarshare.NewHandler(calendarShareSvc, logger)
+
 	// ─── Absences ────────────────────────────────────────────────────────────
 
 	absencesRepo := absences.NewRepository(pool)
@@ -501,6 +508,7 @@ func main() {
 		statsHandler,
 		pushHandler,
 		calendarFeedHandler,
+		calendarShareHandler,
 	)
 
 	// Wrap the strict server in the generated strict handler adapter. The cookie
