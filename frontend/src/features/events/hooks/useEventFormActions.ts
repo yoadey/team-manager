@@ -22,6 +22,12 @@ type EventFormDeps = {
   logout: () => void;
 };
 
+/** Combines the hours+minutes cancellation-lead-time inputs into the single total-minutes value the API expects; 0/unset in both fields means no cutoff. */
+function combineCancelLeadMinutes(f: EventFormValues): number | undefined {
+  const total = (f.cancelLeadHours || 0) * 60 + (f.cancelLeadMinutes || 0);
+  return total > 0 ? total : undefined;
+}
+
 /** Builds the base event write payload shared by create and edit -- everything except the create-only recurrence fields (see buildRecurrencePayload). */
 function buildBasePayload(f: EventFormValues) {
   return {
@@ -37,6 +43,7 @@ function buildBasePayload(f: EventFormValues) {
     endT: f.endT || '',
     nominatedRoleIds: f.nominatedRoleIds || [],
     rsvpDeadline: fromDatetimeLocalValue(f.rsvpDeadline || ''),
+    cancelLeadMinutes: combineCancelLeadMinutes(f),
   };
 }
 
@@ -87,6 +94,8 @@ export function useEventFormActions({
             repeatMode: 'weeks',
             repeatEndDate: '',
             rsvpDeadline: toDatetimeLocalValue(event.rsvpDeadline),
+            cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
+            cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
           }
         : {
             type: 'training',
@@ -105,6 +114,8 @@ export function useEventFormActions({
             repeatMode: 'weeks',
             repeatEndDate: '',
             rsvpDeadline: '',
+            cancelLeadHours: 0,
+            cancelLeadMinutes: 0,
           };
       setState((st) => ({
         sheet: {

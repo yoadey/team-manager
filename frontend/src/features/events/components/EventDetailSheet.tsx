@@ -11,6 +11,7 @@ import type { SheetProps } from '@/sheets/types';
 import { reportActionError } from '@/utils/errors';
 import { useEventDetailQuery } from '../hooks/useEventQueries';
 import { RsvpCountdown } from './RsvpCountdown';
+import { effectiveRsvpCutoff, isRsvpCutoffPassed } from '../rsvpCutoff';
 import { t } from '@/i18n';
 
 type AppApi = SheetProps['app'];
@@ -108,13 +109,25 @@ interface RsvpButtonProps {
   activeBg: string;
   passiveBg: string;
   passiveColor: string;
+  disabled?: boolean;
   onClick: () => void;
 }
 
-function RsvpButton({ label, icon, active, activeColor, activeBg, passiveBg, passiveColor, onClick }: RsvpButtonProps) {
+function RsvpButton({
+  label,
+  icon,
+  active,
+  activeColor,
+  activeBg,
+  passiveBg,
+  passiveColor,
+  disabled,
+  onClick,
+}: RsvpButtonProps) {
   return (
     <ButtonBase
       onClick={onClick}
+      disabled={disabled}
       sx={{
         flex: 1,
         display: 'flex',
@@ -129,6 +142,8 @@ function RsvpButton({ label, icon, active, activeColor, activeBg, passiveBg, pas
         border: 'none',
         background: active ? activeBg : passiveBg,
         color: active ? activeColor : passiveColor,
+        opacity: disabled ? 0.5 : 1,
+        '&.Mui-disabled': { cursor: 'not-allowed' },
       }}
     >
       <Sym name={icon} size={19} color={active ? activeColor : passiveColor} />
@@ -142,13 +157,21 @@ interface MyResponseSectionProps {
   event: TeamEvent;
   tk: Tokens;
   me: string;
+  canEdit: boolean;
 }
 
-function MyResponseSection({ app, event, tk, me }: MyResponseSectionProps) {
+function MyResponseSection({ app, event, tk, me, canEdit }: MyResponseSectionProps) {
   const today = todayLocalDate();
   const isPast = event.date < today;
   const cancelled = event.status === 'cancelled';
   if (isPast || cancelled) return null;
+
+  // A caller holding events:write may still respond (or adjust a response)
+  // past the cutoff -- the same server-side bypass events.Service.
+  // SetAttendance grants (see design.md's cancellation-lead-time decision).
+  // Members without it are blocked once either rsvpDeadline or the
+  // cancelLeadMinutes-derived cutoff has passed.
+  const rsvpDisabled = !canEdit && isRsvpCutoffPassed(event);
 
   const myStatus = event.myStatus;
   if (myStatus === 'not_nominated') {
@@ -211,6 +234,7 @@ function MyResponseSection({ app, event, tk, me }: MyResponseSectionProps) {
           activeBg={NEUTRAL.success}
           passiveBg={NEUTRAL.successBg}
           passiveColor={NEUTRAL.success}
+          disabled={rsvpDisabled}
           onClick={() => app.setMyStatus(event.id, 'yes', event.myReason)}
         />
         <RsvpButton
@@ -222,6 +246,7 @@ function MyResponseSection({ app, event, tk, me }: MyResponseSectionProps) {
           activeBg={NEUTRAL.warn}
           passiveBg={NEUTRAL.warnBg}
           passiveColor={NEUTRAL.warn}
+          disabled={rsvpDisabled}
           onClick={() => app.setMyStatus(event.id, 'maybe', event.myReason)}
         />
         <RsvpButton
@@ -233,6 +258,7 @@ function MyResponseSection({ app, event, tk, me }: MyResponseSectionProps) {
           activeBg={NEUTRAL.error}
           passiveBg={NEUTRAL.errorBg}
           passiveColor={NEUTRAL.error}
+          disabled={rsvpDisabled}
           onClick={() => app.setMyStatus(event.id, 'no', event.myReason)}
         />
       </Box>
@@ -716,6 +742,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
   const today = todayLocalDate();
   const isPast = e.date < today;
   const canEdit = app.can('events', 'write');
+  const rsvpCutoff = effectiveRsvpCutoff(e);
   const me = state.user!.id;
   const canSeeCommentFn = app.canSeeComment;
   const rows = detail.data?.rows || [];
@@ -750,8 +777,8 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
           </Box>
         </Box>
       ) : null}
-      {e.rsvpDeadline ? <RsvpCountdown deadline={e.rsvpDeadline} /> : null}
-      <MyResponseSection app={app} event={e} tk={tk} me={me} />
+      {rsvpCutoff ? <RsvpCountdown deadline={rsvpCutoff.toISOString()} /> : null}
+      <MyResponseSection app={app} event={e} tk={tk} me={me} canEdit={canEdit} />
       <AttendanceSummary event={e} />
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {rows.map((r: AttendanceRow) => (

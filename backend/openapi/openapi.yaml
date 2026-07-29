@@ -1008,6 +1008,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AttendanceRecord"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /teams/{teamId}/events/{eventId}/attendance/nominations:
     parameters:
@@ -1935,6 +1937,15 @@ components:
         application/problem+json:
           schema:
             $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: >-
+        Conflict. For example, an attendance change was rejected because the
+        event's cancelled, or its rsvpDeadline/cancelLeadMinutes cutoff has
+        passed for a caller without write permission on events.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
     TooManyRequests:
       description: >-
         Too Many Requests. Every endpoint is subject to the global per-IP
@@ -2486,6 +2497,12 @@ components:
           description: >-
             Optional cutoff after which a non-privileged member can no longer
             change their attendance response for this event.
+        cancelLeadMinutes:
+          type: integer
+          description: >-
+            Optional cutoff, expressed as minutes before the event's start,
+            after which a non-privileged member can no longer change their
+            attendance response for this event.
 
     CreateEventRequest:
       type: object
@@ -2542,6 +2559,16 @@ components:
             Optional cutoff after which a non-privileged member can no longer
             change their attendance response. For a recurring series, seeds
             every generated occurrence's own rsvpDeadline.
+        cancelLeadMinutes:
+          type: integer
+          minimum: 0
+          description: >-
+            Optional cutoff, expressed as minutes before the event's start,
+            after which a non-privileged member can no longer change their
+            attendance response. For a recurring series, seeds every
+            generated occurrence's own cancelLeadMinutes, with each
+            occurrence computing its own effective cutoff from its own
+            start.
 
     UpdateEventRequest:
       type: object
@@ -2582,6 +2609,13 @@ components:
           description: >-
             Optional cutoff after which a non-privileged member can no
             longer change their attendance response.
+        cancelLeadMinutes:
+          type: integer
+          minimum: 0
+          description: >-
+            Optional cutoff, expressed as minutes before the event's start,
+            after which a non-privileged member can no longer change their
+            attendance response.
 
     SetEventStatusRequest:
       type: object

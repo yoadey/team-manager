@@ -5,7 +5,7 @@ import { EventsPage } from './EventsPage';
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
-  useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn() }),
+  useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn(), can: vi.fn().mockReturnValue(true) }),
 }));
 
 vi.mock('@/features/events', async (importOriginal) => {

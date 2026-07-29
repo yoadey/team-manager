@@ -872,6 +872,139 @@ func TestEventService_SetAttendance_AllowsBeforeRsvpDeadline(t *testing.T) {
 	require.NotNil(t, result)
 }
 
+// TestEventService_SetAttendance_RejectsAfterCancelLeadTime covers the
+// cancelLeadMinutes counterpart to the rsvpDeadline tests above: a
+// self-service caller without events:write must be rejected once
+// EventStartInstant(date, startTime, meetTime) - cancelLeadMinutes has
+// passed. Date is yesterday with an explicit 12:00 start time so the
+// 60-minute cutoff (yesterday 11:00 Europe/Berlin) is unambiguously in the
+// past regardless of when this test runs. The repository write must not be
+// reached.
+func TestEventService_SetAttendance_RejectsAfterCancelLeadTime(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	startTime := "12:00"
+	leadMinutes := 60
+	yesterday := time.Now().AddDate(0, 0, -1)
+
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", Date: yesterday, StartTime: &startTime, CancelLeadMinutes: &leadMinutes}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			t.Fatal("repository must not be called once the cancel-lead-time cutoff has passed and the caller lacks events:write")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}}, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrCancelLeadTimePassed)
+}
+
+// TestEventService_SetAttendance_AllowsAfterCancelLeadTimeWithEventsWrite
+// covers the privileged-role bypass: a caller holding events:write may still
+// respond -- even for themselves -- after the cancel-lead-time cutoff.
+func TestEventService_SetAttendance_AllowsAfterCancelLeadTimeWithEventsWrite(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	startTime := "12:00"
+	leadMinutes := 60
+	yesterday := time.Now().AddDate(0, 0, -1)
+
+	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: userID, Status: "yes"}
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", Date: yesterday, StartTime: &startTime, CancelLeadMinutes: &leadMinutes}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			return rec, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}}, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+// TestEventService_SetAttendance_AllowsBeforeCancelLeadTimeCutoff is the
+// happy path: a response before the cancel-lead-time cutoff is accepted
+// without ever consulting permChecker (nil here). Date is tomorrow, so the
+// 60-minute cutoff (tomorrow 11:00 Europe/Berlin) is unambiguously still in
+// the future.
+func TestEventService_SetAttendance_AllowsBeforeCancelLeadTimeCutoff(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	startTime := "12:00"
+	leadMinutes := 60
+	tomorrow := time.Now().AddDate(0, 0, 1)
+
+	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: userID, Status: "yes"}
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", Date: tomorrow, StartTime: &startTime, CancelLeadMinutes: &leadMinutes}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			return rec, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, nil, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	result, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+// TestEventService_SetAttendance_RejectsAfterEitherCutoff covers the
+// interaction between rsvpDeadline and cancelLeadMinutes when both are set
+// on the same event: either cutoff, whichever has passed, blocks a
+// self-service change -- here rsvpDeadline has passed while the
+// cancelLeadMinutes-derived cutoff has not, and the caller is still
+// rejected.
+func TestEventService_SetAttendance_RejectsAfterEitherCutoff(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+	startTime := "12:00"
+	leadMinutes := 60
+	past := time.Now().Add(-1 * time.Hour)
+	tomorrow := time.Now().AddDate(0, 0, 1)
+
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active", Date: tomorrow, StartTime: &startTime, RsvpDeadline: &past, CancelLeadMinutes: &leadMinutes}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			t.Fatal("repository must not be called once either cutoff has passed and the caller lacks events:write")
+			return nil, nil
+		},
+	}
+
+	svc := events.NewService(repo, nil, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "read"}}, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Yes}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.ErrorIs(t, err, events.ErrRsvpDeadlinePassed)
+}
+
 // TestEventService_SetNomination_RequiresEventsWrite guards against a
 // regression where a middleware path-parsing bug made this endpoint
 // self-service (any member, regardless of permissions) instead of requiring

@@ -1,29 +1,11 @@
 package calendarfeed
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/yoadey/team-manager/backend/internal/events"
 )
-
-// europeBerlin is the hardcoded timezone every event's wall-clock
-// start/end time is interpreted in, matching the frontend's identical
-// hardcoded assumption (useCalExportActions.ts's buildIcs()) -- neither side
-// of this app has a per-team timezone concept yet.
-var europeBerlin = mustLoadLocation("Europe/Berlin")
-
-func mustLoadLocation(name string) *time.Location {
-	loc, err := time.LoadLocation(name)
-	if err != nil {
-		// Europe/Berlin is a standard IANA zone; a missing tzdata would be a
-		// broken deployment environment, not a runtime condition to recover
-		// from.
-		panic("calendarfeed: " + err.Error())
-	}
-	return loc
-}
 
 const icsDateTimeFormat = "20060102T150405Z"
 
@@ -58,34 +40,6 @@ func icsFold(line string) string {
 	}
 	b.WriteString(line)
 	return b.String()
-}
-
-// parseHHMM parses a "HH:MM" string as produced by
-// events.selectEventFields' TO_CHAR(..., 'HH24:MI').
-func parseHHMM(s string) (hour, minute int, ok bool) {
-	parts := strings.SplitN(s, ":", 2)
-	if len(parts) != 2 {
-		return 0, 0, false
-	}
-	h, errH := strconv.Atoi(parts[0])
-	m, errM := strconv.Atoi(parts[1])
-	if errH != nil || errM != nil {
-		return 0, 0, false
-	}
-	return h, m, true
-}
-
-// zonedTimeToUTC interprets date's year/month/day combined with hhmm as
-// wall-clock time in Europe/Berlin, returning the equivalent UTC instant --
-// the Go stdlib equivalent of the frontend's zonedTimeToUtc(date, hhmm,
-// 'Europe/Berlin'). An empty or unparseable hhmm falls back to 18:00,
-// matching buildIcs()'s own '18:00' fallback.
-func zonedTimeToUTC(date time.Time, hhmm string) time.Time {
-	hour, minute, ok := parseHHMM(hhmm)
-	if !ok {
-		hour, minute = 18, 0
-	}
-	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, europeBerlin).UTC()
 }
 
 // eventTypeLabel mirrors the frontend's eventType.* i18n strings. The
@@ -127,18 +81,11 @@ func Render(teamName string, evts []events.EventRow) []byte {
 			continue
 		}
 
-		startHHMM := ""
-		switch {
-		case e.StartTime != nil:
-			startHHMM = *e.StartTime
-		case e.MeetTime != nil:
-			startHHMM = *e.MeetTime
-		}
-		start := zonedTimeToUTC(e.Date, startHHMM)
+		start := events.EventStartInstant(e.Date, e.StartTime, e.MeetTime)
 
 		var end time.Time
 		if e.EndTime != nil {
-			end = zonedTimeToUTC(e.Date, *e.EndTime)
+			end = events.ZonedTimeToUTC(e.Date, *e.EndTime)
 		} else {
 			end = start.Add(2 * time.Hour)
 		}

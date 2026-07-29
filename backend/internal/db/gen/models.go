@@ -99,6 +99,7 @@ type Event struct {
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 	RsvpDeadline      pgtype.Timestamptz
+	CancelLeadMinutes pgtype.Int4
 }
 
 type EventComment struct {
@@ -126,6 +127,7 @@ type EventSeries struct {
 	CreatedAt         time.Time
 	RepeatEndDate     pgtype.Date
 	RsvpDeadline      pgtype.Timestamptz
+	CancelLeadMinutes pgtype.Int4
 }
 
 type Invite struct {
