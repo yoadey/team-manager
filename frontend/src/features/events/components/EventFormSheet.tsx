@@ -560,6 +560,28 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
       <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-10px 2px 0', lineHeight: 1.45 }}>
         {t('events.fieldRsvpDeadlineHint')}
       </Box>
+      <Field label={t('events.fieldCancelLeadTime')} error={!!errors.cancelLeadHours || !!errors.cancelLeadMinutes}>
+        <Box sx={{ display: 'flex', gap: '10px' }}>
+          <TextInput
+            type="number"
+            min="0"
+            aria-label={t('events.fieldCancelLeadHours')}
+            placeholder={t('events.fieldCancelLeadHours')}
+            {...register('cancelLeadHours')}
+          />
+          <TextInput
+            type="number"
+            min="0"
+            max="59"
+            aria-label={t('events.fieldCancelLeadMinutes')}
+            placeholder={t('events.fieldCancelLeadMinutes')}
+            {...register('cancelLeadMinutes')}
+          />
+        </Box>
+      </Field>
+      <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-10px 2px 0', lineHeight: 1.45 }}>
+        {t('events.fieldCancelLeadTimeHint')}
+      </Box>
       <RecurringSection
         show={sheet.mode === 'create'}
         recurring={!!recurring}

@@ -417,6 +417,9 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		if errors.Is(err, ErrRsvpDeadlinePassed) {
 			return nil, apierror.Conflict("rsvp deadline has passed")
 		}
+		if errors.Is(err, ErrCancelLeadTimePassed) {
+			return nil, apierror.Conflict("cancellation lead time has passed")
+		}
 		h.logger.ErrorContext(ctx, "SetAttendance failed", "err", err)
 		return nil, apierror.Internal("failed to set attendance")
 	}

@@ -529,7 +529,9 @@ type CreateCalendarShareRequest struct {
 
 // CreateEventRequest defines model for CreateEventRequest.
 type CreateEventRequest struct {
-	Date openapi_types.Date `json:"date"`
+	// CancelLeadMinutes Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own cancelLeadMinutes, with each occurrence computing its own effective cutoff from its own start.
+	CancelLeadMinutes *int               `json:"cancelLeadMinutes,omitempty"`
+	Date              openapi_types.Date `json:"date"`
 
 	// EndDate Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
 	EndDate           *openapi_types.Date   `json:"endDate,omitempty"`
@@ -987,7 +989,9 @@ type Team struct {
 
 // TeamEvent defines model for TeamEvent.
 type TeamEvent struct {
-	Date openapi_types.Date `json:"date"`
+	// CancelLeadMinutes Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response for this event.
+	CancelLeadMinutes *int               `json:"cancelLeadMinutes,omitempty"`
+	Date              openapi_types.Date `json:"date"`
 
 	// EndTime HH:mm
 	EndTime  *string            `json:"endTime,omitempty"`
@@ -1070,6 +1074,8 @@ type UpdateContributionRequest struct {
 
 // UpdateEventRequest defines model for UpdateEventRequest.
 type UpdateEventRequest struct {
+	// CancelLeadMinutes Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response.
+	CancelLeadMinutes *int                  `json:"cancelLeadMinutes,omitempty"`
 	Date              *openapi_types.Date   `json:"date,omitempty"`
 	EndTime           *string               `json:"endTime,omitempty"`
 	Location          *string               `json:"location,omitempty"`
@@ -1183,6 +1189,9 @@ type RoleId = openapi_types.UUID
 
 // TeamId defines model for teamId.
 type TeamId = openapi_types.UUID
+
+// Conflict RFC 9457 Problem Details
+type Conflict = Problem
 
 // Forbidden RFC 9457 Problem Details
 type Forbidden = Problem
@@ -5882,6 +5891,8 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	return r
 }
 
+type ConflictApplicationProblemPlusJSONResponse Problem
+
 type ForbiddenApplicationProblemPlusJSONResponse Problem
 
 type NotFoundApplicationProblemPlusJSONResponse Problem
@@ -6911,6 +6922,22 @@ func (response SetAttendance200JSONResponse) VisitSetAttendanceResponse(w http.R
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetAttendance409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetAttendance409ApplicationProblemPlusJSONResponse) VisitSetAttendanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }

@@ -30,6 +30,9 @@ export interface EventFormValues extends Record<string, unknown> {
   repeatEndDate: string;
   /** RSVP deadline as a `<input type="datetime-local">` value (YYYY-MM-DDTHH:mm), or '' for none. */
   rsvpDeadline: string;
+  /** Cancellation/RSVP-change lead time before start, split for the hours+minutes inputs; both 0 means no cutoff. */
+  cancelLeadHours: number;
+  cancelLeadMinutes: number;
 }
 
 /** Plan-an-absence sheet. */
@@ -73,6 +76,8 @@ export interface EventDto {
   status: EventStatus;
   /** ISO 8601 timestamp; null when the event has no RSVP deadline. */
   rsvpDeadline: string | null;
+  /** Cutoff, in minutes before the event's start; null when the event has no cancellation lead time. */
+  cancelLeadMinutes: number | null;
 }
 
 /** UI ViewModel consumed by event screens; summary and my* are client-side enrichment. */

@@ -18,6 +18,8 @@ type EventPayload = {
   nominatedRoleIds?: string[];
   /** ISO 8601 timestamp, or undefined for "no deadline". */
   rsvpDeadline?: string | undefined;
+  /** Minutes before the event's start, or undefined for "no cutoff". */
+  cancelLeadMinutes?: number | undefined;
 };
 
 /**

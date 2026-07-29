@@ -35,7 +35,7 @@ function makeApp(overrides: Record<string, unknown> = {}) {
 
 vi.mock('@/context/AppContext', () => ({
   useApp: vi.fn(),
-  useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn() }),
+  useAppActions: vi.fn().mockReturnValue({ openEventDetail: vi.fn(), can: () => true }),
 }));
 
 vi.mock('@/features/events', () => ({
