@@ -6,6 +6,12 @@ name: Release
 on:
   push:
     tags: ['v*.*.*']
+    # Publishes a `main`-tracking snapshot (image tag `main` + a sortable
+    # `0.0.0-main.<run_number>` build) on every push to main, so downstream
+    # test environments (e.g. fluxcd-talos-cluster's team-manager-test) can
+    # auto-update via Flux image automation instead of a manual
+    # workflow_dispatch + hand-edited pin for every snapshot.
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
@@ -90,8 +96,19 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+            type=ref,event=branch
             type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
             type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            # Sortable main-channel snapshot tag (plain string, no @digest --
+            # some consumers of this image feed the tag straight into a
+            # Kubernetes label, which rejects '@'/':' and the 63-byte limit a
+            # tag+digest string can blow). A git short SHA has no reliable
+            # sort order for image automation to pick "latest" by; run_number
+            # is a real monotonically increasing integer, and the
+            # semver-shaped `0.0.0-main.<n>` form lets Flux's ImagePolicy
+            # order it correctly via genuine semver pre-release comparison
+            # (see fluxcd-talos-cluster's team-manager-test/image-automation.yaml).
+            type=raw,value=0.0.0-main.${{ github.run_number }},enable=${{ github.ref == 'refs/heads/main' }}
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -260,3 +277,34 @@ jobs:
 
       - name: Sign chart (keyless)
         run: cosign sign --yes "${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/team-manager@${{ steps.push.outputs.digest }}"
+
+      # Publishes a second chart artifact under a sortable main-channel
+      # snapshot version on every push to main -- same run_number-based
+      # scheme and rationale as the images job's extra docker tag above.
+      # Needed because chart.spec.version has no digest-pinning syntax the
+      # way an image tag does, and source-controller only re-fetches a
+      # HelmChart when spec.version itself resolves to a new value, not when
+      # a fixed version tag's underlying content changes -- so a floating
+      # alias like a plain "main" version wouldn't actually auto-update.
+      - name: Package chart (main channel snapshot)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p /tmp/helm-package-main
+          helm package helm/team-manager \
+            --version "0.0.0-main.${{ github.run_number }}" \
+            --app-version "${{ steps.version.outputs.value }}" \
+            --destination /tmp/helm-package-main
+
+      - name: Push chart (main channel snapshot) to OCI registry
+        if: github.ref == 'refs/heads/main'
+        id: push-main
+        run: |
+          set -euo pipefail
+          helm push "/tmp/helm-package-main/team-manager-0.0.0-main.${{ github.run_number }}.tgz" \
+            "oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/charts" 2>&1 | tee /tmp/helm-push-main.log
+          digest=$(grep -oP 'Digest: \K\S+' /tmp/helm-push-main.log)
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (main channel snapshot, keyless)
+        if: github.ref == 'refs/heads/main'
+        run: cosign sign --yes "${{ env.REGISTRY }}/${{ github.repository_owner }}/charts/team-manager@${{ steps.push-main.outputs.digest }}"
