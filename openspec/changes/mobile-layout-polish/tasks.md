@@ -4,7 +4,7 @@
 - [x] 1.3 `Toast.tsx` bottom offset now includes `env(safe-area-inset-bottom)`; `SheetHost.tsx` is a full-screen `inset:0` overlay, so no change needed
 
 ## 2. Denser mobile calendar
-- [x] 2.1 `EventCalendar.tsx`: mobile grid `gap: 0` and day-cell `borderRadius: 4px`; cells keep their 1px borders so the grid stays legible
+- [x] 2.1 `EventCalendar.tsx`: mobile grid `gap: 0` and day-cell `borderRadius: 0` (revised down from an initial `4px` — mobile screens have no room to spare); cells keep their 1px borders so the grid stays legible
 - [x] 2.2 Desktop keeps `gap: 6px` / `borderRadius: 9px` (all gated on `mobile`). The `borderRadius` half of this was also previously checked off without being implemented (it was a flat `9px` regardless of viewport) — implemented for real this pass.
 
 ## 3. Tests
