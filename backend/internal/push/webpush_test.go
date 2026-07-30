@@ -1,13 +1,49 @@
 package push_test
 
 import (
+	"context"
+	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/yoadey/team-manager/backend/internal/push"
 )
+
+// validSubscription generates a syntactically valid P256dh/auth keypair --
+// SendNotificationWithContext performs real ECDH math on these before it
+// ever reaches the HTTP layer, so a placeholder string would fail before
+// the test server sees the request.
+func validSubscription(t *testing.T, endpoint string) push.Subscription {
+	t.Helper()
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	p256dh := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
+
+	auth := make([]byte, 16)
+	_, err = rand.Read(auth)
+	require.NoError(t, err)
+
+	return push.Subscription{
+		Endpoint: endpoint,
+		P256dh:   p256dh,
+		AuthKey:  base64.RawURLEncoding.EncodeToString(auth),
+	}
+}
+
+func validVAPIDConfig(t *testing.T) push.VAPIDConfig {
+	t.Helper()
+	priv, pub, err := webpush.GenerateVAPIDKeys()
+	require.NoError(t, err)
+	return push.VAPIDConfig{PublicKey: pub, PrivateKey: priv, Subject: "mailto:ops@example.com"}
+}
 
 func TestNewWebPusher_RequiresVAPIDKeys(t *testing.T) {
 	t.Parallel()
@@ -40,4 +76,57 @@ func TestNewWebPusher_ValidConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, p)
+}
+
+func TestWebPusher_Send_NonGoneStatusIncludesResponseBody(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"code":401,"errno":109,"message":"Invalid VAPID token"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrPushServiceStatus)
+	assert.Contains(t, err.Error(), "status 401")
+	assert.Contains(t, err.Error(), "Invalid VAPID token")
+}
+
+func TestWebPusher_Send_TruncatesLargeResponseBody(t *testing.T) {
+	t.Parallel()
+
+	oversized := strings.Repeat("x", 4096)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(oversized))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.Less(t, len(err.Error()), len(oversized))
+}
+
+func TestWebPusher_Send_GoneStatusHasNoBodyLookup(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGone)
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrGone)
 }
