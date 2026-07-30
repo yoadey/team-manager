@@ -389,26 +389,20 @@ describe('EventFormSheet', () => {
     expect(screen.getByText('events.responseMode')).toBeTruthy();
   });
 
-  it('renders the RSVP deadline field as a datetime-local input, in both create and edit mode', () => {
+  it('renders the cancellation lead-time hours/minutes fields with visible, always-on unit labels', () => {
     const app = makeApp();
     mockUseApp.mockReturnValue(app as never);
     render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'create', formInitial: app.state.form } as never} />);
-    expect(screen.getByText('events.fieldRsvpDeadline')).toBeTruthy();
-    const input = document.querySelector('input[name="rsvpDeadline"]') as HTMLInputElement;
-    expect(input.type).toBe('datetime-local');
+    expect(screen.getByText('events.fieldCancelLeadTime')).toBeTruthy();
+    expect(screen.getByText('events.fieldCancelLeadHours')).toBeTruthy();
+    expect(screen.getByText('events.fieldCancelLeadMinutes')).toBeTruthy();
+    expect(screen.getByText('events.fieldCancelLeadHoursShort')).toBeTruthy();
+    expect(screen.getByText('events.fieldCancelLeadMinutesShort')).toBeTruthy();
 
-    const editApp = makeApp();
-    mockUseApp.mockReturnValue(editApp as never);
-    render(<EventFormSheet app={editApp as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: editApp.state.form } as never} />);
-    expect(screen.getAllByText('events.fieldRsvpDeadline').length).toBeGreaterThan(0);
-  });
-
-  it('seeds the RSVP deadline field from formInitial when editing an event that has one set', () => {
-    const app = makeApp({ rsvpDeadline: '2026-07-05T18:30' });
-    mockUseApp.mockReturnValue(app as never);
-    render(<EventFormSheet app={app as never} sheet={{ type: 'eventForm', mode: 'edit', formInitial: app.state.form } as never} />);
-    const input = document.querySelector('input[name="rsvpDeadline"]') as HTMLInputElement;
-    expect(input.value).toBe('2026-07-05T18:30');
+    const hoursInput = document.querySelector('input[name="cancelLeadHours"]') as HTMLInputElement;
+    const minutesInput = document.querySelector('input[name="cancelLeadMinutes"]') as HTMLInputElement;
+    expect(hoursInput.type).toBe('number');
+    expect(minutesInput.type).toBe('number');
   });
 
   it('validates repeatEndDate on blur when left empty in "until date" mode', async () => {

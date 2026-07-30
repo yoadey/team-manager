@@ -190,123 +190,10 @@ func TestEventRepository_CreateRecurringEvent_WithEndDate(t *testing.T) {
 	assert.Equal(t, endDate.Format("2006-01-02"), storedEndDate.Format("2006-01-02"))
 }
 
-// TestEventRepository_SetAttendance_RejectsAfterRsvpDeadline covers the
-// race-closing re-check inside SetAttendance's own SQL (mirroring the
-// service layer's earlier, non-atomic check): a caller without events:write
-// cannot record/change attendance once the event's rsvp_deadline has passed,
-// even when calling the repository directly (bypassing the service).
-func TestEventRepository_SetAttendance_RejectsAfterRsvpDeadline(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := events.NewRepository(pool)
-	ctx := context.Background()
-
-	teamID := uuid.New()
-	userID := uuid.New()
-
-	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Deadline Team')`, teamID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Latecomer', 'latecomer@example.com', '#444444')`, userID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
-	require.NoError(t, err)
-
-	past := time.Now().UTC().Add(-1 * time.Hour)
-	params := makeCreateParams("Deadline Event", time.Now().UTC())
-	params.RsvpDeadline = &past
-	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
-	require.NoError(t, err)
-
-	status := "yes"
-	_, err = repo.SetAttendance(ctx, ev.Id.String(), userID.String(), userID.String(), teamID.String(), &status, nil, nil, nil)
-	assert.ErrorIs(t, err, pgx.ErrNoRows, "a caller without events:write must be rejected once the deadline has passed")
-
-	rec, err := repo.GetMyAttendance(ctx, ev.Id.String(), userID.String(), teamID.String())
-	require.NoError(t, err)
-	assert.Nil(t, rec, "no attendance row should exist after the rejected write")
-}
-
-// TestEventRepository_SetAttendance_AllowsAfterRsvpDeadlineWithEventsWrite
-// covers the privileged-role bypass: a caller holding events:write may still
-// respond (even for themselves) after the deadline.
-func TestEventRepository_SetAttendance_AllowsAfterRsvpDeadlineWithEventsWrite(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := events.NewRepository(pool)
-	ctx := context.Background()
-
-	teamID := uuid.New()
-	userID := uuid.New()
-
-	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Deadline Bypass Team')`, teamID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Organizer', 'organizer-deadline@example.com', '#555555')`, userID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
-	require.NoError(t, err)
-
-	var writeRoleID uuid.UUID
-	err = pool.QueryRow(ctx,
-		`INSERT INTO roles (team_id, name, permissions) VALUES ($1, 'Organizer', '{"events":"write"}') RETURNING id`,
-		teamID,
-	).Scan(&writeRoleID)
-	require.NoError(t, err)
-	var membershipID uuid.UUID
-	err = pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, userID).Scan(&membershipID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO membership_roles (membership_id, role_id) VALUES ($1, $2)`, membershipID, writeRoleID)
-	require.NoError(t, err)
-
-	past := time.Now().UTC().Add(-1 * time.Hour)
-	params := makeCreateParams("Deadline Bypass Event", time.Now().UTC())
-	params.RsvpDeadline = &past
-	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
-	require.NoError(t, err)
-
-	status := "yes"
-	rec, err := repo.SetAttendance(ctx, ev.Id.String(), userID.String(), userID.String(), teamID.String(), &status, nil, nil, nil)
-	require.NoError(t, err, "a caller holding events:write must be able to respond even after the deadline")
-	assert.Equal(t, "yes", rec.Status)
-}
-
-// TestEventRepository_SetAttendance_AllowsBeforeRsvpDeadline is the baseline
-// happy path: a response recorded before the deadline is accepted regardless
-// of role.
-func TestEventRepository_SetAttendance_AllowsBeforeRsvpDeadline(t *testing.T) {
-	t.Parallel()
-
-	pool := testutil.NewTestDB(t)
-	repo := events.NewRepository(pool)
-	ctx := context.Background()
-
-	teamID := uuid.New()
-	userID := uuid.New()
-
-	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Deadline Not Passed Team')`, teamID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'OnTime', 'ontime@example.com', '#666666')`, userID)
-	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, teamID, userID)
-	require.NoError(t, err)
-
-	future := time.Now().UTC().Add(1 * time.Hour)
-	params := makeCreateParams("Deadline Not Passed Event", time.Now().UTC())
-	params.RsvpDeadline = &future
-	ev, err := repo.CreateEvent(ctx, teamID.String(), &params)
-	require.NoError(t, err)
-
-	status := "maybe"
-	rec, err := repo.SetAttendance(ctx, ev.Id.String(), userID.String(), userID.String(), teamID.String(), &status, nil, nil, nil)
-	require.NoError(t, err)
-	assert.Equal(t, "maybe", rec.Status)
-}
-
 // TestEventRepository_SetAttendance_RejectsAfterCancelLeadMinutes covers the
 // race-closing re-check inside SetAttendance's own SQL for the
-// cancel_lead_minutes cutoff (mirroring the rsvp_deadline tests above): a
-// caller without events:write cannot record/change attendance once
+// cancel_lead_minutes cutoff: a caller without events:write cannot
+// record/change attendance once
 // EventStartInstant(date, startTime, meetTime) - cancelLeadMinutes has
 // passed, even when calling the repository directly (bypassing the
 // service). Date is yesterday with an explicit 12:00 start time so the
@@ -431,8 +318,7 @@ func TestEventRepository_SetAttendance_AllowsBeforeCancelLeadMinutesCutoff(t *te
 // TestEventRepository_CreateSeries_SeedsCancelLeadMinutesPerOccurrence covers
 // the series-template requirement: cancel_lead_minutes set on a recurring
 // series's CreateEventParams is stored on the event_series row and seeded
-// onto every generated occurrence, mirroring rsvp_deadline's identical
-// templating (see Repository.CreateSeries).
+// onto every generated occurrence (see Repository.CreateSeries).
 func TestEventRepository_CreateSeries_SeedsCancelLeadMinutesPerOccurrence(t *testing.T) {
 	t.Parallel()
 

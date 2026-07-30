@@ -4,7 +4,6 @@ import type { TeamEvent } from '../types';
 import type { EventFormValues } from '../components/eventFormSchema';
 import type { AppState } from '@/context/AppContext';
 import { hhmm, todayStr } from '@/styles/tokens';
-import { fromDatetimeLocalValue, toDatetimeLocalValue } from '@/utils/date';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import { useSaveEventMutation } from './useEventMutations';
@@ -42,7 +41,6 @@ function buildBasePayload(f: EventFormValues) {
     startT: f.startT || '',
     endT: f.endT || '',
     nominatedRoleIds: f.nominatedRoleIds || [],
-    rsvpDeadline: fromDatetimeLocalValue(f.rsvpDeadline || ''),
     cancelLeadMinutes: combineCancelLeadMinutes(f),
   };
 }
@@ -93,7 +91,6 @@ export function useEventFormActions({
             repeatWeeks: 8,
             repeatMode: 'weeks',
             repeatEndDate: '',
-            rsvpDeadline: toDatetimeLocalValue(event.rsvpDeadline),
             cancelLeadHours: event.cancelLeadMinutes != null ? Math.floor(event.cancelLeadMinutes / 60) : 0,
             cancelLeadMinutes: event.cancelLeadMinutes != null ? event.cancelLeadMinutes % 60 : 0,
           }
@@ -113,7 +110,6 @@ export function useEventFormActions({
             repeatWeeks: 8,
             repeatMode: 'weeks',
             repeatEndDate: '',
-            rsvpDeadline: '',
             cancelLeadHours: 0,
             cancelLeadMinutes: 0,
           };

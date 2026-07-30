@@ -74,12 +74,12 @@ describe('useEventFormActions', () => {
     expect(stateRef.sheet!.formInitial).toMatchObject({ location: '' });
   });
 
-  it('openEventForm seeds the RSVP deadline field from an existing event, empty for a new one', () => {
+  it('openEventForm seeds the cancellation lead-time hours/minutes fields from an existing event, 0/0 for a new one', () => {
     const { result } = renderActions();
     act(() => {
       result.current.openEventForm(null);
     });
-    expect(stateRef.sheet!.formInitial).toMatchObject({ rsvpDeadline: '' });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ cancelLeadHours: 0, cancelLeadMinutes: 0 });
 
     act(() => {
       result.current.openEventForm({
@@ -87,19 +87,20 @@ describe('useEventFormActions', () => {
         type: 'training',
         title: 'Training',
         date: '2026-07-05',
-        rsvpDeadline: '2026-07-04T18:30:00.000Z',
+        cancelLeadMinutes: 90,
       } as never);
     });
-    expect(stateRef.sheet!.formInitial).toMatchObject({ rsvpDeadline: '2026-07-04T18:30' });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ cancelLeadHours: 1, cancelLeadMinutes: 30 });
   });
 
-  it('saveEvent forwards rsvpDeadline as an ISO timestamp, parsed from the datetime-local form value', async () => {
+  it('saveEvent forwards cancelLeadMinutes as the combined hours+minutes total', async () => {
     const api = { events: { create: vi.fn().mockResolvedValue({ id: 'ev1' }) } };
     const formValues = {
       type: 'training',
       title: 'Test',
       date: '2026-01-01',
-      rsvpDeadline: '2025-12-31T18:00',
+      cancelLeadHours: 2,
+      cancelLeadMinutes: 15,
     } as never;
     stateRef = makeState({ sheet: { type: 'eventForm', mode: 'create', formInitial: formValues } as never });
     const { result } = renderHook(
@@ -119,10 +120,7 @@ describe('useEventFormActions', () => {
     await act(async () => {
       await result.current.saveEvent(formValues);
     });
-    expect(api.events.create).toHaveBeenCalledWith(
-      'team1',
-      expect.objectContaining({ rsvpDeadline: '2025-12-31T18:00:00.000Z' }),
-    );
+    expect(api.events.create).toHaveBeenCalledWith('team1', expect.objectContaining({ cancelLeadMinutes: 135 }));
   });
 
   it('saveEvent sends endDate instead of repeatWeeks when the "until date" recurrence mode is selected', async () => {

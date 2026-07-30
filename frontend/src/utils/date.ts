@@ -106,30 +106,3 @@ export function zonedTimeToUtc(date: string, hhmm: string, timeZone: string): Da
   const offsetMinutes = tzOffsetMinutesAt(new Date(guessUtcMs), timeZone);
   return new Date(guessUtcMs - offsetMinutes * 60000);
 }
-
-/**
- * Formats an ISO 8601 timestamp as a `<input type="datetime-local">` value
- * (`YYYY-MM-DDTHH:mm`, browser-local wall-clock, no timezone/seconds) --
- * used to seed the RSVP deadline field when editing an event. Returns '' for
- * a falsy/unparseable input, matching the empty-string "no value" convention
- * every other optional form field in EventFormValues already uses.
- */
-export function toDatetimeLocalValue(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-/**
- * Parses a `<input type="datetime-local">` value (browser-local wall-clock)
- * back into an ISO 8601 string suitable for the rsvpDeadline API field.
- * Returns undefined for an empty/unparseable value, so callers can spread it
- * away with `opt()` instead of sending an explicit `undefined`.
- */
-export function fromDatetimeLocalValue(value: string): string | undefined {
-  if (!value) return undefined;
-  const d = new Date(value);
-  if (isNaN(d.getTime())) return undefined;
-  return d.toISOString();
-}

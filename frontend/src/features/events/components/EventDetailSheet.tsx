@@ -169,8 +169,8 @@ function MyResponseSection({ app, event, tk, me, canEdit }: MyResponseSectionPro
   // A caller holding events:write may still respond (or adjust a response)
   // past the cutoff -- the same server-side bypass events.Service.
   // SetAttendance grants (see design.md's cancellation-lead-time decision).
-  // Members without it are blocked once either rsvpDeadline or the
-  // cancelLeadMinutes-derived cutoff has passed.
+  // Members without it are blocked once the cancelLeadMinutes-derived
+  // cutoff has passed.
   const rsvpDisabled = !canEdit && isRsvpCutoffPassed(event);
 
   const myStatus = event.myStatus;

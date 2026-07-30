@@ -6,20 +6,14 @@ function baseEvent(overrides: Partial<Parameters<typeof effectiveRsvpCutoff>[0]>
     date: '2026-07-15',
     startTime: null,
     meetTime: null,
-    rsvpDeadline: null,
     cancelLeadMinutes: null,
     ...overrides,
   };
 }
 
 describe('effectiveRsvpCutoff', () => {
-  it('returns null when neither cutoff is set', () => {
+  it('returns null when no cutoff is set', () => {
     expect(effectiveRsvpCutoff(baseEvent())).toBeNull();
-  });
-
-  it('uses rsvpDeadline when only that is set', () => {
-    const cutoff = effectiveRsvpCutoff(baseEvent({ rsvpDeadline: '2026-07-14T10:00:00.000Z' }));
-    expect(cutoff?.toISOString()).toBe('2026-07-14T10:00:00.000Z');
   });
 
   it('derives the cutoff from cancelLeadMinutes and startTime (Europe/Berlin, CEST = UTC+2)', () => {
@@ -41,20 +35,6 @@ describe('effectiveRsvpCutoff', () => {
   it('handles winter dates correctly (CET = UTC+1)', () => {
     const cutoff = effectiveRsvpCutoff(baseEvent({ date: '2026-01-15', startTime: '12:00', cancelLeadMinutes: 0 }));
     expect(cutoff?.toISOString()).toBe('2026-01-15T11:00:00.000Z');
-  });
-
-  it('picks the earlier of rsvpDeadline and the cancelLeadMinutes-derived cutoff', () => {
-    // cancelLeadMinutes cutoff: 2026-07-15T09:00:00Z; rsvpDeadline is earlier.
-    const earlierDeadline = effectiveRsvpCutoff(
-      baseEvent({ startTime: '12:00', cancelLeadMinutes: 60, rsvpDeadline: '2026-07-14T00:00:00.000Z' }),
-    );
-    expect(earlierDeadline?.toISOString()).toBe('2026-07-14T00:00:00.000Z');
-
-    // rsvpDeadline is later than the cancelLeadMinutes cutoff -- the earlier one wins.
-    const earlierLeadTime = effectiveRsvpCutoff(
-      baseEvent({ startTime: '12:00', cancelLeadMinutes: 60, rsvpDeadline: '2026-07-15T23:00:00.000Z' }),
-    );
-    expect(earlierLeadTime?.toISOString()).toBe('2026-07-15T09:00:00.000Z');
   });
 });
 

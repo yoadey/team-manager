@@ -544,12 +544,9 @@ type CreateEventRequest struct {
 	Recurring         *bool                 `json:"recurring,omitempty"`
 	RepeatWeeks       *int                  `json:"repeatWeeks,omitempty"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-
-	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
-	RsvpDeadline *time.Time `json:"rsvpDeadline,omitempty"`
-	StartTime    *string    `json:"startTime,omitempty"`
-	Title        string     `json:"title"`
-	Type         EventType  `json:"type"`
+	StartTime         *string               `json:"startTime,omitempty"`
+	Title             string                `json:"title"`
+	Type              EventType             `json:"type"`
 }
 
 // CreateNewsRequest defines model for CreateNewsRequest.
@@ -1009,10 +1006,7 @@ type TeamEvent struct {
 	Recurring         bool                  `json:"recurring"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
 	Result            *string               `json:"result,omitempty"`
-
-	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
-	RsvpDeadline *time.Time          `json:"rsvpDeadline,omitempty"`
-	SeriesId     *openapi_types.UUID `json:"seriesId,omitempty"`
+	SeriesId          *openapi_types.UUID   `json:"seriesId,omitempty"`
 
 	// StartTime HH:mm
 	StartTime *string            `json:"startTime,omitempty"`
@@ -1084,12 +1078,9 @@ type UpdateEventRequest struct {
 	NominatedRoleIds  *[]openapi_types.UUID `json:"nominatedRoleIds,omitempty"`
 	Note              *string               `json:"note,omitempty"`
 	ResponseMode      *ResponseMode         `json:"responseMode,omitempty"`
-
-	// RsvpDeadline Optional cutoff after which a non-privileged member can no longer change their attendance response.
-	RsvpDeadline *time.Time `json:"rsvpDeadline,omitempty"`
-	StartTime    *string    `json:"startTime,omitempty"`
-	Title        *string    `json:"title,omitempty"`
-	Type         *EventType `json:"type,omitempty"`
+	StartTime         *string               `json:"startTime,omitempty"`
+	Title             *string               `json:"title,omitempty"`
+	Type              *EventType            `json:"type,omitempty"`
 }
 
 // UpdateMemberRequest defines model for UpdateMemberRequest.

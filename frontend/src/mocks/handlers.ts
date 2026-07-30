@@ -200,7 +200,6 @@ function toWireEvent(e: EventDto): S['TeamEvent'] {
     ...opt('meetTime', e.meetTime ?? undefined),
     ...opt('startTime', e.startTime ?? undefined),
     ...opt('endTime', e.endTime ?? undefined),
-    ...opt('rsvpDeadline', e.rsvpDeadline ?? undefined),
     ...opt('cancelLeadMinutes', e.cancelLeadMinutes ?? undefined),
   };
 }
@@ -870,7 +869,6 @@ export const handlers = [
       recurring: !!body.recurring,
       seriesId: null,
       status: 'active',
-      rsvpDeadline: body.rsvpDeadline ?? null,
       cancelLeadMinutes: body.cancelLeadMinutes ?? null,
       ...opt('nominatedRoleIds', body.nominatedRoleIds ? [...body.nominatedRoleIds] : undefined),
     });
@@ -945,7 +943,6 @@ export const handlers = [
       if (body.meetTime !== undefined) ev.meetTime = body.meetTime || null;
       if (body.startTime !== undefined) ev.startTime = body.startTime || null;
       if (body.endTime !== undefined) ev.endTime = body.endTime || null;
-      if (body.rsvpDeadline !== undefined) ev.rsvpDeadline = body.rsvpDeadline || null;
       if (body.cancelLeadMinutes !== undefined) ev.cancelLeadMinutes = body.cancelLeadMinutes;
       if (body.nominatedRoleIds !== undefined) applyNominations(ev, body.nominatedRoleIds);
     });
@@ -1025,13 +1022,13 @@ export const handlers = [
     // Setting another member's attendance is only reachable through UI
     // already gated behind events:write (see AttendanceRowItem's canEdit),
     // matching the backend's identical "acting on another member requires
-    // events:write, which also bypasses the rsvpDeadline/cancelLeadMinutes
-    // cutoffs" rule (events.Service.SetAttendance) -- the mock has no
-    // broader RBAC model to consult, so self-vs-other is used as the proxy
-    // for whether the caller holds that permission.
+    // events:write, which also bypasses the cancelLeadMinutes cutoff" rule
+    // (events.Service.SetAttendance) -- the mock has no broader RBAC model
+    // to consult, so self-vs-other is used as the proxy for whether the
+    // caller holds that permission.
     const actingOnSelf = body.userId === session.userId;
     if (actingOnSelf && isRsvpCutoffPassed(e)) {
-      return problem(409, 'the rsvp deadline or cancellation lead time has passed');
+      return problem(409, 'the cancellation lead time has passed');
     }
     let a = db.attendance.find((x) => x.eventId === eventId && x.userId === body.userId);
     if (!a) {
