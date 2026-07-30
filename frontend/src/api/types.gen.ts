@@ -2313,6 +2313,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            200: components["responses"]["PhotoBytes"];
             302: components["responses"]["PhotoRedirect"];
             404: components["responses"]["NotFound"];
         };

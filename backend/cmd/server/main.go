@@ -399,6 +399,7 @@ func main() {
 		slog.Error("auth init failed", "err", err)
 		os.Exit(1)
 	}
+	authHandler.SetImageDeliveryProxyEnabled(cfg.ImageDeliveryProxyEnabled)
 
 	// ─── Pagination ──────────────────────────────────────────────────────────
 

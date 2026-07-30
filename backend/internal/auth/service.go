@@ -14,6 +14,7 @@ import (
 	"image"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
@@ -522,6 +523,27 @@ func (s *Service) GetMyPhotoURL(ctx context.Context, userID string) (string, err
 		return "", fmt.Errorf("auth.Service.GetMyPhotoURL: %w", err)
 	}
 	return url, nil
+}
+
+// GetMyPhotoBytes returns userID's photo as a byte stream plus its content
+// type, or pgx.ErrNoRows if the user has no photo set. Used instead of
+// GetMyPhotoURL when the deployment is configured for proxy image delivery
+// (config.Config.ImageDeliveryProxyEnabled) -- the caller streams the bytes
+// through the backend rather than redirecting to a presigned URL. The caller
+// must Close the returned ReadCloser.
+func (s *Service) GetMyPhotoBytes(ctx context.Context, userID string) (io.ReadCloser, string, error) {
+	key, err := s.repo.FindUserPhotoKeyByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", pgx.ErrNoRows
+		}
+		return nil, "", fmt.Errorf("auth.Service.GetMyPhotoBytes: %w", err)
+	}
+	data, contentType, err := s.store.Get(ctx, key)
+	if err != nil {
+		return nil, "", fmt.Errorf("auth.Service.GetMyPhotoBytes: %w", err)
+	}
+	return data, contentType, nil
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

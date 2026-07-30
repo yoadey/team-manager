@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -33,6 +34,7 @@ type mockAuthService struct {
 	logout             func(ctx context.Context, tokenHash string) error
 	updatePhoto        func(ctx context.Context, userID string, data []byte, mime string) (*auth.UserRow, error)
 	getMyPhotoURL      func(ctx context.Context, userID string) (string, error)
+	getMyPhotoBytes    func(ctx context.Context, userID string) (io.ReadCloser, string, error)
 	eraseAccount       func(ctx context.Context, userID, password string) error
 	exportUserData     func(ctx context.Context, userID string) (*auth.ExportData, error)
 	register           func(ctx context.Context, email, password string) error
@@ -61,6 +63,13 @@ func (m *mockAuthService) GetMyPhotoURL(ctx context.Context, userID string) (str
 		return m.getMyPhotoURL(ctx, userID)
 	}
 	return "", pgx.ErrNoRows
+}
+
+func (m *mockAuthService) GetMyPhotoBytes(ctx context.Context, userID string) (io.ReadCloser, string, error) {
+	if m.getMyPhotoBytes != nil {
+		return m.getMyPhotoBytes(ctx, userID)
+	}
+	return nil, "", pgx.ErrNoRows
 }
 
 func (m *mockAuthService) EraseAccount(ctx context.Context, userID, password string) error {
@@ -840,6 +849,54 @@ func TestHandler_GetMyPhoto_Found_RedirectsToPresignedURL(t *testing.T) {
 	require.NoError(t, resp.VisitGetMyPhotoResponse(w))
 	assert.Equal(t, http.StatusFound, w.Code)
 	assert.Contains(t, w.Header().Get("Location"), "/users/"+testUser().Id.String()+"/photo")
+}
+
+// TestHandler_GetMyPhoto_ProxyMode_StreamsBytes covers scenario "Proxy mode
+// enabled" from openspec/changes/kleinere-findings/specs/image-delivery-proxy
+// for the user's own photo endpoint: with SetImageDeliveryProxyEnabled(true),
+// GetMyPhoto streams the image bytes directly instead of redirecting.
+func TestHandler_GetMyPhoto_ProxyMode_StreamsBytes(t *testing.T) {
+	t.Parallel()
+
+	userID := testUser().Id.String()
+	svc := &mockAuthService{
+		getMyPhotoBytes: func(_ context.Context, gotUserID string) (io.ReadCloser, string, error) {
+			assert.Equal(t, userID, gotUserID)
+			return io.NopCloser(bytes.NewReader([]byte("jpeg-bytes"))), "image/jpeg", nil
+		},
+		getMyPhotoURL: func(_ context.Context, _ string) (string, error) {
+			t.Fatal("redirect path must not be used in proxy mode")
+			return "", nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+	h.SetImageDeliveryProxyEnabled(true)
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+
+	resp, err := h.GetMyPhoto(ctx, gen.GetMyPhotoRequestObject{})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetMyPhotoResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "image/jpeg", w.Header().Get("Content-Type"))
+	assert.Empty(t, w.Header().Get("Location"))
+	assert.Equal(t, "jpeg-bytes", w.Body.String())
+}
+
+// TestHandler_GetMyPhoto_ProxyMode_NotFound_Returns404 covers the same "no
+// photo" case as redirect mode, but through the proxy-mode branch -- no bytes
+// must be streamed for a user with no photo set.
+func TestHandler_GetMyPhoto_ProxyMode_NotFound_Returns404(t *testing.T) {
+	t.Parallel()
+
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
+	h.SetImageDeliveryProxyEnabled(true)
+	ctx := auth.ContextWithUser(context.Background(), testUser())
+
+	resp, err := h.GetMyPhoto(ctx, gen.GetMyPhotoRequestObject{})
+	require.Error(t, err)
+	assert.Nil(t, resp)
 }
 
 // Regression test: erasing the sole settings administrator of a team used

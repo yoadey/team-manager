@@ -120,6 +120,10 @@ func (f *fakeAuthSvc) UpdatePhoto(_ context.Context, _ string, _ []byte, _ strin
 func (f *fakeAuthSvc) GetMyPhotoURL(_ context.Context, _ string) (string, error) {
 	return "", pgx.ErrNoRows
 }
+
+func (f *fakeAuthSvc) GetMyPhotoBytes(_ context.Context, _ string) (io.ReadCloser, string, error) {
+	return nil, "", pgx.ErrNoRows
+}
 func (f *fakeAuthSvc) EraseAccount(_ context.Context, _, _ string) error { return nil }
 func (f *fakeAuthSvc) ExportUserData(_ context.Context, _ string) (*auth.ExportData, error) {
 	return &auth.ExportData{}, nil
