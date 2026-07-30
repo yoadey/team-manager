@@ -297,4 +297,60 @@ describe('useCalExportActions (sheet/filter/copy)', () => {
 
     expect(stateRef.sheet).toEqual({ type: 'calExport' });
   });
+
+  const currentSettings = { types: ['training', 'auftritt', 'event'], includeBirthdays: true };
+
+  it('toggleCalFeedType removes a type that is currently selected and persists it', async () => {
+    const updateCalendarFeedSettings = vi.fn().mockResolvedValue({ types: ['auftritt', 'event'], includeBirthdays: true });
+    api = { events: { list: vi.fn(() => Promise.resolve([])), updateCalendarFeedSettings } } as never;
+    const { result } = renderActions();
+
+    await act(async () => {
+      await result.current.toggleCalFeedType('training', currentSettings as never);
+    });
+
+    expect(updateCalendarFeedSettings).toHaveBeenCalledWith('team1', { types: ['auftritt', 'event'], includeBirthdays: true });
+  });
+
+  it('toggleCalFeedType adds a type that is not currently selected', async () => {
+    const updateCalendarFeedSettings = vi.fn().mockResolvedValue({ types: ['training'], includeBirthdays: true });
+    api = { events: { list: vi.fn(() => Promise.resolve([])), updateCalendarFeedSettings } } as never;
+    const { result } = renderActions();
+    const withoutAuftritt = { types: ['training'], includeBirthdays: true };
+
+    await act(async () => {
+      await result.current.toggleCalFeedType('auftritt', withoutAuftritt as never);
+    });
+
+    expect(updateCalendarFeedSettings).toHaveBeenCalledWith('team1', { types: ['training', 'auftritt'], includeBirthdays: true });
+  });
+
+  it('toggleCalFeedType shows an error toast and reverts the cache when the save fails', async () => {
+    const updateCalendarFeedSettings = vi.fn().mockRejectedValue(new Error('network down'));
+    api = { events: { list: vi.fn(() => Promise.resolve([])), updateCalendarFeedSettings } } as never;
+    const { result } = renderActions();
+
+    await act(async () => {
+      await result.current.toggleCalFeedType('training', currentSettings as never);
+    });
+
+    expect(toastMsg).toHaveBeenCalledWith('Auswahl konnte nicht gespeichert werden', undefined, 'error');
+  });
+
+  it('toggleCalFeedBirthdays flips includeBirthdays and persists it', async () => {
+    const updateCalendarFeedSettings = vi
+      .fn()
+      .mockResolvedValue({ types: ['training', 'auftritt', 'event'], includeBirthdays: false });
+    api = { events: { list: vi.fn(() => Promise.resolve([])), updateCalendarFeedSettings } } as never;
+    const { result } = renderActions();
+
+    await act(async () => {
+      await result.current.toggleCalFeedBirthdays(currentSettings as never);
+    });
+
+    expect(updateCalendarFeedSettings).toHaveBeenCalledWith('team1', {
+      types: ['training', 'auftritt', 'event'],
+      includeBirthdays: false,
+    });
+  });
 });

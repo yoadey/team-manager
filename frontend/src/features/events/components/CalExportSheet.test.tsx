@@ -13,21 +13,24 @@ vi.mock('../hooks/useEventQueries', () => ({
 
 vi.mock('../hooks/useCalExportActions', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../hooks/useCalExportActions')>();
-  return { ...actual, useCalendarFeedUrlQuery: vi.fn() };
+  return { ...actual, useCalendarFeedUrlQuery: vi.fn(), useCalendarFeedSettingsQuery: vi.fn() };
 });
 
 import { useApp } from '@/context/AppContext';
 import { useEventsQuery } from '../hooks/useEventQueries';
-import { useCalendarFeedUrlQuery } from '../hooks/useCalExportActions';
+import { useCalendarFeedUrlQuery, useCalendarFeedSettingsQuery } from '../hooks/useCalExportActions';
 const mockUseApp = vi.mocked(useApp);
 const mockUseEventsQuery = vi.mocked(useEventsQuery);
 const mockUseCalendarFeedUrlQuery = vi.mocked(useCalendarFeedUrlQuery);
+const mockUseCalendarFeedSettingsQuery = vi.mocked(useCalendarFeedSettingsQuery);
 
 const TEST_FEED_URL = 'https://app.example.com/api/v1/calendar-feed/abc123.ics';
+const TEST_FEED_SETTINGS = { types: ['training', 'auftritt', 'event'], includeBirthdays: true };
 
 function makeApp(eventsOverrides: unknown[] = []) {
   mockUseEventsQuery.mockReturnValue({ data: eventsOverrides } as never);
   mockUseCalendarFeedUrlQuery.mockReturnValue({ data: TEST_FEED_URL, isLoading: false, isError: false } as never);
+  mockUseCalendarFeedSettingsQuery.mockReturnValue({ data: TEST_FEED_SETTINGS } as never);
   return {
     api: {},
     state: {
@@ -38,6 +41,8 @@ function makeApp(eventsOverrides: unknown[] = []) {
     downloadIcs: vi.fn(),
     copyCalUrl: vi.fn(),
     regenerateCalUrl: vi.fn(),
+    toggleCalFeedType: vi.fn(),
+    toggleCalFeedBirthdays: vi.fn(),
   };
 }
 
@@ -122,5 +127,39 @@ describe('CalExportSheet', () => {
     const app = mockUseApp();
     render(<CalExportSheet app={app as never} sheet={sheet} />);
     expect(screen.getByText('Apple / iOS')).toBeTruthy();
+  });
+
+  it('renders a checked toggle for each selected content type and birthdays', () => {
+    mockUseApp.mockReturnValue(makeApp() as never);
+    const app = mockUseApp();
+    render(<CalExportSheet app={app as never} sheet={sheet} />);
+    expect(screen.getByText('Training')).toBeTruthy();
+    expect(screen.getByText('Wettkampf / Auftritt')).toBeTruthy();
+    expect(screen.getByText('Team-Event')).toBeTruthy();
+    expect(screen.getByText('Geburtstage')).toBeTruthy();
+  });
+
+  it('calls toggleCalFeedType with the clicked type and current settings', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<CalExportSheet app={app as never} sheet={sheet} />);
+    fireEvent.click(screen.getByText('Training'));
+    expect(app.toggleCalFeedType).toHaveBeenCalledWith('training', TEST_FEED_SETTINGS);
+  });
+
+  it('calls toggleCalFeedBirthdays with the current settings', () => {
+    const app = makeApp();
+    mockUseApp.mockReturnValue(app as never);
+    render(<CalExportSheet app={app as never} sheet={sheet} />);
+    fireEvent.click(screen.getByText('Geburtstage'));
+    expect(app.toggleCalFeedBirthdays).toHaveBeenCalledWith(TEST_FEED_SETTINGS);
+  });
+
+  it('does not render the content-selection card while settings are still loading', () => {
+    mockUseApp.mockReturnValue(makeApp() as never);
+    mockUseCalendarFeedSettingsQuery.mockReturnValue({ data: undefined } as never);
+    const app = mockUseApp();
+    render(<CalExportSheet app={app as never} sheet={sheet} />);
+    expect(screen.queryByText('Geburtstage')).toBeNull();
   });
 });

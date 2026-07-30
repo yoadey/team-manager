@@ -42,6 +42,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "DELETE", Segments: []string{"photo"}, Module: "settings", SelfService: false},                                                  // deleteTeamPhoto
 	{Method: "DELETE", Segments: []string{"finances", "transactions", "{transactionId}"}, Module: "finances", SelfService: false},            // deleteTransaction
 	{Method: "GET", Segments: []string{"stats", "attendance-matrix"}, Module: "events", SelfService: false},                                  // getAttendanceMatrix
+	{Method: "GET", Segments: []string{"calendar-feed", "settings"}, Module: "events", SelfService: true},                                    // getCalendarFeedSettings
 	{Method: "GET", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                         // getEvent
 	{Method: "GET", Segments: []string{"finances"}, Module: "finances", SelfService: false},                                                  // getFinanceOverview
 	{Method: "GET", Segments: []string{"members", "{membershipId}", "photo"}, Module: "members", SelfService: false},                         // getMemberPhoto
@@ -76,6 +77,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},            // setNomination
 	{Method: "PUT", Segments: []string{"finances", "penalty-assignments", "{assignmentId}", "paid"}, Module: "finances", SelfService: false}, // setPenaltyPaid
 	{Method: "PATCH", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                   // updateAbsence
+	{Method: "PUT", Segments: []string{"calendar-feed", "settings"}, Module: "events", SelfService: true},                                    // updateCalendarFeedSettings
 	{Method: "PATCH", Segments: []string{"finances", "contributions", "{contributionId}"}, Module: "finances", SelfService: false},           // updateContribution
 	{Method: "PATCH", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                       // updateEvent
 	{Method: "PATCH", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                                // updateMember

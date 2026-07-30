@@ -11,7 +11,9 @@ import React, {
 import { api as defaultApi, resetDemoData } from '@/services';
 import type {
   AttendanceStatus,
+  CalendarFeedSettings,
   DateRange,
+  EventType,
   MemberAttendanceStats,
   ModuleKey,
   PermLevel,
@@ -379,6 +381,8 @@ export interface AppContextValue {
   downloadIcs: () => void;
   copyCalUrl: (url: string) => void;
   regenerateCalUrl: () => void;
+  toggleCalFeedType: (type: EventType, current: CalendarFeedSettings) => void;
+  toggleCalFeedBirthdays: (current: CalendarFeedSettings) => void;
   // news
   openNewsForm: (n?: NewsItem) => void;
   saveNews: (f: NewsFormValues) => Promise<void>;
@@ -1130,6 +1134,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     downloadIcs,
     copyCalUrl,
     regenerateCalUrl,
+    toggleCalFeedType,
+    toggleCalFeedBirthdays,
     openNewsForm,
     saveNews,
     removeNews,
@@ -1386,6 +1392,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       downloadIcs,
       copyCalUrl,
       regenerateCalUrl,
+      toggleCalFeedType,
+      toggleCalFeedBirthdays,
       openNewsForm,
       saveNews,
       removeNews,
@@ -1489,6 +1497,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       downloadIcs,
       copyCalUrl,
       regenerateCalUrl,
+      toggleCalFeedType,
+      toggleCalFeedBirthdays,
       openNewsForm,
       saveNews,
       removeNews,

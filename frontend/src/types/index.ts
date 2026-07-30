@@ -169,6 +169,13 @@ export interface DateRange {
   to: string | null;
 }
 
+/** A subscriber's calendar feed content selection -- which event types the
+ * feed carries and whether it includes member birthdays. */
+export interface CalendarFeedSettings {
+  types: EventType[];
+  includeBirthdays: boolean;
+}
+
 /** A grant of read-only calendar visibility from this team to another team. */
 export interface CalendarShare {
   viewerTeamId: string;

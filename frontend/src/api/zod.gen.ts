@@ -321,6 +321,9 @@ const SetNominationRequest = z
   .object({ userId: z.string().uuid(), nominated: z.boolean() })
   .passthrough();
 const CalendarFeedToken = z.object({ url: z.string().url() }).passthrough();
+const CalendarFeedSettings = z
+  .object({ types: z.array(EventType), includeBirthdays: z.boolean() })
+  .passthrough();
 const SharedCalendarSource = z
   .object({ ownerTeamId: z.string().uuid(), ownerTeamName: z.string() })
   .passthrough();
@@ -720,6 +723,7 @@ export const schemas = {
   AttendanceRecord,
   SetNominationRequest,
   CalendarFeedToken,
+  CalendarFeedSettings,
   SharedCalendarSource,
   SharedCalendarEvent,
   Absence,
@@ -1187,6 +1191,39 @@ const endpoints = makeApi([
     response: z
       .object({ items: z.array(Absence), nextCursor: z.string().nullable() })
       .passthrough(),
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/calendar-feed/settings",
+    alias: "getCalendarFeedSettings",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: CalendarFeedSettings,
+  },
+  {
+    method: "put",
+    path: "/teams/:teamId/calendar-feed/settings",
+    alias: "updateCalendarFeedSettings",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: CalendarFeedSettings,
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: CalendarFeedSettings,
   },
   {
     method: "post",

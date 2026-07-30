@@ -447,7 +447,7 @@ func main() {
 	// (the events rendered into the feed).
 
 	calendarFeedRepo := calendarfeed.NewRepository(pool)
-	calendarFeedSvc := calendarfeed.NewService(calendarFeedRepo, membersRepo, membersRepo, teamsRepo, eventsRepo, cfg.PublicBaseURL)
+	calendarFeedSvc := calendarfeed.NewService(calendarFeedRepo, membersRepo, membersRepo, teamsRepo, eventsRepo, membersRepo, cfg.PublicBaseURL)
 	calendarFeedHandler := calendarfeed.NewHandler(calendarFeedSvc, logger)
 
 	// ─── Calendar shares ─────────────────────────────────────────────────────

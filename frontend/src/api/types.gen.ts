@@ -639,6 +639,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/calendar-feed/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get the caller's calendar feed content selection for this team */
+        get: operations["getCalendarFeedSettings"];
+        /** Update the caller's calendar feed content selection for this team. Applies to the existing subscription URL -- no re-subscribing needed. */
+        put: operations["updateCalendarFeedSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/calendar-feed/{token}.ics": {
         parameters: {
             query?: never;
@@ -1672,6 +1692,12 @@ export interface components {
              * @description Ready-to-use calendar subscription URL (https://...).
              */
             url: string;
+        };
+        CalendarFeedSettings: {
+            /** @description Event types the feed includes. An empty array means the feed carries no events (birthdays only, if includeBirthdays is true). */
+            types: components["schemas"]["EventType"][];
+            /** @description Whether the feed includes visible members' birthdays. */
+            includeBirthdays: boolean;
         };
         /** @description A grant of read-only calendar visibility from the owning team to another team. */
         CalendarShare: {
@@ -3276,6 +3302,54 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    getCalendarFeedSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedSettings"];
+                };
+            };
+        };
+    };
+    updateCalendarFeedSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarFeedSettings"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarFeedSettings"];
+                };
             };
         };
     };

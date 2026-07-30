@@ -10,6 +10,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/members"
 	"github.com/yoadey/team-manager/backend/internal/notifications"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
@@ -23,11 +24,28 @@ import (
 // history from the response).
 var ErrFeedUnavailable = errors.New("calendarfeed: feed unavailable")
 
+// ErrNoActiveToken is returned by GetSettings/UpdateSettings when the
+// caller has no active feed token yet -- the content selection is stored on
+// the token row, so there's nothing to read or update until one is issued.
+var ErrNoActiveToken = errors.New("calendarfeed: no active token")
+
+// ErrInvalidEventType is returned by UpdateSettings when the requested
+// content selection includes a value outside the current EventType enum.
+var ErrInvalidEventType = errors.New("calendarfeed: invalid event type")
+
 // tokenRepo is the interface Service relies on for token management.
 type tokenRepo interface {
 	IssueToken(ctx context.Context, userID, teamID uuid.UUID) (string, error)
 	Revoke(ctx context.Context, userID, teamID uuid.UUID) error
 	FindActiveByToken(ctx context.Context, token string) (*TokenRow, error)
+	GetSettings(ctx context.Context, userID, teamID uuid.UUID) (types []string, includeBirthdays bool, err error)
+	UpdateSettings(ctx context.Context, userID, teamID uuid.UUID, types []string, includeBirthdays bool) error
+}
+
+// memberLister is the interface Service relies on to fetch a team's members
+// (for birthday rendering). Satisfied by members.Repository.
+type memberLister interface {
+	ListMembers(ctx context.Context, teamID string, limit int, cur *members.ListCursor) ([]members.MemberRow, error)
 }
 
 // membershipChecker mirrors middleware.MembershipChecker -- satisfied by
@@ -54,25 +72,27 @@ type eventLister interface {
 }
 
 // Service implements calendar-feed business logic: token issuance/
-// revocation and feed rendering.
+// revocation, content-selection management, and feed rendering.
 type Service struct {
 	tokens        tokenRepo
 	membership    membershipChecker
 	perms         permsChecker
 	teamRepo      teamRepo
 	eventRepo     eventLister
+	memberRepo    memberLister
 	publicBaseURL string
 }
 
 // NewService creates a new Service. publicBaseURL is the scheme+host issued
 // feed URLs are built against (config.PublicBaseURL).
-func NewService(tokens tokenRepo, membership membershipChecker, perms permsChecker, teamRepo teamRepo, eventRepo eventLister, publicBaseURL string) *Service {
+func NewService(tokens tokenRepo, membership membershipChecker, perms permsChecker, teamRepo teamRepo, eventRepo eventLister, memberRepo memberLister, publicBaseURL string) *Service {
 	return &Service{
 		tokens:        tokens,
 		membership:    membership,
 		perms:         perms,
 		teamRepo:      teamRepo,
 		eventRepo:     eventRepo,
+		memberRepo:    memberRepo,
 		publicBaseURL: publicBaseURL,
 	}
 }
@@ -82,6 +102,9 @@ func NewService(tokens tokenRepo, membership membershipChecker, perms permsCheck
 // maxNotificationRows, against pathologically long-lived teams with an
 // unbounded event history.
 const maxFeedEvents = 2000
+
+// maxFeedMembers mirrors maxFeedEvents for the birthday-source member list.
+const maxFeedMembers = 2000
 
 // IssueToken mints (rotating any existing one) a calendar feed token for
 // (userID, teamID) and returns the ready-to-use subscription URL.
@@ -97,6 +120,41 @@ func (s *Service) IssueToken(ctx context.Context, userID, teamID uuid.UUID) (str
 func (s *Service) RevokeToken(ctx context.Context, userID, teamID uuid.UUID) error {
 	if err := s.tokens.Revoke(ctx, userID, teamID); err != nil {
 		return fmt.Errorf("calendarfeed.Service.RevokeToken: %w", err)
+	}
+	return nil
+}
+
+// GetSettings returns (userID, teamID)'s current feed content selection.
+// Falls back to defaultFeedTypes + birthdays-on if no token has been issued
+// yet, rather than erroring -- there is nothing wrong to report, just
+// nothing customized yet.
+func (s *Service) GetSettings(ctx context.Context, userID, teamID uuid.UUID) (types []string, includeBirthdays bool, err error) {
+	types, includeBirthdays, err = s.tokens.GetSettings(ctx, userID, teamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return defaultFeedTypes, true, nil
+		}
+		return nil, false, fmt.Errorf("calendarfeed.Service.GetSettings: %w", err)
+	}
+	return types, includeBirthdays, nil
+}
+
+// UpdateSettings validates and stores (userID, teamID)'s feed content
+// selection, applying to the existing subscription URL. Returns
+// ErrInvalidEventType if types contains a value outside the current
+// EventType enum, or ErrNoActiveToken if the caller has no active token to
+// attach the selection to.
+func (s *Service) UpdateSettings(ctx context.Context, userID, teamID uuid.UUID, types []string, includeBirthdays bool) error {
+	for _, t := range types {
+		if !gen.EventType(t).Valid() {
+			return fmt.Errorf("%w: %q", ErrInvalidEventType, t)
+		}
+	}
+	if err := s.tokens.UpdateSettings(ctx, userID, teamID, types, includeBirthdays); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNoActiveToken
+		}
+		return fmt.Errorf("calendarfeed.Service.UpdateSettings: %w", err)
 	}
 	return nil
 }
@@ -142,6 +200,48 @@ func (s *Service) ServeFeed(ctx context.Context, token string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("calendarfeed.Service.ServeFeed: list events: %w", err)
 	}
+	filtered := filterEventsByType(evts, row.Types)
 
-	return Render(team.Name, evts), nil
+	birthdays, err := s.loadBirthdays(ctx, row, perms)
+	if err != nil {
+		return nil, fmt.Errorf("calendarfeed.Service.ServeFeed: %w", err)
+	}
+
+	return Render(team.Name, filtered, birthdays), nil
+}
+
+// filterEventsByType keeps only the events whose Type is in allowedTypes.
+func filterEventsByType(evts []events.EventRow, allowedTypes []string) []events.EventRow {
+	allowed := make(map[string]bool, len(allowedTypes))
+	for _, t := range allowedTypes {
+		allowed[t] = true
+	}
+	filtered := make([]events.EventRow, 0, len(evts))
+	for _, e := range evts {
+		if allowed[e.Type] {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
+}
+
+// loadBirthdays returns row's team's member birthdays, or nil if the feed
+// isn't configured to include them or the token holder lacks the "members"
+// module read access birthdays live behind -- same as the in-app member
+// list would show them nothing, not an error.
+func (s *Service) loadBirthdays(ctx context.Context, row *TokenRow, perms teams.PermissionsJSON) ([]Birthday, error) {
+	if !row.IncludeBirthdays || !notifications.HasReadAccess(perms, "members") {
+		return nil, nil
+	}
+	memberRows, err := s.memberRepo.ListMembers(ctx, row.TeamId.String(), maxFeedMembers, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list members: %w", err)
+	}
+	var birthdays []Birthday
+	for _, m := range memberRows {
+		if m.Birthday != nil {
+			birthdays = append(birthdays, Birthday{MemberID: m.UserID, Name: m.Name, Date: *m.Birthday})
+		}
+	}
+	return birthdays, nil
 }

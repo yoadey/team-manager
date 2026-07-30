@@ -178,6 +178,11 @@ export interface DemoDb {
    * one simply overwrites it, since the mock has no revocation history to
    * preserve). */
   calendarFeedTokens: Record<string, string>;
+  /** "userId:teamId" -> feed content selection, mock equivalent of the
+   * backend's calendar_feed_tokens.types/include_birthdays columns. Missing
+   * entry means "not customized yet" -- defaults to every type + birthdays
+   * on, mirroring calendarfeed.Service.GetSettings. */
+  calendarFeedSettings: Record<string, { types: string[]; includeBirthdays: boolean }>;
   /** Mock equivalent of the backend's calendar_shares table. */
   calendarShares: CalendarShareRow[];
 }
@@ -230,6 +235,7 @@ export function createSeedData(): DemoDb {
     verificationTokens: {},
     pushSubscriptions: [],
     calendarFeedTokens: {},
+    calendarFeedSettings: {},
     calendarShares: [],
   };
 

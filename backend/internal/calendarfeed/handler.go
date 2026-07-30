@@ -18,6 +18,8 @@ type feedService interface {
 	IssueToken(ctx context.Context, userID, teamID uuid.UUID) (string, error)
 	RevokeToken(ctx context.Context, userID, teamID uuid.UUID) error
 	ServeFeed(ctx context.Context, token string) ([]byte, error)
+	GetSettings(ctx context.Context, userID, teamID uuid.UUID) ([]string, bool, error)
+	UpdateSettings(ctx context.Context, userID, teamID uuid.UUID, types []string, includeBirthdays bool) error
 }
 
 // Handler implements the calendar-feed methods of gen.StrictServerInterface.
@@ -59,6 +61,63 @@ func (h *Handler) RevokeCalendarFeedToken(ctx context.Context, req gen.RevokeCal
 		return nil, apierror.Internal("failed to revoke calendar feed token")
 	}
 	return gen.RevokeCalendarFeedToken204Response{}, nil
+}
+
+// GetCalendarFeedSettings returns the caller's calendar feed content
+// selection for this team, defaulting to "everything" if none was
+// customized yet.
+func (h *Handler) GetCalendarFeedSettings(ctx context.Context, req gen.GetCalendarFeedSettingsRequestObject) (gen.GetCalendarFeedSettingsResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	types, includeBirthdays, err := h.svc.GetSettings(ctx, user.Id, req.TeamId)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "GetCalendarFeedSettings failed", "err", err)
+		return nil, apierror.Internal("failed to get calendar feed settings")
+	}
+	return gen.GetCalendarFeedSettings200JSONResponse{
+		Types:            toGenEventTypes(types),
+		IncludeBirthdays: includeBirthdays,
+	}, nil
+}
+
+// UpdateCalendarFeedSettings updates the caller's calendar feed content
+// selection for this team, applying to the existing subscription URL.
+func (h *Handler) UpdateCalendarFeedSettings(ctx context.Context, req gen.UpdateCalendarFeedSettingsRequestObject) (gen.UpdateCalendarFeedSettingsResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("request body required")
+	}
+	types := make([]string, len(req.Body.Types))
+	for i, t := range req.Body.Types {
+		types[i] = string(t)
+	}
+	if err := h.svc.UpdateSettings(ctx, user.Id, req.TeamId, types, req.Body.IncludeBirthdays); err != nil {
+		if errors.Is(err, ErrInvalidEventType) {
+			return nil, apierror.BadRequest(err.Error())
+		}
+		if errors.Is(err, ErrNoActiveToken) {
+			return nil, apierror.NotFound("no active calendar feed token")
+		}
+		h.logger.ErrorContext(ctx, "UpdateCalendarFeedSettings failed", "err", err)
+		return nil, apierror.Internal("failed to update calendar feed settings")
+	}
+	return gen.UpdateCalendarFeedSettings200JSONResponse{
+		Types:            req.Body.Types,
+		IncludeBirthdays: req.Body.IncludeBirthdays,
+	}, nil
+}
+
+func toGenEventTypes(types []string) []gen.EventType {
+	out := make([]gen.EventType, len(types))
+	for i, t := range types {
+		out[i] = gen.EventType(t)
+	}
+	return out
 }
 
 // GetCalendarFeed serves the iCalendar feed for a bare token. Deliberately

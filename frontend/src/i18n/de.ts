@@ -378,6 +378,10 @@ export const de = {
     calOneTime: 'Einmaliger Import',
     calOneTimeDesc:
       'Alternativ die .ics-Datei herunterladen und in jeder Kalender-App öffnen – fügt die Termine einmalig hinzu.',
+    calContentTitle: 'Inhalt des Abos',
+    calContentDesc: 'Wähle, was der Abo-Link enthält. Die Änderung gilt sofort für den bestehenden Link.',
+    calContentBirthdays: 'Geburtstage',
+    calContentSaveFailed: 'Auswahl konnte nicht gespeichert werden',
     exportFailed: 'Export nicht möglich',
     toastCalLinkCopied: 'Abo-Link kopiert',
     toastCalLinkRenewed: 'Abo-Link erneuert – der alte Link funktioniert nicht mehr',

@@ -322,6 +322,14 @@ func (StrictUnimplemented) GetCalendarFeed(_ context.Context, _ gen.GetCalendarF
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) GetCalendarFeedSettings(_ context.Context, _ gen.GetCalendarFeedSettingsRequestObject) (gen.GetCalendarFeedSettingsResponseObject, error) {
+	return nil, errNotImplemented
+}
+
+func (StrictUnimplemented) UpdateCalendarFeedSettings(_ context.Context, _ gen.UpdateCalendarFeedSettingsRequestObject) (gen.UpdateCalendarFeedSettingsResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 func (StrictUnimplemented) GetStatsAbsences(_ context.Context, _ gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {
 	return nil, errNotImplemented
 }
@@ -752,6 +760,14 @@ func (s *Server) RevokeCalendarFeedToken(ctx context.Context, req gen.RevokeCale
 
 func (s *Server) GetCalendarFeed(ctx context.Context, req gen.GetCalendarFeedRequestObject) (gen.GetCalendarFeedResponseObject, error) {
 	return s.CalendarFeed.GetCalendarFeed(ctx, req)
+}
+
+func (s *Server) GetCalendarFeedSettings(ctx context.Context, req gen.GetCalendarFeedSettingsRequestObject) (gen.GetCalendarFeedSettingsResponseObject, error) {
+	return s.CalendarFeed.GetCalendarFeedSettings(ctx, req)
+}
+
+func (s *Server) UpdateCalendarFeedSettings(ctx context.Context, req gen.UpdateCalendarFeedSettingsRequestObject) (gen.UpdateCalendarFeedSettingsResponseObject, error) {
+	return s.CalendarFeed.UpdateCalendarFeedSettings(ctx, req)
 }
 
 func (s *Server) GetStatsAbsences(ctx context.Context, req gen.GetStatsAbsencesRequestObject) (gen.GetStatsAbsencesResponseObject, error) {

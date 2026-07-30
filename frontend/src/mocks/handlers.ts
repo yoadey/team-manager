@@ -1103,6 +1103,27 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  http.get(P('/teams/:teamId/calendar-feed/settings'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const settings = db.calendarFeedSettings[`${auth}:${params.teamId as string}`] ?? {
+      types: ['training', 'auftritt', 'event'],
+      includeBirthdays: true,
+    };
+    const body: S['CalendarFeedSettings'] = settings as S['CalendarFeedSettings'];
+    return HttpResponse.json(body);
+  }),
+
+  http.put(P('/teams/:teamId/calendar-feed/settings'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const body = (await request.json()) as S['CalendarFeedSettings'];
+    db.calendarFeedSettings[`${auth}:${params.teamId as string}`] = { types: body.types, includeBirthdays: body.includeBirthdays };
+    return HttpResponse.json(body);
+  }),
+
   // ---- absences ----
   http.get(P('/teams/:teamId/absences'), async ({ params }) => {
     await mockDelay();
