@@ -23,6 +23,7 @@ export const queryKeys = {
   // refetch that would silently invalidate a link the user already copied
   // or added to their calendar app.
   calendarFeedUrl: (teamId: string) => ['teams', teamId, 'calendarFeedUrl'] as const,
+  calendarFeedSettings: (teamId: string) => ['teams', teamId, 'calendarFeedSettings'] as const,
   // Also varies by date range (unlike every other key here): a range change
   // must swap to a different cache entry the same way a team switch does,
   // rather than reusing/overwriting the previous range's cached data.

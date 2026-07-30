@@ -44,12 +44,14 @@ type AuditLog struct {
 }
 
 type CalendarFeedToken struct {
-	ID        uuid.UUID
-	UserID    uuid.UUID
-	TeamID    uuid.UUID
-	Token     string
-	CreatedAt time.Time
-	RevokedAt pgtype.Timestamptz
+	ID               uuid.UUID
+	UserID           uuid.UUID
+	TeamID           uuid.UUID
+	Token            string
+	CreatedAt        time.Time
+	RevokedAt        pgtype.Timestamptz
+	Types            []string
+	IncludeBirthdays bool
 }
 
 type CalendarShare struct {

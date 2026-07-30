@@ -481,6 +481,15 @@ type AttendanceRowReasonVisibility string
 // AttendanceStatus defines model for AttendanceStatus.
 type AttendanceStatus string
 
+// CalendarFeedSettings defines model for CalendarFeedSettings.
+type CalendarFeedSettings struct {
+	// IncludeBirthdays Whether the feed includes visible members' birthdays.
+	IncludeBirthdays bool `json:"includeBirthdays"`
+
+	// Types Event types the feed includes. An empty array means the feed carries no events (birthdays only, if includeBirthdays is true).
+	Types []EventType `json:"types"`
+}
+
 // CalendarFeedToken defines model for CalendarFeedToken.
 type CalendarFeedToken struct {
 	// Url Ready-to-use calendar subscription URL (https://...).
@@ -1377,6 +1386,9 @@ type CreateAbsenceJSONRequestBody = CreateAbsenceRequest
 // UpdateAbsenceJSONRequestBody defines body for UpdateAbsence for application/json ContentType.
 type UpdateAbsenceJSONRequestBody = UpdateAbsenceRequest
 
+// UpdateCalendarFeedSettingsJSONRequestBody defines body for UpdateCalendarFeedSettings for application/json ContentType.
+type UpdateCalendarFeedSettingsJSONRequestBody = CalendarFeedSettings
+
 // CreateCalendarShareJSONRequestBody defines body for CreateCalendarShare for application/json ContentType.
 type CreateCalendarShareJSONRequestBody = CreateCalendarShareRequest
 
@@ -1523,6 +1535,12 @@ type ServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID)
+	// Get the caller's calendar feed content selection for this team
+	// (GET /teams/{teamId}/calendar-feed/settings)
+	GetCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Update the caller's calendar feed content selection for this team. Applies to the existing subscription URL -- no re-subscribing needed.
+	// (PUT /teams/{teamId}/calendar-feed/settings)
+	UpdateCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// Revoke the caller's calendar subscription link for this team
 	// (DELETE /teams/{teamId}/calendar-feed/token)
 	RevokeCalendarFeedToken(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -1850,6 +1868,18 @@ func (_ Unimplemented) DeleteAbsence(w http.ResponseWriter, r *http.Request, tea
 // Update absence
 // (PATCH /teams/{teamId}/absences/{absenceId})
 func (_ Unimplemented) UpdateAbsence(w http.ResponseWriter, r *http.Request, teamId TeamId, absenceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get the caller's calendar feed content selection for this team
+// (GET /teams/{teamId}/calendar-feed/settings)
+func (_ Unimplemented) GetCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update the caller's calendar feed content selection for this team. Applies to the existing subscription URL -- no re-subscribing needed.
+// (PUT /teams/{teamId}/calendar-feed/settings)
+func (_ Unimplemented) UpdateCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2825,6 +2855,70 @@ func (siw *ServerInterfaceWrapper) UpdateAbsence(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateAbsence(w, r, teamId, absenceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCalendarFeedSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetCalendarFeedSettings(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCalendarFeedSettings(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCalendarFeedSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCalendarFeedSettings(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCalendarFeedSettings(w, r, teamId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5696,6 +5790,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/teams/{teamId}/absences/{absenceId}", wrapper.UpdateAbsence)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/calendar-feed/settings", wrapper.GetCalendarFeedSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/teams/{teamId}/calendar-feed/settings", wrapper.UpdateCalendarFeedSettings)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/teams/{teamId}/calendar-feed/token", wrapper.RevokeCalendarFeedToken)
 	})
 	r.Group(func(r chi.Router) {
@@ -6619,6 +6719,51 @@ type UpdateAbsenceResponseObject interface {
 type UpdateAbsence200JSONResponse Absence
 
 func (response UpdateAbsence200JSONResponse) VisitUpdateAbsenceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetCalendarFeedSettingsRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type GetCalendarFeedSettingsResponseObject interface {
+	VisitGetCalendarFeedSettingsResponse(w http.ResponseWriter) error
+}
+
+type GetCalendarFeedSettings200JSONResponse CalendarFeedSettings
+
+func (response GetCalendarFeedSettings200JSONResponse) VisitGetCalendarFeedSettingsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateCalendarFeedSettingsRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Body   *UpdateCalendarFeedSettingsJSONRequestBody
+}
+
+type UpdateCalendarFeedSettingsResponseObject interface {
+	VisitUpdateCalendarFeedSettingsResponse(w http.ResponseWriter) error
+}
+
+type UpdateCalendarFeedSettings200JSONResponse CalendarFeedSettings
+
+func (response UpdateCalendarFeedSettings200JSONResponse) VisitUpdateCalendarFeedSettingsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -8287,6 +8432,12 @@ type StrictServerInterface interface {
 	// Update absence
 	// (PATCH /teams/{teamId}/absences/{absenceId})
 	UpdateAbsence(ctx context.Context, request UpdateAbsenceRequestObject) (UpdateAbsenceResponseObject, error)
+	// Get the caller's calendar feed content selection for this team
+	// (GET /teams/{teamId}/calendar-feed/settings)
+	GetCalendarFeedSettings(ctx context.Context, request GetCalendarFeedSettingsRequestObject) (GetCalendarFeedSettingsResponseObject, error)
+	// Update the caller's calendar feed content selection for this team. Applies to the existing subscription URL -- no re-subscribing needed.
+	// (PUT /teams/{teamId}/calendar-feed/settings)
+	UpdateCalendarFeedSettings(ctx context.Context, request UpdateCalendarFeedSettingsRequestObject) (UpdateCalendarFeedSettingsResponseObject, error)
 	// Revoke the caller's calendar subscription link for this team
 	// (DELETE /teams/{teamId}/calendar-feed/token)
 	RevokeCalendarFeedToken(ctx context.Context, request RevokeCalendarFeedTokenRequestObject) (RevokeCalendarFeedTokenResponseObject, error)
@@ -9123,6 +9274,65 @@ func (sh *strictHandler) UpdateAbsence(w http.ResponseWriter, r *http.Request, t
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateAbsenceResponseObject); ok {
 		if err := validResponse.VisitUpdateAbsenceResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetCalendarFeedSettings operation middleware
+func (sh *strictHandler) GetCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request GetCalendarFeedSettingsRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetCalendarFeedSettings(ctx, request.(GetCalendarFeedSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetCalendarFeedSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetCalendarFeedSettingsResponseObject); ok {
+		if err := validResponse.VisitGetCalendarFeedSettingsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateCalendarFeedSettings operation middleware
+func (sh *strictHandler) UpdateCalendarFeedSettings(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request UpdateCalendarFeedSettingsRequestObject
+
+	request.TeamId = teamId
+
+	var body UpdateCalendarFeedSettingsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateCalendarFeedSettings(ctx, request.(UpdateCalendarFeedSettingsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateCalendarFeedSettings")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateCalendarFeedSettingsResponseObject); ok {
+		if err := validResponse.VisitUpdateCalendarFeedSettingsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

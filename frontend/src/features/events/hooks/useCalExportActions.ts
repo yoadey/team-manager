@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
-import type { TeamForUser } from '@/types';
+import type { TeamForUser, CalendarFeedSettings, EventType } from '@/types';
 import type { AppState } from '@/context/AppContext';
 import { hhmm } from '@/styles/tokens';
 import { zonedTimeToUtc } from '@/utils/date';
@@ -34,6 +34,20 @@ export function useCalendarFeedUrlQuery(api: typeof defaultApi, teamId: string |
     queryFn: () => api.events.issueCalendarFeedToken(teamId!),
     enabled: !!teamId,
     staleTime: Infinity,
+  });
+}
+
+/**
+ * The team's calendar feed content selection (which event types + whether
+ * birthdays are included). Unlike the feed URL, refetching this is harmless
+ * -- reading it doesn't rotate anything server-side -- so it uses normal
+ * React Query defaults rather than staleTime: Infinity.
+ */
+export function useCalendarFeedSettingsQuery(api: typeof defaultApi, teamId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.calendarFeedSettings(teamId ?? ''),
+    queryFn: () => api.events.getCalendarFeedSettings(teamId!),
+    enabled: !!teamId,
   });
 }
 
@@ -168,5 +182,44 @@ export function useCalExportActions({ api, S, setState, activeTeam, teamId, toas
     }
   }, [api, qc, setState, teamId, toastMsg]);
 
-  return { openCalExport, downloadIcs, copyCalUrl, regenerateCalUrl };
+  // Toggles a single event type in the feed's content selection and
+  // persists the whole new selection immediately -- there's no separate
+  // "save" step, matching the design decision that the change applies to
+  // the existing subscription URL right away.
+  const toggleCalFeedType = useCallback(
+    async (type: EventType, current: CalendarFeedSettings) => {
+      if (!teamId) return;
+      const types = current.types.includes(type)
+        ? current.types.filter((existing) => existing !== type)
+        : [...current.types, type];
+      const next: CalendarFeedSettings = { ...current, types };
+      qc.setQueryData(queryKeys.calendarFeedSettings(teamId), next);
+      try {
+        const saved = await api.events.updateCalendarFeedSettings(teamId, next);
+        qc.setQueryData(queryKeys.calendarFeedSettings(teamId), saved);
+      } catch {
+        qc.setQueryData(queryKeys.calendarFeedSettings(teamId), current);
+        toastMsg(t('events.calContentSaveFailed'), undefined, 'error');
+      }
+    },
+    [api, qc, teamId, toastMsg],
+  );
+
+  const toggleCalFeedBirthdays = useCallback(
+    async (current: CalendarFeedSettings) => {
+      if (!teamId) return;
+      const next: CalendarFeedSettings = { ...current, includeBirthdays: !current.includeBirthdays };
+      qc.setQueryData(queryKeys.calendarFeedSettings(teamId), next);
+      try {
+        const saved = await api.events.updateCalendarFeedSettings(teamId, next);
+        qc.setQueryData(queryKeys.calendarFeedSettings(teamId), saved);
+      } catch {
+        qc.setQueryData(queryKeys.calendarFeedSettings(teamId), current);
+        toastMsg(t('events.calContentSaveFailed'), undefined, 'error');
+      }
+    },
+    [api, qc, teamId, toastMsg],
+  );
+
+  return { openCalExport, downloadIcs, copyCalUrl, regenerateCalUrl, toggleCalFeedType, toggleCalFeedBirthdays };
 }

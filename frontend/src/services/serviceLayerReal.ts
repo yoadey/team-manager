@@ -44,6 +44,7 @@ import type {
   StatsOverview,
   AttendanceMatrix,
   AttendanceAbsenceTable,
+  CalendarFeedSettings,
   CalendarShare,
   SharedCalendarSource,
   SharedCalendarEvent,
@@ -695,6 +696,21 @@ export const realApi = {
         params: { path: { teamId } },
       });
       await checkOk(res);
+    },
+
+    async getCalendarFeedSettings(teamId: string): Promise<CalendarFeedSettings> {
+      const res = await apiClient.GET('/teams/{teamId}/calendar-feed/settings', {
+        params: { path: { teamId } },
+      });
+      return check(res);
+    },
+
+    async updateCalendarFeedSettings(teamId: string, settings: CalendarFeedSettings): Promise<CalendarFeedSettings> {
+      const res = await apiClient.PUT('/teams/{teamId}/calendar-feed/settings', {
+        params: { path: { teamId } },
+        body: settings,
+      });
+      return check(res);
     },
   },
 

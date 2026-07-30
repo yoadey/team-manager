@@ -21,7 +21,7 @@ func TestRender_ExcludesCancelledEvents(t *testing.T) {
 	active := events.EventRow{Id: uuid.New(), Type: "training", Title: "Aktives Training", Date: time.Date(2026, 8, 3, 0, 0, 0, 0, time.UTC), Status: "active"}
 	cancelled := events.EventRow{Id: uuid.New(), Type: "training", Title: "Abgesagtes Training", Date: time.Date(2026, 8, 4, 0, 0, 0, 0, time.UTC), Status: "cancelled"}
 
-	out := string(calendarfeed.Render("Test Team", []events.EventRow{active, cancelled}))
+	out := string(calendarfeed.Render("Test Team", []events.EventRow{active, cancelled}, nil))
 
 	assert.Contains(t, out, "Aktives Training")
 	assert.NotContains(t, out, "Abgesagtes Training")
@@ -42,7 +42,7 @@ func TestRender_ProducesValidVCalendarStructure(t *testing.T) {
 		Status:    "active",
 	}
 
-	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}))
+	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}, nil))
 
 	require.True(t, strings.HasPrefix(out, "BEGIN:VCALENDAR\r\n"))
 	assert.True(t, strings.HasSuffix(out, "END:VCALENDAR"))
@@ -66,7 +66,7 @@ func TestRender_DefaultsToEighteenHundredAndTwoHourDuration(t *testing.T) {
 		Status: "active",
 	}
 
-	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}))
+	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}, nil))
 
 	assert.Contains(t, out, "DTSTART:20260112T170000Z") // 18:00 CET -> 17:00 UTC
 	assert.Contains(t, out, "DTEND:20260112T190000Z")   // +2h
@@ -83,8 +83,24 @@ func TestRender_EscapesSpecialCharacters(t *testing.T) {
 		Status: "active",
 	}
 
-	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}))
+	out := string(calendarfeed.Render("Test Team", []events.EventRow{e}, nil))
 	assert.Contains(t, out, `Comma\, semicolon\; back\\slash`)
+}
+
+func TestRender_IncludesBirthdaysAsYearlyAllDayEvents(t *testing.T) {
+	t.Parallel()
+
+	memberID := uuid.New()
+	birthdays := []calendarfeed.Birthday{
+		{MemberID: memberID, Name: "Ada Lovelace", Date: time.Date(2000, 5, 17, 0, 0, 0, 0, time.UTC)},
+	}
+
+	out := string(calendarfeed.Render("Test Team", nil, birthdays))
+
+	assert.Contains(t, out, "UID:birthday-"+memberID.String()+"@teamverwaltung.app")
+	assert.Contains(t, out, "DTSTART;VALUE=DATE:20000517")
+	assert.Contains(t, out, "RRULE:FREQ=YEARLY")
+	assert.Contains(t, out, "SUMMARY:Geburtstag: Ada Lovelace")
 }
 
 func TestRender_FoldsLongLines(t *testing.T) {
@@ -98,7 +114,7 @@ func TestRender_FoldsLongLines(t *testing.T) {
 		Status: "active",
 	}
 
-	out := calendarfeed.Render("Test Team", []events.EventRow{e})
+	out := calendarfeed.Render("Test Team", []events.EventRow{e}, nil)
 	for _, line := range strings.Split(string(out), "\r\n") {
 		assert.LessOrEqual(t, len(line), 74, "no unfolded line may exceed 73 octets plus the leading space on continuations")
 	}

@@ -14,15 +14,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/yoadey/team-manager/backend/internal/apierror"
 	"github.com/yoadey/team-manager/backend/internal/auth"
 	"github.com/yoadey/team-manager/backend/internal/calendarfeed"
 	"github.com/yoadey/team-manager/backend/internal/gen"
 )
 
 type mockFeedService struct {
-	issueTokenFn  func(ctx context.Context, userID, teamID uuid.UUID) (string, error)
-	revokeTokenFn func(ctx context.Context, userID, teamID uuid.UUID) error
-	serveFeedFn   func(ctx context.Context, token string) ([]byte, error)
+	issueTokenFn     func(ctx context.Context, userID, teamID uuid.UUID) (string, error)
+	revokeTokenFn    func(ctx context.Context, userID, teamID uuid.UUID) error
+	serveFeedFn      func(ctx context.Context, token string) ([]byte, error)
+	getSettingsFn    func(ctx context.Context, userID, teamID uuid.UUID) ([]string, bool, error)
+	updateSettingsFn func(ctx context.Context, userID, teamID uuid.UUID, types []string, includeBirthdays bool) error
 }
 
 func (m *mockFeedService) IssueToken(ctx context.Context, userID, teamID uuid.UUID) (string, error) {
@@ -35,6 +38,14 @@ func (m *mockFeedService) RevokeToken(ctx context.Context, userID, teamID uuid.U
 
 func (m *mockFeedService) ServeFeed(ctx context.Context, token string) ([]byte, error) {
 	return m.serveFeedFn(ctx, token)
+}
+
+func (m *mockFeedService) GetSettings(ctx context.Context, userID, teamID uuid.UUID) (types []string, includeBirthdays bool, err error) {
+	return m.getSettingsFn(ctx, userID, teamID)
+}
+
+func (m *mockFeedService) UpdateSettings(ctx context.Context, userID, teamID uuid.UUID, types []string, includeBirthdays bool) error {
+	return m.updateSettingsFn(ctx, userID, teamID, types, includeBirthdays)
 }
 
 var (
@@ -111,6 +122,83 @@ func TestHandler_RevokeCalendarFeedToken_Success(t *testing.T) {
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitRevokeCalendarFeedTokenResponse(w))
 	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestHandler_GetCalendarFeedSettings_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := calendarfeed.NewHandler(&mockFeedService{}, slog.Default())
+	_, err := h.GetCalendarFeedSettings(context.Background(), gen.GetCalendarFeedSettingsRequestObject{TeamId: feedTeamID})
+	require.Error(t, err)
+}
+
+func TestHandler_GetCalendarFeedSettings_Success(t *testing.T) {
+	t.Parallel()
+	svc := &mockFeedService{
+		getSettingsFn: func(_ context.Context, userID, teamID uuid.UUID) ([]string, bool, error) {
+			assert.Equal(t, feedUserID, userID)
+			assert.Equal(t, feedTeamID, teamID)
+			return []string{"training", "auftritt"}, false, nil
+		},
+	}
+	h := calendarfeed.NewHandler(svc, slog.Default())
+
+	resp, err := h.GetCalendarFeedSettings(feedAuthedCtx(), gen.GetCalendarFeedSettingsRequestObject{TeamId: feedTeamID})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetCalendarFeedSettingsResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"training"`)
+	assert.Contains(t, w.Body.String(), `"includeBirthdays":false`)
+}
+
+func TestHandler_UpdateCalendarFeedSettings_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := calendarfeed.NewHandler(&mockFeedService{}, slog.Default())
+	body := gen.UpdateCalendarFeedSettingsJSONRequestBody{Types: []gen.EventType{gen.Training}, IncludeBirthdays: true}
+	_, err := h.UpdateCalendarFeedSettings(context.Background(), gen.UpdateCalendarFeedSettingsRequestObject{TeamId: feedTeamID, Body: &body})
+	require.Error(t, err)
+}
+
+func TestHandler_UpdateCalendarFeedSettings_Success(t *testing.T) {
+	t.Parallel()
+	called := false
+	svc := &mockFeedService{
+		updateSettingsFn: func(_ context.Context, userID, teamID uuid.UUID, types []string, includeBirthdays bool) error {
+			assert.Equal(t, feedUserID, userID)
+			assert.Equal(t, feedTeamID, teamID)
+			assert.Equal(t, []string{"training"}, types)
+			assert.True(t, includeBirthdays)
+			called = true
+			return nil
+		},
+	}
+	h := calendarfeed.NewHandler(svc, slog.Default())
+	body := gen.UpdateCalendarFeedSettingsJSONRequestBody{Types: []gen.EventType{gen.Training}, IncludeBirthdays: true}
+
+	resp, err := h.UpdateCalendarFeedSettings(feedAuthedCtx(), gen.UpdateCalendarFeedSettingsRequestObject{TeamId: feedTeamID, Body: &body})
+	require.NoError(t, err)
+	assert.True(t, called)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitUpdateCalendarFeedSettingsResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestHandler_UpdateCalendarFeedSettings_InvalidTypeMapsTo400(t *testing.T) {
+	t.Parallel()
+	svc := &mockFeedService{
+		updateSettingsFn: func(context.Context, uuid.UUID, uuid.UUID, []string, bool) error {
+			return calendarfeed.ErrInvalidEventType
+		},
+	}
+	h := calendarfeed.NewHandler(svc, slog.Default())
+	body := gen.UpdateCalendarFeedSettingsJSONRequestBody{Types: []gen.EventType{"bogus"}, IncludeBirthdays: true}
+	_, err := h.UpdateCalendarFeedSettings(feedAuthedCtx(), gen.UpdateCalendarFeedSettingsRequestObject{TeamId: feedTeamID, Body: &body})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 }
 
 // TestHandler_GetCalendarFeed_NoAuthRequired is a regression test: unlike

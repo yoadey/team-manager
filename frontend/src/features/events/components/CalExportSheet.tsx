@@ -1,11 +1,14 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
+import type { EventType } from '@/types';
 import type { SheetProps } from '@/sheets/types';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Sym, PrimaryButton } from '@/components/ui';
 import { useEventsQuery } from '../hooks/useEventQueries';
-import { useCalendarFeedUrlQuery } from '../hooks/useCalExportActions';
+import { useCalendarFeedUrlQuery, useCalendarFeedSettingsQuery } from '../hooks/useCalExportActions';
 import { t } from '@/i18n';
+
+const FEED_EVENT_TYPES: EventType[] = ['training', 'auftritt', 'event'];
 
 export function CalExportSheet({ app, sheet }: SheetProps) {
   const { state } = app;
@@ -13,6 +16,27 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
   const cnt = (events || []).filter((e) => e.status !== 'cancelled').length;
   const { data: url, isLoading: urlLoading, isError: urlError } = useCalendarFeedUrlQuery(app.api, state.activeTeamId);
+  const { data: feedSettings } = useCalendarFeedSettingsQuery(app.api, state.activeTeamId);
+
+  const toggleRow = (key: string, label: string, checked: boolean, onToggle: () => void) => (
+    <ButtonBase
+      key={key}
+      onClick={onToggle}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        width: '100%',
+        p: '8px 0',
+        justifyContent: 'flex-start',
+        color: NEUTRAL.onSurface,
+        fontSize: '13px',
+      }}
+    >
+      <Sym name={checked ? 'check_box' : 'check_box_outline_blank'} size={20} color={checked ? tk.primary : NEUTRAL.secondary} />
+      {label}
+    </ButtonBase>
+  );
 
   const hint = (icon: string, title: string, text: string) => (
     <Box key={title} sx={{ display: 'flex', gap: '12px', alignItems: 'flex-start', p: '12px 0' }}>
@@ -140,6 +164,32 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
           {t('events.calRenew')}
         </ButtonBase>
       </Box>
+
+      {feedSettings && (
+        <Box
+          key="content"
+          sx={{ border: `1px solid ${NEUTRAL.line}`, borderRadius: '16px', p: '14px', background: NEUTRAL.card }}
+        >
+          <Box
+            key="h"
+            sx={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 700, mb: '4px' }}
+          >
+            <Sym name="tune" size={18} color={tk.primary} />
+            {t('events.calContentTitle')}
+          </Box>
+          <Box key="d" sx={{ fontSize: '12px', color: NEUTRAL.secondary, lineHeight: 1.5, mb: '6px' }}>
+            {t('events.calContentDesc')}
+          </Box>
+          {FEED_EVENT_TYPES.map((type) =>
+            toggleRow(type, t(`eventType.${type}`), feedSettings.types.includes(type), () =>
+              app.toggleCalFeedType(type, feedSettings),
+            ),
+          )}
+          {toggleRow('birthdays', t('events.calContentBirthdays'), feedSettings.includeBirthdays, () =>
+            app.toggleCalFeedBirthdays(feedSettings),
+          )}
+        </Box>
+      )}
 
       <Box key="hints" sx={{ borderTop: `1px solid ${NEUTRAL.line2}`, pt: '6px' }}>
         {hint('calendar_month', t('events.calGoogle'), t('events.calGoogleDesc'))}

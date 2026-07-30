@@ -48,15 +48,22 @@ unabhängig manuell überschreiben.
 
 ## Kalender-Export
 
-Über *Exportieren* auf der Kalender-Ansicht lassen sich eure aktiven
-Termine in einen externen Kalender einbinden:
+Über *Exportieren* auf der Kalender-Ansicht lassen sich eure Termine in
+einen externen Kalender einbinden:
 
-- **Kalenderdatei (.ics) herunterladen** — funktioniert bereits vollständig
-  und fügt die aktuellen Termine einmalig eurem Kalender hinzu.
-- **Automatisch abonnieren (Abo-Link)** — der Link ist vorbereitet, hält
-  euren Kalender aber noch nicht automatisch aktuell; dieser Teil folgt mit
-  einer künftigen Version. Bis dahin bitte den Datei-Download bei Bedarf
-  wiederholen.
+- **Kalenderdatei (.ics) herunterladen** — fügt die aktuell aktiven Termine
+  einmalig eurem Kalender hinzu.
+- **Automatisch abonnieren (Abo-Link)** — der Link hält euren Kalender in
+  Google Kalender, Apple Kalender und Outlook automatisch aktuell; neue und
+  geänderte Termine erscheinen ohne erneuten Export. Über *Link erneuern*
+  könnt ihr den Link jederzeit widerrufen (der alte Link funktioniert danach
+  nicht mehr).
+- **Inhalt des Abos** — im selben Dialog legt ihr fest, welche Termintypen
+  (Training, Wettkampf/Auftritt, Team-Event) und ob Geburtstage der
+  Mitglieder im Abo enthalten sind. Die Auswahl gilt sofort für den
+  bestehenden Abo-Link, ohne dass ihr euch neu anmelden müsst. Geburtstage
+  erscheinen nur, wenn ihr auch in der App Mitglieder-Daten mit Leserechten
+  einsehen dürft.
 
 ## Statistik
 

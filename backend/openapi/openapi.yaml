@@ -1058,6 +1058,44 @@ paths:
         "204":
           description: No Content
 
+  /teams/{teamId}/calendar-feed/settings:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [events]
+      operationId: getCalendarFeedSettings
+      x-rbac-module: events
+      x-rbac-self-service: true
+      summary: Get the caller's calendar feed content selection for this team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarFeedSettings"
+    put:
+      tags: [events]
+      operationId: updateCalendarFeedSettings
+      x-rbac-module: events
+      x-rbac-self-service: true
+      summary: >-
+        Update the caller's calendar feed content selection for this team.
+        Applies to the existing subscription URL -- no re-subscribing needed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalendarFeedSettings"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarFeedSettings"
+
   /calendar-feed/{token}.ics:
     parameters:
       - name: token
@@ -3067,6 +3105,21 @@ components:
           type: string
           format: uri
           description: Ready-to-use calendar subscription URL (https://...).
+
+    CalendarFeedSettings:
+      type: object
+      required: [types, includeBirthdays]
+      properties:
+        types:
+          type: array
+          description: >-
+            Event types the feed includes. An empty array means the feed
+            carries no events (birthdays only, if includeBirthdays is true).
+          items:
+            $ref: "#/components/schemas/EventType"
+        includeBirthdays:
+          type: boolean
+          description: Whether the feed includes visible members' birthdays.
 
     # ── Calendar shares ──────────────────────────────────────────────────────
 

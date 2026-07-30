@@ -4,10 +4,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/yoadey/team-manager/backend/internal/events"
 )
 
-const icsDateTimeFormat = "20060102T150405Z"
+const (
+	icsDateTimeFormat = "20060102T150405Z"
+	icsDateFormat     = "20060102"
+)
+
+// Birthday is a member birthday to render as a yearly, all-day recurring
+// VEVENT. MemberID anchors the VEVENT's UID so regenerating the feed
+// updates the same calendar entry rather than duplicating it.
+type Birthday struct {
+	MemberID uuid.UUID
+	Name     string
+	Date     time.Time
+}
 
 // icsEscape escapes text per RFC 5545 §3.3.11, matching buildIcs()'s esc().
 func icsEscape(s string) string {
@@ -58,12 +72,14 @@ func eventTypeLabel(eventType string) string {
 	}
 }
 
-// Render builds an iCalendar (RFC 5545) document for teamName's evts,
-// mirroring useCalExportActions.ts's buildIcs(): cancelled events are
-// excluded, and each VEVENT carries a UID stable across regenerations (so a
-// calendar client updates the same entry rather than duplicating it) plus a
-// DTSTAMP set to render time.
-func Render(teamName string, evts []events.EventRow) []byte {
+// Render builds an iCalendar (RFC 5545) document for teamName's evts plus
+// birthdays, mirroring useCalExportActions.ts's buildIcs(): cancelled events
+// are excluded, and each VEVENT carries a UID stable across regenerations
+// (so a calendar client updates the same entry rather than duplicating it)
+// plus a DTSTAMP set to render time. Callers are expected to have already
+// filtered evts/birthdays down to the feed's selected content and the
+// caller's visibility.
+func Render(teamName string, evts []events.EventRow, birthdays []Birthday) []byte {
 	now := time.Now().UTC()
 
 	lines := []string{
@@ -112,6 +128,19 @@ func Render(teamName string, evts []events.EventRow) []byte {
 			lines = append(lines, icsFold("LOCATION:"+icsEscape(*e.Location)))
 		}
 		lines = append(lines, icsFold("DESCRIPTION:"+icsEscape(strings.Join(descParts, "\n"))), "END:VEVENT")
+	}
+
+	for _, b := range birthdays {
+		lines = append(
+			lines,
+			"BEGIN:VEVENT",
+			"UID:birthday-"+b.MemberID.String()+"@teamverwaltung.app",
+			"DTSTAMP:"+now.Format(icsDateTimeFormat),
+			"DTSTART;VALUE=DATE:"+b.Date.Format(icsDateFormat),
+			"RRULE:FREQ=YEARLY",
+			icsFold("SUMMARY:"+icsEscape("Geburtstag: "+b.Name)),
+			"END:VEVENT",
+		)
 	}
 
 	lines = append(lines, "END:VCALENDAR")

@@ -9,6 +9,7 @@
 // through docker-compose integration tests.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthError, ForbiddenError, NetworkError, ValidationError } from '@/utils/errors';
+import type { CalendarFeedSettings } from '@/types';
 
 // ── Mock the HTTP client ─────────────────────────────────────────────────────
 vi.mock('@/api/client', () => ({
@@ -631,6 +632,27 @@ describe('events', () => {
       '/teams/{teamId}/calendar-feed/token',
       expect.objectContaining({ params: { path: { teamId: 't1' } } }),
     );
+  });
+
+  it('getCalendarFeedSettings fetches the content selection', async () => {
+    client.GET.mockResolvedValueOnce(ok({ types: ['training', 'auftritt'], includeBirthdays: false }));
+    const settings = await realApi.events.getCalendarFeedSettings('t1');
+    expect(client.GET).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-feed/settings',
+      expect.objectContaining({ params: { path: { teamId: 't1' } } }),
+    );
+    expect(settings).toEqual({ types: ['training', 'auftritt'], includeBirthdays: false });
+  });
+
+  it('updateCalendarFeedSettings puts the new content selection', async () => {
+    const settings: CalendarFeedSettings = { types: ['event'], includeBirthdays: true };
+    client.PUT.mockResolvedValueOnce(ok(settings));
+    const saved = await realApi.events.updateCalendarFeedSettings('t1', settings);
+    expect(client.PUT).toHaveBeenCalledWith(
+      '/teams/{teamId}/calendar-feed/settings',
+      expect.objectContaining({ params: { path: { teamId: 't1' } }, body: settings }),
+    );
+    expect(saved).toEqual(settings);
   });
 });
 
