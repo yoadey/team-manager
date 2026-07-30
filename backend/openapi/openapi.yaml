@@ -255,6 +255,8 @@ paths:
       operationId: getMyPhoto
       summary: Get user profile photo
       responses:
+        "200":
+          $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
         "404":

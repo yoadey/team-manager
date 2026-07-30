@@ -45,6 +45,24 @@ describe('Av', () => {
     const { container } = render(<Av name="Anna" photo="data:image/png;base64,abc" color="#4285F4" />);
     expect(container.firstChild).toBeTruthy();
   });
+
+  it('falls back to initials when the photo fails to load', async () => {
+    const OriginalImage = globalThis.Image;
+    class FailingImage {
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+    // @ts-expect-error -- minimal test double, only `src`/`onerror` are used by Av
+    globalThis.Image = FailingImage;
+    try {
+      render(<Av name="Anna Müller" photo="https://example.com/broken.png" color="#4285F4" />);
+      expect(await screen.findByText('AM')).toBeTruthy();
+    } finally {
+      globalThis.Image = OriginalImage;
+    }
+  });
 });
 
 describe('Chip', () => {

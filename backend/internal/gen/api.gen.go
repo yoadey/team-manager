@@ -6200,6 +6200,23 @@ type GetMyPhotoResponseObject interface {
 	VisitGetMyPhotoResponse(w http.ResponseWriter) error
 }
 
+type GetMyPhoto200ImageResponse struct{ PhotoBytesImageResponse }
+
+func (response GetMyPhoto200ImageResponse) VisitGetMyPhotoResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", response.ContentType)
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
 type GetMyPhoto302Response = PhotoRedirectResponse
 
 func (response GetMyPhoto302Response) VisitGetMyPhotoResponse(w http.ResponseWriter) error {

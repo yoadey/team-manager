@@ -27,6 +27,7 @@ type authService interface {
 	Logout(ctx context.Context, tokenHash string) error
 	UpdatePhoto(ctx context.Context, userID string, data []byte, mime string) (*UserRow, error)
 	GetMyPhotoURL(ctx context.Context, userID string) (string, error)
+	GetMyPhotoBytes(ctx context.Context, userID string) (io.ReadCloser, string, error)
 	EraseAccount(ctx context.Context, userID, password string) error
 	ExportUserData(ctx context.Context, userID string) (*ExportData, error)
 	Register(ctx context.Context, email, password string) error
@@ -40,6 +41,11 @@ type Handler struct {
 	logger *slog.Logger
 	codec  *SessionCookieCodec
 	audit  *audit.Logger
+	// imageDeliveryProxyEnabled mirrors config.Config.ImageDeliveryProxyEnabled
+	// (wired in by cmd/server/main.go via SetImageDeliveryProxyEnabled).
+	// Defaults to false: GetMyPhoto redirects (302) to a presigned
+	// object-store URL, unchanged from before this flag existed.
+	imageDeliveryProxyEnabled bool
 }
 
 // NewHandler creates a new Handler. The codec is used by AuthMiddleware to read
@@ -50,6 +56,14 @@ func NewHandler(svc authService, logger *slog.Logger, codec *SessionCookieCodec,
 		al = audit.New(logger)
 	}
 	return &Handler{svc: svc, logger: logger, codec: codec, audit: al}
+}
+
+// SetImageDeliveryProxyEnabled configures whether GetMyPhoto streams image
+// bytes directly through the backend (proxy mode) instead of redirecting to
+// a presigned object-store URL (the default). See
+// config.Config.ImageDeliveryProxyEnabled.
+func (h *Handler) SetImageDeliveryProxyEnabled(enabled bool) {
+	h.imageDeliveryProxyEnabled = enabled
 }
 
 // ListProviders returns the list of supported login providers (hardcoded to password).
@@ -279,13 +293,29 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 	return gen.GetCurrentUser200JSONResponse(toGenUser(user)), nil
 }
 
-// GetMyPhoto redirects to a short-lived presigned URL for the authenticated
-// user's profile photo.
+// GetMyPhoto returns the authenticated user's profile photo: a short-lived
+// presigned URL to redirect to (default), or the image bytes streamed
+// directly when the deployment is configured for proxy image delivery
+// (SetImageDeliveryProxyEnabled / config.Config.ImageDeliveryProxyEnabled).
 func (h *Handler) GetMyPhoto(ctx context.Context, _ gen.GetMyPhotoRequestObject) (gen.GetMyPhotoResponseObject, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok {
 		return nil, apierror.NotFound("no profile photo")
 	}
+
+	if h.imageDeliveryProxyEnabled {
+		data, contentType, err := h.svc.GetMyPhotoBytes(ctx, user.Id.String())
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, apierror.NotFound("no profile photo")
+			}
+			return nil, fmt.Errorf("auth.Handler.GetMyPhoto: %w", err)
+		}
+		return gen.GetMyPhoto200ImageResponse{
+			PhotoBytesImageResponse: gen.PhotoBytesImageResponse{Body: data, ContentType: contentType},
+		}, nil
+	}
+
 	url, err := h.svc.GetMyPhotoURL(ctx, user.Id.String())
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
