@@ -160,7 +160,7 @@ function CalendarDayCell({
       sx={{
         minHeight: mobile ? '58px' : '76px',
         border: `1px solid ${NEUTRAL.line2}`,
-        borderRadius: '9px',
+        borderRadius: mobile ? '4px' : '9px',
         p: mobile ? '3px' : '5px',
         background: inMonth ? NEUTRAL.card : NEUTRAL.sidebar,
         opacity: inMonth ? 1 : 0.55,

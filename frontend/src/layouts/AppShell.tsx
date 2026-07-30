@@ -200,7 +200,7 @@ function PrimaryActionButton({ compact, tk, pm }: { compact: boolean; tk: Tokens
           ? {
               position: 'fixed',
               right: 18,
-              bottom: 88,
+              bottom: 'calc(88px + env(safe-area-inset-bottom))',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
@@ -247,12 +247,12 @@ function MobileNavBar({ defs, route, onNavigate, onMore, tk }: {
       aria-label={tl('nav.mainNav')}
       sx={{
         flex: '0 0 auto',
-        height: 72,
+        minHeight: 72,
         background: NEUTRAL.sidebar,
         borderTop: `1px solid ${NEUTRAL.line3}`,
         display: 'flex',
         alignItems: 'stretch',
-        p: '8px 6px',
+        p: '8px 6px calc(8px + env(safe-area-inset-bottom))',
       }}
     >
       {defs
@@ -398,7 +398,16 @@ interface ShellChromeProps {
 function MobileShell({ app, team, tk, pageSheet, pm, content, notifUnread, notifBadge, hasUnread, navDefs }: ShellChromeProps) {
   const { state } = app;
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, background: NEUTRAL.surface }}>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        '@supports (height: 100dvh)': { height: '100dvh' },
+        minHeight: 0,
+        background: NEUTRAL.surface,
+      }}
+    >
       <Box component="a" href="#main-content" sx={skipLinkSx}>
         {tl('shell.skipToMain')}
       </Box>
@@ -452,7 +461,17 @@ function MobileShell({ app, team, tk, pageSheet, pm, content, notifUnread, notif
         </ButtonBase>
       </Box>
 
-      <Box component="main" id="main-content" sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: '14px 14px 90px', position: 'relative' }}>
+      <Box
+        component="main"
+        id="main-content"
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflow: 'auto',
+          p: '14px 14px calc(90px + env(safe-area-inset-bottom))',
+          position: 'relative',
+        }}
+      >
         {content}
       </Box>
 
