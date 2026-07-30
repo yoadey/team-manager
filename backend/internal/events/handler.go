@@ -414,9 +414,6 @@ func (h *Handler) SetAttendance(ctx context.Context, request gen.SetAttendanceRe
 		if errors.Is(err, ErrEventCancelled) {
 			return nil, apierror.Conflict("cannot change attendance on a cancelled event")
 		}
-		if errors.Is(err, ErrRsvpDeadlinePassed) {
-			return nil, apierror.Conflict("rsvp deadline has passed")
-		}
 		if errors.Is(err, ErrCancelLeadTimePassed) {
 			return nil, apierror.Conflict("cancellation lead time has passed")
 		}

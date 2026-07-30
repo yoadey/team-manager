@@ -345,7 +345,6 @@ export function createSeedData(): DemoDb {
         startTime: null,
         endTime: null,
         seriesId: null,
-        rsvpDeadline: null,
         cancelLeadMinutes: null,
       },
       o,

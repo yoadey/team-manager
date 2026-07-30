@@ -28,8 +28,6 @@ export interface EventFormValues extends Record<string, unknown> {
   repeatMode: RepeatMode;
   /** Recurrence end date (YYYY-MM-DD), used instead of repeatWeeks when repeatMode === 'until'. */
   repeatEndDate: string;
-  /** RSVP deadline as a `<input type="datetime-local">` value (YYYY-MM-DDTHH:mm), or '' for none. */
-  rsvpDeadline: string;
   /** Cancellation/RSVP-change lead time before start, split for the hours+minutes inputs; both 0 means no cutoff. */
   cancelLeadHours: number;
   cancelLeadMinutes: number;
@@ -74,8 +72,6 @@ export interface EventDto {
   recurring: boolean;
   seriesId: string | null;
   status: EventStatus;
-  /** ISO 8601 timestamp; null when the event has no RSVP deadline. */
-  rsvpDeadline: string | null;
   /** Cutoff, in minutes before the event's start; null when the event has no cancellation lead time. */
   cancelLeadMinutes: number | null;
 }

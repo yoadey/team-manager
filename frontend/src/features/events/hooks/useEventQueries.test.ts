@@ -21,7 +21,6 @@ function makeEvent(overrides: Partial<TeamEvent> = {}): TeamEvent {
     recurring: false,
     seriesId: null,
     status: 'active',
-    rsvpDeadline: null,
     cancelLeadMinutes: null,
     summary: { yes: 0, no: 0, maybe: 0, pending: 0 } as never,
     myStatus: 'pending',

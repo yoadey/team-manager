@@ -6,7 +6,7 @@ import type { TeamEvent } from './types';
 // ZonedTimeToUTC) have a per-team timezone concept yet.
 const TEAM_TIMEZONE = 'Europe/Berlin';
 
-type CutoffEventFields = Pick<TeamEvent, 'date' | 'startTime' | 'meetTime' | 'rsvpDeadline' | 'cancelLeadMinutes'>;
+type CutoffEventFields = Pick<TeamEvent, 'date' | 'startTime' | 'meetTime' | 'cancelLeadMinutes'>;
 
 /**
  * The absolute instant an event starts: startTime, falling back to
@@ -20,24 +20,14 @@ function eventStartInstant(event: Pick<TeamEvent, 'date' | 'startTime' | 'meetTi
 }
 
 /**
- * The effective RSVP/cancellation cutoff for an event: the earlier of its
- * absolute rsvpDeadline and its cancelLeadMinutes-derived cutoff (event
- * start minus cancelLeadMinutes), whichever are set -- either cutoff, if
- * set and passed, blocks a self-service attendance change (see the
- * backend's identical events.Service.SetAttendance gating). Returns null
- * when neither cutoff is configured.
+ * The effective RSVP/cancellation cutoff for an event: event start minus
+ * cancelLeadMinutes, if set -- once passed, it blocks a self-service
+ * attendance change (see the backend's identical events.Service.
+ * SetAttendance gating). Returns null when no cutoff is configured.
  */
 export function effectiveRsvpCutoff(event: CutoffEventFields): Date | null {
-  const candidates: number[] = [];
-  if (event.rsvpDeadline) {
-    const ms = new Date(event.rsvpDeadline).getTime();
-    if (!isNaN(ms)) candidates.push(ms);
-  }
-  if (event.cancelLeadMinutes != null) {
-    candidates.push(eventStartInstant(event).getTime() - event.cancelLeadMinutes * 60_000);
-  }
-  if (candidates.length === 0) return null;
-  return new Date(Math.min(...candidates));
+  if (event.cancelLeadMinutes == null) return null;
+  return new Date(eventStartInstant(event).getTime() - event.cancelLeadMinutes * 60_000);
 }
 
 /** Whether event's effective RSVP cutoff (if any) has already passed as of `now`. */

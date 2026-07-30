@@ -83,7 +83,7 @@ const selectEventFields = `
 	COALESCE(TO_CHAR(end_time, 'HH24:MI'), '') AS end_time,
 	meet_time_mandatory, response_mode,
 	COALESCE(nominated_role_ids, '{}') AS nominated_role_ids,
-	status, created_at, rsvp_deadline, cancel_lead_minutes
+	status, created_at, cancel_lead_minutes
 `
 
 // scanEventRow scans a full event row from the DB.
@@ -96,7 +96,7 @@ func scanEventRow(row pgx.Row) (*EventRow, error) {
 		&meetTime, &startTime, &endTime,
 		&e.MeetTimeMandatory, &e.ResponseMode,
 		&e.NominatedRoleIds,
-		&e.Status, &e.CreatedAt, &e.RsvpDeadline, &e.CancelLeadMinutes,
+		&e.Status, &e.CreatedAt, &e.CancelLeadMinutes,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("events.scanEventRow: %w", err)
@@ -290,11 +290,11 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 		INSERT INTO events (
 			team_id, type, title, date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, status, rsvp_deadline, cancel_lead_minutes
+			response_mode, nominated_role_ids, status, cancel_lead_minutes
 		) VALUES (
 			$1, $2, $3, $4, $5, $6,
 			$7::time, $8::time, $9::time, $10,
-			$11, $12, 'active', $13, $14
+			$11, $12, 'active', $13
 		)
 		RETURNING %s
 	`, selectEventFields)
@@ -307,7 +307,6 @@ func (r *Repository) CreateEvent(ctx context.Context, teamID string, params *Cre
 		boolVal(params.MeetTimeMandatory),
 		strVal(params.ResponseMode, "opt_in"),
 		uuidSlice(params.NominatedRoleIds),
-		params.RsvpDeadline,
 		params.CancelLeadMinutes,
 	)
 	e, err := scanEventRow(row)
@@ -382,11 +381,11 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		INSERT INTO event_series (
 			team_id, type, title, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, repeat_weeks, repeat_end_date, rsvp_deadline, cancel_lead_minutes
+			response_mode, nominated_role_ids, repeat_weeks, repeat_end_date, cancel_lead_minutes
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6::time, $7::time, $8::time, $9,
-			$10, $11, $12, $13, $14, $15
+			$10, $11, $12, $13, $14
 		)
 		RETURNING id
 	`
@@ -399,7 +398,6 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		uuidSlice(params.NominatedRoleIds),
 		len(dates),
 		params.RepeatEndDate,
-		params.RsvpDeadline,
 		params.CancelLeadMinutes,
 	).Scan(&seriesID)
 	if err != nil {
@@ -419,11 +417,11 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		INSERT INTO events (
 			team_id, series_id, type, title, date, location, note,
 			meet_time, start_time, end_time, meet_time_mandatory,
-			response_mode, nominated_role_ids, status, rsvp_deadline, cancel_lead_minutes
+			response_mode, nominated_role_ids, status, cancel_lead_minutes
 		)
 		SELECT $1, $2, $3, $4, d, $6, $7,
 			$8::time, $9::time, $10::time, $11,
-			$12, $13, 'active', $14, $15
+			$12, $13, 'active', $14
 		FROM unnest($5::date[]) AS d
 		RETURNING %s
 	`, selectEventFields)
@@ -436,7 +434,6 @@ func (r *Repository) CreateSeries(ctx context.Context, teamID string, params *Cr
 		boolVal(params.MeetTimeMandatory),
 		strVal(params.ResponseMode, "opt_in"),
 		uuidSlice(params.NominatedRoleIds),
-		params.RsvpDeadline,
 		params.CancelLeadMinutes,
 	)
 	if err != nil {
@@ -606,9 +603,6 @@ func buildEventUpdateSets(params *UpdateEventParams, startIdx int) (setSQL strin
 	}
 	if params.NominatedRoleIds != nil {
 		b.Add("nominated_role_ids", params.NominatedRoleIds)
-	}
-	if params.RsvpDeadline != nil {
-		b.Add("rsvp_deadline", *params.RsvpDeadline)
 	}
 	if params.CancelLeadMinutes != nil {
 		b.Add("cancel_lead_minutes", *params.CancelLeadMinutes)
@@ -1160,23 +1154,23 @@ func (r *Repository) GetReasonVisibilityContext(ctx context.Context, teamID, vie
 // SetStatus(cancelled) committing between that read and this write must not
 // be able to still let attendance be recorded/rewritten against an
 // already-cancelled event. The same clause also re-checks the event's
-// rsvp_deadline and cancel_lead_minutes cutoffs: the service layer's earlier
-// deadline checks (Service.SetAttendance) are likewise not atomic with this
-// write, so a request that raced past either cutoff (or a concurrent
-// SetRoles granting events:write mid-request) must not slip through here
-// even if it slipped past those earlier checks -- caller_write (computed
-// once, below) backs both the "acting on another member" bypass and both
-// deadline bypasses, since all three are "does callerID currently hold
-// events:write". The cancel_lead_minutes cutoff is computed the same way as
-// EventStartInstant/ZonedTimeToUTC (Go): date + COALESCE(start_time,
-// meet_time, '18:00') interpreted as Europe/Berlin wall-clock, converted to
-// UTC, minus cancel_lead_minutes. Returns pgx.ErrNoRows if eventID does not
-// belong to teamID, if the event is cancelled, if either deadline has passed
-// and callerID lacks events:write, if userID is not a member of teamID
-// (prevents forging attendance rows for arbitrary users outside the team),
-// OR -- in that narrow race -- if callerID no longer holds events:write;
-// these are deliberately not distinguished here, matching how every other
-// reason this returns pgx.ErrNoRows is already ambiguous by design.
+// cancel_lead_minutes cutoff: the service layer's earlier deadline check
+// (Service.SetAttendance) is likewise not atomic with this write, so a
+// request that raced past the cutoff (or a concurrent SetRoles granting
+// events:write mid-request) must not slip through here even if it slipped
+// past that earlier check -- caller_write (computed once, below) backs both
+// the "acting on another member" bypass and the deadline bypass, since both
+// are "does callerID currently hold events:write". The cancel_lead_minutes
+// cutoff is computed the same way as EventStartInstant/ZonedTimeToUTC (Go):
+// date + COALESCE(start_time, meet_time, '18:00') interpreted as
+// Europe/Berlin wall-clock, converted to UTC, minus cancel_lead_minutes.
+// Returns pgx.ErrNoRows if eventID does not belong to teamID, if the event
+// is cancelled, if the deadline has passed and callerID lacks events:write,
+// if userID is not a member of teamID (prevents forging attendance rows for
+// arbitrary users outside the team), OR -- in that narrow race -- if
+// callerID no longer holds events:write; these are deliberately not
+// distinguished here, matching how every other reason this returns
+// pgx.ErrNoRows is already ambiguous by design.
 func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, status, reason, reasonID, reasonVisibility *string) (*AttendanceDBRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -1196,7 +1190,6 @@ func (r *Repository) SetAttendance(ctx context.Context, eventID, callerID, userI
 		WHERE EXISTS (
 		        SELECT 1 FROM events e
 		        WHERE e.id = $1 AND e.team_id = $7 AND e.status != 'cancelled'
-		          AND (e.rsvp_deadline IS NULL OR now() <= e.rsvp_deadline OR caller_write.has_write)
 		          AND (
 		                e.cancel_lead_minutes IS NULL
 		                OR now() <= (
