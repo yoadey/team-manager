@@ -1428,11 +1428,6 @@ export interface components {
             myStatus?: components["schemas"]["AttendanceStatus"];
             myAuto?: boolean;
             myReason?: string;
-            /**
-             * Format: date-time
-             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response for this event.
-             */
-            rsvpDeadline?: string;
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response for this event. */
             cancelLeadMinutes?: number;
         };
@@ -1456,11 +1451,6 @@ export interface components {
              * @description Alternative to repeatWeeks for a recurring series: generates weekly occurrences from date up to and including endDate instead of a fixed count. Mutually exclusive with repeatWeeks -- when both are set, endDate takes precedence.
              */
             endDate?: string;
-            /**
-             * Format: date-time
-             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own rsvpDeadline.
-             */
-            rsvpDeadline?: string;
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. For a recurring series, seeds every generated occurrence's own cancelLeadMinutes, with each occurrence computing its own effective cutoff from its own start. */
             cancelLeadMinutes?: number;
         };
@@ -1477,11 +1467,6 @@ export interface components {
             meetTimeMandatory?: boolean;
             responseMode?: components["schemas"]["ResponseMode"];
             nominatedRoleIds?: string[];
-            /**
-             * Format: date-time
-             * @description Optional cutoff after which a non-privileged member can no longer change their attendance response.
-             */
-            rsvpDeadline?: string;
             /** @description Optional cutoff, expressed as minutes before the event's start, after which a non-privileged member can no longer change their attendance response. */
             cancelLeadMinutes?: number;
         };
@@ -2049,7 +2034,7 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
-        /** @description Conflict. For example, an attendance change was rejected because the event's cancelled, or its rsvpDeadline/cancelLeadMinutes cutoff has passed for a caller without write permission on events. */
+        /** @description Conflict. For example, an attendance change was rejected because the event's cancelled, or its cancelLeadMinutes cutoff has passed for a caller without write permission on events. */
         Conflict: {
             headers: {
                 [name: string]: unknown;

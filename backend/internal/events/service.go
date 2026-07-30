@@ -33,10 +33,6 @@ var (
 	// end-date alternative to repeatWeeks (see CreateEvent) has no
 	// occurrences to generate in that case.
 	ErrRecurrenceEndDateBeforeDate = errors.New("endDate must be on or after date")
-	// ErrRsvpDeadlinePassed is returned when a member without a role
-	// permitting late responses (events:write) attempts to change their
-	// attendance after the event's rsvpDeadline has passed.
-	ErrRsvpDeadlinePassed = errors.New("events.Service.SetAttendance: rsvp deadline has passed")
 	// ErrCancelLeadTimePassed is returned when a member without a role
 	// permitting late responses (events:write) attempts to change their
 	// attendance after the event's cancelLeadMinutes-derived cutoff
@@ -254,7 +250,6 @@ func (s *Service) CreateEvent(ctx context.Context, teamID, userID string, body *
 		Recurring:         recurring,
 		RepeatWeeks:       repeatWeeks,
 		RepeatEndDate:     repeatEndDate,
-		RsvpDeadline:      body.RsvpDeadline,
 		CancelLeadMinutes: body.CancelLeadMinutes,
 	}
 	if body.ResponseMode != nil {
@@ -330,7 +325,6 @@ func (s *Service) UpdateEvent(ctx context.Context, teamID, userID, eventID, scop
 		StartTime:         body.StartTime,
 		EndTime:           body.EndTime,
 		MeetTimeMandatory: body.MeetTimeMandatory,
-		RsvpDeadline:      body.RsvpDeadline,
 		CancelLeadMinutes: body.CancelLeadMinutes,
 	}
 	if body.Type != nil {
@@ -555,13 +549,12 @@ func roleSetsIntersect(a, b []string) bool {
 // row is being set for (may differ from callerID). Setting another member's
 // attendance requires events:write — self-service callers may only set their
 // own. Returns ErrSetAttendanceForbidden if the caller lacks that permission.
-// Once the event's rsvpDeadline has passed, a response is also rejected
-// (ErrRsvpDeadlinePassed) unless the caller holds events:write -- the same
-// permission that lets an organizer set attendance for another member also
-// lets them (or anyone else holding it) respond, or adjust a response, past
-// the deadline; there is no separate "late response" permission. The same
-// applies, independently, once the event's cancelLeadMinutes-derived cutoff
-// has passed (ErrCancelLeadTimePassed).
+// Once the event's cancelLeadMinutes-derived cutoff has passed, a response
+// is also rejected (ErrCancelLeadTimePassed) unless the caller holds
+// events:write -- the same permission that lets an organizer set attendance
+// for another member also lets them (or anyone else holding it) respond, or
+// adjust a response, past the cutoff; there is no separate "late response"
+// permission.
 func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, teamID string, req gen.SetAttendanceRequest) (*gen.AttendanceRecord, error) {
 	// status="not_nominated" is exclusively SetNomination's domain (an
 	// events:write-gated organizer action, never self-service). Without this,
@@ -594,20 +587,10 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 		return nil, ErrEventCancelled
 	}
 
-	// Reject a response once the event's rsvpDeadline has passed, unless the
-	// caller holds events:write -- see the repository's identical,
-	// race-closing re-check inside the write itself.
-	if ev.RsvpDeadline != nil && time.Now().After(*ev.RsvpDeadline) {
-		if err := s.requireCallerEventsWrite(ctx, callerID, teamID, ErrRsvpDeadlinePassed); err != nil {
-			return nil, err
-		}
-	}
-
-	// Independently, reject a response once the event's cancelLeadMinutes-
-	// derived cutoff has passed (EventStartInstant - cancelLeadMinutes),
-	// unless the caller holds events:write. Either cutoff, whichever is
-	// set and passed, blocks a self-service change -- see the repository's
-	// identical, race-closing re-check inside the write itself.
+	// Reject a response once the event's cancelLeadMinutes-derived cutoff
+	// has passed (EventStartInstant - cancelLeadMinutes), unless the caller
+	// holds events:write -- see the repository's identical, race-closing
+	// re-check inside the write itself.
 	if ev.CancelLeadMinutes != nil {
 		start := EventStartInstant(ev.Date, ev.StartTime, ev.MeetTime)
 		cutoff := start.Add(-time.Duration(*ev.CancelLeadMinutes) * time.Minute)
@@ -636,11 +619,10 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 // requireCallerEventsWrite checks whether callerID currently holds
 // events:write for teamID, returning onDenied (the caller-facing sentinel
 // appropriate to whichever gate is calling this -- ErrSetAttendanceForbidden
-// for "acting on another member", ErrRsvpDeadlinePassed or
-// ErrCancelLeadTimePassed for "responding after the deadline") when it
-// doesn't, nil when it does. Shared by SetAttendance's three independent
-// events:write gates, which otherwise duplicate the same permChecker
-// plumbing.
+// for "acting on another member", ErrCancelLeadTimePassed for "responding
+// after the deadline") when it doesn't, nil when it does. Shared by
+// SetAttendance's events:write gates, which otherwise duplicate the same
+// permChecker plumbing.
 func (s *Service) requireCallerEventsWrite(ctx context.Context, callerID, teamID string, onDenied error) error {
 	if s.permChecker == nil {
 		return onDenied
@@ -769,7 +751,6 @@ func toGenEvent(row *EventRow, summary EventSummaryData) gen.TeamEvent {
 		StartTime:         row.StartTime,
 		EndTime:           row.EndTime,
 		MeetTimeMandatory: row.MeetTimeMandatory,
-		RsvpDeadline:      row.RsvpDeadline,
 		CancelLeadMinutes: row.CancelLeadMinutes,
 	}
 

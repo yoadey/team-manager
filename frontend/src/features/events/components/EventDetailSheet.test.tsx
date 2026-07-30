@@ -655,40 +655,48 @@ describe('EventDetailSheet', () => {
       vi.useRealTimers();
     });
 
-    it('shows a countdown once the RSVP deadline is under 24h away', () => {
+    // Cutoff = event start (date/startTime, Europe/Berlin) minus
+    // cancelLeadMinutes; cancelLeadMinutes: 0 makes the cutoff exactly the
+    // start instant, so each case just picks a start time relative to the
+    // fixed system time above. CEST (late June) is UTC+2.
+
+    it('shows a countdown once the cancellation cutoff is under 24h away', () => {
       const app = makeApp();
       mockUseApp.mockReturnValue(app as never);
-      const event = makeEvent({ rsvpDeadline: '2026-06-26T00:00:00.000Z' });
+      // Cutoff: 2026-06-26T00:00:00Z (12h away).
+      const event = makeEvent({ date: '2026-06-26', startTime: '02:00', cancelLeadMinutes: 0 });
       render(
         <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
       );
       expect(screen.getByText('events.rsvpCountdown')).toBeTruthy();
     });
 
-    it('does not show a countdown when the RSVP deadline is more than 24h away', () => {
+    it('does not show a countdown when the cancellation cutoff is more than 24h away', () => {
       const app = makeApp();
       mockUseApp.mockReturnValue(app as never);
-      const event = makeEvent({ rsvpDeadline: '2026-06-30T12:00:00.000Z' });
+      // Cutoff: 2026-06-30T12:00:00Z (5 days away).
+      const event = makeEvent({ date: '2026-06-30', startTime: '14:00', cancelLeadMinutes: 0 });
       render(
         <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
       );
       expect(screen.queryByText('events.rsvpCountdown')).toBeNull();
     });
 
-    it('does not show a countdown when the event has no RSVP deadline', () => {
+    it('does not show a countdown when the event has no cancellation lead time set', () => {
       const app = makeApp();
       mockUseApp.mockReturnValue(app as never);
-      const event = makeEvent({ rsvpDeadline: null });
+      const event = makeEvent({ cancelLeadMinutes: null });
       render(
         <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
       );
       expect(screen.queryByText('events.rsvpCountdown')).toBeNull();
     });
 
-    it('does not show a countdown once the RSVP deadline has already passed', () => {
+    it('does not show a countdown once the cancellation cutoff has already passed', () => {
       const app = makeApp();
       mockUseApp.mockReturnValue(app as never);
-      const event = makeEvent({ rsvpDeadline: '2026-06-25T00:00:00.000Z' });
+      // Cutoff: 2026-06-25T00:00:00Z (already passed).
+      const event = makeEvent({ date: '2026-06-25', startTime: '02:00', cancelLeadMinutes: 0 });
       render(
         <EventDetailSheet app={app as never} sheet={{ type: 'eventDetail', event, rows: [], comments: [] } as never} />,
       );

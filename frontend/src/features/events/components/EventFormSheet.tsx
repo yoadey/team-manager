@@ -121,6 +121,58 @@ function ResponseModeSelector({
   );
 }
 
+/**
+ * A single hours-or-minutes half of the cancellation lead-time duration:
+ * a persistent unit label above the input (unlike a placeholder, it doesn't
+ * disappear once the user types a value) plus an in-input unit suffix, so
+ * the field reads as "2 Std." rather than a bare, ambiguous number box.
+ */
+function DurationPartField({
+  unitLabel,
+  unitSuffix,
+  min,
+  max,
+  register,
+}: {
+  unitLabel: string;
+  unitSuffix: string;
+  min: string;
+  max?: string;
+  register: ReturnType<UseFormRegister<EventFormValues>>;
+}) {
+  return (
+    <Box sx={{ flex: 1 }}>
+      <Box sx={{ fontSize: '11px', fontWeight: 600, color: NEUTRAL.faint, mb: '4px' }}>{unitLabel}</Box>
+      <Box sx={{ position: 'relative' }}>
+        <TextInput
+          type="number"
+          min={min}
+          max={max}
+          aria-label={unitLabel}
+          style={{ paddingRight: '44px' }}
+          {...register}
+        />
+        <Box
+          component="span"
+          aria-hidden="true"
+          sx={{
+            position: 'absolute',
+            right: '14px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: NEUTRAL.faint,
+            pointerEvents: 'none',
+          }}
+        >
+          {unitSuffix}
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 function MeetTimeToggle({ checked, tk, onToggle }: { checked: boolean; tk: Tokens; onToggle: () => void }) {
   return (
     <ButtonBase
@@ -550,32 +602,20 @@ export function EventFormSheet({ app, sheet }: SheetProps) {
           {...register('note')}
         />
       </Field>
-      <Field
-        label={t('events.fieldRsvpDeadline')}
-        error={!!errors.rsvpDeadline}
-        errorText={errors.rsvpDeadline?.message}
-      >
-        <TextInput type="datetime-local" {...register('rsvpDeadline')} />
-      </Field>
-      <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, m: '-10px 2px 0', lineHeight: 1.45 }}>
-        {t('events.fieldRsvpDeadlineHint')}
-      </Box>
       <Field label={t('events.fieldCancelLeadTime')} error={!!errors.cancelLeadHours || !!errors.cancelLeadMinutes}>
         <Box sx={{ display: 'flex', gap: '10px' }}>
-          <TextInput
-            type="number"
+          <DurationPartField
+            unitLabel={t('events.fieldCancelLeadHours')}
+            unitSuffix={t('events.fieldCancelLeadHoursShort')}
             min="0"
-            aria-label={t('events.fieldCancelLeadHours')}
-            placeholder={t('events.fieldCancelLeadHours')}
-            {...register('cancelLeadHours')}
+            register={register('cancelLeadHours')}
           />
-          <TextInput
-            type="number"
+          <DurationPartField
+            unitLabel={t('events.fieldCancelLeadMinutes')}
+            unitSuffix={t('events.fieldCancelLeadMinutesShort')}
             min="0"
             max="59"
-            aria-label={t('events.fieldCancelLeadMinutes')}
-            placeholder={t('events.fieldCancelLeadMinutes')}
-            {...register('cancelLeadMinutes')}
+            register={register('cancelLeadMinutes')}
           />
         </Box>
       </Field>

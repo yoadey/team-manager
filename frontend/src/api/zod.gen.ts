@@ -225,7 +225,6 @@ const TeamEvent = z
     myStatus: AttendanceStatus.optional(),
     myAuto: z.boolean().optional(),
     myReason: z.string().optional(),
-    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
     cancelLeadMinutes: z.number().int().optional(),
   })
   .passthrough();
@@ -245,7 +244,6 @@ const CreateEventRequest = z
     recurring: z.boolean().optional(),
     repeatWeeks: z.number().int().gte(1).lte(104).optional(),
     endDate: z.string().optional(),
-    rsvpDeadline: z.string().datetime({ offset: true }).optional(),
     cancelLeadMinutes: z.number().int().gte(0).optional(),
   })
   .passthrough();
@@ -262,7 +260,6 @@ const UpdateEventRequest = z
     meetTimeMandatory: z.boolean(),
     responseMode: ResponseMode,
     nominatedRoleIds: z.array(z.string().uuid()),
-    rsvpDeadline: z.string().datetime({ offset: true }),
     cancelLeadMinutes: z.number().int().gte(0),
   })
   .partial()
@@ -1492,7 +1489,7 @@ const endpoints = makeApi([
     errors: [
       {
         status: 409,
-        description: `Conflict. For example, an attendance change was rejected because the event&#x27;s cancelled, or its rsvpDeadline/cancelLeadMinutes cutoff has passed for a caller without write permission on events.`,
+        description: `Conflict. For example, an attendance change was rejected because the event&#x27;s cancelled, or its cancelLeadMinutes cutoff has passed for a caller without write permission on events.`,
         schema: z.void(),
       },
     ],

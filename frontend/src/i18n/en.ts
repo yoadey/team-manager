@@ -328,11 +328,11 @@ export const en: Messages = {
     recurModeWeeks: 'Number of weeks',
     recurModeUntil: 'Until date',
     recurEndDate: 'End date',
-    fieldRsvpDeadline: 'RSVP deadline',
-    fieldRsvpDeadlineHint: 'After this passes, regular members can no longer change their response.',
     fieldCancelLeadTime: 'Cancellation lead time before start',
     fieldCancelLeadHours: 'Hours',
+    fieldCancelLeadHoursShort: 'h',
     fieldCancelLeadMinutes: 'Minutes',
+    fieldCancelLeadMinutesShort: 'min',
     fieldCancelLeadTimeHint:
       "Once this much time remains before start, regular members can no longer change their response. 0h 0m means no cutoff.",
     rsvpCountdown: 'RSVP closes in {time}',

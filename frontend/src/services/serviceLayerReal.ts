@@ -545,8 +545,6 @@ export const realApi = {
         repeatWeeks?: number | undefined;
         /** Alternative to repeatWeeks for a recurring series; YYYY-MM-DD. */
         endDate?: string | undefined;
-        /** ISO 8601 timestamp. */
-        rsvpDeadline?: string | undefined;
         /** Minutes before the event's start. */
         cancelLeadMinutes?: number | undefined;
       },
@@ -568,7 +566,6 @@ export const realApi = {
           ...opt('recurring', payload.recurring),
           ...opt('repeatWeeks', payload.repeatWeeks),
           ...opt('endDate', payload.endDate),
-          ...opt('rsvpDeadline', payload.rsvpDeadline),
           ...opt('cancelLeadMinutes', payload.cancelLeadMinutes),
         },
       });
@@ -603,8 +600,6 @@ export const realApi = {
         meetTimeMandatory?: boolean;
         responseMode?: string;
         nominatedRoleIds?: string[];
-        /** ISO 8601 timestamp. */
-        rsvpDeadline?: string | undefined;
         /** Minutes before the event's start. */
         cancelLeadMinutes?: number | undefined;
       },
@@ -625,7 +620,6 @@ export const realApi = {
           ...opt('meetTimeMandatory', patch.meetTimeMandatory),
           ...opt('responseMode', patch.responseMode as 'opt_in' | 'opt_out' | undefined),
           ...opt('nominatedRoleIds', patch.nominatedRoleIds),
-          ...opt('rsvpDeadline', patch.rsvpDeadline),
           ...opt('cancelLeadMinutes', patch.cancelLeadMinutes),
         },
       });

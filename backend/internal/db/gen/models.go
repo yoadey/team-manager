@@ -100,7 +100,6 @@ type Event struct {
 	Status            string
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
-	RsvpDeadline      pgtype.Timestamptz
 	CancelLeadMinutes pgtype.Int4
 }
 
@@ -128,7 +127,6 @@ type EventSeries struct {
 	RepeatWeeks       int32
 	CreatedAt         time.Time
 	RepeatEndDate     pgtype.Date
-	RsvpDeadline      pgtype.Timestamptz
 	CancelLeadMinutes pgtype.Int4
 }
 

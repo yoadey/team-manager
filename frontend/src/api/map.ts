@@ -257,7 +257,6 @@ export function mapTeamEvent(e: S['TeamEvent']): TeamEvent {
     meetTimeMandatory: e.meetTimeMandatory ?? false,
     responseMode: (e.responseMode ?? 'opt_in') as 'opt_in' | 'opt_out',
     recurring: e.recurring,
-    rsvpDeadline: e.rsvpDeadline ?? null,
     cancelLeadMinutes: e.cancelLeadMinutes ?? null,
     ...opt('result', e.result),
     ...opt('nominatedRoleIds', e.nominatedRoleIds),
