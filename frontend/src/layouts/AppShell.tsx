@@ -3,9 +3,9 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp, sheetErrorBoundaryKey, type AppContextValue, type Route, type SheetState } from '@/context/AppContext';
 import { ROUTE_MODULE } from '@/context/urlState';
-import { buildTokens, initials, NEUTRAL } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { todayLocalDate } from '@/utils/date';
-import { Sym } from '@/components/ui';
+import { Av, Sym } from '@/components/ui';
 import { useEventsQuery, useEventDetailQuery } from '@/features/events';
 import { useMembersQuery } from '@/features/members';
 import { useNotificationsQuery } from '@/features/notifications';
@@ -84,29 +84,7 @@ function TeamIcon({ team }: { team: TeamForUser }) {
 
 function MyAvatar({ user }: { user: AppContextValue['state']['user'] }) {
   if (!user) return null;
-  return (
-    <Box
-      component="span"
-      sx={{
-        width: 38,
-        height: 38,
-        borderRadius: '50%',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: '13px',
-        fontWeight: 700,
-        flex: '0 0 auto',
-        overflow: 'hidden',
-        color: '#fff',
-        ...(user.photo
-          ? { backgroundImage: `url(${user.photo})`, backgroundSize: 'cover', backgroundPosition: 'center' }
-          : { background: user.avatarColor }),
-      }}
-    >
-      {user.photo ? '' : initials(user.name)}
-    </Box>
-  );
+  return <Av name={user.name} photo={user.photo} color={user.avatarColor} size={38} font={13} />;
 }
 
 function NotificationsButton({

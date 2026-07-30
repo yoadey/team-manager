@@ -1,6 +1,6 @@
 /* Shared UI atoms — faithful MUI re-implementations of the prototype's helper
    render functions (icon, avatar, chip, section title, buttons, form fields). */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import MuiSkeleton from '@mui/material/Skeleton';
@@ -63,6 +63,18 @@ export function Av({
   size?: number;
   font?: number;
 }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+    if (!photo) return;
+    const img = new Image();
+    img.onerror = () => setFailed(true);
+    img.src = photo;
+    return () => {
+      img.onerror = null;
+    };
+  }, [photo]);
+
   const f = font || Math.round(size * 0.36);
   const base: SxProps<Theme> = {
     width: size,
@@ -78,7 +90,7 @@ export function Av({
     overflow: 'hidden',
     backgroundColor: color || '#888',
   };
-  if (photo) {
+  if (photo && !failed) {
     return (
       <Box
         component="span"
