@@ -140,3 +140,15 @@ export function parseVerifyEmailToken(pathname: string): string | null {
   if (segs.length !== 2 || segs[0] !== 'verify-email' || !segs[1]) return null;
   return decodeURIComponent(segs[1]);
 }
+
+/**
+ * Parses a `/reset-password/<token>` password-reset link path (the shape
+ * auth.Service.issuePasswordResetToken builds on the backend -- see
+ * PublicBaseURL + "/reset-password/" + rawToken). Returns the raw token, or
+ * null if the path doesn't match.
+ */
+export function parseResetPasswordToken(pathname: string): string | null {
+  const segs = pathname.replace(/^\//, '').split('/');
+  if (segs.length !== 2 || segs[0] !== 'reset-password' || !segs[1]) return null;
+  return decodeURIComponent(segs[1]);
+}

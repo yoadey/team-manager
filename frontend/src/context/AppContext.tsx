@@ -56,6 +56,7 @@ import {
   buildPath,
   currentPath,
   parsePendingInvite,
+  parseResetPasswordToken,
   parseVerifyEmailToken,
   ROUTE_MODULE,
   type Route,
@@ -151,6 +152,13 @@ export interface SheetState {
 export interface AppState {
   phase: Phase;
   providers: Provider[];
+  /**
+   * Raw token parsed from a /reset-password/<token> link (see
+   * context/urlState.ts's parseResetPasswordToken), set by the bootstrap
+   * effect when such a link brought the user here. Login.tsx renders
+   * ResetPassword instead of its normal views while this is set.
+   */
+  resetPasswordToken: string | null;
   busy: string | null;
   primaryColor: string;
   colorScheme: 'system' | 'light' | 'dark';
@@ -207,6 +215,7 @@ const initialLocation = parseLocation(window.location.pathname, window.location.
 const initialState: AppState = {
   phase: 'loading',
   providers: [],
+  resetPasswordToken: null,
   busy: null,
   primaryColor: DEFAULT_PRESET_KEY,
   colorScheme: loadColorScheme(),
@@ -295,6 +304,10 @@ export interface AppContextValue {
   doRegister: (email: string, password: string) => Promise<boolean>;
   /** Resolves true on success, false on failure (state.error is set either way). */
   doResendVerification: (email: string) => Promise<boolean>;
+  /** Resolves true on success, false on failure (state.error is set either way). */
+  doForgotPassword: (email: string) => Promise<boolean>;
+  /** Resolves true on success (session established), false on failure (state.error is set either way). */
+  doResetPassword: (token: string, password: string) => Promise<boolean>;
   logout: () => void;
   deleteAccount: (confirmEmail: string) => Promise<void>;
   exportMyData: () => Promise<void>;
@@ -1002,6 +1015,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [api, S, setState],
   );
 
+  // doForgotPassword mirrors doRegister/doResendVerification: it doesn't log
+  // the user in (there's no account state change yet), just surfaces
+  // busy/error like every other pre-session action. ForgotPassword.tsx
+  // renders its own local "check your email" confirmation on success.
+  const doForgotPassword = useCallback(
+    async (email: string) => {
+      const owner = 'forgotPassword';
+      setState({ busy: owner, error: null });
+      try {
+        await api.auth.forgotPassword(email);
+        if (S().busy === owner) setState({ busy: null });
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('error.network');
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
+        return false;
+      }
+    },
+    [api, S, setState],
+  );
+
+  // doResetPassword establishes a session on success, the same way
+  // doPasswordLogin does -- a successful reset logs the user in on the
+  // device that performed it (the backend has already invalidated every
+  // other existing session for the account).
+  const doResetPassword = useCallback(
+    async (token: string, password: string) => {
+      const owner = 'resetPassword';
+      setState({ busy: owner, error: null });
+      try {
+        await api.auth.resetPassword(token, password);
+        const user = await api.auth.currentUser();
+        history.replaceState({}, '', '/');
+        await establishSession(user);
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : t('auth.resetPasswordFailed');
+        if (S().busy === owner) setState({ busy: null, error: msg });
+        else setState({ error: msg });
+        return false;
+      }
+    },
+    [api, S, setState, establishSession],
+  );
+
   // ---------- nav ----------
   const closeSheet = useCallback(() => {
     const s = S().sheet;
@@ -1262,6 +1321,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // exact same way a password login does (reusing establishSession, so a
       // pending team invite in the URL still gets redeemed); on failure fall
       // through to the normal login screen with an explanatory error.
+      // A password-reset link (/reset-password/<token>) brought the user
+      // here. Unlike verify-email, this doesn't consume the token
+      // immediately -- ResetPassword.tsx needs the user to actually choose
+      // and submit a new password first. Just surface the reset form; the
+      // token is consumed by doResetPassword on submit.
+      const resetToken = parseResetPasswordToken(window.location.pathname);
+      if (resetToken) {
+        const providers = await api.auth.providers().catch(() => []);
+        setState({ phase: 'login', providers, resetPasswordToken: resetToken });
+        return;
+      }
+
       const verifyToken = parseVerifyEmailToken(window.location.pathname);
       if (verifyToken) {
         try {
@@ -1329,6 +1400,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doPasswordLogin,
       doRegister,
       doResendVerification,
+      doForgotPassword,
+      doResetPassword,
       logout,
       deleteAccount,
       exportMyData,
@@ -1437,6 +1510,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       doPasswordLogin,
       doRegister,
       doResendVerification,
+      doForgotPassword,
+      doResetPassword,
       go,
       goEventsPending,
       goEventsAbsences,

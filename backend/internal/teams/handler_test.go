@@ -133,6 +133,10 @@ func (f *fakeAuthSvc) VerifyEmail(_ context.Context, _ string) (string, *auth.Us
 	return "token", f.user, nil
 }
 func (f *fakeAuthSvc) ResendVerification(_ context.Context, _ string) error { return nil }
+func (f *fakeAuthSvc) ForgotPassword(_ context.Context, _ string) error     { return nil }
+func (f *fakeAuthSvc) ResetPassword(_ context.Context, _, _ string) (string, *auth.UserRow, error) {
+	return "", nil, nil
+}
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 

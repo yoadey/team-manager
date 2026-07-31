@@ -98,6 +98,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/forgot-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a password-reset link
+         * @description Emails a password-reset link if (and only if) a password-based account exists for the submitted email. The response is always the same generic message regardless of whether the email has no account, an account with no password set (OIDC-only), or a password account — this endpoint never reveals account existence or auth method.
+         */
+        post: operations["forgotPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consume a password reset token and set a new password
+         * @description Sets the account's new password, invalidates every existing session for that account, and returns a session identical in shape to `login`'s response so the client can reuse its normal post-login bootstrap on the device that performed the reset.
+         */
+        post: operations["resetPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -1284,6 +1324,14 @@ export interface components {
             /** Format: email */
             email: string;
         };
+        ForgotPasswordRequest: {
+            /** Format: email */
+            email: string;
+        };
+        ResetPasswordRequest: {
+            token: string;
+            password: string;
+        };
         DeleteAccountRequest: {
             /**
              * Format: email
@@ -2243,6 +2291,56 @@ export interface operations {
                 };
             };
             429: components["responses"]["TooManyRequests"];
+        };
+    };
+    forgotPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ForgotPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description If a password-based account exists for this email, a password-reset link has been sent. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegisterResponse"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    resetPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     logout: {

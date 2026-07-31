@@ -6,10 +6,13 @@ package mailer
 
 import "context"
 
-// Mailer sends transactional email. The only email this application sends
-// today is the self-registration verification link.
+// Mailer sends transactional email. Today that's the self-registration
+// verification link and the password-reset link.
 type Mailer interface {
 	// SendVerificationEmail sends toEmail a message containing verifyURL, the
 	// link the recipient must open to confirm their address.
 	SendVerificationEmail(ctx context.Context, toEmail, verifyURL string) error
+	// SendPasswordResetEmail sends toEmail a message containing resetURL, the
+	// link the recipient must open to set a new password.
+	SendPasswordResetEmail(ctx context.Context, toEmail, resetURL string) error
 }

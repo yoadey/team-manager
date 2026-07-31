@@ -36,6 +36,12 @@ const VerifyEmailRequest = z.object({ token: z.string() }).passthrough();
 const ResendVerificationRequest = z
   .object({ email: z.string().email() })
   .passthrough();
+const ForgotPasswordRequest = z
+  .object({ email: z.string().email() })
+  .passthrough();
+const ResetPasswordRequest = z
+  .object({ token: z.string(), password: z.string().min(8).max(128) })
+  .passthrough();
 const DeleteAccountRequest = z
   .object({ confirmEmail: z.string().email() })
   .passthrough();
@@ -698,6 +704,8 @@ export const schemas = {
   RegisterResponse,
   VerifyEmailRequest,
   ResendVerificationRequest,
+  ForgotPasswordRequest,
+  ResetPasswordRequest,
   DeleteAccountRequest,
   PushSubscriptionRequest,
   PushCategoryPreferences,
@@ -777,6 +785,29 @@ export const schemas = {
 };
 
 const endpoints = makeApi([
+  {
+    method: "post",
+    path: "/auth/forgot-password",
+    alias: "forgotPassword",
+    description: `Emails a password-reset link if (and only if) a password-based account exists for the submitted email. The response is always the same generic message regardless of whether the email has no account, an account with no password set (OIDC-only), or a password account — this endpoint never reveals account existence or auth method.
+`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: z.object({ email: z.string().email() }).passthrough(),
+      },
+    ],
+    response: z.object({ message: z.string() }).passthrough(),
+    errors: [
+      {
+        status: 429,
+        description: `Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection.`,
+        schema: z.void(),
+      },
+    ],
+  },
   {
     method: "post",
     path: "/auth/login",
@@ -957,6 +988,29 @@ const endpoints = makeApi([
       {
         status: 429,
         description: `Too Many Requests. Every endpoint is subject to the global per-IP rate limit (RATE_LIMIT_RPS); /auth/login additionally enforces a stricter per-IP limit (LOGIN_RATE_LIMIT_PER_MIN) for brute-force protection.`,
+        schema: z.void(),
+      },
+    ],
+  },
+  {
+    method: "post",
+    path: "/auth/reset-password",
+    alias: "resetPassword",
+    description: `Sets the account&#x27;s new password, invalidates every existing session for that account, and returns a session identical in shape to &#x60;login&#x60;&#x27;s response so the client can reuse its normal post-login bootstrap on the device that performed the reset.
+`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: ResetPasswordRequest,
+      },
+    ],
+    response: LoginResponse,
+    errors: [
+      {
+        status: 401,
+        description: `Unauthorized`,
         schema: z.void(),
       },
     ],

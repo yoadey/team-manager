@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { buildPath, parseLocation, parsePendingInvite, parseVerifyEmailToken, routeFromPath, type UrlState } from './urlState';
+import {
+  buildPath,
+  parseLocation,
+  parsePendingInvite,
+  parseResetPasswordToken,
+  parseVerifyEmailToken,
+  routeFromPath,
+  type UrlState,
+} from './urlState';
 
 const base: UrlState = {
   route: 'home',
@@ -116,6 +124,27 @@ describe('parseVerifyEmailToken', () => {
     expect(parseVerifyEmailToken('/verify-email')).toBeNull();
     expect(parseVerifyEmailToken('/verify-email/')).toBeNull();
     expect(parseVerifyEmailToken('/verify-email/tok/extra')).toBeNull();
+  });
+});
+
+describe('parseResetPasswordToken', () => {
+  it('parses a well-formed /reset-password/<token> path', () => {
+    expect(parseResetPasswordToken('/reset-password/abc123')).toBe('abc123');
+  });
+
+  it('decodes a URI-encoded token', () => {
+    expect(parseResetPasswordToken('/reset-password/ab%2Fc')).toBe('ab/c');
+  });
+
+  it('returns null for paths that are not /reset-password/... at all', () => {
+    expect(parseResetPasswordToken('/home')).toBeNull();
+    expect(parseResetPasswordToken('/')).toBeNull();
+  });
+
+  it('returns null for a malformed path (missing segment or extra segment)', () => {
+    expect(parseResetPasswordToken('/reset-password')).toBeNull();
+    expect(parseResetPasswordToken('/reset-password/')).toBeNull();
+    expect(parseResetPasswordToken('/reset-password/tok/extra')).toBeNull();
   });
 });
 

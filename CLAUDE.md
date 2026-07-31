@@ -196,6 +196,8 @@ self-registration minimum-age gate.
 | `RETENTION_UNVERIFIED_ACCOUNTS_DAYS` | `7`     | How many days a never-verified self-registered account is kept before the daily retention job deletes it, freeing the email address for a fresh registration. |
 | `SELF_REGISTRATION_ENABLED` | `true`          | Server-side kill switch for `POST /auth/register`; set `false` to disable public self-service signup while login and invite-based provisioning keep working. |
 | `EMAIL_VERIFICATION_TTL_HOURS` | `48`         | How long a self-registration verification link stays valid before it must be re-requested via `POST /auth/resend-verification`. |
+| `PASSWORD_RESET_TTL_HOURS` | `1`              | How long a password-reset link stays valid before it must be re-requested via `POST /auth/forgot-password`. Deliberately much shorter than `EMAIL_VERIFICATION_TTL_HOURS` since it grants a credential change. |
+| `FORGOT_PASSWORD_RATE_LIMIT_PER_MIN` | `3`    | Per-IP `POST /auth/forgot-password` attempt limit per minute. |
 | `SMTP_HOST`       | _(empty)_                   | SMTP relay host for outgoing self-registration verification email. **Required when `COOKIE_SECURE=true`** (with `SMTP_FROM_ADDRESS`) — startup fails without it. Unset in dev falls back to a logging fake mailer (the verification link is only written to the server log). |
 | `SMTP_PORT`       | `587`                       | SMTP relay port (STARTTLS). |
 | `SMTP_USERNAME` / `SMTP_PASSWORD` | _(empty)_   | SMTP auth credentials; may be blank for an open relay. |

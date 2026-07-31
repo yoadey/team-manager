@@ -191,6 +191,15 @@ type OidcAccount struct {
 	Subject  string
 }
 
+type PasswordResetToken struct {
+	ID         uuid.UUID
+	UserID     uuid.UUID
+	TokenHash  string
+	ExpiresAt  time.Time
+	ConsumedAt pgtype.Timestamptz
+	CreatedAt  time.Time
+}
+
 type Penalty struct {
 	ID        uuid.UUID
 	TeamID    uuid.UUID

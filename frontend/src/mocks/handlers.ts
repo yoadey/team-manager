@@ -110,6 +110,15 @@ function issueVerificationToken(userId: string): void {
   db.verificationTokens[token] = { userId, expiresAt: new Date(Date.now() + verificationTokenTTLMs).toISOString() };
 }
 
+// ---- password reset (mock equivalent of auth.Service.ForgotPassword/ResetPassword) ----
+
+const passwordResetTokenTTLMs = 60 * 60 * 1000;
+
+function issuePasswordResetToken(userId: string): void {
+  const token = crypto.randomUUID();
+  db.passwordResetTokens[token] = { userId, expiresAt: new Date(Date.now() + passwordResetTokenTTLMs).toISOString() };
+}
+
 function toWireRole(r: RoleDto): S['Role'] {
   return { id: r.id, teamId: r.teamId, name: r.name, system: r.system, color: r.color, permissions: r.permissions };
 }
@@ -496,6 +505,34 @@ export const handlers = [
     if (u && !u.emailVerifiedAt) issueVerificationToken(u.id);
     const resp: S['RegisterResponse'] = { message: REGISTRATION_ACCEPTED_MESSAGE };
     return HttpResponse.json(resp, { status: 202 });
+  }),
+
+  // Enumeration-safe: the response is identical whether the email has no
+  // account or a real account -- see Service.ForgotPassword's design on the
+  // backend.
+  http.post(P('/auth/forgot-password'), async ({ request }) => {
+    const body = (await request.json()) as S['ForgotPasswordRequest'];
+    await mockDelay();
+    const email = (body.email ?? '').toLowerCase();
+    const u = db.users.find((x) => x.email.toLowerCase() === email);
+    if (u) issuePasswordResetToken(u.id);
+    const resp: S['RegisterResponse'] = { message: REGISTRATION_ACCEPTED_MESSAGE };
+    return HttpResponse.json(resp, { status: 202 });
+  }),
+
+  http.post(P('/auth/reset-password'), async ({ request }) => {
+    const body = (await request.json()) as S['ResetPasswordRequest'];
+    await mockDelay();
+    const entry = body.token ? db.passwordResetTokens[body.token] : undefined;
+    if (!entry || new Date(entry.expiresAt).getTime() < Date.now()) {
+      return problem(401, 'Invalid or expired reset token');
+    }
+    delete db.passwordResetTokens[body.token];
+    const u = requireUser(entry.userId);
+    u.password = body.password;
+    session.userId = u.id;
+    const resp: S['LoginResponse'] = { token: 'demo.' + crypto.randomUUID(), user: toWireUser(u) };
+    return HttpResponse.json(resp, { headers: { 'Set-Cookie': 'tv_session=demo; Path=/; SameSite=Lax' } });
   }),
 
   http.post(P('/auth/logout'), async () => {

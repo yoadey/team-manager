@@ -33,6 +33,8 @@ type authService interface {
 	Register(ctx context.Context, email, password string) error
 	VerifyEmail(ctx context.Context, rawToken string) (token string, user *UserRow, err error)
 	ResendVerification(ctx context.Context, email string) error
+	ForgotPassword(ctx context.Context, email string) error
+	ResetPassword(ctx context.Context, rawToken, newPassword string) (token string, user *UserRow, err error)
 }
 
 // Handler implements the auth-related methods of gen.StrictServerInterface.
@@ -209,6 +211,60 @@ func (h *Handler) ResendVerification(ctx context.Context, request gen.ResendVeri
 
 	h.audit.Record(ctx, audit.EventResendVerification, audit.Success, "", slog.String("email_hash", HashEmailForAudit(email)))
 	return gen.ResendVerification202JSONResponse{Message: registrationAcceptedMessage}, nil
+}
+
+// ForgotPassword emails a password-reset link if (and only if) a
+// password-based account exists for the submitted email. The response is
+// always the same generic message regardless of account state -- see
+// Service.ForgotPassword.
+func (h *Handler) ForgotPassword(ctx context.Context, request gen.ForgotPasswordRequestObject) (gen.ForgotPasswordResponseObject, error) {
+	if request.Body == nil {
+		return nil, errBadRequest("missing request body")
+	}
+	email := string(request.Body.Email)
+	if err := validate.Email(email); err != nil {
+		return nil, errBadRequest(err.Error())
+	}
+
+	if err := h.svc.ForgotPassword(ctx, email); err != nil {
+		h.logger.ErrorContext(ctx, "forgot password failed", "err", err)
+		metrics.PasswordResetAttempts.WithLabelValues("failure").Inc()
+		return nil, errInternal("forgot password failed")
+	}
+
+	metrics.PasswordResetAttempts.WithLabelValues("requested").Inc()
+	h.audit.Record(ctx, audit.EventPasswordResetRequest, audit.Success, "", slog.String("email_hash", HashEmailForAudit(email)))
+	return gen.ForgotPassword202JSONResponse{Message: registrationAcceptedMessage}, nil
+}
+
+// ResetPassword consumes a password reset token, sets a new password, and
+// establishes a session identical in shape to login's response.
+func (h *Handler) ResetPassword(ctx context.Context, request gen.ResetPasswordRequestObject) (gen.ResetPasswordResponseObject, error) {
+	if request.Body == nil || request.Body.Token == "" {
+		return gen.ResetPassword401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid or expired reset token"),
+		}, nil
+	}
+	if err := validate.PasswordStrength(request.Body.Password); err != nil {
+		return nil, errBadRequest(err.Error())
+	}
+
+	token, user, err := h.svc.ResetPassword(ctx, request.Body.Token, request.Body.Password)
+	if err != nil {
+		h.logger.WarnContext(ctx, "reset password failed", "err", err)
+		metrics.PasswordResetAttempts.WithLabelValues("failure").Inc()
+		h.audit.Record(ctx, audit.EventPasswordReset, audit.Failure, "")
+		return gen.ResetPassword401ApplicationProblemPlusJSONResponse{
+			UnauthorizedApplicationProblemPlusJSONResponse: unauthorized("invalid or expired reset token"),
+		}, nil
+	}
+
+	metrics.PasswordResetAttempts.WithLabelValues("success").Inc()
+	h.audit.Record(ctx, audit.EventPasswordReset, audit.Success, user.Id.String())
+	return gen.ResetPassword200JSONResponse{
+		Token: token,
+		User:  toGenUser(user),
+	}, nil
 }
 
 // DeleteCurrentUser erases the authenticated account by anonymization

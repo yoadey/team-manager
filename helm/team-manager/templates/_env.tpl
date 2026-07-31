@@ -44,6 +44,10 @@ Usage: {{ include "team-manager.env" $ | nindent 12 }}
   value: {{ .Values.selfRegistration.registerRateLimitPerMin | quote }}
 - name: RESEND_VERIFICATION_RATE_LIMIT_PER_MIN
   value: {{ .Values.selfRegistration.resendVerificationRateLimitPerMin | quote }}
+- name: PASSWORD_RESET_TTL_HOURS
+  value: {{ .Values.selfRegistration.passwordResetTtlHours | quote }}
+- name: FORGOT_PASSWORD_RATE_LIMIT_PER_MIN
+  value: {{ .Values.selfRegistration.forgotPasswordRateLimitPerMin | quote }}
 - name: RETENTION_NOTIFICATIONS_DAYS
   value: {{ .Values.retention.notificationsDays | quote }}
 - name: RETENTION_SESSIONS_DAYS

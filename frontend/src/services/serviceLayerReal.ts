@@ -226,6 +226,25 @@ export const realApi = {
       return check(res);
     },
 
+    // Always resolves with a generic message regardless of whether the
+    // email has no account, an account with no password set (OIDC-only), or
+    // a password account -- mirrors register()'s enumeration-safety
+    // contract, see backend auth.Service.ForgotPassword.
+    async forgotPassword(email: string): Promise<{ message: string }> {
+      const res = await apiClient.POST('/auth/forgot-password', {
+        body: { email: email as string & { format: 'email' } },
+      });
+      return check(res);
+    },
+
+    // Consumes a single-use password reset token, sets a new password, and
+    // establishes a session identical in shape to login()'s response.
+    async resetPassword(token: string, password: string): Promise<{ token: string; user: User }> {
+      const res = await apiClient.POST('/auth/reset-password', { body: { token, password } });
+      const data = await check(res);
+      return { token: data.token, user: mapUser(data.user) };
+    },
+
     async currentUser(): Promise<User | null> {
       // The session cookie travels automatically; a 401 means no active session.
       const res = await apiClient.GET('/auth/me');

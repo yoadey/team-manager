@@ -8,15 +8,21 @@ import { t } from '@/i18n';
 import { config } from '@/config';
 import { LegalFooter } from '@/features/legal';
 import { Register } from './Register';
+import { ForgotPassword } from './ForgotPassword';
+import { ResetPassword } from './ResetPassword';
 
 export function Login() {
   const { state, doLogin, doPasswordLogin } = useApp();
-  const { providers, busy, error } = state;
+  const { providers, busy, error, resetPasswordToken } = state;
 
-  // 'register' is a sibling view alongside the provider list / password form
-  // (not a separate top-level Phase) -- mirrors how invite acceptance is
-  // folded into the login flow rather than getting its own route.
-  const [view, setView] = useState<'providers' | 'password' | 'register'>('providers');
+  // 'register'/'forgotPassword' are sibling views alongside the provider
+  // list / password form (not separate top-level Phases) -- mirrors how
+  // invite acceptance is folded into the login flow rather than getting its
+  // own route. A reset-password link (see AppContext's bootstrap effect)
+  // forces straight into the 'resetPassword' view regardless of the
+  // in-component view state, since it carries a token from the URL that
+  // must be consumed here.
+  const [view, setView] = useState<'providers' | 'password' | 'register' | 'forgotPassword'>('providers');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -139,8 +145,12 @@ export function Login() {
           </Box>
         )}
 
-        {view === 'register' ? (
+        {resetPasswordToken ? (
+          <ResetPassword token={resetPasswordToken} />
+        ) : view === 'register' ? (
           <Register onBack={() => setView('password')} />
+        ) : view === 'forgotPassword' ? (
+          <ForgotPassword onBack={() => setView('password')} />
         ) : view === 'password' ? (
           <Box component="form" onSubmit={handlePasswordSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <Box component="label" htmlFor="login-email" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -190,6 +200,12 @@ export function Login() {
               }}
             >
               {busy === 'login:password' ? <Spinner size={18} /> : t('auth.signIn')}
+            </ButtonBase>
+            <ButtonBase
+              onClick={() => setView('forgotPassword')}
+              sx={{ fontSize: '13px', color: NEUTRAL.secondary, py: '4px', justifyContent: 'center' }}
+            >
+              {t('auth.forgotPasswordLink')}
             </ButtonBase>
             <ButtonBase
               onClick={() => setView('register')}

@@ -196,6 +196,7 @@ func initAuthComponents(
 		PublicBaseURL:           cfg.PublicBaseURL,
 		EmailVerificationTTL:    cfg.EmailVerificationTTL,
 		SelfRegistrationEnabled: cfg.SelfRegistrationEnabled,
+		PasswordResetTTL:        cfg.PasswordResetTTL,
 	}, logger)
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth service: %w", err)
@@ -606,6 +607,16 @@ func main() {
 		})
 		r.With(middleware.PerIPRateLimit(cfg.ResendVerificationRateLimitPerMin, time.Minute, trustedProxies)).Post("/auth/resend-verification", func(w http.ResponseWriter, req *http.Request) {
 			strictSrv.ResendVerification(w, req)
+		})
+		// forgot-password is rate-limited the same way (mail-bomb potential via
+		// repeated requests for the same address); reset-password itself is not,
+		// mirroring verify-email's reasoning: its token is a high-entropy,
+		// single-use secret, not a guessable value.
+		r.With(middleware.PerIPRateLimit(cfg.ForgotPasswordRateLimitPerMin, time.Minute, trustedProxies)).Post("/auth/forgot-password", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.ForgotPassword(w, req)
+		})
+		r.Post("/auth/reset-password", func(w http.ResponseWriter, req *http.Request) {
+			strictSrv.ResetPassword(w, req)
 		})
 
 		// Calendar feed -- no JWT required by design (calendar apps poll this

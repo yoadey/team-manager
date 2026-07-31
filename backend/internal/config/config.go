@@ -171,6 +171,16 @@ type Config struct {
 	// email address for a fresh registration. Default 7. Set via
 	// RETENTION_UNVERIFIED_ACCOUNTS_DAYS.
 	RetentionUnverifiedAccountDays int
+	// PasswordResetTTL is how long a password-reset link stays valid before
+	// it must be re-requested via POST /auth/forgot-password. Default 1h --
+	// deliberately much shorter than EmailVerificationTTL since it grants a
+	// credential change, not just an email confirmation. Set via
+	// PASSWORD_RESET_TTL_HOURS.
+	PasswordResetTTL time.Duration
+	// ForgotPasswordRateLimitPerMin is the per-IP forgot-password attempt
+	// limit per minute. Default 3. Set via
+	// FORGOT_PASSWORD_RATE_LIMIT_PER_MIN.
+	ForgotPasswordRateLimitPerMin int
 	// VAPIDPublicKey/VAPIDPrivateKey authenticate this server to browser push
 	// services for Web Push delivery (RFC 8292). VAPIDPublicKey is not
 	// secret -- it's also shipped to the frontend build as
@@ -303,6 +313,8 @@ func Load() (*Config, error) {
 		RegisterRateLimitPerMin:           reg.RegisterRateLimitPerMin,
 		ResendVerificationRateLimitPerMin: reg.ResendVerificationRateLimitPerMin,
 		RetentionUnverifiedAccountDays:    reg.RetentionUnverifiedAccountDays,
+		PasswordResetTTL:                  reg.PasswordResetTTL,
+		ForgotPasswordRateLimitPerMin:     reg.ForgotPasswordRateLimitPerMin,
 		VAPIDPublicKey:                    vapid.PublicKey,
 		VAPIDPrivateKey:                   vapid.PrivateKey,
 		VAPIDSubject:                      vapid.Subject,
@@ -436,12 +448,15 @@ type registrationSettings struct {
 	RegisterRateLimitPerMin           int
 	ResendVerificationRateLimitPerMin int
 	RetentionUnverifiedAccountDays    int
+	PasswordResetTTL                  time.Duration
+	ForgotPasswordRateLimitPerMin     int
 }
 
 // loadRegistrationConfig reads every env var governing self-service
 // registration: SMTP_*, SELF_REGISTRATION_ENABLED,
 // EMAIL_VERIFICATION_TTL_HOURS, REGISTER_RATE_LIMIT_PER_MIN,
-// RESEND_VERIFICATION_RATE_LIMIT_PER_MIN, RETENTION_UNVERIFIED_ACCOUNTS_DAYS.
+// RESEND_VERIFICATION_RATE_LIMIT_PER_MIN, RETENTION_UNVERIFIED_ACCOUNTS_DAYS,
+// PASSWORD_RESET_TTL_HOURS, FORGOT_PASSWORD_RATE_LIMIT_PER_MIN.
 func loadRegistrationConfig(cookieSecure bool) (registrationSettings, error) {
 	smtp, err := loadSMTPConfig(cookieSecure)
 	if err != nil {
@@ -468,6 +483,16 @@ func loadRegistrationConfig(cookieSecure bool) (registrationSettings, error) {
 		return registrationSettings{}, fmt.Errorf("RETENTION_UNVERIFIED_ACCOUNTS_DAYS: %w", err)
 	}
 
+	passwordResetTTLHours, err := parseInt(os.Getenv("PASSWORD_RESET_TTL_HOURS"), 1)
+	if err != nil {
+		return registrationSettings{}, fmt.Errorf("PASSWORD_RESET_TTL_HOURS: %w", err)
+	}
+
+	forgotPasswordRateLimitPerMin, err := parseInt(os.Getenv("FORGOT_PASSWORD_RATE_LIMIT_PER_MIN"), 3)
+	if err != nil {
+		return registrationSettings{}, fmt.Errorf("FORGOT_PASSWORD_RATE_LIMIT_PER_MIN: %w", err)
+	}
+
 	return registrationSettings{
 		SMTPHost:                          smtp.Host,
 		SMTPPort:                          smtp.Port,
@@ -479,6 +504,8 @@ func loadRegistrationConfig(cookieSecure bool) (registrationSettings, error) {
 		RegisterRateLimitPerMin:           registerRateLimitPerMin,
 		ResendVerificationRateLimitPerMin: resendVerificationRateLimitPerMin,
 		RetentionUnverifiedAccountDays:    retentionUnverifiedAccountDays,
+		PasswordResetTTL:                  time.Duration(passwordResetTTLHours) * time.Hour,
+		ForgotPasswordRateLimitPerMin:     forgotPasswordRateLimitPerMin,
 	}, nil
 }
 
