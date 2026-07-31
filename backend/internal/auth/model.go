@@ -32,6 +32,16 @@ type EmailVerificationTokenRow struct {
 	CreatedAt  time.Time
 }
 
+// PasswordResetTokenRow mirrors the DB password_reset_tokens table.
+type PasswordResetTokenRow struct {
+	Id         uuid.UUID
+	UserId     uuid.UUID
+	TokenHash  string
+	ExpiresAt  time.Time
+	ConsumedAt *time.Time
+	CreatedAt  time.Time
+}
+
 // SessionRow mirrors the DB sessions table.
 type SessionRow struct {
 	Id        uuid.UUID

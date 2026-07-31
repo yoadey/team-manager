@@ -44,6 +44,11 @@ type mockRepo struct {
 	createVerificationTok  func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	findVerificationTok    func(ctx context.Context, tokenHash string) (*auth.EmailVerificationTokenRow, error)
 	consumeVerificationTok func(ctx context.Context, tokenHash string) error
+	createResetTok         func(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	findResetTok           func(ctx context.Context, tokenHash string) (*auth.PasswordResetTokenRow, error)
+	consumeResetTok        func(ctx context.Context, tokenHash string) error
+	updateUserPassword     func(ctx context.Context, userID, passwordHash string) error
+	deleteSessionsForUser  func(ctx context.Context, userID string) error
 }
 
 func (m *mockRepo) FindUserByEmail(ctx context.Context, email string) (*auth.UserRow, error) {
@@ -108,6 +113,41 @@ func (m *mockRepo) ConsumeEmailVerificationToken(ctx context.Context, tokenHash 
 	return m.consumeVerificationTok(ctx, tokenHash)
 }
 
+func (m *mockRepo) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	if m.createResetTok != nil {
+		return m.createResetTok(ctx, userID, tokenHash, expiresAt)
+	}
+	return nil
+}
+
+func (m *mockRepo) FindPasswordResetToken(ctx context.Context, tokenHash string) (*auth.PasswordResetTokenRow, error) {
+	if m.findResetTok != nil {
+		return m.findResetTok(ctx, tokenHash)
+	}
+	return nil, pgx.ErrNoRows
+}
+
+func (m *mockRepo) ConsumePasswordResetToken(ctx context.Context, tokenHash string) error {
+	if m.consumeResetTok != nil {
+		return m.consumeResetTok(ctx, tokenHash)
+	}
+	return nil
+}
+
+func (m *mockRepo) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	if m.updateUserPassword != nil {
+		return m.updateUserPassword(ctx, userID, passwordHash)
+	}
+	return nil
+}
+
+func (m *mockRepo) DeleteSessionsForUser(ctx context.Context, userID string) error {
+	if m.deleteSessionsForUser != nil {
+		return m.deleteSessionsForUser(ctx, userID)
+	}
+	return nil
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 func newTestService(t *testing.T, repo *mockRepo) *auth.Service {
@@ -117,6 +157,7 @@ func newTestService(t *testing.T, repo *mockRepo) *auth.Service {
 		PublicBaseURL:           "https://example.com",
 		EmailVerificationTTL:    24 * time.Hour,
 		SelfRegistrationEnabled: true,
+		PasswordResetTTL:        time.Hour,
 	}, nil)
 	require.NoError(t, err)
 	return svc

@@ -281,6 +281,47 @@ func TestRetentionWorker_DeletesExpiredVerificationTokensButKeepsUnexpired(t *te
 		"only the still-valid verification token should survive retention")
 }
 
+func TestRetentionWorker_DeletesExpiredPasswordResetTokensButKeepsUnexpired(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	_, err := pool.Exec(ctx, `
+		INSERT INTO users (id, name, email, avatar_color, email_verified_at, created_at)
+		VALUES ($1, 'Reset Token Retention User', 'reset-token-retention@example.com', '#444444', now(), now())
+	`, userID)
+	require.NoError(t, err)
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+		VALUES ($1, 'expired-reset-token-hash', now() - interval '1 hour')
+	`, userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `
+		INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+		VALUES ($1, 'still-valid-reset-token-hash', now() + interval '1 hour')
+	`, userID)
+	require.NoError(t, err)
+
+	worker := jobs.NewRetentionWorker(pool, 90, 30, 365, 7)
+	require.NoError(t, worker.Work(ctx, &river.Job[jobs.RetentionArgs]{}))
+
+	var remainingHashes []string
+	rows, err := pool.Query(ctx, `SELECT token_hash FROM password_reset_tokens WHERE user_id = $1`, userID)
+	require.NoError(t, err)
+	for rows.Next() {
+		var hash string
+		require.NoError(t, rows.Scan(&hash))
+		remainingHashes = append(remainingHashes, hash)
+	}
+	require.NoError(t, rows.Err())
+
+	assert.Equal(t, []string{"still-valid-reset-token-hash"}, remainingHashes,
+		"only the still-valid password reset token should survive retention")
+}
+
 // TestRetentionWorker_ContinuesLaterPhasesWhenAnEarlierPhaseFails is a
 // regression test for a bug where Work returned immediately on the first
 // phase's error, skipping sessions/invites/audit_log entirely -- exactly the

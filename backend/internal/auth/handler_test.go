@@ -40,6 +40,8 @@ type mockAuthService struct {
 	register           func(ctx context.Context, email, password string) error
 	verifyEmail        func(ctx context.Context, rawToken string) (string, *auth.UserRow, error)
 	resendVerification func(ctx context.Context, email string) error
+	forgotPassword     func(ctx context.Context, email string) error
+	resetPassword      func(ctx context.Context, rawToken, newPassword string) (string, *auth.UserRow, error)
 }
 
 func (m *mockAuthService) Login(ctx context.Context, email, password string) (string, *auth.UserRow, error) {
@@ -93,6 +95,14 @@ func (m *mockAuthService) VerifyEmail(ctx context.Context, rawToken string) (str
 
 func (m *mockAuthService) ResendVerification(ctx context.Context, email string) error {
 	return m.resendVerification(ctx, email)
+}
+
+func (m *mockAuthService) ForgotPassword(ctx context.Context, email string) error {
+	return m.forgotPassword(ctx, email)
+}
+
+func (m *mockAuthService) ResetPassword(ctx context.Context, rawToken, newPassword string) (string, *auth.UserRow, error) {
+	return m.resetPassword(ctx, rawToken, newPassword)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -191,6 +201,36 @@ func callResendVerification(h *auth.Handler, w http.ResponseWriter, r *http.Requ
 		return
 	}
 	_ = resp.VisitResendVerificationResponse(w)
+}
+
+// callForgotPassword invokes the handler ForgotPassword method.
+func callForgotPassword(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
+	var body gen.ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	resp, err := h.ForgotPassword(r.Context(), gen.ForgotPasswordRequestObject{Body: &body})
+	if err != nil {
+		apierror.ResponseErrorHandler(slog.Default())(w, r, err)
+		return
+	}
+	_ = resp.VisitForgotPasswordResponse(w)
+}
+
+// callResetPassword invokes the handler ResetPassword method.
+func callResetPassword(h *auth.Handler, w http.ResponseWriter, r *http.Request) {
+	var body gen.ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	resp, err := h.ResetPassword(r.Context(), gen.ResetPasswordRequestObject{Body: &body})
+	if err != nil {
+		apierror.ResponseErrorHandler(slog.Default())(w, r, err)
+		return
+	}
+	_ = resp.VisitResetPasswordResponse(w)
 }
 
 // callGetCurrentUser invokes the handler GetCurrentUser method.
@@ -505,6 +545,113 @@ func TestHandler_ResendVerification_UniformSuccess(t *testing.T) {
 	callResendVerification(h, w, req)
 
 	assert.Equal(t, http.StatusAccepted, w.Code)
+}
+
+func TestHandler_ForgotPassword_UniformSuccess(t *testing.T) {
+	t.Parallel()
+
+	var gotEmail string
+	svc := &mockAuthService{
+		forgotPassword: func(_ context.Context, email string) error {
+			gotEmail = email
+			return nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"anyone@example.com"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/forgot-password", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callForgotPassword(h, w, req)
+
+	assert.Equal(t, http.StatusAccepted, w.Code)
+	assert.Equal(t, "anyone@example.com", gotEmail)
+}
+
+func TestHandler_ForgotPassword_InvalidEmail_RejectedBeforeService(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		forgotPassword: func(_ context.Context, _ string) error {
+			t.Fatal("Service.ForgotPassword must not be called for input that fails validation")
+			return nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"email":"not-an-email"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/forgot-password", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callForgotPassword(h, w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestHandler_ResetPassword_Success(t *testing.T) {
+	t.Parallel()
+
+	user := testUser()
+	svc := &mockAuthService{
+		resetPassword: func(_ context.Context, rawToken, newPassword string) (string, *auth.UserRow, error) {
+			assert.Equal(t, "raw-token", rawToken)
+			assert.Equal(t, "brandnewpassword", newPassword)
+			return "jwt.token.here", user, nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"token":"raw-token","password":"brandnewpassword"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/reset-password", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callResetPassword(h, w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp gen.LoginResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	assert.Equal(t, "jwt.token.here", resp.Token)
+}
+
+func TestHandler_ResetPassword_InvalidToken_Returns401(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		resetPassword: func(_ context.Context, _, _ string) (string, *auth.UserRow, error) {
+			return "", nil, auth.ErrInvalidResetToken
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"token":"bogus","password":"brandnewpassword"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/reset-password", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callResetPassword(h, w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestHandler_ResetPassword_WeakPassword_RejectedBeforeService(t *testing.T) {
+	t.Parallel()
+
+	svc := &mockAuthService{
+		resetPassword: func(_ context.Context, _, _ string) (string, *auth.UserRow, error) {
+			t.Fatal("Service.ResetPassword must not be called for input that fails validation")
+			return "", nil, nil
+		},
+	}
+	h := auth.NewHandler(svc, slog.Default(), nil, nil)
+
+	body := `{"token":"raw-token","password":"short"}`
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/auth/reset-password", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	callResetPassword(h, w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestHandler_GetCurrentUser_NoAuth(t *testing.T) {

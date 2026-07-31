@@ -669,6 +669,40 @@ func TestLoad_RegistrationTimingDefaults(t *testing.T) {
 	assert.Equal(t, 5, cfg.RegisterRateLimitPerMin)
 	assert.Equal(t, 3, cfg.ResendVerificationRateLimitPerMin)
 	assert.Equal(t, 7, cfg.RetentionUnverifiedAccountDays)
+	assert.Equal(t, time.Hour, cfg.PasswordResetTTL)
+	assert.Equal(t, 3, cfg.ForgotPasswordRateLimitPerMin)
+}
+
+func TestLoad_PasswordResetTTLOverride(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("PASSWORD_RESET_TTL_HOURS", "2")
+	t.Setenv("FORGOT_PASSWORD_RATE_LIMIT_PER_MIN", "10")
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, 2*time.Hour, cfg.PasswordResetTTL)
+	assert.Equal(t, 10, cfg.ForgotPasswordRateLimitPerMin)
+}
+
+func TestLoad_PasswordResetTTLInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("PASSWORD_RESET_TTL_HOURS", "not-a-number")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "PASSWORD_RESET_TTL_HOURS")
+}
+
+func TestLoad_ForgotPasswordRateLimitInvalid(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost/db")
+	t.Setenv("COOKIE_SECURE", "false")
+	t.Setenv("FORGOT_PASSWORD_RATE_LIMIT_PER_MIN", "not-a-number")
+
+	_, err := config.Load()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "FORGOT_PASSWORD_RATE_LIMIT_PER_MIN")
 }
 
 func TestLoad_S3UsePathStyleInvalid(t *testing.T) {

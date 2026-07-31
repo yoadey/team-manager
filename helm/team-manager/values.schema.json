@@ -281,7 +281,9 @@
         "enabled": { "type": "boolean" },
         "emailVerificationTtlHours": { "type": "integer", "minimum": 1 },
         "registerRateLimitPerMin": { "type": "integer", "minimum": 1 },
-        "resendVerificationRateLimitPerMin": { "type": "integer", "minimum": 1 }
+        "resendVerificationRateLimitPerMin": { "type": "integer", "minimum": 1 },
+        "passwordResetTtlHours": { "type": "integer", "minimum": 1 },
+        "forgotPasswordRateLimitPerMin": { "type": "integer", "minimum": 1 }
       }
     },
     "retention": {

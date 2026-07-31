@@ -33,6 +33,8 @@ type regTestRepo struct {
 	users     map[string]*auth.UserRow // keyed by normalized (lowercased) email
 	usersByID map[string]*auth.UserRow
 	tokens    map[string]*auth.EmailVerificationTokenRow // keyed by token hash
+	resetToks map[string]*auth.PasswordResetTokenRow     // keyed by token hash
+	sessions  map[string]*auth.SessionRow                // keyed by token hash
 }
 
 func newRegTestRepo() *regTestRepo {
@@ -40,6 +42,8 @@ func newRegTestRepo() *regTestRepo {
 		users:     map[string]*auth.UserRow{},
 		usersByID: map[string]*auth.UserRow{},
 		tokens:    map[string]*auth.EmailVerificationTokenRow{},
+		resetToks: map[string]*auth.PasswordResetTokenRow{},
+		sessions:  map[string]*auth.SessionRow{},
 	}
 }
 
@@ -66,17 +70,46 @@ func (r *regTestRepo) FindUserByID(_ context.Context, id string) (*auth.UserRow,
 }
 
 func (r *regTestRepo) CreateSession(_ context.Context, userID, tokenHash string, expiresAt time.Time) (*auth.SessionRow, error) {
-	return &auth.SessionRow{
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s := &auth.SessionRow{
 		Id: uuid.New(), UserId: uuid.MustParse(userID), TokenHash: tokenHash,
 		Provider: "password", ExpiresAt: expiresAt, CreatedAt: time.Now(),
-	}, nil
+	}
+	r.sessions[tokenHash] = s
+	return s, nil
 }
 
-func (r *regTestRepo) FindSession(_ context.Context, _ string) (*auth.SessionRow, error) {
-	return nil, errRegTestNotFound
+func (r *regTestRepo) FindSession(_ context.Context, tokenHash string) (*auth.SessionRow, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, ok := r.sessions[tokenHash]
+	if !ok || time.Now().After(s.ExpiresAt) {
+		return nil, errRegTestNotFound
+	}
+	cp := *s
+	return &cp, nil
 }
 
-func (r *regTestRepo) DeleteSession(_ context.Context, _ string) error { return nil }
+func (r *regTestRepo) DeleteSession(_ context.Context, tokenHash string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.sessions, tokenHash)
+	return nil
+}
+
+// sessionCountForUser returns how many sessions userID currently has. Test helper.
+func (r *regTestRepo) sessionCountForUser(userID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, s := range r.sessions {
+		if s.UserId.String() == userID {
+			n++
+		}
+	}
+	return n
+}
 
 func (r *regTestRepo) FindUserPhotoKeyByID(_ context.Context, _ string) (string, error) {
 	return "", pgx.ErrNoRows
@@ -156,6 +189,61 @@ func (r *regTestRepo) ConsumeEmailVerificationToken(_ context.Context, tokenHash
 	return nil
 }
 
+func (r *regTestRepo) CreatePasswordResetToken(_ context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.resetToks[tokenHash] = &auth.PasswordResetTokenRow{
+		Id: uuid.New(), UserId: uuid.MustParse(userID), TokenHash: tokenHash,
+		ExpiresAt: expiresAt, CreatedAt: time.Now(),
+	}
+	return nil
+}
+
+func (r *regTestRepo) FindPasswordResetToken(_ context.Context, tokenHash string) (*auth.PasswordResetTokenRow, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.resetToks[tokenHash]
+	if !ok || t.ConsumedAt != nil || time.Now().After(t.ExpiresAt) {
+		return nil, pgx.ErrNoRows
+	}
+	cp := *t
+	return &cp, nil
+}
+
+func (r *regTestRepo) ConsumePasswordResetToken(_ context.Context, tokenHash string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	t, ok := r.resetToks[tokenHash]
+	if !ok || t.ConsumedAt != nil {
+		return pgx.ErrNoRows
+	}
+	now := time.Now()
+	t.ConsumedAt = &now
+	return nil
+}
+
+func (r *regTestRepo) UpdateUserPassword(_ context.Context, userID, passwordHash string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.usersByID[userID]
+	if !ok {
+		return errRegTestNotFound
+	}
+	u.PasswordHash = passwordHash
+	return nil
+}
+
+func (r *regTestRepo) DeleteSessionsForUser(_ context.Context, userID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for hash, s := range r.sessions {
+		if s.UserId.String() == userID {
+			delete(r.sessions, hash)
+		}
+	}
+	return nil
+}
+
 func (r *regTestRepo) countUsers() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -171,9 +259,20 @@ func newRegTestService(t *testing.T, repo *regTestRepo, fm *mailer.FakeMailer, t
 		PublicBaseURL:           "https://example.com",
 		EmailVerificationTTL:    ttl,
 		SelfRegistrationEnabled: enabled,
+		PasswordResetTTL:        time.Hour,
 	}, nil)
 	require.NoError(t, err)
 	return svc
+}
+
+// tokenFromResetLink extracts the raw token from a
+// "https://.../reset-password/<token>" link.
+func tokenFromResetLink(t *testing.T, link string) string {
+	t.Helper()
+	const marker = "/reset-password/"
+	idx := strings.Index(link, marker)
+	require.GreaterOrEqual(t, idx, 0, "link must contain /reset-password/: %s", link)
+	return link[idx+len(marker):]
 }
 
 // tokenFromLink extracts the raw token from a "https://.../verify-email/<token>" link.
@@ -409,4 +508,183 @@ func TestService_Login_VerifiedAccount_Succeeds(t *testing.T) {
 	require.NoError(t, err, "login must succeed once the account is verified")
 	assert.NotEmpty(t, token)
 	assert.Equal(t, "new@example.com", user.Email)
+}
+
+// ─── ForgotPassword: enumeration-safety matrix ─────────────────────────────
+
+func TestService_ForgotPassword_NoAccount_NoOpNoEmail(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	require.NoError(t, svc.ForgotPassword(context.Background(), "nobody@example.com"))
+	assert.Equal(t, 0, fm.ResetSentCount(), "no account for the email must not send a reset link")
+}
+
+func TestService_ForgotPassword_AccountWithNoPassword_NoOpNoEmail(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	// OIDC-only account: no password set (password_hash is "").
+	_, err := repo.CreateUnverifiedUser(context.Background(), "OIDC User", "oidc@example.com", "")
+	require.NoError(t, err)
+
+	require.NoError(t, svc.ForgotPassword(context.Background(), "oidc@example.com"))
+	assert.Equal(t, 0, fm.ResetSentCount(), "an account with no password set must not receive a reset link")
+}
+
+func TestService_ForgotPassword_AccountWithPassword_IssuesTokenAndSendsEmail(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	_, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "haspw@example.com", "some-hash")
+	require.NoError(t, err)
+
+	require.NoError(t, svc.ForgotPassword(context.Background(), "haspw@example.com"))
+
+	to, link := fm.LastResetSentTo()
+	assert.Equal(t, "haspw@example.com", to)
+	assert.Contains(t, link, "/reset-password/")
+}
+
+func TestService_ForgotPassword_AllThreeCases_ReturnIdenticalSuccess(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	_, err := repo.CreateUnverifiedUser(context.Background(), "OIDC", "oidc2@example.com", "")
+	require.NoError(t, err)
+	_, err = repo.CreateUnverifiedUser(context.Background(), "PW", "haspw2@example.com", "hash")
+	require.NoError(t, err)
+
+	// No account, no-password account, and password account must all report
+	// the exact same nil-error "generic success" outcome to the caller.
+	assert.NoError(t, svc.ForgotPassword(context.Background(), "nobody2@example.com"))
+	assert.NoError(t, svc.ForgotPassword(context.Background(), "oidc2@example.com"))
+	assert.NoError(t, svc.ForgotPassword(context.Background(), "haspw2@example.com"))
+}
+
+// ─── ResetPassword ──────────────────────────────────────────────────────────
+
+func TestService_ResetPassword_ValidToken_SetsPasswordAndEstablishesSession(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	user, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "reset@example.com", "old-hash")
+	require.NoError(t, err)
+	require.NoError(t, svc.ForgotPassword(context.Background(), "reset@example.com"))
+	_, link := fm.LastResetSentTo()
+
+	token, gotUser, err := svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), "brandnewpassword")
+	require.NoError(t, err)
+	assert.NotEmpty(t, token)
+	assert.Equal(t, "reset@example.com", gotUser.Email)
+
+	refetched, err := repo.FindUserByID(context.Background(), user.Id.String())
+	require.NoError(t, err)
+	assert.NotEqual(t, "old-hash", refetched.PasswordHash, "the account's password hash must be updated")
+
+	// The new password must actually work for a subsequent login (the account
+	// needs to be verified first -- ResetPassword doesn't touch verification).
+	require.NoError(t, repo.MarkEmailVerified(context.Background(), user.Id.String()))
+	_, _, err = svc.Login(context.Background(), "reset@example.com", "brandnewpassword")
+	assert.NoError(t, err, "the new password set by ResetPassword must be usable to log in")
+}
+
+func TestService_ResetPassword_TokenReuse_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	_, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "reuse@example.com", "old-hash")
+	require.NoError(t, err)
+	require.NoError(t, svc.ForgotPassword(context.Background(), "reuse@example.com"))
+	_, link := fm.LastResetSentTo()
+	rawToken := tokenFromResetLink(t, link)
+
+	_, _, err = svc.ResetPassword(context.Background(), rawToken, "firstnewpassword")
+	require.NoError(t, err)
+
+	_, _, err = svc.ResetPassword(context.Background(), rawToken, "secondnewpassword")
+	require.ErrorIs(t, err, auth.ErrInvalidResetToken, "a token already consumed must be rejected on reuse")
+}
+
+func TestService_ResetPassword_ExpiredToken_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	// A negative TTL makes any issued token immediately expired.
+	svc, err := auth.NewService(repo, storage.NewFakeStore(), "", "", 24*time.Hour, auth.RegistrationConfig{
+		Mailer:           fm,
+		PublicBaseURL:    "https://example.com",
+		PasswordResetTTL: -time.Hour,
+	}, nil)
+	require.NoError(t, err)
+
+	_, err = repo.CreateUnverifiedUser(context.Background(), "Has Password", "expired@example.com", "old-hash")
+	require.NoError(t, err)
+	require.NoError(t, svc.ForgotPassword(context.Background(), "expired@example.com"))
+	_, link := fm.LastResetSentTo()
+
+	_, _, err = svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), "brandnewpassword")
+	require.ErrorIs(t, err, auth.ErrInvalidResetToken, "an expired token must be rejected")
+}
+
+func TestService_ResetPassword_UnknownToken_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	_, _, err := svc.ResetPassword(context.Background(), "not-a-real-token", "brandnewpassword")
+	require.ErrorIs(t, err, auth.ErrInvalidResetToken)
+}
+
+func TestService_ResetPassword_OverLongPassword_Rejected(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	_, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "toolong@example.com", "old-hash")
+	require.NoError(t, err)
+	require.NoError(t, svc.ForgotPassword(context.Background(), "toolong@example.com"))
+	_, link := fm.LastResetSentTo()
+
+	overLong := strings.Repeat("a", 73)
+	_, _, err = svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), overLong)
+	require.ErrorIs(t, err, auth.ErrPasswordTooLong)
+}
+
+func TestService_ResetPassword_InvalidatesEveryExistingSession(t *testing.T) {
+	t.Parallel()
+	repo := newRegTestRepo()
+	fm := mailer.NewFakeMailer(nil)
+	svc := newRegTestService(t, repo, fm, time.Hour, true)
+
+	user, err := repo.CreateUnverifiedUser(context.Background(), "Has Password", "sessions@example.com", "old-hash")
+	require.NoError(t, err)
+
+	// Simulate two pre-existing sessions (e.g. two logged-in devices).
+	_, err = repo.CreateSession(context.Background(), user.Id.String(), "existing-session-1", time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	_, err = repo.CreateSession(context.Background(), user.Id.String(), "existing-session-2", time.Now().Add(time.Hour))
+	require.NoError(t, err)
+	require.Equal(t, 2, repo.sessionCountForUser(user.Id.String()))
+
+	require.NoError(t, svc.ForgotPassword(context.Background(), "sessions@example.com"))
+	_, link := fm.LastResetSentTo()
+	_, _, err = svc.ResetPassword(context.Background(), tokenFromResetLink(t, link), "brandnewpassword")
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, repo.sessionCountForUser(user.Id.String()), "every pre-existing session must be invalidated, leaving only the new one from the reset itself")
 }
