@@ -27,3 +27,75 @@ type SubscriptionForUser struct {
 	UserId       uuid.UUID
 	Subscription Subscription
 }
+
+// CategoryPreferences is a member's per-team Web Push opt-out, one boolean
+// per notification category. It gates delivery independently of (and in
+// addition to) the recipient's module-read permission: permission decides
+// what a member is allowed to see at all, preference decides what they've
+// asked to be interrupted for.
+type CategoryPreferences struct {
+	Attendance bool
+	Events     bool
+	News       bool
+	Polls      bool
+	Absence    bool
+}
+
+// DefaultCategoryPreferences returns every category enabled -- the implicit
+// preference for a member who has never called SetPreferences, so a missing
+// push_preferences row behaves exactly like today's unconditional delivery.
+func DefaultCategoryPreferences() CategoryPreferences {
+	return CategoryPreferences{Attendance: true, Events: true, News: true, Polls: true, Absence: true}
+}
+
+// Allows reports whether category is enabled. An empty category (a
+// notification type NotificationCategory doesn't recognize) is always
+// allowed, mirroring notifications.HasReadAccess's treatment of an empty
+// module -- there's nothing to gate.
+func (p CategoryPreferences) Allows(category string) bool {
+	switch category {
+	case "attendance":
+		return p.Attendance
+	case "events":
+		return p.Events
+	case "news":
+		return p.News
+	case "polls":
+		return p.Polls
+	case "absence":
+		return p.Absence
+	case "":
+		return true
+	default:
+		// Fail closed on an unrecognized category, mirroring
+		// notifications.HasReadAccess's default case -- a future category
+		// NotificationCategory returns that this switch hasn't been taught
+		// about yet must not silently bypass the preference gate.
+		return false
+	}
+}
+
+// NotificationCategory returns the push-preference category a
+// gen.NotificationType string belongs to. Deliberately independent of
+// notifications.NotificationModule: that function collapses "attendance"
+// into the "events" RBAC module (there's no separate events:attendance
+// permission), but the preference UI wants attendance responses
+// separately toggleable from event-lifecycle changes, matching the
+// notification feed's own "attendance" vs "events" filter chips
+// (frontend NotificationsSheet.tsx).
+func NotificationCategory(notifType string) string {
+	switch notifType {
+	case "attendance":
+		return "attendance"
+	case "event_created", "event_updated", "event_cancelled", "event_reactivated", "event_deleted":
+		return "events"
+	case "news":
+		return "news"
+	case "poll":
+		return "polls"
+	case "absence":
+		return "absence"
+	default:
+		return ""
+	}
+}

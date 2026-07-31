@@ -13,8 +13,10 @@ import (
 )
 
 type mockRepo struct {
-	upsertFn func(ctx context.Context, userID uuid.UUID, sub push.Subscription) error
-	deleteFn func(ctx context.Context, userID uuid.UUID, endpoint string) error
+	upsertFn            func(ctx context.Context, userID uuid.UUID, sub push.Subscription) error
+	deleteFn            func(ctx context.Context, userID uuid.UUID, endpoint string) error
+	getPreferencesFn    func(ctx context.Context, teamID, userID uuid.UUID) (push.CategoryPreferences, error)
+	upsertPreferencesFn func(ctx context.Context, teamID, userID uuid.UUID, prefs push.CategoryPreferences) error
 }
 
 func (m *mockRepo) Upsert(ctx context.Context, userID uuid.UUID, sub push.Subscription) error {
@@ -23,6 +25,14 @@ func (m *mockRepo) Upsert(ctx context.Context, userID uuid.UUID, sub push.Subscr
 
 func (m *mockRepo) Delete(ctx context.Context, userID uuid.UUID, endpoint string) error {
 	return m.deleteFn(ctx, userID, endpoint)
+}
+
+func (m *mockRepo) GetPreferences(ctx context.Context, teamID, userID uuid.UUID) (push.CategoryPreferences, error) {
+	return m.getPreferencesFn(ctx, teamID, userID)
+}
+
+func (m *mockRepo) UpsertPreferences(ctx context.Context, teamID, userID uuid.UUID, prefs push.CategoryPreferences) error {
+	return m.upsertPreferencesFn(ctx, teamID, userID, prefs)
 }
 
 func TestService_Register_DelegatesToRepository(t *testing.T) {
@@ -89,6 +99,76 @@ func TestService_Unregister_PropagatesRepositoryError(t *testing.T) {
 
 	svc := push.NewService(repo)
 	err := svc.Unregister(context.Background(), uuid.New(), "endpoint")
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
+}
+
+func TestService_GetPreferences_DelegatesToRepository(t *testing.T) {
+	t.Parallel()
+
+	teamID, userID := uuid.New(), uuid.New()
+	want := push.CategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}
+	repo := &mockRepo{
+		getPreferencesFn: func(_ context.Context, tID, uID uuid.UUID) (push.CategoryPreferences, error) {
+			assert.Equal(t, teamID, tID)
+			assert.Equal(t, userID, uID)
+			return want, nil
+		},
+	}
+
+	svc := push.NewService(repo)
+	got, err := svc.GetPreferences(context.Background(), teamID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestService_GetPreferences_PropagatesRepositoryError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("db unavailable")
+	repo := &mockRepo{
+		getPreferencesFn: func(context.Context, uuid.UUID, uuid.UUID) (push.CategoryPreferences, error) {
+			return push.CategoryPreferences{}, wantErr
+		},
+	}
+
+	svc := push.NewService(repo)
+	_, err := svc.GetPreferences(context.Background(), uuid.New(), uuid.New())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, wantErr)
+}
+
+func TestService_SetPreferences_DelegatesToRepository(t *testing.T) {
+	t.Parallel()
+
+	teamID, userID := uuid.New(), uuid.New()
+	prefs := push.CategoryPreferences{Attendance: false, Events: true, News: false, Polls: true, Absence: false}
+	var gotTeamID, gotUserID uuid.UUID
+	var gotPrefs push.CategoryPreferences
+	repo := &mockRepo{
+		upsertPreferencesFn: func(_ context.Context, tID, uID uuid.UUID, p push.CategoryPreferences) error {
+			gotTeamID, gotUserID, gotPrefs = tID, uID, p
+			return nil
+		},
+	}
+
+	svc := push.NewService(repo)
+	require.NoError(t, svc.SetPreferences(context.Background(), teamID, userID, prefs))
+	assert.Equal(t, teamID, gotTeamID)
+	assert.Equal(t, userID, gotUserID)
+	assert.Equal(t, prefs, gotPrefs)
+}
+
+func TestService_SetPreferences_PropagatesRepositoryError(t *testing.T) {
+	t.Parallel()
+
+	wantErr := errors.New("db unavailable")
+	repo := &mockRepo{
+		upsertPreferencesFn: func(context.Context, uuid.UUID, uuid.UUID, push.CategoryPreferences) error { return wantErr },
+	}
+
+	svc := push.NewService(repo)
+	err := svc.SetPreferences(context.Background(), uuid.New(), uuid.New(), push.CategoryPreferences{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, wantErr)
 }

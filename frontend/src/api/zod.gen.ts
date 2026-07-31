@@ -45,6 +45,15 @@ const PushSubscriptionRequest = z
     keys: z.object({ p256dh: z.string(), auth: z.string() }).passthrough(),
   })
   .passthrough();
+const PushCategoryPreferences = z
+  .object({
+    attendance: z.boolean(),
+    events: z.boolean(),
+    news: z.boolean(),
+    polls: z.boolean(),
+    absence: z.boolean(),
+  })
+  .passthrough();
 const Team = z
   .object({
     id: z.string().uuid(),
@@ -691,6 +700,7 @@ export const schemas = {
   ResendVerificationRequest,
   DeleteAccountRequest,
   PushSubscriptionRequest,
+  PushCategoryPreferences,
   Team,
   PermLevel,
   Permissions,
@@ -2380,6 +2390,39 @@ const endpoints = makeApi([
       },
     ],
     response: Poll,
+  },
+  {
+    method: "get",
+    path: "/teams/:teamId/push-preferences",
+    alias: "getPushPreferences",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: PushCategoryPreferences,
+  },
+  {
+    method: "put",
+    path: "/teams/:teamId/push-preferences",
+    alias: "setPushPreferences",
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: PushCategoryPreferences,
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.void(),
   },
   {
     method: "get",

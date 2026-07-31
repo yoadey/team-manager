@@ -33,13 +33,16 @@ var tracer = otel.Tracer("jobs")
 // NotificationArgs carries the data required to persist a single notification row.
 type NotificationArgs struct {
 	TeamID     uuid.UUID  `json:"team_id"`
-	Type       string     `json:"type"` // "news" | "event_created" | "event_cancelled" | "poll"
+	Type       string     `json:"type"` // "news" | "event_created" | "event_cancelled" | "poll" | "attendance"
 	ActorID    uuid.UUID  `json:"actor_id"`
 	EventID    *uuid.UUID `json:"event_id,omitempty"`
 	EventTitle *string    `json:"event_title,omitempty"`
 	EventDate  *time.Time `json:"event_date,omitempty"`
 	Title      *string    `json:"title,omitempty"`
 	Note       *string    `json:"note,omitempty"`
+	// Status carries the attendance response ("yes"/"no"/"maybe") for
+	// Type == "attendance"; nil for every other type.
+	Status *string `json:"status,omitempty"`
 }
 
 // Kind implements river.JobArgs — must be unique per worker type.
@@ -72,9 +75,13 @@ type permsChecker interface {
 	GetPermissions(ctx context.Context, teamID, userID uuid.UUID) (teams.PermissionsJSON, error)
 }
 
-// subscriptionLister is satisfied by *push.Repository.
+// subscriptionLister is satisfied by *push.Repository. GetPreferences is a
+// second, independent gate alongside permsChecker: permission decides what a
+// member is allowed to see at all, preference decides what they've opted
+// into being pushed for, per team.
 type subscriptionLister interface {
 	ListForTeamExcludingUser(ctx context.Context, teamID, excludeUserID uuid.UUID) ([]push.SubscriptionForUser, error)
+	GetPreferences(ctx context.Context, teamID, userID uuid.UUID) (push.CategoryPreferences, error)
 }
 
 // NewNotificationWorker constructs a NotificationWorker backed by pool, with
@@ -113,10 +120,10 @@ func (w *NotificationWorker) Work(ctx context.Context, job *river.Job[Notificati
 	a := job.Args
 	tag, err := w.pool.Exec(ctx, `
 		INSERT INTO notifications
-		    (team_id, type, actor_id, event_id, event_title, event_date, title, note, river_job_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		    (team_id, type, actor_id, status, event_id, event_title, event_date, title, note, river_job_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (river_job_id) WHERE river_job_id IS NOT NULL DO NOTHING
-	`, a.TeamID, a.Type, a.ActorID, a.EventID, a.EventTitle, a.EventDate, a.Title, a.Note, job.ID)
+	`, a.TeamID, a.Type, a.ActorID, a.Status, a.EventID, a.EventTitle, a.EventDate, a.Title, a.Note, job.ID)
 	if err != nil {
 		metrics.NotificationJobFailures.Inc()
 		return fmt.Errorf("jobs.NotificationWorker: insert notification: %w", err)
@@ -135,10 +142,12 @@ func (w *NotificationWorker) Work(ctx context.Context, job *river.Job[Notificati
 
 // enqueuePushDeliveries looks up subscriptions for current team members
 // (other than the actor), applies the same module-read-permission gate the
-// in-app feed uses (notifications.NotificationModule/HasReadAccess), and
-// enqueues a PushDeliveryArgs job per subscription that passes. Failures
-// here are logged, not returned -- push delivery is best-effort and must
-// never fail the notification row that already committed.
+// in-app feed uses (notifications.NotificationModule/HasReadAccess), then a
+// second, independent gate on the recipient's own per-team push-category
+// preference (push.NotificationCategory/CategoryPreferences.Allows), and
+// enqueues a PushDeliveryArgs job per subscription that passes both.
+// Failures here are logged, not returned -- push delivery is best-effort and
+// must never fail the notification row that already committed.
 func (w *NotificationWorker) enqueuePushDeliveries(ctx context.Context, a NotificationArgs) {
 	subs, err := w.pushRepo.ListForTeamExcludingUser(ctx, a.TeamID, a.ActorID)
 	if err != nil {
@@ -159,9 +168,11 @@ func (w *NotificationWorker) enqueuePushDeliveries(ctx context.Context, a Notifi
 	}
 
 	module := notifications.NotificationModule(gen.NotificationType(a.Type))
+	category := push.NotificationCategory(a.Type)
 	payload := pushPayloadForNotification(a)
 
 	allowedCache := map[uuid.UUID]bool{}
+	prefsCache := map[uuid.UUID]bool{}
 	for _, s := range subs {
 		allowed, cached := allowedCache[s.UserId]
 		if !cached {
@@ -176,6 +187,21 @@ func (w *NotificationWorker) enqueuePushDeliveries(ctx context.Context, a Notifi
 		if !allowed {
 			continue
 		}
+
+		wantsPush, cached := prefsCache[s.UserId]
+		if !cached {
+			prefs, prefErr := w.pushRepo.GetPreferences(ctx, a.TeamID, s.UserId)
+			if prefErr != nil {
+				slog.ErrorContext(ctx, "jobs.NotificationWorker: get push preferences failed", "err", prefErr)
+				continue
+			}
+			wantsPush = prefs.Allows(category)
+			prefsCache[s.UserId] = wantsPush
+		}
+		if !wantsPush {
+			continue
+		}
+
 		if _, insErr := rc.Insert(ctx, PushDeliveryArgs{
 			SubscriptionID: s.Id,
 			Endpoint:       s.Subscription.Endpoint,

@@ -101,3 +101,87 @@ func TestRepository_ListForTeamExcludingUser(t *testing.T) {
 	assert.Equal(t, member, subs[0].UserId)
 	assert.Equal(t, "https://push.example/member", subs[0].Subscription.Endpoint)
 }
+
+// TestRepository_GetPreferences_DefaultsWhenNoRow verifies that a member who
+// has never saved preferences gets DefaultCategoryPreferences() (everything
+// enabled) rather than an error or a zero-value (everything disabled) --
+// existing subscribers predate this table and must keep receiving push
+// exactly as before.
+func TestRepository_GetPreferences_DefaultsWhenNoRow(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := push.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Prefs Default Team')`, teamID)
+	require.NoError(t, err)
+	userID := seedUser(t, ctx, pool, "Prefs User", "prefs@example.com")
+
+	got, err := repo.GetPreferences(ctx, teamID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, push.DefaultCategoryPreferences(), got)
+}
+
+// TestRepository_UpsertPreferences_RoundTrips verifies preferences saved via
+// UpsertPreferences are the ones GetPreferences later returns, and that
+// saving twice updates the same row rather than duplicating it.
+func TestRepository_UpsertPreferences_RoundTrips(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := push.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Prefs Roundtrip Team')`, teamID)
+	require.NoError(t, err)
+	userID := seedUser(t, ctx, pool, "Prefs User 2", "prefs2@example.com")
+
+	prefs := push.CategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}
+	require.NoError(t, repo.UpsertPreferences(ctx, teamID, userID, prefs))
+
+	got, err := repo.GetPreferences(ctx, teamID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, prefs, got)
+
+	var count int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM push_preferences WHERE team_id = $1 AND user_id = $2`, teamID, userID).Scan(&count))
+	assert.Equal(t, 1, count)
+
+	// Saving again updates the same row rather than duplicating it.
+	prefs.News = false
+	require.NoError(t, repo.UpsertPreferences(ctx, teamID, userID, prefs))
+	got, err = repo.GetPreferences(ctx, teamID, userID)
+	require.NoError(t, err)
+	assert.Equal(t, prefs, got)
+	require.NoError(t, pool.QueryRow(ctx, `SELECT COUNT(*) FROM push_preferences WHERE team_id = $1 AND user_id = $2`, teamID, userID).Scan(&count))
+	assert.Equal(t, 1, count, "saving preferences again must update, not duplicate")
+}
+
+// TestRepository_Preferences_ScopedPerTeam verifies a member's preferences
+// in one team don't affect another team they belong to.
+func TestRepository_Preferences_ScopedPerTeam(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := push.NewRepository(pool)
+	ctx := context.Background()
+
+	teamA := uuid.New()
+	teamB := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Team A'), ($2, 'Team B')`, teamA, teamB)
+	require.NoError(t, err)
+	userID := seedUser(t, ctx, pool, "Multi Team User", "multiteam@example.com")
+
+	require.NoError(t, repo.UpsertPreferences(ctx, teamA, userID, push.CategoryPreferences{Attendance: true, Events: true, News: false, Polls: true, Absence: true}))
+
+	gotA, err := repo.GetPreferences(ctx, teamA, userID)
+	require.NoError(t, err)
+	assert.False(t, gotA.News, "team A's news preference must be disabled")
+
+	gotB, err := repo.GetPreferences(ctx, teamB, userID)
+	require.NoError(t, err)
+	assert.Equal(t, push.DefaultCategoryPreferences(), gotB, "team B must be unaffected by team A's preferences")
+}

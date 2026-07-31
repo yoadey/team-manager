@@ -17,6 +17,7 @@ export const queryKeys = {
   absences: (teamId: string) => ['teams', teamId, 'absences'] as const,
   myAbsences: (teamId: string) => ['teams', teamId, 'myAbsences'] as const,
   notifications: (teamId: string) => ['teams', teamId, 'notifications'] as const,
+  pushPreferences: (teamId: string) => ['teams', teamId, 'pushPreferences'] as const,
   // staleTime: Infinity at the call site -- issuing a token rotates it
   // server-side, so this must only ever be (re)fetched on an explicit user
   // action (open the sheet once, or hit "renew"), never as a background

@@ -321,6 +321,40 @@ paths:
         "204":
           description: No Content
 
+  # Team-scoped: which notification categories get pushed for this team,
+  # independent of any other team the caller belongs to. x-rbac-module:
+  # public -- a member manages only their own preferences within a team they
+  # already belong to, same gate as /teams/{teamId}/notifications.
+  /teams/{teamId}/push-preferences:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    get:
+      tags: [push]
+      operationId: getPushPreferences
+      x-rbac-module: public
+      summary: Get the caller's per-category Web Push preferences for this team
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushCategoryPreferences"
+    put:
+      tags: [push]
+      operationId: setPushPreferences
+      x-rbac-module: public
+      summary: Set the caller's per-category Web Push preferences for this team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushCategoryPreferences"
+      responses:
+        "204":
+          description: No Content
+
   # ── Teams ───────────────────────────────────────────────────────────────────
 
   /teams:
@@ -3077,6 +3111,25 @@ components:
               type: string
             auth:
               type: string
+
+    PushCategoryPreferences:
+      type: object
+      description: >-
+        Per-team Web Push opt-out, one boolean per notification category.
+        A category set to false suppresses push delivery for that category
+        in this team only; the in-app notification feed is unaffected.
+      required: [attendance, events, news, polls, absence]
+      properties:
+        attendance:
+          type: boolean
+        events:
+          type: boolean
+        news:
+          type: boolean
+        polls:
+          type: boolean
+        absence:
+          type: boolean
 
     # ── Calendar feed ──────────────────────────────────────────────────────────
 

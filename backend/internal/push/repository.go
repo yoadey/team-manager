@@ -2,10 +2,12 @@ package push
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -99,4 +101,48 @@ func (r *Repository) ListForTeamExcludingUser(ctx context.Context, teamID, exclu
 		result = append(result, s)
 	}
 	return result, rows.Err()
+}
+
+// GetPreferences returns (teamID, userID)'s stored push-category
+// preferences, or DefaultCategoryPreferences (everything enabled) if the
+// member has never saved any -- see CategoryPreferences' doc comment for
+// why a missing row must not mean "everything disabled".
+func (r *Repository) GetPreferences(ctx context.Context, teamID, userID uuid.UUID) (CategoryPreferences, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var p CategoryPreferences
+	err := r.pool.QueryRow(ctx, `
+		SELECT attendance, events, news, polls, absence
+		FROM push_preferences
+		WHERE team_id = $1 AND user_id = $2
+	`, teamID, userID).Scan(&p.Attendance, &p.Events, &p.News, &p.Polls, &p.Absence)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DefaultCategoryPreferences(), nil
+	}
+	if err != nil {
+		return CategoryPreferences{}, fmt.Errorf("push.Repository.GetPreferences: %w", err)
+	}
+	return p, nil
+}
+
+// UpsertPreferences saves (teamID, userID)'s push-category preferences,
+// creating the row on first save.
+func (r *Repository) UpsertPreferences(ctx context.Context, teamID, userID uuid.UUID, p CategoryPreferences) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO push_preferences (team_id, user_id, attendance, events, news, polls, absence, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		ON CONFLICT (team_id, user_id) DO UPDATE SET
+			attendance = EXCLUDED.attendance,
+			events     = EXCLUDED.events,
+			news       = EXCLUDED.news,
+			polls      = EXCLUDED.polls,
+			absence    = EXCLUDED.absence,
+			updated_at = now()
+	`, teamID, userID, p.Attendance, p.Events, p.News, p.Polls, p.Absence)
+	if err != nil {
+		return fmt.Errorf("push.Repository.UpsertPreferences: %w", err)
+	}
+	return nil
 }

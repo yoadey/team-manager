@@ -53,7 +53,7 @@ import type { TeamEvent, AttendanceRow, EventComment, Absence } from '@/features
 import type { Member } from '@/features/members';
 import type { NewsItem } from '@/features/news';
 import type { Poll } from '@/features/polls';
-import type { NotificationsResult } from '@/features/notifications';
+import type { NotificationsResult, PushCategoryPreferences } from '@/features/notifications';
 import type { FinanceOverview, Transaction, Penalty, PenaltyAssignment, Contribution } from '@/features/finances';
 import { AuthError, ForbiddenError, NetworkError, ValidationError } from '@/utils/errors';
 
@@ -1151,6 +1151,19 @@ export const realApi = {
     async unsubscribe(endpoint: string): Promise<void> {
       const res = await apiClient.DELETE('/users/me/push-subscriptions', {
         params: { query: { endpoint } },
+      });
+      await checkOk(res);
+    },
+
+    async getPreferences(teamId: string): Promise<PushCategoryPreferences> {
+      const res = await apiClient.GET('/teams/{teamId}/push-preferences', { params: { path: { teamId } } });
+      return await check(res);
+    },
+
+    async setPreferences(teamId: string, prefs: PushCategoryPreferences): Promise<void> {
+      const res = await apiClient.PUT('/teams/{teamId}/push-preferences', {
+        params: { path: { teamId } },
+        body: prefs,
       });
       await checkOk(res);
     },

@@ -3,10 +3,12 @@ package jobs_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	promtestutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivertype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,11 +37,29 @@ type mockSubscriptionLister struct {
 	subs    []push.SubscriptionForUser
 	err     error
 	calledN int
+
+	// prefs, keyed by userID, controls GetPreferences' return value per
+	// subscriber; a userID with no entry gets DefaultCategoryPreferences()
+	// (everything enabled), matching a member who never saved preferences.
+	prefs      map[uuid.UUID]push.CategoryPreferences
+	prefsErr   error
+	prefsCalls int
 }
 
 func (m *mockSubscriptionLister) ListForTeamExcludingUser(context.Context, uuid.UUID, uuid.UUID) ([]push.SubscriptionForUser, error) {
 	m.calledN++
 	return m.subs, m.err
+}
+
+func (m *mockSubscriptionLister) GetPreferences(_ context.Context, _, userID uuid.UUID) (push.CategoryPreferences, error) {
+	m.prefsCalls++
+	if m.prefsErr != nil {
+		return push.CategoryPreferences{}, m.prefsErr
+	}
+	if p, ok := m.prefs[userID]; ok {
+		return p, nil
+	}
+	return push.DefaultCategoryPreferences(), nil
 }
 
 // Regression test: a persistent NotificationWorker.Work failure (River
@@ -115,6 +135,54 @@ func TestNotificationWorker_InsertsNotificationRow(t *testing.T) {
 	assert.Equal(t, 1, count)
 	require.NotNil(t, gotTitle)
 	assert.Equal(t, title, *gotTitle)
+}
+
+// TestNotificationWorker_InsertsAttendanceStatus regression-tests that
+// NotificationArgs.Status actually reaches the notifications.status column
+// -- the field existed on the DB table and was already read back by
+// notifications.Repository.ListByTeamAndUser, but nothing on the write path
+// (NotificationArgs / this INSERT) carried it until events.Service.SetAttendance
+// started enqueuing "attendance" notifications.
+func TestNotificationWorker_InsertsAttendanceStatus(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	actorID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Attendance Notify Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Responder', 'responder@example.com', '#00ff00')`,
+		actorID)
+	require.NoError(t, err)
+
+	status := "yes"
+	eventTitle := "Training"
+	worker := jobs.NewNotificationWorker(pool)
+	job := &river.Job[jobs.NotificationArgs]{
+		JobRow: &rivertype.JobRow{ID: 2},
+		Args: jobs.NotificationArgs{
+			TeamID:     teamID,
+			Type:       "attendance",
+			ActorID:    actorID,
+			EventTitle: &eventTitle,
+			Status:     &status,
+		},
+	}
+
+	require.NoError(t, worker.Work(ctx, job))
+
+	var gotType string
+	var gotStatus *string
+	require.NoError(t, pool.QueryRow(
+		ctx,
+		`SELECT type, status FROM notifications WHERE team_id = $1`, teamID,
+	).Scan(&gotType, &gotStatus))
+	assert.Equal(t, "attendance", gotType)
+	require.NotNil(t, gotStatus)
+	assert.Equal(t, "yes", *gotStatus)
 }
 
 // TestNotificationWorker_Work_IsIdempotentOnRetry is a regression test for a
@@ -267,4 +335,90 @@ func TestNotificationWorker_Work_PushDelivery_SkipsWithoutRiverClientInContext(t
 	require.NotPanics(t, func() {
 		require.NoError(t, worker.Work(ctx, job))
 	})
+}
+
+// capturingPushDeliveryWorker stands in for the real PushDeliveryWorker in
+// end-to-end preference-gate tests: it only records that a push-delivery job
+// was actually enqueued and processed, via a buffered channel, without
+// touching a real push service.
+type capturingPushDeliveryWorker struct {
+	river.WorkerDefaults[jobs.PushDeliveryArgs]
+	fired chan jobs.PushDeliveryArgs
+}
+
+func (w *capturingPushDeliveryWorker) Work(_ context.Context, job *river.Job[jobs.PushDeliveryArgs]) error {
+	w.fired <- job.Args
+	return nil
+}
+
+// TestNotificationWorker_Work_PushDelivery_PreferenceGate is an end-to-end
+// regression test (via a real river.Client, not a direct Work() call) for
+// the preference gate added alongside per-team push-category preferences:
+// enqueuePushDeliveries must skip a subscriber who has disabled the
+// notification's category for that team, and still deliver to one who
+// hasn't, even though both pass the same module-permission check.
+func TestNotificationWorker_Work_PushDelivery_PreferenceGate(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	ctx := context.Background()
+	require.NoError(t, jobs.MigrateRiver(ctx, pool))
+
+	teamID := uuid.New()
+	actorID := uuid.New()
+	optedOutUser := uuid.New()
+	optedInUser := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Preference Gate Team')`, teamID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color) VALUES ($1, 'Actor6', 'actor6@example.com', '#00ff00')`,
+		actorID)
+	require.NoError(t, err)
+
+	perms := &mockPermsChecker{perms: teams.PermissionsJSON{News: "read"}}
+	lister := &mockSubscriptionLister{
+		subs: []push.SubscriptionForUser{
+			{Id: uuid.New(), UserId: optedOutUser, Subscription: push.Subscription{Endpoint: "https://push.example/opted-out", P256dh: "p", AuthKey: "a"}},
+			{Id: uuid.New(), UserId: optedInUser, Subscription: push.Subscription{Endpoint: "https://push.example/opted-in", P256dh: "p", AuthKey: "a"}},
+		},
+		prefs: map[uuid.UUID]push.CategoryPreferences{
+			optedOutUser: {Attendance: true, Events: true, News: false, Polls: true, Absence: true},
+			// optedInUser has no entry -> DefaultCategoryPreferences() (news enabled).
+		},
+	}
+
+	notifWorker := jobs.NewNotificationWorker(pool).WithPushDelivery(perms, lister)
+	fired := make(chan jobs.PushDeliveryArgs, 4)
+	captureWorker := &capturingPushDeliveryWorker{fired: fired}
+
+	workers := river.NewWorkers()
+	river.AddWorker(workers, notifWorker)
+	river.AddWorker(workers, captureWorker)
+
+	rc, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
+		Queues:  map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 2}},
+		Workers: workers,
+	})
+	require.NoError(t, err)
+	require.NoError(t, rc.Start(ctx))
+	t.Cleanup(func() { _ = rc.Stop(context.Background()) })
+
+	title := "Preference gate test"
+	_, err = rc.Insert(ctx, jobs.NotificationArgs{TeamID: teamID, Type: "news", ActorID: actorID, Title: &title}, nil)
+	require.NoError(t, err)
+
+	// Exactly one delivery (the opted-in user's) must fire; the opted-out
+	// user's must not, even though both pass the identical permission check.
+	select {
+	case got := <-fired:
+		assert.Equal(t, "https://push.example/opted-in", got.Endpoint, "only the subscriber who hasn't disabled 'news' must receive a push")
+	case <-time.After(10 * time.Second):
+		t.Fatal("expected one push delivery for the opted-in subscriber, got none")
+	}
+	select {
+	case got := <-fired:
+		t.Fatalf("unexpected second push delivery to %q; the opted-out subscriber's 'news' preference must have suppressed it", got.Endpoint)
+	case <-time.After(500 * time.Millisecond):
+		// Expected: no further delivery.
+	}
 }
