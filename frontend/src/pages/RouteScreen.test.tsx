@@ -42,6 +42,10 @@ vi.mock('@/features/team', () => ({
   TeamPage: () => <div data-testid="team">Team</div>,
 }));
 
+vi.mock('@/features/settings', () => ({
+  SettingsPage: () => <div data-testid="settings">Settings</div>,
+}));
+
 import { useApp } from '@/context/AppContext';
 const mockUseApp = useApp as ReturnType<typeof vi.fn>;
 
@@ -131,5 +135,24 @@ describe('RouteScreen', () => {
       render(<RouteScreen />);
     });
     expect(screen.getByTestId('stats')).toBeTruthy();
+  });
+
+  it('renders SettingsPage for settings route', async () => {
+    mockUseApp.mockReturnValue(makeApp('settings'));
+    await act(async () => {
+      render(<RouteScreen />);
+    });
+    expect(screen.getByTestId('settings')).toBeTruthy();
+  });
+
+  // Regression test: ROUTE_MODULE.settings is null (ungated, personal data,
+  // same bucket as home) -- unlike finances, a caller with no permissions at
+  // all must still see the real Settings page, never the Home fallback.
+  it('renders SettingsPage for settings route even with no permissions', async () => {
+    mockUseApp.mockReturnValue(makeApp('settings', false));
+    await act(async () => {
+      render(<RouteScreen />);
+    });
+    expect(screen.getByTestId('settings')).toBeTruthy();
   });
 });

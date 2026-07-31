@@ -15,9 +15,9 @@ const linkSx = {
 /**
  * §5 DDG requires the legal notice to be "leicht erkennbar, unmittelbar
  * erreichbar und ständig verfügbar" -- reachable from every screen, including
- * pre-login. Uses openLegal (team-independent, unlike openProfile/openMore)
- * so it works identically here (Login.tsx) and inside the authenticated app
- * (ProfileSheet, via NavSheets.tsx).
+ * pre-login. Uses openLegal (team-independent, unlike openMore) so it works
+ * identically here (Login.tsx) and inside the authenticated app (Settings'
+ * LegalPanel, via features/settings).
  */
 export function LegalFooter() {
   const { openLegal } = useApp();

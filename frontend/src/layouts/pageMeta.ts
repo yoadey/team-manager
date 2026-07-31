@@ -84,6 +84,7 @@ export function pageMeta(
       () => app.openPollForm(),
     ],
     team: [tl('nav.team'), tl('page.teamSubtitle'), false],
+    settings: [tl('nav.settings'), tl('page.settingsSubtitle'), false],
   };
   const d = defs[state.route] ?? homeDef;
   return {

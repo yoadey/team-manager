@@ -24,7 +24,7 @@ export type PushSupport = 'unsupported' | 'supported';
 type ToastFn = (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
 
 /**
- * Drives the "enable Web Push" toggle in ProfileSheet: reads the current
+ * Drives the "enable Web Push" toggle in Settings' NotificationsPanel: reads the current
  * subscription state on mount, and exposes enable/disable actions that
  * register/unregister the browser's PushSubscription with the backend.
  * Deliberately not wired into AppContext's shared action object (unlike

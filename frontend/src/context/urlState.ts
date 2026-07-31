@@ -15,19 +15,29 @@
 // pure so it can be unit-tested without a DOM.
 // =============================================================================
 
-export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team';
+export type Route = 'home' | 'events' | 'members' | 'finances' | 'stats' | 'news' | 'polls' | 'team' | 'settings';
 
-export const ALL_ROUTES: Route[] = ['home', 'events', 'members', 'finances', 'stats', 'news', 'polls', 'team'];
+export const ALL_ROUTES: Route[] = [
+  'home',
+  'events',
+  'members',
+  'finances',
+  'stats',
+  'news',
+  'polls',
+  'team',
+  'settings',
+];
 
 /**
  * Which RBAC module (see types.ModuleKey) gates read access to each route.
- * `null` means the route has no module of its own (home) or is never gated
- * (nothing currently falls in that bucket besides home). `stats` piggybacks
- * on `events:read` and `team` on `members:read`, matching pages/index.tsx's
- * RouteScreen and CLAUDE.md's documented RBAC module mapping. Single source
- * of truth for both RouteScreen's per-route content gate and the nav chrome
- * (AppShell's rail/bottom nav, NavSheets' MoreSheet, Home's cross-links) so
- * the two can't drift apart the way they did before this map existed.
+ * `null` means the route has no module of its own (home, settings) or is
+ * never gated. `stats` piggybacks on `events:read` and `team` on
+ * `members:read`, matching pages/index.tsx's RouteScreen and CLAUDE.md's
+ * documented RBAC module mapping. Single source of truth for both
+ * RouteScreen's per-route content gate and the nav chrome (AppShell's
+ * rail/bottom nav, NavSheets' MoreSheet, Home's cross-links) so the two
+ * can't drift apart the way they did before this map existed.
  */
 export const ROUTE_MODULE: Record<Route, 'events' | 'members' | 'finances' | 'news' | 'polls' | null> = {
   home: null,
@@ -38,6 +48,7 @@ export const ROUTE_MODULE: Record<Route, 'events' | 'members' | 'finances' | 'ne
   news: 'news',
   polls: 'polls',
   team: 'members',
+  settings: null,
 };
 
 export function routeFromPath(path: string): Route {
