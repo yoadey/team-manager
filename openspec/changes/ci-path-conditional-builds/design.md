@@ -55,11 +55,16 @@ only `helm/team-manager/values-prod.yaml` changed.
   needs.changes.outputs.frontend == 'true'` on `frontend-build` too makes
   the gating self-documenting and doesn't silently break if a future edit
   reorders or drops one of those `needs` entries.
-- **CodeQL's matrix is split per language**, not gated as a single job —
-  `go` only needs to run when backend changed, `typescript` only when
-  frontend changed, and the two are independent enough (separate `Autobuild`
-  invocations) that gating the whole matrix job on "either changed" would
-  defeat half the point.
+- **CodeQL's `language: [go, typescript]` matrix becomes two fixed jobs**,
+  not a per-entry gate — `go` only needs to run when backend changed,
+  `typescript` only when frontend changed, but a job-level `if:` can only
+  read `github`/`needs`/`vars`/`inputs`, not `matrix` (that's step-level
+  only). The first push of this change tried `if: matrix.language == ... `
+  at the job level and GitHub Actions rejected the entire workflow file
+  outright (the run showed 0 scheduled jobs) rather than just failing that
+  one job — `actionlint` catches this class of error locally, which plain
+  YAML validation does not, since the file is syntactically valid YAML the
+  whole time.
 
 ## Risks
 

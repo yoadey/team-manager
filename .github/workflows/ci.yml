@@ -806,30 +806,51 @@ jobs:
           awk -v total="$total" 'BEGIN { if (total+0 < 35) { print "Coverage " total "% below 35% threshold"; exit 1 } }'
 
   security-sast:
-    name: Security · SAST (CodeQL)
+    # Two fixed jobs instead of a `language: [go, typescript]` matrix: each
+    # entry needs to gate independently on the area it actually analyzes --
+    # go on backend, typescript on frontend -- but job-level `if:` cannot
+    # read the `matrix` context (only `github`/`needs`/`vars`/`inputs` are
+    # available there; `matrix` is a step-level context), so a single
+    # matrix job can't express that condition. Splitting avoids the
+    # restriction entirely rather than working around it with step-level
+    # `if:`s that would leave the job itself always "running" (and billed)
+    # even when skipped in spirit.
+    name: Security · SAST (CodeQL) (go)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: changes
-    # Each matrix entry gates independently on the area it actually
-    # analyzes -- go on backend, typescript on frontend -- rather than the
-    # whole job gating on "either changed", which would run e.g. the go
-    # entry on a frontend-only PR for no reason.
-    if: |
-      (matrix.language == 'go' && needs.changes.outputs.backend == 'true') ||
-      (matrix.language == 'typescript' && needs.changes.outputs.frontend == 'true')
+    if: needs.changes.outputs.backend == 'true'
     permissions:
       security-events: write
       actions: read
       contents: read
-    strategy:
-      matrix:
-        language: [go, typescript]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Initialize CodeQL
         uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
         with:
-          languages: ${{ matrix.language }}
+          languages: go
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+
+  security-sast-typescript:
+    name: Security · SAST (CodeQL) (typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        with:
+          languages: typescript
       - name: Autobuild
         uses: github/codeql-action/autobuild@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
       - name: Perform CodeQL Analysis
