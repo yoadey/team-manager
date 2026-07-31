@@ -103,6 +103,34 @@ func (r *Repository) ListForTeamExcludingUser(ctx context.Context, teamID, exclu
 	return result, rows.Err()
 }
 
+// ListForTeam returns every push subscription belonging to a current member
+// of teamID -- like ListForTeamExcludingUser, but without excluding an
+// actor, since a time-triggered reminder (unlike a notification reacting to
+// someone's action) has no actor to exclude.
+func (r *Repository) ListForTeam(ctx context.Context, teamID uuid.UUID) ([]SubscriptionForUser, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := r.pool.Query(ctx, `
+		SELECT ps.id, ps.user_id, ps.endpoint, ps.p256dh, ps.auth_key
+		FROM push_subscriptions ps
+		JOIN memberships m ON m.user_id = ps.user_id AND m.team_id = $1
+	`, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("push.Repository.ListForTeam: %w", err)
+	}
+	defer rows.Close()
+
+	var result []SubscriptionForUser
+	for rows.Next() {
+		var s SubscriptionForUser
+		if err := rows.Scan(&s.Id, &s.UserId, &s.Subscription.Endpoint, &s.Subscription.P256dh, &s.Subscription.AuthKey); err != nil {
+			return nil, fmt.Errorf("push.Repository.ListForTeam scan: %w", err)
+		}
+		result = append(result, s)
+	}
+	return result, rows.Err()
+}
+
 // GetPreferences returns (teamID, userID)'s stored push-category
 // preferences, or DefaultCategoryPreferences (everything enabled) if the
 // member has never saved any -- see CategoryPreferences' doc comment for
@@ -112,10 +140,13 @@ func (r *Repository) GetPreferences(ctx context.Context, teamID, userID uuid.UUI
 	defer cancel()
 	var p CategoryPreferences
 	err := r.pool.QueryRow(ctx, `
-		SELECT attendance, events, news, polls, absence
+		SELECT attendance, events, news, polls, absence, event_reminder_enabled, event_reminder_hours_before
 		FROM push_preferences
 		WHERE team_id = $1 AND user_id = $2
-	`, teamID, userID).Scan(&p.Attendance, &p.Events, &p.News, &p.Polls, &p.Absence)
+	`, teamID, userID).Scan(
+		&p.Attendance, &p.Events, &p.News, &p.Polls, &p.Absence,
+		&p.EventReminderEnabled, &p.EventReminderHoursBefore,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DefaultCategoryPreferences(), nil
 	}
@@ -131,16 +162,22 @@ func (r *Repository) UpsertPreferences(ctx context.Context, teamID, userID uuid.
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO push_preferences (team_id, user_id, attendance, events, news, polls, absence, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		INSERT INTO push_preferences (
+			team_id, user_id, attendance, events, news, polls, absence,
+			event_reminder_enabled, event_reminder_hours_before, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
 		ON CONFLICT (team_id, user_id) DO UPDATE SET
-			attendance = EXCLUDED.attendance,
-			events     = EXCLUDED.events,
-			news       = EXCLUDED.news,
-			polls      = EXCLUDED.polls,
-			absence    = EXCLUDED.absence,
-			updated_at = now()
-	`, teamID, userID, p.Attendance, p.Events, p.News, p.Polls, p.Absence)
+			attendance                  = EXCLUDED.attendance,
+			events                      = EXCLUDED.events,
+			news                        = EXCLUDED.news,
+			polls                       = EXCLUDED.polls,
+			absence                     = EXCLUDED.absence,
+			event_reminder_enabled      = EXCLUDED.event_reminder_enabled,
+			event_reminder_hours_before = EXCLUDED.event_reminder_hours_before,
+			updated_at                  = now()
+	`, teamID, userID, p.Attendance, p.Events, p.News, p.Polls, p.Absence,
+		p.EventReminderEnabled, p.EventReminderHoursBefore)
 	if err != nil {
 		return fmt.Errorf("push.Repository.UpsertPreferences: %w", err)
 	}

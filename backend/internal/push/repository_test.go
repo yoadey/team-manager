@@ -139,7 +139,10 @@ func TestRepository_UpsertPreferences_RoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	userID := seedUser(t, ctx, pool, "Prefs User 2", "prefs2@example.com")
 
-	prefs := push.CategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}
+	prefs := push.CategoryPreferences{
+		Attendance: true, Events: false, News: true, Polls: false, Absence: true,
+		EventReminderEnabled: true, EventReminderHoursBefore: 12,
+	}
 	require.NoError(t, repo.UpsertPreferences(ctx, teamID, userID, prefs))
 
 	got, err := repo.GetPreferences(ctx, teamID, userID)
@@ -175,7 +178,10 @@ func TestRepository_Preferences_ScopedPerTeam(t *testing.T) {
 	require.NoError(t, err)
 	userID := seedUser(t, ctx, pool, "Multi Team User", "multiteam@example.com")
 
-	require.NoError(t, repo.UpsertPreferences(ctx, teamA, userID, push.CategoryPreferences{Attendance: true, Events: true, News: false, Polls: true, Absence: true}))
+	require.NoError(t, repo.UpsertPreferences(ctx, teamA, userID, push.CategoryPreferences{
+		Attendance: true, Events: true, News: false, Polls: true, Absence: true,
+		EventReminderEnabled: true, EventReminderHoursBefore: push.DefaultEventReminderHoursBefore,
+	}))
 
 	gotA, err := repo.GetPreferences(ctx, teamA, userID)
 	require.NoError(t, err)

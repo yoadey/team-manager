@@ -410,6 +410,50 @@ func TestEventRepository_CreateEvent_RejectsForeignTeamNominatedRole(t *testing.
 // every other privilege-relevant mutation on the team (role deletion, role
 // assignment, team updates), even though there's nothing here that could race
 // with them.
+// TestEventRepository_ListUpcomingForReminders verifies the reminder scan
+// window: events inside [from, to] are returned, a cancelled event within
+// that window is excluded, and an event outside the window is excluded.
+func TestEventRepository_ListUpcomingForReminders(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := events.NewRepository(pool)
+	ctx := context.Background()
+
+	teamID := uuid.New()
+	_, err := pool.Exec(ctx, `INSERT INTO teams (id, name) VALUES ($1, 'Reminder Window Team')`, teamID)
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	inWindow := makeCreateParams("In Window", now.Add(12*time.Hour))
+	outOfWindow := makeCreateParams("Out Of Window", now.Add(240*time.Hour))
+	cancelled := makeCreateParams("Cancelled In Window", now.Add(24*time.Hour))
+
+	inEvt, err := repo.CreateEvent(ctx, teamID.String(), &inWindow)
+	require.NoError(t, err)
+	_, err = repo.CreateEvent(ctx, teamID.String(), &outOfWindow)
+	require.NoError(t, err)
+	cancelledEvt, err := repo.CreateEvent(ctx, teamID.String(), &cancelled)
+	require.NoError(t, err)
+	_, err = repo.SetStatus(ctx, cancelledEvt.Id.String(), teamID.String(), "cancelled", "single")
+	require.NoError(t, err)
+
+	from := now.Truncate(24 * time.Hour).Add(-24 * time.Hour)
+	to := now.Add(96 * time.Hour)
+	got, err := repo.ListUpcomingForReminders(ctx, from, to)
+	require.NoError(t, err)
+
+	ids := make([]uuid.UUID, 0, len(got))
+	for _, e := range got {
+		ids = append(ids, e.Id)
+	}
+	assert.Contains(t, ids, inEvt.Id, "an event inside the window must be returned")
+	assert.NotContains(t, ids, cancelledEvt.Id, "a cancelled event must be excluded even inside the window")
+	for _, e := range got {
+		assert.NotEqual(t, "Out Of Window", e.Title, "an event outside the window must be excluded")
+	}
+}
+
 func TestEventRepository_CreateEvent_NoNominatedRoles_DoesNotBlockOnAdvisoryLock(t *testing.T) {
 	t.Parallel()
 

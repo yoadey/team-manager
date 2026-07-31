@@ -61,3 +61,11 @@ func TestCategoryPreferences_Allows_UnknownCategoryFailsClosed(t *testing.T) {
 	p := push.DefaultCategoryPreferences()
 	assert.False(t, p.Allows("something_unknown"), "an unrecognized category must fail closed, even with everything else enabled")
 }
+
+func TestDefaultCategoryPreferences_EventReminderDefaults(t *testing.T) {
+	t.Parallel()
+
+	p := push.DefaultCategoryPreferences()
+	assert.True(t, p.EventReminderEnabled)
+	assert.EqualValues(t, push.DefaultEventReminderHoursBefore, p.EventReminderHoursBefore)
+}

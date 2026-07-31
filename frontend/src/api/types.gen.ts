@@ -1754,13 +1754,17 @@ export interface components {
                 auth: string;
             };
         };
-        /** @description Per-team Web Push opt-out, one boolean per notification category. A category set to false suppresses push delivery for that category in this team only; the in-app notification feed is unaffected. */
+        /** @description Per-team Web Push opt-out, one boolean per notification category. A category set to false suppresses push delivery for that category in this team only; the in-app notification feed is unaffected. Also carries the member's event-reminder push settings for this team -- a separate, time-triggered push (not tied to any notification category) sent shortly before an upcoming event starts. */
         PushCategoryPreferences: {
             attendance: boolean;
             events: boolean;
             news: boolean;
             polls: boolean;
             absence: boolean;
+            /** @description Whether a push reminder is sent before upcoming events in this team. */
+            eventReminderEnabled: boolean;
+            /** @description How many hours before an event's start the reminder push is sent. */
+            eventReminderHoursBefore: number;
         };
         CalendarFeedToken: {
             /**

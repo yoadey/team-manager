@@ -39,11 +39,17 @@ export interface NotificationsResult {
   unreadCount: number;
 }
 
-/** A team's per-category Web Push opt-out -- true means "push this category". */
+/** A team's per-category Web Push opt-out -- true means "push this category".
+ * Also carries the member's event-reminder push settings for this team: a
+ * separate, time-triggered push sent shortly before an upcoming event
+ * starts, independent of the `events` category above (which only covers
+ * event lifecycle changes like created/updated/cancelled). */
 export interface PushCategoryPreferences {
   attendance: boolean;
   events: boolean;
   news: boolean;
   polls: boolean;
   absence: boolean;
+  eventReminderEnabled: boolean;
+  eventReminderHoursBefore: number;
 }

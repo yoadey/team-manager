@@ -12,6 +12,8 @@ const DEFAULT_PREFERENCES: PushCategoryPreferences = {
   news: true,
   polls: true,
   absence: true,
+  eventReminderEnabled: true,
+  eventReminderHoursBefore: 6,
 };
 
 type ToastFn = (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
@@ -47,10 +49,19 @@ export function usePushPreferencesActions(api: typeof defaultApi, teamId: string
     [query.data, mutation],
   );
 
+  const setEventReminderHoursBefore = useCallback(
+    (hours: number) => {
+      const current = query.data ?? DEFAULT_PREFERENCES;
+      mutation.mutate({ ...current, eventReminderHoursBefore: hours });
+    },
+    [query.data, mutation],
+  );
+
   return {
     prefs: query.data ?? DEFAULT_PREFERENCES,
     isLoading: query.isLoading,
     busy: mutation.isPending,
     setCategory,
+    setEventReminderHoursBefore,
   };
 }

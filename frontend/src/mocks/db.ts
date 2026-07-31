@@ -208,6 +208,8 @@ export interface PushCategoryPreferences {
   news: boolean;
   polls: boolean;
   absence: boolean;
+  eventReminderEnabled: boolean;
+  eventReminderHoursBefore: number;
 }
 
 export const DEFAULT_PUSH_CATEGORY_PREFERENCES: PushCategoryPreferences = {
@@ -216,6 +218,8 @@ export const DEFAULT_PUSH_CATEGORY_PREFERENCES: PushCategoryPreferences = {
   news: true,
   polls: true,
   absence: true,
+  eventReminderEnabled: true,
+  eventReminderHoursBefore: 6,
 };
 
 /** A calendar-share grant: ownerTeamId lets viewerTeamId read its (redacted) schedule. */

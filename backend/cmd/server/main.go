@@ -365,13 +365,19 @@ func main() {
 	membersRepo := members.NewRepository(pool)
 	pushRepo := push.NewRepository(pool)
 	pusher := initVAPIDPusher(cfg, logger)
+	// eventsRepo is constructed here (ahead of the "Events" section below,
+	// which reuses this same instance) because EventReminderWorker needs it
+	// -- like membersRepo/pushRepo above, its constructor only depends on
+	// pool, so building it early is safe.
+	eventsRepo := events.NewRepository(pool)
 
 	retentionWorker := jobs.NewRetentionWorker(pool, cfg.RetentionNotificationDays, cfg.RetentionSessionDays, cfg.RetentionAuditLogDays, cfg.RetentionUnverifiedAccountDays)
+	eventReminderWorker := jobs.NewEventReminderWorker(pool, eventsReminderAdapter{repo: eventsRepo}, pushRepo, membersRepo)
 	jobsClient, riverClient, err := jobs.NewClient(pool, retentionWorker, &jobs.PushDeps{
 		Pusher: pusher,
 		Repo:   pushRepo,
 		Perms:  membersRepo,
-	})
+	}, eventReminderWorker)
 	if err != nil {
 		slog.Error("river client init failed", "err", err)
 		os.Exit(1)
@@ -438,8 +444,8 @@ func main() {
 	rolesHandler := roles.NewHandler(rolesSvc, logger, auditLogger)
 
 	// ─── Events ──────────────────────────────────────────────────────────────
+	// eventsRepo was already constructed above, ahead of jobs.NewClient.
 
-	eventsRepo := events.NewRepository(pool)
 	eventsSvc := events.NewService(eventsRepo, jobsClient, pager, rolesRepo, membersRepo, logger)
 	eventsHandler := events.NewHandler(eventsSvc, logger)
 

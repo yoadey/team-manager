@@ -111,6 +111,12 @@ type EventComment struct {
 	CreatedAt time.Time
 }
 
+type EventRemindersSent struct {
+	EventID uuid.UUID
+	UserID  uuid.UUID
+	SentAt  time.Time
+}
+
 type EventSeries struct {
 	ID                uuid.UUID
 	TeamID            uuid.UUID
@@ -245,14 +251,16 @@ type PollVote struct {
 }
 
 type PushPreference struct {
-	TeamID     uuid.UUID
-	UserID     uuid.UUID
-	Attendance bool
-	Events     bool
-	News       bool
-	Polls      bool
-	Absence    bool
-	UpdatedAt  time.Time
+	TeamID                   uuid.UUID
+	UserID                   uuid.UUID
+	Attendance               bool
+	Events                   bool
+	News                     bool
+	Polls                    bool
+	Absence                  bool
+	UpdatedAt                time.Time
+	EventReminderEnabled     bool
+	EventReminderHoursBefore int16
 }
 
 type PushSubscription struct {

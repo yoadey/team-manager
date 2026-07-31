@@ -1352,12 +1352,17 @@ export const handlers = [
     const auth = requireAuth();
     if (typeof auth !== 'string') return auth;
     const body = (await request.json()) as S['PushCategoryPreferences'];
+    if (body.eventReminderHoursBefore < 1 || body.eventReminderHoursBefore > 72) {
+      return problem(400, 'eventReminderHoursBefore must be between 1 and 72');
+    }
     db.pushPreferences[`${auth}:${params.teamId as string}`] = {
       attendance: body.attendance,
       events: body.events,
       news: body.news,
       polls: body.polls,
       absence: body.absence,
+      eventReminderEnabled: body.eventReminderEnabled,
+      eventReminderHoursBefore: body.eventReminderHoursBefore,
     };
     return new HttpResponse(null, { status: 204 });
   }),

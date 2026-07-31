@@ -758,6 +758,9 @@ export const en: Messages = {
     categoryPolls: 'Polls',
     categoryAbsence: 'Absences',
     preferencesSaveFailed: 'Could not save preferences',
+    eventReminderTitle: 'Event reminder',
+    eventReminderDescription: 'Get a push notification reminder before upcoming events in "{team}".',
+    eventReminderHoursBeforeLabel: 'Hours before',
   },
   home: {
     greeting: 'Hi {name}!',
