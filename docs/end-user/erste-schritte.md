@@ -29,6 +29,13 @@ eines anlegen: E-Mail-Adresse und Passwort wählen, danach einen
 Bestätigungslink in eurem Postfach öffnen. Erst nach dieser Bestätigung ist
 das Konto einsatzbereit.
 
+Habt ihr euer Passwort vergessen, klickt auf dem Login-Bildschirm unter dem
+Passwortfeld auf „Passwort vergessen?" und gebt eure E-Mail-Adresse ein. Ihr
+erhaltet daraufhin einen Link zum Zurücksetzen des Passworts, der eine Stunde
+gültig ist. Nach dem Öffnen könnt ihr ein neues Passwort vergeben; dabei
+werden alle bestehenden Anmeldungen auf euren anderen Geräten automatisch
+abgemeldet, ihr müsst euch dort also erneut anmelden.
+
 ## „Noch kein Team"
 
 Meldet ihr euch an, ohne über einen gültigen Einladungslink gekommen zu
