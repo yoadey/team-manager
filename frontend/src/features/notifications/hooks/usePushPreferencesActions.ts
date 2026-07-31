@@ -17,7 +17,7 @@ const DEFAULT_PREFERENCES: PushCategoryPreferences = {
 type ToastFn = (m: string, action?: { label: string; fn: () => void }, kind?: 'success' | 'error') => void;
 
 /**
- * Drives the per-team push-category toggles in ProfileSheet: reads the
+ * Drives the per-team push-category toggles in Settings' NotificationsPanel: reads the
  * active team's current preferences (defaulting to everything enabled, same
  * as a member who's never customized anything) and exposes a single-category
  * toggle that persists the full preference object -- the API is a whole-object

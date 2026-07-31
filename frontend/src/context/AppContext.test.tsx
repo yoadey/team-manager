@@ -70,7 +70,7 @@ describe('sheetErrorBoundaryKey', () => {
 
   it('produces different keys for different sheet types with no entity id', () => {
     const a = sheetErrorBoundaryKey({ type: 'teams' } as never);
-    const b = sheetErrorBoundaryKey({ type: 'profile' } as never);
+    const b = sheetErrorBoundaryKey({ type: 'more' } as never);
     expect(a).not.toBe(b);
   });
 });
@@ -262,6 +262,25 @@ describe('AppProvider / actions (app phase)', () => {
       capturedActions.go('events');
     });
     // No crash — route change works
+  });
+
+  // Regression coverage for the behavior moved from the old ProfileSheet
+  // entry point's openProfile action (see useTeamActions.ts's former doc
+  // comment): nothing currently reads this prefetched data -- the assertion
+  // is that navigating to Settings still warms the React Query cache the
+  // same way opening the old profile sheet did.
+  it("go('settings') prefetches the caller's absences into the query cache", async () => {
+    const svc = await import('@/services');
+    const listMineSpy = vi.spyOn(svc.api.absences, 'listMine');
+    await renderAndBootstrap();
+    listMineSpy.mockClear();
+
+    await act(async () => {
+      capturedActions.go('settings');
+    });
+
+    await waitFor(() => expect(listMineSpy).toHaveBeenCalledWith('team1'));
+    listMineSpy.mockRestore();
   });
 
   it('setEventsView updates eventsView', async () => {

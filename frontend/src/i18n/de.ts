@@ -62,6 +62,7 @@ export const de = {
     news: 'Neuigkeiten',
     polls: 'Umfragen',
     team: 'Team',
+    settings: 'Einstellungen',
     more: 'Mehr',
     mainNav: 'Hauptnavigation',
   },
@@ -112,6 +113,16 @@ export const de = {
     pollsSubtitle: 'Abstimmungen im Team',
     pollsAction: 'Umfrage',
     teamSubtitle: 'Struktur, Rollen & Einladungen',
+    settingsSubtitle: 'Konto, Darstellung, Datenschutz',
+  },
+  settings: {
+    category: {
+      profile: 'Profil',
+      appearance: 'Darstellung & Sprache',
+      notifications: 'Benachrichtigungen',
+      privacy: 'Datenschutz',
+      legal: 'Rechtliches',
+    },
   },
   sheet: {
     eventDetail: 'Termin',
@@ -141,7 +152,6 @@ export const de = {
     penaltyAssign: 'Strafe erfassen',
     contribForm: 'Beitrag bearbeiten',
     teams: 'Team wechseln',
-    profile: 'Mein Konto',
     more: 'Mehr',
     legalImpressum: 'Impressum',
     legalDatenschutz: 'Datenschutzerklärung',

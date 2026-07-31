@@ -8,6 +8,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { api as defaultApi, resetDemoData } from '@/services';
 import type {
   AttendanceStatus,
@@ -75,7 +76,6 @@ function detailOfSheet(sheet: SheetState | null): UrlState['detail'] {
 }
 export type SheetType =
   | 'teams'
-  | 'profile'
   | 'more'
   | 'legal'
   | 'teamSettings'
@@ -317,7 +317,7 @@ export interface AppContextValue {
   goEventsAbsences: () => void;
   closeSheet: () => void;
   /** Opens the static legal-notice/privacy-policy sheet. Team-independent and
-   * available before login (see Login/Register), unlike openProfile/openMore. */
+   * available before login (see Login/Register), unlike openMore. */
   openLegal: (page: 'impressum' | 'datenschutz') => void;
   activePageSheet: () => SheetState | null;
   selectTeam: (id: string) => Promise<void>;
@@ -372,7 +372,6 @@ export interface AppContextValue {
   revokeCalendarShare: (viewerTeamId: string, viewerTeamName: string) => void;
   // team
   openTeamSwitcher: () => void;
-  openProfile: () => void;
   openMore: () => void;
   openTeamSettings: () => void;
   saveTeamPhoto: (dataUrl: string, teamId: string) => Promise<void>;
@@ -481,6 +480,7 @@ export const useAppActions = (): AppActions => {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const api = defaultApi;
+  const qc = useQueryClient();
   const [state, setRaw] = useState<AppState>(initialState);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -841,8 +841,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // item clears its own "pending" notification once the user has viewed
       // it -- so that pairing stays, just without the list-fetch half.
       if (route === 'polls' || route === 'news') loadNotifications();
+      // Speculative prefetch carried over from the old ProfileSheet entry
+      // point's openProfile action -- no component currently reads this, kept
+      // warm in the React Query cache (rather than dropped) on the same
+      // "settings opened" trigger the pre-migration state.myAbsences fetch
+      // used, so the data is a cache-hit away the moment something starts
+      // reading it.
+      if (route === 'settings') {
+        const teamId = S().activeTeamId;
+        if (teamId) void qc.prefetchQuery({ queryKey: queryKeys.myAbsences(teamId), queryFn: () => api.absences.listMine(teamId) });
+      }
     },
-    [can, loadNotifications],
+    [can, loadNotifications, S, qc, api],
   );
 
   // ---------- auth ----------
@@ -1066,9 +1076,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const s = S().sheet;
     setState({ sheet: s && s.back ? s.back : null });
   }, [S, setState]);
-  // Unlike openProfile/openMore, this reads/writes no team-scoped state, so it
-  // works identically before login (Login/Register) and inside the app
-  // (ProfileSheet) -- SheetHost renders state.sheet regardless of state.phase.
+  // Unlike openMore, this reads/writes no team-scoped state, so it works
+  // identically before login (Login/Register) and inside the app --
+  // SheetHost renders state.sheet regardless of state.phase.
   const openLegal = useCallback(
     (page: 'impressum' | 'datenschutz') => setState({ sheet: { type: 'legal', legalPage: page } }),
     [setState],
@@ -1173,7 +1183,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     grantCalendarShare,
     revokeCalendarShare,
     openTeamSwitcher,
-    openProfile,
     openMore,
     openTeamSettings,
     saveTeamPhoto,
@@ -1445,7 +1454,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       grantCalendarShare,
       revokeCalendarShare,
       openTeamSwitcher,
-      openProfile,
       openMore,
       openTeamSettings,
       saveTeamPhoto,
@@ -1552,7 +1560,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       grantCalendarShare,
       revokeCalendarShare,
       openTeamSwitcher,
-      openProfile,
       openMore,
       openTeamSettings,
       saveTeamPhoto,

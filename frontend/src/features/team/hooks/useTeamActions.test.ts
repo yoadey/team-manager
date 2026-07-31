@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { renderHook, act } from '@testing-library/react';
 import { useTeamActions } from './useTeamActions';
 import { createQueryWrapper } from '@/test/queryTestUtils';
 import { AuthError } from '@/utils/errors';
@@ -100,19 +100,6 @@ describe('useTeamActions', () => {
       result.current.openTeamSwitcher();
     });
     expect(setState).toHaveBeenCalledWith({ sheet: { type: 'teams' } });
-  });
-
-  // No component currently reads this prefetched data (see useTeamActions.ts's
-  // doc comment) -- the assertion here is that opening the profile still
-  // warms the React Query cache the same way the pre-migration
-  // state.myAbsences fetch did, not that anything renders from it.
-  it('openProfile sets profile sheet and prefetches absences into the query cache', async () => {
-    const { result } = renderActions();
-    act(() => {
-      result.current.openProfile();
-    });
-    expect(setState).toHaveBeenCalledWith({ sheet: { type: 'profile' } });
-    await waitFor(() => expect(api.absences.listMine).toHaveBeenCalledWith('team1'));
   });
 
   it('openMore sets more sheet', () => {

@@ -16,6 +16,7 @@ const FinancesPage = lazy(() => import('@/features/finances').then((m) => ({ def
 const NewsPage = lazy(() => import('@/features/news').then((m) => ({ default: m.NewsPage })));
 const PollsPage = lazy(() => import('@/features/polls').then((m) => ({ default: m.PollsPage })));
 const TeamPage = lazy(() => import('@/features/team').then((m) => ({ default: m.TeamPage })));
+const SettingsPage = lazy(() => import('@/features/settings').then((m) => ({ default: m.SettingsPage })));
 
 export function RouteScreen() {
   const app = useApp();
@@ -39,6 +40,8 @@ export function RouteScreen() {
         return <PollsPage />;
       case 'team':
         return <TeamPage />;
+      case 'settings':
+        return <SettingsPage />;
       case 'home':
       default:
         return <Home />;

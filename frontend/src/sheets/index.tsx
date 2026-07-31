@@ -49,7 +49,6 @@ export function sheetMeta(
   const s = sheet;
   const titles: Record<string, string> = {
     teams: t('sheet.teams'),
-    profile: t('sheet.profile'),
     more: t('sheet.more'),
     legal: s.legalPage === 'datenschutz' ? t('sheet.legalDatenschutz') : t('sheet.legalImpressum'),
     notifications: t('shell.notifications'),

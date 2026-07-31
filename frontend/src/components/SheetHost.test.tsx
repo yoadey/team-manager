@@ -67,10 +67,10 @@ describe('SheetHost', () => {
   });
 
   it('renders with subtitle when provided', () => {
-    mockSheetMetaFn.mockReturnValue({ title: 'Profil', subtitle: 'Dein Konto', hasBack: false, onBack: null });
-    mockUseApp.mockReturnValue(makeApp({ type: 'profile' }));
+    mockSheetMetaFn.mockReturnValue({ title: 'Mehr', subtitle: 'Weitere Bereiche', hasBack: false, onBack: null });
+    mockUseApp.mockReturnValue(makeApp({ type: 'more' }));
     render(<SheetHost />);
-    expect(screen.getByText('Dein Konto')).toBeTruthy();
+    expect(screen.getByText('Weitere Bereiche')).toBeTruthy();
   });
 
   it('renders back button when hasBack is true', () => {

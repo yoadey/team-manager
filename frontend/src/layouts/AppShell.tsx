@@ -434,7 +434,7 @@ function MobileShell({ app, team, tk, pageSheet, pm, content, notifUnread, notif
           notifBadge={notifBadge}
           onOpen={app.openNotifications}
         />
-        <ButtonBase onClick={app.openProfile} aria-label={`${state.user!.name} – ${tl('shell.openProfile')}`} sx={{ borderRadius: '50%' }}>
+        <ButtonBase onClick={() => app.go('settings')} aria-label={`${state.user!.name} – ${tl('shell.openProfile')}`} sx={{ borderRadius: '50%' }}>
           <MyAvatar user={state.user} />
         </ButtonBase>
       </Box>
@@ -515,7 +515,7 @@ function DesktopShell({ app, team, tk, pageSheet, pm, content, notifUnread, noti
         <DesktopNavRail defs={navDefs} route={state.route} onNavigate={app.go} tk={tk} />
 
         <ButtonBase
-          onClick={app.openProfile}
+          onClick={() => app.go('settings')}
           sx={{
             display: 'flex',
             alignItems: 'center',

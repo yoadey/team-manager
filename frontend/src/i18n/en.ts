@@ -61,6 +61,7 @@ export const en: Messages = {
     news: 'News',
     polls: 'Polls',
     team: 'Team',
+    settings: 'Settings',
     more: 'More',
     mainNav: 'Main navigation',
   },
@@ -112,6 +113,16 @@ export const en: Messages = {
     pollsSubtitle: 'Team polls',
     pollsAction: 'Poll',
     teamSubtitle: 'Structure, roles & invitations',
+    settingsSubtitle: 'Account, appearance, privacy',
+  },
+  settings: {
+    category: {
+      profile: 'Profile',
+      appearance: 'Appearance & language',
+      notifications: 'Notifications',
+      privacy: 'Privacy',
+      legal: 'Legal',
+    },
   },
   sheet: {
     eventDetail: 'Event',
@@ -141,7 +152,6 @@ export const en: Messages = {
     penaltyAssign: 'Assign penalty',
     contribForm: 'Edit contribution',
     teams: 'Switch team',
-    profile: 'My Account',
     more: 'More',
     legalImpressum: 'Legal notice',
     legalDatenschutz: 'Privacy policy',
