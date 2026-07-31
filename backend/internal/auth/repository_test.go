@@ -427,3 +427,139 @@ func TestRepository_UpdateUserPhoto_RejectsErasedUser(t *testing.T) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT photo_object_key FROM users WHERE id = $1`, userID).Scan(&photoKey))
 	assert.Nil(t, photoKey, "no photo_object_key should have been written to an erased user's row")
 }
+
+func TestRepository_CreateFindConsumePasswordResetToken(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "dddddddd-1111-1111-1111-111111111111"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash) VALUES ($1, 'Dave', 'dave@example.com', '#112233', 'old-hash')`,
+		userID)
+	require.NoError(t, err)
+
+	expiresAt := time.Now().Add(time.Hour).UTC().Truncate(time.Millisecond)
+	require.NoError(t, repo.CreatePasswordResetToken(ctx, userID, "tokenhash123", expiresAt))
+
+	found, err := repo.FindPasswordResetToken(ctx, "tokenhash123")
+	require.NoError(t, err)
+	assert.Equal(t, userID, found.UserId.String())
+	assert.Nil(t, found.ConsumedAt)
+
+	require.NoError(t, repo.ConsumePasswordResetToken(ctx, "tokenhash123"))
+
+	_, err = repo.FindPasswordResetToken(ctx, "tokenhash123")
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "a consumed token must no longer be findable")
+
+	// A second consumption attempt must fail, guarding against a
+	// double-submit race.
+	err = repo.ConsumePasswordResetToken(ctx, "tokenhash123")
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestRepository_FindPasswordResetToken_ExpiredIsRejected(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "dddddddd-2222-2222-2222-222222222222"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash) VALUES ($1, 'Erin', 'erin@example.com', '#112233', 'old-hash')`,
+		userID)
+	require.NoError(t, err)
+
+	expiredAt := time.Now().Add(-time.Hour).UTC().Truncate(time.Millisecond)
+	require.NoError(t, repo.CreatePasswordResetToken(ctx, userID, "expiredtokenhash", expiredAt))
+
+	_, err = repo.FindPasswordResetToken(ctx, "expiredtokenhash")
+	assert.ErrorIs(t, err, pgx.ErrNoRows)
+}
+
+func TestRepository_UpdateUserPassword(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "dddddddd-3333-3333-3333-333333333333"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash) VALUES ($1, 'Frank', 'frank@example.com', '#112233', 'old-hash')`,
+		userID)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.UpdateUserPassword(ctx, userID, "new-hash"))
+
+	var hash string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash))
+	assert.Equal(t, "new-hash", hash)
+}
+
+// Regression test mirroring TestRepository_UpdateUserPhoto_RejectsErasedUser:
+// UpdateUserPassword must not resurrect a credential on an already-anonymized
+// (erased) user if a password reset races with account erasure.
+func TestRepository_UpdateUserPassword_RejectsErasedUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "dddddddd-4444-4444-4444-444444444444"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash) VALUES ($1, 'Grace', 'grace@example.com', '#112233', 'old-hash')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE users SET deleted_at = now() WHERE id = $1`, userID)
+	require.NoError(t, err)
+
+	err = repo.UpdateUserPassword(ctx, userID, "new-hash")
+	assert.ErrorIs(t, err, pgx.ErrNoRows, "UpdateUserPassword must reject a write against an erased user")
+
+	var hash string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, userID).Scan(&hash))
+	assert.Equal(t, "old-hash", hash, "an erased user's password hash must not change")
+}
+
+func TestRepository_DeleteSessionsForUser(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := auth.NewRepository(pool)
+	ctx := context.Background()
+
+	userID := "dddddddd-5555-5555-5555-555555555555"
+	otherUserID := "dddddddd-6666-6666-6666-666666666666"
+	_, err := pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash) VALUES ($1, 'Henry', 'henry@example.com', '#112233', 'hash')`,
+		userID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, avatar_color, password_hash) VALUES ($1, 'Iris', 'iris@example.com', '#112233', 'hash')`,
+		otherUserID)
+	require.NoError(t, err)
+
+	expiresAt := time.Now().Add(time.Hour)
+	_, err = repo.CreateSession(ctx, userID, "session-a", expiresAt)
+	require.NoError(t, err)
+	_, err = repo.CreateSession(ctx, userID, "session-b", expiresAt)
+	require.NoError(t, err)
+	_, err = repo.CreateSession(ctx, otherUserID, "session-c", expiresAt)
+	require.NoError(t, err)
+
+	require.NoError(t, repo.DeleteSessionsForUser(ctx, userID))
+
+	_, err = repo.FindSession(ctx, "session-a")
+	assert.Error(t, err, "userID's sessions must be deleted")
+	_, err = repo.FindSession(ctx, "session-b")
+	assert.Error(t, err, "userID's sessions must be deleted")
+
+	found, err := repo.FindSession(ctx, "session-c")
+	require.NoError(t, err, "another user's session must be untouched")
+	assert.Equal(t, otherUserID, found.UserId.String())
+}

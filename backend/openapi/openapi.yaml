@@ -14,7 +14,8 @@ info:
     `/auth/resend-verification` document their own stricter per-IP rate
     limits explicitly since they differ from the global default
     (`LOGIN_RATE_LIMIT_PER_MIN`, `REGISTER_RATE_LIMIT_PER_MIN`,
-    `RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`).
+    `RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`,
+    `FORGOT_PASSWORD_RATE_LIMIT_PER_MIN`).
   version: "1.0.0"
   contact:
     name: Team Manager
@@ -174,6 +175,64 @@ paths:
                 $ref: "#/components/schemas/RegisterResponse"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+
+  /auth/forgot-password:
+    post:
+      tags: [auth]
+      operationId: forgotPassword
+      summary: Request a password-reset link
+      description: >
+        Emails a password-reset link if (and only if) a password-based
+        account exists for the submitted email. The response is always the
+        same generic message regardless of whether the email has no
+        account, an account with no password set (OIDC-only), or a
+        password account — this endpoint never reveals account existence
+        or auth method.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "202":
+          description: >-
+            If a password-based account exists for this email, a
+            password-reset link has been sent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /auth/reset-password:
+    post:
+      tags: [auth]
+      operationId: resetPassword
+      summary: Consume a password reset token and set a new password
+      description: >
+        Sets the account's new password, invalidates every existing session
+        for that account, and returns a session identical in shape to
+        `login`'s response so the client can reuse its normal post-login
+        bootstrap on the device that performed the reset.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /auth/logout:
     post:
@@ -2179,6 +2238,25 @@ components:
         email:
           type: string
           format: email
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, password]
+      properties:
+        token:
+          type: string
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
 
     DeleteAccountRequest:
       type: object

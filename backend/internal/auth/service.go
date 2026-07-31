@@ -43,6 +43,7 @@ var (
 	ErrEmailNotVerified         = errors.New("email not verified")
 	ErrSelfRegistrationDisabled = errors.New("self-registration is disabled")
 	ErrInvalidVerificationToken = errors.New("invalid or expired verification token")
+	ErrInvalidResetToken        = errors.New("invalid or expired reset token")
 )
 
 // dummyPasswordHash is a valid bcrypt hash that Login compares against when no
@@ -67,6 +68,11 @@ type authRepo interface {
 	CreateEmailVerificationToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
 	FindEmailVerificationToken(ctx context.Context, tokenHash string) (*EmailVerificationTokenRow, error)
 	ConsumeEmailVerificationToken(ctx context.Context, tokenHash string) error
+	CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error
+	FindPasswordResetToken(ctx context.Context, tokenHash string) (*PasswordResetTokenRow, error)
+	ConsumePasswordResetToken(ctx context.Context, tokenHash string) error
+	UpdateUserPassword(ctx context.Context, userID, passwordHash string) error
+	DeleteSessionsForUser(ctx context.Context, userID string) error
 }
 
 // RegistrationConfig configures self-service registration. Grouped into its
@@ -78,6 +84,10 @@ type RegistrationConfig struct {
 	PublicBaseURL           string
 	EmailVerificationTTL    time.Duration
 	SelfRegistrationEnabled bool
+	// PasswordResetTTL is how long a password-reset link stays valid before
+	// it must be re-requested. Deliberately much shorter than
+	// EmailVerificationTTL -- see openspec/changes/password-reset/design.md.
+	PasswordResetTTL time.Duration
 }
 
 // Service implements authentication logic.
@@ -91,6 +101,7 @@ type Service struct {
 	publicBaseURL           string
 	emailVerificationTTL    time.Duration
 	selfRegistrationEnabled bool
+	passwordResetTTL        time.Duration
 	logger                  *slog.Logger
 }
 
@@ -156,6 +167,7 @@ func NewService(repo authRepo, store storage.ObjectStore, privateKeyPEM, publicK
 		publicBaseURL:           reg.PublicBaseURL,
 		emailVerificationTTL:    reg.EmailVerificationTTL,
 		selfRegistrationEnabled: reg.SelfRegistrationEnabled,
+		passwordResetTTL:        reg.PasswordResetTTL,
 		logger:                  logger,
 	}, nil
 }
@@ -372,6 +384,94 @@ func (s *Service) ResendVerification(ctx context.Context, email string) error {
 		return nil
 	}
 	return s.issueVerificationToken(ctx, user)
+}
+
+// issuePasswordResetToken generates a fresh single-use password reset token
+// for user, persists its hash, and emails the reset link. A failure to send
+// the email is logged but not returned as an error -- ForgotPassword's
+// response must stay identical to the success case regardless (see
+// enumeration-safety notes on ForgotPassword).
+func (s *Service) issuePasswordResetToken(ctx context.Context, user *UserRow) error {
+	rawToken, tokenHash, err := generateTokenAndHash()
+	if err != nil {
+		return fmt.Errorf("auth.Service.issuePasswordResetToken: generate token: %w", err)
+	}
+
+	expiresAt := time.Now().Add(s.passwordResetTTL)
+	if err := s.repo.CreatePasswordResetToken(ctx, user.Id.String(), tokenHash, expiresAt); err != nil {
+		return fmt.Errorf("auth.Service.issuePasswordResetToken: %w", err)
+	}
+
+	resetURL := s.publicBaseURL + "/reset-password/" + rawToken
+	if err := s.mailer.SendPasswordResetEmail(ctx, user.Email, resetURL); err != nil {
+		s.logger.WarnContext(ctx, "issuePasswordResetToken: send mail failed", "err", err)
+	}
+	return nil
+}
+
+// ForgotPassword issues a password-reset token and emails it, unless no
+// account exists for email or the matching account has no password set (an
+// OIDC-only account) -- in both cases this is a silent no-op. The caller
+// must treat every nil error the same way (a generic "check your email"
+// response); the three cases are only distinguished internally. See
+// openspec/changes/password-reset/design.md for the enumeration-safety
+// rationale.
+func (s *Service) ForgotPassword(ctx context.Context, email string) error {
+	user, err := s.repo.FindUserByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
+	if err != nil {
+		return nil
+	}
+	if user.PasswordHash == "" {
+		return nil
+	}
+	return s.issuePasswordResetToken(ctx, user)
+}
+
+// ResetPassword consumes a single-use password reset token, sets the
+// account's new password, invalidates every existing session for that
+// account, and returns a session identical in shape to a successful Login
+// (so the frontend can reuse its normal post-login bootstrap on the device
+// that performed the reset).
+func (s *Service) ResetPassword(ctx context.Context, rawToken, newPassword string) (token string, user *UserRow, err error) {
+	if len(newPassword) > maxPasswordBytes {
+		return "", nil, ErrPasswordTooLong
+	}
+
+	tokenHash := sha256Hex(rawToken)
+
+	tokenRow, err := s.repo.FindPasswordResetToken(ctx, tokenHash)
+	if err != nil {
+		return "", nil, ErrInvalidResetToken
+	}
+	if err := s.repo.ConsumePasswordResetToken(ctx, tokenHash); err != nil {
+		return "", nil, ErrInvalidResetToken
+	}
+
+	hash, err := s.HashPassword(newPassword)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := s.repo.UpdateUserPassword(ctx, tokenRow.UserId.String(), hash); err != nil {
+		return "", nil, fmt.Errorf("auth.Service.ResetPassword: %w", err)
+	}
+
+	// Invalidate every existing session -- a password reset can follow a
+	// real account compromise, so a stale session on another device (or an
+	// attacker's) must not survive it. See design.md's Decisions.
+	if err := s.repo.DeleteSessionsForUser(ctx, tokenRow.UserId.String()); err != nil {
+		return "", nil, fmt.Errorf("auth.Service.ResetPassword: %w", err)
+	}
+
+	user, err = s.repo.FindUserByID(ctx, tokenRow.UserId.String())
+	if err != nil {
+		return "", nil, fmt.Errorf("auth.Service.ResetPassword: %w", err)
+	}
+
+	signed, err := s.createSessionAndSign(ctx, user)
+	if err != nil {
+		return "", nil, fmt.Errorf("auth.Service.ResetPassword: %w", err)
+	}
+	return signed, user, nil
 }
 
 // ValidateToken verifies the JWT signature, checks the session in DB, and returns the user.

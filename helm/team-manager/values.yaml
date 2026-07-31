@@ -373,6 +373,8 @@ selfRegistration:
   emailVerificationTtlHours: 48
   registerRateLimitPerMin: 5
   resendVerificationRateLimitPerMin: 3
+  passwordResetTtlHours: 1
+  forgotPasswordRateLimitPerMin: 3
 
 retention:
   notificationsDays: 90

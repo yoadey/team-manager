@@ -462,6 +462,14 @@ func (s *Server) ResendVerification(ctx context.Context, req gen.ResendVerificat
 	return s.Auth.ResendVerification(ctx, req)
 }
 
+func (s *Server) ForgotPassword(ctx context.Context, req gen.ForgotPasswordRequestObject) (gen.ForgotPasswordResponseObject, error) {
+	return s.Auth.ForgotPassword(ctx, req)
+}
+
+func (s *Server) ResetPassword(ctx context.Context, req gen.ResetPasswordRequestObject) (gen.ResetPasswordResponseObject, error) {
+	return s.Auth.ResetPassword(ctx, req)
+}
+
 // ─── Teams delegations ────────────────────────────────────────────────────────
 
 func (s *Server) ListTeams(ctx context.Context, req gen.ListTeamsRequestObject) (gen.ListTeamsResponseObject, error) {

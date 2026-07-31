@@ -125,7 +125,7 @@ func deleteUnverifiedUsers(ctx context.Context, pool *pgxpool.Pool, cutoff time.
 	}
 }
 
-// retentionPhaseTimeout bounds each of the six delete phases in Work
+// retentionPhaseTimeout bounds each of the seven delete phases in Work
 // independently. A single shared timeout for the whole run would let an
 // unusually large backlog in one table (e.g. notifications, always deleted
 // first) exhaust the entire budget and starve the phases after it -- since
@@ -138,22 +138,22 @@ const retentionPhaseTimeout = 30 * time.Second
 // otherwise fall back to River's own JobTimeoutDefault (1 minute, see
 // jobs.NewClient -- river.Config.JobTimeout is left unset). That outer
 // per-job context deadline caps every phase's own context.WithTimeout below
-// it (a context's deadline can only be tightened, never loosened), so six
+// it (a context's deadline can only be tightened, never loosened), so seven
 // sequential retentionPhaseTimeout budgets would be squeezed into a shared
 // ~60s window, starving whichever phases run last -- including audit_log's
 // compliance-mandated cleanup -- exactly the failure mode
 // retentionPhaseTimeout's own comment describes, just via the outer River
 // timeout instead of one phase hogging its own inner one. Budgeting for all
-// six phases' full timeout plus margin ensures the outer deadline is never
+// seven phases' full timeout plus margin ensures the outer deadline is never
 // the binding constraint.
 func (w *RetentionWorker) Timeout(*river.Job[RetentionArgs]) time.Duration {
-	return 6*retentionPhaseTimeout + 30*time.Second
+	return 7*retentionPhaseTimeout + 30*time.Second
 }
 
 // Work is called by River once per scheduled run. It deletes old notifications
 // and expired sessions from the database.
 //
-// Each of the six phases below runs regardless of whether an earlier phase
+// Each of the seven phases below runs regardless of whether an earlier phase
 // failed or timed out, and their errors are joined at the end rather than
 // returned immediately -- returning early on the first error would let an
 // unusually large backlog in one table (e.g. notifications, always deleted
@@ -269,6 +269,21 @@ func (w *RetentionWorker) Work(ctx context.Context, _ *river.Job[RetentionArgs])
 	} else {
 		metrics.RetentionJobRowsDeleted.WithLabelValues("email_verification_tokens").Add(float64(tokenRows))
 		slog.Info("retention: deleted expired email verification tokens", "rows", tokenRows, "cutoff", now)
+	}
+
+	// Delete password reset tokens that have simply expired, same reasoning as
+	// the email_verification_tokens phase above -- an expired, unusable
+	// token has no reason to be kept around at all, so the cutoff is "now"
+	// rather than a further grace window.
+	resetTokenCtx, resetTokenCancel := context.WithTimeout(ctx, retentionPhaseTimeout)
+	resetTokenRows, resetTokenErr := deleteBatched(resetTokenCtx, w.pool, "password_reset_tokens", "expires_at", now)
+	resetTokenCancel()
+	if resetTokenErr != nil {
+		metrics.RetentionJobFailures.WithLabelValues("password_reset_tokens").Inc()
+		errs = append(errs, fmt.Errorf("retention: delete expired password_reset_tokens: %w", resetTokenErr))
+	} else {
+		metrics.RetentionJobRowsDeleted.WithLabelValues("password_reset_tokens").Add(float64(resetTokenRows))
+		slog.Info("retention: deleted expired password reset tokens", "rows", resetTokenRows, "cutoff", now)
 	}
 
 	if len(errs) > 0 {

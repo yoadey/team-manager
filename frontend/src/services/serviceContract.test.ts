@@ -96,6 +96,54 @@ describe('self-service registration: enumeration safety and verification flow', 
   });
 });
 
+function onlyPasswordResetToken(): string {
+  const tokens = Object.keys(db.passwordResetTokens);
+  expect(tokens).toHaveLength(1);
+  return tokens[0]!;
+}
+
+describe('password reset: enumeration safety and reset flow', () => {
+  it('forgot-password for a nonexistent email returns the generic response without issuing a token', async () => {
+    const resp = await api.auth.forgotPassword('nobody-at-all@example.com');
+    expect(resp.message).toBeTruthy();
+    expect(Object.keys(db.passwordResetTokens)).toHaveLength(0);
+  });
+
+  it('forgot-password/reset-password return identical generic and success shapes across account states', async () => {
+    const noAccount = await api.auth.forgotPassword('nobody-at-all2@example.com');
+    const hasAccount = await api.auth.forgotPassword(DEMO_LOGIN_EMAIL);
+    expect(hasAccount.message).toBe(noAccount.message);
+  });
+
+  it('a valid reset token sets the new password and establishes a session usable to log in with it', async () => {
+    await api.auth.register('reset-target@example.com', 'originalpassword123');
+    await api.auth.verifyEmail(onlyVerificationToken());
+
+    await api.auth.forgotPassword('reset-target@example.com');
+    const token = onlyPasswordResetToken();
+
+    const { token: sessionToken, user } = await api.auth.resetPassword(token, 'brandnewpassword123');
+    expect(sessionToken).toBeTruthy();
+    expect(user.email.toLowerCase()).toBe('reset-target@example.com');
+
+    await expect(api.auth.login('reset-target@example.com', 'brandnewpassword123')).resolves.toBeTruthy();
+  });
+
+  it('a reset token is single-use', async () => {
+    await api.auth.register('reset-reuse@example.com', 'originalpassword123');
+    await api.auth.verifyEmail(onlyVerificationToken());
+
+    await api.auth.forgotPassword('reset-reuse@example.com');
+    const token = onlyPasswordResetToken();
+    await api.auth.resetPassword(token, 'brandnewpassword123');
+    await expect(api.auth.resetPassword(token, 'anotherpassword456')).rejects.toThrow();
+  });
+
+  it('an unknown reset token is rejected', async () => {
+    await expect(api.auth.resetPassword('totally-bogus-token', 'brandnewpassword123')).rejects.toThrow();
+  });
+});
+
 describe('drift-bug fix: penalty amount/label is snapshotted at assignment time', () => {
   it('keeps an existing assignment at its original amount after the penalty template changes', async () => {
     const penalty = await api.finances.createPenalty('t_a', { label: 'Zu spät', amount: 5 });

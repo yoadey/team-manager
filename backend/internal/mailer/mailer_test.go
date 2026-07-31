@@ -38,6 +38,51 @@ func TestFakeMailer_LinksFor(t *testing.T) {
 	assert.Empty(t, fm.LinksFor("nobody@example.com"))
 }
 
+func TestFakeMailer_RecordsLastResetSentAndCount(t *testing.T) {
+	t.Parallel()
+
+	fm := mailer.NewFakeMailer(nil)
+
+	require.NoError(t, fm.SendPasswordResetEmail(context.Background(), "a@example.com", "https://example.com/reset-password/tok1"))
+	require.NoError(t, fm.SendPasswordResetEmail(context.Background(), "b@example.com", "https://example.com/reset-password/tok2"))
+
+	to, link := fm.LastResetSentTo()
+	assert.Equal(t, "b@example.com", to)
+	assert.Equal(t, "https://example.com/reset-password/tok2", link)
+	assert.Equal(t, 2, fm.ResetSentCount())
+}
+
+func TestFakeMailer_ResetLinksFor(t *testing.T) {
+	t.Parallel()
+
+	fm := mailer.NewFakeMailer(nil)
+
+	require.NoError(t, fm.SendPasswordResetEmail(context.Background(), "a@example.com", "link1"))
+	require.NoError(t, fm.SendPasswordResetEmail(context.Background(), "a@example.com", "link2"))
+	require.NoError(t, fm.SendPasswordResetEmail(context.Background(), "b@example.com", "link3"))
+
+	assert.Equal(t, []string{"link1", "link2"}, fm.ResetLinksFor("a@example.com"))
+	assert.Equal(t, []string{"link3"}, fm.ResetLinksFor("b@example.com"))
+	assert.Empty(t, fm.ResetLinksFor("nobody@example.com"))
+}
+
+// FakeMailer's verification-email and password-reset-email tracking are
+// independent of each other -- sending one must not appear in the other's
+// history.
+func TestFakeMailer_VerificationAndResetTrackingAreIndependent(t *testing.T) {
+	t.Parallel()
+
+	fm := mailer.NewFakeMailer(nil)
+
+	require.NoError(t, fm.SendVerificationEmail(context.Background(), "a@example.com", "verify-link"))
+	require.NoError(t, fm.SendPasswordResetEmail(context.Background(), "a@example.com", "reset-link"))
+
+	assert.Equal(t, 1, fm.SentCount())
+	assert.Equal(t, 1, fm.ResetSentCount())
+	assert.Equal(t, []string{"verify-link"}, fm.LinksFor("a@example.com"))
+	assert.Equal(t, []string{"reset-link"}, fm.ResetLinksFor("a@example.com"))
+}
+
 func TestNewSMTPMailer_RequiresHostAndFromAddress(t *testing.T) {
 	t.Parallel()
 

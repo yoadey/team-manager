@@ -70,6 +70,18 @@ func (m *SMTPMailer) SendVerificationEmail(ctx context.Context, toEmail, verifyU
 	return m.send(ctx, toEmail, msg)
 }
 
+// SendPasswordResetEmail sends a plain-text message containing resetURL to
+// toEmail via the configured SMTP relay.
+func (m *SMTPMailer) SendPasswordResetEmail(ctx context.Context, toEmail, resetURL string) error {
+	subject := "Reset your password"
+	body := fmt.Sprintf(
+		"We received a request to reset your password. Open the link below to choose a new one:\r\n\r\n%s\r\n\r\nIf you did not request this, you can ignore this message -- your password will not change.\r\n",
+		resetURL,
+	)
+	msg := buildMessage(m.cfg.FromAddress, toEmail, subject, body)
+	return m.send(ctx, toEmail, msg)
+}
+
 // buildMessage assembles a minimal RFC 5322 message with the headers required
 // for it to be accepted and rendered sanely by mail clients.
 func buildMessage(from, to, subject, body string) []byte {

@@ -274,6 +274,98 @@ func (r *Repository) ConsumeEmailVerificationToken(ctx context.Context, tokenHas
 	return nil
 }
 
+// CreatePasswordResetToken inserts a new password reset token row keyed by
+// its SHA-256 hash (the raw token is never persisted).
+func (r *Repository) CreatePasswordResetToken(ctx context.Context, userID, tokenHash string, expiresAt time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, tokenHash, expiresAt,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.CreatePasswordResetToken: %w", err)
+	}
+	return nil
+}
+
+// FindPasswordResetToken returns the token row matching tokenHash, provided
+// it has not expired and has not already been consumed. Returns
+// pgx.ErrNoRows otherwise (expired, consumed, or never existed -- the caller
+// doesn't need to distinguish these, all three are simply "invalid token").
+func (r *Repository) FindPasswordResetToken(ctx context.Context, tokenHash string) (*PasswordResetTokenRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	t := &PasswordResetTokenRow{}
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, user_id, token_hash, expires_at, consumed_at, created_at
+		FROM password_reset_tokens
+		WHERE token_hash = $1 AND expires_at > now() AND consumed_at IS NULL
+	`, tokenHash).Scan(&t.Id, &t.UserId, &t.TokenHash, &t.ExpiresAt, &t.ConsumedAt, &t.CreatedAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, pgx.ErrNoRows
+		}
+		return nil, fmt.Errorf("auth.Repository.FindPasswordResetToken: %w", err)
+	}
+	return t, nil
+}
+
+// ConsumePasswordResetToken marks the token identified by tokenHash as
+// consumed, guarded by "WHERE consumed_at IS NULL" so a concurrent
+// double-submit of the same token can only succeed once. Returns
+// pgx.ErrNoRows if the token doesn't exist or was already consumed.
+func (r *Repository) ConsumePasswordResetToken(ctx context.Context, tokenHash string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE password_reset_tokens SET consumed_at = now() WHERE token_hash = $1 AND consumed_at IS NULL`,
+		tokenHash,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.ConsumePasswordResetToken: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// UpdateUserPassword overwrites userID's bcrypt password hash. Used by
+// Service.ResetPassword; every other write to this column is either the
+// initial INSERT at registration or a raw statement in a _test.go file.
+// Scoped to deleted_at IS NULL, mirroring UpdateUserPhoto, so a race between
+// account erasure and an in-flight reset can't resurrect a password hash on
+// an already-anonymized user.
+func (r *Repository) UpdateUserPassword(ctx context.Context, userID, passwordHash string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE users SET password_hash = $1 WHERE id = $2 AND deleted_at IS NULL`,
+		passwordHash, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.UpdateUserPassword: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteSessionsForUser removes every session belonging to userID. Used by
+// Service.ResetPassword to invalidate every existing session (not just the
+// one performing the reset) -- see openspec/changes/password-reset/design.md.
+func (r *Repository) DeleteSessionsForUser(ctx context.Context, userID string) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	_, err := r.pool.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("auth.Repository.DeleteSessionsForUser: %w", err)
+	}
+	return nil
+}
+
 // EraseUser performs GDPR Art. 17 erasure by anonymization in a single
 // transaction: it overwrites the user's personal data in place, strips
 // free-text PII from their comments, attendance reasons and absence reasons,

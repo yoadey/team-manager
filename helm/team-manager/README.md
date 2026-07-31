@@ -171,7 +171,7 @@ default key name(s) and which fields are required when
 | `smtp.secret.*` | — | — | `SMTP_USERNAME`/`SMTP_PASSWORD`. See "Secrets" above. |
 | `push.publicKey` / `subject` | string | `""` | `VAPID_PUBLIC_KEY`/`VAPID_SUBJECT`. |
 | `push.secret.*` | — | — | `VAPID_PRIVATE_KEY`. See "Secrets" above. |
-| `selfRegistration.*` | bool/int | see `values.yaml` | `SELF_REGISTRATION_ENABLED`/`EMAIL_VERIFICATION_TTL_HOURS`/`REGISTER_RATE_LIMIT_PER_MIN`/`RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`. |
+| `selfRegistration.*` | bool/int | see `values.yaml` | `SELF_REGISTRATION_ENABLED`/`EMAIL_VERIFICATION_TTL_HOURS`/`REGISTER_RATE_LIMIT_PER_MIN`/`RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`/`PASSWORD_RESET_TTL_HOURS`/`FORGOT_PASSWORD_RATE_LIMIT_PER_MIN`. |
 | `retention.*` | int | see `values.yaml` | `RETENTION_NOTIFICATIONS_DAYS`/`RETENTION_SESSIONS_DAYS`/`RETENTION_AUDIT_LOG_DAYS`/`RETENTION_UNVERIFIED_ACCOUNTS_DAYS`. |
 | `pagination.secret.*` | — | — | `PAGINATION_HMAC_KEY`. See "Secrets" above. |
 | `metrics.allowOpen` | bool | `false` | `METRICS_ALLOW_OPEN`. |

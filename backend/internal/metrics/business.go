@@ -29,6 +29,16 @@ var (
 		Help:      "Total self-registration attempts by outcome.",
 	}, []string{"outcome"})
 
+	// PasswordResetAttempts counts password-reset-related attempts split by
+	// outcome. outcome label values: "requested" (a generic 202 from
+	// forgot-password, regardless of which enumeration-safe branch was
+	// taken), "success"/"failure" (reset-password consuming a token).
+	PasswordResetAttempts = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "password_reset_attempts_total",
+		Help:      "Total password-reset attempts by outcome.",
+	}, []string{"outcome"})
+
 	// RateLimitHits counts requests rejected by the rate limiter.
 	// context label values: "global" (per-IP general limit), "login" (login endpoint).
 	RateLimitHits = promauto.NewCounterVec(prometheus.CounterOpts{
