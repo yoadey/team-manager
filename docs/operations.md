@@ -392,6 +392,19 @@ key) until each browser unsubscribes and re-subscribes against the new
 one — those will show up pruned automatically per the above rather than
 recurring in the logs.
 
+**Troubleshooting a `status 413` ("Payload Too Large") in
+`jobs.PushDeliveryWorker` logs**: the push service rejected the encrypted
+message as too big for a push notification (commonly a ~4 KB limit). The
+notification body sent to `push.WebPusher.Send` is truncated to 200
+characters before being enqueued (`jobs.pushPayloadForNotification`), so
+this should be rare going forward regardless of how long the underlying
+content is (e.g. an unbounded poll question). The affected job is
+cancelled rather than retried — the payload is fixed once enqueued, so
+retrying it changes nothing — and, unlike a 401/403 key mismatch, the
+`push_subscriptions` row is left in place: a 413 says nothing about
+whether the subscription itself is still valid, only that this one
+message was too big. No ops action is needed.
+
 ## Cookie encryption key rotation
 
 `COOKIE_ENCRYPTION_KEYS` supports zero-downtime rotation, but — same

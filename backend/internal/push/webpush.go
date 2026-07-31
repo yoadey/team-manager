@@ -82,9 +82,10 @@ const webpushTimeout = 10 * time.Second
 // Send delivers payload to sub via the browser vendor's push service. A 404
 // or 410 response, or a 401/403 whose body names a known VAPID
 // key-mismatch signature (see isVAPIDKeyMismatch), is mapped to ErrGone so
-// callers know to delete the subscription; any other non-2xx status or
-// transport error is returned as-is for River's built-in retry/backoff to
-// handle.
+// callers know to delete the subscription. A 413 is mapped to
+// ErrPayloadTooLarge so callers know not to retry without deleting the
+// subscription. Any other non-2xx status or transport error is returned
+// as-is for River's built-in retry/backoff to handle.
 func (p *WebPusher) Send(ctx context.Context, sub Subscription, payload Payload) error {
 	message, err := json.Marshal(payload)
 	if err != nil {
@@ -119,6 +120,12 @@ func (p *WebPusher) Send(ctx context.Context, sub Subscription, payload Payload)
 		snippet := strings.TrimSpace(strings.ReplaceAll(string(body), "\n", " "))
 		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && isVAPIDKeyMismatch(snippet) {
 			return ErrGone
+		}
+		if resp.StatusCode == http.StatusRequestEntityTooLarge {
+			if snippet == "" {
+				return fmt.Errorf("push.WebPusher.Send: %w", ErrPayloadTooLarge)
+			}
+			return fmt.Errorf("push.WebPusher.Send: %w: %s", ErrPayloadTooLarge, snippet)
 		}
 		if snippet == "" {
 			return fmt.Errorf("push.WebPusher.Send: %w: status %d", ErrPushServiceStatus, resp.StatusCode)

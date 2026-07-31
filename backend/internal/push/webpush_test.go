@@ -149,6 +149,24 @@ func TestWebPusher_Send_FCMVAPIDCredentialMismatchMapsToErrGone(t *testing.T) {
 	assert.ErrorIs(t, err, push.ErrGone)
 }
 
+func TestWebPusher_Send_PayloadTooLargeMapsToErrPayloadTooLarge(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte(`{"code":413,"errno":104,"error":"Payload Too Large","message":"This message is intended for a constrained device and is limited in size. Converted buffer is too long by 1441 bytes"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrPayloadTooLarge, "a 413 means this payload can never be delivered, retrying it is pointless")
+	assert.Contains(t, err.Error(), "constrained device")
+}
+
 func TestWebPusher_Send_GoneStatusHasNoBodyLookup(t *testing.T) {
 	t.Parallel()
 

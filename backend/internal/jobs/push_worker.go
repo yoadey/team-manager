@@ -56,8 +56,12 @@ const pushDeliveryTimeout = 15 * time.Second
 
 // Work sends the push notification described by job.Args. A push.ErrGone
 // response prunes the subscription and is treated as handled (no retry --
-// retrying a permanently gone endpoint is pointless). Any other failure is
-// returned so River's built-in retry/backoff applies.
+// retrying a permanently gone endpoint is pointless). A push.ErrPayloadTooLarge
+// response cancels the job without touching the subscription -- the payload
+// is fixed once enqueued, so retrying the same oversized message is equally
+// pointless, but the subscription itself may still be valid for a future,
+// smaller notification. Any other failure is returned so River's built-in
+// retry/backoff applies.
 func (w *PushDeliveryWorker) Work(ctx context.Context, job *river.Job[PushDeliveryArgs]) (err error) {
 	ctx, span := tracer.Start(ctx, "push_delivery.work")
 	defer func() {
@@ -89,6 +93,12 @@ func (w *PushDeliveryWorker) Work(ctx context.Context, job *river.Job[PushDelive
 		}
 		metrics.PushSubscriptionsPruned.Inc()
 		return nil
+	}
+
+	if errors.Is(sendErr, push.ErrPayloadTooLarge) {
+		metrics.PushPayloadTooLarge.Inc()
+		//nolint:wrapcheck // river.JobCancel's return value must be returned as-is (unwrapped further) for River's executor to recognize it via errors.As
+		return river.JobCancel(fmt.Errorf("jobs.PushDeliveryWorker: %w", sendErr))
 	}
 
 	metrics.PushDeliveryFailures.Inc()
