@@ -59,8 +59,8 @@ Nach dem Login landet ihr auf der Startseite. Sie zeigt:
 
 ## Sprache und Darstellung
 
-Über *Mein Profil* (Symbol oben rechts bzw. im „Mehr"-Menü) lassen sich
-einstellen:
+Über *Einstellungen* (Symbol oben rechts bzw. im „Mehr"-Menü) → *Darstellung
+& Sprache* lassen sich einstellen:
 
 - **Sprache** der Oberfläche (Deutsch/Englisch),
 - **Erscheinungsbild**: Automatisch, Hell oder Dunkel.

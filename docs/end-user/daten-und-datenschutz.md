@@ -2,12 +2,12 @@
 
 # Daten & Datenschutz
 
-Unter *Mein Profil → Daten & Datenschutz* könnt ihr eure eigenen Daten
+Unter *Einstellungen → Datenschutz* könnt ihr eure eigenen Daten
 exportieren oder euer Konto löschen. Beides betrifft ausschließlich euer
 eigenes Konto.
 
 Die vollständige, rechtlich verbindliche Datenschutzerklärung findet ihr
-direkt in der App unter *Mein Profil → Rechtliches → Datenschutzerklärung*
+direkt in der App unter *Einstellungen → Rechtliches → Datenschutzerklärung*
 (auch ohne Anmeldung über den Link auf dem Login-Bildschirm erreichbar).
 
 ## Selbstregistrierung und Mindestalter
