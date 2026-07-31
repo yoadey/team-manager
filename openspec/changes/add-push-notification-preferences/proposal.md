@@ -54,7 +54,7 @@ while keeping it in another.
   handler methods), `internal/jobs/notification_worker.go` (second gate in
   `enqueuePushDeliveries`), `cmd/server/main.go` (no new wiring — reuses the
   existing `push.Repository` instance), tests across all of these.
-- Database: new migration `internal/db/migrations/00014_push_preferences.sql`
+- Database: new migration `internal/db/migrations/00016_push_preferences.sql`
   (+ its index migration if required by the migration-safety lint).
 - API contract: `backend/openapi/openapi.yaml` (two new operations, one new
   schema `PushCategoryPreferences`), regenerated `internal/gen/api.gen.go`,

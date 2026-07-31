@@ -92,7 +92,7 @@ they've chosen to be interrupted for.
 
 ## Migration Plan
 
-- New migration `00014_push_preferences.sql`: `CREATE TABLE
+- New migration `00016_push_preferences.sql`: `CREATE TABLE
   push_preferences (team_id UUID NOT NULL REFERENCES teams(id) ON DELETE
   CASCADE, user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   attendance BOOLEAN NOT NULL DEFAULT true, events BOOLEAN NOT NULL DEFAULT

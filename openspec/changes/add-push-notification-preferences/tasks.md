@@ -1,6 +1,6 @@
 ## 1. Database
 
-- [x] 1.1 Migration `00014_push_preferences.sql`: `push_preferences` table
+- [x] 1.1 Migration `00016_push_preferences.sql`: `push_preferences` table
       (`team_id`, `user_id`, `attendance`/`events`/`news`/`polls`/`absence`
       booleans all `NOT NULL DEFAULT true`, `updated_at`, PK
       `(team_id, user_id)`, FKs to `teams`/`users` `ON DELETE CASCADE`)
