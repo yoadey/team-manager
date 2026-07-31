@@ -195,7 +195,28 @@ export interface DemoDb {
   calendarFeedSettings: Record<string, { types: string[]; includeBirthdays: boolean }>;
   /** Mock equivalent of the backend's calendar_shares table. */
   calendarShares: CalendarShareRow[];
+  /** "userId:teamId" -> per-category Web Push opt-out, mock equivalent of
+   * the backend's push_preferences table. Missing entry means "never
+   * customized" -- defaults to every category enabled, mirroring
+   * push.DefaultCategoryPreferences. */
+  pushPreferences: Record<string, PushCategoryPreferences>;
 }
+
+export interface PushCategoryPreferences {
+  attendance: boolean;
+  events: boolean;
+  news: boolean;
+  polls: boolean;
+  absence: boolean;
+}
+
+export const DEFAULT_PUSH_CATEGORY_PREFERENCES: PushCategoryPreferences = {
+  attendance: true,
+  events: true,
+  news: true,
+  polls: true,
+  absence: true,
+};
 
 /** A calendar-share grant: ownerTeamId lets viewerTeamId read its (redacted) schedule. */
 export interface CalendarShareRow {
@@ -248,6 +269,7 @@ export function createSeedData(): DemoDb {
     calendarFeedTokens: {},
     calendarFeedSettings: {},
     calendarShares: [],
+    pushPreferences: {},
   };
 
   const U = (id: string, name: string, email: string, phone: string, color: string): UserRow => ({

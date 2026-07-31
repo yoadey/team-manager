@@ -15,6 +15,8 @@ import (
 type pushService interface {
 	Register(ctx context.Context, userID uuid.UUID, sub Subscription) error
 	Unregister(ctx context.Context, userID uuid.UUID, endpoint string) error
+	GetPreferences(ctx context.Context, teamID, userID uuid.UUID) (CategoryPreferences, error)
+	SetPreferences(ctx context.Context, teamID, userID uuid.UUID, prefs CategoryPreferences) error
 }
 
 // Handler implements the push-subscription methods of gen.StrictServerInterface.
@@ -68,4 +70,55 @@ func (h *Handler) DeletePushSubscription(ctx context.Context, req gen.DeletePush
 		return nil, apierror.Internal("failed to delete push subscription")
 	}
 	return gen.DeletePushSubscription204Response{}, nil
+}
+
+// GetPushPreferences returns the caller's per-category push preferences for
+// teamId. Self-service and public-module: membership in the team (enforced
+// by RequirePermission before this handler runs) is the only requirement.
+func (h *Handler) GetPushPreferences(ctx context.Context, req gen.GetPushPreferencesRequestObject) (gen.GetPushPreferencesResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	prefs, err := h.svc.GetPreferences(ctx, req.TeamId, user.Id)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "GetPushPreferences failed", "err", err)
+		return nil, apierror.Internal("failed to get push preferences")
+	}
+	return gen.GetPushPreferences200JSONResponse(toGenPreferences(prefs)), nil
+}
+
+// SetPushPreferences saves the caller's per-category push preferences for
+// teamId.
+func (h *Handler) SetPushPreferences(ctx context.Context, req gen.SetPushPreferencesRequestObject) (gen.SetPushPreferencesResponseObject, error) {
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return nil, apierror.Unauthorized("not authenticated")
+	}
+	if req.Body == nil {
+		return nil, apierror.BadRequest("missing request body")
+	}
+	prefs := CategoryPreferences{
+		Attendance: req.Body.Attendance,
+		Events:     req.Body.Events,
+		News:       req.Body.News,
+		Polls:      req.Body.Polls,
+		Absence:    req.Body.Absence,
+	}
+	if err := h.svc.SetPreferences(ctx, req.TeamId, user.Id, prefs); err != nil {
+		h.logger.ErrorContext(ctx, "SetPushPreferences failed", "err", err)
+		return nil, apierror.Internal("failed to set push preferences")
+	}
+	return gen.SetPushPreferences204Response{}, nil
+}
+
+// toGenPreferences maps a CategoryPreferences to the generated wire type.
+func toGenPreferences(p CategoryPreferences) gen.PushCategoryPreferences {
+	return gen.PushCategoryPreferences{
+		Attendance: p.Attendance,
+		Events:     p.Events,
+		News:       p.News,
+		Polls:      p.Polls,
+		Absence:    p.Absence,
+	}
 }

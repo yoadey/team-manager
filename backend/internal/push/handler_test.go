@@ -19,8 +19,10 @@ import (
 )
 
 type mockPushService struct {
-	registerFn   func(ctx context.Context, userID uuid.UUID, sub push.Subscription) error
-	unregisterFn func(ctx context.Context, userID uuid.UUID, endpoint string) error
+	registerFn     func(ctx context.Context, userID uuid.UUID, sub push.Subscription) error
+	unregisterFn   func(ctx context.Context, userID uuid.UUID, endpoint string) error
+	getPreferences func(ctx context.Context, teamID, userID uuid.UUID) (push.CategoryPreferences, error)
+	setPreferences func(ctx context.Context, teamID, userID uuid.UUID, prefs push.CategoryPreferences) error
 }
 
 func (m *mockPushService) Register(ctx context.Context, userID uuid.UUID, sub push.Subscription) error {
@@ -29,6 +31,14 @@ func (m *mockPushService) Register(ctx context.Context, userID uuid.UUID, sub pu
 
 func (m *mockPushService) Unregister(ctx context.Context, userID uuid.UUID, endpoint string) error {
 	return m.unregisterFn(ctx, userID, endpoint)
+}
+
+func (m *mockPushService) GetPreferences(ctx context.Context, teamID, userID uuid.UUID) (push.CategoryPreferences, error) {
+	return m.getPreferences(ctx, teamID, userID)
+}
+
+func (m *mockPushService) SetPreferences(ctx context.Context, teamID, userID uuid.UUID, prefs push.CategoryPreferences) error {
+	return m.setPreferences(ctx, teamID, userID, prefs)
 }
 
 var pushUserID = uuid.MustParse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
@@ -121,5 +131,73 @@ func TestHandler_DeletePushSubscription_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitDeletePushSubscriptionResponse(w))
+	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestHandler_GetPushPreferences_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := push.NewHandler(&mockPushService{}, slog.Default())
+	_, err := h.GetPushPreferences(context.Background(), gen.GetPushPreferencesRequestObject{})
+	require.Error(t, err)
+}
+
+func TestHandler_GetPushPreferences_Success(t *testing.T) {
+	t.Parallel()
+	teamID := uuid.New()
+	var gotTeamID, gotUserID uuid.UUID
+	svc := &mockPushService{
+		getPreferences: func(_ context.Context, tID, uID uuid.UUID) (push.CategoryPreferences, error) {
+			gotTeamID, gotUserID = tID, uID
+			return push.CategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}, nil
+		},
+	}
+	h := push.NewHandler(svc, slog.Default())
+
+	resp, err := h.GetPushPreferences(pushAuthedCtx(), gen.GetPushPreferencesRequestObject{TeamId: teamID})
+	require.NoError(t, err)
+	assert.Equal(t, teamID, gotTeamID)
+	assert.Equal(t, pushUserID, gotUserID)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitGetPushPreferencesResponse(w))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestHandler_SetPushPreferences_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := push.NewHandler(&mockPushService{}, slog.Default())
+	_, err := h.SetPushPreferences(context.Background(), gen.SetPushPreferencesRequestObject{})
+	require.Error(t, err)
+}
+
+func TestHandler_SetPushPreferences_MissingBody(t *testing.T) {
+	t.Parallel()
+	h := push.NewHandler(&mockPushService{}, slog.Default())
+	_, err := h.SetPushPreferences(pushAuthedCtx(), gen.SetPushPreferencesRequestObject{Body: nil})
+	require.Error(t, err)
+}
+
+func TestHandler_SetPushPreferences_Success(t *testing.T) {
+	t.Parallel()
+	teamID := uuid.New()
+	var gotTeamID, gotUserID uuid.UUID
+	var gotPrefs push.CategoryPreferences
+	svc := &mockPushService{
+		setPreferences: func(_ context.Context, tID, uID uuid.UUID, prefs push.CategoryPreferences) error {
+			gotTeamID, gotUserID, gotPrefs = tID, uID, prefs
+			return nil
+		},
+	}
+	h := push.NewHandler(svc, slog.Default())
+
+	body := gen.PushCategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}
+	resp, err := h.SetPushPreferences(pushAuthedCtx(), gen.SetPushPreferencesRequestObject{TeamId: teamID, Body: &body})
+	require.NoError(t, err)
+	assert.Equal(t, teamID, gotTeamID)
+	assert.Equal(t, pushUserID, gotUserID)
+	assert.Equal(t, push.CategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}, gotPrefs)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitSetPushPreferencesResponse(w))
 	assert.Equal(t, http.StatusNoContent, w.Code)
 }

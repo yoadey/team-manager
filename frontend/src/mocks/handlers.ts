@@ -18,6 +18,7 @@ import {
   applyNominations,
   pushNotif,
   DEFAULT_MEMBER_ROLE_NAME,
+  DEFAULT_PUSH_CATEGORY_PREFERENCES,
   DEMO_PASSWORD,
   DEMO_LOGIN_EMAIL,
   DEMO_LOGIN_USER_ID,
@@ -1334,6 +1335,30 @@ export const handlers = [
     if (typeof auth !== 'string') return auth;
     const endpoint = new URL(request.url).searchParams.get('endpoint');
     db.pushSubscriptions = db.pushSubscriptions.filter((s) => !(s.userId === auth && s.endpoint === endpoint));
+    return new HttpResponse(null, { status: 204 });
+  }),
+
+  http.get(P('/teams/:teamId/push-preferences'), async ({ params }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const prefs = db.pushPreferences[`${auth}:${params.teamId as string}`] ?? DEFAULT_PUSH_CATEGORY_PREFERENCES;
+    const body: S['PushCategoryPreferences'] = prefs as S['PushCategoryPreferences'];
+    return HttpResponse.json(body);
+  }),
+
+  http.put(P('/teams/:teamId/push-preferences'), async ({ params, request }) => {
+    await mockDelay();
+    const auth = requireAuth();
+    if (typeof auth !== 'string') return auth;
+    const body = (await request.json()) as S['PushCategoryPreferences'];
+    db.pushPreferences[`${auth}:${params.teamId as string}`] = {
+      attendance: body.attendance,
+      events: body.events,
+      news: body.news,
+      polls: body.polls,
+      absence: body.absence,
+    };
     return new HttpResponse(null, { status: 204 });
   }),
 

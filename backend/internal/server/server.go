@@ -756,6 +756,14 @@ func (s *Server) DeletePushSubscription(ctx context.Context, req gen.DeletePushS
 	return s.Push.DeletePushSubscription(ctx, req)
 }
 
+func (s *Server) GetPushPreferences(ctx context.Context, req gen.GetPushPreferencesRequestObject) (gen.GetPushPreferencesResponseObject, error) {
+	return s.Push.GetPushPreferences(ctx, req)
+}
+
+func (s *Server) SetPushPreferences(ctx context.Context, req gen.SetPushPreferencesRequestObject) (gen.SetPushPreferencesResponseObject, error) {
+	return s.Push.SetPushPreferences(ctx, req)
+}
+
 // ─── Calendar feed delegations ────────────────────────────────────────────────
 
 func (s *Server) IssueCalendarFeedToken(ctx context.Context, req gen.IssueCalendarFeedTokenRequestObject) (gen.IssueCalendarFeedTokenResponseObject, error) {

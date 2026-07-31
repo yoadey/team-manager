@@ -229,3 +229,27 @@ describe("drift-bug fix: scope=upcoming includes today's events", () => {
     expect(past.some((e) => e.id === event.id)).toBe(false);
   });
 });
+
+describe('per-team push-category preferences', () => {
+  it('defaults to every category enabled before the caller ever saves anything', async () => {
+    const prefs = await api.push.getPreferences('t_a');
+    expect(prefs).toEqual({ attendance: true, events: true, news: true, polls: true, absence: true });
+  });
+
+  it('persists a saved preference and reflects it on a later read', async () => {
+    const current = await api.push.getPreferences('t_a');
+    await api.push.setPreferences('t_a', { ...current, news: false, polls: false });
+
+    const reloaded = await api.push.getPreferences('t_a');
+    expect(reloaded).toEqual({ attendance: true, events: true, news: false, polls: false, absence: true });
+  });
+
+  it('scopes a saved preference to the team it was saved for, not every team the caller belongs to', async () => {
+    // The demo user (u1) is a member of both t_a and t_b.
+    const current = await api.push.getPreferences('t_a');
+    await api.push.setPreferences('t_a', { ...current, news: false });
+
+    const otherTeamPrefs = await api.push.getPreferences('t_b');
+    expect(otherTeamPrefs).toEqual({ attendance: true, events: true, news: true, polls: true, absence: true });
+  });
+});

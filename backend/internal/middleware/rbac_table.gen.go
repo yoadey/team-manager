@@ -47,6 +47,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "GET", Segments: []string{"finances"}, Module: "finances", SelfService: false},                                                  // getFinanceOverview
 	{Method: "GET", Segments: []string{"members", "{membershipId}", "photo"}, Module: "members", SelfService: false},                         // getMemberPhoto
 	{Method: "GET", Segments: []string{"stats", "members", "{userId}"}, Module: "events", SelfService: false},                                // getMemberStats
+	{Method: "GET", Segments: []string{"push-preferences"}, Module: "public", SelfService: false},                                            // getPushPreferences
 	{Method: "GET", Segments: []string{"stats", "absences"}, Module: "events", SelfService: false},                                           // getStatsAbsences
 	{Method: "GET", Segments: []string{"stats"}, Module: "events", SelfService: false},                                                       // getStatsOverview
 	{Method: "GET", Segments: nil, Module: "public", SelfService: false},                                                                     // getTeam
@@ -76,6 +77,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "PUT", Segments: []string{"members", "{membershipId}", "roles"}, Module: "settings", SelfService: false},                        // setMemberRoles
 	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},            // setNomination
 	{Method: "PUT", Segments: []string{"finances", "penalty-assignments", "{assignmentId}", "paid"}, Module: "finances", SelfService: false}, // setPenaltyPaid
+	{Method: "PUT", Segments: []string{"push-preferences"}, Module: "public", SelfService: false},                                            // setPushPreferences
 	{Method: "PATCH", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                   // updateAbsence
 	{Method: "PUT", Segments: []string{"calendar-feed", "settings"}, Module: "events", SelfService: true},                                    // updateCalendarFeedSettings
 	{Method: "PATCH", Segments: []string{"finances", "contributions", "{contributionId}"}, Module: "finances", SelfService: false},           // updateContribution

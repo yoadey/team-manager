@@ -14,6 +14,7 @@ import (
 
 	"github.com/yoadey/team-manager/backend/internal/events"
 	"github.com/yoadey/team-manager/backend/internal/gen"
+	"github.com/yoadey/team-manager/backend/internal/jobs"
 	"github.com/yoadey/team-manager/backend/internal/pagination"
 	"github.com/yoadey/team-manager/backend/internal/teams"
 )
@@ -723,6 +724,94 @@ func TestEventService_SetAttendance_ForOtherMember_AllowedWithEventsWrite(t *tes
 	result, err := svc.SetAttendance(context.Background(), eventID.String(), callerID.String(), targetUserID.String(), teamID.String(), req)
 	require.NoError(t, err)
 	require.NotNil(t, result)
+}
+
+// mockJobEnqueuer satisfies jobEnqueuer for tests exercising the
+// best-effort attendance-notification enqueue path, recording the args of
+// the last call it received.
+type mockJobEnqueuer struct {
+	err      error
+	lastArgs *jobs.NotificationArgs
+	calledN  int
+}
+
+func (m *mockJobEnqueuer) EnqueueNotification(_ context.Context, args jobs.NotificationArgs) error {
+	m.calledN++
+	m.lastArgs = &args
+	return m.err
+}
+
+// TestEventService_SetAttendance_EnqueuesAttendanceNotification regression-tests
+// the gap where SetAttendance persisted the attendance row but never told
+// notifications.Service about it, unlike CreateEvent/SetStatus which both
+// enqueue their own notification types -- attendance responses ("yes"/"no"/
+// "maybe") never surfaced in the team's notification feed or push delivery.
+// The actor must be the member the attendance belongs to (userID), not the
+// caller, matching how the notification is rendered ("<actor> said yes").
+func TestEventService_SetAttendance_EnqueuesAttendanceNotification(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	callerID := uuid.New()
+	targetUserID := uuid.New()
+	teamID := uuid.New()
+
+	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: targetUserID, Status: "yes"}
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Title: "Training", Status: "active"}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			return rec, nil
+		},
+	}
+	enq := &mockJobEnqueuer{}
+
+	svc := events.NewService(repo, enq, nil, nil, &mockPermChecker{perms: teams.PermissionsJSON{Events: "write"}}, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: targetUserID, Status: gen.Yes}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), callerID.String(), targetUserID.String(), teamID.String(), req)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, enq.calledN)
+	require.NotNil(t, enq.lastArgs)
+	assert.Equal(t, "attendance", enq.lastArgs.Type)
+	assert.Equal(t, teamID, enq.lastArgs.TeamID)
+	assert.Equal(t, targetUserID, enq.lastArgs.ActorID, "notification actor must be the responding member, not the caller")
+	require.NotNil(t, enq.lastArgs.Status)
+	assert.Equal(t, "yes", *enq.lastArgs.Status)
+	require.NotNil(t, enq.lastArgs.EventID)
+	assert.Equal(t, eventID, *enq.lastArgs.EventID)
+}
+
+// TestEventService_SetAttendance_PendingDoesNotEnqueueNotification verifies
+// that resetting a response to "pending" -- e.g. an organizer clearing a
+// member's RSVP -- does not generate a notification: it isn't "feedback" to
+// announce, and the frontend has no rendering branch for it.
+func TestEventService_SetAttendance_PendingDoesNotEnqueueNotification(t *testing.T) {
+	t.Parallel()
+
+	eventID := uuid.New()
+	userID := uuid.New()
+	teamID := uuid.New()
+
+	rec := &events.AttendanceDBRow{Id: uuid.New(), EventId: eventID, UserId: userID, Status: "pending"}
+	repo := &mockSvcRepo{
+		getEventFn: func(_ context.Context, _, _ string) (*events.EventRow, error) {
+			return &events.EventRow{Id: eventID, Status: "active"}, nil
+		},
+		setAttendanceFn: func(_ context.Context, _, _, _, _ string, _, _, _, _ *string) (*events.AttendanceDBRow, error) {
+			return rec, nil
+		},
+	}
+	enq := &mockJobEnqueuer{}
+
+	svc := events.NewService(repo, enq, nil, nil, nil, slog.Default())
+	req := gen.SetAttendanceRequest{UserId: userID, Status: gen.Pending}
+
+	_, err := svc.SetAttendance(context.Background(), eventID.String(), userID.String(), userID.String(), teamID.String(), req)
+	require.NoError(t, err)
+	assert.Equal(t, 0, enq.calledN, "resetting to pending must not enqueue a notification")
 }
 
 // TestEventService_SetAttendance_RejectsCancelledEvent verifies that attendance

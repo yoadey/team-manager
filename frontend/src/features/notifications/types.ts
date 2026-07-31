@@ -38,3 +38,12 @@ export interface NotificationsResult {
   items: AppNotification[];
   unreadCount: number;
 }
+
+/** A team's per-category Web Push opt-out -- true means "push this category". */
+export interface PushCategoryPreferences {
+  attendance: boolean;
+  events: boolean;
+  news: boolean;
+  polls: boolean;
+  absence: boolean;
+}

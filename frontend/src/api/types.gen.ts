@@ -232,6 +232,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/teams/{teamId}/push-preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        /** Get the caller's per-category Web Push preferences for this team */
+        get: operations["getPushPreferences"];
+        /** Set the caller's per-category Web Push preferences for this team */
+        put: operations["setPushPreferences"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/teams": {
         parameters: {
             query?: never;
@@ -1734,6 +1754,14 @@ export interface components {
                 auth: string;
             };
         };
+        /** @description Per-team Web Push opt-out, one boolean per notification category. A category set to false suppresses push delivery for that category in this team only; the in-app notification feed is unaffected. */
+        PushCategoryPreferences: {
+            attendance: boolean;
+            events: boolean;
+            news: boolean;
+            polls: boolean;
+            absence: boolean;
+        };
         CalendarFeedToken: {
             /**
              * Format: uri
@@ -2476,6 +2504,52 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getPushPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushCategoryPreferences"];
+                };
+            };
+        };
+    };
+    setPushPreferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushCategoryPreferences"];
+            };
+        };
         responses: {
             /** @description No Content */
             204: {

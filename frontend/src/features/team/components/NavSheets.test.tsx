@@ -9,6 +9,11 @@ vi.mock('@/context/AppContext', () => ({
   useAppActions: vi.fn().mockReturnValue({}),
 }));
 
+vi.mock('@/features/notifications', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/features/notifications')>();
+  return { ...mod, usePushActions: vi.fn(), usePushPreferencesActions: vi.fn() };
+});
+
 vi.mock('@/styles/tokens', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@/styles/tokens')>();
   return {
@@ -23,7 +28,10 @@ vi.mock('@/styles/tokens', async (importOriginal) => {
 });
 
 import { useApp } from '@/context/AppContext';
+import { usePushActions, usePushPreferencesActions } from '@/features/notifications';
 const mockUseApp = vi.mocked(useApp);
+const mockUsePushActions = vi.mocked(usePushActions);
+const mockUsePushPreferencesActions = vi.mocked(usePushPreferencesActions);
 
 const MOCK_TEAMS = [
   {
@@ -98,6 +106,26 @@ function makeApp(overrides: Record<string, unknown> = {}) {
 }
 
 const SHEET = { type: 'teams' } as never;
+
+// Default: push unsupported (jsdom has no serviceWorker/PushManager), matching
+// production behavior when the browser can't do Web Push -- the push section
+// (and, transitively, the per-team category panel) doesn't render at all.
+// Individual tests override this to exercise the supported/subscribed paths.
+beforeEach(() => {
+  mockUsePushActions.mockReturnValue({
+    support: 'unsupported',
+    subscribed: null,
+    busy: false,
+    enablePush: vi.fn(),
+    disablePush: vi.fn(),
+  });
+  mockUsePushPreferencesActions.mockReturnValue({
+    prefs: { attendance: true, events: true, news: true, polls: true, absence: true },
+    isLoading: false,
+    busy: false,
+    setCategory: vi.fn(),
+  });
+});
 
 // ─── TeamsSheet ───────────────────────────────────────────────────────────────
 
@@ -457,5 +485,87 @@ describe('ProfileSheet — color scheme', () => {
     expect(screen.getByText('Automatisch').closest('button')).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByText('Hell').closest('button')).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByText('Dunkel').closest('button')).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+describe('ProfileSheet — push notification preferences', () => {
+  it('shows neither the push toggle nor the per-team category panel when push is unsupported', () => {
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    expect(screen.queryByText('Web-Push-Benachrichtigungen')).toBeNull();
+    expect(screen.queryByText('Push-Benachrichtigungen anpassen')).toBeNull();
+  });
+
+  it('shows the push toggle but not the category panel before the browser is subscribed', () => {
+    mockUsePushActions.mockReturnValue({
+      support: 'supported',
+      subscribed: false,
+      busy: false,
+      enablePush: vi.fn(),
+      disablePush: vi.fn(),
+    });
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    expect(screen.getAllByText('Web-Push-Benachrichtigungen').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Push-Benachrichtigungen anpassen')).toBeNull();
+  });
+
+  it('shows the category panel with all five toggles once subscribed', () => {
+    mockUsePushActions.mockReturnValue({
+      support: 'supported',
+      subscribed: true,
+      busy: false,
+      enablePush: vi.fn(),
+      disablePush: vi.fn(),
+    });
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    expect(screen.getByText('Push-Benachrichtigungen anpassen')).toBeTruthy();
+    expect(screen.getByText('Rückmeldungen (Zu-/Absagen)')).toBeTruthy();
+    expect(screen.getByText('Termine (neu, geändert, abgesagt)')).toBeTruthy();
+    expect(screen.getByText('Neuigkeiten')).toBeTruthy();
+    expect(screen.getByText('Umfragen')).toBeTruthy();
+    expect(screen.getByText('Abwesenheiten')).toBeTruthy();
+  });
+
+  it('clicking a toggle calls setCategory with the flipped value', () => {
+    mockUsePushActions.mockReturnValue({
+      support: 'supported',
+      subscribed: true,
+      busy: false,
+      enablePush: vi.fn(),
+      disablePush: vi.fn(),
+    });
+    const setCategory = vi.fn();
+    mockUsePushPreferencesActions.mockReturnValue({
+      prefs: { attendance: true, events: true, news: true, polls: true, absence: true },
+      isLoading: false,
+      busy: false,
+      setCategory,
+    });
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    fireEvent.click(screen.getByText('Neuigkeiten').closest('button')!);
+    expect(setCategory).toHaveBeenCalledWith('news', false);
+  });
+
+  it('reflects a disabled category via aria-checked=false', () => {
+    mockUsePushActions.mockReturnValue({
+      support: 'supported',
+      subscribed: true,
+      busy: false,
+      enablePush: vi.fn(),
+      disablePush: vi.fn(),
+    });
+    mockUsePushPreferencesActions.mockReturnValue({
+      prefs: { attendance: true, events: true, news: false, polls: true, absence: true },
+      isLoading: false,
+      busy: false,
+      setCategory: vi.fn(),
+    });
+    const app = makeApp();
+    render(<ProfileSheet app={app as never} sheet={SHEET} />, { wrapper: LocaleProvider });
+    expect(screen.getByText('Neuigkeiten').closest('button')).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('Umfragen').closest('button')).toHaveAttribute('aria-checked', 'true');
   });
 });

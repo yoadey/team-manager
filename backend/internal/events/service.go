@@ -612,8 +612,45 @@ func (s *Service) SetAttendance(ctx context.Context, eventID, callerID, userID, 
 	if err != nil {
 		return nil, fmt.Errorf("events.Service.SetAttendance: %w", err)
 	}
+
+	s.enqueueAttendanceNotification(ctx, ev, teamID, userID, req.Status, statusStr)
+
 	rec := toGenAttendanceRecord(a)
 	return &rec, nil
+}
+
+// enqueueAttendanceNotification best-effort enqueues an "attendance"
+// notification for an actual response (yes/no/maybe) -- not for a reset to
+// "pending", which the frontend has no distinct rendering for and isn't
+// "feedback" to announce. The actor is the member the attendance belongs to
+// (userID), not the caller -- an organizer setting another member's
+// attendance shouldn't be attributed as the responder.
+func (s *Service) enqueueAttendanceNotification(ctx context.Context, ev *EventRow, teamID, userID string, status gen.AttendanceStatus, statusStr string) {
+	if s.jobs == nil || (status != gen.Yes && status != gen.No && status != gen.Maybe) {
+		return
+	}
+	teamUUID, err := uuid.Parse(teamID)
+	if err != nil {
+		return
+	}
+	actorUUID, err := uuid.Parse(userID)
+	if err != nil {
+		return
+	}
+	evID := ev.Id
+	evTitle := ev.Title
+	evDate := ev.Date
+	if err := s.jobs.EnqueueNotification(ctx, jobs.NotificationArgs{
+		TeamID:     teamUUID,
+		Type:       "attendance",
+		ActorID:    actorUUID,
+		EventID:    &evID,
+		EventTitle: &evTitle,
+		EventDate:  &evDate,
+		Status:     &statusStr,
+	}); err != nil {
+		s.logger.Warn("events: failed to enqueue notification", slog.String("eventId", evID.String()), slog.String("type", "attendance"), slog.String("error", err.Error()))
+	}
 }
 
 // requireCallerEventsWrite checks whether callerID currently holds

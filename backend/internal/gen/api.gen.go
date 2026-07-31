@@ -879,6 +879,15 @@ type Provider struct {
 	Sub    string  `json:"sub"`
 }
 
+// PushCategoryPreferences Per-team Web Push opt-out, one boolean per notification category. A category set to false suppresses push delivery for that category in this team only; the in-app notification feed is unaffected.
+type PushCategoryPreferences struct {
+	Absence    bool `json:"absence"`
+	Attendance bool `json:"attendance"`
+	Events     bool `json:"events"`
+	News       bool `json:"news"`
+	Polls      bool `json:"polls"`
+}
+
 // PushSubscriptionRequest Mirrors the shape PushSubscription.toJSON() produces in the browser.
 type PushSubscriptionRequest struct {
 	Endpoint string `json:"endpoint"`
@@ -1466,6 +1475,9 @@ type CreatePollJSONRequestBody = CreatePollRequest
 // VotePollJSONRequestBody defines body for VotePoll for application/json ContentType.
 type VotePollJSONRequestBody = VotePollRequest
 
+// SetPushPreferencesJSONRequestBody defines body for SetPushPreferences for application/json ContentType.
+type SetPushPreferencesJSONRequestBody = PushCategoryPreferences
+
 // CreateRoleJSONRequestBody defines body for CreateRole for application/json ContentType.
 type CreateRoleJSONRequestBody = CreateRoleRequest
 
@@ -1711,6 +1723,12 @@ type ServerInterface interface {
 	// Cast vote on poll
 	// (POST /teams/{teamId}/polls/{pollId}/vote)
 	VotePoll(w http.ResponseWriter, r *http.Request, teamId TeamId, pollId openapi_types.UUID)
+	// Get the caller's per-category Web Push preferences for this team
+	// (GET /teams/{teamId}/push-preferences)
+	GetPushPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId)
+	// Set the caller's per-category Web Push preferences for this team
+	// (PUT /teams/{teamId}/push-preferences)
+	SetPushPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId)
 	// List team roles
 	// (GET /teams/{teamId}/roles)
 	ListRoles(w http.ResponseWriter, r *http.Request, teamId TeamId)
@@ -2218,6 +2236,18 @@ func (_ Unimplemented) DeletePoll(w http.ResponseWriter, r *http.Request, teamId
 // Cast vote on poll
 // (POST /teams/{teamId}/polls/{pollId}/vote)
 func (_ Unimplemented) VotePoll(w http.ResponseWriter, r *http.Request, teamId TeamId, pollId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get the caller's per-category Web Push preferences for this team
+// (GET /teams/{teamId}/push-preferences)
+func (_ Unimplemented) GetPushPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set the caller's per-category Web Push preferences for this team
+// (PUT /teams/{teamId}/push-preferences)
+func (_ Unimplemented) SetPushPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -5133,6 +5163,70 @@ func (siw *ServerInterfaceWrapper) VotePoll(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// GetPushPreferences operation middleware
+func (siw *ServerInterfaceWrapper) GetPushPreferences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPushPreferences(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetPushPreferences operation middleware
+func (siw *ServerInterfaceWrapper) SetPushPreferences(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "teamId" -------------
+	var teamId TeamId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetPushPreferences(w, r, teamId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRoles operation middleware
 func (siw *ServerInterfaceWrapper) ListRoles(w http.ResponseWriter, r *http.Request) {
 
@@ -6010,6 +6104,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/teams/{teamId}/polls/{pollId}/vote", wrapper.VotePoll)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/teams/{teamId}/push-preferences", wrapper.GetPushPreferences)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/teams/{teamId}/push-preferences", wrapper.SetPushPreferences)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/roles", wrapper.ListRoles)
@@ -8245,6 +8345,45 @@ func (response VotePoll200JSONResponse) VisitVotePollResponse(w http.ResponseWri
 	return err
 }
 
+type GetPushPreferencesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+}
+
+type GetPushPreferencesResponseObject interface {
+	VisitGetPushPreferencesResponse(w http.ResponseWriter) error
+}
+
+type GetPushPreferences200JSONResponse PushCategoryPreferences
+
+func (response GetPushPreferences200JSONResponse) VisitGetPushPreferencesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetPushPreferencesRequestObject struct {
+	TeamId TeamId `json:"teamId"`
+	Body   *SetPushPreferencesJSONRequestBody
+}
+
+type SetPushPreferencesResponseObject interface {
+	VisitSetPushPreferencesResponse(w http.ResponseWriter) error
+}
+
+type SetPushPreferences204Response struct {
+}
+
+func (response SetPushPreferences204Response) VisitSetPushPreferencesResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
 type ListRolesRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 }
@@ -8753,6 +8892,12 @@ type StrictServerInterface interface {
 	// Cast vote on poll
 	// (POST /teams/{teamId}/polls/{pollId}/vote)
 	VotePoll(ctx context.Context, request VotePollRequestObject) (VotePollResponseObject, error)
+	// Get the caller's per-category Web Push preferences for this team
+	// (GET /teams/{teamId}/push-preferences)
+	GetPushPreferences(ctx context.Context, request GetPushPreferencesRequestObject) (GetPushPreferencesResponseObject, error)
+	// Set the caller's per-category Web Push preferences for this team
+	// (PUT /teams/{teamId}/push-preferences)
+	SetPushPreferences(ctx context.Context, request SetPushPreferencesRequestObject) (SetPushPreferencesResponseObject, error)
 	// List team roles
 	// (GET /teams/{teamId}/roles)
 	ListRoles(ctx context.Context, request ListRolesRequestObject) (ListRolesResponseObject, error)
@@ -11104,6 +11249,65 @@ func (sh *strictHandler) VotePoll(w http.ResponseWriter, r *http.Request, teamId
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(VotePollResponseObject); ok {
 		if err := validResponse.VisitVotePollResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPushPreferences operation middleware
+func (sh *strictHandler) GetPushPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request GetPushPreferencesRequestObject
+
+	request.TeamId = teamId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPushPreferences(ctx, request.(GetPushPreferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPushPreferences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPushPreferencesResponseObject); ok {
+		if err := validResponse.VisitGetPushPreferencesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetPushPreferences operation middleware
+func (sh *strictHandler) SetPushPreferences(w http.ResponseWriter, r *http.Request, teamId TeamId) {
+	var request SetPushPreferencesRequestObject
+
+	request.TeamId = teamId
+
+	var body SetPushPreferencesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetPushPreferences(ctx, request.(SetPushPreferencesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetPushPreferences")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetPushPreferencesResponseObject); ok {
+		if err := validResponse.VisitSetPushPreferencesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -244,6 +244,17 @@ type PollVote struct {
 	UserID   uuid.UUID
 }
 
+type PushPreference struct {
+	TeamID     uuid.UUID
+	UserID     uuid.UUID
+	Attendance bool
+	Events     bool
+	News       bool
+	Polls      bool
+	Absence    bool
+	UpdatedAt  time.Time
+}
+
 type PushSubscription struct {
 	ID         uuid.UUID
 	UserID     uuid.UUID
