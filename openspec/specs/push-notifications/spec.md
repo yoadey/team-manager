@@ -59,13 +59,28 @@ gate `notifications.Service.List` applies to the in-app feed.
 ### Requirement: Delivery failures do not block the notification pipeline
 A push delivery failure MUST NOT prevent the underlying notification from
 being recorded, and MUST NOT crash or stall the worker processing other
-notifications.
+notifications. The push notification body MUST be bounded to a fixed
+length before it is enqueued, so no source field's length can produce an
+encrypted payload the push service rejects as too large.
 
 #### Scenario: Push service is temporarily unavailable
 - **WHEN** the browser's push service returns a transient error (e.g. a 5xx
   or network failure)
 - **THEN** the notification row itself is unaffected, and the push delivery
   job is retried through the existing job-queue retry mechanism
+
+#### Scenario: Notification source text exceeds the push body length cap
+- **WHEN** a notification's title/note/event-title text (e.g. a poll
+  question with no length limit) exceeds the push body's length cap
+- **THEN** the enqueued push body is truncated to the cap with a trailing
+  ellipsis, rather than sent in full
+
+#### Scenario: Push service reports the payload is too large
+- **WHEN** a delivery attempt receives a 413 response from the push
+  service
+- **THEN** the push delivery job is cancelled (not retried) and the
+  corresponding `push_subscriptions` row is left in place, since the
+  subscription itself is still valid — only that message was too large
 
 ### Requirement: Permanently invalid subscriptions are pruned automatically
 The system MUST delete a subscription once the push service reports it can
@@ -76,6 +91,23 @@ never be delivered to again, so failed sends don't accumulate indefinitely.
   service
 - **THEN** the corresponding `push_subscriptions` row is deleted and no
   further deliveries are attempted to it
+
+#### Scenario: Push service reports a VAPID key mismatch for this subscription
+- **WHEN** a delivery attempt receives a 401 or 403 response whose body
+  identifies this specific subscription as created against a VAPID public
+  key the server no longer signs with (e.g. Mozilla autopush's errno 109
+  "VAPID public key mismatch", or FCM's "credentials ... do not correspond
+  to the credentials used to create the subscription")
+- **THEN** the corresponding `push_subscriptions` row is deleted and no
+  further deliveries are attempted to it, the same as a 404/410
+
+#### Scenario: A 401/403 does not identify a specific stale subscription
+- **WHEN** a delivery attempt receives a 401 or 403 response whose body
+  does not match a known key-mismatch signature (e.g. a malformed
+  `VAPID_SUBJECT` rejected server-wide)
+- **THEN** the subscription is left in place and the push delivery job is
+  retried through the existing job-queue retry mechanism, since a
+  configuration fix may recover it
 
 ### Requirement: Push delivery is disableable per environment
 Web Push MUST degrade gracefully to a no-op in environments without VAPID
