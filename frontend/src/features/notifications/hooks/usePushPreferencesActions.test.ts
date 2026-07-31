@@ -5,7 +5,16 @@ import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { PushCategoryPreferences } from '../types';
 
 function makePrefs(overrides: Partial<PushCategoryPreferences> = {}): PushCategoryPreferences {
-  return { attendance: true, events: true, news: true, polls: true, absence: true, ...overrides };
+  return {
+    attendance: true,
+    events: true,
+    news: true,
+    polls: true,
+    absence: true,
+    eventReminderEnabled: true,
+    eventReminderHoursBefore: 6,
+    ...overrides,
+  };
 }
 
 describe('usePushPreferencesActions', () => {
@@ -44,6 +53,23 @@ describe('usePushPreferencesActions', () => {
 
     expect(setPreferences).toHaveBeenCalledWith('team1', makePrefs({ news: false }));
     await waitFor(() => expect(result.current.prefs.news).toBe(false));
+  });
+
+  it('setEventReminderHoursBefore saves the whole preference object with only the hours changed', async () => {
+    const setPreferences = vi.fn().mockResolvedValue(undefined);
+    const api = { push: { getPreferences: vi.fn().mockResolvedValue(makePrefs()), setPreferences } };
+    const { result } = renderHook(() => usePushPreferencesActions(api as never, 'team1', vi.fn(), true), {
+      wrapper: createQueryWrapper(),
+    });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(async () => {
+      result.current.setEventReminderHoursBefore(24);
+      await waitFor(() => expect(setPreferences).toHaveBeenCalled());
+    });
+
+    expect(setPreferences).toHaveBeenCalledWith('team1', makePrefs({ eventReminderHoursBefore: 24 }));
+    await waitFor(() => expect(result.current.prefs.eventReminderHoursBefore).toBe(24));
   });
 
   it('reports a toast error and leaves cached preferences unchanged when saving fails', async () => {

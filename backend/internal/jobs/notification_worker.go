@@ -299,9 +299,12 @@ type PushDeps struct {
 // NewClient creates a River client backed by the given pool.
 // retentionWorker is optional: pass nil to skip registering the retention job.
 // pushDeps is optional: pass nil to run without Web Push delivery.
+// eventReminderWorker is optional: pass nil to skip registering the event-reminder
+// periodic job (it also requires pushDeps to actually deliver anything, since
+// it enqueues PushDeliveryArgs jobs the same way notifWorker does).
 // Call Start() on the returned river.Client separately if running workers
 // in the same process.
-func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker, pushDeps *PushDeps) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
+func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker, pushDeps *PushDeps, eventReminderWorker *EventReminderWorker) (client *Client, riverClient *river.Client[pgx.Tx], err error) {
 	workers := river.NewWorkers()
 	notifWorker := NewNotificationWorker(pool)
 	if pushDeps != nil {
@@ -317,6 +320,16 @@ func NewClient(pool *pgxpool.Pool, retentionWorker *RetentionWorker, pushDeps *P
 			river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) {
 				return RetentionArgs{}, nil
+			},
+			&river.PeriodicJobOpts{RunOnStart: false},
+		))
+	}
+	if eventReminderWorker != nil {
+		river.AddWorker(workers, eventReminderWorker)
+		periodicJobs = append(periodicJobs, river.NewPeriodicJob(
+			river.PeriodicInterval(eventReminderInterval),
+			func() (river.JobArgs, *river.InsertOpts) {
+				return EventReminderArgs{}, nil
 			},
 			&river.PeriodicJobOpts{RunOnStart: false},
 		))

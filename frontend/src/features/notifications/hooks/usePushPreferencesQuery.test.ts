@@ -5,7 +5,16 @@ import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { PushCategoryPreferences } from '../types';
 
 function makePrefs(overrides: Partial<PushCategoryPreferences> = {}): PushCategoryPreferences {
-  return { attendance: true, events: true, news: true, polls: true, absence: true, ...overrides };
+  return {
+    attendance: true,
+    events: true,
+    news: true,
+    polls: true,
+    absence: true,
+    eventReminderEnabled: true,
+    eventReminderHoursBefore: 6,
+    ...overrides,
+  };
 }
 
 describe('usePushPreferencesQuery', () => {

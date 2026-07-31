@@ -879,13 +879,19 @@ type Provider struct {
 	Sub    string  `json:"sub"`
 }
 
-// PushCategoryPreferences Per-team Web Push opt-out, one boolean per notification category. A category set to false suppresses push delivery for that category in this team only; the in-app notification feed is unaffected.
+// PushCategoryPreferences Per-team Web Push opt-out, one boolean per notification category. A category set to false suppresses push delivery for that category in this team only; the in-app notification feed is unaffected. Also carries the member's event-reminder push settings for this team -- a separate, time-triggered push (not tied to any notification category) sent shortly before an upcoming event starts.
 type PushCategoryPreferences struct {
 	Absence    bool `json:"absence"`
 	Attendance bool `json:"attendance"`
-	Events     bool `json:"events"`
-	News       bool `json:"news"`
-	Polls      bool `json:"polls"`
+
+	// EventReminderEnabled Whether a push reminder is sent before upcoming events in this team.
+	EventReminderEnabled bool `json:"eventReminderEnabled"`
+
+	// EventReminderHoursBefore How many hours before an event's start the reminder push is sent.
+	EventReminderHoursBefore int  `json:"eventReminderHoursBefore"`
+	Events                   bool `json:"events"`
+	News                     bool `json:"news"`
+	Polls                    bool `json:"polls"`
 }
 
 // PushSubscriptionRequest Mirrors the shape PushSubscription.toJSON() produces in the browser.

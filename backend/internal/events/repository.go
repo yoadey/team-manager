@@ -215,6 +215,39 @@ func (r *Repository) ListEvents(ctx context.Context, teamID string, scope gen.Li
 	return out, nil
 }
 
+// ListUpcomingForReminders returns every non-cancelled event, across all
+// teams, whose date falls within [from, to] -- used by
+// jobs.EventReminderWorker to find candidate events for its periodic
+// reminder scan. Unlike ListEvents, this is deliberately not scoped to a
+// single team: the periodic job discovers which team each candidate belongs
+// to from the returned rows themselves. from/to bound the query to a coarse,
+// day-granularity window (cheap index range scan on date); the caller is
+// responsible for the precise, timezone-aware "is this event's start
+// instant actually due" check via EventStartInstant.
+func (r *Repository) ListUpcomingForReminders(ctx context.Context, from, to time.Time) ([]EventRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	q := fmt.Sprintf(`SELECT %s FROM events WHERE date BETWEEN $1 AND $2 AND status != 'cancelled'`, selectEventFields)
+	rows, err := r.pool.Query(ctx, q, from, to)
+	if err != nil {
+		return nil, fmt.Errorf("events.Repository.ListUpcomingForReminders: %w", err)
+	}
+	defer rows.Close()
+
+	var out []EventRow
+	for rows.Next() {
+		e, err := scanEventRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("events.Repository.ListUpcomingForReminders scan: %w", err)
+		}
+		out = append(out, *e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("events.Repository.ListUpcomingForReminders: %w", err)
+	}
+	return out, nil
+}
+
 // ─── GetEvent ───────────────────────────────────────────────────────────────
 
 // GetEvent retrieves a single event by ID, scoped to teamID.

@@ -116,6 +116,18 @@ var (
 		Help:      "Total internal/jobs.NotificationWorker.Work failures.",
 	})
 
+	// EventReminderJobFailures counts internal/jobs.EventReminderWorker.Work
+	// failures (listing candidate events for the periodic reminder scan).
+	// Mirrors NotificationJobFailures/RetentionJobFailures for the same
+	// "silent background failure" risk -- without this, a persistent
+	// failure here would leave members silently not receiving event
+	// reminders with no operational signal.
+	EventReminderJobFailures = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "event_reminder_job_failures_total",
+		Help:      "Total internal/jobs.EventReminderWorker.Work failures.",
+	})
+
 	// PushDeliverySuccess counts Web Push notifications successfully accepted
 	// by the recipient's push service.
 	PushDeliverySuccess = promauto.NewCounter(prometheus.CounterOpts{

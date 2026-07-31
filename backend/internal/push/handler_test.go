@@ -190,14 +190,34 @@ func TestHandler_SetPushPreferences_Success(t *testing.T) {
 	}
 	h := push.NewHandler(svc, slog.Default())
 
-	body := gen.PushCategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}
+	body := gen.PushCategoryPreferences{
+		Attendance: true, Events: false, News: true, Polls: false, Absence: true,
+		EventReminderEnabled: true, EventReminderHoursBefore: 12,
+	}
 	resp, err := h.SetPushPreferences(pushAuthedCtx(), gen.SetPushPreferencesRequestObject{TeamId: teamID, Body: &body})
 	require.NoError(t, err)
 	assert.Equal(t, teamID, gotTeamID)
 	assert.Equal(t, pushUserID, gotUserID)
-	assert.Equal(t, push.CategoryPreferences{Attendance: true, Events: false, News: true, Polls: false, Absence: true}, gotPrefs)
+	assert.Equal(t, push.CategoryPreferences{
+		Attendance: true, Events: false, News: true, Polls: false, Absence: true,
+		EventReminderEnabled: true, EventReminderHoursBefore: 12,
+	}, gotPrefs)
 
 	w := httptest.NewRecorder()
 	require.NoError(t, resp.VisitSetPushPreferencesResponse(w))
 	assert.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestHandler_SetPushPreferences_HoursBeforeOutOfRange(t *testing.T) {
+	t.Parallel()
+	h := push.NewHandler(&mockPushService{}, slog.Default())
+
+	for _, hours := range []int{0, 73, -1} {
+		body := gen.PushCategoryPreferences{
+			Attendance: true, Events: true, News: true, Polls: true, Absence: true,
+			EventReminderEnabled: true, EventReminderHoursBefore: hours,
+		}
+		_, err := h.SetPushPreferences(pushAuthedCtx(), gen.SetPushPreferencesRequestObject{TeamId: uuid.New(), Body: &body})
+		require.Error(t, err, "hours=%d must be rejected", hours)
+	}
 }

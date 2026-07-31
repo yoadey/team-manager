@@ -25,6 +25,19 @@ import { usePushActions, usePushPreferencesActions } from '@/features/notificati
 const mockUsePushActions = vi.mocked(usePushActions);
 const mockUsePushPreferencesActions = vi.mocked(usePushPreferencesActions);
 
+function makePrefsResult(overrides: Partial<ReturnType<typeof usePushPreferencesActions>['prefs']> = {}) {
+  return {
+    attendance: true,
+    events: true,
+    news: true,
+    polls: true,
+    absence: true,
+    eventReminderEnabled: true,
+    eventReminderHoursBefore: 6,
+    ...overrides,
+  };
+}
+
 function makeApp(overrides: Record<string, unknown> = {}) {
   return {
     state: { primaryColor: '#1565C0', activeTeamId: 'team-1', ...overrides },
@@ -47,10 +60,11 @@ beforeEach(() => {
     disablePush: vi.fn(),
   });
   mockUsePushPreferencesActions.mockReturnValue({
-    prefs: { attendance: true, events: true, news: true, polls: true, absence: true },
+    prefs: makePrefsResult(),
     isLoading: false,
     busy: false,
     setCategory: vi.fn(),
+    setEventReminderHoursBefore: vi.fn(),
   });
 });
 
@@ -101,10 +115,11 @@ describe('NotificationsPanel', () => {
     });
     const setCategory = vi.fn();
     mockUsePushPreferencesActions.mockReturnValue({
-      prefs: { attendance: true, events: true, news: true, polls: true, absence: true },
+      prefs: makePrefsResult(),
       isLoading: false,
       busy: false,
       setCategory,
+      setEventReminderHoursBefore: vi.fn(),
     });
     render(<NotificationsPanel app={makeApp()} />);
     fireEvent.click(screen.getByText('Neuigkeiten').closest('button')!);
@@ -120,10 +135,11 @@ describe('NotificationsPanel', () => {
       disablePush: vi.fn(),
     });
     mockUsePushPreferencesActions.mockReturnValue({
-      prefs: { attendance: true, events: true, news: false, polls: true, absence: true },
+      prefs: makePrefsResult({ news: false }),
       isLoading: false,
       busy: false,
       setCategory: vi.fn(),
+      setEventReminderHoursBefore: vi.fn(),
     });
     render(<NotificationsPanel app={makeApp()} />);
     expect(screen.getByText('Neuigkeiten').closest('button')).toHaveAttribute('aria-checked', 'false');
@@ -142,5 +158,97 @@ describe('NotificationsPanel', () => {
     render(<NotificationsPanel app={makeApp()} />);
     fireEvent.click(screen.getByRole('button', { pressed: false }));
     expect(enablePush).toHaveBeenCalledTimes(1);
+  });
+
+  describe('event reminder panel', () => {
+    beforeEach(() => {
+      mockUsePushActions.mockReturnValue({
+        support: 'supported',
+        subscribed: true,
+        busy: false,
+        enablePush: vi.fn(),
+        disablePush: vi.fn(),
+      });
+    });
+
+    it('shows the reminder toggle and hours input once subscribed', () => {
+      render(<NotificationsPanel app={makeApp()} />);
+      expect(screen.getByRole('switch', { name: 'Terminerinnerung' })).toBeTruthy();
+      expect(screen.getByLabelText('Stunden vorher')).toBeTruthy();
+    });
+
+    it('hides the hours input when reminders are disabled', () => {
+      mockUsePushPreferencesActions.mockReturnValue({
+        prefs: makePrefsResult({ eventReminderEnabled: false }),
+        isLoading: false,
+        busy: false,
+        setCategory: vi.fn(),
+        setEventReminderHoursBefore: vi.fn(),
+      });
+      render(<NotificationsPanel app={makeApp()} />);
+      expect(screen.queryByLabelText('Stunden vorher')).toBeNull();
+      expect(screen.getByRole('switch', { name: 'Terminerinnerung' })).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('clicking the reminder toggle calls setCategory with the flipped value', () => {
+      const setCategory = vi.fn();
+      mockUsePushPreferencesActions.mockReturnValue({
+        prefs: makePrefsResult(),
+        isLoading: false,
+        busy: false,
+        setCategory,
+        setEventReminderHoursBefore: vi.fn(),
+      });
+      render(<NotificationsPanel app={makeApp()} />);
+      fireEvent.click(screen.getByRole('switch', { name: 'Terminerinnerung' }));
+      expect(setCategory).toHaveBeenCalledWith('eventReminderEnabled', false);
+    });
+
+    it('commits a valid hours value on blur', () => {
+      const setEventReminderHoursBefore = vi.fn();
+      mockUsePushPreferencesActions.mockReturnValue({
+        prefs: makePrefsResult(),
+        isLoading: false,
+        busy: false,
+        setCategory: vi.fn(),
+        setEventReminderHoursBefore,
+      });
+      render(<NotificationsPanel app={makeApp()} />);
+      const input = screen.getByLabelText('Stunden vorher');
+      fireEvent.change(input, { target: { value: '24' } });
+      fireEvent.blur(input);
+      expect(setEventReminderHoursBefore).toHaveBeenCalledWith(24);
+    });
+
+    it('clamps an out-of-range hours value on blur instead of saving it verbatim', () => {
+      const setEventReminderHoursBefore = vi.fn();
+      mockUsePushPreferencesActions.mockReturnValue({
+        prefs: makePrefsResult(),
+        isLoading: false,
+        busy: false,
+        setCategory: vi.fn(),
+        setEventReminderHoursBefore,
+      });
+      render(<NotificationsPanel app={makeApp()} />);
+      const input = screen.getByLabelText('Stunden vorher');
+      fireEvent.change(input, { target: { value: '999' } });
+      fireEvent.blur(input);
+      expect(setEventReminderHoursBefore).toHaveBeenCalledWith(72);
+    });
+
+    it('does not save when the committed value is unchanged from the stored preference', () => {
+      const setEventReminderHoursBefore = vi.fn();
+      mockUsePushPreferencesActions.mockReturnValue({
+        prefs: makePrefsResult({ eventReminderHoursBefore: 6 }),
+        isLoading: false,
+        busy: false,
+        setCategory: vi.fn(),
+        setEventReminderHoursBefore,
+      });
+      render(<NotificationsPanel app={makeApp()} />);
+      const input = screen.getByLabelText('Stunden vorher');
+      fireEvent.blur(input);
+      expect(setEventReminderHoursBefore).not.toHaveBeenCalled();
+    });
   });
 });

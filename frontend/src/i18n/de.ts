@@ -767,6 +767,9 @@ export const de = {
     categoryPolls: 'Umfragen',
     categoryAbsence: 'Abwesenheiten',
     preferencesSaveFailed: 'Einstellungen konnten nicht gespeichert werden',
+    eventReminderTitle: 'Terminerinnerung',
+    eventReminderDescription: 'Erhalte vor anstehenden Terminen in "{team}" eine Erinnerung per Push-Benachrichtigung.',
+    eventReminderHoursBeforeLabel: 'Stunden vorher',
   },
   home: {
     greeting: 'Hallo {name}!',

@@ -2,6 +2,7 @@ package push
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
@@ -98,12 +99,20 @@ func (h *Handler) SetPushPreferences(ctx context.Context, req gen.SetPushPrefere
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
+	hoursBefore := req.Body.EventReminderHoursBefore
+	if hoursBefore < MinEventReminderHoursBefore || hoursBefore > MaxEventReminderHoursBefore {
+		return nil, apierror.BadRequest(fmt.Sprintf(
+			"eventReminderHoursBefore must be between %d and %d", MinEventReminderHoursBefore, MaxEventReminderHoursBefore,
+		))
+	}
 	prefs := CategoryPreferences{
-		Attendance: req.Body.Attendance,
-		Events:     req.Body.Events,
-		News:       req.Body.News,
-		Polls:      req.Body.Polls,
-		Absence:    req.Body.Absence,
+		Attendance:               req.Body.Attendance,
+		Events:                   req.Body.Events,
+		News:                     req.Body.News,
+		Polls:                    req.Body.Polls,
+		Absence:                  req.Body.Absence,
+		EventReminderEnabled:     req.Body.EventReminderEnabled,
+		EventReminderHoursBefore: int16(hoursBefore),
 	}
 	if err := h.svc.SetPreferences(ctx, req.TeamId, user.Id, prefs); err != nil {
 		h.logger.ErrorContext(ctx, "SetPushPreferences failed", "err", err)
@@ -115,10 +124,12 @@ func (h *Handler) SetPushPreferences(ctx context.Context, req gen.SetPushPrefere
 // toGenPreferences maps a CategoryPreferences to the generated wire type.
 func toGenPreferences(p CategoryPreferences) gen.PushCategoryPreferences {
 	return gen.PushCategoryPreferences{
-		Attendance: p.Attendance,
-		Events:     p.Events,
-		News:       p.News,
-		Polls:      p.Polls,
-		Absence:    p.Absence,
+		Attendance:               p.Attendance,
+		Events:                   p.Events,
+		News:                     p.News,
+		Polls:                    p.Polls,
+		Absence:                  p.Absence,
+		EventReminderEnabled:     p.EventReminderEnabled,
+		EventReminderHoursBefore: int(p.EventReminderHoursBefore),
 	}
 }

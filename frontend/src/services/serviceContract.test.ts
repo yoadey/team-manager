@@ -231,9 +231,19 @@ describe("drift-bug fix: scope=upcoming includes today's events", () => {
 });
 
 describe('per-team push-category preferences', () => {
+  const defaultPrefs = {
+    attendance: true,
+    events: true,
+    news: true,
+    polls: true,
+    absence: true,
+    eventReminderEnabled: true,
+    eventReminderHoursBefore: 6,
+  };
+
   it('defaults to every category enabled before the caller ever saves anything', async () => {
     const prefs = await api.push.getPreferences('t_a');
-    expect(prefs).toEqual({ attendance: true, events: true, news: true, polls: true, absence: true });
+    expect(prefs).toEqual(defaultPrefs);
   });
 
   it('persists a saved preference and reflects it on a later read', async () => {
@@ -241,7 +251,7 @@ describe('per-team push-category preferences', () => {
     await api.push.setPreferences('t_a', { ...current, news: false, polls: false });
 
     const reloaded = await api.push.getPreferences('t_a');
-    expect(reloaded).toEqual({ attendance: true, events: true, news: false, polls: false, absence: true });
+    expect(reloaded).toEqual({ ...defaultPrefs, news: false, polls: false });
   });
 
   it('scopes a saved preference to the team it was saved for, not every team the caller belongs to', async () => {
@@ -250,6 +260,14 @@ describe('per-team push-category preferences', () => {
     await api.push.setPreferences('t_a', { ...current, news: false });
 
     const otherTeamPrefs = await api.push.getPreferences('t_b');
-    expect(otherTeamPrefs).toEqual({ attendance: true, events: true, news: true, polls: true, absence: true });
+    expect(otherTeamPrefs).toEqual(defaultPrefs);
+  });
+
+  it('persists the event-reminder lead time and enabled flag independently of the category toggles', async () => {
+    const current = await api.push.getPreferences('t_a');
+    await api.push.setPreferences('t_a', { ...current, eventReminderEnabled: false, eventReminderHoursBefore: 24 });
+
+    const reloaded = await api.push.getPreferences('t_a');
+    expect(reloaded).toEqual({ ...defaultPrefs, eventReminderEnabled: false, eventReminderHoursBefore: 24 });
   });
 });

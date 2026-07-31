@@ -39,13 +39,42 @@ type CategoryPreferences struct {
 	News       bool
 	Polls      bool
 	Absence    bool
+	// EventReminderEnabled and EventReminderHoursBefore configure a
+	// separate, time-triggered push sent shortly before an upcoming event
+	// starts -- independent of the Events category above, which only
+	// covers event lifecycle notifications (created/updated/cancelled/...).
+	// See jobs.EventReminderWorker.
+	EventReminderEnabled     bool
+	EventReminderHoursBefore int16
 }
+
+// DefaultEventReminderHoursBefore is the lead time a member gets reminded
+// before an event's start when they've never customized it.
+const DefaultEventReminderHoursBefore = 6
+
+// MinEventReminderHoursBefore and MaxEventReminderHoursBefore bound the
+// caller-configurable lead time -- enforced both by the DB CHECK constraint
+// on push_preferences.event_reminder_hours_before and by request validation
+// in the handler, so an out-of-range value is rejected with 400 rather than
+// a generic 500 from the DB constraint violation.
+const (
+	MinEventReminderHoursBefore = 1
+	MaxEventReminderHoursBefore = 72
+)
 
 // DefaultCategoryPreferences returns every category enabled -- the implicit
 // preference for a member who has never called SetPreferences, so a missing
 // push_preferences row behaves exactly like today's unconditional delivery.
 func DefaultCategoryPreferences() CategoryPreferences {
-	return CategoryPreferences{Attendance: true, Events: true, News: true, Polls: true, Absence: true}
+	return CategoryPreferences{
+		Attendance:               true,
+		Events:                   true,
+		News:                     true,
+		Polls:                    true,
+		Absence:                  true,
+		EventReminderEnabled:     true,
+		EventReminderHoursBefore: DefaultEventReminderHoursBefore,
+	}
 }
 
 // Allows reports whether category is enabled. An empty category (a

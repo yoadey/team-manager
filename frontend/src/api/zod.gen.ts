@@ -58,6 +58,8 @@ const PushCategoryPreferences = z
     news: z.boolean(),
     polls: z.boolean(),
     absence: z.boolean(),
+    eventReminderEnabled: z.boolean(),
+    eventReminderHoursBefore: z.number().int().gte(1).lte(72),
   })
   .passthrough();
 const Team = z
