@@ -22,12 +22,109 @@ permissions:
   contents: read
 
 jobs:
+  # ── Path filtering ───────────────────────────────────────────────────────
+
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      backend: ${{ steps.filter.outputs.backend }}
+      helm: ${{ steps.filter.outputs.helm }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - name: Compute changed-path filters
+        id: filter
+        # Hand-rolled instead of a third-party paths-filter action: every
+        # external action in this workflow is pinned to an immutable commit
+        # SHA specifically to defend against tag-hijacking (see the
+        # trivy-action/Helm-install steps' own comments below) -- a new
+        # action isn't worth that supply-chain surface to save a dozen
+        # lines of shell, and backend-migration-safety below already
+        # established the base-ref-diffing pattern this reuses.
+        #
+        # Fails OPEN: every output defaults to "true" (run that area) if the
+        # diff can't be resolved. That's the opposite default from
+        # backend-migration-safety, which fails loudly on a broken diff
+        # because a false negative there hides a real DDL hazard -- here a
+        # false negative only wastes CI minutes, while a false positive
+        # (skipping a job that should have run) risks merging something
+        # unbuilt or untested.
+        #
+        # A change to this workflow file itself, or to a handful of other
+        # cross-cutting files that are cross-referenced by jobs outside
+        # their own directory (docker-compose.yml's postgres/node digests
+        # are checked against helm/team-manager/values.yaml and
+        # frontend/Dockerfile by backend-lint's tool-pin-sync check;
+        # .zap/rules.tsv and the trivyignore files configure jobs that
+        # aren't gated on frontend/backend at all), short-circuits straight
+        # to "run everything" rather than trying to map each one to exactly
+        # the jobs it affects.
+        run: |
+          set -uo pipefail
+          all=false
+          base=""
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            if git fetch origin "${{ github.base_ref }}" 2>/dev/null; then
+              base="origin/${{ github.base_ref }}"
+              diff_range="$base...HEAD"
+            else
+              echo "::warning::Could not fetch base ref ${{ github.base_ref }} -- running every job."
+              all=true
+            fi
+          else
+            candidate="${{ github.event.before }}"
+            if [ -n "$candidate" ] && [ "$candidate" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$candidate" 2>/dev/null; then
+              base="$candidate"
+              diff_range="$base..HEAD"
+            else
+              echo "::warning::No usable 'before' SHA for this push (first push to the branch, or a shallow/force-push history) -- running every job."
+              all=true
+            fi
+          fi
+
+          changed=""
+          if [ "$all" = "false" ]; then
+            if ! changed=$(git diff --name-only "$diff_range"); then
+              echo "::warning::git diff over $diff_range failed -- running every job."
+              all=true
+            fi
+          fi
+
+          if [ "$all" = "false" ] && echo "$changed" | grep -qE '^(\.github/workflows/ci\.yml|docker-compose\.yml|\.zap/rules\.tsv|\.github/trivyignore-[^/]+\.txt)$'; then
+            echo "Cross-cutting file changed -- running every job."
+            all=true
+          fi
+
+          echo "Changed files (base=${base:-none}):"
+          echo "$changed"
+
+          emit() {
+            name="$1"; pattern="$2"
+            if [ "$all" = "true" ] || echo "$changed" | grep -qE "$pattern"; then
+              value=true
+            else
+              value=false
+            fi
+            echo "$name=$value" | tee -a "$GITHUB_OUTPUT"
+          }
+
+          emit frontend '^frontend/'
+          emit backend '^backend/'
+          emit helm '^helm/'
+
   # ── Frontend ──────────────────────────────────────────────────────────────
 
   frontend-lint:
     name: Frontend · Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -45,6 +142,8 @@ jobs:
     name: Frontend · Typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -62,6 +161,8 @@ jobs:
     name: Frontend · Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -84,6 +185,8 @@ jobs:
     name: Frontend · Security audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -103,8 +206,11 @@ jobs:
     timeout-minutes: 10
     # backend-licenses (below) enforces a GPL/AGPL ban on Go modules; the
     # much larger npm dependency tree had no equivalent check at all. No
-    # needs: -- this only inspects installed package metadata, so it can run
-    # in parallel with lint/test/build like backend-licenses does.
+    # needs on the other frontend jobs -- this only inspects installed
+    # package metadata, so it can run in parallel with lint/test/build like
+    # backend-licenses does.
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -166,7 +272,8 @@ jobs:
     name: Frontend · Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [frontend-lint, frontend-typecheck, frontend-test]
+    needs: [changes, frontend-lint, frontend-typecheck, frontend-test]
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -218,7 +325,8 @@ jobs:
     name: Frontend · E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [frontend-build]
+    needs: [changes, frontend-build]
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -271,7 +379,8 @@ jobs:
     name: Frontend · Lighthouse CI
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [frontend-build]
+    needs: [changes, frontend-build]
+    if: needs.changes.outputs.frontend == 'true'
     defaults:
       run:
         working-directory: frontend
@@ -295,6 +404,8 @@ jobs:
     name: Backend · OpenAPI codegen drift
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -348,6 +459,8 @@ jobs:
     name: Backend · Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: backend
@@ -512,6 +625,8 @@ jobs:
     name: Backend · Test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: backend
@@ -539,7 +654,8 @@ jobs:
     name: Backend · Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [backend-lint, backend-test]
+    needs: [changes, backend-lint, backend-test]
+    if: needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: backend
@@ -572,9 +688,12 @@ jobs:
     name: Backend · License check
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # No needs: -- this only runs go-licenses report against source, never
-    # consuming backend-build's binary/SBOM artifacts, so it doesn't need to
-    # wait on that job and can run in parallel with lint/test/build.
+    # No needs on the other backend jobs -- this only runs go-licenses
+    # report against source, never consuming backend-build's binary/SBOM
+    # artifacts, so it doesn't need to wait on that job and can run in
+    # parallel with lint/test/build.
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: backend
@@ -633,6 +752,8 @@ jobs:
     name: Backend · Security (govulncheck)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: backend
@@ -648,7 +769,8 @@ jobs:
     name: Backend · Coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [backend-test]
+    needs: [changes, backend-test]
+    if: needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: backend
@@ -684,22 +806,51 @@ jobs:
           awk -v total="$total" 'BEGIN { if (total+0 < 35) { print "Coverage " total "% below 35% threshold"; exit 1 } }'
 
   security-sast:
-    name: Security · SAST (CodeQL)
+    # Two fixed jobs instead of a `language: [go, typescript]` matrix: each
+    # entry needs to gate independently on the area it actually analyzes --
+    # go on backend, typescript on frontend -- but job-level `if:` cannot
+    # read the `matrix` context (only `github`/`needs`/`vars`/`inputs` are
+    # available there; `matrix` is a step-level context), so a single
+    # matrix job can't express that condition. Splitting avoids the
+    # restriction entirely rather than working around it with step-level
+    # `if:`s that would leave the job itself always "running" (and billed)
+    # even when skipped in spirit.
+    name: Security · SAST (CodeQL) (go)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     permissions:
       security-events: write
       actions: read
       contents: read
-    strategy:
-      matrix:
-        language: [go, typescript]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Initialize CodeQL
         uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
         with:
-          languages: ${{ matrix.language }}
+          languages: go
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+
+  security-sast-typescript:
+    name: Security · SAST (CodeQL) (typescript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
+        with:
+          languages: typescript
       - name: Autobuild
         uses: github/codeql-action/autobuild@dd903d2e4f5405488e5ef1422510ee31c8b32357 # v3
       - name: Perform CodeQL Analysis
@@ -732,6 +883,8 @@ jobs:
     name: Backend · Migration rollback test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     services:
       postgres:
         image: postgres:17@sha256:de1e13ca94377fa5a27aafd0e9fc200df9692b15152f0090fdf074074ea5e397
@@ -778,7 +931,8 @@ jobs:
     # files added/changed in this PR, so it never flags already-applied
     # migrations (e.g. 00007/00008, which predate this check and are not
     # retroactively edited — editing an already-applied migration is unsafe).
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
     defaults:
       run:
         working-directory: backend
@@ -1006,7 +1160,8 @@ jobs:
     name: Security · Container scan (Trivy)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend-build]
+    needs: [changes, backend-build]
+    if: needs.changes.outputs.backend == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Build backend image
@@ -1029,6 +1184,8 @@ jobs:
     name: Security · Container scan (Trivy, backup CronJob images)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       # The backup CronJob (helm/team-manager/templates/backup-cronjob.yaml)
@@ -1081,7 +1238,8 @@ jobs:
     name: Security · Container scan (Trivy, frontend)
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [frontend-build]
+    needs: [changes, frontend-build]
+    if: needs.changes.outputs.frontend == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Build frontend image
@@ -1125,8 +1283,8 @@ jobs:
     name: DAST — OWASP ZAP Baseline
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend-build]
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    needs: [changes, backend-build]
+    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository))
 
     services:
       postgres:
@@ -1194,6 +1352,8 @@ jobs:
     name: Helm · Lint & template
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    needs: changes
+    if: needs.changes.outputs.helm == 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
