@@ -10,7 +10,8 @@ import (
 )
 
 // ErrGone is returned by Pusher.Send when the push service reports (via a
-// 404 or 410 HTTP status) that the subscription's endpoint will never accept
+// 404 or 410 HTTP status, or a 401/403 whose body names a known VAPID
+// key-mismatch signature) that the subscription's endpoint will never accept
 // another push. Callers must delete the corresponding push_subscriptions row
 // when they see this error -- retrying it is pointless.
 var ErrGone = errors.New("push: subscription is gone (404/410)")

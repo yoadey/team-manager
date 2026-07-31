@@ -365,21 +365,32 @@ both set. No dedicated NetworkPolicy egress rule is needed — push services
 are reached over HTTPS/443, already covered by the chart's general HTTPS
 egress rule.
 
-**Troubleshooting a `status 401` in `jobs.PushDeliveryWorker` logs**: the
-error now includes a snippet of the push service's own response body
-(`internal/push/webpush.go`), which usually names the problem directly. A
-401 means the push service rejected the VAPID authentication itself — it
-is not scoped to one subscription, so it will recur for every delivery
-until fixed. The most common cause is a `VAPID_PUBLIC_KEY` mismatch: the
-frontend's `VITE_VAPID_PUBLIC_KEY`/`VAPID_PUBLIC_KEY` must be byte-for-byte
-identical to the backend's `VAPID_PUBLIC_KEY` (see "Frontend image:
-pointing it at a backend" below), and — unlike `COOKIE_ENCRYPTION_KEYS` or
+**Troubleshooting a `status 401`/`status 403` in `jobs.PushDeliveryWorker`
+logs**: the error includes a snippet of the push service's own response
+body (`internal/push/webpush.go`), which usually names the problem
+directly. If that body names a known VAPID key-mismatch signature —
+Mozilla autopush's `"VAPID public key mismatch"` (errno 109), or FCM's
+`"...do not correspond to the credentials used to create the
+subscription"` — the affected `push_subscriptions` row is pruned
+automatically, the same as a 404/410; no ops action is needed beyond the
+affected user re-enabling push in their browser, since that specific
+subscription was created against a VAPID public key this server no longer
+signs with (e.g. after a key rotation, or environment data seeded/restored
+across a key change) and no amount of retrying fixes that for it. Any
+other 401/403 — e.g. a malformed `VAPID_SUBJECT` (not a `mailto:`/`https:`
+URI), or a genuinely server-wide key misconfiguration not yet reflected in
+any subscription's stored key — is **not** scoped to one subscription, so
+it recurs for every delivery until fixed. The most common cause there is a
+`VAPID_PUBLIC_KEY` mismatch: the frontend's
+`VITE_VAPID_PUBLIC_KEY`/`VAPID_PUBLIC_KEY` must be byte-for-byte identical
+to the backend's `VAPID_PUBLIC_KEY` (see "Frontend image: pointing it at a
+backend" below), and — unlike `COOKIE_ENCRYPTION_KEYS` or
 `JWT_PRIVATE_KEY`/`JWT_PUBLIC_KEY` — there is no rotation mechanism for
 VAPID keys today: rotating the backend's keypair invalidates every
 existing browser subscription (they were created against the old public
 key) until each browser unsubscribes and re-subscribes against the new
-one. A malformed `VAPID_SUBJECT` (not a `mailto:`/`https:` URI) can also
-trigger a 401.
+one — those will show up pruned automatically per the above rather than
+recurring in the logs.
 
 ## Cookie encryption key rotation
 

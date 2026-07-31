@@ -115,6 +115,40 @@ func TestWebPusher_Send_TruncatesLargeResponseBody(t *testing.T) {
 	assert.Less(t, len(err.Error()), len(oversized))
 }
 
+func TestWebPusher_Send_MozillaVAPIDKeyMismatchMapsToErrGone(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"code":401,"errno":109,"error":"Unauthorized","message":"VAPID public key mismatch","more_info":"http://autopush.readthedocs.io/en/latest/http.html#error-codes"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrGone, "a VAPID key mismatch means this subscription can never be delivered to again")
+}
+
+func TestWebPusher_Send_FCMVAPIDCredentialMismatchMapsToErrGone(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("the VAPID credentials in the authorization header do not correspond to the credentials used to create the subscriptions."))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrGone)
+}
+
 func TestWebPusher_Send_GoneStatusHasNoBodyLookup(t *testing.T) {
 	t.Parallel()
 
