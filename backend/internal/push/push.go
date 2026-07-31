@@ -10,10 +10,20 @@ import (
 )
 
 // ErrGone is returned by Pusher.Send when the push service reports (via a
-// 404 or 410 HTTP status) that the subscription's endpoint will never accept
+// 404 or 410 HTTP status, or a 401/403 whose body names a known VAPID
+// key-mismatch signature) that the subscription's endpoint will never accept
 // another push. Callers must delete the corresponding push_subscriptions row
 // when they see this error -- retrying it is pointless.
 var ErrGone = errors.New("push: subscription is gone (404/410)")
+
+// ErrPayloadTooLarge is returned by Pusher.Send when the push service
+// reports (via a 413 HTTP status) that the encrypted payload exceeds its
+// message-size limit. Unlike ErrGone, this says nothing about whether the
+// subscription itself is still valid -- only that this particular message
+// was too big -- so callers must not delete the subscription; they should
+// stop retrying the job instead, since the payload is fixed once enqueued
+// and retrying it changes nothing.
+var ErrPayloadTooLarge = errors.New("push: payload too large (413)")
 
 // Subscription is the browser-issued Web Push subscription needed to
 // address a single device.

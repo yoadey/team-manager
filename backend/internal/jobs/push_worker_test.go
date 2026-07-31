@@ -117,3 +117,31 @@ func TestPushDeliveryWorker_Work_TransientFailureIsRetried(t *testing.T) {
 	require.Error(t, err, "a transient failure must be returned so River retries")
 	assert.Equal(t, before+1, promtestutil.ToFloat64(metrics.PushDeliveryFailures))
 }
+
+func TestPushDeliveryWorker_Work_PayloadTooLargeCancelsJobWithoutPruning(t *testing.T) {
+	t.Parallel()
+
+	before := promtestutil.ToFloat64(metrics.PushPayloadTooLarge)
+
+	pusher := &mockPusher{sendFn: func(context.Context, push.Subscription, push.Payload) error {
+		return push.ErrPayloadTooLarge
+	}}
+	deleter := &mockDeleter{deleteByIDFn: func(context.Context, uuid.UUID) error {
+		t.Fatal("must not delete the subscription for an oversized payload -- the subscription itself may still be valid")
+		return nil
+	}}
+
+	worker := jobs.NewPushDeliveryWorker(pusher, deleter)
+	job := &river.Job[jobs.PushDeliveryArgs]{
+		JobRow: &rivertype.JobRow{ID: 4},
+		Args:   jobs.PushDeliveryArgs{SubscriptionID: uuid.New()},
+	}
+
+	err := worker.Work(context.Background(), job)
+	require.Error(t, err, "an oversized payload must not be retried")
+
+	var cancelErr *river.JobCancelError
+	require.ErrorAs(t, err, &cancelErr, "an oversized payload must cancel the job rather than let River retry it forever")
+	assert.ErrorIs(t, err, push.ErrPayloadTooLarge)
+	assert.Equal(t, before+1, promtestutil.ToFloat64(metrics.PushPayloadTooLarge))
+}

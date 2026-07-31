@@ -143,4 +143,16 @@ var (
 		Name:      "push_subscriptions_pruned_total",
 		Help:      "Total push_subscriptions rows deleted after the push service reported the endpoint gone.",
 	})
+
+	// PushPayloadTooLarge counts internal/jobs.PushDeliveryWorker.Work jobs
+	// cancelled because the push service reported the encrypted payload too
+	// large (413) -- tracked separately from PushDeliveryFailures (which
+	// River keeps retrying) since these are deliberately never retried, and
+	// from PushSubscriptionsPruned since the subscription itself is left in
+	// place.
+	PushPayloadTooLarge = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: "teammanager",
+		Name:      "push_payload_too_large_total",
+		Help:      "Total internal/jobs.PushDeliveryWorker.Work jobs cancelled after the push service reported the payload too large.",
+	})
 )

@@ -115,6 +115,58 @@ func TestWebPusher_Send_TruncatesLargeResponseBody(t *testing.T) {
 	assert.Less(t, len(err.Error()), len(oversized))
 }
 
+func TestWebPusher_Send_MozillaVAPIDKeyMismatchMapsToErrGone(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"code":401,"errno":109,"error":"Unauthorized","message":"VAPID public key mismatch","more_info":"http://autopush.readthedocs.io/en/latest/http.html#error-codes"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrGone, "a VAPID key mismatch means this subscription can never be delivered to again")
+}
+
+func TestWebPusher_Send_FCMVAPIDCredentialMismatchMapsToErrGone(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("the VAPID credentials in the authorization header do not correspond to the credentials used to create the subscriptions."))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrGone)
+}
+
+func TestWebPusher_Send_PayloadTooLargeMapsToErrPayloadTooLarge(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte(`{"code":413,"errno":104,"error":"Payload Too Large","message":"This message is intended for a constrained device and is limited in size. Converted buffer is too long by 1441 bytes"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	p, err := push.NewWebPusher(validVAPIDConfig(t))
+	require.NoError(t, err)
+
+	err = p.Send(context.Background(), validSubscription(t, server.URL), push.Payload{Title: "t", Body: "b"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, push.ErrPayloadTooLarge, "a 413 means this payload can never be delivered, retrying it is pointless")
+	assert.Contains(t, err.Error(), "constrained device")
+}
+
 func TestWebPusher_Send_GoneStatusHasNoBodyLookup(t *testing.T) {
 	t.Parallel()
 

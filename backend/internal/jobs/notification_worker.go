@@ -254,7 +254,29 @@ func pushPayloadForNotification(a NotificationArgs) push.Payload {
 		body = *a.Note
 	}
 
-	return push.Payload{Title: label, Body: body}
+	return push.Payload{Title: label, Body: truncatePushBody(body)}
+}
+
+// maxPushBodyRunes bounds the push notification body to a short preview
+// length. Most source fields (event/news title) are already bounded by
+// openapi.yaml's maxLength: 255, but some (e.g. CreatePollRequest.question)
+// have no length limit at all -- without a cap here, a long enough source
+// text would produce an encrypted payload the push service rejects as too
+// large (413, see push.ErrPayloadTooLarge), and since that payload is fixed
+// once the job is enqueued, retrying could never fix it. 200 runes is
+// generous for a notification preview and stays comfortably under any push
+// service's message-size limit even at 4 bytes/rune worst case.
+const maxPushBodyRunes = 200
+
+// truncatePushBody shortens body to maxPushBodyRunes, appending an ellipsis
+// when truncated. Truncating by rune count (not byte count) can't split a
+// multi-byte UTF-8 character.
+func truncatePushBody(body string) string {
+	runes := []rune(body)
+	if len(runes) <= maxPushBodyRunes {
+		return body
+	}
+	return string(runes[:maxPushBodyRunes]) + "…"
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────

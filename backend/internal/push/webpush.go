@@ -27,6 +27,31 @@ var ErrVAPIDKeysRequired = errors.New("push.NewWebPusher: VAPIDPublicKey and VAP
 // map to ErrGone instead).
 var ErrPushServiceStatus = errors.New("push: push service returned a non-2xx status")
 
+// vapidKeyMismatchSignatures are case-insensitive substrings a push
+// service's 401/403 response body uses specifically when a subscription
+// was created against a VAPID public key this server no longer signs
+// with -- as opposed to a generic auth rejection (e.g. a malformed
+// VAPID_SUBJECT) that affects every subscription equally and can be
+// recovered by a config fix alone. A subscription in this state can never
+// be delivered to again short of the browser re-subscribing, so it is
+// treated like ErrGone rather than retried forever.
+var vapidKeyMismatchSignatures = []string{
+	"vapid public key mismatch",                   // Mozilla autopush, errno 109
+	"credentials used to create the subscription", // FCM (also matches plural "subscriptions")
+}
+
+// isVAPIDKeyMismatch reports whether body names a known VAPID
+// key-mismatch signature.
+func isVAPIDKeyMismatch(body string) bool {
+	lower := strings.ToLower(body)
+	for _, sig := range vapidKeyMismatchSignatures {
+		if strings.Contains(lower, sig) {
+			return true
+		}
+	}
+	return false
+}
+
 // VAPIDConfig holds the settings needed to authenticate this server to
 // browser push services via VAPID (RFC 8292).
 type VAPIDConfig struct {
@@ -55,8 +80,11 @@ func NewWebPusher(cfg VAPIDConfig) (*WebPusher, error) {
 const webpushTimeout = 10 * time.Second
 
 // Send delivers payload to sub via the browser vendor's push service. A 404
-// or 410 response is mapped to ErrGone so callers know to delete the
-// subscription; any other non-2xx status or transport error is returned
+// or 410 response, or a 401/403 whose body names a known VAPID
+// key-mismatch signature (see isVAPIDKeyMismatch), is mapped to ErrGone so
+// callers know to delete the subscription. A 413 is mapped to
+// ErrPayloadTooLarge so callers know not to retry without deleting the
+// subscription. Any other non-2xx status or transport error is returned
 // as-is for River's built-in retry/backoff to handle.
 func (p *WebPusher) Send(ctx context.Context, sub Subscription, payload Payload) error {
 	message, err := json.Marshal(payload)
@@ -90,6 +118,15 @@ func (p *WebPusher) Send(ctx context.Context, sub Subscription, payload Payload)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxPushErrorBodyBytes))
 		snippet := strings.TrimSpace(strings.ReplaceAll(string(body), "\n", " "))
+		if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && isVAPIDKeyMismatch(snippet) {
+			return ErrGone
+		}
+		if resp.StatusCode == http.StatusRequestEntityTooLarge {
+			if snippet == "" {
+				return fmt.Errorf("push.WebPusher.Send: %w", ErrPayloadTooLarge)
+			}
+			return fmt.Errorf("push.WebPusher.Send: %w: %s", ErrPayloadTooLarge, snippet)
+		}
 		if snippet == "" {
 			return fmt.Errorf("push.WebPusher.Send: %w: status %d", ErrPushServiceStatus, resp.StatusCode)
 		}
