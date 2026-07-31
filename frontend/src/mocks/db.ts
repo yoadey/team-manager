@@ -142,6 +142,14 @@ export interface VerificationToken {
   expiresAt: string;
 }
 
+/** A pending password-reset token (mock equivalent of the backend's hashed
+ * password_reset_tokens table -- stored in the clear here since there's
+ * nothing to protect in an in-memory test double). */
+export interface PasswordResetToken {
+  userId: string;
+  expiresAt: string;
+}
+
 export interface TeamRow extends Team {
   hasPhoto: boolean;
   hasLogo: boolean;
@@ -171,6 +179,8 @@ export interface DemoDb {
   notifSeen: Record<string, string>;
   /** Raw token -> pending verification, for self-registered accounts. */
   verificationTokens: Record<string, VerificationToken>;
+  /** Raw token -> pending password reset. */
+  passwordResetTokens: Record<string, PasswordResetToken>;
   /** Mock equivalent of the backend's push_subscriptions table. */
   pushSubscriptions: PushSubscriptionRow[];
   /** "userId:teamId" -> active feed token, mock equivalent of the backend's
@@ -233,6 +243,7 @@ export function createSeedData(): DemoDb {
     notifications: [],
     notifSeen: {},
     verificationTokens: {},
+    passwordResetTokens: {},
     pushSubscriptions: [],
     calendarFeedTokens: {},
     calendarFeedSettings: {},

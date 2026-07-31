@@ -41,22 +41,32 @@ const passwordProvider = {
 };
 
 function makeApp(
-  overrides: { providers?: (typeof googleProvider)[]; busy?: string | null; error?: string | null } = {},
+  overrides: {
+    providers?: (typeof googleProvider)[];
+    busy?: string | null;
+    error?: string | null;
+    resetPasswordToken?: string | null;
+  } = {},
 ) {
   const doLogin = vi.fn();
   const doPasswordLogin = vi.fn();
   const doRegister = vi.fn().mockResolvedValue(true);
   const doResendVerification = vi.fn().mockResolvedValue(true);
+  const doForgotPassword = vi.fn().mockResolvedValue(true);
+  const doResetPassword = vi.fn().mockResolvedValue(true);
   const app = {
     state: {
       providers: overrides.providers ?? [googleProvider],
       busy: overrides.busy ?? null,
       error: overrides.error ?? null,
+      resetPasswordToken: overrides.resetPasswordToken ?? null,
     },
     doLogin,
     doPasswordLogin,
     doRegister,
     doResendVerification,
+    doForgotPassword,
+    doResetPassword,
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   return app;
@@ -179,9 +189,38 @@ describe('Login', () => {
       fireEvent.click(screen.getByText('Konto erstellen'));
       expect(screen.getByText('Passwort bestätigen')).toBeTruthy();
 
-      fireEvent.click(screen.getByText((content) => content.includes('Zurück')));
+      fireEvent.click(screen.getByText((content) => content.includes('← Zurück')));
       expect(screen.queryByText('Passwort bestätigen')).toBeNull();
       expect(screen.getByText('Anmelden')).toBeTruthy();
+    });
+
+    it('clicking "Passwort vergessen?" from the password form switches to the ForgotPassword form', () => {
+      makeApp({ providers: [passwordProvider] });
+      render(<Login />);
+      fireEvent.click(screen.getByText('Passwort').closest('button')!);
+      fireEvent.click(screen.getByText('Passwort vergessen?'));
+
+      expect(screen.getByText('Link zum Zurücksetzen senden')).toBeTruthy();
+    });
+
+    it('the ForgotPassword form\'s "back" link returns to the password form', () => {
+      makeApp({ providers: [passwordProvider] });
+      render(<Login />);
+      fireEvent.click(screen.getByText('Passwort').closest('button')!);
+      fireEvent.click(screen.getByText('Passwort vergessen?'));
+      expect(screen.getByText('Link zum Zurücksetzen senden')).toBeTruthy();
+
+      fireEvent.click(screen.getByText((content) => content.includes('← Zurück')));
+      expect(screen.queryByText('Link zum Zurücksetzen senden')).toBeNull();
+      expect(screen.getByText('Anmelden')).toBeTruthy();
+    });
+
+    it('renders the ResetPassword form when state.resetPasswordToken is set, regardless of view', () => {
+      makeApp({ resetPasswordToken: 'raw-token' });
+      render(<Login />);
+
+      expect(screen.getByText('Neues Passwort festlegen')).toBeTruthy();
+      expect(screen.queryByText('Anmelden')).toBeNull();
     });
   });
 });
