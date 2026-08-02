@@ -160,8 +160,6 @@ self-registration minimum-age gate.
 | Variable                  | Default          | Purpose                          |
 |---------------------------|------------------|----------------------------------|
 | `VITE_APP_NAME`           | `Teamverwaltung` | Browser title                    |
-| `VITE_STORAGE_KEY_PREFIX` | `tv_db_`         | Parsed into `config.ts` but currently unread elsewhere — a leftover from the removed localStorage mock (see `openspec/changes/archive/2026-07-18-replace-mock-with-msw/`); the MSW demo backend (`src/mocks/`) doesn't consume it |
-| `VITE_MOCK_DELAY_MIN/MAX` | `120` / `320`    | Same as above: parsed into `config.ts` but not read by `src/mocks/handlers.ts`, which uses its own fixed 5 ms delay |
 | `VITE_SENTRY_DSN`         | _(empty)_        | Sentry; disabled when empty      |
 | `VITE_API_BASE_URL`       | _(empty)_        | Real backend URL                 |
 | `VITE_VAPID_PUBLIC_KEY`   | _(empty)_        | VAPID public key for Web Push; must match the backend's `VAPID_PUBLIC_KEY`. In production this is overridden at container start by the `VAPID_PUBLIC_KEY` runtime env var (see "Connecting the Real Backend" and `docs/operations.md`), same mechanism as `SENTRY_DSN`. |
