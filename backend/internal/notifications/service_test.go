@@ -166,6 +166,37 @@ func TestService_List_FiltersByModulePermission(t *testing.T) {
 	assert.Equal(t, 2, result.UnreadCount, "unread count must only count visible rows (news + absence)")
 }
 
+// Regression test: NotificationModule's fallback for a type outside the
+// known enum must map to something HasReadAccess fails CLOSED on, not
+// something that happens to be granted -- otherwise a rolling deploy where
+// a newer server writes a not-yet-recognized notification type would show
+// it to every team member regardless of their actual module permission.
+func TestService_List_UnrecognizedNotificationTypeFailsClosed(t *testing.T) {
+	t.Parallel()
+
+	title := "x"
+	rows := []*notifications.NotificationRow{
+		{Id: uuid.New(), Type: "some_future_type_not_yet_known", Title: &title, CreatedAt: time.Now(), Unread: true},
+		{Id: uuid.New(), Type: "news", Title: &title, CreatedAt: time.Now(), Unread: true},
+	}
+	repo := &mockRepo{
+		listByTeamAndUserFn: func(context.Context, uuid.UUID, uuid.UUID) ([]*notifications.NotificationRow, error) {
+			return rows, nil
+		},
+	}
+	// Even a member with write access to every known module must not see a
+	// notification of an unrecognized type.
+	svc := notifications.NewService(repo, &mockPermChecker{perms: allWritePerms()})
+	result, err := svc.List(context.Background(), uuid.New(), uuid.New())
+	require.NoError(t, err)
+
+	gotTypes := make([]string, len(result.Items))
+	for i, item := range result.Items {
+		gotTypes[i] = string(item.Type)
+	}
+	assert.ElementsMatch(t, []string{"news"}, gotTypes, "a notification of an unrecognized type must never be shown, regardless of the caller's permissions")
+}
+
 func TestService_List_PropagatesPermissionCheckError(t *testing.T) {
 	t.Parallel()
 

@@ -52,6 +52,15 @@ func NewService(repo notifRepo, perms permChecker) *Service {
 // identical gate before enqueuing a Web Push delivery for the same
 // notification -- push must not open a side channel around the same
 // module-permission check the in-app feed already enforces.
+// unclassifiedModule is returned for a gen.NotificationType outside the
+// known enum. Deliberately NOT "" -- HasReadAccess treats "" as "always
+// visible" (the correct behavior for a legitimately self-standing type like
+// NotificationTypeAbsence), so an unrecognized/malformed type must map to a
+// distinct value HasReadAccess fails CLOSED on instead of one it fails open
+// on; conflating the two would show every member every notification of an
+// unclassified type regardless of their actual module permission.
+const unclassifiedModule = "unclassified"
+
 func NotificationModule(notifType gen.NotificationType) string {
 	switch notifType {
 	case gen.NotificationTypeAttendance,
@@ -73,7 +82,7 @@ func NotificationModule(notifType gen.NotificationType) string {
 		// repo-wide, so this default does NOT suppress a missing-case warning
 		// when a new gen.NotificationType constant is added; it only covers
 		// values that were never valid to begin with.
-		return ""
+		return unclassifiedModule
 	}
 }
 
