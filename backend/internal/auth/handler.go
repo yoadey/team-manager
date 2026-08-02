@@ -356,7 +356,7 @@ func (h *Handler) GetCurrentUser(ctx context.Context, _ gen.GetCurrentUserReques
 func (h *Handler) GetMyPhoto(ctx context.Context, _ gen.GetMyPhotoRequestObject) (gen.GetMyPhotoResponseObject, error) {
 	user, ok := UserFromContext(ctx)
 	if !ok {
-		return nil, apierror.NotFound("no profile photo")
+		return nil, apierror.Unauthorized("authentication required")
 	}
 
 	if h.imageDeliveryProxyEnabled {
