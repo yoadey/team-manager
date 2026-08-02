@@ -1432,3 +1432,22 @@ jobs:
             exit 1
           fi
           grep -q "Additional property enpoint is not allowed" /tmp/schema-typo.log
+
+  # ── Process ───────────────────────────────────────────────────────────────
+
+  openspec-validate:
+    name: OpenSpec · Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      # CLAUDE.md mandates `openspec validate --strict` pass before a change
+      # is implemented -- this is the CI-side enforcement of that rule, so a
+      # proposal merged with e.g. a requirement missing a `#### Scenario:`
+      # block or a delta referencing a nonexistent capability doesn't slip
+      # through unnoticed, mirroring how backend-openapi-drift enforces the
+      # equivalent spec-first contract for openapi.yaml.
+      - run: npx --yes @fission-ai/openspec@latest validate --all --strict
