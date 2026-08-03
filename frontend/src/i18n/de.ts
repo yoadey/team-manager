@@ -266,6 +266,7 @@ export const de = {
     scopeTabsLabel: 'Zeitraum wählen',
     calPrevMonth: 'Vorheriger Monat',
     calNextMonth: 'Nächster Monat',
+    calCreateEventOnDay: 'Neuen Termin für {date} anlegen',
     export: 'Exportieren',
     exportTitle: 'In Google / Apple / Android Kalender einbinden',
     filterPending: 'Nur offene Rückmeldungen',

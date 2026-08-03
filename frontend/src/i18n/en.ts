@@ -265,6 +265,7 @@ export const en: Messages = {
     scopeTabsLabel: 'Choose time range',
     calPrevMonth: 'Previous month',
     calNextMonth: 'Next month',
+    calCreateEventOnDay: 'Create new event for {date}',
     export: 'Export',
     exportTitle: 'Add to Google / Apple / Android Calendar',
     filterPending: 'Open responses only',

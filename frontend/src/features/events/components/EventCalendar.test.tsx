@@ -188,6 +188,51 @@ describe('EventCalendar', () => {
     expect(app.openEventForm).not.toHaveBeenCalled();
   });
 
+  it('double-clicking an absence chip does not open the day create sheet', () => {
+    const app = makeApp({
+      calMonth: new Date(2026, 2, 1),
+      calShowAbsences: true,
+      absences: [{ from: '2026-03-10', to: '2026-03-10', name: 'Max Mustermann', roleColor: '#123456' }],
+    });
+    render(<EventCalendar />);
+    fireEvent.doubleClick(screen.getByText('Max'));
+    expect(app.openEventForm).not.toHaveBeenCalled();
+  });
+
+  it('double-clicking a birthday chip does not open the day create sheet', () => {
+    const app = makeApp({
+      calMonth: new Date(2026, 2, 1),
+      canSeeBirthdays: true,
+      members: [makeMember({ membershipId: 'ms1', name: 'Alice Example', birthday: '1990-03-10' })],
+    });
+    render(<EventCalendar />);
+    fireEvent.doubleClick(screen.getByText('Alice Example'));
+    expect(app.openEventForm).not.toHaveBeenCalled();
+  });
+
+  it('exposes a keyboard equivalent (Enter/Space) for the day create sheet, labelled with the day', () => {
+    const app = makeApp({ calMonth: new Date(2026, 2, 1) });
+    render(<EventCalendar />);
+    const cell = screen.getByText('15').parentElement!;
+    expect(cell).toHaveAttribute('role', 'button');
+    expect(cell.getAttribute('aria-label')).toMatch(/15/);
+
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(app.openEventForm).toHaveBeenCalledWith(null, '2026-03-15');
+
+    app.openEventForm.mockClear();
+    fireEvent.keyDown(cell, { key: ' ' });
+    expect(app.openEventForm).toHaveBeenCalledWith(null, '2026-03-15');
+  });
+
+  it('does not expose a keyboard/button role on a day cell without events:write', () => {
+    makeApp({ calMonth: new Date(2026, 2, 1), canCreateEvent: false });
+    render(<EventCalendar />);
+    const cell = screen.getByText('15').parentElement!;
+    expect(cell).not.toHaveAttribute('role', 'button');
+    expect(cell).not.toHaveAttribute('tabindex');
+  });
+
   it('toggling the "show absences" checkbox calls app.toggleCalAbsences', () => {
     const app = makeApp();
     render(<EventCalendar />);

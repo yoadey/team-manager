@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { useCompact } from '@/layouts/useCompact';
-import { buildTokens, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
+import { buildTokens, fmtDateLong, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
@@ -75,6 +75,7 @@ function EventChip({ event, mobile, onOpen }: { event: TeamEvent; mobile: boolea
 function AbsenceChip({ absence, mobile }: { absence: Absence; mobile: boolean }) {
   return (
     <Box
+      onDoubleClick={(e) => e.stopPropagation()}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -105,6 +106,7 @@ function AbsenceChip({ absence, mobile }: { absence: Absence; mobile: boolean })
 function BirthdayChip({ entry, mobile }: { entry: BirthdayEntry; mobile: boolean }) {
   return (
     <Box
+      onDoubleClick={(e) => e.stopPropagation()}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -137,6 +139,9 @@ interface CalendarDayCellProps {
   absences: Absence[];
   birthdays: BirthdayEntry[];
   onOpenEvent: (id: string) => void;
+  // Explicit `| undefined` (exactOptionalPropertyTypes) -- the caller passes
+  // `undefined` for out-of-month/no-permission cells to mean "not creatable
+  // here", distinct from simply omitting the prop.
   onCreateEvent?: (() => void) | undefined;
 }
 
@@ -157,10 +162,26 @@ function CalendarDayCell({
   const absenceLimit = mobile ? 1 : 2;
   const visibleEvents = events.slice(0, eventLimit);
   const visibleAbsences = absences.slice(0, absenceLimit);
+  // Double-click is the primary gesture, but a div with an onDoubleClick has
+  // no keyboard equivalent by default -- expose the same action as a
+  // focusable "button" (Enter/Space) so the day isn't a mouse-only affordance.
+  const createLabel = onCreateEvent ? t('events.calCreateEventOnDay', { date: fmtDateLong(formatDateOnly(date)) }) : undefined;
+  const onKeyDown = onCreateEvent
+    ? (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onCreateEvent();
+        }
+      }
+    : undefined;
 
   return (
     <Box
       onDoubleClick={onCreateEvent}
+      onKeyDown={onKeyDown}
+      role={onCreateEvent ? 'button' : undefined}
+      tabIndex={onCreateEvent ? 0 : undefined}
+      aria-label={createLabel}
       sx={{
         minHeight: mobile ? '58px' : '76px',
         border: `1px solid ${NEUTRAL.line2}`,
@@ -173,7 +194,12 @@ function CalendarDayCell({
         gap: '2px',
         overflow: 'hidden',
         ...(onCreateEvent
-          ? { cursor: 'pointer', userSelect: 'none', '&:hover': { background: NEUTRAL.sidebar } }
+          ? {
+              cursor: 'pointer',
+              userSelect: 'none',
+              '&:hover': { background: NEUTRAL.sidebar },
+              '&:focus-visible': { outline: `2px solid ${primary}`, outlineOffset: '-2px' },
+            }
           : {}),
       }}
     >

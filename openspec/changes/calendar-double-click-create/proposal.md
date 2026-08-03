@@ -6,8 +6,9 @@ Creating an event from the calendar month view requires opening the "+" action i
 
 - Double-clicking an in-month day cell in `EventCalendar` opens the event-creation sheet with that day pre-selected as the event date, instead of defaulting to today.
 - Gated the same way as the existing header "+" action: only available to members with `events:write`.
-- Double-clicking an event/absence/birthday chip inside a cell still only triggers that chip's own single-click behavior (opens the event detail); it must not also open the create sheet for the day underneath it.
+- Double-clicking an event/absence/birthday chip inside a cell still only triggers that chip's own single-click behavior (opens the event detail, or nothing for absence/birthday); it must not also open the create sheet for the day underneath it.
 - `openEventForm` gains an optional pre-selected date parameter; the header "+" action keeps its existing today-default behavior unchanged.
+- Writable in-month day cells also get a keyboard equivalent (focusable, `Enter`/`Space`) so the affordance isn't mouse-only.
 
 ## Capabilities
 
