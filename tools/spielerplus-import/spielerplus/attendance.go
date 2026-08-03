@@ -1,9 +1,11 @@
 package spielerplus
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -11,74 +13,103 @@ import (
 
 // ajaxParticipationPath is confirmed from a HAR capture of a live session:
 // POST with form fields "eventid" and "eventtype" (e.g. "training"),
-// X-Requested-With: XMLHttpRequest. The capture only exercised it for a
-// training event reached from its /training/view?id=... detail page, so it
-// is unconfirmed whether the returned fragment lists every team member's
-// status (what this importer needs) or only the caller's own - the known
-// community reference clients only ever read/write their own status via
-// this same family of endpoint. If it turns out to be self-only, this
-// importer needs a different, trainer-facing source for full-roster
-// attendance (tasks.md 2.3).
+// X-Requested-With: XMLHttpRequest, triggered by the "Teilnehmer anzeigen"
+// (show participants) button - as opposed to the separate per-user
+// "showParticipationForm" widget used to set the *caller's own* status.
+// The response is JSON-wrapped like ajaxgetevents ({"html": "..."}) and its
+// html lists every team member grouped by status, confirmed by inspecting a
+// real response body: this is the full-roster source this importer needs,
+// not a self-only one.
 const ajaxParticipationPath = "/events/ajaxgetparticipation"
 
-// Selectors below are unverified against a live account - see tasks.md
-// 2.3/2.6 (the HAR capture this endpoint is grounded in didn't include
-// response bodies).
+// Selectors below are confirmed from a HAR capture of a live
+// ajaxgetparticipation response. Members are grouped under
+// `<div class="collapse in" id="{code}-parti-collapse">` - one group per
+// ParticipationStatus code (see types.go) - each containing zero or more
+// `.participation-list-user` blocks:
+//
+//	<div class="participation-list-user">
+//	    <a class="participation-list-user-photo" href="/user/view?id={userID}">...</a>
+//	    <div class="participation-list-user-infos">
+//	        <div class="participation-list-user-name">{Name}</div>
+//	        <div class="participation-list-user-reason ...">
+//	            <div class="reason-text">{Reason}</div>   <!-- absent if none given -->
+//	        </div>
+//	    </div>
+//	    ...
+//	</div>
 const (
-	participantRowSelector  = "[data-user-id]"
-	participantStatusAttr   = "title"
-	participantSelectedFlag = "selected"
+	participationGroupSelector = `div[id$="-parti-collapse"]`
+	participantRowSelector     = ".participation-list-user"
+	participantPhotoSelector   = ".participation-list-user-photo"
+	participantReasonSelector  = ".participation-list-user-reason .reason-text"
 )
 
-// spielerPlusStatusTitles maps the title text on a participation status
-// element (as seen on both the self-service button in the reference
-// projects and, presumably, the trainer-facing participant list) to our
-// ParticipationStatus vocabulary.
-var spielerPlusStatusTitles = map[string]ParticipationStatus{
-	"Zugesagt":           ParticipationAccepted,
-	"Unsicher":           ParticipationUnsure,
-	"Absagen / Abwesend": ParticipationDeclined,
-	"Absagen/Abwesend":   ParticipationDeclined,
-	"Abgesagt":           ParticipationDeclined,
-	"Keine Rückmeldung":  ParticipationNoResonse,
+var participationGroupIDRegexp = regexp.MustCompile(`^(\d+)-parti-collapse$`)
+
+// ajaxParticipationResponse is the JSON envelope ajaxParticipationPath
+// responds with (same shape as ajaxEventsResponse, minus "count").
+type ajaxParticipationResponse struct {
+	HTML string `json:"html"`
 }
 
-// ParseAttendance parses an ajaxgetparticipation response fragment into one
-// Attendance record per member. Members with no explicit status are
-// reported as ParticipationNoResonse.
+// ParseAttendance parses an ajaxgetparticipation JSON response into one
+// Attendance record per member.
 func ParseAttendance(body io.Reader, eventID string) ([]Attendance, error) {
-	doc, err := goquery.NewDocumentFromReader(body)
+	raw, err := io.ReadAll(body)
 	if err != nil {
-		return nil, fmt.Errorf("spielerplus: parse event %s participant list: %w", eventID, err)
+		return nil, fmt.Errorf("spielerplus: read event %s participant list: %w", eventID, err)
+	}
+	var resp ajaxParticipationResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("spielerplus: parse event %s participant list JSON envelope: %w", eventID, err)
 	}
 
-	rows := doc.Find(participantRowSelector)
-	if rows.Length() == 0 {
-		return nil, fmt.Errorf("spielerplus: no participant rows matched selector %q for event %s - SpielerPlus markup likely differs from what this parser expects, inspect the participation fragment and update participantRowSelector in attendance.go", participantRowSelector, eventID)
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(resp.HTML))
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: parse event %s participant list html: %w", eventID, err)
+	}
+
+	groups := doc.Find(participationGroupSelector)
+	if groups.Length() == 0 {
+		return nil, fmt.Errorf("spielerplus: no participation-status groups matched selector %q for event %s - SpielerPlus markup likely differs from what this parser expects, inspect the participation fragment and update participationGroupSelector in attendance.go", participationGroupSelector, eventID)
 	}
 
 	var records []Attendance
-	rows.Each(func(_ int, row *goquery.Selection) {
-		userID, ok := row.Attr("data-user-id")
-		if !ok || userID == "" {
+	groups.Each(func(_ int, group *goquery.Selection) {
+		groupID, _ := group.Attr("id")
+		m := participationGroupIDRegexp.FindStringSubmatch(groupID)
+		if m == nil {
 			return
 		}
-		status := ParticipationNoResonse
-		selected := row.Find("." + participantSelectedFlag).First()
-		if selected.Length() > 0 {
-			if title, ok := selected.Attr(participantStatusAttr); ok {
-				if mapped, known := spielerPlusStatusTitles[strings.TrimSpace(title)]; known {
-					status = mapped
-				}
+		status := ParticipationStatus(m[1])
+
+		group.Find(participantRowSelector).Each(func(_ int, row *goquery.Selection) {
+			href, _ := row.Find(participantPhotoSelector).First().Attr("href")
+			userID := userIDFromHref(href)
+			if userID == "" {
+				return
 			}
-		}
-		records = append(records, Attendance{
-			EventID:  eventID,
-			MemberID: userID,
-			Status:   status,
+			reason := strings.TrimSpace(row.Find(participantReasonSelector).First().Text())
+			records = append(records, Attendance{
+				EventID:  eventID,
+				MemberID: userID,
+				Status:   status,
+				Reason:   reason,
+			})
 		})
 	})
 	return records, nil
+}
+
+// userIDFromHref extracts the "id" query parameter from a
+// "/user/view?id=123" style href.
+func userIDFromHref(href string) string {
+	u, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("id")
 }
 
 // FetchAttendance fetches and parses the participation fragment for

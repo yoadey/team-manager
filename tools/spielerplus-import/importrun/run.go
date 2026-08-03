@@ -164,7 +164,7 @@ func importAttendance(ctx context.Context, sp *spielerplus.Client, store *db.Sto
 				summary.skip("attendance for event %s: unknown member %s (not on imported roster)", spEventID, rec.MemberID)
 				continue
 			}
-			if err := store.UpsertAttendance(ctx, ev.tvID, tvUserID, rec.Status); err != nil {
+			if err := store.UpsertAttendance(ctx, ev.tvID, tvUserID, rec.Status, rec.Reason); err != nil {
 				summary.AttendanceSkipped++
 				summary.skip("attendance for event %s, member %s: %v", spEventID, rec.MemberID, err)
 				continue

@@ -6,23 +6,25 @@ import (
 	"time"
 )
 
+// panelHTML mirrors the confirmed markup from a HAR capture of a live
+// /events page / ajaxgetevents fragment. timeValues holds 0-3
+// .event-time-value texts in the real page's fixed order (Treffen, Beginn,
+// Ende).
+func panelHTML(id, eventType, title, dateDDMM string, timeValues ...string) string {
+	var times strings.Builder
+	for _, v := range timeValues {
+		times.WriteString(`<div class="event-time-item"><div class="event-time-value">` + v + `</div></div>`)
+	}
+	return `<div class="panel" id="event-` + eventType + `-` + id + `">
+		<div class="panel-heading-info"><div class="panel-title">Mo.</div><div class="panel-subtitle">` + dateDDMM + `</div></div>
+		<div class="panel-heading-text"><div class="panel-title">` + title + `</div></div>
+		<div class="event-time">` + times.String() + `</div>
+	</div>`
+}
+
 func TestParseEvents(t *testing.T) {
-	html := `
-	<html><body>
-	<div class="events-list">
-		<div data-event-id="101" data-event-type="training">
-			<span class="title">Training</span>
-			<span class="date">12.08.</span>
-			<span class="time">18:00 - 19:30</span>
-			<span class="location">Sportplatz</span>
-		</div>
-		<div data-event-id="102" data-event-type="game">
-			<span class="title">Heimspiel</span>
-			<span class="date">19.08.</span>
-			<span class="location">Stadion</span>
-		</div>
-	</div>
-	</body></html>`
+	html := panelHTML("101", "training", "Training", "12.08", "18:50", "19:00", "20:00") +
+		panelHTML("102", "game", "Heimspiel", "19.08")
 
 	now := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
 	events, err := ParseEvents(strings.NewReader(html), now)
@@ -37,17 +39,20 @@ func TestParseEvents(t *testing.T) {
 	if training.ID != "101" || training.Type != EventTraining || training.Title != "Training" {
 		t.Errorf("training event = %+v", training)
 	}
-	wantStart := time.Date(2026, time.August, 12, 18, 0, 0, 0, time.UTC)
+	wantStart := time.Date(2026, time.August, 12, 19, 0, 0, 0, time.UTC)
 	if !training.Start.Equal(wantStart) {
 		t.Errorf("training.Start = %v, want %v", training.Start, wantStart)
 	}
-	wantEnd := time.Date(2026, time.August, 12, 19, 30, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, time.August, 12, 20, 0, 0, 0, time.UTC)
 	if !training.End.Equal(wantEnd) || training.EndIsEstimated {
 		t.Errorf("training.End = %v (estimated=%v), want %v (estimated=false)", training.End, training.EndIsEstimated, wantEnd)
 	}
-
+	wantMeet := time.Date(2026, time.August, 12, 18, 50, 0, 0, time.UTC)
+	if !training.MeetTime.Equal(wantMeet) {
+		t.Errorf("training.MeetTime = %v, want %v", training.MeetTime, wantMeet)
+	}
 	if training.TimeUnknown {
-		t.Error("training.TimeUnknown = true, want false (a time was on the page)")
+		t.Error("training.TimeUnknown = true, want false (times were on the page)")
 	}
 
 	game := events[1]
@@ -66,10 +71,25 @@ func TestParseEvents(t *testing.T) {
 	}
 }
 
+func TestParseEvents_TwoTimesMeansNoMeetTime(t *testing.T) {
+	html := panelHTML("1", "training", "Training", "12.08", "17:00", "20:00")
+	events, err := ParseEvents(strings.NewReader(html), time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ParseEvents() error = %v", err)
+	}
+	ev := events[0]
+	if !ev.MeetTime.IsZero() {
+		t.Errorf("MeetTime = %v, want zero (only 2 time values means start/end, no meet)", ev.MeetTime)
+	}
+	wantStart := time.Date(2026, time.August, 12, 17, 0, 0, 0, time.UTC)
+	if !ev.Start.Equal(wantStart) {
+		t.Errorf("Start = %v, want %v", ev.Start, wantStart)
+	}
+}
+
 func TestParseEvents_BadRowSkippedNotFatal(t *testing.T) {
-	html := `
-	<div data-event-id="1"><span class="title">Training</span><span class="date">12.08.</span></div>
-	<div data-event-id="2"><span class="date">19.08.</span></div>` // no title: should be skipped, not fatal
+	html := panelHTML("1", "training", "Training", "12.08") +
+		`<div class="panel" id="event-training-2"><div class="panel-heading-info"><div class="panel-subtitle">19.08</div></div></div>` // no title: should be skipped, not fatal
 
 	now := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
 	events, err := ParseEvents(strings.NewReader(html), now)
@@ -82,9 +102,9 @@ func TestParseEvents_BadRowSkippedNotFatal(t *testing.T) {
 }
 
 func TestParseEvents_YearRollover(t *testing.T) {
-	// A date far enough in the past relative to "now" is assumed to belong
-	// to next year (SpielerPlus's list is upcoming-only).
-	html := `<div data-event-id="1"><span class="title">Training</span><span class="date">05.01.</span></div>`
+	// A date far enough from "now" resolves to whichever year keeps it
+	// closest - here, forward into next year.
+	html := panelHTML("1", "training", "Training", "05.01")
 	now := time.Date(2026, time.December, 20, 0, 0, 0, 0, time.UTC)
 
 	events, err := ParseEvents(strings.NewReader(html), now)
@@ -105,9 +125,24 @@ func TestParseEvents_NoRowsMatched(t *testing.T) {
 }
 
 func TestParseEvents_MissingRequiredField(t *testing.T) {
-	html := `<div data-event-id="1"><span class="date">12.08.</span></div>` // no title
+	html := `<div class="panel" id="event-training-1"><div class="panel-heading-info"><div class="panel-subtitle">12.08</div></div></div>` // no title
 	_, err := ParseEvents(strings.NewReader(html), time.Now())
 	if err == nil {
 		t.Fatal("expected an error for a row missing its title")
+	}
+}
+
+func TestMapEventType(t *testing.T) {
+	cases := map[string]EventType{
+		"training":   EventTraining,
+		"game":       EventGame,
+		"tournament": EventTournament,
+		"event":      EventOther,
+		"unknown":    EventOther,
+	}
+	for slug, want := range cases {
+		if got := mapEventType(slug); got != want {
+			t.Errorf("mapEventType(%q) = %q, want %q", slug, got, want)
+		}
 	}
 }

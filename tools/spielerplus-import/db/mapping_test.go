@@ -22,10 +22,11 @@ func TestEventType(t *testing.T) {
 
 func TestAttendanceStatus(t *testing.T) {
 	cases := map[spielerplus.ParticipationStatus]string{
-		spielerplus.ParticipationAccepted:  "yes",
-		spielerplus.ParticipationDeclined:  "no",
-		spielerplus.ParticipationUnsure:    "maybe",
-		spielerplus.ParticipationNoResonse: "pending",
+		spielerplus.ParticipationAccepted:     "yes",
+		spielerplus.ParticipationDeclined:     "no",
+		spielerplus.ParticipationUnsure:       "maybe",
+		spielerplus.ParticipationNoResponse:   "pending",
+		spielerplus.ParticipationNotNominated: "not_nominated",
 	}
 	for in, want := range cases {
 		if got := attendanceStatus(in); got != want {

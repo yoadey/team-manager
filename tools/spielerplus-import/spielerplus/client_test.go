@@ -1,6 +1,7 @@
 package spielerplus
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +10,27 @@ import (
 	"time"
 )
 
+// eventRowHTML matches the confirmed markup from a HAR capture of a live
+// /events page / ajaxgetevents fragment: a `.panel` with id
+// "event-training-<id>", title under `.panel-heading-text .panel-title`,
+// and the year-less date under `.panel-heading-info .panel-subtitle`.
 func eventRowHTML(id, dateDDMM string) string {
-	return fmt.Sprintf(`<div data-event-id="%s" data-event-type="training"><span class="title">Training</span><span class="date">%s</span></div>`, id, dateDDMM)
+	return fmt.Sprintf(`<div class="panel" id="event-training-%s">
+		<div class="panel-heading-info"><div class="panel-title">Mo.</div><div class="panel-subtitle">%s</div></div>
+		<div class="panel-heading-text"><div class="panel-title">Training</div></div>
+	</div>`, id, dateDDMM)
+}
+
+// ajaxHTMLEnvelope wraps html the way ajaxgetevents/ajaxgetparticipation
+// really do ({"html": "...", "count": N} / {"html": "..."}), confirmed from
+// a HAR capture.
+func ajaxHTMLEnvelope(t *testing.T, html string, count int) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"html": html, "count": count})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // newTestClient points a Client at an httptest server instead of the real
@@ -33,7 +53,7 @@ func TestClient_FetchEvents_PaginatesUntilEmpty(t *testing.T) {
 	var ajaxCalls []string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, eventRowHTML("1", "01.08."))
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
 	})
 	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-Requested-With"); got != "XMLHttpRequest" {
@@ -48,12 +68,12 @@ func TestClient_FetchEvents_PaginatesUntilEmpty(t *testing.T) {
 
 		switch offset {
 		case "0":
-			fmt.Fprint(w, eventRowHTML("2", "25.07."))
+			fmt.Fprint(w, ajaxHTMLEnvelope(t, eventRowHTML("2", "25.07"), 1))
 		case "5":
-			fmt.Fprint(w, eventRowHTML("3", "18.07."))
+			fmt.Fprint(w, ajaxHTMLEnvelope(t, eventRowHTML("3", "18.07"), 1))
 		default:
-			// end of history: no rows.
-			fmt.Fprint(w, `<html><body></body></html>`)
+			// end of history: count 0.
+			fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
 		}
 	})
 
@@ -74,7 +94,7 @@ func TestClient_FetchEvents_PaginatesUntilEmpty(t *testing.T) {
 			t.Errorf("events[%d].ID = %q, want %q", i, gotIDs[i], wantIDs[i])
 		}
 	}
-	// Event 3 (18.07.) resolved relative to event 2 (25.07.2026) must stay
+	// Event 3 (18.07) resolved relative to event 2 (25.07.2026) must stay
 	// in 2026, not jump forward/back a year.
 	if events[2].Start.Year() != 2026 {
 		t.Errorf("events[2].Start = %v, want year 2026", events[2].Start)
@@ -94,10 +114,10 @@ func TestClient_FetchEvents_PaginatesUntilEmpty(t *testing.T) {
 func TestClient_FetchEvents_NoHistoryPages(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, eventRowHTML("1", "01.08."))
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
 	})
 	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `<html><body></body></html>`)
+		fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
 	})
 
 	c := newTestClient(t, mux)
@@ -125,7 +145,13 @@ func TestClient_FetchAttendance_SendsEventIDAndType(t *testing.T) {
 		if got := r.Header.Get("X-Requested-With"); got != "XMLHttpRequest" {
 			t.Errorf("X-Requested-With = %q, want XMLHttpRequest", got)
 		}
-		fmt.Fprint(w, `<div data-user-id="7"><span class="selected" title="Zugesagt">x</span></div>`)
+		html := `<div class="collapse in" id="1-parti-collapse">
+			<div class="participation-list-user">
+				<a class="participation-list-user-photo" href="/user/view?id=7"></a>
+			</div>
+		</div>`
+		b, _ := json.Marshal(map[string]string{"html": html})
+		w.Write(b)
 	})
 
 	c := newTestClient(t, mux)

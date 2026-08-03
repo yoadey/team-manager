@@ -10,21 +10,37 @@ than called via JSON API. From those projects we already know concrete details f
 login and events/attendance; absences and the member/role list have no reference and
 must be reverse-engineered live against a real account during implementation.
 
-A HAR capture of a live session (browsing events, a training's participation widget,
-and the absences pages) confirmed several endpoints directly, though the capture did
-not include response bodies (headers/URLs only), so page/fragment *markup* remains
-unverified: `GET /events` (initial page) followed by `POST /events/ajaxgetevents`
-(`offset`/`old` form fields) is how the real frontend pages both forward and backward
-through history - this answers what was previously an open question about reaching
-historical events. `POST /events/ajaxgetparticipation` (`eventid`/`eventtype` form
-fields) is the real per-event attendance endpoint, called from a `GET
-/training/view?id=...` detail page - it's unconfirmed whether it returns every
-member's status (what this importer needs) or only the caller's own, since it was only
-observed being called from a single training's detail page. `GET /absence` (not
-`/absences`) is the real absences list, with `GET /absence/update?id=...` as a
-per-record detail/edit page. `GET /team` is the best candidate for the member roster
-(a `GET /site/team` was also observed and returns 200, but its role is unconfirmed -
-plausibly a team-switcher/settings page rather than the roster).
+A first HAR capture of a live session (browsing events, a training's participation
+widget, and the absences pages) confirmed several endpoints directly, though it did
+not include response bodies (headers/URLs only): `GET /events` (initial page)
+followed by `POST /events/ajaxgetevents` (`offset`/`old` form fields) is how the real
+frontend pages both forward and backward through history - answering what was
+previously an open question about reaching historical events. `POST
+/events/ajaxgetparticipation` (`eventid`/`eventtype` form fields) is the real
+per-event attendance endpoint. `GET /absence` (not `/absences`) is the real absences
+list, with `GET /absence/update?id=...` as a per-record detail/edit page. `GET /team`
+is the best candidate for the member roster (a `GET /site/team` was also observed and
+returns 200, role unconfirmed).
+
+A second HAR capture (of the same kind of session, this time exported with response
+bodies included) confirmed the actual markup for events and attendance, closing what
+were previously open questions there: events are `div.panel[id="event-{type}-{id}"]`
+with the title under `.panel-heading-text .panel-title`, the year-less date ("DD.MM",
+no trailing dot - the earlier guessed format had one) under `.panel-heading-info
+.panel-subtitle`, and up to three `.event-time-item .event-time-value` elements for
+meet/start/end times, read positionally rather than by their German label text so
+parsing doesn't depend on the account's display language. `ajaxgetevents` and
+`ajaxgetparticipation` both turned out to return a JSON envelope
+(`{"html": "...", "count": N}` / `{"html": "..."}`), not raw HTML - `count` is the
+authoritative end-of-pagination signal. Critically, `ajaxgetparticipation`'s HTML
+groups *every* team member by status under `<div id="{code}-parti-collapse">`,
+confirming it's the trainer/full-roster view this importer needs, not a self-only one
+as the earlier open question worried - the numeric group code (not the localized label
+text) maps 1:1 onto Teamverwaltung's `attendance.status` enum, including SpielerPlus's
+own "Nicht nominiert" group mapping directly onto `not_nominated`. `spielerplus/events.go`
+and `spielerplus/attendance.go` were rewritten to match. This second capture was
+truncated before reaching the member roster or absences pages, so those two remain
+unverified guesses (see tasks.md 2.4/2.5).
 
 The user has decided this is a standalone tool, not backend-integrated, written in Go,
 authenticating to SpielerPlus with a manually-captured browser session cookie, using a

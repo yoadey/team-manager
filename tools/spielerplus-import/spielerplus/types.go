@@ -5,15 +5,19 @@ package spielerplus
 
 import "time"
 
-// ParticipationStatus is SpielerPlus's own attendance vocabulary, read off
-// the "selected" participation button's title attribute on an event page.
+// ParticipationStatus is SpielerPlus's own attendance vocabulary. Confirmed
+// from a HAR capture of a live ajaxgetparticipation response: members are
+// grouped under a `<div id="{code}-parti-collapse">`, one group per status -
+// the numeric code (not the group's German label text) is what's matched
+// here, so this doesn't depend on the account's display language.
 type ParticipationStatus string
 
 const (
-	ParticipationAccepted  ParticipationStatus = "accepted" // "Zugesagt"
-	ParticipationUnsure    ParticipationStatus = "unsure"   // "Unsicher"
-	ParticipationDeclined  ParticipationStatus = "declined" // "Absagen / Abwesend"
-	ParticipationNoResonse ParticipationStatus = "no_response"
+	ParticipationAccepted     ParticipationStatus = "1"  // "Zugesagt"
+	ParticipationUnsure       ParticipationStatus = "2"  // "Unsicher"
+	ParticipationDeclined     ParticipationStatus = "0"  // "Absagen / Abwesend"
+	ParticipationNoResponse   ParticipationStatus = "99" // "Noch nicht zu/abgesagt"
+	ParticipationNotNominated ParticipationStatus = "3"  // "Nicht nominiert" - maps directly to Teamverwaltung's own not_nominated status
 )
 
 // EventType mirrors SpielerPlus's own event type classification.
@@ -45,6 +49,9 @@ type Event struct {
 	// estimated) - Start's time-of-day is a meaningless midnight default in
 	// that case and callers should not write it out as a real start time.
 	TimeUnknown bool
+	// MeetTime is SpielerPlus's separate "Treffen" (meet-up) time, distinct
+	// from Start ("Beginn"). Zero if the page didn't show one.
+	MeetTime time.Time
 }
 
 // Attendance is one member's participation status for one event.
@@ -52,6 +59,9 @@ type Attendance struct {
 	EventID  string
 	MemberID string
 	Status   ParticipationStatus
+	// Reason is the free-text reason the member gave for a decline/absence,
+	// if any (empty otherwise).
+	Reason string
 }
 
 // Member is a SpielerPlus team member/roster entry.

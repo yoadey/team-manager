@@ -16,29 +16,38 @@
 - [x] 2.2 Parse the events list (`GET /events`) into structured events (type, title,
       date, time, location); resolve the "no year in the date" ambiguity and determine
       how to reach historical (non-upcoming) events, not just the default view.
-      **Confirmed from a HAR capture of a live session** (headers/URLs only, no
-      response bodies): the real frontend follows `GET /events` with `POST
-      /events/ajaxgetevents` (`offset` incrementing by 5, `old=true`) to page further
-      into history; `spielerplus/events.go`'s `FetchEvents` now implements this loop,
-      stopping when a page parses zero events. The year-less-date ambiguity is
-      resolved via `resolveDate`, which picks whichever year keeps a date closest to
-      the previously-resolved event in the same sequence (works walking forward *or*
-      backward, unlike the old fixed "assume next year" rule). **Still open**: whether
-      `old=true` truly needs to be resent on every page vs. only once (sent on every
-      page as the safer assumption - harmless if wrong), and whether the fragment's
-      date format/selectors match the full page's (unverified, no response body seen).
-- [ ] 2.3 Parse per-event attendance into a per-member status; map SpielerPlus states →
-      Teamverwaltung's `attendance.status` enum (`Zugesagt`→`yes`, `Unsicher`→`maybe`,
-      `Absagen/Abwesend`→`no`, no response→`pending`). **Confirmed from the HAR
-      capture**: `POST /events/ajaxgetparticipation` (`eventid`/`eventtype` form
-      fields) is the real endpoint, called from a `GET /training/view?id=...` detail
-      page - `spielerplus/attendance.go`'s `FetchAttendance` now calls it directly.
-      **Still open and important**: the capture only shows it being called from a
-      single training's detail page, so it's still unconfirmed whether the response
-      lists *every* team member's status (what this importer needs) or only the
-      caller's own (what the known community reference clients use this family of
-      endpoint for) - if it's self-only, full-roster attendance needs a different,
-      trainer-facing source. Row selectors also remain unverified (no response body).
+      **Fully confirmed from a second HAR capture that included response bodies**:
+      real markup is `div.panel[id="event-{type}-{id}"]`, title under
+      `.panel-heading-text .panel-title`, year-less date ("DD.MM", no trailing dot)
+      under `.panel-heading-info .panel-subtitle`, and up to three
+      `.event-time-item .event-time-value` elements read positionally (meet/start/end,
+      or start/end, or just start) rather than by German label text, so it doesn't
+      depend on the account's display language. `spielerplus/events.go` fully rewritten
+      to match. `POST /events/ajaxgetevents` (`offset` incrementing by 5, `old=true`)
+      pages further into history, confirmed to return a JSON envelope
+      (`{"html": ..., "count": N}`) - `count` is the authoritative end-of-history
+      signal, used directly instead of guessing from parsed-row counts. The year-less
+      date is resolved via `resolveDate`, which picks whichever year keeps a date
+      closest to the previously-resolved event in the same sequence (works walking
+      forward *or* backward). **Still open**: whether `old=true` truly needs to be
+      resent on every page vs. only once (sent on every page as the safer assumption);
+      only "training" events were present in the capture, so the row-id-derived type
+      slug for game/tournament/event is unverified; no location field was observed in
+      the capture (selector left as an unverified guess).
+- [x] 2.3 Parse per-event attendance into a per-member status; map SpielerPlus states →
+      Teamverwaltung's `attendance.status` enum. **Fully confirmed from the second HAR
+      capture, including three full response bodies**: `POST
+      /events/ajaxgetparticipation` (`eventid`/`eventtype` form fields) returns a JSON
+      envelope (`{"html": ...}`) whose HTML groups *every* team member under
+      `<div id="{code}-parti-collapse">` by status - **this resolves the earlier open
+      question: it is the full-roster trainer view, not self-only**. The numeric group
+      code maps 1:1 onto Teamverwaltung's own enum (`1`→yes, `2`→maybe, `0`→no,
+      `99`→pending, and SpielerPlus's own `3`→"Nicht nominiert" maps directly onto
+      Teamverwaltung's `not_nominated`) - matched via the code, not the group's German
+      label text. Each member's id comes from their `.participation-list-user-photo`
+      link (`/user/view?id=...`), and an optional decline reason from
+      `.participation-list-user-reason .reason-text`, now also imported into
+      `attendance.reason`. `spielerplus/attendance.go` fully rewritten to match.
 - [ ] 2.4 Reverse-engineer and parse the team member/role list (names, emails,
       SpielerPlus role). **Partially confirmed from the HAR capture**: `GET /team`
       returned 200 when the roster was viewed and is now `spielerplus/members.go`'s
@@ -55,9 +64,12 @@
       body).
 - [x] 2.6 Unit tests for all of the above against saved HTML fixtures, so future
       SpielerPlus markup changes fail a test run instead of corrupting an import.
-      Fixtures are currently synthetic (matching this code's own selectors), **not
-      yet captured from a real account** — swap in real captured markup once 2.2-2.5
-      are verified live.
+      Events/attendance (`spielerplus/events_test.go`, `attendance_test.go`,
+      `client_test.go`) now use fixtures built to match the real confirmed markup
+      structure (element/class names, JSON envelopes) - not literal captured HTML
+      (no real member data is committed to the repo), but structurally grounded rather
+      than guessed. Members/absences fixtures remain guesses, matching their
+      still-unverified selectors.
 
 ## 3. Role mapping and idempotency state (`mapping/`)
 
