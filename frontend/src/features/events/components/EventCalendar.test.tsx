@@ -87,14 +87,18 @@ function makeApp(
     absences?: { from: string; to: string; name: string; roleColor: string }[];
     members?: Member[];
     canSeeBirthdays?: boolean;
+    canCreateEvent?: boolean;
   } = {},
 ) {
   const openEventDetail = vi.fn();
+  const openEventForm = vi.fn();
   const setState = vi.fn();
   const toggleCalAbsences = vi.fn();
   const canSeeBirthdays = overrides.canSeeBirthdays ?? true;
+  const canCreateEvent = overrides.canCreateEvent ?? true;
   const can = vi.fn((module: string, level?: string) => {
     if (module === 'members' && level === 'write') return canSeeBirthdays;
+    if (module === 'events' && level === 'write') return canCreateEvent;
     return true;
   });
   const app = {
@@ -107,6 +111,7 @@ function makeApp(
     },
     can,
     openEventDetail,
+    openEventForm,
     setState,
     toggleCalAbsences,
   };
@@ -157,6 +162,75 @@ describe('EventCalendar', () => {
     const prev = screen.getByLabelText(/Vorheriger Monat|previous month/i);
     fireEvent.click(prev);
     expect(app.setState).toHaveBeenCalledWith({ calMonth: new Date(2026, 1, 1) });
+  });
+
+  it('double-clicking an in-month day cell opens the create sheet pre-dated to that day', () => {
+    const app = makeApp({ calMonth: new Date(2026, 2, 1) }); // March 2026
+    render(<EventCalendar />);
+    const cell = screen.getByText('15').parentElement!;
+    fireEvent.doubleClick(cell);
+    expect(app.openEventForm).toHaveBeenCalledWith(null, '2026-03-15');
+  });
+
+  it('double-clicking a day cell does nothing for a member without events:write', () => {
+    const app = makeApp({ calMonth: new Date(2026, 2, 1), canCreateEvent: false });
+    render(<EventCalendar />);
+    const cell = screen.getByText('15').parentElement!;
+    fireEvent.doubleClick(cell);
+    expect(app.openEventForm).not.toHaveBeenCalled();
+  });
+
+  it('double-clicking an event chip opens only the event, not the day create sheet', () => {
+    const app = makeApp({ events: [makeEvent({ id: 'ev42', date: '2026-03-10', title: 'Training' })] });
+    render(<EventCalendar />);
+    const chip = screen.getByText((content) => content.includes('Training')).closest('button')!;
+    fireEvent.doubleClick(chip);
+    expect(app.openEventForm).not.toHaveBeenCalled();
+  });
+
+  it('double-clicking an absence chip does not open the day create sheet', () => {
+    const app = makeApp({
+      calMonth: new Date(2026, 2, 1),
+      calShowAbsences: true,
+      absences: [{ from: '2026-03-10', to: '2026-03-10', name: 'Max Mustermann', roleColor: '#123456' }],
+    });
+    render(<EventCalendar />);
+    fireEvent.doubleClick(screen.getByText('Max'));
+    expect(app.openEventForm).not.toHaveBeenCalled();
+  });
+
+  it('double-clicking a birthday chip does not open the day create sheet', () => {
+    const app = makeApp({
+      calMonth: new Date(2026, 2, 1),
+      canSeeBirthdays: true,
+      members: [makeMember({ membershipId: 'ms1', name: 'Alice Example', birthday: '1990-03-10' })],
+    });
+    render(<EventCalendar />);
+    fireEvent.doubleClick(screen.getByText('Alice Example'));
+    expect(app.openEventForm).not.toHaveBeenCalled();
+  });
+
+  it('exposes a keyboard equivalent (Enter/Space) for the day create sheet, labelled with the day', () => {
+    const app = makeApp({ calMonth: new Date(2026, 2, 1) });
+    render(<EventCalendar />);
+    const cell = screen.getByText('15').parentElement!;
+    expect(cell).toHaveAttribute('role', 'button');
+    expect(cell.getAttribute('aria-label')).toMatch(/15/);
+
+    fireEvent.keyDown(cell, { key: 'Enter' });
+    expect(app.openEventForm).toHaveBeenCalledWith(null, '2026-03-15');
+
+    app.openEventForm.mockClear();
+    fireEvent.keyDown(cell, { key: ' ' });
+    expect(app.openEventForm).toHaveBeenCalledWith(null, '2026-03-15');
+  });
+
+  it('does not expose a keyboard/button role on a day cell without events:write', () => {
+    makeApp({ calMonth: new Date(2026, 2, 1), canCreateEvent: false });
+    render(<EventCalendar />);
+    const cell = screen.getByText('15').parentElement!;
+    expect(cell).not.toHaveAttribute('role', 'button');
+    expect(cell).not.toHaveAttribute('tabindex');
   });
 
   it('toggling the "show absences" checkbox calls app.toggleCalAbsences', () => {

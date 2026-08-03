@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { useCompact } from '@/layouts/useCompact';
-import { buildTokens, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
+import { buildTokens, fmtDateLong, hhmm, typeMeta, NEUTRAL } from '@/styles/tokens';
 import { formatDateOnly, parseDateOnlyLocal, todayLocalDate } from '@/utils/date';
 import { getIntlLocale, t } from '@/i18n';
 import { Sym, Card } from '@/components/ui';
@@ -49,6 +49,7 @@ function EventChip({ event, mobile, onOpen }: { event: TeamEvent; mobile: boolea
   return (
     <ButtonBase
       onClick={onOpen}
+      onDoubleClick={(e) => e.stopPropagation()}
       sx={{
         display: 'block',
         width: '100%',
@@ -74,6 +75,7 @@ function EventChip({ event, mobile, onOpen }: { event: TeamEvent; mobile: boolea
 function AbsenceChip({ absence, mobile }: { absence: Absence; mobile: boolean }) {
   return (
     <Box
+      onDoubleClick={(e) => e.stopPropagation()}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -104,6 +106,7 @@ function AbsenceChip({ absence, mobile }: { absence: Absence; mobile: boolean })
 function BirthdayChip({ entry, mobile }: { entry: BirthdayEntry; mobile: boolean }) {
   return (
     <Box
+      onDoubleClick={(e) => e.stopPropagation()}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -136,6 +139,10 @@ interface CalendarDayCellProps {
   absences: Absence[];
   birthdays: BirthdayEntry[];
   onOpenEvent: (id: string) => void;
+  // Explicit `| undefined` (exactOptionalPropertyTypes) -- the caller passes
+  // `undefined` for out-of-month/no-permission cells to mean "not creatable
+  // here", distinct from simply omitting the prop.
+  onCreateEvent?: (() => void) | undefined;
 }
 
 function CalendarDayCell({
@@ -149,14 +156,32 @@ function CalendarDayCell({
   absences,
   birthdays,
   onOpenEvent,
+  onCreateEvent,
 }: CalendarDayCellProps) {
   const eventLimit = mobile ? 2 : 3;
   const absenceLimit = mobile ? 1 : 2;
   const visibleEvents = events.slice(0, eventLimit);
   const visibleAbsences = absences.slice(0, absenceLimit);
+  // Double-click is the primary gesture, but a div with an onDoubleClick has
+  // no keyboard equivalent by default -- expose the same action as a
+  // focusable "button" (Enter/Space) so the day isn't a mouse-only affordance.
+  const createLabel = onCreateEvent ? t('events.calCreateEventOnDay', { date: fmtDateLong(formatDateOnly(date)) }) : undefined;
+  const onKeyDown = onCreateEvent
+    ? (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onCreateEvent();
+        }
+      }
+    : undefined;
 
   return (
     <Box
+      onDoubleClick={onCreateEvent}
+      onKeyDown={onKeyDown}
+      role={onCreateEvent ? 'button' : undefined}
+      tabIndex={onCreateEvent ? 0 : undefined}
+      aria-label={createLabel}
       sx={{
         minHeight: mobile ? '58px' : '76px',
         border: `1px solid ${NEUTRAL.line2}`,
@@ -168,6 +193,14 @@ function CalendarDayCell({
         flexDirection: 'column',
         gap: '2px',
         overflow: 'hidden',
+        ...(onCreateEvent
+          ? {
+              cursor: 'pointer',
+              userSelect: 'none',
+              '&:hover': { background: NEUTRAL.sidebar },
+              '&:focus-visible': { outline: `2px solid ${primary}`, outlineOffset: '-2px' },
+            }
+          : {}),
       }}
     >
       <Box
@@ -223,6 +256,7 @@ export function EventCalendar() {
   // reaches the DOM for them.
   const canSeeBirthdays = app.can('members', 'write');
   const { data: members } = useMembersQuery(app.api, canSeeBirthdays ? state.activeTeamId : null);
+  const canCreateEvent = app.can('events', 'write');
 
   const cur = state.calMonth || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const year = cur.getFullYear();
@@ -263,11 +297,12 @@ export function EventCalendar() {
   for (let i = 0; i < 42; i++) {
     const d = new Date(year, month, 1 - startDow + i);
     const ds = formatDateOnly(d);
+    const inMonth = d.getMonth() === month;
     cells.push(
       <CalendarDayCell
         key={'c' + i}
         date={d}
-        inMonth={d.getMonth() === month}
+        inMonth={inMonth}
         isToday={ds === today}
         mobile={mobile}
         primary={tk.primary}
@@ -276,6 +311,7 @@ export function EventCalendar() {
         absences={absByDate[ds] || []}
         birthdays={birthdaysByDate[ds] || []}
         onOpenEvent={app.openEventDetail}
+        onCreateEvent={inMonth && canCreateEvent ? () => app.openEventForm(null, ds) : undefined}
       />,
     );
   }
