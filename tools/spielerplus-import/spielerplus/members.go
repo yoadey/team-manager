@@ -3,6 +3,7 @@ package spielerplus
 import (
 	"fmt"
 	"io"
+	"log"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -35,12 +36,16 @@ func ParseMembers(body io.Reader) ([]Member, error) {
 		return nil, fmt.Errorf("spielerplus: no member rows matched selector %q - this page/selector is an unverified guess (see tasks.md 2.4), inspect the real roster page and update members.go", memberRowSelector)
 	}
 
+	// See events.go's ParseEvents for why individually malformed rows are
+	// logged and skipped rather than aborting the whole roster - a single
+	// member missing an email shouldn't block importing everyone else.
 	var members []Member
-	var errs []string
+	var skipped int
 	rows.Each(func(i int, row *goquery.Selection) {
 		id, ok := row.Attr("data-user-id")
 		if !ok || id == "" {
-			errs = append(errs, fmt.Sprintf("row %d: missing data-user-id", i))
+			skipped++
+			log.Printf("spielerplus: skipping member row %d: missing data-user-id", i)
 			return
 		}
 		name := strings.TrimSpace(row.Find(memberNameSelector).First().Text())
@@ -52,14 +57,18 @@ func ParseMembers(body io.Reader) ([]Member, error) {
 		role := strings.TrimSpace(row.Find(memberRoleSelector).First().Text())
 
 		if name == "" || email == "" {
-			errs = append(errs, fmt.Sprintf("row %d (user %s): missing name or email", i, id))
+			skipped++
+			log.Printf("spielerplus: skipping member row %d (user %s): missing name or email", i, id)
 			return
 		}
 		members = append(members, Member{ID: id, Name: name, Email: email, Role: role})
 	})
 
-	if len(errs) > 0 {
-		return members, fmt.Errorf("spielerplus: failed to parse %d/%d member row(s): %s", len(errs), rows.Length(), strings.Join(errs, "; "))
+	if len(members) == 0 {
+		return nil, fmt.Errorf("spielerplus: %d member row(s) matched selector %q but none parsed successfully - selectors likely need adjusting, see logged per-row errors above", rows.Length(), memberRowSelector)
+	}
+	if skipped > 0 {
+		log.Printf("spielerplus: imported %d member(s), skipped %d that failed to parse", len(members), skipped)
 	}
 	return members, nil
 }

@@ -82,7 +82,11 @@ func printSummary(w *os.File, s *importrun.Summary, dryRun bool) {
 	fmt.Fprintf(w, "\n--- spielerplus-import summary (dry-run=%v) ---\n", dryRun)
 	fmt.Fprintf(w, "members: %d %s, %d already existed\n", s.MembersCreated, verb, s.MembersExisting)
 	fmt.Fprintf(w, "events: %d %s, %d already imported (skipped)\n", s.EventsCreated, verb, s.EventsSkipped)
-	fmt.Fprintf(w, "attendance: %d written, %d skipped\n", s.AttendanceWritten, s.AttendanceSkipped)
+	attendanceVerb := "written"
+	if dryRun {
+		attendanceVerb = "would be written"
+	}
+	fmt.Fprintf(w, "attendance: %d %s, %d skipped\n", s.AttendanceWritten, attendanceVerb, s.AttendanceSkipped)
 	fmt.Fprintf(w, "absences: %d %s, %d skipped\n", s.AbsencesCreated, verb, s.AbsencesSkipped)
 	if len(s.SkipReasons) > 0 {
 		fmt.Fprintln(w, "skip reasons:")

@@ -2,9 +2,11 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // RoleIDByName resolves an existing role name (created ahead of time through
@@ -29,6 +31,9 @@ func (s *Store) EnsureMembership(ctx context.Context, teamID, userID, roleID str
 	err = s.Pool.QueryRow(ctx, `SELECT id FROM memberships WHERE team_id = $1 AND user_id = $2`, teamID, userID).Scan(&membershipID)
 	if err == nil {
 		return false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return false, fmt.Errorf("db: look up membership (team %s, user %s): %w", teamID, userID, err)
 	}
 
 	if s.DryRun {

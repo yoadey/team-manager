@@ -3,6 +3,7 @@ package spielerplus
 import (
 	"fmt"
 	"io"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -47,19 +48,31 @@ func ParseEvents(body io.Reader, now time.Time) ([]Event, error) {
 		return nil, fmt.Errorf("spielerplus: no event rows matched selector %q - SpielerPlus markup likely changed, inspect the /events page and update eventRowSelector in events.go", eventRowSelector)
 	}
 
+	// A row-selector match with zero successfully-parsed rows means the
+	// selector is matching the wrong elements (or the page layout changed in
+	// a way parseEventRow can't handle at all) - that's still worth failing
+	// loudly on. A handful of individually malformed rows among many good
+	// ones (an oddly-formatted one-off event, a cancelled fixture with no
+	// time) should not abort importing everything else - those are logged
+	// and skipped instead, so one bad row can't block an entire historical
+	// import.
 	var events []Event
-	var parseErrs []string
+	var skipped int
 	rows.Each(func(i int, row *goquery.Selection) {
 		ev, err := parseEventRow(row, now)
 		if err != nil {
-			parseErrs = append(parseErrs, fmt.Sprintf("row %d: %v", i, err))
+			skipped++
+			log.Printf("spielerplus: skipping event row %d: %v", i, err)
 			return
 		}
 		events = append(events, ev)
 	})
 
-	if len(parseErrs) > 0 {
-		return events, fmt.Errorf("spielerplus: failed to parse %d/%d event row(s): %s", len(parseErrs), rows.Length(), strings.Join(parseErrs, "; "))
+	if len(events) == 0 {
+		return nil, fmt.Errorf("spielerplus: %d event row(s) matched selector %q but none parsed successfully - selectors likely need adjusting, see logged per-row errors above", rows.Length(), eventRowSelector)
+	}
+	if skipped > 0 {
+		log.Printf("spielerplus: imported %d event(s), skipped %d that failed to parse", len(events), skipped)
 	}
 	return events, nil
 }
@@ -77,7 +90,7 @@ func parseEventRow(row *goquery.Selection, now time.Time) (Event, error) {
 
 	dateText := strings.TrimSpace(row.Find(eventDateSelector).First().Text())
 	timeText := strings.TrimSpace(row.Find(eventTimeSelector).First().Text())
-	start, endIsEstimated, end, err := parseDateTime(dateText, timeText, now)
+	start, endIsEstimated, end, timeUnknown, err := parseDateTime(dateText, timeText, now)
 	if err != nil {
 		return Event{}, fmt.Errorf("event %s: %w", id, err)
 	}
@@ -93,6 +106,7 @@ func parseEventRow(row *goquery.Selection, now time.Time) (Event, error) {
 		Start:          start,
 		End:            end,
 		EndIsEstimated: endIsEstimated,
+		TimeUnknown:    timeUnknown,
 	}, nil
 }
 
@@ -114,19 +128,22 @@ func mapEventType(raw string) EventType {
 const dayMonthLayout = "02.01."
 
 // parseDateTime resolves a SpielerPlus "DD.MM." date plus an optional
-// "HH:MM - HH:MM" (or single "HH:MM") time string into a start/end time. The
-// year is inferred relative to now: if the resulting date would be more than
-// ~2 months in the past, it's assumed to belong to next year, matching how
-// the reference implementations handle SpielerPlus's upcoming-only event
-// list. For historical imports where dates are further in the past, prefer
-// a date source that includes the year if/when one is found on the site.
-func parseDateTime(dateText, timeText string, now time.Time) (start time.Time, endIsEstimated bool, end time.Time, err error) {
+// "HH:MM - HH:MM" (or single "HH:MM") time string into a start/end time.
+//
+// The year-inference heuristic below (assume "next year" once a date is more
+// than ~2 months in the past) is only valid for SpielerPlus's upcoming-only
+// event list. It must NOT be reused as-is once a historical/archive view is
+// wired up (tasks.md 2.2) - applied to genuinely past dates it would
+// silently roll them forward by a year. Whoever adds historical event
+// support needs a date source that includes the year, or a separate
+// resolution path that doesn't make this "upcoming" assumption.
+func parseDateTime(dateText, timeText string, now time.Time) (start time.Time, endIsEstimated bool, end time.Time, timeUnknown bool, err error) {
 	if dateText == "" {
-		return time.Time{}, false, time.Time{}, fmt.Errorf("missing date")
+		return time.Time{}, false, time.Time{}, false, fmt.Errorf("missing date")
 	}
 	parsed, err := time.Parse(dayMonthLayout, dateText)
 	if err != nil {
-		return time.Time{}, false, time.Time{}, fmt.Errorf("parse date %q: %w", dateText, err)
+		return time.Time{}, false, time.Time{}, false, fmt.Errorf("parse date %q: %w", dateText, err)
 	}
 
 	year := now.Year()
@@ -136,28 +153,31 @@ func parseDateTime(dateText, timeText string, now time.Time) (start time.Time, e
 	}
 
 	startHM, endHM, hasTime := splitTimeRange(timeText)
-	if hasTime {
-		sh, sm, perr := parseHM(startHM)
-		if perr != nil {
-			return time.Time{}, false, time.Time{}, fmt.Errorf("parse start time %q: %w", timeText, perr)
-		}
-		start = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), sh, sm, 0, 0, now.Location())
-	} else {
-		start = candidate
+	if !hasTime {
+		// No time information at all on the page: Start's time-of-day is a
+		// meaningless midnight placeholder, not a real start time - flag it
+		// so callers (db.InsertEvent) don't write out a fake 00:00 slot.
+		return candidate, true, candidate.Add(2 * time.Hour), true, nil
 	}
+
+	sh, sm, perr := parseHM(startHM)
+	if perr != nil {
+		return time.Time{}, false, time.Time{}, false, fmt.Errorf("parse start time %q: %w", timeText, perr)
+	}
+	start = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), sh, sm, 0, 0, now.Location())
 
 	if endHM != "" {
 		eh, em, perr := parseHM(endHM)
 		if perr != nil {
-			return time.Time{}, false, time.Time{}, fmt.Errorf("parse end time %q: %w", timeText, perr)
+			return time.Time{}, false, time.Time{}, false, fmt.Errorf("parse end time %q: %w", timeText, perr)
 		}
 		end = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), eh, em, 0, 0, now.Location())
-		return start, false, end, nil
+		return start, false, end, false, nil
 	}
 
-	// No end time on the page: estimate start + 2h, same fallback the
-	// reference implementations use.
-	return start, true, start.Add(2 * time.Hour), nil
+	// A start time is known but no end time on the page: estimate start +
+	// 2h, same fallback the reference implementations use.
+	return start, true, start.Add(2 * time.Hour), false, nil
 }
 
 func splitTimeRange(s string) (start, end string, ok bool) {

@@ -46,6 +46,10 @@ func TestParseEvents(t *testing.T) {
 		t.Errorf("training.End = %v (estimated=%v), want %v (estimated=false)", training.End, training.EndIsEstimated, wantEnd)
 	}
 
+	if training.TimeUnknown {
+		t.Error("training.TimeUnknown = true, want false (a time was on the page)")
+	}
+
 	game := events[1]
 	if game.ID != "102" || game.Type != EventGame {
 		t.Errorf("game event = %+v", game)
@@ -53,9 +57,27 @@ func TestParseEvents(t *testing.T) {
 	if !game.EndIsEstimated {
 		t.Errorf("game.EndIsEstimated = false, want true (no time on page)")
 	}
+	if !game.TimeUnknown {
+		t.Error("game.TimeUnknown = false, want true (no time information at all on the page)")
+	}
 	wantGameEnd := game.Start.Add(2 * time.Hour)
 	if !game.End.Equal(wantGameEnd) {
 		t.Errorf("game.End = %v, want %v", game.End, wantGameEnd)
+	}
+}
+
+func TestParseEvents_BadRowSkippedNotFatal(t *testing.T) {
+	html := `
+	<div data-event-id="1"><span class="title">Training</span><span class="date">12.08.</span></div>
+	<div data-event-id="2"><span class="date">19.08.</span></div>` // no title: should be skipped, not fatal
+
+	now := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	events, err := ParseEvents(strings.NewReader(html), now)
+	if err != nil {
+		t.Fatalf("ParseEvents() error = %v, want a good row alongside a bad one to succeed", err)
+	}
+	if len(events) != 1 || events[0].ID != "1" {
+		t.Fatalf("events = %+v, want only event 1 (event 2's bad row skipped)", events)
 	}
 }
 

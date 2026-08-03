@@ -40,6 +40,11 @@ type Event struct {
 	// approach for the same gap in SpielerPlus's markup.
 	EndIsEstimated bool
 	End            time.Time
+	// TimeUnknown is true when the page showed no time information at all
+	// for this event (as opposed to a start time with only the end
+	// estimated) - Start's time-of-day is a meaningless midnight default in
+	// that case and callers should not write it out as a real start time.
+	TimeUnknown bool
 }
 
 // Attendance is one member's participation status for one event.

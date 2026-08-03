@@ -166,11 +166,29 @@ func importAttendance(ctx context.Context, sp *spielerplus.Client, store *db.Sto
 	}
 }
 
+// dateRange is a half-open-free [from, to] pair (both inclusive), used to
+// track absences accepted earlier in the *same* run.
+type dateRange struct{ from, to time.Time }
+
+func (r dateRange) overlaps(other dateRange) bool {
+	return !r.to.Before(other.from) && !other.to.Before(r.from)
+}
+
 func importAbsences(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Options, memberIDs map[string]string, summary *Summary) error {
 	absences, err := sp.FetchAbsences(opts.Now)
 	if err != nil {
 		return fmt.Errorf("importrun: fetch absences: %w", err)
 	}
+
+	// InsertAbsence's overlap check only sees rows already committed to the
+	// database. In a real run that's enough (each absence is written
+	// immediately, so the next one sees it) - but in --dry-run mode nothing
+	// is ever actually written, so two overlapping absences *within this
+	// same run* would both be reported as "would create" even though a real
+	// run would only accept the first and skip the second. Track
+	// this-run acceptances locally so dry-run reporting matches what a real
+	// run would do.
+	acceptedThisRun := map[string][]dateRange{} // tvUserID -> ranges
 
 	for _, a := range absences {
 		if _, already := opts.State.Absences[a.ID]; already {
@@ -184,6 +202,13 @@ func importAbsences(ctx context.Context, sp *spielerplus.Client, store *db.Store
 			continue
 		}
 
+		candidate := dateRange{from: a.From, to: a.To}
+		if overlapsAny(acceptedThisRun[tvUserID], candidate) {
+			summary.AbsencesSkipped++
+			summary.skip("absence %s (member %s): overlaps another absence imported earlier in this run", a.ID, a.MemberID)
+			continue
+		}
+
 		tvID, err := store.InsertAbsence(ctx, opts.TeamID, tvUserID, a.From, a.To, a.Reason)
 		if err != nil {
 			if errors.Is(err, db.ErrAbsenceSkipped) {
@@ -194,6 +219,7 @@ func importAbsences(ctx context.Context, sp *spielerplus.Client, store *db.Store
 			return fmt.Errorf("importrun: insert absence %s: %w", a.ID, err)
 		}
 		summary.AbsencesCreated++
+		acceptedThisRun[tvUserID] = append(acceptedThisRun[tvUserID], candidate)
 
 		if !store.DryRun {
 			opts.State.Absences[a.ID] = tvID
@@ -203,4 +229,13 @@ func importAbsences(ctx context.Context, sp *spielerplus.Client, store *db.Store
 		}
 	}
 	return nil
+}
+
+func overlapsAny(ranges []dateRange, candidate dateRange) bool {
+	for _, r := range ranges {
+		if r.overlaps(candidate) {
+			return true
+		}
+	}
+	return false
 }

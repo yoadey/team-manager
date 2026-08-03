@@ -46,7 +46,11 @@ func NewClient(sessionCookie string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("spielerplus: parse base url: %w", err)
 	}
-	jar.SetCookies(base, parseCookieHeader(sessionCookie))
+	cookies := parseCookieHeader(sessionCookie)
+	if len(cookies) == 0 {
+		return nil, fmt.Errorf("spielerplus: SPIELERPLUS_SESSION_COOKIE did not contain any name=value pairs - paste the full Cookie header value captured from a logged-in browser session")
+	}
+	jar.SetCookies(base, cookies)
 
 	return &Client{
 		httpClient: &http.Client{

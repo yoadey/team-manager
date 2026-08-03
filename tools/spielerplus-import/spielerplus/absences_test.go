@@ -35,6 +35,26 @@ func TestParseAbsences_NonRecurring(t *testing.T) {
 	}
 }
 
+func TestParseAbsences_BadRowSkippedNotFatal(t *testing.T) {
+	html := `
+	<div data-absence-id="1" data-user-id="1">
+		<span class="from">01.06.2026</span>
+		<span class="to">10.06.2026</span>
+	</div>
+	<div data-absence-id="2" data-user-id="2">
+		<span class="from">not-a-date</span>
+		<span class="to">10.06.2026</span>
+	</div>`
+
+	raws, err := parseAbsences(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("parseAbsences() error = %v, want a good row alongside a bad one to succeed", err)
+	}
+	if len(raws) != 1 || raws[0].id != "1" {
+		t.Fatalf("raws = %+v, want only absence 1 (absence 2's bad row skipped)", raws)
+	}
+}
+
 func TestExpandAbsences_NonRecurringPassesThrough(t *testing.T) {
 	raws := []rawAbsence{{
 		id:       "9",

@@ -3,6 +3,7 @@ package spielerplus
 import (
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -54,13 +55,16 @@ func parseAbsences(body io.Reader) ([]rawAbsence, error) {
 		return nil, fmt.Errorf("spielerplus: no absence rows matched selector %q - this page/selector is an unverified guess (see tasks.md 2.5), inspect the real absences page and update absences.go", absenceRowSelector)
 	}
 
+	// See events.go's ParseEvents for why individually malformed rows are
+	// logged and skipped rather than aborting the whole page.
 	var raws []rawAbsence
-	var errs []string
+	var skipped int
 	rows.Each(func(i int, row *goquery.Selection) {
 		id, _ := row.Attr("data-absence-id")
 		memberID, _ := row.Attr(absenceMemberAttr)
 		if id == "" || memberID == "" {
-			errs = append(errs, fmt.Sprintf("row %d: missing absence/user id", i))
+			skipped++
+			log.Printf("spielerplus: skipping absence row %d: missing absence/user id", i)
 			return
 		}
 
@@ -68,12 +72,14 @@ func parseAbsences(body io.Reader) ([]rawAbsence, error) {
 		toText := strings.TrimSpace(row.Find(absenceToSelector).First().Text())
 		from, err := time.Parse(dateLayout, fromText)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("row %d (absence %s): parse from date %q: %v", i, id, fromText, err))
+			skipped++
+			log.Printf("spielerplus: skipping absence row %d (absence %s): parse from date %q: %v", i, id, fromText, err)
 			return
 		}
 		to, err := time.Parse(dateLayout, toText)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("row %d (absence %s): parse to date %q: %v", i, id, toText, err))
+			skipped++
+			log.Printf("spielerplus: skipping absence row %d (absence %s): parse to date %q: %v", i, id, toText, err)
 			return
 		}
 
@@ -83,7 +89,8 @@ func parseAbsences(body io.Reader) ([]rawAbsence, error) {
 		if wd, ok := row.Attr(absenceRecurringWeekdayAttr); ok && wd != "" {
 			parsed, perr := parseWeekday(wd)
 			if perr != nil {
-				errs = append(errs, fmt.Sprintf("row %d (absence %s): parse recurring weekday %q: %v", i, id, wd, perr))
+				skipped++
+				log.Printf("spielerplus: skipping absence row %d (absence %s): parse recurring weekday %q: %v", i, id, wd, perr)
 				return
 			}
 			weekday = &parsed
@@ -99,8 +106,11 @@ func parseAbsences(body io.Reader) ([]rawAbsence, error) {
 		})
 	})
 
-	if len(errs) > 0 {
-		return raws, fmt.Errorf("spielerplus: failed to parse %d/%d absence row(s): %s", len(errs), rows.Length(), strings.Join(errs, "; "))
+	if len(raws) == 0 {
+		return nil, fmt.Errorf("spielerplus: %d absence row(s) matched selector %q but none parsed successfully - selectors likely need adjusting, see logged per-row errors above", rows.Length(), absenceRowSelector)
+	}
+	if skipped > 0 {
+		log.Printf("spielerplus: parsed %d absence(s), skipped %d that failed to parse", len(raws), skipped)
 	}
 	return raws, nil
 }

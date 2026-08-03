@@ -43,6 +43,20 @@ func TestParseMembers_MissingEmail(t *testing.T) {
 	}
 }
 
+func TestParseMembers_BadRowSkippedNotFatal(t *testing.T) {
+	html := `
+	<div data-user-id="1"><span class="name">Anna Trainer</span><span class="email">anna@example.com</span></div>
+	<div data-user-id="2"><span class="name">No Email</span></div>`
+
+	members, err := ParseMembers(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("ParseMembers() error = %v, want a good row alongside a bad one to succeed", err)
+	}
+	if len(members) != 1 || members[0].ID != "1" {
+		t.Fatalf("members = %+v, want only member 1 (member 2's bad row skipped)", members)
+	}
+}
+
 func TestParseMembers_NoRowsMatched(t *testing.T) {
 	_, err := ParseMembers(strings.NewReader(`<html><body>empty</body></html>`))
 	if err == nil {

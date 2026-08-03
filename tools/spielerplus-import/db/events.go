@@ -35,11 +35,16 @@ func (s *Store) InsertEvent(ctx context.Context, teamID string, ev spielerplus.E
 
 	newID := uuid.NewString()
 	var startTime, endTime any
-	if !ev.Start.IsZero() {
-		startTime = ev.Start.Format("15:04:05")
-	}
-	if !ev.End.IsZero() {
-		endTime = ev.End.Format("15:04:05")
+	// A page that gave no time information at all has a meaningless
+	// midnight Start/End placeholder (see spielerplus.parseDateTime) -
+	// leave both columns NULL rather than importing a fake 00:00-02:00 slot.
+	if !ev.TimeUnknown {
+		if !ev.Start.IsZero() {
+			startTime = ev.Start.Format("15:04:05")
+		}
+		if !ev.End.IsZero() {
+			endTime = ev.End.Format("15:04:05")
+		}
 	}
 
 	_, err = s.Pool.Exec(ctx, `
