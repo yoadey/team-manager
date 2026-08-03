@@ -13,15 +13,32 @@ full design and rationale.
 ## Important caveats before you run this
 
 - **SpielerPlus has no public API.** This tool scrapes the same
-  server-rendered HTML pages a browser would. Login and the events/
-  attendance pages are modeled on reverse-engineering done by community
-  projects (`christianwehe/calendar-sync`, `janic0/autospieler`); the
-  **members/roster page and the absences page have no such reference** and
-  their selectors in `spielerplus/members.go` / `spielerplus/absences.go`
-  are best-effort guesses that will very likely need adjusting against your
-  real SpielerPlus account before a run succeeds. If a page's expected
-  elements aren't found, the tool fails loudly with an error naming the
-  selector to fix, rather than silently importing nothing.
+  server-rendered HTML pages/ajax fragments a browser would. The endpoints
+  below are confirmed from a real HAR capture (`GET`/`POST` URLs, form
+  fields, headers) - but that capture didn't include response *bodies*, so
+  the actual HTML/CSS structure each page returns is still unverified, and
+  the row selectors in `spielerplus/*.go` remain best-effort guesses that
+  will likely need adjusting against your real account before a run
+  succeeds. If a page's expected elements aren't found, the tool fails
+  loudly with an error naming the selector to fix, rather than silently
+  importing nothing.
+  - Confirmed: login (`POST /site/login`), the events list (`GET /events`
+    plus `POST /events/ajaxgetevents` to page into history), per-event
+    attendance (`POST /events/ajaxgetparticipation`), the absences list
+    (`GET /absence`), and the roster (`GET /team`, though a `GET /site/team`
+    was also seen and might be the real one instead).
+  - **Important open question**: `ajaxgetparticipation` was only observed
+    being called from a single training's own detail page, so it's
+    unconfirmed whether it returns *every* team member's status (what this
+    importer needs) or only the logged-in user's own. If it turns out to be
+    self-only, full-roster attendance needs a different source - check this
+    first before trusting attendance import results.
+  - If you can capture a **HAR with response bodies included** (in Chrome
+    DevTools: right-click the Network tab's request list -> "Save all as
+    HAR with content", not just "Save all as HAR") while browsing the
+    roster, an absence's detail view, and a training's participation list,
+    that would let the actual selectors be filled in with confidence
+    instead of guessed.
 - **This writes directly to the Teamverwaltung database**, bypassing the
   backend's HTTP API. Always run with `--dry-run` first, and test against a
   disposable/staging database before running against production.

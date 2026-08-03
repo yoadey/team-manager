@@ -49,12 +49,12 @@ func Run(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Opti
 		return summary, err
 	}
 
-	eventIDs, err := importEvents(ctx, sp, store, opts, summary)
+	events, err := importEvents(ctx, sp, store, opts, summary)
 	if err != nil {
 		return summary, err
 	}
 
-	importAttendance(ctx, sp, store, eventIDs, memberIDs, summary)
+	importAttendance(ctx, sp, store, events, memberIDs, summary)
 
 	if err := importAbsences(ctx, sp, store, opts, memberIDs, summary); err != nil {
 		return summary, err
@@ -111,16 +111,24 @@ func importMembers(ctx context.Context, sp *spielerplus.Client, store *db.Store,
 	return memberIDs, nil
 }
 
-func importEvents(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Options, summary *Summary) (map[string]string, error) {
+// importedEvent carries what importAttendance needs beyond the bare
+// Teamverwaltung id: fetching attendance requires SpielerPlus's own event
+// type identifier (see spielerplus.Client.FetchAttendance).
+type importedEvent struct {
+	tvID string
+	typ  spielerplus.EventType
+}
+
+func importEvents(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Options, summary *Summary) (map[string]importedEvent, error) {
 	events, err := sp.FetchEvents(opts.Now)
 	if err != nil {
 		return nil, fmt.Errorf("importrun: fetch events: %w", err)
 	}
 
-	eventIDs := make(map[string]string, len(events))
+	imported := make(map[string]importedEvent, len(events))
 	for _, ev := range events {
 		if tvID, already := opts.State.Events[ev.ID]; already {
-			eventIDs[ev.ID] = tvID
+			imported[ev.ID] = importedEvent{tvID: tvID, typ: ev.Type}
 			summary.EventsSkipped++
 			continue
 		}
@@ -129,7 +137,7 @@ func importEvents(ctx context.Context, sp *spielerplus.Client, store *db.Store, 
 		if err != nil {
 			return nil, fmt.Errorf("importrun: insert event %s (%s): %w", ev.ID, ev.Title, err)
 		}
-		eventIDs[ev.ID] = tvID
+		imported[ev.ID] = importedEvent{tvID: tvID, typ: ev.Type}
 		summary.EventsCreated++
 
 		if !store.DryRun {
@@ -139,12 +147,12 @@ func importEvents(ctx context.Context, sp *spielerplus.Client, store *db.Store, 
 			}
 		}
 	}
-	return eventIDs, nil
+	return imported, nil
 }
 
-func importAttendance(ctx context.Context, sp *spielerplus.Client, store *db.Store, eventIDs, memberIDs map[string]string, summary *Summary) {
-	for spEventID, tvEventID := range eventIDs {
-		records, err := sp.FetchAttendance(spEventID)
+func importAttendance(ctx context.Context, sp *spielerplus.Client, store *db.Store, events map[string]importedEvent, memberIDs map[string]string, summary *Summary) {
+	for spEventID, ev := range events {
+		records, err := sp.FetchAttendance(spEventID, ev.typ)
 		if err != nil {
 			summary.skip("attendance for event %s: fetch failed: %v", spEventID, err)
 			continue
@@ -156,7 +164,7 @@ func importAttendance(ctx context.Context, sp *spielerplus.Client, store *db.Sto
 				summary.skip("attendance for event %s: unknown member %s (not on imported roster)", spEventID, rec.MemberID)
 				continue
 			}
-			if err := store.UpsertAttendance(ctx, tvEventID, tvUserID, rec.Status); err != nil {
+			if err := store.UpsertAttendance(ctx, ev.tvID, tvUserID, rec.Status); err != nil {
 				summary.AttendanceSkipped++
 				summary.skip("attendance for event %s, member %s: %v", spEventID, rec.MemberID, err)
 				continue

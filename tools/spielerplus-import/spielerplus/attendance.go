@@ -3,23 +3,27 @@ package spielerplus
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 )
 
-// eventDetailPath is the per-event page. The exact path segment is a
-// best-effort guess (SpielerPlus's event list links to a per-event page;
-// the reference community projects only ever read/write the *viewer's own*
-// participation status via the ajax-participation-form endpoint, since
-// they're personal calendar tools, not trainer/admin tools). A full-team
-// migration needs the trainer-facing participant list for each event
-// instead, which has no existing reference and must be confirmed against a
-// live account (tasks.md 2.3).
-const eventDetailPathFmt = "/events/view/%s"
+// ajaxParticipationPath is confirmed from a HAR capture of a live session:
+// POST with form fields "eventid" and "eventtype" (e.g. "training"),
+// X-Requested-With: XMLHttpRequest. The capture only exercised it for a
+// training event reached from its /training/view?id=... detail page, so it
+// is unconfirmed whether the returned fragment lists every team member's
+// status (what this importer needs) or only the caller's own - the known
+// community reference clients only ever read/write their own status via
+// this same family of endpoint. If it turns out to be self-only, this
+// importer needs a different, trainer-facing source for full-roster
+// attendance (tasks.md 2.3).
+const ajaxParticipationPath = "/events/ajaxgetparticipation"
 
-// Selectors below are unverified against a live account, same caveat as
-// events.go - see tasks.md 2.3/2.6.
+// Selectors below are unverified against a live account - see tasks.md
+// 2.3/2.6 (the HAR capture this endpoint is grounded in didn't include
+// response bodies).
 const (
 	participantRowSelector  = "[data-user-id]"
 	participantStatusAttr   = "title"
@@ -39,7 +43,7 @@ var spielerPlusStatusTitles = map[string]ParticipationStatus{
 	"Keine Rückmeldung":  ParticipationNoResonse,
 }
 
-// ParseAttendance parses an event detail page's participant list into one
+// ParseAttendance parses an ajaxgetparticipation response fragment into one
 // Attendance record per member. Members with no explicit status are
 // reported as ParticipationNoResonse.
 func ParseAttendance(body io.Reader, eventID string) ([]Attendance, error) {
@@ -50,7 +54,7 @@ func ParseAttendance(body io.Reader, eventID string) ([]Attendance, error) {
 
 	rows := doc.Find(participantRowSelector)
 	if rows.Length() == 0 {
-		return nil, fmt.Errorf("spielerplus: no participant rows matched selector %q for event %s - SpielerPlus markup likely differs from what this parser expects, inspect the event page and update participantRowSelector in attendance.go", participantRowSelector, eventID)
+		return nil, fmt.Errorf("spielerplus: no participant rows matched selector %q for event %s - SpielerPlus markup likely differs from what this parser expects, inspect the participation fragment and update participantRowSelector in attendance.go", participantRowSelector, eventID)
 	}
 
 	var records []Attendance
@@ -77,11 +81,17 @@ func ParseAttendance(body io.Reader, eventID string) ([]Attendance, error) {
 	return records, nil
 }
 
-// FetchAttendance fetches and parses the participant list for eventID.
-func (c *Client) FetchAttendance(eventID string) ([]Attendance, error) {
-	body, err := c.get(fmt.Sprintf(eventDetailPathFmt, eventID))
+// FetchAttendance fetches and parses the participation fragment for
+// eventID/eventType (eventType is SpielerPlus's own type identifier, e.g.
+// "training" - see eventTypeSlug).
+func (c *Client) FetchAttendance(eventID string, eventType EventType) ([]Attendance, error) {
+	form := url.Values{
+		"eventid":   {eventID},
+		"eventtype": {eventTypeSlug(eventType)},
+	}
+	body, err := c.postForm(ajaxParticipationPath, form)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("spielerplus: fetch attendance for event %s: %w", eventID, err)
 	}
 	defer body.Close()
 	return ParseAttendance(body, eventID)

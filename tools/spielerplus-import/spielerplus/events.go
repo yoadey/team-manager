@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -11,9 +13,23 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// eventsPath is the known events list endpoint, confirmed against the
-// christianwehe/calendar-sync reference implementation.
-const eventsPath = "/events"
+// eventsPath is the initial full-page events list. ajaxEventsPath is the
+// endpoint the real frontend calls to page further (both forward and back
+// into history) - confirmed from a HAR capture of a live session: the page
+// loads eventsPath once, then issues POST ajaxEventsPath calls with an
+// incrementing "offset" (observed in steps of eventsPageSize) as the user
+// scrolls, and an additional "old=true" field once the user switches into
+// "past events" mode. The capture didn't include response bodies, so the
+// exact end-of-history signal and whether "old" must be repeated on every
+// page (vs. only once to flip a server-side toggle) are unconfirmed -
+// fetchEventsAjaxPage sends "old" on every historical request as the safer
+// assumption, and pagination stops once a page parses zero events.
+const (
+	eventsPath      = "/events"
+	ajaxEventsPath  = "/events/ajaxgetevents"
+	eventsPageSize  = 5
+	maxHistoryPages = 500 // safety cap: ~2500 events, in case "end of history" never surfaces as zero rows
+)
 
 // Selectors below are a best-effort starting point derived from the
 // reference implementations' documented behavior (event rows carry a type,
@@ -32,11 +48,11 @@ const (
 	eventLocationSelector = ".event-location, .location"
 )
 
-// ParseEvents parses the /events page body into structured events. now is
-// used to resolve SpielerPlus's year-less dates (it displays e.g. "Di,
-// 12.08." without a year) the same way the reference implementations do:
-// assume the list is in chronological order relative to "now" and infer the
-// year from that.
+// ParseEvents parses a full /events page body into structured events. now
+// anchors year resolution for the first (year-less, "DD.MM.") date on the
+// page; every subsequent date is resolved relative to the previously
+// resolved one instead, so the sequence stays consistent however far it
+// wanders from now (see resolveDate).
 func ParseEvents(body io.Reader, now time.Time) ([]Event, error) {
 	doc, err := goquery.NewDocumentFromReader(body)
 	if err != nil {
@@ -48,26 +64,7 @@ func ParseEvents(body io.Reader, now time.Time) ([]Event, error) {
 		return nil, fmt.Errorf("spielerplus: no event rows matched selector %q - SpielerPlus markup likely changed, inspect the /events page and update eventRowSelector in events.go", eventRowSelector)
 	}
 
-	// A row-selector match with zero successfully-parsed rows means the
-	// selector is matching the wrong elements (or the page layout changed in
-	// a way parseEventRow can't handle at all) - that's still worth failing
-	// loudly on. A handful of individually malformed rows among many good
-	// ones (an oddly-formatted one-off event, a cancelled fixture with no
-	// time) should not abort importing everything else - those are logged
-	// and skipped instead, so one bad row can't block an entire historical
-	// import.
-	var events []Event
-	var skipped int
-	rows.Each(func(i int, row *goquery.Selection) {
-		ev, err := parseEventRow(row, now)
-		if err != nil {
-			skipped++
-			log.Printf("spielerplus: skipping event row %d: %v", i, err)
-			return
-		}
-		events = append(events, ev)
-	})
-
+	events, skipped := parseEventRows(rows, now)
 	if len(events) == 0 {
 		return nil, fmt.Errorf("spielerplus: %d event row(s) matched selector %q but none parsed successfully - selectors likely need adjusting, see logged per-row errors above", rows.Length(), eventRowSelector)
 	}
@@ -77,7 +74,46 @@ func ParseEvents(body io.Reader, now time.Time) ([]Event, error) {
 	return events, nil
 }
 
-func parseEventRow(row *goquery.Selection, now time.Time) (Event, error) {
+// parseEventsFragment parses an ajaxgetevents response fragment. Unlike
+// ParseEvents, zero matched rows is not an error here - it's the expected
+// "no more pages" signal used to end pagination.
+func parseEventsFragment(body io.Reader, reference time.Time) (events []Event, err error) {
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: parse events fragment: %w", err)
+	}
+	rows := doc.Find(eventRowSelector)
+	events, skipped := parseEventRows(rows, reference)
+	if skipped > 0 {
+		log.Printf("spielerplus: fragment: imported %d event(s), skipped %d that failed to parse", len(events), skipped)
+	}
+	return events, nil
+}
+
+// parseEventRows parses every row matched by a selector in document order,
+// threading a "reference" date through them so each date resolves relative
+// to the previously resolved one (see resolveDate) rather than always
+// against a fixed anchor - required for paginated results that wander far
+// from "now" in either direction. A row-specific parse error is logged and
+// skipped rather than aborting the batch (see ParseEvents doc).
+func parseEventRows(rows *goquery.Selection, initialReference time.Time) (events []Event, skipped int) {
+	reference := initialReference
+	rows.Each(func(i int, row *goquery.Selection) {
+		ev, err := parseEventRow(row, reference)
+		if err != nil {
+			skipped++
+			log.Printf("spielerplus: skipping event row %d: %v", i, err)
+			return
+		}
+		events = append(events, ev)
+		if !ev.TimeUnknown {
+			reference = ev.Start
+		}
+	})
+	return events, skipped
+}
+
+func parseEventRow(row *goquery.Selection, reference time.Time) (Event, error) {
 	id, ok := row.Attr("data-event-id")
 	if !ok || id == "" {
 		return Event{}, fmt.Errorf("missing data-event-id")
@@ -90,7 +126,7 @@ func parseEventRow(row *goquery.Selection, now time.Time) (Event, error) {
 
 	dateText := strings.TrimSpace(row.Find(eventDateSelector).First().Text())
 	timeText := strings.TrimSpace(row.Find(eventTimeSelector).First().Text())
-	start, endIsEstimated, end, timeUnknown, err := parseDateTime(dateText, timeText, now)
+	start, endIsEstimated, end, timeUnknown, err := parseDateTime(dateText, timeText, reference)
 	if err != nil {
 		return Event{}, fmt.Errorf("event %s: %w", id, err)
 	}
@@ -110,6 +146,23 @@ func parseEventRow(row *goquery.Selection, now time.Time) (Event, error) {
 	}, nil
 }
 
+// eventTypeSlug maps our EventType back to the SpielerPlus type identifier
+// used as the "eventtype" form field for ajaxgetparticipation. Only
+// "training" is confirmed (from a HAR capture); the others are carried over
+// from mapEventType's guesses and unverified.
+func eventTypeSlug(t EventType) string {
+	switch t {
+	case EventTraining:
+		return "training"
+	case EventGame:
+		return "game"
+	case EventTournament:
+		return "tournament"
+	default:
+		return "event"
+	}
+}
+
 func mapEventType(raw string) EventType {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "training":
@@ -127,29 +180,48 @@ func mapEventType(raw string) EventType {
 // "12.08."), which the reference implementations also had to work around.
 const dayMonthLayout = "02.01."
 
+// resolveDate resolves a SpielerPlus "DD.MM." date against reference by
+// picking whichever of reference's year, year-1, or year+1 puts the result
+// closest to reference. Applied to a chronologically continuous sequence of
+// events (each resolved date becomes the next row's reference - see
+// parseEventRows), this correctly follows the list forward into the future
+// (the plain /events page) or backward into the past (paginated history via
+// ajaxgetevents) without needing to know in advance which direction a given
+// page is going - unlike a fixed "assume next year once far enough in the
+// past" rule, which is only valid for forward/upcoming lists and would
+// silently roll genuinely historical dates a year forward.
+func resolveDate(dateText string, reference time.Time) (time.Time, error) {
+	parsed, err := time.Parse(dayMonthLayout, dateText)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse date %q: %w", dateText, err)
+	}
+
+	var best time.Time
+	bestDiff := time.Duration(math.MaxInt64)
+	for _, yearOffset := range [3]int{-1, 0, 1} {
+		candidate := time.Date(reference.Year()+yearOffset, parsed.Month(), parsed.Day(), 0, 0, 0, 0, reference.Location())
+		diff := candidate.Sub(reference)
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff < bestDiff {
+			bestDiff = diff
+			best = candidate
+		}
+	}
+	return best, nil
+}
+
 // parseDateTime resolves a SpielerPlus "DD.MM." date plus an optional
-// "HH:MM - HH:MM" (or single "HH:MM") time string into a start/end time.
-//
-// The year-inference heuristic below (assume "next year" once a date is more
-// than ~2 months in the past) is only valid for SpielerPlus's upcoming-only
-// event list. It must NOT be reused as-is once a historical/archive view is
-// wired up (tasks.md 2.2) - applied to genuinely past dates it would
-// silently roll them forward by a year. Whoever adds historical event
-// support needs a date source that includes the year, or a separate
-// resolution path that doesn't make this "upcoming" assumption.
-func parseDateTime(dateText, timeText string, now time.Time) (start time.Time, endIsEstimated bool, end time.Time, timeUnknown bool, err error) {
+// "HH:MM - HH:MM" (or single "HH:MM") time string into a start/end time,
+// using resolveDate (see its doc) to pick the year.
+func parseDateTime(dateText, timeText string, reference time.Time) (start time.Time, endIsEstimated bool, end time.Time, timeUnknown bool, err error) {
 	if dateText == "" {
 		return time.Time{}, false, time.Time{}, false, fmt.Errorf("missing date")
 	}
-	parsed, err := time.Parse(dayMonthLayout, dateText)
+	candidate, err := resolveDate(dateText, reference)
 	if err != nil {
-		return time.Time{}, false, time.Time{}, false, fmt.Errorf("parse date %q: %w", dateText, err)
-	}
-
-	year := now.Year()
-	candidate := time.Date(year, parsed.Month(), parsed.Day(), 0, 0, 0, 0, now.Location())
-	if candidate.Before(now.AddDate(0, -2, 0)) {
-		candidate = candidate.AddDate(1, 0, 0)
+		return time.Time{}, false, time.Time{}, false, err
 	}
 
 	startHM, endHM, hasTime := splitTimeRange(timeText)
@@ -164,14 +236,14 @@ func parseDateTime(dateText, timeText string, now time.Time) (start time.Time, e
 	if perr != nil {
 		return time.Time{}, false, time.Time{}, false, fmt.Errorf("parse start time %q: %w", timeText, perr)
 	}
-	start = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), sh, sm, 0, 0, now.Location())
+	start = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), sh, sm, 0, 0, candidate.Location())
 
 	if endHM != "" {
 		eh, em, perr := parseHM(endHM)
 		if perr != nil {
 			return time.Time{}, false, time.Time{}, false, fmt.Errorf("parse end time %q: %w", timeText, perr)
 		}
-		end = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), eh, em, 0, 0, now.Location())
+		end = time.Date(candidate.Year(), candidate.Month(), candidate.Day(), eh, em, 0, 0, candidate.Location())
 		return start, false, end, false, nil
 	}
 
@@ -209,16 +281,50 @@ func parseHM(s string) (hour, minute int, err error) {
 	return hour, minute, nil
 }
 
-// FetchEvents fetches and parses the current /events listing. SpielerPlus's
-// default view only shows upcoming events (see package docs); reaching
-// historical events for the migration requires whatever archive/filter view
-// is discovered during live testing (tasks.md 2.2) - this method is the
-// integration point to extend once that's known.
+// FetchEvents fetches the initial /events page and then pages backward
+// through history via ajaxgetevents (see the package-level doc comment on
+// ajaxEventsPath) until a page yields no events or maxHistoryPages is hit.
 func (c *Client) FetchEvents(now time.Time) ([]Event, error) {
 	body, err := c.get(eventsPath)
 	if err != nil {
 		return nil, err
 	}
+	initial, err := ParseEvents(body, now)
+	body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	events := initial
+	reference := now
+	if len(initial) > 0 {
+		reference = initial[len(initial)-1].Start
+	}
+
+	for page := 0; page < maxHistoryPages; page++ {
+		fragment, err := c.fetchEventsAjaxPage(page*eventsPageSize, reference)
+		if err != nil {
+			return nil, err
+		}
+		if len(fragment) == 0 {
+			break
+		}
+		events = append(events, fragment...)
+		reference = fragment[len(fragment)-1].Start
+	}
+
+	return events, nil
+}
+
+func (c *Client) fetchEventsAjaxPage(offset int, reference time.Time) ([]Event, error) {
+	form := url.Values{
+		"offset": {strconv.Itoa(offset)},
+		"old":    {"true"},
+	}
+	body, err := c.postForm(ajaxEventsPath, form)
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: fetch events page at offset %d: %w", offset, err)
+	}
 	defer body.Close()
-	return ParseEvents(body, now)
+	return parseEventsFragment(body, reference)
 }

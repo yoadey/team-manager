@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+// jQuery's default XHR Accept header, matched here since the HAR capture
+// this client is grounded in shows the real frontend sending exactly this
+// for its ajax calls (SpielerPlus may vary behavior on Accept).
+const ajaxAcceptHeader = "application/json, text/javascript, */*; q=0.01"
+
 // BaseURL is SpielerPlus's web app. There is no separate API host - the
 // client scrapes the same server-rendered pages a browser would.
 const BaseURL = "https://www.spielerplus.de"
@@ -116,6 +121,40 @@ func (c *Client) get(path string) (io.ReadCloser, error) {
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
 		return nil, fmt.Errorf("spielerplus: GET %s: unexpected status %s", path, resp.Status)
+	}
+	return resp.Body, nil
+}
+
+// postForm submits an XHR-style POST to path (relative to BaseURL), matching
+// the real frontend's ajax calls captured in a HAR export: form-encoded
+// body, X-Requested-With: XMLHttpRequest, and the same jQuery-style Accept
+// header. Used for the ajaxgetevents/ajaxgetparticipation endpoints, which
+// render server-side HTML fragments rather than a full page.
+func (c *Client) postForm(path string, form url.Values) (io.ReadCloser, error) {
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: build request for %s: %w", path, err)
+	}
+	req.Header.Set("User-Agent", browserUserAgent)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+	req.Header.Set("Accept", ajaxAcceptHeader)
+	req.Header.Set("X-Requested-With", "XMLHttpRequest")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: POST %s: %w", path, err)
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		resp.Body.Close()
+		return nil, fmt.Errorf("spielerplus: POST %s: 403 Forbidden (session cookie invalid or User-Agent blocked)", path)
+	}
+	if strings.Contains(resp.Request.URL.Path, "/site/login") {
+		resp.Body.Close()
+		return nil, ErrNotAuthenticated
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("spielerplus: POST %s: unexpected status %s", path, resp.Status)
 	}
 	return resp.Body, nil
 }

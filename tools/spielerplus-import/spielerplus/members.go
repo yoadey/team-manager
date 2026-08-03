@@ -9,11 +9,14 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// membersPath has no reference implementation to confirm it against (see
-// design.md) - this is a best guess based on SpielerPlus's common URL
-// naming and MUST be confirmed against a live account before relying on it
-// (tasks.md 2.4).
-const membersPath = "/squad/members"
+// membersPath is grounded in a HAR capture of a live session: GET /team
+// returned 200 text/html when the roster was viewed (a separate GET
+// /site/team was also seen and returned 200 - possibly a team-switcher or
+// settings page rather than the roster; /team is used here as the more
+// likely candidate for the member list, but this wasn't confirmed by
+// response bodies). Selectors below remain unverified guesses - see
+// tasks.md 2.4/2.6.
+const membersPath = "/team"
 
 // Selectors below are unverified against a live account - see tasks.md
 // 2.4/2.6.

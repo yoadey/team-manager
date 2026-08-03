@@ -13,29 +13,46 @@
       `https://www.spielerplus.de`, session-cookie auth via
       `SPIELERPLUS_SESSION_COOKIE`; fail fast with a clear error on a redirect-to-login
       (expired/invalid session) instead of silently scraping an empty/login page.
-- [ ] 2.2 Parse the events list (`GET /events`) into structured events (type, title,
+- [x] 2.2 Parse the events list (`GET /events`) into structured events (type, title,
       date, time, location); resolve the "no year in the date" ambiguity and determine
       how to reach historical (non-upcoming) events, not just the default view.
-      Parsing logic and year-inference are implemented (`spielerplus/events.go`); **the
-      "reach historical events" part is still open** — no archive/date-filter view is
-      known, needs a live account to find it.
-- [ ] 2.3 Parse per-event attendance (the `.selected` participation button and its
-      `title`) into a per-member status; map SpielerPlus states → Teamverwaltung's
-      `attendance.status` enum (`Zugesagt`→`yes`, `Unsicher`→`maybe`,
-      `Absagen/Abwesend`→`no`, no response→`pending`). Implemented
-      (`spielerplus/attendance.go`), but targets a trainer-facing "all members'
-      status" participant list that **has no reference implementation** (the known
-      community projects only read/write the *viewer's own* status) — selectors are
-      unverified against a live account.
+      **Confirmed from a HAR capture of a live session** (headers/URLs only, no
+      response bodies): the real frontend follows `GET /events` with `POST
+      /events/ajaxgetevents` (`offset` incrementing by 5, `old=true`) to page further
+      into history; `spielerplus/events.go`'s `FetchEvents` now implements this loop,
+      stopping when a page parses zero events. The year-less-date ambiguity is
+      resolved via `resolveDate`, which picks whichever year keeps a date closest to
+      the previously-resolved event in the same sequence (works walking forward *or*
+      backward, unlike the old fixed "assume next year" rule). **Still open**: whether
+      `old=true` truly needs to be resent on every page vs. only once (sent on every
+      page as the safer assumption - harmless if wrong), and whether the fragment's
+      date format/selectors match the full page's (unverified, no response body seen).
+- [ ] 2.3 Parse per-event attendance into a per-member status; map SpielerPlus states →
+      Teamverwaltung's `attendance.status` enum (`Zugesagt`→`yes`, `Unsicher`→`maybe`,
+      `Absagen/Abwesend`→`no`, no response→`pending`). **Confirmed from the HAR
+      capture**: `POST /events/ajaxgetparticipation` (`eventid`/`eventtype` form
+      fields) is the real endpoint, called from a `GET /training/view?id=...` detail
+      page - `spielerplus/attendance.go`'s `FetchAttendance` now calls it directly.
+      **Still open and important**: the capture only shows it being called from a
+      single training's detail page, so it's still unconfirmed whether the response
+      lists *every* team member's status (what this importer needs) or only the
+      caller's own (what the known community reference clients use this family of
+      endpoint for) - if it's self-only, full-roster attendance needs a different,
+      trainer-facing source. Row selectors also remain unverified (no response body).
 - [ ] 2.4 Reverse-engineer and parse the team member/role list (names, emails,
-      SpielerPlus role) — no existing reference; determine URL/selectors against a real
-      account. Scaffolded (`spielerplus/members.go`) with a best-guess URL/selectors;
-      **not yet verified against a live account**.
+      SpielerPlus role). **Partially confirmed from the HAR capture**: `GET /team`
+      returned 200 when the roster was viewed and is now `spielerplus/members.go`'s
+      `membersPath` (previously an unrelated guess, `/squad/members`) - but a `GET
+      /site/team` was also observed (200), so it's not fully certain `/team` is the
+      roster and not `/site/team`. Row selectors remain unverified (no response body).
 - [ ] 2.5 Reverse-engineer and parse planned absences, including past ones and any
-      "recurring weekday" absences — no existing reference; determine URL/selectors
-      against a real account. Scaffolded (`spielerplus/absences.go`), including
-      recurring-weekday expansion into concrete occurrences; **not yet verified
-      against a live account**.
+      "recurring weekday" absences. **Confirmed from the HAR capture**: `GET /absence`
+      (not `/absences`, the previous guess) is the real list page, with `GET
+      /absence/update?id=...` as a per-absence detail/edit page (not yet used - worth
+      checking first if the list page doesn't expose enough, e.g. the recurring-weekday
+      fields). `spielerplus/absences.go`'s `absencesPath` corrected accordingly. Row
+      selectors and the recurring-weekday expansion remain unverified (no response
+      body).
 - [x] 2.6 Unit tests for all of the above against saved HTML fixtures, so future
       SpielerPlus markup changes fail a test run instead of corrupting an import.
       Fixtures are currently synthetic (matching this code's own selectors), **not

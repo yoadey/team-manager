@@ -10,13 +10,14 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// absencesPath has no reference implementation to confirm it against (see
-// design.md) - best guess, MUST be confirmed against a live account before
-// relying on it (tasks.md 2.5).
-const absencesPath = "/absences"
-
-// Selectors below are unverified against a live account - see tasks.md
-// 2.5/2.6.
+// absencesPath is confirmed from a HAR capture of a live session browsing a
+// team's absences (GET /absence, 200 text/html). Each absence also has a
+// detail/edit page at /absence/update?id=<absence id> (also confirmed) -
+// not fetched here, but worth checking first if the list page doesn't
+// expose enough detail (e.g. the "recurring weekday" fields). The capture
+// didn't include response bodies, so the selectors below remain unverified
+// guesses - see tasks.md 2.5/2.6.
+const absencesPath = "/absence"
 const (
 	absenceRowSelector          = "[data-absence-id]"
 	absenceMemberAttr           = "data-user-id"
