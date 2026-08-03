@@ -3,6 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useEventFormActions } from './useEventFormActions';
 import { createQueryWrapper } from '@/test/queryTestUtils';
 import type { AppState } from '@/context/AppContext';
+import { todayStr } from '@/styles/tokens';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
@@ -72,6 +73,22 @@ describe('useEventFormActions', () => {
       result.current.openEventForm(null);
     });
     expect(stateRef.sheet!.formInitial).toMatchObject({ location: '' });
+  });
+
+  it('openEventForm pre-selects a new event date when a date is passed (e.g. calendar double-click)', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openEventForm(null, '2026-05-01');
+    });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ date: '2026-05-01' });
+  });
+
+  it('openEventForm defaults a new event date to today when no date is passed', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openEventForm(null);
+    });
+    expect(stateRef.sheet!.formInitial).toMatchObject({ date: todayStr() });
   });
 
   it('openEventForm seeds the cancellation lead-time hours/minutes fields from an existing event, 0/0 for a new one', () => {

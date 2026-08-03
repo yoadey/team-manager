@@ -72,7 +72,7 @@ export function useEventFormActions({
   const { mutateAsync: saveEventAsync, isPending: savingEvent } = useSaveEventMutation(api, teamId);
 
   const openEventForm = useCallback(
-    (event: TeamEvent | null) => {
+    (event: TeamEvent | null, initialDate?: string) => {
       const f: EventFormValues = event
         ? {
             seriesId: event.seriesId || null,
@@ -97,7 +97,7 @@ export function useEventFormActions({
         : {
             type: 'training',
             title: '',
-            date: todayStr(),
+            date: initialDate || todayStr(),
             meetT: '19:15',
             startT: '19:30',
             endT: '21:30',

@@ -49,6 +49,7 @@ function EventChip({ event, mobile, onOpen }: { event: TeamEvent; mobile: boolea
   return (
     <ButtonBase
       onClick={onOpen}
+      onDoubleClick={(e) => e.stopPropagation()}
       sx={{
         display: 'block',
         width: '100%',
@@ -136,6 +137,7 @@ interface CalendarDayCellProps {
   absences: Absence[];
   birthdays: BirthdayEntry[];
   onOpenEvent: (id: string) => void;
+  onCreateEvent?: (() => void) | undefined;
 }
 
 function CalendarDayCell({
@@ -149,6 +151,7 @@ function CalendarDayCell({
   absences,
   birthdays,
   onOpenEvent,
+  onCreateEvent,
 }: CalendarDayCellProps) {
   const eventLimit = mobile ? 2 : 3;
   const absenceLimit = mobile ? 1 : 2;
@@ -157,6 +160,7 @@ function CalendarDayCell({
 
   return (
     <Box
+      onDoubleClick={onCreateEvent}
       sx={{
         minHeight: mobile ? '58px' : '76px',
         border: `1px solid ${NEUTRAL.line2}`,
@@ -168,6 +172,9 @@ function CalendarDayCell({
         flexDirection: 'column',
         gap: '2px',
         overflow: 'hidden',
+        ...(onCreateEvent
+          ? { cursor: 'pointer', userSelect: 'none', '&:hover': { background: NEUTRAL.sidebar } }
+          : {}),
       }}
     >
       <Box
@@ -223,6 +230,7 @@ export function EventCalendar() {
   // reaches the DOM for them.
   const canSeeBirthdays = app.can('members', 'write');
   const { data: members } = useMembersQuery(app.api, canSeeBirthdays ? state.activeTeamId : null);
+  const canCreateEvent = app.can('events', 'write');
 
   const cur = state.calMonth || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const year = cur.getFullYear();
@@ -263,11 +271,12 @@ export function EventCalendar() {
   for (let i = 0; i < 42; i++) {
     const d = new Date(year, month, 1 - startDow + i);
     const ds = formatDateOnly(d);
+    const inMonth = d.getMonth() === month;
     cells.push(
       <CalendarDayCell
         key={'c' + i}
         date={d}
-        inMonth={d.getMonth() === month}
+        inMonth={inMonth}
         isToday={ds === today}
         mobile={mobile}
         primary={tk.primary}
@@ -276,6 +285,7 @@ export function EventCalendar() {
         absences={absByDate[ds] || []}
         birthdays={birthdaysByDate[ds] || []}
         onOpenEvent={app.openEventDetail}
+        onCreateEvent={inMonth && canCreateEvent ? () => app.openEventForm(null, ds) : undefined}
       />,
     );
   }

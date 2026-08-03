@@ -353,7 +353,7 @@ export interface AppContextValue {
     scope: 'single' | 'series',
   ) => Promise<void>;
   openEventDetail: (eventId: string) => void;
-  openEventForm: (event: TeamEvent | null) => void;
+  openEventForm: (event: TeamEvent | null, initialDate?: string) => void;
   saveEvent: (f: EventFormValues, scope?: 'single' | 'series') => Promise<void>;
   // members
   openMemberDetail: (membershipId: string) => Promise<void>;
