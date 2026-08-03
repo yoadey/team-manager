@@ -42,6 +42,30 @@ and `spielerplus/attendance.go` were rewritten to match. This second capture was
 truncated before reaching the member roster or absences pages, so those two remain
 unverified guesses (see tasks.md 2.4/2.5).
 
+A third round of HAR captures (`/team`, `/user/view?id=...`, and `/absence`, all with
+response bodies) closed those two remaining gaps. `GET /team` is the roster
+(`.team-list-item` rows), but - unexpectedly - it does not show member email
+addresses at all; those only appear on a member's own profile page
+(`GET /user/view?id=...`) as a `mailto:` link, so `FetchMembers` now does one roster
+fetch plus one profile fetch per member. Only the account owner's own profile was
+captured, so it's unverified whether viewing another member's profile shows their
+email the same way (role/privacy-based visibility could differ) - a member with no
+visible email is skipped and logged rather than imported without one.
+`GET /absence` turned out to render every absence type as tab-panes
+(`#absence-tab0`..`#absence-tab5`) in a single page load, with no separate pagination
+call: tab0 ("Aktuell") is a filtered "currently relevant" subset - confirmed by
+cross-checking row counts, tab0's count exactly equals the type tabs' total minus the
+type tabs' own count, i.e. every tab0 row is a duplicate of one already in its type
+tab - so the importer reads tabs 1-5 (which together hold the complete history) and
+skips tab0. Each absence's date range ("02.08 - 09.08.26") has an inconsistent format:
+the end date carries a 2-digit year, the start date doesn't and is resolved against
+the end date's year (adjusted back a year if that would put start after end, handling
+a Dec-to-Jan range). The "1 Tag pro Woche" (weekly-recurring) type was empty for this
+club, so there's no confirmed example of how a populated recurring entry renders -
+`expandAbsences` best-effort-detects a German weekday name/abbreviation in the
+reason text and expands by that; if none is found, it imports a single literal
+one-off range instead of guessing at a recurrence pattern with zero evidence.
+
 The user has decided this is a standalone tool, not backend-integrated, written in Go,
 authenticating to SpielerPlus with a manually-captured browser session cookie, using a
 fixed SpielerPlus-role → Teamverwaltung-role mapping table, and tracking its own

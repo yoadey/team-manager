@@ -102,16 +102,6 @@ func ParseAttendance(body io.Reader, eventID string) ([]Attendance, error) {
 	return records, nil
 }
 
-// userIDFromHref extracts the "id" query parameter from a
-// "/user/view?id=123" style href.
-func userIDFromHref(href string) string {
-	u, err := url.Parse(href)
-	if err != nil {
-		return ""
-	}
-	return u.Query().Get("id")
-}
-
 // FetchAttendance fetches and parses the participation fragment for
 // eventID/eventType (eventType is SpielerPlus's own type identifier, e.g.
 // "training" - see eventTypeSlug).

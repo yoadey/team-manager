@@ -13,33 +13,37 @@ full design and rationale.
 ## Important caveats before you run this
 
 - **SpielerPlus has no public API.** This tool scrapes the same
-  server-rendered HTML pages/ajax fragments a browser would.
-  - **Events and attendance are grounded in a real HAR capture that
-    included response bodies** (`spielerplus/events.go`,
+  server-rendered HTML pages/ajax fragments a browser would. All four data
+  sources (events, attendance, members, absences) are now grounded in real
+  HAR captures that included response bodies, not guesses:
+  - **Events and attendance** (`spielerplus/events.go`,
     `spielerplus/attendance.go`): the events list (`GET /events` plus
     `POST /events/ajaxgetevents`, JSON-enveloped, to page into history) and
     per-event attendance (`POST /events/ajaxgetparticipation`, also
-    JSON-enveloped) both match confirmed real markup, including that
+    JSON-enveloped) match confirmed real markup, including that
     `ajaxgetparticipation` does return every team member's status grouped
-    by status code (not just the logged-in user's own, which was an open
-    question earlier). These should work as-is, though only "training"
+    by status code (not just the logged-in user's own). Only "training"
     events were present in the capture (game/tournament/event types are
     still a guess) and no location field was observed.
-  - **Members and absences remain unverified guesses**
-    (`spielerplus/members.go`, `spielerplus/absences.go`): the pages are
-    confirmed to exist (`GET /team`, `GET /absence`), but their HTML
-    structure was never captured, so the row selectors will very likely
-    need adjusting against your real account before a run succeeds. If a
-    page's expected elements aren't found, the tool fails loudly with an
-    error naming the selector to fix, rather than silently importing
-    nothing.
-  - If you can capture a **HAR with response bodies included** (in Chrome
-    DevTools: right-click the Network tab's request list -> "Save all as
-    HAR with content", not just "Save all as HAR" - make sure it finishes
-    exporting/downloading completely, a cut-off export can't be parsed)
-    while browsing the roster and an absence's detail view, that would let
-    those two remaining selectors be filled in with confidence instead of
-    guessed.
+  - **Members** (`spielerplus/members.go`): `GET /team` is the roster, but
+    it does **not** show email addresses - each member's email only shows
+    on their own profile page (`GET /user/view?id=...`), so the importer
+    fetches one profile page per member. Only the account owner's own
+    profile was captured, so it's unverified whether viewing *other*
+    members' profiles shows their email the same way (a member with no
+    visible email is skipped and logged, not imported without one).
+  - **Absences** (`spielerplus/absences.go`): `GET /absence` renders every
+    absence type as tabs in one page load; the importer reads the
+    type-specific tabs (which together hold the full history) and skips the
+    "Aktuell" (current) tab, which is a filtered subset. The "1 Tag pro
+    Woche" (weekly-recurring) absence type had no real examples in the
+    capture, so a recurring entry is expanded by weekday only if one can be
+    detected in its reason text (e.g. "montags") - otherwise it's imported
+    as a single literal date range and logged, rather than guessed wrong.
+  - If a page's expected elements still aren't found on your account (a
+    genuinely different SpielerPlus layout, a different display language,
+    etc.), the tool fails loudly with an error naming the selector to fix,
+    rather than silently importing nothing.
 - **This writes directly to the Teamverwaltung database**, bypassing the
   backend's HTTP API. Always run with `--dry-run` first, and test against a
   disposable/staging database before running against production.

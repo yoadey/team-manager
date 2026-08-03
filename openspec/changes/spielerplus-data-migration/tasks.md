@@ -48,28 +48,45 @@
       link (`/user/view?id=...`), and an optional decline reason from
       `.participation-list-user-reason .reason-text`, now also imported into
       `attendance.reason`. `spielerplus/attendance.go` fully rewritten to match.
-- [ ] 2.4 Reverse-engineer and parse the team member/role list (names, emails,
-      SpielerPlus role). **Partially confirmed from the HAR capture**: `GET /team`
-      returned 200 when the roster was viewed and is now `spielerplus/members.go`'s
-      `membersPath` (previously an unrelated guess, `/squad/members`) - but a `GET
-      /site/team` was also observed (200), so it's not fully certain `/team` is the
-      roster and not `/site/team`. Row selectors remain unverified (no response body).
-- [ ] 2.5 Reverse-engineer and parse planned absences, including past ones and any
-      "recurring weekday" absences. **Confirmed from the HAR capture**: `GET /absence`
-      (not `/absences`, the previous guess) is the real list page, with `GET
-      /absence/update?id=...` as a per-absence detail/edit page (not yet used - worth
-      checking first if the list page doesn't expose enough, e.g. the recurring-weekday
-      fields). `spielerplus/absences.go`'s `absencesPath` corrected accordingly. Row
-      selectors and the recurring-weekday expansion remain unverified (no response
-      body).
+- [x] 2.4 Reverse-engineer and parse the team member/role list (names, emails,
+      SpielerPlus role). **Fully confirmed from a third HAR capture (`/team` and
+      `/user/view?id=...`, response bodies included)**: `GET /team` is the roster,
+      each entry a `.team-list-item` with the member's id/name/role
+      (`.list-item-link` href, `.list-label-section .list-label`,
+      `.user-role .user-role-item`) - but **the roster page does NOT show email
+      addresses**. Each member's email only appears on their own profile page
+      (`GET /user/view?id=...`) as a `mailto:` link, so `FetchMembers` now does one
+      roster fetch plus one profile fetch per member (accepted N+1 cost for a
+      one-off import). **Still open**: only the account owner's own profile was
+      captured, so it's unverified whether another member's email renders the same
+      way on their profile (role/privacy-based visibility could hide it) - a member
+      with no visible email is skipped and logged rather than imported without one.
+- [x] 2.5 Reverse-engineer and parse planned absences, including past ones and any
+      "recurring weekday" absences. **Fully confirmed from a third HAR capture
+      (`/absence`, response body included)**: `GET /absence` renders every absence
+      type as tab-panes (`#absence-tab0`..`#absence-tab5`) in one page load, no
+      separate pagination call; tab0 ("Aktuell") is a filtered "currently relevant"
+      subset (confirmed by row-count cross-check) and is skipped in favor of tabs
+      1-5, which together hold the complete history. Row markup
+      (`.list-item.wrapmode`, absence id from `.list-item-link`, member id from a
+      `/user/view?id=...` link, date range from `.list-value` in a
+      "DD.MM - DD.MM.YY" format - the end date carries a 2-digit year, the start
+      date doesn't and is resolved against it) is now implemented in
+      `spielerplus/absences.go` to match. **Still open**: the "1 Tag pro Woche"
+      (weekly-recurring, tab5) type was empty for this club, so there's no real
+      example of how a populated recurring entry renders - `expandAbsences` still
+      best-effort-detects a German weekday name in the reason text and falls back to
+      importing a literal one-off range (logged) if none is found, rather than
+      guessing wrong.
 - [x] 2.6 Unit tests for all of the above against saved HTML fixtures, so future
-      SpielerPlus markup changes fail a test run instead of corrupting an import.
-      Events/attendance (`spielerplus/events_test.go`, `attendance_test.go`,
-      `client_test.go`) now use fixtures built to match the real confirmed markup
-      structure (element/class names, JSON envelopes) - not literal captured HTML
-      (no real member data is committed to the repo), but structurally grounded rather
-      than guessed. Members/absences fixtures remain guesses, matching their
-      still-unverified selectors.
+      SpielerPlus markup changes fail a test run instead of corrupting an import. All
+      four areas (events, attendance, members, absences) now use fixtures built to
+      match the real confirmed markup structure (element/class names, JSON
+      envelopes, the two-request member+email flow, the tab-scoped absence list) -
+      not literal captured HTML (no real member data is committed to the repo), but
+      structurally grounded rather than guessed. The one remaining gap is the
+      "1 Tag pro Woche" recurring-absence markup itself (2.5), since no populated
+      real example exists to build a fixture from.
 
 ## 3. Role mapping and idempotency state (`mapping/`)
 

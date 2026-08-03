@@ -8,6 +8,11 @@
 # Copy this file, adjust the right-hand side to your team's actual role
 # names, and pass its path as ROLE_MAPPING_PATH.
 
+# The role names on the left are examples - a HAR capture of a real
+# SpielerPlus roster showed "Trainer", "Betreuer" (assistant coach), and
+# "Spieler" (player) in use, plus "Kassenwart" (treasurer) and "Inaktiv"
+# (inactive) as configurable options - your club's roles may differ, check
+# your own /team page.
 Trainer: Trainer
-Co-Trainer: Trainer
+Betreuer: Trainer
 Spieler: Member
