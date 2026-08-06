@@ -135,10 +135,54 @@
       `to_date >= from_date`, span `<= 1095` days, and no overlap with an existing
       absence for that user — report and skip violations rather than aborting the run.
 
+## 4a. Finances (`spielerplus/finances.go`, `spielerplus/dues.go`,
+      `spielerplus/punishments.go`, `db/finances.go`)
+
+- [x] 4a.1 Parse the cashbox ledger (`GET /cashbox`, paginated via
+      `<ul class="pagination">` `?page=N&per-page=25`) into `Transaction` records
+      (title, date, amount, income/expense from the amount's sign). **Confirmed
+      from a HAR capture** (initially truncated, recovered via brace-matching
+      JSON repair to salvage complete HAR entries): same `.list-item[data-key]`
+      convention as `/team`/`/absence`, full "DD.MM.YYYY" dates (unlike events'
+      year-less dates). Insert into `transactions` (using the state file for
+      idempotency, since it has no natural unique key).
+- [x] 4a.2 Parse the membership-dues matrix (`GET /cashbox/dues`) into per-
+      (member, due-column) `Due` records (label, amount, paid/unpaid, column
+      position). **Confirmed from the same HAR capture**: a `<table>` with one
+      header `<th>` per due column (label from a `title` attribute, amount
+      trimmed off the header's own text) and one `<tr>` per member, each cell's
+      `onclick="toggleCashbox(this, <memberID>, <dueColumnID>)"` giving both the
+      member id (a reliable join to the imported roster, unlike penalties - see
+      4a.3) and the column's own SpielerPlus id. Upsert into `contributions`,
+      spreading each member's columns across synthetic consecutive months
+      starting at the import date (naturally idempotent on
+      `UNIQUE(team_id, user_id, month)`) — see design.md for why this
+      approximation was needed and user-confirmed.
+- [x] 4a.3 Parse the penalty catalog (`GET /punishment-catalog/index`) and
+      assigned punishments (`GET /punishments/index`, paginated by analogy to
+      `/cashbox` — unconfirmed for this specific page, the captured club had too
+      few assignments to trigger pagination). **Confirmed from a second,
+      dedicated HAR capture** (the first capture found this club's punishments
+      list genuinely empty — a valid state, not a markup gap — so the user
+      re-captured after assigning a real punishment): both pages use the
+      `.list-item[data-key]` convention; the catalog gives label+amount per
+      entry, the assignment list/detail view give **member name only, no id or
+      profile link anywhere** (an exception to every other page this tool
+      reads). Insert catalog entries into `penalties` and assignments into
+      `penalty_assignments` (each via the state file for idempotency), matching
+      an assignment's member by exact name against the imported roster and its
+      reason text against a catalog label — either one not matching is logged
+      and skipped (member name) or falls back to a direct amount/label snapshot
+      with a `NULL` `penalty_id` (reason), never guessed.
+
 ## 5. Orchestration and dry-run (`import/`, `main.go`)
 
 - [x] 5.1 Orchestrate the full run in order: members/roles → events → attendance →
-      absences, each step logging counts of created/skipped/failed records.
+      absences → transactions → dues → penalties, each step logging counts of
+      created/skipped/failed records. Finances steps are treated as
+      supplementary: a fetch/parse failure there is logged and skipped rather
+      than aborting the whole run, unlike members/events which the rest of the
+      run depends on.
 - [x] 5.2 `--dry-run` flag: run the full read/scrape + mapping pipeline and print what
       would be written, without opening a DB write transaction.
 - [x] 5.3 Summary report at the end of a real run (counts per entity, any skipped

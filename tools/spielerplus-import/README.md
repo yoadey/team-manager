@@ -1,9 +1,10 @@
 # spielerplus-import
 
 A standalone, one-off migration tool that imports a club's members, events
-(trainings/games), attendance, and planned absences (including past ones)
-from [SpielerPlus](https://www.spielerplus.de) into Teamverwaltung, ahead of
-real users logging in for the first time.
+(trainings/games), attendance, planned absences (including past ones), and
+finances (the cashbox ledger, membership dues, and penalties) from
+[SpielerPlus](https://www.spielerplus.de) into Teamverwaltung, ahead of real
+users logging in for the first time.
 
 This is its own Go module, separate from the main `backend`/`frontend`
 modules and not part of their build or CI - see
@@ -40,6 +41,32 @@ full design and rationale.
     capture, so a recurring entry is expanded by weekday only if one can be
     detected in its reason text (e.g. "montags") - otherwise it's imported
     as a single literal date range and logged, rather than guessed wrong.
+  - **Finances** (`spielerplus/finances.go`, `spielerplus/dues.go`,
+    `spielerplus/punishments.go`): the cashbox ledger (`GET /cashbox`,
+    paginated), membership dues matrix (`GET /cashbox/dues`), and penalty
+    catalog + assigned punishments (`GET /punishment-catalog/index`,
+    `GET /punishments/index`) all match confirmed real markup. Two things to
+    know before you rely on this:
+    - **Membership dues don't map cleanly onto `contributions`.**
+      Teamverwaltung expects one row per member per *calendar month*.
+      SpielerPlus's dues are a matrix of freely-named, club-defined columns
+      (e.g. "Teamkasse1", "Fahrtgeld1") with no date of their own at all. A
+      member's columns are therefore spread across **synthetic consecutive
+      months starting at the import date** (column 1 -> the import month,
+      column 2 -> +1 month, and so on) purely so each column gets its own
+      row without violating the one-row-per-month constraint - the month
+      shown in Teamverwaltung for an imported due is **not** a real due
+      date, just a distinct slot. Re-running the import lands on the same
+      months (idempotent), but this is a lossy approximation worth
+      explaining to members afterwards.
+    - **Assigned punishments are matched to members by name, not id.**
+      Unlike every other page this tool reads, SpielerPlus's punishment
+      pages (list and detail) show only a member's display name, with no
+      profile link/id anywhere. A punishment whose name doesn't
+      exact-match an imported member's name is skipped and logged (visible
+      in the run summary) rather than guessed - check the skip reasons for
+      near-miss names (nicknames, middle names) if a punishment seems
+      missing.
   - If a page's expected elements still aren't found on your account (a
     genuinely different SpielerPlus layout, a different display language,
     etc.), the tool fails loudly with an error naming the selector to fix,
@@ -114,9 +141,11 @@ list of skip reasons (e.g. an absence that overlapped an existing one, or
 attendance for a member not found on the imported roster).
 
 It's safe to run more than once: users are deduplicated by email,
-attendance by the database's own per-event-per-user uniqueness, and events/
-absences via a local state file (`STATE_PATH`) mapping SpielerPlus IDs to
-Teamverwaltung IDs - keep that file around between runs.
+attendance by the database's own per-event-per-user uniqueness, dues by the
+database's own per-user-per-month uniqueness, and events/absences/
+transactions/the penalty catalog/penalty assignments via a local state file
+(`STATE_PATH`) mapping SpielerPlus IDs to Teamverwaltung IDs - keep that
+file around between runs.
 
 ## What imported users can do afterwards
 

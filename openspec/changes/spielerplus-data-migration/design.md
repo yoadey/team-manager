@@ -171,6 +171,40 @@ card) and requires it be confirmed - either interactively (`y`/`yes` on stdin) o
 against `SPIELERPLUS_EXPECTED_TEAM_NAME` for repeat/non-interactive runs - before
 proceeding.
 
+**Finances: three HAR captures (one truncated, one clean, one for the previously
+unconfirmed penalties page) confirmed the cashbox ledger, membership dues, and
+penalties.** `GET /cashbox` (paginated via a standard `<ul class="pagination">`,
+`?page=N&per-page=25`) lists general income/expense transactions with the same
+`.list-item[data-key]` markup already confirmed elsewhere, amount as German-locale
+"X,XX €" with a leading "-" for an expense - maps directly onto `transactions`.
+`GET /punishment-catalog/index` and `GET /punishments/index` (the latter initially
+captured empty for this club, then re-captured with real assigned punishments)
+confirmed the penalty catalog and assignment list respectively - maps onto
+`penalties`/`penalty_assignments`, with one caveat: **SpielerPlus identifies an
+assigned punishment's member by display name only, with no id or profile link
+anywhere on either the list or its detail view** - every other entity this tool
+imports carries a real SpielerPlus user id to join against, but penalty
+assignments don't, so matching against the imported roster is a best-effort exact
+match on `Member.Name`, and an unmatched name is skipped and logged rather than
+guessed.
+
+**Membership dues have no natural mapping onto `contributions` and needed an
+explicit, user-confirmed approximation.** `GET /cashbox/dues` renders a matrix -
+one row per member, one column per club-defined, freely-named due/installment
+(e.g. "Teamkasse1", "Fahrtgeld1") - with a paid/unpaid toggle per cell and no date
+or month anywhere on the page. Teamverwaltung's `contributions` table is the
+opposite shape: `UNIQUE(team_id, user_id, month)` allows exactly one row per
+member per *calendar month*. Since a club can (and, in the captured account, does)
+have several due columns active at once, importing them all under the same
+literal import month would collide on that unique constraint. After confirming
+with the user, each member's due columns are spread across **synthetic
+consecutive months starting at the import date** (column 1 -> the import month,
+column 2 -> import month + 1, and so on, consistently by column position across
+every member) purely to give each column its own row - the month value written to
+Teamverwaltung is **not a real due date**, just a distinct slot satisfying the
+schema, and this is documented prominently in README.md so an operator doesn't
+mistake it for one.
+
 ## Risks / Trade-offs
 
 - **Scraping fragility**: SpielerPlus can change its markup at any time and silently

@@ -105,3 +105,54 @@ write occurs.
   active team's name
 - **THEN** the run aborts before any database write, with an error naming both the
   expected and detected team
+
+### Requirement: Cashbox transactions are imported as Teamverwaltung transactions
+The tool MUST import the team's SpielerPlus cashbox ledger into Teamverwaltung's
+`transactions`, preserving title, date, amount, and income/expense direction.
+
+#### Scenario: An expense transaction is imported
+- **WHEN** the SpielerPlus cashbox shows a ledger entry with a negative amount
+- **THEN** a `transactions` row is created with `type = 'expense'` and a positive
+  `amount` equal to the entry's absolute value
+
+#### Scenario: An income transaction is imported
+- **WHEN** the SpielerPlus cashbox shows a ledger entry with a non-negative amount
+- **THEN** a `transactions` row is created with `type = 'income'`
+
+### Requirement: Membership dues are imported with a documented month approximation
+The tool MUST import SpielerPlus's per-member membership-dues matrix into
+Teamverwaltung's `contributions`. Since SpielerPlus's due columns carry no month of
+their own and `contributions` requires one row per member per calendar month, each
+member's due columns MUST be spread across consecutive synthetic months starting
+at the import date, consistently by column position, and this approximation MUST
+be documented for operators.
+
+#### Scenario: A member with multiple simultaneous dues
+- **WHEN** a member has more than one SpielerPlus due column
+- **THEN** each column is imported as its own `contributions` row, in consecutive
+  months starting at the import month, so no two columns collide on
+  `UNIQUE(team_id, user_id, month)`
+
+#### Scenario: Re-running the import does not duplicate a due
+- **WHEN** the tool is run twice against unchanged SpielerPlus dues data
+- **THEN** the second run updates the same `contributions` rows in place (matched
+  via the same synthetic month) rather than creating duplicates
+
+### Requirement: Penalties are imported with best-effort name matching
+The tool MUST import SpielerPlus's penalty catalog into Teamverwaltung's
+`penalties`, and assigned punishments into `penalty_assignments`. Since
+SpielerPlus identifies an assigned punishment's member by display name only (no
+id or profile link), an assignment MUST be matched to the imported roster by an
+exact match on member name; an assignment whose name does not match any imported
+member MUST be skipped and reported, not imported against a guessed member.
+
+#### Scenario: An assignment matches an imported member by name
+- **WHEN** an assigned punishment's member name exactly matches an imported
+  member's name
+- **THEN** a `penalty_assignments` row is created for that member
+
+#### Scenario: An assignment's name does not match any imported member
+- **WHEN** an assigned punishment's member name does not exactly match any
+  imported member's name
+- **THEN** the tool skips that assignment, logs it in the run summary, and
+  continues importing the remaining records

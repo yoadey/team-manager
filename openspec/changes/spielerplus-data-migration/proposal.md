@@ -15,8 +15,9 @@ users log in for the first time.
   - Authenticates to SpielerPlus using a session cookie the operator captures from
     their own logged-in browser session (no SpielerPlus password stored anywhere).
   - Scrapes SpielerPlus's server-rendered pages for team members/roles, events
-    (trainings/games), per-event attendance, and planned absences (including past
-    ones).
+    (trainings/games), per-event attendance, planned absences (including past
+    ones), and finances: the general cashbox ledger, membership dues, and
+    penalties (catalog + assigned punishments).
   - Writes directly to the Teamverwaltung Postgres database (same `DATABASE_URL` as
     the backend), bypassing the backend HTTP API, since there is no bulk-import
     endpoint and some of what's needed (pre-verified accounts with no usable password,
@@ -42,8 +43,9 @@ per club migrating off SpielerPlus.
 
 ### New Capabilities
 - `spielerplus-migration-tooling`: a standalone, re-runnable import tool that pulls
-  members, events, attendance, and absences out of a SpielerPlus account and loads
-  them into Teamverwaltung ahead of real user logins.
+  members, events, attendance, absences, and finances (cashbox transactions,
+  membership dues, penalties) out of a SpielerPlus account and loads them into
+  Teamverwaltung ahead of real user logins.
 
 ### Modified Capabilities
 <!-- none -->
@@ -53,7 +55,8 @@ per club migrating off SpielerPlus.
 - New directory `tools/spielerplus-import/` (own `go.mod`, not wired into
   `backend/Makefile` or `.github/workflows/ci.yml`).
 - Reads/writes the shared Postgres database directly: `users`, `memberships`,
-  `membership_roles`, `event_series`, `events`, `attendance`, `absences` (see
+  `membership_roles`, `event_series`, `events`, `attendance`, `absences`,
+  `transactions`, `penalties`, `penalty_assignments`, `contributions` (see
   `backend/internal/db/migrations/00001_init.sql`) — no migration/schema change.
   Existing business rules normally enforced by `backend/internal/absences/service.go`
   and `backend/internal/auth/service.go` (absence overlap/span checks, verified-email

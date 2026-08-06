@@ -97,6 +97,9 @@ func printSummary(w *os.File, s *importrun.Summary, dryRun bool) {
 	}
 	fmt.Fprintf(w, "attendance: %d %s, %d skipped\n", s.AttendanceWritten, attendanceVerb, s.AttendanceSkipped)
 	fmt.Fprintf(w, "absences: %d %s, %d skipped\n", s.AbsencesCreated, verb, s.AbsencesSkipped)
+	fmt.Fprintf(w, "transactions: %d %s, %d skipped\n", s.TransactionsCreated, verb, s.TransactionsSkipped)
+	fmt.Fprintf(w, "dues: %d %s, %d skipped\n", s.DuesCreated, verb, s.DuesSkipped)
+	fmt.Fprintf(w, "penalties: %d %s, %d skipped\n", s.PenaltiesCreated, verb, s.PenaltiesSkipped)
 	if len(s.SkipReasons) > 0 {
 		fmt.Fprintln(w, "skip reasons:")
 		for _, r := range s.SkipReasons {
