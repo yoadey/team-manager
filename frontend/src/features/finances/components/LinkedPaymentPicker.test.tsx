@@ -173,6 +173,49 @@ describe('LinkedPaymentPicker', () => {
     expect(handlers.onSelectPenalty).toHaveBeenCalledWith('a1');
   });
 
+  // Regression test: the amount shown for a penalty assignment must be the
+  // still-outstanding balance (amount - paidAmount), same as contributions --
+  // a partially-paid assignment stays unpaid (paid derives from paidAmount
+  // >= amount) and keeps showing up here, so showing the full original
+  // amount instead of what's actually still owed would mislead the person
+  // recording the next payment.
+  it('shows the outstanding balance, not the full amount, for a partially-paid penalty assignment', () => {
+    const handlers = makeHandlers();
+    render(
+      <LinkedPaymentPicker
+        tk={tk}
+        contributions={[]}
+        assignments={[makeAssignment({ id: 'a1', name: 'Ben Schmidt', amount: 50, paidAmount: 30, paid: false })]}
+        contributionId={undefined}
+        penaltyAssignmentId={undefined}
+        {...handlers}
+      />,
+    );
+    fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
+    fireEvent.click(screen.getByText(/Strafen \(1\)/));
+    expect(screen.getByText('20,00 €')).toBeTruthy();
+    expect(screen.queryByText('50,00 €')).toBeNull();
+
+    fireEvent.click(screen.getByText('Ben Schmidt'));
+    expect(handlers.onSelectPenalty).toHaveBeenCalledWith('a1');
+  });
+
+  it('shows the outstanding balance in the collapsed summary once a partially-paid penalty assignment is selected', () => {
+    const handlers = makeHandlers();
+    render(
+      <LinkedPaymentPicker
+        tk={tk}
+        contributions={[]}
+        assignments={[makeAssignment({ id: 'a1', name: 'Ben Schmidt', amount: 50, paidAmount: 30, paid: false })]}
+        contributionId={undefined}
+        penaltyAssignmentId="a1"
+        {...handlers}
+      />,
+    );
+    expect(screen.getByText('20,00 €')).toBeTruthy();
+    expect(screen.queryByText('50,00 €')).toBeNull();
+  });
+
   it('shows a collapsed summary with member/label/amount once a contribution is selected', () => {
     const handlers = makeHandlers();
     render(

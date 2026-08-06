@@ -72,7 +72,9 @@ export function LinkedPaymentPicker({
   if (selected && !expanded) {
     const name = selectedContrib ? selectedContrib.name : selectedAssignment?.name;
     const label = selectedContrib ? selectedContrib.label : selectedAssignment?.label;
-    const open = selectedContrib ? selectedContrib.amount - selectedContrib.paidAmount : (selectedAssignment?.amount ?? 0);
+    const open = selectedContrib
+      ? selectedContrib.amount - selectedContrib.paidAmount
+      : (selectedAssignment?.amount ?? 0) - (selectedAssignment?.paidAmount ?? 0);
     return (
       <Box
         sx={{
@@ -210,7 +212,7 @@ export function LinkedPaymentPicker({
             const isContrib = kind === 'contribution';
             const c = isContrib ? (row as Contribution) : undefined;
             const a = isContrib ? undefined : (row as PenaltyAssignment);
-            const open = c ? c.amount - c.paidAmount : (a?.amount ?? 0);
+            const open = c ? c.amount - c.paidAmount : (a?.amount ?? 0) - (a?.paidAmount ?? 0);
             return (
               <ButtonBase
                 key={row.id}

@@ -222,6 +222,12 @@ describe('membership fees: fan-out creation, partial payment via linked transact
       api.finances.addTransaction('t_a', { type: 'expense', title: 'Rückerstattung', amount: 5, contributionId: contrib!.id }),
     ).rejects.toThrow();
   });
+
+  it('rejects creating a fee for a user who is not a member of the team', async () => {
+    await expect(
+      api.finances.createContributions('t_a', { label: 'Fremd', amount: 10, userIds: ['u-not-a-member'] }),
+    ).rejects.toThrow();
+  });
 });
 
 describe('penalty assignments: default unpaid, paid only via a linked transaction', () => {

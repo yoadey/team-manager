@@ -1581,6 +1581,12 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateContributionRequest'];
+    // Mirrors finances.Service.CreateContributions' atomic per-userId
+    // membership re-check -- reject the whole fan-out if any target isn't
+    // (or is no longer) a member of this team.
+    if (body.userIds.some((userId) => !db.memberships.some((m) => m.teamId === teamId && m.userId === userId))) {
+      return problem(400, 'user is not a member of this team');
+    }
     const created = body.userIds.map((userId) => {
       const c = { id: rid('co'), teamId, userId, label: body.name, amount: body.amount, ...opt('dueDate', body.dueDate) };
       db.contributions.push(c);
