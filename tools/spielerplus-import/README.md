@@ -69,6 +69,7 @@ full design and rationale.
    | `SPIELERPLUS_SESSION_COOKIE` | The cookie header value captured above                          |
    | `ROLE_MAPPING_PATH`          | Path to your role-mapping YAML file                             |
    | `STATE_PATH`                 | Optional; defaults to `./spielerplus-import-state.json`         |
+   | `SPIELERPLUS_REQUEST_DELAY`  | Optional; minimum gap between requests to SpielerPlus, as a Go duration (e.g. `1s`). Defaults to `500ms`. Set `0` to disable throttling entirely (not recommended - a full import issues one request per member's profile and per event's attendance, so this is what keeps the tool from hammering SpielerPlus in a tight loop). |
 
 ## Usage
 
@@ -96,10 +97,16 @@ Teamverwaltung IDs - keep that file around between runs.
 
 ## What imported users can do afterwards
 
-Each imported member gets a Teamverwaltung account (matched by email) with
-no usable password but an already-verified email. They can log in by using
-**"forgot password"** with their email on the normal Teamverwaltung login
-page - no self-registration needed.
+Each imported member is matched to a Teamverwaltung account **by email**: if
+one already exists (created by any means - a previous import run, an invite,
+self-registration) it's reused as-is and just gets a membership in the target
+team if it doesn't have one yet; only members with no matching account get a
+new one. A newly created account has no usable password but an
+already-verified email, so its owner can log in by using **"forgot
+password"** with their email on the normal Teamverwaltung login page - no
+self-registration needed. This matching is why fetching each member's email
+from their profile page (see the members caveat above) matters even for
+people who might already have an account.
 
 ## Testing
 

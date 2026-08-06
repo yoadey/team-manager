@@ -41,7 +41,7 @@ func newTestClient(t *testing.T, handler http.Handler) *Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	c, err := NewClient("sid=test")
+	c, err := NewClient("sid=test", WithRequestDelay(0)) // no throttling in tests
 	if err != nil {
 		t.Fatalf("NewClient() error = %v", err)
 	}
@@ -177,6 +177,81 @@ func TestClient_Get_NotAuthenticated(t *testing.T) {
 	_, err := c.FetchEvents(time.Now())
 	if err == nil || !strings.Contains(err.Error(), "not authenticated") {
 		t.Fatalf("FetchEvents() error = %v, want ErrNotAuthenticated", err)
+	}
+}
+
+func TestClient_Throttle_EnforcesMinimumGap(t *testing.T) {
+	var timestamps []time.Time
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		timestamps = append(timestamps, time.Now())
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
+	})
+	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
+		timestamps = append(timestamps, time.Now())
+		fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	delay := 100 * time.Millisecond
+	c, err := NewClient("sid=test", WithRequestDelay(delay))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	c.baseURL = srv.URL
+
+	if _, err := c.FetchEvents(time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("FetchEvents() error = %v", err)
+	}
+	if len(timestamps) < 2 {
+		t.Fatalf("got %d requests, want at least 2", len(timestamps))
+	}
+	// Allow a small tolerance for scheduler/timer jitter around time.Sleep -
+	// this is checking the throttle actually delays back-to-back requests,
+	// not asserting sub-millisecond precision.
+	const tolerance = 5 * time.Millisecond
+	for i := 1; i < len(timestamps); i++ {
+		gap := timestamps[i].Sub(timestamps[i-1])
+		if gap < delay-tolerance {
+			t.Errorf("request %d came %v after the previous one, want at least ~%v", i, gap, delay)
+		}
+	}
+}
+
+func TestClient_Throttle_DisabledWithZero(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
+	})
+	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	c.baseURL = srv.URL
+
+	start := time.Now()
+	if _, err := c.FetchEvents(time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("FetchEvents() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Errorf("FetchEvents() took %v with throttling disabled, want fast", elapsed)
+	}
+}
+
+func TestNewClient_DefaultRequestDelay(t *testing.T) {
+	c, err := NewClient("sid=test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if c.requestDelay != DefaultRequestDelay {
+		t.Errorf("requestDelay = %v, want default %v", c.requestDelay, DefaultRequestDelay)
 	}
 }
 

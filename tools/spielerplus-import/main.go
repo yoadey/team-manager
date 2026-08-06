@@ -42,7 +42,7 @@ func run(dryRun bool) error {
 		return err
 	}
 
-	sp, err := spielerplus.NewClient(cfg.SpielerPlusSessionCookie)
+	sp, err := spielerplus.NewClient(cfg.SpielerPlusSessionCookie, spielerplus.WithRequestDelay(cfg.RequestDelay))
 	if err != nil {
 		return err
 	}
@@ -57,6 +57,7 @@ func run(dryRun bool) error {
 	if cfg.DryRun {
 		log.Println("dry run: no database writes will be made")
 	}
+	log.Printf("throttling requests to SpielerPlus to at least %s apart", cfg.RequestDelay)
 
 	summary, err := importrun.Run(ctx, sp, store, importrun.Options{
 		TeamID:      cfg.TeamID,

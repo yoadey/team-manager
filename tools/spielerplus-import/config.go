@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
+
+	"github.com/yoadey/team-manager/tools/spielerplus-import/spielerplus"
 )
 
 // Config holds everything the importer needs, sourced from environment
@@ -22,6 +25,11 @@ type Config struct {
 	RoleMappingPath string
 	// StatePath points at the local JSON idempotency state file.
 	StatePath string
+	// RequestDelay is the minimum gap enforced between requests to
+	// SpielerPlus (see SPIELERPLUS_REQUEST_DELAY), so a long member/event
+	// list can't hammer it in a tight loop and draw attention or trip a
+	// rate limit.
+	RequestDelay time.Duration
 	// DryRun, when true, performs the full read/scrape + mapping pipeline
 	// but writes nothing to the database.
 	DryRun bool
@@ -38,6 +46,18 @@ func loadConfig(dryRun bool) (*Config, error) {
 	}
 	if cfg.StatePath == "" {
 		cfg.StatePath = "spielerplus-import-state.json"
+	}
+
+	cfg.RequestDelay = spielerplus.DefaultRequestDelay
+	if raw := os.Getenv("SPIELERPLUS_REQUEST_DELAY"); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid SPIELERPLUS_REQUEST_DELAY %q: %w (expected a Go duration like \"500ms\" or \"2s\"; use \"0\" to disable throttling)", raw, err)
+		}
+		if d < 0 {
+			return nil, fmt.Errorf("invalid SPIELERPLUS_REQUEST_DELAY %q: must not be negative", raw)
+		}
+		cfg.RequestDelay = d
 	}
 
 	var missing []string

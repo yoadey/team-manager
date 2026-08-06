@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,19 +31,45 @@ const browserUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KH
 // is missing, invalid, or expired.
 var ErrNotAuthenticated = fmt.Errorf("spielerplus: not authenticated (session cookie missing/expired) - capture a fresh SPIELERPLUS_SESSION_COOKIE from a logged-in browser session")
 
+// DefaultRequestDelay is the minimum gap enforced between requests when the
+// operator hasn't configured one explicitly (see WithRequestDelay) - a
+// conservative default given this importer can issue a lot of requests in a
+// tight loop (one per member's profile page, one per event's attendance),
+// and there's no published rate limit to target instead.
+const DefaultRequestDelay = 500 * time.Millisecond
+
 // Client is a minimal HTTP client for the SpielerPlus pages this importer
 // needs. It is read-only against SpielerPlus: it never submits the
 // participation form or otherwise mutates SpielerPlus data.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string
+
+	// requestDelay is the minimum gap enforced between the start of one
+	// request and the next (see WithRequestDelay), so a long member/event
+	// list doesn't hammer SpielerPlus in a tight loop. mu+lastRequest
+	// implement that serially - this importer never issues concurrent
+	// requests, so a simple mutex is enough (no need for a token-bucket
+	// library).
+	requestDelay time.Duration
+	mu           sync.Mutex
+	lastRequest  time.Time
+}
+
+// ClientOption configures optional Client behavior - see WithRequestDelay.
+type ClientOption func(*Client)
+
+// WithRequestDelay sets the minimum gap between requests (default
+// DefaultRequestDelay if not set; pass 0 to disable throttling entirely).
+func WithRequestDelay(d time.Duration) ClientOption {
+	return func(c *Client) { c.requestDelay = d }
 }
 
 // NewClient builds a Client authenticated with sessionCookie, the raw
 // "Cookie:" header value captured from a logged-in browser session (e.g.
 // via the browser's DevTools -> Application/Storage -> Cookies for
 // spielerplus.de, or the request headers of any XHR on the site).
-func NewClient(sessionCookie string) (*Client, error) {
+func NewClient(sessionCookie string, opts ...ClientOption) (*Client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("spielerplus: create cookie jar: %w", err)
@@ -57,7 +84,7 @@ func NewClient(sessionCookie string) (*Client, error) {
 	}
 	jar.SetCookies(base, cookies)
 
-	return &Client{
+	c := &Client{
 		httpClient: &http.Client{
 			Jar:     jar,
 			Timeout: 30 * time.Second,
@@ -71,8 +98,28 @@ func NewClient(sessionCookie string) (*Client, error) {
 				return nil
 			},
 		},
-		baseURL: BaseURL,
-	}, nil
+		baseURL:      BaseURL,
+		requestDelay: DefaultRequestDelay,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
+}
+
+// throttle blocks until at least requestDelay has passed since the last
+// request this Client made, so a long member/event loop can't hammer
+// SpielerPlus faster than configured.
+func (c *Client) throttle() {
+	if c.requestDelay <= 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if wait := c.requestDelay - time.Since(c.lastRequest); wait > 0 {
+		time.Sleep(wait)
+	}
+	c.lastRequest = time.Now()
 }
 
 // parseCookieHeader turns a raw "name=value; name2=value2" Cookie header
@@ -99,6 +146,7 @@ func parseCookieHeader(header string) []*http.Cookie {
 // get fetches path (relative to BaseURL) and returns the response body.
 // Returns ErrNotAuthenticated if SpielerPlus served its login page instead.
 func (c *Client) get(path string) (io.ReadCloser, error) {
+	c.throttle()
 	req, err := http.NewRequest(http.MethodGet, c.baseURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("spielerplus: build request for %s: %w", path, err)
@@ -131,6 +179,7 @@ func (c *Client) get(path string) (io.ReadCloser, error) {
 // header. Used for the ajaxgetevents/ajaxgetparticipation endpoints, which
 // render server-side HTML fragments rather than a full page.
 func (c *Client) postForm(path string, form url.Values) (io.ReadCloser, error) {
+	c.throttle()
 	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, strings.NewReader(form.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("spielerplus: build request for %s: %w", path, err)
