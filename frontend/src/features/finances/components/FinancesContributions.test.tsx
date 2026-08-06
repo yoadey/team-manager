@@ -193,6 +193,48 @@ describe('FinancesContributions', () => {
     expect(screen.getByText('Bob')).toBeTruthy();
   });
 
+  // Regression test: a recurring fee re-created period after period (no
+  // catalog forces period-differentiated names, per design.md) used to
+  // group solely by name, merging unrelated batches -- two same-named
+  // batches with different due dates must now stay in separate groups.
+  it('keeps two same-named batches with different due dates in separate groups', () => {
+    const app = makeApp();
+    const contribs = [
+      makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag', name: 'Anna', dueDate: '2026-01-31', amount: 25 }),
+      makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag', name: 'Bob', userId: 'u2', dueDate: '2026-02-28', amount: 25 }),
+    ];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
+    );
+    // The soonest-due group (January) is selected by default -- only Anna's
+    // row shows, Bob's February batch must not be blended in.
+    expect(screen.getByText('Anna')).toBeTruthy();
+    expect(screen.queryByText('Bob')).toBeNull();
+
+    // Two distinct chips exist (disambiguated by due date in the chip's
+    // secondary line), not one merged group.
+    const febChip = screen.getAllByRole('button').find((btn) => btn.textContent?.includes('2026-02-28'));
+    expect(febChip).toBeTruthy();
+    fireEvent.click(febChip!);
+    expect(app.setState).toHaveBeenCalledWith({ contribGroup: 'Mitgliedsbeitrag 2026-02-28' });
+  });
+
+  // Two same-named batches sharing the exact same due date ARE the same
+  // fee re-touched (e.g. edited after creation) and must still merge into
+  // one group, same as before this change.
+  it('still merges same-named batches that share the same due date', () => {
+    const app = makeApp();
+    const contribs = [
+      makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag', name: 'Anna', dueDate: '2026-01-31' }),
+      makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag', name: 'Bob', userId: 'u2', dueDate: '2026-01-31' }),
+    ];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
+    );
+    expect(screen.getByText('Anna')).toBeTruthy();
+    expect(screen.getByText('Bob')).toBeTruthy();
+  });
+
   it('uses contribGroup from state when it matches an existing group', () => {
     const app = makeApp({ state: { contribGroup: 'Mitgliedsbeitrag Mai' } });
     const contribs = [

@@ -55,26 +55,35 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
     );
   }
 
-  // Groups by fee name (the batch a create action fanned out into) --
-  // soonest due date first, groups without a due date sort last, ties
-  // broken alphabetically.
+  // Groups by (fee name, due date) -- not name alone, since a treasurer
+  // creating the same-named recurring fee period after period (there's no
+  // reusable catalog forcing period-differentiated names, see design.md)
+  // would otherwise merge unrelated batches into one group, blending their
+  // paid/total progress and losing each row's individual due date. Two
+  // batches only ever collapse into the same group when they share both
+  // name AND due date, which is the actual "same fee, re-touched" case.
+  // Groups sort soonest-due-first; groups without a due date sort last;
+  // ties (including the "no due date" bucket) break alphabetically by name.
+  const groupKey = (c: Contribution) => (c.dueDate ? c.label + ' ' + c.dueDate : c.label);
+  const groupLabel: Record<string, string> = {};
   const groupDueDate: Record<string, string | null> = {};
   contribs.forEach((c) => {
-    const cur = groupDueDate[c.label];
-    if (cur === undefined || (c.dueDate && (!cur || c.dueDate < cur))) groupDueDate[c.label] = c.dueDate || cur || null;
+    const key = groupKey(c);
+    groupLabel[key] = c.label;
+    groupDueDate[key] = c.dueDate || null;
   });
-  const groups = [...new Set(contribs.map((c) => c.label))].sort((a, b) => {
+  const groups = [...new Set(contribs.map(groupKey))].sort((a, b) => {
     const da = groupDueDate[a];
     const db = groupDueDate[b];
-    if (da && db) return da.localeCompare(db);
+    if (da && db) return da.localeCompare(db) || groupLabel[a]!.localeCompare(groupLabel[b]!, getIntlLocale());
     if (da) return -1;
     if (db) return 1;
-    return a.localeCompare(b, getIntlLocale());
+    return groupLabel[a]!.localeCompare(groupLabel[b]!, getIntlLocale());
   });
   // groups.length > 0 is guaranteed by the `!contribs.length` early return above.
   const sel = state.contribGroup && groups.includes(state.contribGroup) ? state.contribGroup : groups[0]!;
   const rows = contribs
-    .filter((c) => c.label === sel)
+    .filter((c) => groupKey(c) === sel)
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', getIntlLocale()));
   const paidRows = rows.filter((c) => c.status === 'paid');
   const sum = paidRows.reduce((s, c) => s + c.paidAmount, 0);
@@ -85,7 +94,13 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
     <Box key="mc" sx={{ display: 'flex', gap: '8px', overflowX: 'auto', pb: '4px', mb: '14px' }}>
       {groups.map((g) => {
         const s = g === sel;
-        const open = contribs.filter((c) => c.label === g && c.status !== 'paid').length;
+        const open = contribs.filter((c) => groupKey(c) === g && c.status !== 'paid').length;
+        const statusText = open ? open + ' ' + t('finances.contribOpen') : t('finances.contribPaid');
+        const due = groupDueDate[g];
+        // Two groups can share a name (a recurring fee re-created for a new
+        // period) and differ only by due date -- show it so the chips stay
+        // distinguishable instead of rendering as identical-looking twins.
+        const secondaryText = due ? statusText + ' · ' + fmtDate(due) : statusText;
         return (
           <ButtonBase
             key={g}
@@ -116,13 +131,13 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
                 maxWidth: '100%',
               }}
             >
-              {g}
+              {groupLabel[g]}
             </Box>
             <Box
               component="span"
               sx={{ fontSize: '11px', color: s ? tk.onPrimaryContainer : NEUTRAL.faint, whiteSpace: 'nowrap' }}
             >
-              {open ? open + ' ' + t('finances.contribOpen') : t('finances.contribPaid')}
+              {secondaryText}
             </Box>
           </ButtonBase>
         );
@@ -145,7 +160,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       }}
     >
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Box sx={{ fontSize: '15px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sel}</Box>
+        <Box sx={{ fontSize: '15px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{groupLabel[sel]}</Box>
         <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, mt: '3px' }}>
           {t('finances.contribSummary', {
             paid: paidRows.length,
