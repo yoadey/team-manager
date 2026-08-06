@@ -164,6 +164,22 @@ func TestClient_FetchAttendance_SendsEventIDAndType(t *testing.T) {
 	}
 }
 
+func TestClient_FetchActiveTeamName(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dashboard/index", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<div class="navigation__card"><div class="navigation__card__title">TSC B-Team 25/26</div></div>`)
+	})
+
+	c := newTestClient(t, mux)
+	name, err := c.FetchActiveTeamName()
+	if err != nil {
+		t.Fatalf("FetchActiveTeamName() error = %v", err)
+	}
+	if name != "TSC B-Team 25/26" {
+		t.Errorf("name = %q, want %q", name, "TSC B-Team 25/26")
+	}
+}
+
 func TestClient_Get_NotAuthenticated(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/site/login", func(w http.ResponseWriter, r *http.Request) {

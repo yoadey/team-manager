@@ -123,6 +123,16 @@
 - [x] 5.3 Summary report at the end of a real run (counts per entity, any skipped
       records with reasons) so the operator can sanity-check before onboarding real
       users.
+- [x] 5.4 Throttle requests to SpielerPlus (configurable minimum gap, default 500ms,
+      `SPIELERPLUS_REQUEST_DELAY`) so a full run's many per-member/per-event requests
+      don't hammer it in a tight loop.
+- [x] 5.5 Confirm the active SpielerPlus team before writing anything: SpielerPlus
+      scopes every page this tool reads by a session-level "active team" with no team
+      id in the URL to double check against, so an account managing more than one team
+      could have the wrong one active. Detect the active team's name (confirmed
+      markup: the sidebar's "Team wechseln" nav card) and either compare it against
+      `SPIELERPLUS_EXPECTED_TEAM_NAME` (non-interactive) or prompt for an explicit
+      `y`/`yes` on stdin (interactive) before proceeding.
 
 ## 6. Verification
 

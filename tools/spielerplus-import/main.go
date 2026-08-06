@@ -47,6 +47,14 @@ func run(dryRun bool) error {
 		return err
 	}
 
+	activeTeam, err := sp.FetchActiveTeamName()
+	if err != nil {
+		return err
+	}
+	if err := confirmTeam(activeTeam, cfg.ExpectedTeamName, os.Stdin, os.Stdout); err != nil {
+		return err
+	}
+
 	ctx := context.Background()
 	store, err := db.Open(ctx, cfg.DatabaseURL, cfg.DryRun)
 	if err != nil {

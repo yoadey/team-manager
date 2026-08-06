@@ -25,6 +25,17 @@ type Config struct {
 	RoleMappingPath string
 	// StatePath points at the local JSON idempotency state file.
 	StatePath string
+	// ExpectedTeamName, if set, is compared against the team name detected
+	// as currently active in the SpielerPlus session (see
+	// SPIELERPLUS_EXPECTED_TEAM_NAME): the run proceeds automatically on a
+	// match and aborts on a mismatch, without an interactive prompt. Left
+	// empty, the detected name is shown for interactive
+	// confirmation instead - either way, this guards against an account
+	// that manages more than one SpielerPlus team having the wrong one
+	// active when its session cookie was captured (SpielerPlus scopes
+	// every page this importer reads by that session-level active team,
+	// with no team id in the URL to double check against).
+	ExpectedTeamName string
 	// RequestDelay is the minimum gap enforced between requests to
 	// SpielerPlus (see SPIELERPLUS_REQUEST_DELAY), so a long member/event
 	// list can't hammer it in a tight loop and draw attention or trip a
@@ -42,6 +53,7 @@ func loadConfig(dryRun bool) (*Config, error) {
 		SpielerPlusSessionCookie: os.Getenv("SPIELERPLUS_SESSION_COOKIE"),
 		RoleMappingPath:          os.Getenv("ROLE_MAPPING_PATH"),
 		StatePath:                os.Getenv("STATE_PATH"),
+		ExpectedTeamName:         os.Getenv("SPIELERPLUS_EXPECTED_TEAM_NAME"),
 		DryRun:                   dryRun,
 	}
 	if cfg.StatePath == "" {

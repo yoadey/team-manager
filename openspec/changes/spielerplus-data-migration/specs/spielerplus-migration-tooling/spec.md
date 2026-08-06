@@ -65,3 +65,43 @@ importing the affected member with a default or guessed role.
   configuration
 - **THEN** the tool exits with a non-zero status and an error naming that role
 - **AND** no partial import for that run is left half-committed to the database
+
+### Requirement: Requests to SpielerPlus are throttled
+The tool MUST enforce a minimum, configurable gap between requests it makes to
+SpielerPlus, so a full run's many per-member and per-event requests cannot fire back
+to back.
+
+#### Scenario: Default throttling applies
+- **WHEN** the tool runs without `SPIELERPLUS_REQUEST_DELAY` set
+- **THEN** consecutive requests to SpielerPlus are spaced at least 500ms apart
+
+#### Scenario: Throttling is configurable
+- **WHEN** `SPIELERPLUS_REQUEST_DELAY` is set to a valid Go duration
+- **THEN** consecutive requests are spaced at least that duration apart
+
+### Requirement: The active SpielerPlus team is confirmed before writing anything
+Since SpielerPlus scopes every page the tool reads by a session-level "active team"
+with no team id in the URL to cross-check, the tool MUST determine that team's name
+and have it confirmed - interactively or via configuration - before any database
+write occurs.
+
+#### Scenario: Interactive confirmation accepted
+- **WHEN** the tool runs without `SPIELERPLUS_EXPECTED_TEAM_NAME` set and the operator
+  answers "y" or "yes" to the printed confirmation prompt
+- **THEN** the run proceeds
+
+#### Scenario: Interactive confirmation declined
+- **WHEN** the tool runs without `SPIELERPLUS_EXPECTED_TEAM_NAME` set and the operator
+  answers anything other than "y"/"yes" (including no input)
+- **THEN** the run aborts before any database write, with no partial import committed
+
+#### Scenario: Non-interactive confirmation via configuration
+- **WHEN** `SPIELERPLUS_EXPECTED_TEAM_NAME` is set and matches the detected active
+  team's name
+- **THEN** the run proceeds without prompting
+
+#### Scenario: Non-interactive mismatch aborts
+- **WHEN** `SPIELERPLUS_EXPECTED_TEAM_NAME` is set and does not match the detected
+  active team's name
+- **THEN** the run aborts before any database write, with an error naming both the
+  expected and detected team

@@ -157,6 +157,20 @@ not covered by any of them, so their URLs/selectors are determined by inspecting
 real SpielerPlus account during implementation (with the operator's help if needed),
 not assumed up front.
 
+**Request throttling and active-team confirmation, added after initial review.**
+Two operational gaps surfaced once the tool was otherwise complete: nothing kept a
+full run's many requests (one per member's profile, one per event's attendance) from
+firing back-to-back, and nothing checked that the SpielerPlus session's currently
+*active* team (there is no team id in any URL this tool calls - SpielerPlus scopes
+every page by a session-level "active team" instead) was actually the one intended,
+which matters for any account that manages more than one team. Both are now handled
+before any data is written: `spielerplus.Client` enforces a configurable minimum gap
+between requests (`SPIELERPLUS_REQUEST_DELAY`, default 500ms), and `main.go` fetches
+the active team's display name (confirmed markup: the sidebar's "Team wechseln" nav
+card) and requires it be confirmed - either interactively (`y`/`yes` on stdin) or
+against `SPIELERPLUS_EXPECTED_TEAM_NAME` for repeat/non-interactive runs - before
+proceeding.
+
 ## Risks / Trade-offs
 
 - **Scraping fragility**: SpielerPlus can change its markup at any time and silently

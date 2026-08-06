@@ -70,6 +70,29 @@ full design and rationale.
    | `ROLE_MAPPING_PATH`          | Path to your role-mapping YAML file                             |
    | `STATE_PATH`                 | Optional; defaults to `./spielerplus-import-state.json`         |
    | `SPIELERPLUS_REQUEST_DELAY`  | Optional; minimum gap between requests to SpielerPlus, as a Go duration (e.g. `1s`). Defaults to `500ms`. Set `0` to disable throttling entirely (not recommended - a full import issues one request per member's profile and per event's attendance, so this is what keeps the tool from hammering SpielerPlus in a tight loop). |
+   | `SPIELERPLUS_EXPECTED_TEAM_NAME` | Optional; see "Which SpielerPlus team gets imported?" below. |
+
+## Which SpielerPlus team gets imported?
+
+SpielerPlus scopes every page this tool reads (events, attendance, roster,
+absences) by whichever team is currently *active* in your SpielerPlus
+session - there's no team id in any of the URLs to double check against, so
+an account that manages more than one team could have the wrong one active
+when its session cookie was captured.
+
+Before writing anything, the tool fetches the active team's display name
+(shown in SpielerPlus's own sidebar "Team wechseln" card) and:
+
+- if `SPIELERPLUS_EXPECTED_TEAM_NAME` is set, compares it directly and
+  aborts on a mismatch, without prompting - useful for repeat/non-interactive
+  runs once you've confirmed the name once;
+- otherwise, prints the detected name and asks for an explicit `y`/`yes` on
+  stdin before continuing.
+
+If it's the wrong team, switch at
+[`https://www.spielerplus.de/site/select-team`](https://www.spielerplus.de/site/select-team)
+in your browser, capture a fresh session cookie from that session, and start
+over.
 
 ## Usage
 
