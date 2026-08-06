@@ -33,7 +33,13 @@
       resent on every page vs. only once (sent on every page as the safer assumption);
       only "training" events were present in the capture, so the row-id-derived type
       slug for game/tournament/event is unverified; no location field was observed in
-      the capture (selector left as an unverified guess).
+      the capture (selector left as an unverified guess). **Validated against a real
+      account's live dry-run**: paginated correctly through real history via
+      `ajaxgetevents`. Found and fixed one gap the HAR captures didn't show: SpielerPlus
+      renders an explicit `-:-` placeholder in an `.event-time-value` element for an
+      unconfirmed time (e.g. a game's kickoff), rather than omitting the element -
+      `eventTimes`/`parseDateTime` now normalize any placeholder value to "not set"
+      instead of failing to parse it as `HH:MM`.
 - [x] 2.3 Parse per-event attendance into a per-member status; map SpielerPlus states →
       Teamverwaltung's `attendance.status` enum. **Fully confirmed from the second HAR
       capture, including three full response bodies**: `POST

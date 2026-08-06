@@ -188,13 +188,29 @@ func parseEventRow(row *goquery.Selection, reference time.Time) (Event, error) {
 // three values are (meet, start, end); two are (start, end); one is just
 // (start). Read positionally rather than by the German "Treffen"/"Beginn"/
 // "Ende" label text, so this doesn't depend on the account's display
-// language (see the eventRowSelector doc comment).
+// language (see the eventRowSelector doc comment). Each value is normalized
+// via normalizeTimeValue, since a live account showed SpielerPlus rendering
+// an explicit "-:-" placeholder (observed for a game with no confirmed
+// kickoff yet) in an otherwise-present time slot, rather than omitting the
+// element entirely.
 func eventTimes(row *goquery.Selection) []string {
 	var values []string
 	row.Find(eventTimeItemSelector).Each(func(_ int, v *goquery.Selection) {
-		values = append(values, strings.TrimSpace(v.Text()))
+		values = append(values, normalizeTimeValue(strings.TrimSpace(v.Text())))
 	})
 	return values
+}
+
+// normalizeTimeValue maps SpielerPlus's "not set" placeholder to "" so
+// callers can treat it the same as a missing value. Confirmed from a live
+// account: "-:-" for an unconfirmed kickoff time. Trims any run of dashes/
+// colons/spaces rather than matching that exact string, in case SpielerPlus
+// renders a slightly different placeholder elsewhere (e.g. "--:--").
+func normalizeTimeValue(s string) string {
+	if strings.Trim(s, "-: ") == "" {
+		return ""
+	}
+	return s
 }
 
 // eventTypeSlug maps our EventType back to the SpielerPlus type identifier
@@ -266,7 +282,11 @@ func resolveDate(dateText string, reference time.Time) (time.Time, error) {
 
 // parseDateTime resolves a SpielerPlus "DD.MM" date (via resolveDate) plus
 // up to three positional time values (see eventTimes) into meet/start/end
-// times.
+// times. Each of meet/start/end is independently optional (already
+// normalized to "" by eventTimes for an unset/placeholder slot - e.g. a
+// game with no confirmed kickoff yet) - only a missing/unset *start* forces
+// the whole event to TimeUnknown, since there's nothing else to anchor a
+// real time-of-day on.
 func parseDateTime(dateText string, times []string, reference time.Time) (meet, start, end time.Time, endIsEstimated, timeUnknown bool, err error) {
 	if dateText == "" {
 		return time.Time{}, time.Time{}, time.Time{}, false, false, fmt.Errorf("missing date")
@@ -279,9 +299,6 @@ func parseDateTime(dateText string, times []string, reference time.Time) (meet, 
 	var meetHM, startHM, endHM string
 	switch len(times) {
 	case 0:
-		// No time information at all: day's time-of-day is a meaningless
-		// midnight placeholder, not a real start time.
-		return time.Time{}, day, day.Add(2 * time.Hour), true, true, nil
 	case 1:
 		startHM = times[0]
 	case 2:
@@ -298,13 +315,18 @@ func parseDateTime(dateText string, times []string, reference time.Time) (meet, 
 		return time.Date(day.Year(), day.Month(), day.Day(), h, m, 0, 0, day.Location()), nil
 	}
 
+	if startHM == "" {
+		// No usable start time: day's time-of-day is a meaningless midnight
+		// placeholder, not a real start time.
+		return time.Time{}, day, day.Add(2 * time.Hour), true, true, nil
+	}
+	if start, err = at(startHM); err != nil {
+		return time.Time{}, time.Time{}, time.Time{}, false, false, err
+	}
 	if meetHM != "" {
 		if meet, err = at(meetHM); err != nil {
 			return time.Time{}, time.Time{}, time.Time{}, false, false, err
 		}
-	}
-	if start, err = at(startHM); err != nil {
-		return time.Time{}, time.Time{}, time.Time{}, false, false, err
 	}
 	if endHM == "" {
 		// A start time is known but no end time: estimate start + 2h, same

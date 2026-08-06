@@ -87,6 +87,58 @@ func TestParseEvents_TwoTimesMeansNoMeetTime(t *testing.T) {
 	}
 }
 
+func TestParseEvents_PlaceholderTimeValues(t *testing.T) {
+	// Confirmed against a live account: SpielerPlus renders an explicit
+	// "-:-" placeholder for an unconfirmed kickoff time, rather than
+	// omitting the .event-time-value element.
+	cases := []struct {
+		name          string
+		times         []string
+		wantUnknown   bool
+		wantEstimated bool
+		wantMeetZero  bool
+	}{
+		{"all placeholders", []string{"-:-", "-:-", "-:-"}, true, true, true},
+		{"start placeholder", []string{"18:50", "-:-", "20:00"}, true, true, true},
+		{"end placeholder", []string{"18:50", "19:00", "-:-"}, false, true, false},
+		{"meet placeholder", []string{"-:-", "19:00", "20:00"}, false, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			html := panelHTML("1", "training", "Training", "12.08", tc.times...)
+			events, err := ParseEvents(strings.NewReader(html), time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC))
+			if err != nil {
+				t.Fatalf("ParseEvents() error = %v, want placeholder \"-:-\" values handled without a parse error", err)
+			}
+			ev := events[0]
+			if ev.TimeUnknown != tc.wantUnknown {
+				t.Errorf("TimeUnknown = %v, want %v", ev.TimeUnknown, tc.wantUnknown)
+			}
+			if ev.EndIsEstimated != tc.wantEstimated {
+				t.Errorf("EndIsEstimated = %v, want %v", ev.EndIsEstimated, tc.wantEstimated)
+			}
+			if ev.MeetTime.IsZero() != tc.wantMeetZero {
+				t.Errorf("MeetTime = %v, want zero=%v", ev.MeetTime, tc.wantMeetZero)
+			}
+		})
+	}
+}
+
+func TestNormalizeTimeValue(t *testing.T) {
+	cases := map[string]string{
+		"18:00": "18:00",
+		"-:-":   "",
+		"--:--": "",
+		"-":     "",
+		"":      "",
+	}
+	for in, want := range cases {
+		if got := normalizeTimeValue(in); got != want {
+			t.Errorf("normalizeTimeValue(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestParseEvents_BadRowSkippedNotFatal(t *testing.T) {
 	html := panelHTML("1", "training", "Training", "12.08") +
 		`<div class="panel" id="event-training-2"><div class="panel-heading-info"><div class="panel-subtitle">19.08</div></div></div>` // no title: should be skipped, not fatal
