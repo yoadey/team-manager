@@ -979,6 +979,24 @@ func TestHandler_GetMyPhoto_NoPhoto_Returns404WithType(t *testing.T) {
 	assert.NotEmpty(t, body["type"])
 }
 
+// Regression test: a missing auth context on an authenticated-only route
+// must report 401 (unauthenticated), not 404 (not found) -- 404 would mask
+// an auth failure as "no such resource" if route wiring ever changed to
+// let this path be reached without AuthMiddleware having run first.
+func TestHandler_GetMyPhoto_NoAuthContext_Returns401(t *testing.T) {
+	t.Parallel()
+
+	h := auth.NewHandler(&mockAuthService{}, slog.Default(), nil, nil)
+	resp, err := h.GetMyPhoto(context.Background(), gen.GetMyPhotoRequestObject{})
+	require.Error(t, err)
+	require.Nil(t, resp)
+
+	w := httptest.NewRecorder()
+	apierror.ResponseErrorHandler(slog.Default())(w, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/auth/me/photo", http.NoBody), err)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 func TestHandler_GetMyPhoto_Found_RedirectsToPresignedURL(t *testing.T) {
 	t.Parallel()
 

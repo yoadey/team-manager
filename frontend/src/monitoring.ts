@@ -22,10 +22,11 @@ export function initMonitoring(): void {
     environment: import.meta.env.MODE,
     release: (import.meta.env.VITE_BUILD_VERSION as string | undefined) || undefined,
     beforeSend(event) {
-      // Strip PII from outgoing events — email and IP must never leave the browser.
+      // Strip PII from outgoing events — email, IP, and display name must never leave the browser.
       if (event.user) {
         delete event.user.email;
         delete event.user.ip_address;
+        delete event.user.username;
       }
       return event;
     },
@@ -52,10 +53,13 @@ export function captureException(error: unknown, context?: Record<string, unknow
   Sentry.captureException(error, context ? { extra: context } : undefined);
 }
 
-/** Sets or clears the authenticated user on Sentry scope for error attribution. */
+/**
+ * Sets or clears the authenticated user on Sentry scope for error attribution.
+ * Only the opaque id is sent — the display name is PII and must never leave the browser.
+ */
 export function setSentryUser(user: { id: string; name: string } | null): void {
   if (!config.sentryDsn) return;
-  Sentry.setUser(user ? { id: user.id, username: user.name } : null);
+  Sentry.setUser(user ? { id: user.id } : null);
 }
 
 /** Registers global handlers for otherwise-unhandled promise rejections and errors. */

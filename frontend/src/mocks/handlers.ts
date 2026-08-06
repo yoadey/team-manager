@@ -53,7 +53,8 @@ function opt<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V 
 // effect's `lastSyncedPath` ref diffing) assumes happen as observably
 // separate steps. A real backend never resolves same-tick, so this restores
 // that same-origin-but-not-synchronous realism (mirroring the deleted
-// localStorage mock's `delay()`, and honoring VITE_MOCK_DELAY_MIN/MAX).
+// localStorage mock's `delay()`, though with a fixed delay rather than the
+// old mock's configurable VITE_MOCK_DELAY_MIN/MAX range).
 const loginDelay = () => new Promise<void>((r) => setTimeout(r, 40));
 const mockDelay = () => new Promise<void>((r) => setTimeout(r, 5));
 

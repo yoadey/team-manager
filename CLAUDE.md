@@ -60,7 +60,7 @@ docker compose up          # Postgres + Backend + Frontend
 team-manager/
 ├── frontend/              React 19 + TypeScript SPA
 │   ├── src/               Application source
-│   │   ├── services/serviceLayer.ts   Mock/real backend switch (see "Connecting the Real Backend")
+│   │   ├── services/serviceLayer.ts   Re-exports the real backend client (see "Connecting the Real Backend")
 │   │   └── ...
 │   ├── package.json
 │   └── vite.config.ts
@@ -113,8 +113,8 @@ team-manager/
 - **State-based routing** (no router dependency; navigation driven by `state.route`)
 - **i18n** via lightweight in-house layer (`src/i18n`)
 - All state in `src/context/AppContext.tsx`; access via `useApp()`
-- `src/services/serviceLayer.ts` exports `api`, switching between the in-memory mock and the real
-  backend based on `VITE_API_BASE_URL` (see "Connecting the Real Backend" below)
+- `src/services/serviceLayer.ts` exports `api`, which is always `realApi` — the generated
+  openapi-fetch client (see "Connecting the Real Backend" below)
 
 ### Backend
 
@@ -160,8 +160,6 @@ self-registration minimum-age gate.
 | Variable                  | Default          | Purpose                          |
 |---------------------------|------------------|----------------------------------|
 | `VITE_APP_NAME`           | `Teamverwaltung` | Browser title                    |
-| `VITE_STORAGE_KEY_PREFIX` | `tv_db_`         | localStorage prefix (mock DB)    |
-| `VITE_MOCK_DELAY_MIN/MAX` | `120` / `320`    | Simulated latency (ms)           |
 | `VITE_SENTRY_DSN`         | _(empty)_        | Sentry; disabled when empty      |
 | `VITE_API_BASE_URL`       | _(empty)_        | Real backend URL                 |
 | `VITE_VAPID_PUBLIC_KEY`   | _(empty)_        | VAPID public key for Web Push; must match the backend's `VAPID_PUBLIC_KEY`. In production this is overridden at container start by the `VAPID_PUBLIC_KEY` runtime env var (see "Connecting the Real Backend" and `docs/operations.md`), same mechanism as `SENTRY_DSN`. |
@@ -273,12 +271,17 @@ The real backend integration is already implemented, not a future step:
 - `frontend/src/services/serviceLayerReal.ts` implements the full API contract against
   the Go backend, using a generated TypeScript client (`frontend/src/api/`) from
   `backend/openapi/openapi.yaml`.
-- `frontend/src/services/serviceLayer.ts` exports `api`, which resolves to `realApi`
-  when `VITE_API_BASE_URL` is set (see `frontend/.env`) and falls back to the in-memory
-  mock (`localStorage`-backed) otherwise — no other frontend code needs to change either
-  way, since both implementations satisfy the same `api` shape.
-- `frontend/src/services/serviceContract.test.ts` cross-tests both implementations
-  against the same contract to keep them from drifting apart.
+- `frontend/src/services/serviceLayer.ts` exports `api`, which always resolves to
+  `realApi` — it is the only implementation, used in production, in the backend-less
+  demo, and in tests alike.
+- A backend-less demo/dev mode is provided by intercepting `realApi`'s HTTP requests
+  with **MSW** (`frontend/src/mocks/`: `handlers.ts` + an in-memory `db.ts`), not by a
+  second in-code business-logic implementation. See
+  `openspec/changes/archive/2026-07-18-replace-mock-with-msw/` for why the old
+  `localStorage`-backed mock implementation was replaced.
+- `frontend/src/services/serviceContract.test.ts` pins behavioral regression coverage
+  for `realApi` against the MSW demo backend (it no longer cross-tests two
+  implementations, since there's only one).
 
 When the OpenAPI spec changes, regenerate both clients from the repo root:
 

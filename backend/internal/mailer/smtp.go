@@ -21,6 +21,11 @@ var ErrSMTPFromAddressRequired = errors.New("mailer.NewSMTPMailer: FromAddress i
 // doesn't advertise STARTTLS -- send never falls back to plaintext.
 var ErrSTARTTLSUnsupported = errors.New("mailer.SMTPMailer.send: server does not support STARTTLS")
 
+// ErrHeaderInjection is returned by buildMessage when a header field
+// contains a CR or LF, which could otherwise inject additional headers or
+// message body content.
+var ErrHeaderInjection = errors.New("mailer: header field contains CR/LF")
+
 // SMTPConfig holds the settings needed to send mail via an SMTP relay with
 // STARTTLS.
 type SMTPConfig struct {
@@ -66,7 +71,10 @@ func (m *SMTPMailer) SendVerificationEmail(ctx context.Context, toEmail, verifyU
 		"Please confirm your email address by opening the link below:\r\n\r\n%s\r\n\r\nIf you did not request this, you can ignore this message.\r\n",
 		verifyURL,
 	)
-	msg := buildMessage(m.cfg.FromAddress, toEmail, subject, body)
+	msg, err := buildMessage(m.cfg.FromAddress, toEmail, subject, body)
+	if err != nil {
+		return err
+	}
 	return m.send(ctx, toEmail, msg)
 }
 
@@ -78,13 +86,25 @@ func (m *SMTPMailer) SendPasswordResetEmail(ctx context.Context, toEmail, resetU
 		"We received a request to reset your password. Open the link below to choose a new one:\r\n\r\n%s\r\n\r\nIf you did not request this, you can ignore this message -- your password will not change.\r\n",
 		resetURL,
 	)
-	msg := buildMessage(m.cfg.FromAddress, toEmail, subject, body)
+	msg, err := buildMessage(m.cfg.FromAddress, toEmail, subject, body)
+	if err != nil {
+		return err
+	}
 	return m.send(ctx, toEmail, msg)
 }
 
 // buildMessage assembles a minimal RFC 5322 message with the headers required
-// for it to be accepted and rendered sanely by mail clients.
-func buildMessage(from, to, subject, body string) []byte {
+// for it to be accepted and rendered sanely by mail clients. Rejects a
+// from/to/subject containing a CR or LF as defense-in-depth against header
+// injection, independent of any validation the caller already performed
+// (e.g. validate.Email upstream) -- the mailer package itself must not trust
+// that every future caller validates first.
+func buildMessage(from, to, subject, body string) ([]byte, error) {
+	for _, field := range [...]string{from, to, subject} {
+		if strings.ContainsAny(field, "\r\n") {
+			return nil, ErrHeaderInjection
+		}
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from)
 	fmt.Fprintf(&b, "To: %s\r\n", to)
@@ -93,7 +113,7 @@ func buildMessage(from, to, subject, body string) []byte {
 	b.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n")
 	b.WriteString("\r\n")
 	b.WriteString(body)
-	return []byte(b.String())
+	return []byte(b.String()), nil
 }
 
 // send dials the SMTP relay, upgrades to TLS via STARTTLS, authenticates (if

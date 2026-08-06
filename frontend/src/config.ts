@@ -112,34 +112,14 @@ function resolveVapidPublicKey(): string {
   return runtimeConfig('VAPID_PUBLIC_KEY') ?? stringEnv(import.meta.env.VITE_VAPID_PUBLIC_KEY, '');
 }
 
-/** Parse a non-negative integer env var, falling back when missing/invalid. */
-function numberEnv(raw: string | undefined, fallback: number): number {
-  if (raw == null || raw === '') return fallback;
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n < 0) {
-    // eslint-disable-next-line no-console
-    if (import.meta.env.DEV) console.warn(`[config] invalid numeric env value "${raw}", using fallback ${fallback}`);
-    return fallback;
-  }
-  return n;
-}
-
 function stringEnv(raw: string | undefined, fallback: string): string {
   const v = (raw ?? '').trim();
   return v || fallback;
 }
 
-const mockDelayMin = numberEnv(import.meta.env.VITE_MOCK_DELAY_MIN, 120);
-const mockDelayMaxRaw = numberEnv(import.meta.env.VITE_MOCK_DELAY_MAX, 320);
-// Guarantee min <= max so the mock delay range is always valid.
-const mockDelayMax = Math.max(mockDelayMin, mockDelayMaxRaw);
-
 export const config = {
   appName: stringEnv(import.meta.env.VITE_APP_NAME, 'Teamverwaltung'),
   apiBaseUrl: resolveApiBaseUrl(),
-  storageKeyPrefix: stringEnv(import.meta.env.VITE_STORAGE_KEY_PREFIX, 'tv_db_'),
-  mockDelayMin,
-  mockDelayMax,
   sentryDsn: resolveSentryDsn(),
   vapidPublicKey: resolveVapidPublicKey(),
   operator: resolveOperatorConfig(),

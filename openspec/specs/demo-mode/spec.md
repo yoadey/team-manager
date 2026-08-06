@@ -2,7 +2,6 @@
 
 ## Purpose
 Defines how the frontend serves a backend-less demo/test experience: MSW intercepts the generated API client at the network layer against OpenAPI-shaped handlers, so there is a single business-logic implementation (the real backend) instead of a second one duplicated in-browser, and production builds fail safe rather than silently booting a mock.
-
 ## Requirements
 ### Requirement: Single client implementation
 The application MUST use exactly one implementation of the API contract (`realApi`, the generated HTTP client) across production, development-demo, and test environments. A backend-less demo MUST be provided by intercepting HTTP requests (MSW), not by a second in-code business-logic implementation.
@@ -27,4 +26,16 @@ The mock handlers and seed data MUST NOT be present in production JavaScript bun
 - **WHEN** a production bundle is built
 - **THEN** the demo seed identifiers (e.g. sample member names) do not appear in any emitted chunk
 - **AND** the `msw` package is not included in the production dependency graph
+
+### Requirement: No unused configuration from removed implementations
+Environment variables that no code path reads MUST NOT remain parsed into
+application config, so `.env` documentation accurately reflects what
+affects runtime behavior.
+
+#### Scenario: A demo-mode implementation is replaced
+- **WHEN** an implementation (e.g. the localStorage mock) is removed and
+  replaced by another
+- **THEN** any environment variable only that removed implementation
+  consumed is deleted from config parsing, `.env.example`, and CLAUDE.md's
+  env-var documentation in the same change
 

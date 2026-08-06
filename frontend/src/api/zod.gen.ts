@@ -909,6 +909,11 @@ const endpoints = makeApi([
         schema: z.void(),
       },
       {
+        status: 401,
+        description: `Unauthorized`,
+        schema: z.void(),
+      },
+      {
         status: 404,
         description: `Not Found`,
         schema: z.void(),

@@ -97,6 +97,23 @@ func TestNewSMTPMailer_RequiresHostAndFromAddress(t *testing.T) {
 	require.NotNil(t, m)
 }
 
+// A CRLF in a header field is rejected before any network I/O happens
+// (buildMessage runs before send dials out), so this doesn't need a real
+// SMTP server to verify the mailer defends against header injection itself,
+// independent of upstream validation.
+func TestSMTPMailer_RejectsCRLFInToAddress(t *testing.T) {
+	t.Parallel()
+
+	m, err := mailer.NewSMTPMailer(mailer.SMTPConfig{Host: "smtp.example.com", FromAddress: "no-reply@example.com"})
+	require.NoError(t, err)
+
+	err = m.SendVerificationEmail(context.Background(), "victim@example.com\r\nBcc: attacker@evil.com", "https://example.com/verify-email/tok1")
+	require.ErrorIs(t, err, mailer.ErrHeaderInjection)
+
+	err = m.SendPasswordResetEmail(context.Background(), "victim@example.com\r\nBcc: attacker@evil.com", "https://example.com/reset-password/tok1")
+	require.ErrorIs(t, err, mailer.ErrHeaderInjection)
+}
+
 func TestNewSMTPMailer_DefaultsPort(t *testing.T) {
 	t.Parallel()
 

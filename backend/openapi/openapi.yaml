@@ -16,6 +16,11 @@ info:
     (`LOGIN_RATE_LIMIT_PER_MIN`, `REGISTER_RATE_LIMIT_PER_MIN`,
     `RESEND_VERIFICATION_RATE_LIMIT_PER_MIN`,
     `FORGOT_PASSWORD_RATE_LIMIT_PER_MIN`).
+  # This field is required by the OpenAPI 3.0 schema but is NOT the API's
+  # real versioning/deprecation signal -- it's never bumped per release and
+  # doesn't track anything. The actual mechanism is the `API-Version`
+  # response header (see main.go) plus the `Deprecation`/`Sunset` headers
+  # driven by API_DEPRECATION_DATE (see CLAUDE.md's env-var table).
   version: "1.0.0"
   contact:
     name: Team Manager
@@ -318,6 +323,8 @@ paths:
           $ref: "#/components/responses/PhotoBytes"
         "302":
           $ref: "#/components/responses/PhotoRedirect"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
     put:
