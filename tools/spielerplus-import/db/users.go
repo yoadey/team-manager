@@ -69,6 +69,34 @@ func (s *Store) EnsureUser(ctx context.Context, email, name string, birthday tim
 	return id, id == newID, nil
 }
 
+// UserPhotoKey returns the object-store key a user's photo is written
+// under, matching the backend's own convention exactly
+// (backend/internal/auth/service.go's userPhotoKey) so a photo imported by
+// this tool is retrievable through the normal app the same way a
+// user-uploaded one would be.
+func UserPhotoKey(userID string) string {
+	return "users/" + userID + "/photo"
+}
+
+// SetUserPhoto points userID's photo_object_key at key. Callers are
+// responsible for having already uploaded the object at key to the object
+// store - this only updates the DB pointer, mirroring the "S3 put before DB
+// write" order the backend itself uses (backend/internal/auth/service.go's
+// UpdatePhoto) so a DB-write failure never leaves the DB referencing a
+// missing object; on the reverse, an uploaded-but-not-pointed-at object is
+// merely unreachable, not corrupting, so this importer accepts that failure
+// mode rather than also implementing best-effort delete-on-failure.
+func (s *Store) SetUserPhoto(ctx context.Context, userID, key string) error {
+	if s.DryRun {
+		return nil
+	}
+	_, err := s.Pool.Exec(ctx, `UPDATE users SET photo_object_key = $2 WHERE id = $1`, userID, key)
+	if err != nil {
+		return fmt.Errorf("db: set photo for user %s: %w", userID, err)
+	}
+	return nil
+}
+
 func placeholderPasswordHash() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {

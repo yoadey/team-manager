@@ -173,6 +173,44 @@ func (c *Client) get(path string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+// maxAssetBytes caps a fetched profile photo's size, matching the backend's
+// own 2 MB upload limit (backend/internal/auth/handler.go) so this importer
+// never uploads something the backend itself would have rejected.
+const maxAssetBytes = 2 << 20
+
+// FetchAsset downloads assetURL (an absolute URL, e.g. a member's photo on
+// SpielerPlus's assets.spielerplus.de CDN - not relative to BaseURL, and
+// not necessarily same-host, so this bypasses the session-scoped get/
+// postForm helpers). Still throttled the same as every other request this
+// client makes. Rejects a response larger than maxAssetBytes rather than
+// reading an unbounded body.
+func (c *Client) FetchAsset(assetURL string) ([]byte, error) {
+	c.throttle()
+	req, err := http.NewRequest(http.MethodGet, assetURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: build request for asset %s: %w", assetURL, err)
+	}
+	req.Header.Set("User-Agent", browserUserAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: GET asset %s: %w", assetURL, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("spielerplus: GET asset %s: unexpected status %s", assetURL, resp.Status)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAssetBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("spielerplus: read asset %s: %w", assetURL, err)
+	}
+	if len(data) > maxAssetBytes {
+		return nil, fmt.Errorf("spielerplus: asset %s exceeds %d bytes", assetURL, maxAssetBytes)
+	}
+	return data, nil
+}
+
 // postForm submits an XHR-style POST to path (relative to BaseURL), matching
 // the real frontend's ajax calls captured in a HAR export: form-encoded
 // body, X-Requested-With: XMLHttpRequest, and the same jQuery-style Accept

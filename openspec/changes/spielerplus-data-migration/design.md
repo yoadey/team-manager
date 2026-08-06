@@ -205,6 +205,37 @@ Teamverwaltung is **not a real due date**, just a distinct slot satisfying the
 schema, and this is documented prominently in README.md so an operator doesn't
 mistake it for one.
 
+**Event location, found missing during live testing, is on the event's own detail
+page, not the list.** A second, targeted HAR capture of a live event detail page
+(`GET /training/view?id=...`) confirmed the events list page never had a location
+field to begin with (the original capture's "no location field observed" note was
+right, just not resolved yet) - it renders as a single `.info-area` block labeled
+"Adresse" only on that per-event page. `FetchEvents` now fetches each event's own
+detail page as a separate request (same accepted N+1 cost as the member-email
+fetch) and sets `Location` from it; a fetch/parse failure there is logged and the
+event is still imported, just without a location, rather than failing the event.
+
+**Member photos: found on the roster page directly (no extra request needed), but
+uploading one is a separate, optional concern from scraping it.** The `/team`
+roster page's own `.user-icon img` already carries each member's photo URL, unlike
+email/birthday which need a separate profile-page fetch - confirmed from the same
+HAR capture used for the roster/role markup. SpielerPlus falls back to a generic
+`default.svg` silhouette for a member with no custom photo, matched by substring
+and treated as "no photo" rather than imported. Actually uploading the photo bytes
+requires write access to the same S3-compatible object store the backend uses
+(`backend/internal/storage`) - since this tool is a separate Go module and Go's
+`internal/` import rule wouldn't allow reusing that package directly regardless, a
+small write-only client (`storage/`, `Put` only) was added instead, using the same
+`S3_*` env var names/semantics as the backend so an operator can point both at the
+same bucket. Deliberately left out of scope: resizing (SpielerPlus's photo is
+already a pre-sized 200x200 rendition, so the backend's own resize-to-800x800 step
+would be a no-op) and re-encoding to a fixed format (the backend always converts to
+JPEG on its own upload path, but nothing downstream requires that - the object
+store happily serves either JPEG or PNG with its real content type, and browsers
+render both). Photo import is entirely optional (skipped, not failed, when
+`S3_ENDPOINT`/`S3_BUCKET` aren't set) and only ever attempted for a newly created
+user, consistent with birthday's "existing account is left alone" rule.
+
 ## Risks / Trade-offs
 
 - **Scraping fragility**: SpielerPlus can change its markup at any time and silently

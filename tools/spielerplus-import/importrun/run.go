@@ -12,7 +12,16 @@ import (
 	"github.com/yoadey/team-manager/tools/spielerplus-import/db"
 	"github.com/yoadey/team-manager/tools/spielerplus-import/mapping"
 	"github.com/yoadey/team-manager/tools/spielerplus-import/spielerplus"
+	"github.com/yoadey/team-manager/tools/spielerplus-import/storage"
 )
+
+// PhotoUploader uploads photo bytes to an object store, e.g.
+// tools/spielerplus-import/storage.Store. An interface (rather than that
+// concrete type) so importMembers doesn't need a real S3 connection to
+// test the rest of its logic.
+type PhotoUploader interface {
+	Put(ctx context.Context, key string, data []byte, contentType string) error
+}
 
 // Options configures a run.
 type Options struct {
@@ -23,6 +32,10 @@ type Options struct {
 	// dates, the cutoff for expanding recurring absences). Tests pass a
 	// fixed value; real runs use time.Now().
 	Now time.Time
+	// PhotoStore uploads member photos when set; nil disables photo import
+	// entirely (e.g. no S3 configuration was provided) without otherwise
+	// affecting the run.
+	PhotoStore PhotoUploader
 }
 
 // Summary reports what a run did (or, in dry-run mode, would do).
@@ -34,6 +47,7 @@ type Summary struct {
 	TransactionsCreated, TransactionsSkipped int
 	DuesCreated, DuesSkipped                 int
 	PenaltiesCreated, PenaltiesSkipped       int
+	PhotosUploaded, PhotosSkipped            int
 	SkipReasons                              []string
 }
 
@@ -128,8 +142,56 @@ func importMembers(ctx context.Context, sp *spielerplus.Client, store *db.Store,
 			summary.MembersExisting++
 		}
 		log.Printf("member %s (%s): teamverwaltung user %s (new=%v)", m.Name, m.Email, userID, created)
+
+		// Only for newly created users - an existing account's photo is
+		// left untouched, same as birthday (see EnsureUser).
+		if created && m.PhotoURL != "" {
+			importMemberPhoto(ctx, sp, store, opts, userID, m, summary)
+		}
 	}
 	return memberIDs, memberNames, nil
+}
+
+// importMemberPhoto fetches a member's SpielerPlus profile photo, validates
+// it, and uploads it to the object store, pointing the new user's
+// photo_object_key at it. Any failure (fetch, validation, upload, or the DB
+// write) is logged and counted as skipped rather than failing the member's
+// import - a photo is a nice-to-have, not something worth losing an
+// otherwise-successful member import over.
+func importMemberPhoto(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Options, userID string, m spielerplus.Member, summary *Summary) {
+	if opts.PhotoStore == nil {
+		return
+	}
+
+	data, err := sp.FetchAsset(m.PhotoURL)
+	if err != nil {
+		summary.PhotosSkipped++
+		summary.skip("photo for member %s (%s): %v", m.Name, m.Email, err)
+		return
+	}
+	contentType, err := storage.ValidatePhoto(data)
+	if err != nil {
+		summary.PhotosSkipped++
+		summary.skip("photo for member %s (%s): %v", m.Name, m.Email, err)
+		return
+	}
+
+	key := db.UserPhotoKey(userID)
+	if store.DryRun {
+		summary.PhotosUploaded++
+		return
+	}
+	if err := opts.PhotoStore.Put(ctx, key, data, contentType); err != nil {
+		summary.PhotosSkipped++
+		summary.skip("photo for member %s (%s): upload failed: %v", m.Name, m.Email, err)
+		return
+	}
+	if err := store.SetUserPhoto(ctx, userID, key); err != nil {
+		summary.PhotosSkipped++
+		summary.skip("photo for member %s (%s): %v", m.Name, m.Email, err)
+		return
+	}
+	summary.PhotosUploaded++
 }
 
 // importedEvent carries what importAttendance needs beyond the bare

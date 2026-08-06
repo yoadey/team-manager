@@ -76,6 +76,9 @@ func TestClient_FetchEvents_PaginatesUntilEmpty(t *testing.T) {
 			fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
 		}
 	})
+	mux.HandleFunc("/training/view", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, eventDetailAddressHTML("Sportplatz Am Wald 1"))
+	})
 
 	c := newTestClient(t, mux)
 	now := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
@@ -98,6 +101,11 @@ func TestClient_FetchEvents_PaginatesUntilEmpty(t *testing.T) {
 	// in 2026, not jump forward/back a year.
 	if events[2].Start.Year() != 2026 {
 		t.Errorf("events[2].Start = %v, want year 2026", events[2].Start)
+	}
+	for _, ev := range events {
+		if ev.Location != "Sportplatz Am Wald 1" {
+			t.Errorf("event %s Location = %q, want the fetched detail-page address", ev.ID, ev.Location)
+		}
 	}
 
 	wantCalls := []string{"offset=0 old=true", "offset=5 old=true", "offset=10 old=true"}
@@ -177,6 +185,61 @@ func TestClient_FetchActiveTeamName(t *testing.T) {
 	}
 	if name != "TSC B-Team 25/26" {
 		t.Errorf("name = %q, want %q", name, "TSC B-Team 25/26")
+	}
+}
+
+func TestClient_FetchAsset(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/images/user/200x200/abc.jpg", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("fake-photo-bytes"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	data, err := c.FetchAsset(srv.URL + "/images/user/200x200/abc.jpg")
+	if err != nil {
+		t.Fatalf("FetchAsset() error = %v", err)
+	}
+	if string(data) != "fake-photo-bytes" {
+		t.Errorf("data = %q", data)
+	}
+}
+
+func TestClient_FetchAsset_NotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := c.FetchAsset(srv.URL + "/missing.jpg"); err == nil {
+		t.Fatal("expected an error for a 404 asset")
+	}
+}
+
+func TestClient_FetchAsset_TooLarge(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/big.jpg", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(make([]byte, maxAssetBytes+1))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := c.FetchAsset(srv.URL + "/big.jpg"); err == nil {
+		t.Fatal("expected an error for an oversized asset")
 	}
 }
 

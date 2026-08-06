@@ -1,6 +1,7 @@
 package spielerplus
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +148,47 @@ func TestParseHM_IgnoresTrailingText(t *testing.T) {
 	}
 	if h != 17 || m != 0 {
 		t.Errorf("parseHM() = %d:%d, want 17:00", h, m)
+	}
+}
+
+// eventDetailAddressHTML mirrors the confirmed markup from a HAR capture of
+// a live event detail page (e.g. /training/view?id=...): a single
+// `.info-area` block labeled "Adresse".
+func eventDetailAddressHTML(address string) string {
+	return fmt.Sprintf(`<div class="info-area"><div class="info-area-icon"></div>
+		<a href="javascript:void(0);"><div class="info-area-content"><h4>Adresse</h4><small>%s</small></div></a>
+	</div>`, address)
+}
+
+func TestParseEventLocation(t *testing.T) {
+	location, err := ParseEventLocation(strings.NewReader(eventDetailAddressHTML("Musterstraße 1, 12345 Musterstadt, Deutschland")))
+	if err != nil {
+		t.Fatalf("ParseEventLocation() error = %v", err)
+	}
+	if location != "Musterstraße 1, 12345 Musterstadt, Deutschland" {
+		t.Errorf("location = %q", location)
+	}
+}
+
+func TestParseEventLocation_NotSet(t *testing.T) {
+	location, err := ParseEventLocation(strings.NewReader(`<html><body>no info-area here</body></html>`))
+	if err != nil {
+		t.Fatalf("ParseEventLocation() error = %v, want no error for an event with no address set", err)
+	}
+	if location != "" {
+		t.Errorf("location = %q, want empty", location)
+	}
+}
+
+func TestParseEventLocation_IgnoresOtherInfoAreaBlocks(t *testing.T) {
+	html := `<div class="info-area"><div class="info-area-content"><h4>Wetter</h4><small>Sonnig, 22°C</small></div></div>` +
+		eventDetailAddressHTML("Sportplatz 1")
+	location, err := ParseEventLocation(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("ParseEventLocation() error = %v", err)
+	}
+	if location != "Sportplatz 1" {
+		t.Errorf("location = %q, want only the Adresse block's value", location)
 	}
 }
 

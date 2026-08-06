@@ -16,6 +16,7 @@ import (
 	"github.com/yoadey/team-manager/tools/spielerplus-import/importrun"
 	"github.com/yoadey/team-manager/tools/spielerplus-import/mapping"
 	"github.com/yoadey/team-manager/tools/spielerplus-import/spielerplus"
+	"github.com/yoadey/team-manager/tools/spielerplus-import/storage"
 )
 
 func main() {
@@ -67,11 +68,30 @@ func run(dryRun bool) error {
 	}
 	log.Printf("throttling requests to SpielerPlus to at least %s apart", cfg.RequestDelay)
 
+	var photoStore importrun.PhotoUploader
+	if cfg.PhotoImportEnabled() {
+		s3, err := storage.New(storage.Config{
+			Endpoint:        cfg.S3Endpoint,
+			Region:          cfg.S3Region,
+			Bucket:          cfg.S3Bucket,
+			AccessKeyID:     cfg.S3AccessKeyID,
+			SecretAccessKey: cfg.S3SecretAccessKey,
+			UsePathStyle:    cfg.S3UsePathStyle,
+		})
+		if err != nil {
+			return fmt.Errorf("connect to object store for photo import: %w", err)
+		}
+		photoStore = s3
+	} else {
+		log.Println("S3_ENDPOINT/S3_BUCKET not set: skipping member photo import")
+	}
+
 	summary, err := importrun.Run(ctx, sp, store, importrun.Options{
 		TeamID:      cfg.TeamID,
 		RoleMapping: roleMapping,
 		State:       state,
 		Now:         time.Now(),
+		PhotoStore:  photoStore,
 	})
 	printSummary(os.Stdout, summary, cfg.DryRun)
 	if err != nil {
@@ -100,6 +120,11 @@ func printSummary(w *os.File, s *importrun.Summary, dryRun bool) {
 	fmt.Fprintf(w, "transactions: %d %s, %d skipped\n", s.TransactionsCreated, verb, s.TransactionsSkipped)
 	fmt.Fprintf(w, "dues: %d %s, %d skipped\n", s.DuesCreated, verb, s.DuesSkipped)
 	fmt.Fprintf(w, "penalties: %d %s, %d skipped\n", s.PenaltiesCreated, verb, s.PenaltiesSkipped)
+	uploadVerb := "uploaded"
+	if dryRun {
+		uploadVerb = "would be uploaded"
+	}
+	fmt.Fprintf(w, "photos: %d %s, %d skipped\n", s.PhotosUploaded, uploadVerb, s.PhotosSkipped)
 	if len(s.SkipReasons) > 0 {
 		fmt.Fprintln(w, "skip reasons:")
 		for _, r := range s.SkipReasons {

@@ -77,6 +77,11 @@ type Member struct {
 	// Birthday is the member's date of birth, if shown on their profile page
 	// and parseable. Zero if not set/visible.
 	Birthday time.Time
+	// PhotoURL is the absolute URL of the member's profile photo on
+	// SpielerPlus's asset CDN, or "" if they have no custom photo set
+	// (SpielerPlus falls back to a generic "default.svg" silhouette in that
+	// case, which is deliberately not treated as a photo - see ParseMembers).
+	PhotoURL string
 }
 
 // Absence is a planned absence entered in SpielerPlus, already expanded to a

@@ -156,3 +156,53 @@ member MUST be skipped and reported, not imported against a guessed member.
   imported member's name
 - **THEN** the tool skips that assignment, logs it in the run summary, and
   continues importing the remaining records
+
+### Requirement: Event location is imported from the event's own detail page
+An event's location is not present on the events list page. The tool MUST fetch
+each event's own detail page to import its location, and MUST NOT fail an
+event's import solely because its location could not be fetched or parsed.
+
+#### Scenario: An event has a location set
+- **WHEN** an event's detail page shows an address
+- **THEN** the imported `events` row's location is set to that address
+
+#### Scenario: An event's location fetch fails
+- **WHEN** fetching or parsing an event's detail page fails
+- **THEN** the event is still imported, without a location, and the failure is
+  logged
+
+### Requirement: Member photos are imported for newly created users when configured
+When object-store configuration is provided, the tool MUST upload each newly
+created member's SpielerPlus profile photo to the same object store
+Teamverwaltung's backend uses, under the same key convention, and point that
+user's `photo_object_key` at it. Photo import MUST be entirely optional: without
+object-store configuration, the tool MUST skip photo import for the whole run
+without failing it. A member's generic placeholder ("no photo set") MUST NOT be
+imported as if it were a real photo. Photo import MUST only apply to newly
+created users - an existing user's photo MUST NOT be modified.
+
+#### Scenario: A newly created member has a photo
+- **WHEN** object-store configuration is present and a newly created member has
+  a custom photo on SpielerPlus
+- **THEN** the photo is uploaded to the object store and the user's
+  `photo_object_key` is set to point at it
+
+#### Scenario: Object-store configuration is absent
+- **WHEN** the tool runs without object-store configuration
+- **THEN** no photo is fetched or uploaded for any member, and the run completes
+  normally
+
+#### Scenario: A member has no custom photo
+- **WHEN** a member's SpielerPlus profile shows the generic placeholder photo
+- **THEN** no photo is uploaded for that member
+
+#### Scenario: An existing account is not touched
+- **WHEN** an imported member's email already has an existing Teamverwaltung
+  `users` row
+- **THEN** that user's existing photo (if any) is left unchanged, even if
+  object-store configuration is present and the SpielerPlus profile has a photo
+
+#### Scenario: A photo fetch, validation, or upload failure is not fatal
+- **WHEN** fetching, validating, or uploading a member's photo fails
+- **THEN** the tool skips that member's photo, logs it in the run summary, and
+  continues importing the remaining records

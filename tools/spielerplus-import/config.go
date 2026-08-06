@@ -44,6 +44,27 @@ type Config struct {
 	// DryRun, when true, performs the full read/scrape + mapping pipeline
 	// but writes nothing to the database.
 	DryRun bool
+
+	// S3Endpoint/S3Region/S3Bucket/S3AccessKeyID/S3SecretAccessKey/
+	// S3UsePathStyle configure the object store member photos are uploaded
+	// to, using the same env var names and semantics as the backend's own
+	// S3-compatible object storage (see CLAUDE.md) - point this at the same
+	// bucket the backend uses so an imported photo is retrievable through
+	// the normal app. Photo import is entirely optional: leaving
+	// S3_ENDPOINT/S3_BUCKET unset (see PhotoImportEnabled) skips it, rather
+	// than failing the run - a club can always add photos later.
+	S3Endpoint        string
+	S3Region          string
+	S3Bucket          string
+	S3AccessKeyID     string
+	S3SecretAccessKey string
+	S3UsePathStyle    bool
+}
+
+// PhotoImportEnabled reports whether enough S3 configuration was provided
+// to attempt member photo import at all.
+func (c *Config) PhotoImportEnabled() bool {
+	return c.S3Endpoint != "" && c.S3Bucket != ""
 }
 
 func loadConfig(dryRun bool) (*Config, error) {
@@ -55,6 +76,12 @@ func loadConfig(dryRun bool) (*Config, error) {
 		StatePath:                os.Getenv("STATE_PATH"),
 		ExpectedTeamName:         os.Getenv("SPIELERPLUS_EXPECTED_TEAM_NAME"),
 		DryRun:                   dryRun,
+		S3Endpoint:               os.Getenv("S3_ENDPOINT"),
+		S3Region:                 os.Getenv("S3_REGION"),
+		S3Bucket:                 os.Getenv("S3_BUCKET"),
+		S3AccessKeyID:            os.Getenv("S3_ACCESS_KEY_ID"),
+		S3SecretAccessKey:        os.Getenv("S3_SECRET_ACCESS_KEY"),
+		S3UsePathStyle:           os.Getenv("S3_USE_PATH_STYLE") == "true",
 	}
 	if cfg.StatePath == "" {
 		cfg.StatePath = "spielerplus-import-state.json"

@@ -35,11 +35,18 @@ const (
 // Selectors below are confirmed from a HAR capture of a live /team page
 // and a live /user/view page (response bodies included).
 const (
-	memberRowSelector  = "#pjax-members .team-list-item, .team-list-item"
-	memberLinkSelector = ".list-item-link"
-	memberNameSelector = ".list-label-section .list-label"
-	memberRoleSelector = ".user-role .user-role-item"
-	memberMailSelector = `a[href^="mailto:"]`
+	memberRowSelector   = "#pjax-members .team-list-item, .team-list-item"
+	memberLinkSelector  = ".list-item-link"
+	memberNameSelector  = ".list-label-section .list-label"
+	memberRoleSelector  = ".user-role .user-role-item"
+	memberMailSelector  = `a[href^="mailto:"]`
+	memberPhotoSelector = ".user-icon img"
+	// defaultPhotoMarker is a substring of the placeholder silhouette
+	// SpielerPlus serves in place of a real photo (confirmed from a HAR
+	// capture: ".../images/user/200x200/default.svg") - matched by
+	// substring rather than exact path, since the asset hash prefix in the
+	// URL changes across deploys.
+	defaultPhotoMarker = "default.svg"
 )
 
 // The profile page's labeled fields (email, birthday, ...) are confirmed
@@ -82,13 +89,17 @@ func ParseMembers(body io.Reader) ([]Member, error) {
 		id := userIDFromHref(href)
 		name := strings.TrimSpace(row.Find(memberNameSelector).First().Text())
 		role := strings.TrimSpace(row.Find(memberRoleSelector).First().Text())
+		photoURL, _ := row.Find(memberPhotoSelector).First().Attr("src")
+		if strings.Contains(photoURL, defaultPhotoMarker) {
+			photoURL = ""
+		}
 
 		if id == "" || name == "" {
 			skipped++
 			log.Printf("spielerplus: skipping member row %d: missing user id or name", i)
 			return
 		}
-		members = append(members, Member{ID: id, Name: name, Role: role})
+		members = append(members, Member{ID: id, Name: name, Role: role, PhotoURL: photoURL})
 	})
 
 	if len(members) == 0 {

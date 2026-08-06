@@ -57,7 +57,6 @@ const (
 	eventTitleSelector    = ".panel-heading-text .panel-title"
 	eventDateSelector     = ".panel-heading-info .panel-subtitle"
 	eventTimeItemSelector = ".event-time .event-time-item .event-time-value"
-	eventLocationSelector = ".event-location, .location" // unverified - no location field observed in the capture (see design.md)
 )
 
 // ParseEvents parses a full /events page body into structured events. now
@@ -169,13 +168,15 @@ func parseEventRow(row *goquery.Selection, reference time.Time) (Event, error) {
 		return Event{}, fmt.Errorf("event %s: %w", id, err)
 	}
 
-	location := strings.TrimSpace(row.Find(eventLocationSelector).First().Text())
-
+	// Location is deliberately left empty here - the events list page
+	// (confirmed from a HAR capture) has no location field at all, on
+	// either a training or the loaded initial page; it only appears on an
+	// event's own detail page (see fetchEventLocation), fetched
+	// separately per event in FetchEvents.
 	return Event{
 		ID:             id,
 		Type:           mapEventType(typeSlug),
 		Title:          title,
-		Location:       location,
 		Start:          start,
 		End:            end,
 		EndIsEstimated: endIsEstimated,
@@ -399,6 +400,15 @@ func (c *Client) FetchEvents(now time.Time) ([]Event, error) {
 		}
 	}
 
+	for i := range events {
+		loc, err := c.fetchEventLocation(events[i].ID, events[i].Type)
+		if err != nil {
+			log.Printf("spielerplus: event %s (%s): fetch location failed, importing without one: %v", events[i].ID, events[i].Title, err)
+			continue
+		}
+		events[i].Location = loc
+	}
+
 	return events, nil
 }
 
@@ -413,4 +423,57 @@ func (c *Client) fetchEventsAjaxPage(offset int, reference time.Time) ([]Event, 
 	}
 	defer body.Close()
 	return parseEventsFragment(body, reference)
+}
+
+// eventDetailAddressBlockSelector and friends match an event's own detail
+// page (e.g. "GET /training/view?id=..."), confirmed from a HAR capture:
+// the address, if the event has one set, renders as a single
+// `.info-area` block labeled "Adresse" - matched by that label text (German
+// only, like the birthday field in members.go) rather than position, since
+// other `.info-area` blocks (weather, opponent, ...) may exist on other
+// event types not seen in the capture. Not every event has one (e.g. a
+// recurring training at a venue the club didn't bother setting) - a page
+// with no matching block returns "" rather than an error.
+const (
+	eventDetailAddressBlockSelector = ".info-area"
+	eventDetailAddressLabelSelector = "h4"
+	eventDetailAddressValueSelector = "small"
+	eventDetailAddressLabel         = "Adresse"
+)
+
+// eventDetailPathFmt builds an event's own detail page URL from its
+// SpielerPlus type slug (see eventTypeSlug) and id - confirmed for
+// "training" from a HAR capture ("/training/view?id=..."); the other
+// types' detail paths are inferred by the same "/<type>/view?id=<id>"
+// pattern already used for the "create new event" menu (see
+// eventTypeSlug's doc comment) rather than independently confirmed.
+const eventDetailPathFmt = "/%s/view?id=%s"
+
+// ParseEventLocation parses an event's detail page for its "Adresse"
+// info-area block. Returns "" (not an error) if the event has no location
+// set.
+func ParseEventLocation(body io.Reader) (string, error) {
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return "", fmt.Errorf("spielerplus: parse event detail page: %w", err)
+	}
+	var location string
+	doc.Find(eventDetailAddressBlockSelector).EachWithBreak(func(_ int, block *goquery.Selection) bool {
+		label := strings.TrimSpace(block.Find(eventDetailAddressLabelSelector).First().Text())
+		if !strings.EqualFold(label, eventDetailAddressLabel) {
+			return true
+		}
+		location = strings.TrimSpace(block.Find(eventDetailAddressValueSelector).First().Text())
+		return false
+	})
+	return location, nil
+}
+
+func (c *Client) fetchEventLocation(id string, eventType EventType) (string, error) {
+	body, err := c.get(fmt.Sprintf(eventDetailPathFmt, eventTypeSlug(eventType), id))
+	if err != nil {
+		return "", err
+	}
+	defer body.Close()
+	return ParseEventLocation(body)
 }

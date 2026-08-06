@@ -32,8 +32,16 @@
       forward *or* backward). **Still open**: whether `old=true` truly needs to be
       resent on every page vs. only once (sent on every page as the safer assumption);
       only "training" events were present in the capture, so the row-id-derived type
-      slug for game/tournament/event is unverified; no location field was observed in
-      the capture (selector left as an unverified guess). **Validated against a real
+      slug for game/tournament/event is unverified. **Location, fixed after live
+      testing found it never imported**: the events list page has no location field
+      at all (confirmed from a second, targeted HAR capture of a live event detail
+      page) - it only appears on an event's own detail page
+      (`GET /training/view?id=...`, confirmed; `/game/`, `/tournament/`, `/event/`
+      inferred by the same slug pattern, unconfirmed) as a single `.info-area` block
+      labeled "Adresse". `FetchEvents` now fetches each event's detail page as a
+      separate per-event request (same accepted N+1 cost as the members/email fetch)
+      and sets `Location` from it; a missing/failed fetch is logged and the event is
+      still imported, just without a location. **Validated against a real
       account's live dry-run**: paginated correctly through real history via
       `ajaxgetevents`. Found and fixed one gap the HAR captures didn't show: SpielerPlus
       renders an explicit `-:-` placeholder in an `.event-time-value` element for an
@@ -81,7 +89,9 @@
       and skipped (not fatal to the member import), matching the tool's existing
       per-record error handling. Only written for newly created users - an existing
       user's birthday is left untouched, consistent with "Existing account is left
-      alone" (spec.md).
+      alone" (spec.md). **Also extended**: `Member.PhotoURL` is read straight off the
+      roster row's own `.user-icon img` (no extra request, unlike email/birthday) -
+      see 4b for the upload side.
 - [x] 2.5 Reverse-engineer and parse planned absences, including past ones and any
       "recurring weekday" absences. **Fully confirmed from a third HAR capture
       (`/absence`, response body included)**: `GET /absence` renders every absence
@@ -175,14 +185,41 @@
       and skipped (member name) or falls back to a direct amount/label snapshot
       with a `NULL` `penalty_id` (reason), never guessed.
 
+## 4b. Member photos (`storage/`, `spielerplus/client.go`'s `FetchAsset`,
+      `importrun/run.go`'s `importMemberPhoto`)
+
+- [x] 4b.1 Parse each roster member's photo URL directly off the `/team` page
+      (`.user-icon img`'s `src`) — no extra request needed, confirmed from the
+      same HAR capture as 2.4's roster markup. SpielerPlus's `default.svg`
+      placeholder for a member with no custom photo is detected by substring and
+      treated as "no photo", not imported.
+- [x] 4b.2 Add a minimal, write-only S3-compatible object store client
+      (`storage.Store`, `Put` only) using the same `S3_*` env vars/semantics as
+      the backend's own object storage, since this tool's separate Go module
+      can't import `backend/internal/storage` directly (Go's `internal/`
+      visibility rule) — see design.md.
+- [x] 4b.3 Fetch a member's photo bytes (`spielerplus.Client.FetchAsset`, a
+      generic absolute-URL GET reused for any future asset fetch, still
+      throttled), validate them (JPEG/PNG only, 2 MB cap, decompression-bomb
+      pixel-count guard — matching the backend's own upload validation, no
+      resize since SpielerPlus's rendition is already small), and upload under
+      the same object key the backend itself would use (`users/<id>/photo`),
+      only for newly created users (existing accounts' photos are left alone,
+      same as birthday). Entirely optional: unset `S3_ENDPOINT`/`S3_BUCKET`
+      skips photo import for the whole run without failing it. Any per-member
+      failure (fetch/validate/upload/DB write) is logged and skipped, not fatal
+      to that member's import.
+
 ## 5. Orchestration and dry-run (`import/`, `main.go`)
 
-- [x] 5.1 Orchestrate the full run in order: members/roles → events → attendance →
-      absences → transactions → dues → penalties, each step logging counts of
-      created/skipped/failed records. Finances steps are treated as
-      supplementary: a fetch/parse failure there is logged and skipped rather
-      than aborting the whole run, unlike members/events which the rest of the
-      run depends on.
+- [x] 5.1 Orchestrate the full run in order: members/roles (including a photo
+      upload per newly created member, when configured) → events (including a
+      per-event location fetch) → attendance → absences → transactions → dues →
+      penalties, each step logging counts of created/skipped/failed records.
+      Finances steps and photo uploads are treated as supplementary: a
+      fetch/parse/upload failure there is logged and skipped rather than
+      aborting the whole run, unlike members/events which the rest of the run
+      depends on.
 - [x] 5.2 `--dry-run` flag: run the full read/scrape + mapping pipeline and print what
       would be written, without opening a DB write transaction.
 - [x] 5.3 Summary report at the end of a real run (counts per entity, any skipped

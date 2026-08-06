@@ -25,7 +25,10 @@ full design and rationale.
     `ajaxgetparticipation` does return every team member's status grouped
     by status code (not just the logged-in user's own). Only "training"
     events were present in the capture (game/tournament/event types are
-    still a guess) and no location field was observed.
+    still a guess). An event's location isn't on the list page at all - it's
+    fetched from the event's own detail page (one extra request per event,
+    same N+1 pattern as member emails below); a missing/failed fetch is
+    logged and the event is still imported without a location, not skipped.
   - **Members** (`spielerplus/members.go`): `GET /team` is the roster, but
     it does **not** show email addresses - each member's email only shows
     on their own profile page (`GET /user/view?id=...`), so the importer
@@ -67,6 +70,13 @@ full design and rationale.
       in the run summary) rather than guessed - check the skip reasons for
       near-miss names (nicknames, middle names) if a punishment seems
       missing.
+  - **Member photos** (`spielerplus/members.go`, `storage/`): the `/team`
+    roster page's own `.user-icon img` already carries each member's photo
+    URL - no extra request needed to discover it (unlike email/birthday,
+    which need the profile-page fetch). A member with no custom photo shows
+    SpielerPlus's generic silhouette (`.../default.svg`), which is
+    deliberately **not** imported as if it were a real photo. Uploading the
+    photo itself is a separate, optional step - see "Member photos" below.
   - If a page's expected elements still aren't found on your account (a
     genuinely different SpielerPlus layout, a different display language,
     etc.), the tool fails loudly with an error naming the selector to fix,
@@ -98,6 +108,26 @@ full design and rationale.
    | `STATE_PATH`                 | Optional; defaults to `./spielerplus-import-state.json`         |
    | `SPIELERPLUS_REQUEST_DELAY`  | Optional; minimum gap between requests to SpielerPlus, as a Go duration (e.g. `1s`). Defaults to `500ms`. Set `0` to disable throttling entirely (not recommended - a full import issues one request per member's profile and per event's attendance, so this is what keeps the tool from hammering SpielerPlus in a tight loop). |
    | `SPIELERPLUS_EXPECTED_TEAM_NAME` | Optional; see "Which SpielerPlus team gets imported?" below. |
+   | `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_USE_PATH_STYLE` | Optional; see "Member photos" below. Same names/semantics as the backend's own object storage config (see the repo root `CLAUDE.md`) - point these at the same bucket the backend uses. |
+
+## Member photos
+
+Uploading photos is optional and only attempted for **newly created** users
+(an existing account's photo is left alone, same as birthday). Set
+`S3_ENDPOINT` and `S3_BUCKET` (plus credentials/region/path-style as your
+object store needs) to the same values the Teamverwaltung backend itself
+uses - leaving them unset skips photo import entirely (logged once at
+startup), it does not fail the run.
+
+When enabled, each new member's SpielerPlus photo (found directly on the
+`/team` roster page, not a separate fetch) is downloaded, validated
+(JPEG/PNG only, same 2 MB cap and pixel-count guard the backend's own photo
+upload enforces), and uploaded under the same object key the backend itself
+uses (`users/<id>/photo`) - so it shows up exactly like a normal
+user-uploaded photo, no resizing performed (SpielerPlus already serves a
+pre-sized 200x200 rendition). A member with no custom photo on SpielerPlus,
+or any failure fetching/validating/uploading one, is logged and skipped
+without affecting the rest of that member's import.
 
 ## Which SpielerPlus team gets imported?
 

@@ -42,6 +42,50 @@ func TestParseMembers(t *testing.T) {
 	}
 }
 
+// memberRowHTMLWithPhoto mirrors the confirmed markup from a HAR capture of
+// a live /team page for a member with a photo set: a `.user-icon img` whose
+// src is their photo on SpielerPlus's asset CDN.
+func memberRowHTMLWithPhoto(id, name, role, photoSrc string) string {
+	return fmt.Sprintf(`<div class="list-item team-list-item">
+		<a class="list-item-link" href="/user/view?id=%s"></a>
+		<div class="list-icon size-56 hidden-xs"><div class="member-icon-container">
+			<a href="/user/view?id=%s"><div class="user-icon"><img src="%s" alt=""></div></a>
+		</div></div>
+		<div class="list-content-label-sublabel">
+			<div class="list-label-section">
+				<div class="list-label">%s</div>
+				<div class="user-role"><div class="user-role-item">%s</div></div>
+			</div>
+		</div>
+	</div>`, id, id, photoSrc, name, role)
+}
+
+func TestParseMembers_PhotoURL(t *testing.T) {
+	html := memberRowHTMLWithPhoto("1", "Anna Trainer", "Trainer", "https://assets.spielerplus.de/images/user/200x200/abc123.jpg")
+	members, err := ParseMembers(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("ParseMembers() error = %v", err)
+	}
+	if members[0].PhotoURL != "https://assets.spielerplus.de/images/user/200x200/abc123.jpg" {
+		t.Errorf("PhotoURL = %q", members[0].PhotoURL)
+	}
+}
+
+func TestParseMembers_DefaultPhotoIsNotAPhoto(t *testing.T) {
+	// Confirmed from a HAR capture: SpielerPlus falls back to a generic
+	// "default.svg" silhouette for a member with no custom photo, rather
+	// than omitting the <img> - this must not be imported as if it were a
+	// real photo.
+	html := memberRowHTMLWithPhoto("1", "Anna Trainer", "Trainer", "//assets.spielerplus.de/assets/2216hash/images/user/200x200/default.svg")
+	members, err := ParseMembers(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("ParseMembers() error = %v", err)
+	}
+	if members[0].PhotoURL != "" {
+		t.Errorf("PhotoURL = %q, want empty for the default placeholder", members[0].PhotoURL)
+	}
+}
+
 func TestParseMembers_BadRowSkippedNotFatal(t *testing.T) {
 	html := `<div id="pjax-members">` +
 		memberRowHTML("1", "Anna Trainer", "Trainer") +
