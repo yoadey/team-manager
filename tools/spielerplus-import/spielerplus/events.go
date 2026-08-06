@@ -339,7 +339,16 @@ func parseDateTime(dateText string, times []string, reference time.Time) (meet, 
 	return meet, start, end, false, false, nil
 }
 
+// parseHM parses the leading "HH:MM" of s, ignoring any trailing text.
+// Confirmed from a live account: a multi-day event's end time renders as
+// e.g. "17:00 am 17.11." (time plus the differing end date) rather than a
+// bare "HH:MM" - the trailing "am DD.MM." is discarded here since Event
+// only has a single End timestamp already anchored to the row's own
+// resolved date.
 func parseHM(s string) (hour, minute int, err error) {
+	if fields := strings.Fields(s); len(fields) > 0 {
+		s = fields[0]
+	}
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
 		return 0, 0, fmt.Errorf("expected HH:MM, got %q", s)

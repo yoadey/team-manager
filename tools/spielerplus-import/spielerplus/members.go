@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -39,6 +40,23 @@ const (
 	memberNameSelector = ".list-label-section .list-label"
 	memberRoleSelector = ".user-role .user-role-item"
 	memberMailSelector = `a[href^="mailto:"]`
+)
+
+// The profile page's labeled fields (email, birthday, ...) are confirmed
+// from a HAR capture to render as repeated
+// `<div class="col-md-4 col-sm-6"><small class="light"><b>Label</b></small>
+// <p class="dark">Value</p></div>` blocks - matched by the German label
+// text (SpielerPlus has no language-independent marker here, unlike the
+// mailto: href used for email), so this only works for a German-language
+// account. birthdayLayout ("DD.MM.YYYY") is unverified - no populated
+// birthday was present in the captured profile; a field found but not in
+// this format is logged and skipped rather than failing the whole member.
+const (
+	profileFieldBlockSelector = ".col-md-4.col-sm-6"
+	profileFieldLabelSelector = "small.light b"
+	profileFieldValueSelector = "p.dark"
+	birthdayFieldLabel        = "Geburtstag"
+	birthdayLayout            = "02.01.2006"
 )
 
 // ParseMembers parses the /team roster page into Member records (without
@@ -90,18 +108,56 @@ func ParseMemberEmail(body io.Reader) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("spielerplus: parse user profile page: %w", err)
 	}
+	return parseEmailFromDoc(doc.Selection), nil
+}
+
+func parseEmailFromDoc(doc *goquery.Selection) string {
 	href, ok := doc.Find(memberMailSelector).First().Attr("href")
 	if !ok {
-		return "", nil
+		return ""
 	}
-	return strings.TrimPrefix(href, "mailto:"), nil
+	return strings.TrimPrefix(href, "mailto:")
+}
+
+// ParseMemberBirthday parses a /user/view profile page for its "Geburtstag"
+// field (see the profileFieldBlockSelector doc comment). Returns a zero
+// time if the field isn't present, isn't in the expected date format, or
+// the account's display language isn't German.
+func ParseMemberBirthday(body io.Reader) (time.Time, error) {
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("spielerplus: parse user profile page: %w", err)
+	}
+	return parseBirthdayFromDoc(doc.Selection)
+}
+
+func parseBirthdayFromDoc(doc *goquery.Selection) (time.Time, error) {
+	var raw string
+	doc.Find(profileFieldBlockSelector).EachWithBreak(func(_ int, block *goquery.Selection) bool {
+		label := strings.TrimSpace(block.Find(profileFieldLabelSelector).First().Text())
+		if !strings.EqualFold(label, birthdayFieldLabel) {
+			return true // keep looking
+		}
+		raw = strings.TrimSpace(block.Find(profileFieldValueSelector).First().Text())
+		return false
+	})
+	if raw == "" {
+		return time.Time{}, nil
+	}
+	t, err := time.Parse(birthdayLayout, raw)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("spielerplus: parse birthday %q: %w", raw, err)
+	}
+	return t, nil
 }
 
 // FetchMembers fetches the team roster and then, for each member, their
-// profile page's email address (see the package doc comment on
-// membersPath for why that needs a separate request). A member whose
-// profile page has no visible email is skipped and logged, rather than
-// imported with an empty/unusable email.
+// profile page's email address and birthday (see the package doc comment
+// on membersPath for why that needs a separate request; both fields are
+// read from the same page fetch). A member whose profile page has no
+// visible email is skipped and logged, rather than imported with an
+// empty/unusable email; a missing/unparseable birthday is not fatal, only
+// logged.
 func (c *Client) FetchMembers() ([]Member, error) {
 	body, err := c.get(membersPath)
 	if err != nil {
@@ -116,7 +172,7 @@ func (c *Client) FetchMembers() ([]Member, error) {
 	var members []Member
 	var skipped int
 	for _, m := range roster {
-		email, err := c.fetchMemberEmail(m.ID)
+		email, birthday, err := c.fetchMemberProfile(m.ID)
 		if err != nil {
 			return nil, fmt.Errorf("spielerplus: fetch profile for member %s (%s): %w", m.Name, m.ID, err)
 		}
@@ -126,6 +182,7 @@ func (c *Client) FetchMembers() ([]Member, error) {
 			continue
 		}
 		m.Email = email
+		m.Birthday = birthday
 		members = append(members, m)
 	}
 	if skipped > 0 {
@@ -134,13 +191,22 @@ func (c *Client) FetchMembers() ([]Member, error) {
 	return members, nil
 }
 
-func (c *Client) fetchMemberEmail(userID string) (string, error) {
+func (c *Client) fetchMemberProfile(userID string) (email string, birthday time.Time, err error) {
 	body, err := c.get(fmt.Sprintf(userViewPathFmt, userID))
 	if err != nil {
-		return "", err
+		return "", time.Time{}, err
 	}
 	defer body.Close()
-	return ParseMemberEmail(body)
+	doc, err := goquery.NewDocumentFromReader(body)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("spielerplus: parse user profile page: %w", err)
+	}
+	birthday, err = parseBirthdayFromDoc(doc.Selection)
+	if err != nil {
+		log.Printf("spielerplus: member %s: %v (skipping birthday, not fatal)", userID, err)
+		birthday = time.Time{}
+	}
+	return parseEmailFromDoc(doc.Selection), birthday, nil
 }
 
 // userIDFromHref extracts the "id" query parameter from a

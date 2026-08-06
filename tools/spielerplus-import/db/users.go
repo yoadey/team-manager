@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,8 +23,11 @@ const bcryptCost = 12
 // non-empty but unusable placeholder password_hash (so ForgotPassword
 // doesn't treat it as an OIDC-only account) and email_verified_at set
 // immediately (so the retention job doesn't purge it as unverified before
-// anyone logs in). Returns the user id and whether it was newly created.
-func (s *Store) EnsureUser(ctx context.Context, email, name string) (id string, created bool, err error) {
+// anyone logs in). birthday is written for a newly created user only, if
+// non-zero (a NULL/zero birthday leaves the column NULL, and an existing
+// user's birthday is left untouched - "Existing account is left alone", see
+// spec.md). Returns the user id and whether it was newly created.
+func (s *Store) EnsureUser(ctx context.Context, email, name string, birthday time.Time) (id string, created bool, err error) {
 	err = s.Pool.QueryRow(ctx, `SELECT id FROM users WHERE email = $1`, email).Scan(&id)
 	if err == nil {
 		return id, false, nil
@@ -41,12 +45,17 @@ func (s *Store) EnsureUser(ctx context.Context, email, name string) (id string, 
 		return "", false, fmt.Errorf("db: generate placeholder password hash: %w", err)
 	}
 
+	var birthdayArg any
+	if !birthday.IsZero() {
+		birthdayArg = birthday
+	}
+
 	newID := uuid.NewString()
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO users (id, name, email, password_hash, email_verified_at, created_at)
-		VALUES ($1, $2, $3, $4, now(), now())
+		INSERT INTO users (id, name, email, password_hash, birthday, email_verified_at, created_at)
+		VALUES ($1, $2, $3, $4, $5, now(), now())
 		ON CONFLICT (email) DO NOTHING
-	`, newID, name, email, placeholderHash)
+	`, newID, name, email, placeholderHash, birthdayArg)
 	if err != nil {
 		return "", false, fmt.Errorf("db: insert user %s: %w", email, err)
 	}

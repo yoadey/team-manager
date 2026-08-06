@@ -74,6 +74,9 @@ type Member struct {
 	// "Co-Trainer", "Spieler"), looked up against the configured role
 	// mapping before being written to Teamverwaltung.
 	Role string
+	// Birthday is the member's date of birth, if shown on their profile page
+	// and parseable. Zero if not set/visible.
+	Birthday time.Time
 }
 
 // Absence is a planned absence entered in SpielerPlus, already expanded to a

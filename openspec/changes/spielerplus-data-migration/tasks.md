@@ -39,7 +39,11 @@
       renders an explicit `-:-` placeholder in an `.event-time-value` element for an
       unconfirmed time (e.g. a game's kickoff), rather than omitting the element -
       `eventTimes`/`parseDateTime` now normalize any placeholder value to "not set"
-      instead of failing to parse it as `HH:MM`.
+      instead of failing to parse it as `HH:MM`. Also found and fixed: a multi-day
+      event's end time can render with a trailing "am DD.MM." (e.g. "17:00 am
+      17.11."), not a bare "HH:MM" - `parseHM` now parses only the leading
+      whitespace-delimited token and discards the rest, since `Event` only has a
+      single `End` timestamp already anchored to the row's own resolved date.
 - [x] 2.3 Parse per-event attendance into a per-member status; map SpielerPlus states →
       Teamverwaltung's `attendance.status` enum. **Fully confirmed from the second HAR
       capture, including three full response bodies**: `POST
@@ -67,6 +71,17 @@
       captured, so it's unverified whether another member's email renders the same
       way on their profile (role/privacy-based visibility could hide it) - a member
       with no visible email is skipped and logged rather than imported without one.
+      **Extended after live testing**: also imports each member's birthday
+      (`users.birthday`) from the same profile page fetch (no extra request), read
+      from a labeled `.col-md-4.col-sm-6` field block matching the German label
+      "Geburtstag" - the same block markup already confirmed for other profile
+      fields. **Still open**: no populated birthday was present in the original HAR
+      capture, so the "DD.MM.YYYY" value format and the German-only label match are
+      unverified against a real value; a present-but-unparseable birthday is logged
+      and skipped (not fatal to the member import), matching the tool's existing
+      per-record error handling. Only written for newly created users - an existing
+      user's birthday is left untouched, consistent with "Existing account is left
+      alone" (spec.md).
 - [x] 2.5 Reverse-engineer and parse planned absences, including past ones and any
       "recurring weekday" absences. **Fully confirmed from a third HAR capture
       (`/absence`, response body included)**: `GET /absence` renders every absence

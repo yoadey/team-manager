@@ -124,6 +124,32 @@ func TestParseEvents_PlaceholderTimeValues(t *testing.T) {
 	}
 }
 
+func TestParseEvents_TrailingDateOnTimeValue(t *testing.T) {
+	// Confirmed against a live account: a multi-day event's end time
+	// renders with a trailing "am DD.MM." (e.g. a tournament ending the
+	// next day), not a bare "HH:MM".
+	html := panelHTML("1", "training", "Training", "16.11", "17:00", "18:00", "17:00 am 17.11.")
+	events, err := ParseEvents(strings.NewReader(html), time.Date(2026, time.November, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ParseEvents() error = %v, want the trailing date on a time value handled without a parse error", err)
+	}
+	ev := events[0]
+	wantEnd := time.Date(2026, time.November, 16, 17, 0, 0, 0, time.UTC)
+	if !ev.End.Equal(wantEnd) {
+		t.Errorf("End = %v, want %v", ev.End, wantEnd)
+	}
+}
+
+func TestParseHM_IgnoresTrailingText(t *testing.T) {
+	h, m, err := parseHM("17:00 am 17.11.")
+	if err != nil {
+		t.Fatalf("parseHM() error = %v", err)
+	}
+	if h != 17 || m != 0 {
+		t.Errorf("parseHM() = %d:%d, want 17:00", h, m)
+	}
+}
+
 func TestNormalizeTimeValue(t *testing.T) {
 	cases := map[string]string{
 		"18:00": "18:00",

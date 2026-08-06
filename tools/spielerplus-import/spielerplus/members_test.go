@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // memberRowHTML mirrors the confirmed markup from a HAR capture of a live
@@ -84,5 +85,43 @@ func TestParseMemberEmail_NoneVisible(t *testing.T) {
 	}
 	if email != "" {
 		t.Errorf("email = %q, want empty", email)
+	}
+}
+
+func profileFieldHTML(label, value string) string {
+	return fmt.Sprintf(`<div class="col-md-4 col-sm-6">
+		<small class="light"><b>%s</b></small>
+		<p class="dark">%s</p>
+	</div>`, label, value)
+}
+
+func TestParseMemberBirthday(t *testing.T) {
+	html := profileFieldHTML("Handynummer", "0151 12345678") +
+		profileFieldHTML("Geburtstag", "03.07.1995")
+	birthday, err := ParseMemberBirthday(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("ParseMemberBirthday() error = %v", err)
+	}
+	want := time.Date(1995, time.July, 3, 0, 0, 0, 0, time.UTC)
+	if !birthday.Equal(want) {
+		t.Errorf("birthday = %v, want %v", birthday, want)
+	}
+}
+
+func TestParseMemberBirthday_NotPresent(t *testing.T) {
+	birthday, err := ParseMemberBirthday(strings.NewReader(`<html><body>no fields here</body></html>`))
+	if err != nil {
+		t.Fatalf("ParseMemberBirthday() error = %v", err)
+	}
+	if !birthday.IsZero() {
+		t.Errorf("birthday = %v, want zero", birthday)
+	}
+}
+
+func TestParseMemberBirthday_UnparseableNotFatal(t *testing.T) {
+	html := profileFieldHTML("Geburtstag", "not a date")
+	_, err := ParseMemberBirthday(strings.NewReader(html))
+	if err == nil {
+		t.Fatal("expected an error for an unparseable birthday value")
 	}
 }

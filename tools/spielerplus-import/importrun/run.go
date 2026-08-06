@@ -93,7 +93,7 @@ func importMembers(ctx context.Context, sp *spielerplus.Client, store *db.Store,
 		tvRoleName, _ := opts.RoleMapping.Resolve(m.Role) // already validated above
 		roleID := roleIDs[tvRoleName]
 
-		userID, created, err := store.EnsureUser(ctx, m.Email, m.Name)
+		userID, created, err := store.EnsureUser(ctx, m.Email, m.Name, m.Birthday)
 		if err != nil {
 			return nil, fmt.Errorf("importrun: create user for %s: %w", m.Email, err)
 		}
