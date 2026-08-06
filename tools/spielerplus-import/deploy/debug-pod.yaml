@@ -1,0 +1,62 @@
+# Ad-hoc debug/build Pod for running tools/spielerplus-import manually
+# inside the cluster, next to Teamverwaltung and its CNPG-managed Postgres.
+#
+# This is a plain Pod, not a Deployment: it's meant for one interactive
+# `kubectl exec` session where you git clone + `go build` + run the tool
+# yourself, not a long-lived service. A Deployment's self-healing would just
+# lose your build/checkout on every restart. If the Pod dies, re-apply this
+# manifest and start over.
+#
+# Before applying:
+#   1. Set `namespace:` below to wherever Teamverwaltung + its CNPG cluster
+#      run (the Pod must be in the same namespace to reach the CNPG Service
+#      by its short DNS name).
+#   2. Set `secretKeyRef.name` to your CNPG cluster's app secret - CNPG
+#      auto-creates one named "<cluster-name>-app" with an "uri" key already
+#      in the right postgres://user:pass@host:port/db format for
+#      DATABASE_URL. Check with:
+#        kubectl get secrets -n <namespace> | grep -- -app
+#   3. Set TEAM_ID to the Teamverwaltung team's UUID (Settings page, or the
+#      DB: SELECT id FROM teams WHERE name = '...').
+#
+# Deliberately NOT in this file: SPIELERPLUS_SESSION_COOKIE. That's a live
+# session credential for someone's SpielerPlus account - putting it in the
+# Pod spec would leak it into `kubectl get pod -o yaml`, events, and
+# anyone with pod-read RBAC. Export it interactively once you're inside the
+# shell instead (see the exec instructions below).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: spielerplus-import-debug
+  namespace: team-manager # <-- adjust
+  labels:
+    app: spielerplus-import-debug
+spec:
+  restartPolicy: Never
+  containers:
+    - name: builder
+      # The default (non -alpine, non -slim) golang image is based on
+      # buildpack-deps:*-scm, which already includes git - if `git
+      # --version` fails once you're in the shell, `apt-get update &&
+      # apt-get install -y git` as a fallback.
+      image: golang:1.25-bookworm
+      command: ["sleep", "infinity"]
+      env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: teamverwaltung-db-app # <-- adjust to your CNPG cluster's "-app" secret
+              key: uri
+        - name: TEAM_ID
+          value: "" # <-- adjust: target team's UUID
+        - name: ROLE_MAPPING_PATH
+          value: /root/spielerplus-import/role-mapping.yaml
+        - name: STATE_PATH
+          value: /root/spielerplus-import-state.json
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
