@@ -56,37 +56,77 @@ together.
   applies to; recording a payment happens via the existing transaction form,
   now with an optional "applies to this fee" picker.
 
+### Penalty assignments get the same treatment
+
+The same double-booking / manual-toggle problem exists for penalty
+assignments (Strafen): `paid` is a hand-flipped boolean, unrelated to
+whether the fine was actually booked as income anywhere.
+
+- **`transactions` also gains `penaltyAssignmentId`** (mutually exclusive
+  with `contributionId` on the same transaction — a booking pays at most one
+  thing). A penalty assignment's `paidAmount` is the live sum of its linked
+  income transactions, and `paid` (still a boolean — a fine isn't expected
+  to be paid in installments) is derived as `paidAmount >= amount`, exactly
+  mirroring contributions. A new assignment defaults to unpaid, as before,
+  but now that's simply "no linked transaction yet" rather than a stored
+  default.
+- **Removed:** `PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid`
+  (manual paid toggle) and the now-fully-unused `SetPaidRequest` schema.
+  `penalty_assignments.paid` is dropped from the table.
+- **Frontend:** `FinancesPenalties`'s paid/open toggle button becomes a
+  static, derived status chip (same treatment `FinancesContributions`
+  already got).
+
+### A searchable link picker, not a flat cross-product list
+
+`TxFormSheet`'s "applies to this fee" field was a single flat `<select>`
+listing every open *contribution row* — one option per (member × fee)
+combination. For a club with 40 members and 20 open fees that's up to 800
+options in one dropdown, and adding penalty assignments as a second linkable
+target would make it worse, not better. It's replaced with a collapsed-by-
+default picker: a Beitrag/Strafe type toggle, a text search (filters by fee
+name, penalty label, and member name at once), and a scrollable result list
+— the same interaction shape as `ContribCreateSheet`'s member multi-select,
+single-select and searchable instead.
+
 ## Capabilities
 
 ### New Capabilities
 - `membership-fees`: free-text, manually-created membership fee definitions
   with optional due dates, multi-member fan-out creation, and paid tracking
   derived from linked income transactions (supporting partial/installment
-  payments).
+  payments). Extended to cover penalty assignments' paid tracking the same
+  way (single boolean, no partial payments) and the shared searchable link
+  picker.
 
 ### Modified Capabilities
-- `finance-listing`: narrows the existing "Idempotent paid-state changes"
-  requirement to penalty assignments only — a contribution's paid state is
-  no longer a settable boolean, so idempotent-toggle semantics no longer
-  apply to it.
+- `finance-listing`: removes the "Idempotent paid-state changes"
+  requirement entirely — neither a contribution's nor a penalty assignment's
+  paid state is a settable boolean anymore, so idempotent-toggle semantics
+  no longer apply to either.
 
 ## Impact
 
 - Database: new migrations `backend/internal/db/migrations/00018_flexible_membership_fees.sql`
   (rename `contributions.label`→`name`, add `due_date`, drop `month`/`status`,
-  add `transactions.contribution_id`) and
+  add `transactions.contribution_id`),
   `00019_flexible_membership_fees_indexes.sql` (`due_date` index, partial
-  `contribution_id` index, both `CONCURRENTLY`).
+  `contribution_id` index, both `CONCURRENTLY`),
+  `00020_penalty_assignment_linked_payment.sql` (add
+  `transactions.penalty_assignment_id`, drop `penalty_assignments.paid`),
+  `00021_penalty_assignment_linked_payment_indexes.sql` (partial
+  `penalty_assignment_id` index, `CONCURRENTLY`).
 - API contract: `backend/openapi/openapi.yaml` — `Contribution`,
   `CreateContributionRequest` (new), `UpdateContributionRequest`,
-  `ContributionStatus` (gains `partial`), `Transaction`,
-  `CreateTransactionRequest` gain `contributionId`; removes the
-  paid-toggle path. Regenerated `internal/gen/api.gen.go`,
+  `ContributionStatus` (gains `partial`), `PenaltyAssignment` (gains
+  `paidAmount`), `Transaction`, `CreateTransactionRequest` gain
+  `contributionId`/`penaltyAssignmentId`; removes both paid-toggle paths and
+  the `SetPaidRequest` schema. Regenerated `internal/gen/api.gen.go`,
   `frontend/src/api/types.gen.ts`, `frontend/src/api/zod.gen.ts`.
 - Backend: `internal/finances/{model.go,repository.go,service.go,handler.go}`,
   `internal/server/server.go`.
 - Frontend: `features/finances/{types.ts,FinancesPage.tsx}`,
-  `features/finances/components/{FinancesContributions.tsx,ContribFormSheet.tsx,ContribCreateSheet.tsx (new),TxFormSheet.tsx,contribFormSchema.ts,contribCreateFormSchema.ts (new)}`,
+  `features/finances/components/{FinancesContributions.tsx,FinancesPenalties.tsx,ContribFormSheet.tsx,ContribCreateSheet.tsx (new),TxFormSheet.tsx,LinkedPaymentPicker.tsx (new),contribFormSchema.ts,contribCreateFormSchema.ts (new),txFormSchema.ts}`,
   `features/finances/hooks/{useFinanceQueries.ts,useFinanceMutations.ts,useFinanceActions.ts}`,
   `context/AppContext.tsx`, `sheets/index.tsx`, `api/map.ts`,
   `services/serviceLayerReal.ts`, `mocks/{db.ts,handlers.ts}`,

@@ -502,6 +502,7 @@ const Transaction = z
     date: z.string(),
     category: z.string().optional(),
     contributionId: z.string().uuid().nullish(),
+    penaltyAssignmentId: z.string().uuid().nullish(),
   })
   .passthrough();
 const Penalty = z
@@ -519,6 +520,7 @@ const PenaltyAssignment = z
     userId: z.string().uuid(),
     penaltyId: z.string().uuid().nullish(),
     paid: z.boolean(),
+    paidAmount: z.number().int(),
     date: z.string(),
     memberName: z.string().optional(),
     memberAvatarColor: z.string().optional(),
@@ -575,6 +577,7 @@ const CreateTransactionRequest = z
     category: z.string().max(255).optional(),
     date: z.string().optional(),
     contributionId: z.string().uuid().optional(),
+    penaltyAssignmentId: z.string().uuid().optional(),
   })
   .passthrough();
 const UpdateTransactionRequest = z
@@ -602,7 +605,6 @@ const CreatePenaltyAssignmentRequest = z
     note: z.string().max(10000).optional(),
   })
   .passthrough();
-const SetPaidRequest = z.object({ paid: z.boolean() }).passthrough();
 const CreateContributionRequest = z
   .object({
     name: z.string().min(1).max(255),
@@ -787,7 +789,6 @@ export const schemas = {
   CreatePenaltyRequest,
   UpdatePenaltyRequest,
   CreatePenaltyAssignmentRequest,
-  SetPaidRequest,
   CreateContributionRequest,
   UpdateContributionRequest,
   MemberStat,
@@ -1893,30 +1894,6 @@ const endpoints = makeApi([
       },
     ],
     response: z.void(),
-  },
-  {
-    method: "put",
-    path: "/teams/:teamId/finances/penalty-assignments/:assignmentId/paid",
-    alias: "setPenaltyPaid",
-    requestFormat: "json",
-    parameters: [
-      {
-        name: "body",
-        type: "Body",
-        schema: z.object({ paid: z.boolean() }).passthrough(),
-      },
-      {
-        name: "teamId",
-        type: "Path",
-        schema: z.string().uuid(),
-      },
-      {
-        name: "assignmentId",
-        type: "Path",
-        schema: z.string().uuid(),
-      },
-    ],
-    response: PenaltyAssignment,
   },
   {
     method: "get",

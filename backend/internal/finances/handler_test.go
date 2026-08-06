@@ -39,7 +39,6 @@ type mockFinanceService struct {
 	deletePenalty       func(ctx context.Context, id, teamID uuid.UUID) error
 	createAssignment    func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
 	deleteAssignment    func(ctx context.Context, id, teamID uuid.UUID) error
-	setPenaltyPaid      func(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error)
 	createContributions func(ctx context.Context, teamID uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error)
 	updateContribution  func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
 	deleteContribution  func(ctx context.Context, id, teamID uuid.UUID) error
@@ -83,10 +82,6 @@ func (m *mockFinanceService) CreateAssignment(ctx context.Context, teamID uuid.U
 
 func (m *mockFinanceService) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error {
 	return m.deleteAssignment(ctx, id, teamID)
-}
-
-func (m *mockFinanceService) SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error) {
-	return m.setPenaltyPaid(ctx, teamID, id, paid)
 }
 
 func (m *mockFinanceService) CreateContributions(ctx context.Context, teamID uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error) {
@@ -524,26 +519,6 @@ func TestHandler_DeleteContribution_NotFoundReturns404(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, apiErr.Status)
 }
 
-func TestHandler_SetPenaltyPaid_NotFoundReturns404(t *testing.T) {
-	t.Parallel()
-	svc := &mockFinanceService{
-		setPenaltyPaid: func(_ context.Context, _, _ uuid.UUID, _ bool) (*gen.PenaltyAssignment, error) {
-			return nil, pgx.ErrNoRows
-		},
-	}
-	h := finances.NewHandler(svc, slog.Default(), nil)
-
-	_, err := h.SetPenaltyPaid(authedCtx(), gen.SetPenaltyPaidRequestObject{
-		TeamId:       testTeamID,
-		AssignmentId: testTxID,
-		Body:         &gen.SetPaidRequest{Paid: true},
-	})
-	require.Error(t, err)
-	var apiErr *apierror.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, http.StatusNotFound, apiErr.Status)
-}
-
 // Regression test: Service.CreateAssignment returns bare pgx.ErrNoRows when
 // the just-created row is gone by the time it's reloaded (a concurrent
 // DeletePenalty cascaded it away) -- unlike every other write handler in
@@ -567,24 +542,4 @@ func TestHandler_CreatePenaltyAssignment_ReloadRaceReturns404(t *testing.T) {
 	var apiErr *apierror.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, http.StatusNotFound, apiErr.Status)
-}
-
-func TestHandler_SetPenaltyPaid_ServiceErrorReturns500(t *testing.T) {
-	t.Parallel()
-	svc := &mockFinanceService{
-		setPenaltyPaid: func(_ context.Context, _, _ uuid.UUID, _ bool) (*gen.PenaltyAssignment, error) {
-			return nil, errors.New("db error")
-		},
-	}
-	h := finances.NewHandler(svc, slog.Default(), nil)
-
-	_, err := h.SetPenaltyPaid(authedCtx(), gen.SetPenaltyPaidRequestObject{
-		TeamId:       testTeamID,
-		AssignmentId: testTxID,
-		Body:         &gen.SetPaidRequest{Paid: true},
-	})
-	require.Error(t, err)
-	var apiErr *apierror.APIError
-	require.ErrorAs(t, err, &apiErr)
-	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
 }

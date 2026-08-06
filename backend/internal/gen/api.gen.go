@@ -633,13 +633,16 @@ type CreateTransactionRequest struct {
 	Amount   int64   `json:"amount"`
 	Category *string `json:"category,omitempty"`
 
-	// ContributionId Links this transaction to a membership fee it (fully or partially) pays -- the fee's paidAmount becomes the sum of every income transaction linked to it this way. Only valid when `type` is `income`; rejected otherwise.
+	// ContributionId Links this transaction to a membership fee it (fully or partially) pays -- the fee's paidAmount becomes the sum of every income transaction linked to it this way. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with penaltyAssignmentId.
 	ContributionId *openapi_types.UUID `json:"contributionId,omitempty"`
 
 	// Date Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
-	Date  *openapi_types.Date `json:"date,omitempty"`
-	Title string              `json:"title"`
-	Type  TransactionType     `json:"type"`
+	Date *openapi_types.Date `json:"date,omitempty"`
+
+	// PenaltyAssignmentId Links this transaction to a penalty assignment (fine) it pays -- the assignment's paidAmount becomes the sum of every income transaction linked to it this way, and paid becomes true once that sum reaches the assignment's amount. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with contributionId.
+	PenaltyAssignmentId *openapi_types.UUID `json:"penaltyAssignmentId,omitempty"`
+	Title               string              `json:"title"`
+	Type                TransactionType     `json:"type"`
 }
 
 // DeleteAccountRequest defines model for DeleteAccountRequest.
@@ -832,7 +835,12 @@ type PenaltyAssignment struct {
 	MemberAvatarColor *string            `json:"memberAvatarColor,omitempty"`
 	MemberName        *string            `json:"memberName,omitempty"`
 	Note              *string            `json:"note,omitempty"`
-	Paid              bool               `json:"paid"`
+
+	// Paid Derived from paidAmount vs. amount (paidAmount >= amount), never independently settable -- see Transaction.penaltyAssignmentId.
+	Paid bool `json:"paid"`
+
+	// PaidAmount Sum of every income transaction linked to this assignment (Transaction.penaltyAssignmentId), in cents. Computed, not stored.
+	PaidAmount int64 `json:"paidAmount"`
 
 	// PenaltyId The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
 	PenaltyId *openapi_types.UUID `json:"penaltyId,omitempty"`
@@ -987,12 +995,6 @@ type SetNominationRequest struct {
 	UserId    openapi_types.UUID `json:"userId"`
 }
 
-// SetPaidRequest defines model for SetPaidRequest.
-type SetPaidRequest struct {
-	// Paid The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints).
-	Paid bool `json:"paid"`
-}
-
 // SetRolesRequest defines model for SetRolesRequest.
 type SetRolesRequest struct {
 	RoleIds []openapi_types.UUID `json:"roleIds"`
@@ -1106,9 +1108,12 @@ type Transaction struct {
 	ContributionId *openapi_types.UUID `json:"contributionId,omitempty"`
 	Date           openapi_types.Date  `json:"date"`
 	Id             openapi_types.UUID  `json:"id"`
-	TeamId         openapi_types.UUID  `json:"teamId"`
-	Title          string              `json:"title"`
-	Type           TransactionType     `json:"type"`
+
+	// PenaltyAssignmentId The penalty assignment this transaction pays, or null if it isn't a fine payment. Mutually exclusive with contributionId. Set at creation time only -- see CreateTransactionRequest.penaltyAssignmentId.
+	PenaltyAssignmentId *openapi_types.UUID `json:"penaltyAssignmentId,omitempty"`
+	TeamId              openapi_types.UUID  `json:"teamId"`
+	Title               string              `json:"title"`
+	Type                TransactionType     `json:"type"`
 }
 
 // TransactionType defines model for TransactionType.
@@ -1476,9 +1481,6 @@ type UpdatePenaltyJSONRequestBody = UpdatePenaltyRequest
 // CreatePenaltyAssignmentJSONRequestBody defines body for CreatePenaltyAssignment for application/json ContentType.
 type CreatePenaltyAssignmentJSONRequestBody = CreatePenaltyAssignmentRequest
 
-// SetPenaltyPaidJSONRequestBody defines body for SetPenaltyPaid for application/json ContentType.
-type SetPenaltyPaidJSONRequestBody = SetPaidRequest
-
 // CreateTransactionJSONRequestBody defines body for CreateTransaction for application/json ContentType.
 type CreateTransactionJSONRequestBody = CreateTransactionRequest
 
@@ -1679,9 +1681,6 @@ type ServerInterface interface {
 	// Remove penalty assignment
 	// (DELETE /teams/{teamId}/finances/penalty-assignments/{assignmentId})
 	DeletePenaltyAssignment(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
-	// Set the paid status of a penalty assignment (idempotent)
-	// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
-	SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID)
 	// List transactions (keyset-paginated)
 	// (GET /teams/{teamId}/finances/transactions)
 	ListTransactions(w http.ResponseWriter, r *http.Request, teamId TeamId, params ListTransactionsParams)
@@ -2117,12 +2116,6 @@ func (_ Unimplemented) CreatePenaltyAssignment(w http.ResponseWriter, r *http.Re
 // Remove penalty assignment
 // (DELETE /teams/{teamId}/finances/penalty-assignments/{assignmentId})
 func (_ Unimplemented) DeletePenaltyAssignment(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Set the paid status of a penalty assignment (idempotent)
-// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
-func (_ Unimplemented) SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4159,47 +4152,6 @@ func (siw *ServerInterfaceWrapper) DeletePenaltyAssignment(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
-// SetPenaltyPaid operation middleware
-func (siw *ServerInterfaceWrapper) SetPenaltyPaid(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "teamId" -------------
-	var teamId TeamId
-
-	err = runtime.BindStyledParameterWithOptions("simple", "teamId", chi.URLParam(r, "teamId"), &teamId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "teamId", Err: err})
-		return
-	}
-
-	// ------------- Path parameter "assignmentId" -------------
-	var assignmentId openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "assignmentId", chi.URLParam(r, "assignmentId"), &assignmentId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "assignmentId", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SetPenaltyPaid(w, r, teamId, assignmentId)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListTransactions operation middleware
 func (siw *ServerInterfaceWrapper) ListTransactions(w http.ResponseWriter, r *http.Request) {
 
@@ -6103,9 +6055,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Delete(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}", wrapper.DeletePenaltyAssignment)
 	})
 	r.Group(func(r chi.Router) {
-		r.Put(options.BaseURL+"/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid", wrapper.SetPenaltyPaid)
-	})
-	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/teams/{teamId}/finances/transactions", wrapper.ListTransactions)
 	})
 	r.Group(func(r chi.Router) {
@@ -7738,30 +7687,6 @@ func (response DeletePenaltyAssignment204Response) VisitDeletePenaltyAssignmentR
 	return nil
 }
 
-type SetPenaltyPaidRequestObject struct {
-	TeamId       TeamId             `json:"teamId"`
-	AssignmentId openapi_types.UUID `json:"assignmentId"`
-	Body         *SetPenaltyPaidJSONRequestBody
-}
-
-type SetPenaltyPaidResponseObject interface {
-	VisitSetPenaltyPaidResponse(w http.ResponseWriter) error
-}
-
-type SetPenaltyPaid200JSONResponse PenaltyAssignment
-
-func (response SetPenaltyPaid200JSONResponse) VisitSetPenaltyPaidResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ListTransactionsRequestObject struct {
 	TeamId TeamId `json:"teamId"`
 	Params ListTransactionsParams
@@ -8924,9 +8849,6 @@ type StrictServerInterface interface {
 	// Remove penalty assignment
 	// (DELETE /teams/{teamId}/finances/penalty-assignments/{assignmentId})
 	DeletePenaltyAssignment(ctx context.Context, request DeletePenaltyAssignmentRequestObject) (DeletePenaltyAssignmentResponseObject, error)
-	// Set the paid status of a penalty assignment (idempotent)
-	// (PUT /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid)
-	SetPenaltyPaid(ctx context.Context, request SetPenaltyPaidRequestObject) (SetPenaltyPaidResponseObject, error)
 	// List transactions (keyset-paginated)
 	// (GET /teams/{teamId}/finances/transactions)
 	ListTransactions(ctx context.Context, request ListTransactionsRequestObject) (ListTransactionsResponseObject, error)
@@ -10594,40 +10516,6 @@ func (sh *strictHandler) DeletePenaltyAssignment(w http.ResponseWriter, r *http.
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeletePenaltyAssignmentResponseObject); ok {
 		if err := validResponse.VisitDeletePenaltyAssignmentResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// SetPenaltyPaid operation middleware
-func (sh *strictHandler) SetPenaltyPaid(w http.ResponseWriter, r *http.Request, teamId TeamId, assignmentId openapi_types.UUID) {
-	var request SetPenaltyPaidRequestObject
-
-	request.TeamId = teamId
-	request.AssignmentId = assignmentId
-
-	var body SetPenaltyPaidJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SetPenaltyPaid(ctx, request.(SetPenaltyPaidRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SetPenaltyPaid")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SetPenaltyPaidResponseObject); ok {
-		if err := validResponse.VisitSetPenaltyPaidResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -101,9 +101,69 @@
 - [x] 7.1 Check `CLAUDE.md`/`docs/` for stale references to monthly
       contributions
 
-## 8. Verification
-- [x] 8.1 `openspec validate flexible-membership-fees --strict`
-- [x] 8.2 `cd backend && make generate` / repo-root `make generate-ts` — no diff
-- [x] 8.3 `cd backend && make lint`
-- [x] 8.4 `cd backend && make test`
-- [x] 8.5 `cd frontend && npm run lint && npm run typecheck && npm test && npm run build`
+## 9. Database (penalty assignment linking)
+- [x] 9.1 `00020_penalty_assignment_linked_payment.sql`: add
+      `transactions.penalty_assignment_id UUID REFERENCES
+      penalty_assignments(id) ON DELETE SET NULL`, drop
+      `penalty_assignments.paid`
+- [x] 9.2 `00021_penalty_assignment_linked_payment_indexes.sql`
+      (`NO TRANSACTION`): partial `idx_transactions_penalty_assignment_id
+      WHERE penalty_assignment_id IS NOT NULL`, `CONCURRENTLY`
+
+## 10. OpenAPI (penalty assignment linking)
+- [x] 10.1 `PenaltyAssignment`: add `paidAmount` (int64, required); `paid`
+      stays boolean, documented as derived (`paidAmount >= amount`)
+- [x] 10.2 `Transaction` + `CreateTransactionRequest`: add
+      `penaltyAssignmentId` (nullable uuid), mutually exclusive with
+      `contributionId`
+- [x] 10.3 Remove `PUT
+      /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid` and
+      the now-unused `SetPaidRequest` schema
+- [x] 10.4 `cd backend && make generate` / repo-root `make generate-ts`
+
+## 11. Backend: penalty assignment linking + tests
+- [x] 11.1 `model.go`: `PenaltyAssignmentRow` drops `Paid bool`, gains
+      `PaidAmount int64`; `TransactionRow`/`TransactionPatch` gain
+      `PenaltyAssignmentID *uuid.UUID`
+- [x] 11.2 `repository.go`: `ListAssignments`/`GetAssignmentByID` join the
+      same `LATERAL` sum pattern as contributions; drop
+      `SetAssignmentPaid`; `PenaltyAssignmentBelongsToTeam`;
+      `CreateTransaction` takes `penaltyAssignmentID *uuid.UUID`
+- [x] 11.3 `service.go`: derive `paid` from `paidAmount`/`amount`; drop
+      `SetPenaltyPaid`; `CreateTransaction` validates at most one of
+      `contributionId`/`penaltyAssignmentId` set, income-only, belongs to
+      team
+- [x] 11.4 `handler.go` + `internal/server/server.go`: remove
+      `SetPenaltyPaid`
+- [x] 11.5 `repository_test.go`/`service_test.go`/`handler_test.go`:
+      derived-paid coverage, mutual-exclusivity validation, removed route
+      returns 404
+
+## 12. Frontend: penalty assignment linking + searchable picker
+- [x] 12.1 `features/finances/types.ts`: `PenaltyAssignment.paidAmount`;
+      `Transaction.penaltyAssignmentId`
+- [x] 12.2 `api/map.ts`, `services/serviceLayerReal.ts`: map/pass through
+      new fields; remove `setPenaltyPaid`
+- [x] 12.3 `mocks/db.ts` + `mocks/handlers.ts`: derive penalty `paid` from
+      linked mock transactions; remove the paid-toggle handler; validate
+      mutual exclusivity in the create-transaction handler
+- [x] 12.4 `features/finances/hooks/{useFinanceMutations.ts,useFinanceActions.ts}`
+      + `context/AppContext.tsx`: remove `setPenaltyPaid`
+- [x] 12.5 `features/finances/components/FinancesPenalties.tsx`: replace the
+      paid/open toggle button with a static derived chip (mirrors
+      `FinancesContributions`)
+- [x] 12.6 New `features/finances/components/LinkedPaymentPicker.tsx`:
+      collapsed-by-default, Beitrag/Strafe type toggle, text search over
+      fee/penalty label + member name, scrollable result list; used by
+      `TxFormSheet.tsx` in place of the flat `<select>`
+- [x] 12.7 `i18n/{en.ts,de.ts}`: new/changed `finances.*` keys
+- [x] 12.8 Tests: `FinancesPenalties.test.tsx`, new
+      `LinkedPaymentPicker.test.tsx`, `TxFormSheet.test.tsx` updates,
+      `useFinanceActions.test.ts`, `serviceContract.test.ts`
+
+## 13. Verification
+- [x] 13.1 `openspec validate flexible-membership-fees --strict`
+- [x] 13.2 `cd backend && make generate` / repo-root `make generate-ts` — no diff
+- [x] 13.3 `cd backend && make lint`
+- [x] 13.4 `cd backend && make test`
+- [x] 13.5 `cd frontend && npm run lint && npm run typecheck && npm test && npm run build`

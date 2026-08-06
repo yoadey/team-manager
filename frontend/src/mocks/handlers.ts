@@ -363,27 +363,11 @@ function toWireTransaction(t: (typeof db.transactions)[number]): S['Transaction'
     date: t.date,
     ...opt('category', t.category || undefined),
     ...opt('contributionId', t.contributionId || undefined),
+    ...opt('penaltyAssignmentId', t.penaltyAssignmentId || undefined),
   };
 }
 function toWirePenalty(p: (typeof db.penalties)[number]): S['Penalty'] {
   return { id: p.id, teamId: p.teamId, label: p.label, amount: p.amount };
-}
-function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['PenaltyAssignment'] {
-  const u = db.users.find((x) => x.id === a.userId);
-  return {
-    id: a.id,
-    teamId: a.teamId,
-    userId: a.userId,
-    penaltyId: a.penaltyId,
-    paid: a.paid,
-    date: a.date,
-    ...opt('memberName', u?.name),
-    ...opt('memberAvatarColor', u?.avatarColor),
-    ...opt('hasPhoto', u?.hasPhoto),
-    ...opt('label', a.label),
-    ...opt('amount', a.amount),
-    ...opt('note', a.note),
-  };
 }
 // paidAmount/status are derived from linked income transactions, never
 // stored on the row -- mirrors finances.Repository.ListContributions'
@@ -393,6 +377,35 @@ function contributionPaidAmount(contributionId: string): number {
   return db.transactions
     .filter((t) => t.contributionId === contributionId && t.type === 'income')
     .reduce((sum, t) => sum + t.amount, 0);
+}
+// Same derivation as contributionPaidAmount, for penalty assignments -- see
+// finances.Repository.ListAssignments' LATERAL sum on the real backend.
+function assignmentPaidAmount(assignmentId: string): number {
+  return db.transactions
+    .filter((t) => t.penaltyAssignmentId === assignmentId && t.type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+}
+function assignmentIsPaid(paidAmount: number, amount: number): boolean {
+  return paidAmount >= amount;
+}
+function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['PenaltyAssignment'] {
+  const u = db.users.find((x) => x.id === a.userId);
+  const paidAmount = assignmentPaidAmount(a.id);
+  return {
+    id: a.id,
+    teamId: a.teamId,
+    userId: a.userId,
+    penaltyId: a.penaltyId,
+    paid: assignmentIsPaid(paidAmount, a.amount),
+    paidAmount,
+    date: a.date,
+    ...opt('memberName', u?.name),
+    ...opt('memberAvatarColor', u?.avatarColor),
+    ...opt('hasPhoto', u?.hasPhoto),
+    ...opt('label', a.label),
+    ...opt('amount', a.amount),
+    ...opt('note', a.note),
+  };
 }
 function contributionStatus(paidAmount: number, amount: number): S['ContributionStatus'] {
   if (paidAmount <= 0) return 'open';
@@ -1403,7 +1416,11 @@ export const handlers = [
     const penalties = db.penalties.filter((p) => p.teamId === teamId);
     const assignments = db.penaltyAssignments.filter((p) => p.teamId === teamId);
     const openByUser: Record<string, number> = {};
-    assignments.filter((a) => !a.paid).forEach((a) => { openByUser[a.userId] = (openByUser[a.userId] || 0) + (a.amount || 0); });
+    assignments.forEach((a) => {
+      const paidAmount = assignmentPaidAmount(a.id);
+      const outstanding = Math.max(a.amount - paidAmount, 0);
+      if (outstanding > 0) openByUser[a.userId] = (openByUser[a.userId] || 0) + outstanding;
+    });
     const openPenalties: S['OpenPenalty'][] = Object.keys(openByUser)
       .map((uid) => {
         const u = requireUser(uid);
@@ -1443,10 +1460,21 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
+    if (body.contributionId && body.penaltyAssignmentId) {
+      return problem(400, 'a transaction can be linked to at most one of contributionId or penaltyAssignmentId');
+    }
     if (body.contributionId) {
       if (body.type !== 'income') return problem(400, 'a transaction linked to a contribution must have type income');
       if (!db.contributions.some((c) => c.id === body.contributionId && c.teamId === teamId)) {
         return problem(400, 'contribution does not belong to this team');
+      }
+    }
+    if (body.penaltyAssignmentId) {
+      if (body.type !== 'income') {
+        return problem(400, 'a transaction linked to a penalty assignment must have type income');
+      }
+      if (!db.penaltyAssignments.some((a) => a.id === body.penaltyAssignmentId && a.teamId === teamId)) {
+        return problem(400, 'penalty assignment does not belong to this team');
       }
     }
     const t = {
@@ -1458,6 +1486,7 @@ export const handlers = [
       date: body.date || todayLocalDate(),
       category: body.category || '',
       ...opt('contributionId', body.contributionId),
+      ...opt('penaltyAssignmentId', body.penaltyAssignmentId),
     };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
@@ -1527,7 +1556,6 @@ export const handlers = [
       teamId,
       userId: body.userId,
       penaltyId: body.penaltyId,
-      paid: false,
       date: body.date || todayLocalDate(),
       label: penalty.label,
       amount: penalty.amount,
@@ -1541,16 +1569,12 @@ export const handlers = [
     await mockDelay();
     if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId)) return problem(404, 'Penalty assignment not found');
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.id !== params.assignmentId);
+    // Unlink (not delete) any transaction that paid this fine -- mirrors the
+    // real backend's ON DELETE SET NULL.
+    db.transactions.forEach((t) => {
+      if (t.penaltyAssignmentId === params.assignmentId) delete t.penaltyAssignmentId;
+    });
     return new HttpResponse(null, { status: 204 });
-  }),
-
-  http.put(P('/teams/:teamId/finances/penalty-assignments/:assignmentId/paid'), async ({ params, request }) => {
-    await mockDelay();
-    const a = db.penaltyAssignments.find((x) => x.id === params.assignmentId);
-    if (!a) return problem(404, 'Assignment not found');
-    const body = (await request.json()) as S['SetPaidRequest'];
-    a.paid = body.paid;
-    return HttpResponse.json(toWireAssignment(a));
   }),
 
   http.post(P('/teams/:teamId/finances/contributions'), async ({ params, request }) => {

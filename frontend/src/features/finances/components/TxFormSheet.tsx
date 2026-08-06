@@ -2,10 +2,11 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
+import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { txFormSchema, type TxFormValues } from './txFormSchema';
+import { LinkedPaymentPicker } from './LinkedPaymentPicker';
 import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { getIntlLocale, t } from '@/i18n';
@@ -78,21 +79,32 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
 
   // Only offered when creating a new income transaction -- linking only
   // happens at creation time (see CreateTransactionRequest.contributionId's
-  // doc comment), and only fees not yet fully paid are worth picking.
-  const contribOptions = (finances && finances.contributions) || [];
-  const openContribs = contribOptions.filter((c) => c.status !== 'paid');
-  const contribField =
-    !edit && type === 'income' && openContribs.length ? (
-      <Field label={t('finances.txFieldContribution')} error={!!errors.contributionId}>
-        <select style={inputSx} {...register('contributionId')}>
-          <option value="">{t('finances.txFieldContributionNone')}</option>
-          {openContribs.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.label + ' — ' + (c.name || '') + ' (' + fmtMoney(c.amount - c.paidAmount) + ')'}
-            </option>
-          ))}
-        </select>
-      </Field>
+  // doc comment), and only fees/fines not yet fully paid are worth picking.
+  const openContribs = ((finances && finances.contributions) || []).filter((c) => c.status !== 'paid');
+  const openAssignments = ((finances && finances.assignments) || []).filter((a) => !a.paid);
+  const contributionId = watch('contributionId');
+  const penaltyAssignmentId = watch('penaltyAssignmentId');
+  const linkedPicker =
+    !edit && type === 'income' ? (
+      <LinkedPaymentPicker
+        tk={tk}
+        contributions={openContribs}
+        assignments={openAssignments}
+        contributionId={contributionId}
+        penaltyAssignmentId={penaltyAssignmentId}
+        onSelectContribution={(id) => {
+          setValue('contributionId', id, { shouldValidate: true });
+          setValue('penaltyAssignmentId', '', { shouldValidate: true });
+        }}
+        onSelectPenalty={(id) => {
+          setValue('penaltyAssignmentId', id, { shouldValidate: true });
+          setValue('contributionId', '', { shouldValidate: true });
+        }}
+        onClear={() => {
+          setValue('contributionId', '', { shouldValidate: true });
+          setValue('penaltyAssignmentId', '', { shouldValidate: true });
+        }}
+      />
     ) : null;
 
   const cats = [...new Set(((finances && finances.transactions) || []).map((x) => x.category).filter(Boolean))].sort(
@@ -198,7 +210,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       <Field label={t('finances.txFieldAmount')} required error={!!errors.amount} errorText={errors.amount?.message}>
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
-      {contribField}
+      {linkedPicker}
       {catField}
       <PrimaryButton
         label={edit ? t('finances.txSaveEdit') : t('finances.txSave')}

@@ -218,7 +218,6 @@ type PenaltyAssignment struct {
 	TeamID    uuid.UUID
 	UserID    uuid.UUID
 	PenaltyID *uuid.UUID
-	Paid      bool
 	Date      pgtype.Date
 	Amount    pgtype.Int8
 	Label     pgtype.Text
@@ -306,16 +305,17 @@ type Team struct {
 }
 
 type Transaction struct {
-	ID             uuid.UUID
-	TeamID         uuid.UUID
-	Type           string
-	Title          string
-	Amount         int64
-	Date           pgtype.Date
-	Category       pgtype.Text
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	ContributionID *uuid.UUID
+	ID                  uuid.UUID
+	TeamID              uuid.UUID
+	Type                string
+	Title               string
+	Amount              int64
+	Date                pgtype.Date
+	Category            pgtype.Text
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	ContributionID      *uuid.UUID
+	PenaltyAssignmentID *uuid.UUID
 }
 
 type User struct {

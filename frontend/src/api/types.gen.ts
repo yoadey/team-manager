@@ -1118,26 +1118,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                teamId: components["parameters"]["teamId"];
-                assignmentId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        /** Set the paid status of a penalty assignment (idempotent) */
-        put: operations["setPenaltyPaid"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/teams/{teamId}/finances/contributions": {
         parameters: {
             query?: never;
@@ -1840,6 +1820,11 @@ export interface components {
              * @description The membership fee this transaction (fully or partially) pays, or null if it isn't a fee payment. Set at creation time only -- see CreateTransactionRequest.contributionId.
              */
             contributionId?: string | null;
+            /**
+             * Format: uuid
+             * @description The penalty assignment this transaction pays, or null if it isn't a fine payment. Mutually exclusive with contributionId. Set at creation time only -- see CreateTransactionRequest.penaltyAssignmentId.
+             */
+            penaltyAssignmentId?: string | null;
         };
         CreateTransactionRequest: {
             type: components["schemas"]["TransactionType"];
@@ -1857,9 +1842,14 @@ export interface components {
             date?: string;
             /**
              * Format: uuid
-             * @description Links this transaction to a membership fee it (fully or partially) pays -- the fee's paidAmount becomes the sum of every income transaction linked to it this way. Only valid when `type` is `income`; rejected otherwise.
+             * @description Links this transaction to a membership fee it (fully or partially) pays -- the fee's paidAmount becomes the sum of every income transaction linked to it this way. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with penaltyAssignmentId.
              */
             contributionId?: string;
+            /**
+             * Format: uuid
+             * @description Links this transaction to a penalty assignment (fine) it pays -- the assignment's paidAmount becomes the sum of every income transaction linked to it this way, and paid becomes true once that sum reaches the assignment's amount. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with contributionId.
+             */
+            penaltyAssignmentId?: string;
         };
         UpdateTransactionRequest: {
             type?: components["schemas"]["TransactionType"];
@@ -1916,7 +1906,13 @@ export interface components {
              * @description The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
              */
             penaltyId?: string | null;
+            /** @description Derived from paidAmount vs. amount (paidAmount >= amount), never independently settable -- see Transaction.penaltyAssignmentId. */
             paid: boolean;
+            /**
+             * Format: int64
+             * @description Sum of every income transaction linked to this assignment (Transaction.penaltyAssignmentId), in cents. Computed, not stored.
+             */
+            paidAmount: number;
             /** Format: date */
             date: string;
             memberName?: string;
@@ -1942,10 +1938,6 @@ export interface components {
             date?: string;
             /** @description Optional free-text note explaining the assignment. */
             note?: string;
-        };
-        SetPaidRequest: {
-            /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
-            paid: boolean;
         };
         OpenPenalty: {
             /** Format: uuid */
@@ -4271,33 +4263,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    setPenaltyPaid: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                teamId: components["parameters"]["teamId"];
-                assignmentId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetPaidRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PenaltyAssignment"];
-                };
             };
         };
     };

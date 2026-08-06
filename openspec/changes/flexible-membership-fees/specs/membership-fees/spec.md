@@ -79,3 +79,43 @@ transactions are unlinked instead.
 - **THEN** the contribution is removed
 - **AND** the previously linked transaction still exists, no longer linked
   to any contribution
+
+### Requirement: Penalty assignment paid state derived from linked transactions
+A penalty assignment's paid amount MUST be the sum of income transactions
+linked to it, and its paid state MUST be derived by comparing that sum to
+the assignment's amount, rather than stored as an independently settable
+value. A new penalty assignment defaults to unpaid.
+
+#### Scenario: A new assignment is unpaid
+- **WHEN** a penalty is assigned to a member
+- **THEN** the assignment's paid state is false and its paid amount is zero
+
+#### Scenario: Recording full payment of a penalty
+- **WHEN** the treasurer books an income transaction for a penalty
+  assignment's full amount and links it to that assignment
+- **THEN** the assignment's paid state becomes true
+
+#### Scenario: Deleting the linked transaction reverts the paid state
+- **WHEN** an income transaction linked to a paid penalty assignment is
+  deleted
+- **THEN** the assignment's paid state becomes false again
+
+### Requirement: A transaction links to at most one fee or penalty
+A transaction MUST NOT be linked to both a contribution and a penalty
+assignment at the same time.
+
+#### Scenario: Attempting to link both
+- **WHEN** the treasurer attempts to create a transaction with both a
+  contribution and a penalty assignment specified
+- **THEN** the request is rejected
+
+### Requirement: Searchable link selection at real-club scale
+Selecting which fee or penalty a transaction pays MUST remain usable when a
+team has many members and many open fees/penalties — the selection MUST NOT
+be presented as a single list enumerating every member/fee (or
+member/penalty) combination.
+
+#### Scenario: Many members and many open fees
+- **WHEN** a team has 40 members and 20 open contributions
+- **THEN** the treasurer can find and select the specific member's specific
+  fee by searching, without being shown all 800 combinations at once

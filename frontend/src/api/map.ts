@@ -403,6 +403,7 @@ export function mapTransaction(t: S['Transaction']): Transaction {
     date: t.date,
     category: t.category ?? '',
     contributionId: t.contributionId ?? null,
+    penaltyAssignmentId: t.penaltyAssignmentId ?? null,
   };
 }
 
@@ -424,6 +425,7 @@ export function mapPenaltyAssignment(a: S['PenaltyAssignment']): PenaltyAssignme
     // (ON DELETE SET NULL); the snapshot label/amount remain authoritative.
     penaltyId: a.penaltyId ?? null,
     paid: a.paid,
+    paidAmount: centsToEuros(a.paidAmount),
     date: a.date,
     photo: null,
     ...opt('name', a.memberName),

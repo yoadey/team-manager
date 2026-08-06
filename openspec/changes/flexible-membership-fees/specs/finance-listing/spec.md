@@ -1,14 +1,14 @@
-## MODIFIED Requirements
+## REMOVED Requirements
 
 ### Requirement: Idempotent paid-state changes
-Changing the paid state of a penalty assignment MUST be idempotent — the
-same request applied twice yields the same final state. A contribution's
-paid state is derived from its linked transactions (see the `membership-fees`
-capability) rather than being an independently settable value, so this
-requirement no longer applies to contributions.
-
-#### Scenario: Retried paid update
-- **WHEN** a client sets a penalty assignment's paid state to true and
-  retries the same request after a lost response
-- **THEN** the assignment ends up paid
-- **AND** it is not flipped back to unpaid by the retry
+**Reason**: Both settable paid-state operations this requirement covered are
+removed by this change. A contribution's paid state was already made a
+derived value (see the `membership-fees` capability) rather than an
+independently settable one; a penalty assignment's paid state is now derived
+the same way, from the sum of income transactions linked to it, so there is
+no longer a settable "paid state change" for idempotence to apply to.
+**Migration**: None — no client-visible replacement is needed; recording a
+payment (for either a contribution or a penalty assignment) is done by
+creating a transaction linked to it, which is naturally idempotent-safe the
+same way any other transaction creation already is (a retried create is a
+client concern, not a toggle-flip risk).

@@ -20,8 +20,13 @@ type TransactionRow struct {
 	// ContributionID is the membership fee this transaction (fully or
 	// partially) pays, or nil if it isn't a fee payment. ON DELETE SET NULL
 	// on the FK -- deleting the contribution never deletes booked income.
+	// Mutually exclusive with PenaltyAssignmentID.
 	ContributionID *uuid.UUID
-	CreatedAt      time.Time
+	// PenaltyAssignmentID is the penalty assignment this transaction pays,
+	// or nil if it isn't a fine payment. Same ON DELETE SET NULL/mutual-
+	// exclusivity reasoning as ContributionID.
+	PenaltyAssignmentID *uuid.UUID
+	CreatedAt           time.Time
 }
 
 // PenaltyRow is the internal DB representation of a penalty definition.
@@ -33,8 +38,12 @@ type PenaltyRow struct {
 	Amount int64
 }
 
-// PenaltyAssignmentRow is the internal DB representation of a penalty assignment.
-// PenaltyAmount is stored as integer cents.
+// PenaltyAssignmentRow is the internal DB representation of a penalty
+// assignment. PenaltyAmount/PaidAmount are stored as integer cents.
+// PaidAmount is never stored on the penalty_assignments table itself -- like
+// ContributionRow.PaidAmount, it's computed live as the sum of linked
+// transactions (see Repository.ListAssignments) so it can never drift from
+// the ledger that is its source of truth.
 type PenaltyAssignmentRow struct {
 	ID     uuid.UUID
 	TeamID uuid.UUID
@@ -43,7 +52,7 @@ type PenaltyAssignmentRow struct {
 	// entry is deleted (ON DELETE SET NULL, migration 00027). The assignment's
 	// snapshotted PenaltyLabel/PenaltyAmount remain the authoritative record.
 	PenaltyID         *uuid.UUID
-	Paid              bool
+	PaidAmount        int64
 	Date              time.Time
 	Note              *string
 	PenaltyLabel      *string

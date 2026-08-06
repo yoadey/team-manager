@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import type { DateRange } from '@/types';
@@ -23,7 +23,6 @@ import {
   useSavePenaltyAssignMutation,
   useSavePenaltyMutation,
   useSaveTxMutation,
-  useSetPenaltyPaidMutation,
 } from './useFinanceMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -58,13 +57,12 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     teamId,
   );
   const { mutateAsync: deleteContributionAsync } = useDeleteContributionMutation(api);
-  const { mutateAsync: setPenaltyPaidAsync } = useSetPenaltyPaidMutation(api, teamId);
 
   const openTxForm = useCallback(
     (tx?: Transaction) => {
       const f: TxFormValues = tx
         ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category }
-        : { type: 'income', title: '', amount: '', category: '', contributionId: '' };
+        : { type: 'income', title: '', amount: '', category: '', contributionId: '', penaltyAssignmentId: '' };
       setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create', formInitial: f } });
     },
     [setState],
@@ -85,8 +83,9 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
             amount: Number(f.amount),
             category: f.category || '',
             // Only meaningful (and only sent) on create -- see
-            // txFormSchema.ts's contributionId doc comment.
+            // txFormSchema.ts's contributionId/penaltyAssignmentId doc comment.
             ...(mode === 'create' && f.contributionId ? { contributionId: f.contributionId } : {}),
+            ...(mode === 'create' && f.penaltyAssignmentId ? { penaltyAssignmentId: f.penaltyAssignmentId } : {}),
           },
         });
         // Don't close a sheet the user has since opened for a different team
@@ -312,24 +311,6 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     [S, askConfirm, deleteContributionAsync, setState, teamId, toastMsg, logout],
   );
 
-  const toggleInFlight = useRef(new Set<string>());
-
-  const setPenaltyPaid = useCallback(
-    async (id: string, paid: boolean) => {
-      const key = 'penalty:' + id;
-      if (toggleInFlight.current.has(key)) return;
-      toggleInFlight.current.add(key);
-      try {
-        await setPenaltyPaidAsync({ id, paid });
-      } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
-      } finally {
-        toggleInFlight.current.delete(key);
-      }
-    },
-    [setPenaltyPaidAsync, setState, toastMsg, logout],
-  );
-
   // Stats itself is fetched via useStatsQuery (React Query), whose
   // team-and-range-scoped key refetches on its own the moment statsRange
   // changes -- this is now a pure UI state update.
@@ -351,7 +332,6 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     openContribCreate,
     saveContribCreate,
     deleteContrib,
-    setPenaltyPaid,
     setStatsRange,
     savingTx,
     savingPenalty,

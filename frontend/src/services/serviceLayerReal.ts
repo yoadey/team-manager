@@ -973,6 +973,7 @@ export const realApi = {
         category?: string;
         date?: string;
         contributionId?: string;
+        penaltyAssignmentId?: string;
       },
     ): Promise<Transaction> {
       const res = await apiClient.POST('/teams/{teamId}/finances/transactions', {
@@ -984,6 +985,7 @@ export const realApi = {
           ...opt('category', payload.category),
           ...opt('date', payload.date),
           ...opt('contributionId', payload.contributionId),
+          ...opt('penaltyAssignmentId', payload.penaltyAssignmentId),
         },
       });
       const t = await check(res);
@@ -1058,15 +1060,6 @@ export const realApi = {
         params: { path: { teamId, assignmentId: id } },
       });
       await checkOk(res);
-    },
-
-    async setPenaltyPaid(id: string, teamId: string, paid: boolean): Promise<PenaltyAssignment> {
-      const res = await apiClient.PUT('/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid', {
-        params: { path: { teamId, assignmentId: id } },
-        body: { paid },
-      });
-      const a = await check(res);
-      return mapPenaltyAssignment(a);
     },
 
     async createContributions(

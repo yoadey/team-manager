@@ -224,6 +224,61 @@ describe('membership fees: fan-out creation, partial payment via linked transact
   });
 });
 
+describe('penalty assignments: default unpaid, paid only via a linked transaction', () => {
+  it('creates an unpaid assignment, then marks it paid by booking a matching income transaction', async () => {
+    const penalty = await api.finances.createPenalty('t_a', { label: 'Zu spät', amount: 5 });
+    const assignment = await api.finances.assignPenalty('t_a', { userId: 'u4', penaltyId: penalty.id });
+    expect(assignment.paid).toBe(false);
+    expect(assignment.paidAmount).toBe(0);
+
+    const booking = await api.finances.addTransaction('t_a', {
+      type: 'income',
+      title: 'Strafe bezahlt',
+      amount: 5,
+      penaltyAssignmentId: assignment.id,
+    });
+    expect(booking.penaltyAssignmentId).toBe(assignment.id);
+
+    const overview = await api.finances.overview('t_a');
+    const paid = overview.assignments.find((a) => a.id === assignment.id)!;
+    expect(paid.paid).toBe(true);
+    expect(paid.paidAmount).toBe(5);
+
+    // Deleting the fine must not delete the income it already booked -- only unlink it.
+    await api.finances.deleteAssignment(assignment.id, 't_a');
+    const transactions = await api.finances.listTransactions('t_a');
+    expect(transactions.find((t) => t.id === booking.id)?.penaltyAssignmentId ?? null).toBeNull();
+  });
+
+  it('rejects linking an expense transaction to a penalty assignment', async () => {
+    const penalty = await api.finances.createPenalty('t_a', { label: 'Fehlerfall', amount: 5 });
+    const assignment = await api.finances.assignPenalty('t_a', { userId: 'u4', penaltyId: penalty.id });
+    await expect(
+      api.finances.addTransaction('t_a', {
+        type: 'expense',
+        title: 'Rückerstattung',
+        amount: 5,
+        penaltyAssignmentId: assignment.id,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('rejects linking a transaction to both a contribution and a penalty assignment', async () => {
+    const [contrib] = await api.finances.createContributions('t_a', { label: 'Doppelt', amount: 10, userIds: ['u4'] });
+    const penalty = await api.finances.createPenalty('t_a', { label: 'Doppelt', amount: 5 });
+    const assignment = await api.finances.assignPenalty('t_a', { userId: 'u4', penaltyId: penalty.id });
+    await expect(
+      api.finances.addTransaction('t_a', {
+        type: 'income',
+        title: 'Beides',
+        amount: 5,
+        contributionId: contrib!.id,
+        penaltyAssignmentId: assignment.id,
+      }),
+    ).rejects.toThrow();
+  });
+});
+
 describe('drift-bug fix: stats count only explicit attendance responses, not opt_out/absence defaults', () => {
   it('does not count a non-responder to an opt-out event toward a member quota', async () => {
     const today = todayLocalDate();

@@ -22,35 +22,35 @@ import (
 
 // mockRepo satisfies the unexported financeRepo interface via structural typing.
 type mockRepo struct {
-	listTransactionsFn          func(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error)
-	listTransactionsPageFn      func(ctx context.Context, teamID uuid.UUID, limit int, cur *finances.TxCursor) ([]finances.TransactionRow, error)
-	sumTransactionsFn           func(ctx context.Context, teamID uuid.UUID) (int64, int64, error)
-	createTransactionFn         func(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID *uuid.UUID) (*finances.TransactionRow, error)
-	updateTransactionFn         func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
-	deleteTransactionFn         func(ctx context.Context, id, teamID uuid.UUID) error
-	listPenaltiesFn             func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error)
-	countPenaltiesFn            func(ctx context.Context, teamID uuid.UUID) (int, error)
-	createPenaltyFn             func(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error)
-	updatePenaltyFn             func(ctx context.Context, id, teamID uuid.UUID, patch finances.PenaltyPatch) (*finances.PenaltyRow, error)
-	deletePenaltyFn             func(ctx context.Context, id, teamID uuid.UUID) error
-	penaltyBelongsToTeamFn      func(ctx context.Context, penaltyID, teamID uuid.UUID) (bool, error)
-	listAssignmentsFn           func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyAssignmentRow, error)
-	getAssignmentByIDFn         func(ctx context.Context, id, teamID uuid.UUID) (*finances.PenaltyAssignmentRow, error)
-	createAssignmentFn          func(ctx context.Context, teamID, userID, penaltyID uuid.UUID, date time.Time, note *string) (*finances.PenaltyAssignmentRow, error)
-	deleteAssignmentFn          func(ctx context.Context, id, teamID uuid.UUID) error
-	setAssignmentPaidFn         func(ctx context.Context, id, teamID uuid.UUID, paid bool) (*finances.PenaltyAssignmentRow, error)
-	userIsMemberOfTeamFn        func(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
-	listContributionsFn         func(ctx context.Context, teamID uuid.UUID) ([]finances.ContributionRow, error)
-	countOpenContributionsFn    func(ctx context.Context, teamID uuid.UUID) (int, error)
-	createContributionsFn       func(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]finances.ContributionRow, error)
-	updateContributionFn        func(ctx context.Context, id, teamID uuid.UUID, patch finances.ContributionPatch) (*finances.ContributionRow, error)
-	deleteContributionFn        func(ctx context.Context, id, teamID uuid.UUID) error
-	contributionBelongsToTeamFn func(ctx context.Context, contributionID, teamID uuid.UUID) (bool, error)
-	listOpenPenaltiesFn         func(ctx context.Context, teamID uuid.UUID) ([]finances.OpenPenaltyAggregate, error)
-	withReadTxFn                func(ctx context.Context, fn func(finances.OverviewReader) error) error
-	countTransactionsFn         func(ctx context.Context, teamID uuid.UUID) (int, error)
-	countAssignmentsFn          func(ctx context.Context, teamID uuid.UUID) (int, error)
-	countContributionsFn        func(ctx context.Context, teamID uuid.UUID) (int, error)
+	listTransactionsFn               func(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error)
+	listTransactionsPageFn           func(ctx context.Context, teamID uuid.UUID, limit int, cur *finances.TxCursor) ([]finances.TransactionRow, error)
+	sumTransactionsFn                func(ctx context.Context, teamID uuid.UUID) (int64, int64, error)
+	createTransactionFn              func(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*finances.TransactionRow, error)
+	updateTransactionFn              func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
+	deleteTransactionFn              func(ctx context.Context, id, teamID uuid.UUID) error
+	listPenaltiesFn                  func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error)
+	countPenaltiesFn                 func(ctx context.Context, teamID uuid.UUID) (int, error)
+	createPenaltyFn                  func(ctx context.Context, teamID uuid.UUID, label string, amount int64) (*finances.PenaltyRow, error)
+	updatePenaltyFn                  func(ctx context.Context, id, teamID uuid.UUID, patch finances.PenaltyPatch) (*finances.PenaltyRow, error)
+	deletePenaltyFn                  func(ctx context.Context, id, teamID uuid.UUID) error
+	penaltyBelongsToTeamFn           func(ctx context.Context, penaltyID, teamID uuid.UUID) (bool, error)
+	listAssignmentsFn                func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyAssignmentRow, error)
+	getAssignmentByIDFn              func(ctx context.Context, id, teamID uuid.UUID) (*finances.PenaltyAssignmentRow, error)
+	createAssignmentFn               func(ctx context.Context, teamID, userID, penaltyID uuid.UUID, date time.Time, note *string) (*finances.PenaltyAssignmentRow, error)
+	deleteAssignmentFn               func(ctx context.Context, id, teamID uuid.UUID) error
+	penaltyAssignmentBelongsToTeamFn func(ctx context.Context, assignmentID, teamID uuid.UUID) (bool, error)
+	userIsMemberOfTeamFn             func(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
+	listContributionsFn              func(ctx context.Context, teamID uuid.UUID) ([]finances.ContributionRow, error)
+	countOpenContributionsFn         func(ctx context.Context, teamID uuid.UUID) (int, error)
+	createContributionsFn            func(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]finances.ContributionRow, error)
+	updateContributionFn             func(ctx context.Context, id, teamID uuid.UUID, patch finances.ContributionPatch) (*finances.ContributionRow, error)
+	deleteContributionFn             func(ctx context.Context, id, teamID uuid.UUID) error
+	contributionBelongsToTeamFn      func(ctx context.Context, contributionID, teamID uuid.UUID) (bool, error)
+	listOpenPenaltiesFn              func(ctx context.Context, teamID uuid.UUID) ([]finances.OpenPenaltyAggregate, error)
+	withReadTxFn                     func(ctx context.Context, fn func(finances.OverviewReader) error) error
+	countTransactionsFn              func(ctx context.Context, teamID uuid.UUID) (int, error)
+	countAssignmentsFn               func(ctx context.Context, teamID uuid.UUID) (int, error)
+	countContributionsFn             func(ctx context.Context, teamID uuid.UUID) (int, error)
 }
 
 func (m *mockRepo) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error) {
@@ -80,8 +80,8 @@ func (m *mockRepo) CountTransactions(ctx context.Context, teamID uuid.UUID) (int
 	return 0, nil
 }
 
-func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID *uuid.UUID) (*finances.TransactionRow, error) {
-	return m.createTransactionFn(ctx, teamID, txType, title, amount, date, category, contributionID)
+func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*finances.TransactionRow, error) {
+	return m.createTransactionFn(ctx, teamID, txType, title, amount, date, category, contributionID, penaltyAssignmentID)
 }
 
 func (m *mockRepo) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error) {
@@ -148,8 +148,8 @@ func (m *mockRepo) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) e
 	return m.deleteAssignmentFn(ctx, id, teamID)
 }
 
-func (m *mockRepo) SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*finances.PenaltyAssignmentRow, error) {
-	return m.setAssignmentPaidFn(ctx, id, teamID, paid)
+func (m *mockRepo) PenaltyAssignmentBelongsToTeam(ctx context.Context, assignmentID, teamID uuid.UUID) (bool, error) {
+	return m.penaltyAssignmentBelongsToTeamFn(ctx, assignmentID, teamID)
 }
 
 func (m *mockRepo) UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error) {
@@ -261,7 +261,7 @@ func TestService_CreateTransaction(t *testing.T) {
 	category := "equipment"
 	var capturedAmount int64
 	repo := &mockRepo{
-		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, gotCategory *string, _ *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, gotCategory *string, _, _ *uuid.UUID) (*finances.TransactionRow, error) {
 			assert.Equal(t, teamID, gotTeamID)
 			assert.Equal(t, "expense", txType)
 			assert.Equal(t, &category, gotCategory)
@@ -291,7 +291,7 @@ func TestService_CreateTransaction_UsesClientDateWhenProvided(t *testing.T) {
 	want := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
 	var gotDate time.Time
 	repo := &mockRepo{
-		createTransactionFn: func(_ context.Context, _ uuid.UUID, txType, title string, amount int64, date time.Time, cat *string, _ *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, _ uuid.UUID, txType, title string, amount int64, date time.Time, cat *string, _, _ *uuid.UUID) (*finances.TransactionRow, error) {
 			gotDate = date
 			return &finances.TransactionRow{ID: uuid.New(), TeamID: teamID, Type: txType, Title: title, Amount: amount, Date: date, Category: cat}, nil
 		},
@@ -413,7 +413,7 @@ func TestService_CreateTransaction_RejectsAtCap(t *testing.T) {
 	teamID := uuid.New()
 	repo := &mockRepo{
 		countTransactionsFn: func(context.Context, uuid.UUID) (int, error) { return 100_000, nil },
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called once the team is at the transaction cap")
 			return nil, nil
 		},
@@ -750,50 +750,49 @@ func TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload(
 	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
 
-func TestService_SetPenaltyPaid_ReloadsEnrichedRow(t *testing.T) {
+// TestService_AssignmentPaid_DerivedFromPaidAmount covers the two paid
+// buckets a penalty assignment's paidAmount/amount ratio maps to -- paid is
+// never a settable field, only ever computed from what CreateAssignment's
+// reloaded row reports as paidAmount. Unlike contributions there is no
+// partial status: a fine is a small fixed amount, so anything short of the
+// full amount is simply unpaid.
+func TestService_AssignmentPaid_DerivedFromPaidAmount(t *testing.T) {
 	t.Parallel()
 
-	teamID, id := uuid.New(), uuid.New()
-	label := "Yellow card"
-	repo := &mockRepo{
-		setAssignmentPaidFn: func(_ context.Context, gotID, gotTeamID uuid.UUID, paid bool) (*finances.PenaltyAssignmentRow, error) {
-			assert.Equal(t, id, gotID)
-			assert.Equal(t, teamID, gotTeamID)
-			assert.True(t, paid, "the requested paid value must be passed through")
-			return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, Paid: true}, nil
-		},
-		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
-			return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, Paid: true, PenaltyLabel: &label}, nil
-		},
+	cases := []struct {
+		name       string
+		paidAmount int64
+		amount     int64
+		want       bool
+	}{
+		{"unpaid", 0, 500, false},
+		{"partial payment still counts as unpaid", 200, 500, false},
+		{"exact payment", 500, 500, true},
+		{"overpayment", 600, 500, true},
 	}
-
-	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
-	result, err := svc.SetPenaltyPaid(context.Background(), teamID, id, true)
-	require.NoError(t, err)
-	assert.True(t, result.Paid)
-	require.NotNil(t, result.Label)
-	assert.Equal(t, label, *result.Label)
-}
-
-// Regression test: same class as
-// TestService_CreateAssignment_PropagatesErrNoRowsWhenRowDeletedBeforeReload,
-// for the toggle-paid path.
-func TestService_SetPenaltyPaid_PropagatesErrNoRowsWhenRowDeletedBeforeReload(t *testing.T) {
-	t.Parallel()
-
-	teamID, id := uuid.New(), uuid.New()
-	repo := &mockRepo{
-		setAssignmentPaidFn: func(context.Context, uuid.UUID, uuid.UUID, bool) (*finances.PenaltyAssignmentRow, error) {
-			return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, Paid: true}, nil
-		},
-		getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
-			return nil, pgx.ErrNoRows
-		},
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			teamID, penaltyID, userID, id := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+			amount := c.amount
+			repo := &mockRepo{
+				penaltyBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+				userIsMemberOfTeamFn:   func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+				createAssignmentFn: func(_ context.Context, gotTeamID, gotUserID, gotPenaltyID uuid.UUID, _ time.Time, _ *string) (*finances.PenaltyAssignmentRow, error) {
+					return &finances.PenaltyAssignmentRow{ID: id, TeamID: gotTeamID, UserID: gotUserID, PenaltyID: &gotPenaltyID}, nil
+				},
+				getAssignmentByIDFn: func(context.Context, uuid.UUID, uuid.UUID) (*finances.PenaltyAssignmentRow, error) {
+					return &finances.PenaltyAssignmentRow{ID: id, TeamID: teamID, UserID: userID, PenaltyID: &penaltyID, PaidAmount: c.paidAmount, PenaltyAmount: &amount}, nil
+				},
+			}
+			svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+			body := &gen.CreatePenaltyAssignmentJSONRequestBody{PenaltyId: penaltyID, UserId: userID}
+			result, err := svc.CreateAssignment(context.Background(), teamID, body)
+			require.NoError(t, err)
+			assert.Equal(t, c.want, result.Paid)
+			assert.Equal(t, c.paidAmount, result.PaidAmount)
+		})
 	}
-
-	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
-	_, err := svc.SetPenaltyPaid(context.Background(), teamID, id, true)
-	require.ErrorIs(t, err, pgx.ErrNoRows, "must not silently return a 200 OK for a row deleted before the reload")
 }
 
 // ─── Contributions ───────────────────────────────────────────────────────────
@@ -905,7 +904,7 @@ func TestService_CreateTransaction_RejectsExpenseLinkedToContribution(t *testing
 
 	teamID := uuid.New()
 	repo := &mockRepo{
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called when an expense is linked to a contribution")
 			return nil, nil
 		},
@@ -923,7 +922,7 @@ func TestService_CreateTransaction_RejectsContributionFromAnotherTeam(t *testing
 	teamID := uuid.New()
 	repo := &mockRepo{
 		contributionBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called when the contribution isn't in the team")
 			return nil, nil
 		},
@@ -943,7 +942,7 @@ func TestService_CreateTransaction_LinksIncomeToContribution(t *testing.T) {
 	var gotContributionID *uuid.UUID
 	repo := &mockRepo{
 		contributionBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
-		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, _ *string, gotCID *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, _ *string, gotCID, _ *uuid.UUID) (*finances.TransactionRow, error) {
 			gotContributionID = gotCID
 			return &finances.TransactionRow{ID: uuid.New(), TeamID: gotTeamID, Type: txType, Title: title, Amount: amount, ContributionID: gotCID}, nil
 		},
@@ -956,4 +955,87 @@ func TestService_CreateTransaction_LinksIncomeToContribution(t *testing.T) {
 	assert.Equal(t, contribID, *gotContributionID)
 	require.NotNil(t, result.ContributionId)
 	assert.Equal(t, contribID, *result.ContributionId)
+}
+
+// ─── Transaction<->penalty assignment linking ────────────────────────────────
+
+func TestService_CreateTransaction_RejectsExpenseLinkedToPenaltyAssignment(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	repo := &mockRepo{
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+			t.Fatal("CreateTransaction must not be called when an expense is linked to a penalty assignment")
+			return nil, nil
+		},
+	}
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	assignmentID := uuid.New()
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Expense, Title: "Refund", Amount: 500, PenaltyAssignmentId: &assignmentID}
+	_, err := svc.CreateTransaction(context.Background(), teamID, body)
+	require.ErrorIs(t, err, finances.ErrPenaltyAssignmentRequiresIncome)
+}
+
+func TestService_CreateTransaction_RejectsPenaltyAssignmentFromAnotherTeam(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	repo := &mockRepo{
+		penaltyAssignmentBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+			t.Fatal("CreateTransaction must not be called when the penalty assignment isn't in the team")
+			return nil, nil
+		},
+	}
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	assignmentID := uuid.New()
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Strafe", Amount: 500, PenaltyAssignmentId: &assignmentID}
+	_, err := svc.CreateTransaction(context.Background(), teamID, body)
+	require.ErrorIs(t, err, finances.ErrPenaltyAssignmentNotInTeam)
+}
+
+func TestService_CreateTransaction_LinksIncomeToPenaltyAssignment(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	assignmentID := uuid.New()
+	var gotAssignmentID *uuid.UUID
+	repo := &mockRepo{
+		penaltyAssignmentBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
+		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, _ *string, _, gotPAID *uuid.UUID) (*finances.TransactionRow, error) {
+			gotAssignmentID = gotPAID
+			return &finances.TransactionRow{ID: uuid.New(), TeamID: gotTeamID, Type: txType, Title: title, Amount: amount, PenaltyAssignmentID: gotPAID}, nil
+		},
+	}
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Strafe", Amount: 500, PenaltyAssignmentId: &assignmentID}
+	result, err := svc.CreateTransaction(context.Background(), teamID, body)
+	require.NoError(t, err)
+	require.NotNil(t, gotAssignmentID)
+	assert.Equal(t, assignmentID, *gotAssignmentID)
+	require.NotNil(t, result.PenaltyAssignmentId)
+	assert.Equal(t, assignmentID, *result.PenaltyAssignmentId)
+}
+
+// Regression test: a transaction must link to at most one of
+// contributionId/penaltyAssignmentId -- rejected before either repo
+// membership check runs.
+func TestService_CreateTransaction_RejectsBothContributionAndPenaltyAssignment(t *testing.T) {
+	t.Parallel()
+
+	teamID := uuid.New()
+	repo := &mockRepo{
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+			t.Fatal("CreateTransaction must not be called when both contributionId and penaltyAssignmentId are set")
+			return nil, nil
+		},
+	}
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	contribID, assignmentID := uuid.New(), uuid.New()
+	body := &gen.CreateTransactionJSONRequestBody{
+		Type: gen.Income, Title: "Beitrag", Amount: 500,
+		ContributionId: &contribID, PenaltyAssignmentId: &assignmentID,
+	}
+	_, err := svc.CreateTransaction(context.Background(), teamID, body)
+	require.ErrorIs(t, err, finances.ErrTransactionLinksMultipleTargets)
 }

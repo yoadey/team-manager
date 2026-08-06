@@ -94,7 +94,7 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, contribution_id, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
 		FROM transactions
 		WHERE team_id = $1
 		ORDER BY date DESC, created_at DESC, id DESC
@@ -108,7 +108,7 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	var out []TransactionRow
 	for rows.Next() {
 		var t TransactionRow
-		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListTransactions scan: %w", err)
 		}
 		out = append(out, t)
@@ -149,7 +149,7 @@ func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID,
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, contribution_id, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
 		FROM transactions
 		WHERE team_id = $1
 		  AND ($2::boolean IS FALSE
@@ -165,7 +165,7 @@ func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID,
 	var out []TransactionRow
 	for rows.Next() {
 		var t TransactionRow
-		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListTransactionsPage scan: %w", err)
 		}
 		out = append(out, t)
@@ -207,19 +207,20 @@ func (r *Repository) CountTransactions(ctx context.Context, teamID uuid.UUID) (i
 }
 
 // CreateTransaction inserts a new transaction, optionally linked to a
-// contribution it pays (fully or in part) -- see
-// Service.CreateTransaction for the type=income/team-ownership validation
-// that must already have happened before this is called.
-func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID *uuid.UUID) (*TransactionRow, error) {
+// contribution or penalty assignment it pays (fully or in part) -- see
+// Service.CreateTransaction for the type=income/team-ownership/mutual-
+// exclusivity validation that must already have happened before this is
+// called.
+func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO transactions (team_id, type, title, amount, date, category, contribution_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, team_id, type, title, amount, date, category, contribution_id, created_at
-	`, teamID, txType, title, amount, date, category, contributionID).Scan(
-		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt,
+		INSERT INTO transactions (team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
+	`, teamID, txType, title, amount, date, category, contributionID, penaltyAssignmentID).Scan(
+		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.CreateTransaction: %w", err)
@@ -257,9 +258,9 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE transactions SET %s WHERE id = $%d AND team_id = $%d
-		RETURNING id, team_id, type, title, amount, date, category, contribution_id, created_at
+		RETURNING id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
 	`, setSQL, nextIdx, nextIdx+1), args...).Scan(
-		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt,
+		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.UpdateTransaction: %w", err)
@@ -284,9 +285,9 @@ func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID
 func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error) {
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, contribution_id, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
 		FROM transactions WHERE id = $1 AND team_id = $2
-	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt)
+	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -409,22 +410,50 @@ func (r *Repository) DeletePenalty(ctx context.Context, id, teamID uuid.UUID) er
 
 // ─── Penalty Assignments ──────────────────────────────────────────────────────
 
-// ListAssignments returns up to maxOverviewRows most recent penalty assignments
-// for the team with member info joined. label/amount come from the
-// assignment's own snapshot columns (taken at CreateAssignment time), not a
-// live join to penalties -- so a later edit to the penalty definition
-// (UpdatePenalty) never retroactively rewrites what an existing, possibly
-// already-paid assignment shows.
+// assignmentSelectColumns is shared by every query that returns a full
+// PenaltyAssignmentRow: paidAmount is never stored -- like
+// contributionSelectColumns, it's the live sum of every income transaction
+// linked to the assignment (see migration
+// 00020_penalty_assignment_linked_payment.sql), joined here via a LATERAL
+// subquery. label/amount come from the assignment's own snapshot columns
+// (taken at CreateAssignment time), not a live join to penalties -- so a
+// later edit to the penalty definition (UpdatePenalty) never retroactively
+// rewrites what an existing, possibly already-paid assignment shows.
+const assignmentSelectColumns = `
+	pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.date, pa.note,
+	pa.label, pa.amount,
+	COALESCE(paidtx.paid_amount, 0) AS paid_amount,
+	u.name, u.avatar_color,
+	(u.photo_object_key IS NOT NULL) AS has_photo
+	FROM penalty_assignments pa
+	JOIN users u ON u.id = pa.user_id
+	LEFT JOIN LATERAL (
+		SELECT SUM(t.amount) AS paid_amount
+		FROM transactions t
+		WHERE t.penalty_assignment_id = pa.id AND t.type = 'income'
+	) paidtx ON true
+`
+
+func scanAssignmentRow(row pgx.Row) (*PenaltyAssignmentRow, error) {
+	a := &PenaltyAssignmentRow{}
+	err := row.Scan(
+		&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Date, &a.Note,
+		&a.PenaltyLabel, &a.PenaltyAmount, &a.PaidAmount,
+		&a.MemberName, &a.MemberAvatarColor, &a.HasPhoto,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+// ListAssignments returns up to maxOverviewRows most recent penalty
+// assignments for the team with member info and paid-so-far amount joined.
 func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date, pa.note,
-		       pa.label, pa.amount,
-		       u.name, u.avatar_color,
-		       (u.photo_object_key IS NOT NULL) AS has_photo
-		FROM penalty_assignments pa
-		JOIN users u ON u.id = pa.user_id
+		SELECT `+assignmentSelectColumns+`
 		WHERE pa.team_id = $1
 		ORDER BY pa.date DESC, pa.id DESC
 		LIMIT $2
@@ -436,39 +465,27 @@ func (r *Repository) ListAssignments(ctx context.Context, teamID uuid.UUID) ([]P
 
 	var out []PenaltyAssignmentRow
 	for rows.Next() {
-		var a PenaltyAssignmentRow
-		if err := rows.Scan(
-			&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note,
-			&a.PenaltyLabel, &a.PenaltyAmount,
-			&a.MemberName, &a.MemberAvatarColor, &a.HasPhoto,
-		); err != nil {
+		a, err := scanAssignmentRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListAssignments scan: %w", err)
 		}
-		out = append(out, a)
+		out = append(out, *a)
 	}
 	return out, rows.Err()
 }
 
 // GetAssignmentByID returns a single penalty assignment with joined member
-// data, scoped to teamID. label/amount are the assignment's own snapshot
-// (see ListAssignments), not read live from penalties.
+// data and paid-so-far amount, scoped to teamID. label/amount are the
+// assignment's own snapshot (see ListAssignments), not read live from
+// penalties.
 func (r *Repository) GetAssignmentByID(ctx context.Context, id, teamID uuid.UUID) (*PenaltyAssignmentRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	a := &PenaltyAssignmentRow{}
-	err := r.db.QueryRow(ctx, `
-		SELECT pa.id, pa.team_id, pa.user_id, pa.penalty_id, pa.paid, pa.date, pa.note,
-		       pa.label, pa.amount,
-		       u.name, u.avatar_color,
-		       (u.photo_object_key IS NOT NULL) AS has_photo
-		FROM penalty_assignments pa
-		JOIN users u ON u.id = pa.user_id
+	row := r.db.QueryRow(ctx, `
+		SELECT `+assignmentSelectColumns+`
 		WHERE pa.id = $1 AND pa.team_id = $2
-	`, id, teamID).Scan(
-		&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note,
-		&a.PenaltyLabel, &a.PenaltyAmount,
-		&a.MemberName, &a.MemberAvatarColor, &a.HasPhoto,
-	)
+	`, id, teamID)
+	a, err := scanAssignmentRow(row)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -544,13 +561,18 @@ func (r *Repository) CreateAssignment(ctx context.Context, teamID, userID, penal
 		return nil, fmt.Errorf("finances.Repository.CreateAssignment: load penalty: %w", err)
 	}
 
+	// PaidAmount is left at its zero value: a freshly inserted assignment
+	// can't have any linked transactions yet (those are only created via a
+	// separate, later CreateTransaction call), and Service.CreateAssignment
+	// always reloads via GetAssignmentByID afterward anyway, whose LATERAL
+	// join is the single source of truth for this field.
 	a := &PenaltyAssignmentRow{}
 	err = tx.QueryRow(ctx, `
 		INSERT INTO penalty_assignments (team_id, user_id, penalty_id, amount, label, date, note)
 		SELECT $1, $2, $3, $4, $5, $6, $7
 		WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)
-		RETURNING id, team_id, user_id, penalty_id, paid, date, note, label, amount
-	`, teamID, userID, penaltyID, amount, label, date, note).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note, &a.PenaltyLabel, &a.PenaltyAmount)
+		RETURNING id, team_id, user_id, penalty_id, date, note, label, amount
+	`, teamID, userID, penaltyID, amount, label, date, note).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Date, &a.Note, &a.PenaltyLabel, &a.PenaltyAmount)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, pgx.ErrNoRows
@@ -584,31 +606,21 @@ func (r *Repository) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID)
 	return nil
 }
 
-// SetAssignmentPaid sets the paid flag on a penalty assignment that belongs to
-// teamID to an explicit value. Idempotent: applying the same value twice yields
-// the same state, so a retried request can't flip a paid penalty back to open
-// (the failure mode of the previous flip-based toggle).
-func (r *Repository) SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*PenaltyAssignmentRow, error) {
+// PenaltyAssignmentBelongsToTeam returns true when the penalty assignment
+// exists and belongs to teamID -- used to validate
+// Transaction.penaltyAssignmentId at creation time.
+func (r *Repository) PenaltyAssignmentBelongsToTeam(ctx context.Context, assignmentID, teamID uuid.UUID) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	a := &PenaltyAssignmentRow{}
-	// RETURNING includes the label/amount snapshot columns (see
-	// CreateAssignment's equivalent RETURNING) so a's fields are already
-	// complete if Service.SetPenaltyPaid's post-write reload fails and falls
-	// back to toGenAssignment(*a) -- without them, that degraded response would
-	// omit which penalty was set and for how much, not just the member
-	// name/avatar CreateAssignment's own fallback omits.
-	err := r.db.QueryRow(ctx, `
-		UPDATE penalty_assignments SET paid = $3 WHERE id = $1 AND team_id = $2
-		RETURNING id, team_id, user_id, penalty_id, paid, date, note, label, amount
-	`, id, teamID, paid).Scan(&a.ID, &a.TeamID, &a.UserID, &a.PenaltyID, &a.Paid, &a.Date, &a.Note, &a.PenaltyLabel, &a.PenaltyAmount)
+	var exists bool
+	err := r.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM penalty_assignments WHERE id = $1 AND team_id = $2)`,
+		assignmentID, teamID,
+	).Scan(&exists)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, pgx.ErrNoRows
-		}
-		return nil, fmt.Errorf("finances.Repository.SetAssignmentPaid: %w", err)
+		return false, fmt.Errorf("finances.Repository.PenaltyAssignmentBelongsToTeam: %w", err)
 	}
-	return a, nil
+	return exists, nil
 }
 
 // ─── Contributions ────────────────────────────────────────────────────────────
@@ -879,17 +891,23 @@ type OpenPenaltyAggregate struct {
 
 // ListOpenPenaltiesByUser returns unpaid penalty amounts aggregated per user
 // for the team, summed from each assignment's own amount snapshot (see
-// ListAssignments) rather than the current penalty definition.
+// ListAssignments) minus whatever's already been paid toward it, rather than
+// the current penalty definition.
 func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
 		SELECT pa.user_id, u.name, u.avatar_color,
 		       (u.photo_object_key IS NOT NULL) AS has_photo,
-		       COALESCE(SUM(pa.amount), 0)::BIGINT AS total_amount
+		       COALESCE(SUM(GREATEST(pa.amount - COALESCE(paidtx.paid_amount, 0), 0)), 0)::BIGINT AS total_amount
 		FROM penalty_assignments pa
 		JOIN users u ON u.id = pa.user_id
-		WHERE pa.team_id = $1 AND pa.paid = false
+		LEFT JOIN LATERAL (
+			SELECT SUM(t.amount) AS paid_amount
+			FROM transactions t
+			WHERE t.penalty_assignment_id = pa.id AND t.type = 'income'
+		) paidtx ON true
+		WHERE pa.team_id = $1 AND COALESCE(paidtx.paid_amount, 0) < pa.amount
 		GROUP BY pa.user_id, u.name, u.avatar_color, (u.photo_object_key IS NOT NULL)
 		ORDER BY total_amount DESC
 	`, teamID)

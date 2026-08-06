@@ -242,10 +242,6 @@ func (StrictUnimplemented) DeletePenaltyAssignment(_ context.Context, _ gen.Dele
 	return nil, errNotImplemented
 }
 
-func (StrictUnimplemented) SetPenaltyPaid(_ context.Context, _ gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
-	return nil, errNotImplemented
-}
-
 func (StrictUnimplemented) CreateTransaction(_ context.Context, _ gen.CreateTransactionRequestObject) (gen.CreateTransactionResponseObject, error) {
 	return nil, errNotImplemented
 }
@@ -722,10 +718,6 @@ func (s *Server) CreatePenaltyAssignment(ctx context.Context, req gen.CreatePena
 
 func (s *Server) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePenaltyAssignmentRequestObject) (gen.DeletePenaltyAssignmentResponseObject, error) {
 	return s.Finances.DeletePenaltyAssignment(ctx, req)
-}
-
-func (s *Server) SetPenaltyPaid(ctx context.Context, req gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
-	return s.Finances.SetPenaltyPaid(ctx, req)
 }
 
 func (s *Server) CreateContributions(ctx context.Context, req gen.CreateContributionsRequestObject) (gen.CreateContributionsResponseObject, error) {

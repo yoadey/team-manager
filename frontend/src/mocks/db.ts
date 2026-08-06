@@ -6,7 +6,7 @@
 // response shape.
 import type { Invite, Membership, ModuleKey, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
 import type { Absence, AttendanceDto, EventComment, EventDto, ResponseMode } from '@/features/events';
-import type { Penalty, PenaltyAssignment, Transaction } from '@/features/finances';
+import type { Penalty, Transaction } from '@/features/finances';
 import type { NewsItem } from '@/features/news';
 import type { AppNotification } from '@/features/notifications';
 import type { PollDto } from '@/features/polls';
@@ -27,6 +27,20 @@ export interface ContributionRow {
   label: string;
   amount: number;
   dueDate?: string;
+}
+
+// Same reasoning as ContributionRow above: `paid`/`paidAmount` are derived
+// from linked transactions (see handlers.ts's toWireAssignment), not stored
+// input state, so the row only holds what a real client actually submits.
+export interface PenaltyAssignmentRow {
+  id: string;
+  teamId: string;
+  userId: string;
+  penaltyId: string;
+  date: string;
+  label: string;
+  amount: number;
+  note?: string;
 }
 
 export const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
@@ -188,7 +202,7 @@ export interface DemoDb {
   news: NewsRow[];
   transactions: Transaction[];
   penalties: Penalty[];
-  penaltyAssignments: PenaltyAssignment[];
+  penaltyAssignments: PenaltyAssignmentRow[];
   contributions: ContributionRow[];
   polls: PollDto[];
   eventComments: EventComment[];
@@ -599,18 +613,25 @@ export function createSeedData(): DemoDb {
     { id: rid('pen'), teamId: 't_a', label: 'Tanzschuhe vergessen', amount: 300 },
   ];
   const pen = (i: number) => db.penalties[i];
+  // Mirrors CO()'s reasoning below: `paid` demonstrates the derived-from-
+  // linked-transaction paid state by booking (or not booking) a matching
+  // income transaction, instead of a stored paid/open boolean.
   const PA = (userId: string, penIdx: number, paid: boolean, daysAgo: number) => {
     const p = pen(penIdx);
     if (!p) return;
-    db.penaltyAssignments.push({
-      id: rid('pa'),
+    const id = rid('pa');
+    const date = plusDays(-daysAgo);
+    db.penaltyAssignments.push({ id, teamId: 't_a', userId, penaltyId: p.id, date, label: p.label, amount: p.amount });
+    if (!paid) return;
+    db.transactions.push({
+      id: rid('tx'),
       teamId: 't_a',
-      userId,
-      penaltyId: p.id,
-      paid,
-      date: plusDays(-daysAgo),
-      label: p.label,
+      type: 'income',
+      title: 'Strafe: ' + p.label,
       amount: p.amount,
+      date,
+      category: 'Strafen',
+      penaltyAssignmentId: id,
     });
   };
   PA('u4', 0, false, 2);

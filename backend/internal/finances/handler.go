@@ -29,7 +29,6 @@ type financeService interface {
 	DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error
 	CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
-	SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error)
 	CreateContributions(ctx context.Context, teamID uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error)
 	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
 	DeleteContribution(ctx context.Context, id, teamID uuid.UUID) error
@@ -106,6 +105,30 @@ func (h *Handler) ListTransactions(ctx context.Context, req gen.ListTransactions
 	return gen.ListTransactions200JSONResponse{Items: items, NextCursor: next}, nil
 }
 
+// validateCreateTransactionBody runs the field-level checks for
+// CreateTransaction's request body, split out to keep the handler's
+// cyclomatic complexity under the linter's threshold.
+func validateCreateTransactionBody(body *gen.CreateTransactionJSONRequestBody) *apierror.APIError {
+	if err := validate.RequireNonEmpty(body.Title, "title"); err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	if err := validate.MaxLen(body.Title, 255, "title"); err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	if body.Category != nil {
+		if err := validate.MaxLen(*body.Category, 255, "category"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
+	if !body.Type.Valid() {
+		return apierror.BadRequest("type: not a valid transaction type")
+	}
+	if err := validate.PositiveAmount(body.Amount, "amount"); err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	return nil
+}
+
 // CreateTransaction creates a new financial transaction.
 func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransactionRequestObject) (gen.CreateTransactionResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
@@ -114,22 +137,8 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if err := validate.RequireNonEmpty(req.Body.Title, "title"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
-	}
-	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
-	}
-	if req.Body.Category != nil {
-		if err := validate.MaxLen(*req.Body.Category, 255, "category"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-	}
-	if !req.Body.Type.Valid() {
-		return nil, apierror.BadRequest("type: not a valid transaction type")
-	}
-	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
+	if apiErr := validateCreateTransactionBody(req.Body); apiErr != nil {
+		return nil, apiErr
 	}
 	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
@@ -137,7 +146,9 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 			h.recordFinanceFailure(ctx, "transaction.create", err.Error())
 			return nil, apierror.UnprocessableEntity(err.Error())
 		}
-		if errors.Is(err, ErrContributionRequiresIncome) || errors.Is(err, ErrContributionNotInTeam) {
+		if errors.Is(err, ErrContributionRequiresIncome) || errors.Is(err, ErrContributionNotInTeam) ||
+			errors.Is(err, ErrPenaltyAssignmentRequiresIncome) || errors.Is(err, ErrPenaltyAssignmentNotInTeam) ||
+			errors.Is(err, ErrTransactionLinksMultipleTargets) {
 			h.recordFinanceFailure(ctx, "transaction.create", err.Error())
 			return nil, apierror.BadRequest(err.Error())
 		}
@@ -357,31 +368,6 @@ func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePen
 	h.recordFinance(ctx, "assignment.delete", slog.String("assignmentId", req.AssignmentId.String()))
 	metrics.TeamEvents.WithLabelValues("finance", "delete").Inc()
 	return gen.DeletePenaltyAssignment204Response{}, nil
-}
-
-// SetPenaltyPaid sets the paid flag on a penalty assignment to an explicit
-// value (idempotent PUT).
-func (h *Handler) SetPenaltyPaid(ctx context.Context, req gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
-	if _, ok := auth.UserFromContext(ctx); !ok {
-		return nil, apierror.Unauthorized("not authenticated")
-	}
-	if req.Body == nil {
-		return nil, apierror.BadRequest("missing request body")
-	}
-	a, err := h.svc.SetPenaltyPaid(ctx, req.TeamId, req.AssignmentId, req.Body.Paid)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			h.recordFinanceFailure(ctx, "assignment.set_paid", "not found")
-			return nil, apierror.NotFound("penalty assignment not found")
-		}
-		h.recordFinanceFailure(ctx, "assignment.set_paid", "internal error")
-		h.logger.ErrorContext(ctx, "SetPenaltyPaid failed", "err", err)
-		return nil, apierror.Internal("failed to set penalty paid status")
-	}
-	h.recordFinance(ctx, "assignment.set_paid",
-		slog.String("teamId", req.TeamId.String()), slog.String("assignmentId", req.AssignmentId.String()))
-	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
-	return gen.SetPenaltyPaid200JSONResponse(*a), nil
 }
 
 // CreateContributions creates a membership fee for one or more members.

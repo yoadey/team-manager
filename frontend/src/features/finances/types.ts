@@ -8,6 +8,8 @@ export interface Transaction {
   category: string;
   /** The membership fee this transaction (fully or partially) pays, or null/absent if it isn't a fee payment. */
   contributionId?: string | null;
+  /** The penalty assignment (fine) this transaction (fully or partially) pays, or null/absent if it isn't a fine payment. Mutually exclusive with contributionId. */
+  penaltyAssignmentId?: string | null;
 }
 
 export interface Penalty {
@@ -24,7 +26,10 @@ export interface PenaltyAssignment {
   /** null when the source penalty catalog entry was deleted; the snapshot
    *  label/amount below remain the authoritative record of the assignment. */
   penaltyId: string | null;
+  /** Derived from paidAmount vs. amount (paidAmount >= amount) -- never independently settable, see Transaction.penaltyAssignmentId. */
   paid: boolean;
+  /** Sum of every income transaction linked to this assignment, in euros. */
+  paidAmount: number;
   date: string;
   note?: string;
   name?: string;

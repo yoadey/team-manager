@@ -25,6 +25,15 @@ whole point of this change is that nothing recurs automatically.
 - create/update/delete symmetry with `transactions`/`penalties`, since
   contributions are now genuinely user-created.
 
+- Penalty assignments (Strafen) get the same paid-tracking treatment as
+  contributions: `paid` becomes derived from linked income transactions
+  instead of a hand-flipped boolean, defaulting to unpaid (no stored
+  default needed once there's nothing to toggle).
+- The transaction form's fee/penalty link picker must stay usable at
+  real-club scale (dozens of members × dozens of open fees/penalties) —
+  searchable and collapsed by default, not a flat list enumerating every
+  combination.
+
 **Non-Goals:**
 - No reusable "fee catalog" the way `penalties` has one — every fee is a
   one-off definition; a recurring fee is created again by hand each period,
@@ -106,6 +115,37 @@ just unlinked.
 not just `status = 'open'`.** A partially-paid fee still needs the
 Kassenwart's attention the same way a fully-open one does; collapsing
 `partial` out of the count would make it undercount real outstanding fees.
+
+**Penalty assignments mirror contributions exactly, minus `partial`.**
+`penalty_assignments.paid` is dropped the same way `contributions.status`
+was; `ListAssignments`/`GetAssignmentByID` gain the same `LATERAL` sum over
+`transactions` linked via the new `penalty_assignment_id`, and `paid` is
+derived as `paidAmount >= amount` in Go. No `partial` status is introduced
+for penalties — a fine is a small fixed amount, not something clubs expect
+to see paid in installments, and the wire field stays the boolean `paid`
+API consumers already have rather than widening it to a status enum. The
+new `paidAmount` is exposed alongside it for the rare partial-payment case
+so it's at least visible, even though the UI only surfaces paid/open.
+
+**A transaction links to at most one of `contributionId` /
+`penaltyAssignmentId`.** Both are optional and mutually exclusive;
+`CreateTransaction` rejects (400) a request setting both, at the same
+validation point that already rejects a non-income type on either. No DB
+constraint enforces this (same reasoning as the income-only check above) —
+a transaction can only be linked at creation, so the one validation point
+is the only place the invariant could ever be broken.
+
+**The link picker is a client-side searchable list, not a second
+cascading round-trip.** `FinanceOverview` already returns the full
+`contributions` and `assignments` arrays on every load (capped at
+`maxOverviewRows`, same as the rest of the finance tabs), so the picker
+filters that already-fetched data by typed text (fee/penalty label +
+member name) rather than issuing a new debounced search request per
+keystroke — consistent with how `TxFormSheet`'s existing category
+`<datalist>` and `ContribCreateSheet`'s member list both work off data
+already in the React Query cache. The list is collapsed behind a
+"Verknüpfen" toggle by default so the common case (an unlinked transaction)
+doesn't pay any of this UI's cost.
 
 ## Risks
 

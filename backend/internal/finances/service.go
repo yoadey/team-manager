@@ -24,7 +24,10 @@ var (
 	// contributionId is set but its type isn't "income" -- linking a fee
 	// payment to an expense doesn't make sense (see design.md's "Linking is
 	// income-only" decision).
-	ErrContributionRequiresIncome = errors.New("a transaction linked to a contribution must have type income")
+	ErrContributionRequiresIncome      = errors.New("a transaction linked to a contribution must have type income")
+	ErrPenaltyAssignmentNotInTeam      = errors.New("penalty assignment does not belong to this team")
+	ErrPenaltyAssignmentRequiresIncome = errors.New("a transaction linked to a penalty assignment must have type income")
+	ErrTransactionLinksMultipleTargets = errors.New("a transaction can be linked to at most one of contributionId or penaltyAssignmentId")
 )
 
 // ErrTooManyTransactions / ErrTooManyAssignments are returned once a team
@@ -74,7 +77,7 @@ type financeRepo interface {
 	ListTransactionsPage(ctx context.Context, teamID uuid.UUID, limit int, cur *TxCursor) ([]TransactionRow, error)
 	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
 	CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error)
-	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID *uuid.UUID) (*TransactionRow, error)
+	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 
@@ -90,7 +93,7 @@ type financeRepo interface {
 	CountAssignments(ctx context.Context, teamID uuid.UUID) (int, error)
 	CreateAssignment(ctx context.Context, teamID, userID, penaltyID uuid.UUID, date time.Time, note *string) (*PenaltyAssignmentRow, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
-	SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*PenaltyAssignmentRow, error)
+	PenaltyAssignmentBelongsToTeam(ctx context.Context, assignmentID, teamID uuid.UUID) (bool, error)
 	UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
 
 	ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error)
@@ -273,10 +276,13 @@ func (s *Service) ListTransactions(ctx context.Context, teamID uuid.UUID, limit 
 }
 
 // CreateTransaction creates a new transaction (date defaults to today when
-// the client omits it). If ContributionId is set, the transaction must be
-// type income (ErrContributionRequiresIncome otherwise) and the contribution
-// must belong to teamID (ErrContributionNotInTeam otherwise) -- see
-// design.md's "Linking is income-only, and only enforced at creation".
+// the client omits it). A transaction may link to at most one of
+// ContributionId / PenaltyAssignmentId (ErrTransactionLinksMultipleTargets
+// otherwise); whichever is set must have type income
+// (ErrContributionRequiresIncome / ErrPenaltyAssignmentRequiresIncome
+// otherwise) and must belong to teamID (ErrContributionNotInTeam /
+// ErrPenaltyAssignmentNotInTeam otherwise) -- see design.md's "Linking is
+// income-only, and only enforced at creation".
 func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
 	count, err := s.repo.CountTransactions(ctx, teamID)
 	if err != nil {
@@ -284,6 +290,10 @@ func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body 
 	}
 	if count >= maxTransactionsPerTeam {
 		return nil, ErrTooManyTransactions
+	}
+
+	if body.ContributionId != nil && body.PenaltyAssignmentId != nil {
+		return nil, ErrTransactionLinksMultipleTargets
 	}
 
 	if body.ContributionId != nil {
@@ -299,11 +309,24 @@ func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body 
 		}
 	}
 
+	if body.PenaltyAssignmentId != nil {
+		if body.Type != gen.Income {
+			return nil, ErrPenaltyAssignmentRequiresIncome
+		}
+		ok, err := s.repo.PenaltyAssignmentBelongsToTeam(ctx, *body.PenaltyAssignmentId, teamID)
+		if err != nil {
+			return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
+		}
+		if !ok {
+			return nil, ErrPenaltyAssignmentNotInTeam
+		}
+	}
+
 	date := time.Now()
 	if body.Date != nil {
 		date = body.Date.Time
 	}
-	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, date, body.Category, body.ContributionId)
+	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, date, body.Category, body.ContributionId, body.PenaltyAssignmentId)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
 	}
@@ -468,31 +491,6 @@ func (s *Service) DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) er
 	return nil
 }
 
-// SetPenaltyPaid sets the paid flag on an assignment that belongs to teamID to
-// an explicit value (idempotent).
-func (s *Service) SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error) {
-	a, err := s.repo.SetAssignmentPaid(ctx, id, teamID, paid)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.SetPenaltyPaid: %w", err)
-	}
-	// Reload the single row with joined member/penalty data.
-	full, err := s.repo.GetAssignmentByID(ctx, a.ID, teamID)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			// Same reasoning as CreateAssignment above: a concurrent
-			// DeletePenalty detached/removed this row between the write and
-			// this reload, so it must not be reported as a 200 OK success.
-			return nil, pgx.ErrNoRows
-		}
-		s.logger.Warn("finances: failed to reload assignment after set-paid, returning partial result",
-			slog.String("assignmentId", a.ID.String()), slog.String("error", err.Error()))
-		result := toGenAssignment(*a)
-		return &result, nil
-	}
-	result := toGenAssignment(*full)
-	return &result, nil
-}
-
 // ─── Contributions ────────────────────────────────────────────────────────────
 
 // CreateContributions creates a membership fee for one or more members in a
@@ -553,14 +551,15 @@ func (s *Service) DeleteContribution(ctx context.Context, id, teamID uuid.UUID) 
 
 func toGenTransaction(t TransactionRow) gen.Transaction {
 	return gen.Transaction{
-		Id:             t.ID,
-		TeamId:         t.TeamID,
-		Type:           gen.TransactionType(t.Type),
-		Title:          t.Title,
-		Amount:         t.Amount,
-		Date:           openapi_types.Date{Time: t.Date},
-		Category:       t.Category,
-		ContributionId: t.ContributionID,
+		Id:                  t.ID,
+		TeamId:              t.TeamID,
+		Type:                gen.TransactionType(t.Type),
+		Title:               t.Title,
+		Amount:              t.Amount,
+		Date:                openapi_types.Date{Time: t.Date},
+		Category:            t.Category,
+		ContributionId:      t.ContributionID,
+		PenaltyAssignmentId: t.PenaltyAssignmentID,
 	}
 }
 
@@ -573,13 +572,25 @@ func toGenPenalty(p PenaltyRow) gen.Penalty {
 	}
 }
 
+// assignmentPaid derives a penalty assignment's paid flag from its paid
+// amount vs. its snapshotted amount -- never stored, see
+// PenaltyAssignmentRow's doc comment. A nil amount (the column is nullable,
+// though every real insert path always populates it -- see
+// PenaltyAssignmentRow.PenaltyID's doc comment on the sibling column) can
+// never be satisfied, so such a row is treated as not paid rather than
+// trivially "paid" by any amount >= a missing threshold.
+func assignmentPaid(paidAmount int64, amount *int64) bool {
+	return amount != nil && paidAmount >= *amount
+}
+
 func toGenAssignment(a PenaltyAssignmentRow) gen.PenaltyAssignment {
 	return gen.PenaltyAssignment{
 		Id:                a.ID,
 		TeamId:            a.TeamID,
 		UserId:            a.UserID,
 		PenaltyId:         a.PenaltyID,
-		Paid:              a.Paid,
+		Paid:              assignmentPaid(a.PaidAmount, a.PenaltyAmount),
+		PaidAmount:        a.PaidAmount,
 		Date:              openapi_types.Date{Time: a.Date},
 		Note:              a.Note,
 		Label:             a.PenaltyLabel,

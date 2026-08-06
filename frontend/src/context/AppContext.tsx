@@ -419,7 +419,6 @@ export interface AppContextValue {
   openContribCreate: () => void;
   saveContribCreate: (f: ContribCreateFormValues) => Promise<void>;
   deleteContrib: (id: string) => void;
-  setPenaltyPaid: (id: string, paid: boolean) => Promise<void>;
   setStatsRange: (range: DateRange | null) => void;
   // polls
   openPollForm: () => void;
@@ -1228,7 +1227,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openContribCreate,
     saveContribCreate,
     deleteContrib,
-    setPenaltyPaid,
     setStatsRange,
     openPollForm,
     openPollVoters,
@@ -1502,7 +1500,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openContribCreate,
       saveContribCreate,
       deleteContrib,
-      setPenaltyPaid,
       setStatsRange,
       openPollForm,
       openPollVoters,
@@ -1610,7 +1607,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openContribCreate,
       saveContribCreate,
       deleteContrib,
-      setPenaltyPaid,
       setStatsRange,
       openPollForm,
       openPollVoters,

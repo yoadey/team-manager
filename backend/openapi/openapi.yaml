@@ -1817,34 +1817,6 @@ paths:
         "204":
           description: No Content
 
-  /teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid:
-    parameters:
-      - $ref: "#/components/parameters/teamId"
-      - name: assignmentId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    put:
-      tags: [finances]
-      operationId: setPenaltyPaid
-      x-rbac-module: finances
-      summary: Set the paid status of a penalty assignment (idempotent)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SetPaidRequest"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PenaltyAssignment"
-
   /teams/{teamId}/finances/contributions:
     parameters:
       - $ref: "#/components/parameters/teamId"
@@ -3364,6 +3336,15 @@ components:
             The membership fee this transaction (fully or partially) pays,
             or null if it isn't a fee payment. Set at creation time only --
             see CreateTransactionRequest.contributionId.
+        penaltyAssignmentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The penalty assignment this transaction pays, or null if it
+            isn't a fine payment. Mutually exclusive with contributionId.
+            Set at creation time only -- see
+            CreateTransactionRequest.penaltyAssignmentId.
 
     CreateTransactionRequest:
       type: object
@@ -3396,7 +3377,18 @@ components:
             Links this transaction to a membership fee it (fully or
             partially) pays -- the fee's paidAmount becomes the sum of every
             income transaction linked to it this way. Only valid when
-            `type` is `income`; rejected otherwise.
+            `type` is `income`; rejected otherwise. Mutually exclusive with
+            penaltyAssignmentId.
+        penaltyAssignmentId:
+          type: string
+          format: uuid
+          description: >-
+            Links this transaction to a penalty assignment (fine) it pays --
+            the assignment's paidAmount becomes the sum of every income
+            transaction linked to it this way, and paid becomes true once
+            that sum reaches the assignment's amount. Only valid when `type`
+            is `income`; rejected otherwise. Mutually exclusive with
+            contributionId.
 
     UpdateTransactionRequest:
       type: object
@@ -3464,7 +3456,7 @@ components:
 
     PenaltyAssignment:
       type: object
-      required: [id, teamId, userId, paid, date]
+      required: [id, teamId, userId, paid, paidAmount, date]
       properties:
         id:
           type: string
@@ -3485,6 +3477,15 @@ components:
             amount snapshot (taken at creation) remain the authoritative record.
         paid:
           type: boolean
+          description: >-
+            Derived from paidAmount vs. amount (paidAmount >= amount), never
+            independently settable -- see Transaction.penaltyAssignmentId.
+        paidAmount:
+          type: integer
+          format: int64
+          description: >-
+            Sum of every income transaction linked to this assignment
+            (Transaction.penaltyAssignmentId), in cents. Computed, not stored.
         date:
           type: string
           format: date
@@ -3525,17 +3526,6 @@ components:
           type: string
           maxLength: 10000
           description: Optional free-text note explaining the assignment.
-
-    SetPaidRequest:
-      type: object
-      required: [paid]
-      properties:
-        paid:
-          type: boolean
-          description: >-
-            The desired paid state. Idempotent — sending the same value twice
-            yields the same result, so a retried request never flips the state
-            back (unlike the previous toggle endpoints).
 
     OpenPenalty:
       type: object

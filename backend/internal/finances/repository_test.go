@@ -43,14 +43,14 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 
 	category := "income"
-	tx, err := repo.CreateTransaction(ctx, teamID, "income", "Membership Fee", 5000, time.Now().UTC(), &category, nil)
+	tx, err := repo.CreateTransaction(ctx, teamID, "income", "Membership Fee", 5000, time.Now().UTC(), &category, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 	assert.Equal(t, "Membership Fee", tx.Title)
 	assert.Equal(t, int64(5000), tx.Amount)
 
 	expenseCategory := "gear"
-	_, err = repo.CreateTransaction(ctx, teamID, "expense", "New Balls", 2000, time.Now().UTC(), &expenseCategory, nil)
+	_, err = repo.CreateTransaction(ctx, teamID, "expense", "New Balls", 2000, time.Now().UTC(), &expenseCategory, nil, nil)
 	require.NoError(t, err)
 
 	list, err := repo.ListTransactions(ctx, teamID)
@@ -110,7 +110,7 @@ func TestFinancesRepository_ListTransactionsPage_KeysetPaginatesWholeHistory(t *
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < total; i++ {
 		cat := "dues"
-		_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", int64(100+i), base.AddDate(0, 0, i), &cat, nil)
+		_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", int64(100+i), base.AddDate(0, 0, i), &cat, nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -167,7 +167,7 @@ func TestFinancesRepository_ListTransactionsPage_ScopedToTeam(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 
 	cat := "dues"
-	_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil)
+	_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil, nil)
 	require.NoError(t, err)
 
 	// A different team sees none of this team's rows.
@@ -189,7 +189,7 @@ func TestFinancesRepository_UpdateTransaction_SetsDate(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 
 	cat := "dues"
-	tx, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil)
+	tx, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil, nil)
 	require.NoError(t, err)
 
 	want := time.Date(2022, 6, 30, 0, 0, 0, 0, time.UTC)
@@ -249,14 +249,13 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	_, err = repo.GetAssignmentByID(ctx, uuid.New(), teamID)
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
-	toggled, err := repo.SetAssignmentPaid(ctx, assign.ID, teamID, true)
+	payCategory := "fine"
+	_, err = repo.CreateTransaction(ctx, teamID, "income", "Fine payment", 500, time.Now().UTC(), &payCategory, nil, &assign.ID)
 	require.NoError(t, err)
-	assert.True(t, toggled.Paid)
-	// Regression: SetAssignmentPaid's RETURNING used to omit label/amount,
-	// so a's snapshot fields stayed nil -- fine when Service.SetPenaltyPaid's
-	// post-write reload succeeds (its enriched result is used instead), but
-	// silently incomplete if that reload ever hits the ErrNoRows fallback,
-	// unlike CreateAssignment's equivalent fallback which keeps them.
+
+	toggled, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(500), toggled.PaidAmount, "PaidAmount must be the live sum of linked income transactions")
 	require.NotNil(t, toggled.PenaltyLabel)
 	assert.Equal(t, "Very late", *toggled.PenaltyLabel)
 	require.NotNil(t, toggled.PenaltyAmount)
@@ -302,7 +301,8 @@ func TestFinancesRepository_DeletePenalty_PreservesAssignments(t *testing.T) {
 	// One paid and one unpaid assignment of the same penalty.
 	paid, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
-	_, err = repo.SetAssignmentPaid(ctx, paid.ID, teamID, true)
+	payCategory := "fine"
+	_, err = repo.CreateTransaction(ctx, teamID, "income", "Fine payment", 500, time.Now().UTC(), &payCategory, nil, &paid.ID)
 	require.NoError(t, err)
 	_, err = repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
@@ -679,7 +679,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	// settable field: booking a partial payment moves the contribution to
 	// "partial", a second one covering the rest moves it to "paid".
 	category := "Beiträge"
-	tx1, err := repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 1", 1000, time.Now().UTC(), &category, &contribID)
+	tx1, err := repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 1", 1000, time.Now().UTC(), &category, &contribID, nil)
 	require.NoError(t, err)
 	list, err = repo.ListContributions(ctx, teamID)
 	require.NoError(t, err)
@@ -690,7 +690,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, openCount) // still open (partial < amount)
 
-	_, err = repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 2", 2000, time.Now().UTC(), &category, &contribID)
+	_, err = repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 2", 2000, time.Now().UTC(), &category, &contribID, nil)
 	require.NoError(t, err)
 	list, err = repo.ListContributions(ctx, teamID)
 	require.NoError(t, err)

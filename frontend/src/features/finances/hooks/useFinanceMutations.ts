@@ -15,7 +15,14 @@ export interface SaveTxInput {
   // create/update branch, so the caller passes `undefined` in create mode
   // rather than omitting the key.
   id?: string | undefined;
-  payload: { type: 'income' | 'expense'; title: string; amount: number; category: string; contributionId?: string };
+  payload: {
+    type: 'income' | 'expense';
+    title: string;
+    amount: number;
+    category: string;
+    contributionId?: string;
+    penaltyAssignmentId?: string;
+  };
 }
 
 export function useSaveTxMutation(api: typeof defaultApi, teamId: string | null) {
@@ -98,14 +105,6 @@ export function useDeleteAssignmentMutation(api: typeof defaultApi) {
   return useMutation({
     mutationFn: ({ id, teamId }: { id: string; teamId: string }) => api.finances.deleteAssignment(id, teamId),
     onSuccess: (_data, { teamId }) => qc.invalidateQueries({ queryKey: queryKeys.finances(teamId) }),
-  });
-}
-
-export function useSetPenaltyPaidMutation(api: typeof defaultApi, teamId: string | null) {
-  const invalidate = useInvalidateFinances(teamId);
-  return useMutation({
-    mutationFn: ({ id, paid }: { id: string; paid: boolean }) => api.finances.setPenaltyPaid(id, teamId!, paid),
-    onSuccess: () => invalidate(),
   });
 }
 

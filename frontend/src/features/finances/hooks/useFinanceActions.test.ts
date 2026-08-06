@@ -64,7 +64,6 @@ function makeApi() {
       updateContribution: vi.fn().mockResolvedValue(undefined),
       createContributions: vi.fn().mockResolvedValue([{ id: 'c1' }]),
       deleteContribution: vi.fn().mockResolvedValue(undefined),
-      setPenaltyPaid: vi.fn().mockResolvedValue(undefined),
     },
   };
 }
@@ -356,14 +355,6 @@ describe('useFinanceActions', () => {
       expect.objectContaining({ dueDate: '2026-06-30' }),
       'team1',
     );
-  });
-
-  it('setPenaltyPaid calls setPenaltyPaid with the desired value', async () => {
-    const { result } = renderActions();
-    await act(async () => {
-      await result.current.setPenaltyPaid('a1', true);
-    });
-    expect(api.finances.setPenaltyPaid).toHaveBeenCalledWith('a1', 'team1', true);
   });
 
   it('saveContribCreate fans out to createContributions with the selected members', async () => {
