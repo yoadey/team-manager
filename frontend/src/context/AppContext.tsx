@@ -28,6 +28,7 @@ import type { EventFormValues } from '@/features/events/components/eventFormSche
 import type { AbsenceFormValues } from '@/features/events/components/absenceFormSchema';
 import type { Contribution, Penalty, Transaction } from '@/features/finances';
 import type { ContribFormValues } from '@/features/finances/components/contribFormSchema';
+import type { ContribCreateFormValues } from '@/features/finances/components/contribCreateFormSchema';
 import type { PenaltyFormValues } from '@/features/finances/components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '@/features/finances/components/penaltyAssignFormSchema';
 import type { TxFormValues } from '@/features/finances/components/txFormSchema';
@@ -96,6 +97,7 @@ export type SheetType =
   | 'penaltyAssign'
   | 'penaltyForm'
   | 'contribForm'
+  | 'contribCreate'
   | 'pollForm'
   | 'pollVoters'
   | 'roles'
@@ -175,7 +177,7 @@ export interface AppState {
   notifFilter: 'all' | 'attendance' | 'events' | 'other';
   statsRange: DateRange | null;
   finTab: 'umsaetze' | 'strafen' | 'beitraege';
-  contribMonth: string | null;
+  contribGroup: string | null;
   sheet: SheetState | null;
   /**
    * `kind` defaults to 'success' when omitted (Toast.tsx) -- most of the ~70
@@ -199,6 +201,7 @@ export interface AppState {
   savingPenalty: boolean;
   savingPenaltyAssign: boolean;
   savingContrib: boolean;
+  savingContribCreate: boolean;
   savingPoll: boolean;
   savingNews: boolean;
   savingAbsence: boolean;
@@ -232,7 +235,7 @@ const initialState: AppState = {
   notifFilter: 'all',
   statsRange: null,
   finTab: initialLocation.finTab,
-  contribMonth: null,
+  contribGroup: null,
   sheet: null,
   toast: null,
   error: null,
@@ -245,6 +248,7 @@ const initialState: AppState = {
   savingPenalty: false,
   savingPenaltyAssign: false,
   savingContrib: false,
+  savingContribCreate: false,
   savingPoll: false,
   savingNews: false,
   savingAbsence: false,
@@ -412,8 +416,10 @@ export interface AppContextValue {
   deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
   saveContrib: (f: ContribFormValues) => Promise<void>;
+  openContribCreate: () => void;
+  saveContribCreate: (f: ContribCreateFormValues) => Promise<void>;
+  deleteContrib: (id: string) => void;
   setPenaltyPaid: (id: string, paid: boolean) => Promise<void>;
-  setContributionPaid: (id: string, paid: boolean) => Promise<void>;
   setStatsRange: (range: DateRange | null) => void;
   // polls
   openPollForm: () => void;
@@ -1219,8 +1225,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteAssignment,
     openContribForm,
     saveContrib,
+    openContribCreate,
+    saveContribCreate,
+    deleteContrib,
     setPenaltyPaid,
-    setContributionPaid,
     setStatsRange,
     openPollForm,
     openPollVoters,
@@ -1236,6 +1244,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingPenalty,
     savingPenaltyAssign,
     savingContrib,
+    savingContribCreate,
     savingPoll,
     savingNews,
     savingAbsence,
@@ -1490,8 +1499,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAssignment,
       openContribForm,
       saveContrib,
+      openContribCreate,
+      saveContribCreate,
+      deleteContrib,
       setPenaltyPaid,
-      setContributionPaid,
       setStatsRange,
       openPollForm,
       openPollVoters,
@@ -1596,8 +1607,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAssignment,
       openContribForm,
       saveContrib,
+      openContribCreate,
+      saveContribCreate,
+      deleteContrib,
       setPenaltyPaid,
-      setContributionPaid,
       setStatsRange,
       openPollForm,
       openPollVoters,
@@ -1623,6 +1636,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savingPenalty,
       savingPenaltyAssign,
       savingContrib,
+      savingContribCreate,
       savingPoll,
       savingNews,
       savingAbsence,
@@ -1636,6 +1650,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       savingPenalty,
       savingPenaltyAssign,
       savingContrib,
+      savingContribCreate,
       savingPoll,
       savingNews,
       savingAbsence,
@@ -1652,6 +1667,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     savingPenalty,
     savingPenaltyAssign,
     savingContrib,
+    savingContribCreate,
     savingPoll,
     savingNews,
     savingAbsence,

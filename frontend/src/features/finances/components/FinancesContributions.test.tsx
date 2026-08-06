@@ -17,6 +17,7 @@ vi.mock('@/styles/tokens', () => ({
       onPrimaryContainer: '#0D47A1',
     }),
   fmtMoney: vi.fn().mockImplementation((n) => `${n} €`),
+  fmtDate: vi.fn().mockImplementation((d) => d),
   monthName: vi.fn().mockImplementation((m) => m),
   initials: vi.fn().mockImplementation((n: string) => n.slice(0, 2).toUpperCase()),
   NEUTRAL: {
@@ -29,6 +30,7 @@ vi.mock('@/styles/tokens', () => ({
     successBg: '#E8F5E9',
     faint: '#999',
     onSurfaceVariant: '#666',
+    warn: '#B26A00',
   },
 }));
 
@@ -47,9 +49,9 @@ const tk = {
 function makeApp(overrides = {}) {
   return {
     setState: vi.fn(),
-    state: { contribMonth: null },
+    state: { contribGroup: null },
     openContribForm: vi.fn(),
-    setContributionPaid: vi.fn(),
+    openContribCreate: vi.fn(),
     ...overrides,
   };
 }
@@ -75,9 +77,10 @@ function makeContrib(overrides = {}) {
     id: 'c1',
     teamId: 't1',
     userId: 'u1',
-    month: '2025-06',
     label: 'Monatsbeitrag',
+    dueDate: null,
     amount: 20,
+    paidAmount: 0,
     status: 'open' as const,
     name: 'Anna Müller',
     avatarColor: '#4285F4',
@@ -94,10 +97,10 @@ describe('FinancesContributions', () => {
   it('renders empty state when no contributions', () => {
     const app = makeApp();
     render(<FinancesContributions app={app as never} t={tk} f={makeFinances()} canFin={false} />);
-    expect(document.querySelector('div')).toBeTruthy();
+    expect(screen.getByText('finances.contribEmpty')).toBeTruthy();
   });
 
-  it('renders month chip for contributions', () => {
+  it('renders a fee-name chip for contributions', () => {
     const app = makeApp();
     render(
       <FinancesContributions
@@ -107,7 +110,7 @@ describe('FinancesContributions', () => {
         canFin={false}
       />,
     );
-    expect(screen.getAllByText('2025-06').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Monatsbeitrag').length).toBeGreaterThan(0);
   });
 
   it('renders contribution member name', () => {
@@ -129,14 +132,28 @@ describe('FinancesContributions', () => {
       <FinancesContributions
         app={app as never}
         t={tk}
-        f={makeFinances({ contributions: [makeContrib({ status: 'paid' })] })}
+        f={makeFinances({ contributions: [makeContrib({ status: 'paid', paidAmount: 20 })] })}
         canFin={false}
       />,
     );
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
 
-  it('clicking month chip calls setState', () => {
+  it('renders a partially paid contribution row with a paid/total amount', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib({ status: 'partial', paidAmount: 10 })] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.getByText('10 € / 20 €')).toBeTruthy();
+    expect(screen.getAllByText('finances.contribPartial').length).toBeGreaterThan(0);
+  });
+
+  it('clicking a fee-name chip calls setState with the group key', () => {
     const app = makeApp();
     render(
       <FinancesContributions
@@ -146,28 +163,41 @@ describe('FinancesContributions', () => {
         canFin={false}
       />,
     );
-    fireEvent.click(screen.getAllByText('2025-06')[0]!.closest('button')!);
-    expect(app.setState).toHaveBeenCalledWith({ contribMonth: '2025-06' });
+    fireEvent.click(screen.getAllByText('Monatsbeitrag')[0]!.closest('button')!);
+    expect(app.setState).toHaveBeenCalledWith({ contribGroup: 'Monatsbeitrag' });
   });
 
-  it('renders multiple months and selects first by default', () => {
+  it('renders multiple fee groups', () => {
     const app = makeApp();
     const contribs = [
-      makeContrib({ id: 'c1', month: '2025-06', name: 'Anna' }),
-      makeContrib({ id: 'c2', month: '2025-05', name: 'Bob', userId: 'u2' }),
+      makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag Juni', name: 'Anna' }),
+      makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag Mai', name: 'Bob', userId: 'u2' }),
     ];
     render(
       <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
     );
-    expect(screen.getAllByText('2025-06').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('2025-05').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Mitgliedsbeitrag Juni').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Mitgliedsbeitrag Mai').length).toBeGreaterThan(0);
   });
 
-  it('uses contribMonth from state when matching', () => {
-    const app = makeApp({ state: { contribMonth: '2025-05' } });
+  it('sorts groups by soonest due date first', () => {
+    const app = makeApp();
     const contribs = [
-      makeContrib({ id: 'c1', month: '2025-06', name: 'Anna' }),
-      makeContrib({ id: 'c2', month: '2025-05', name: 'Bob', userId: 'u2' }),
+      makeContrib({ id: 'c1', label: 'Später fällig', name: 'Anna', dueDate: '2026-08-31' }),
+      makeContrib({ id: 'c2', label: 'Bald fällig', name: 'Bob', userId: 'u2', dueDate: '2026-01-31' }),
+    ];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
+    );
+    // The soonest-due group is selected by default, so its member renders.
+    expect(screen.getByText('Bob')).toBeTruthy();
+  });
+
+  it('uses contribGroup from state when it matches an existing group', () => {
+    const app = makeApp({ state: { contribGroup: 'Mitgliedsbeitrag Mai' } });
+    const contribs = [
+      makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag Juni', name: 'Anna' }),
+      makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag Mai', name: 'Bob', userId: 'u2' }),
     ];
     render(
       <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
@@ -175,7 +205,7 @@ describe('FinancesContributions', () => {
     expect(screen.getByText('Bob')).toBeTruthy();
   });
 
-  it('shows open count in month chip when there are open contribs', () => {
+  it('shows open count in the fee-name chip when there are open contribs', () => {
     const app = makeApp();
     render(
       <FinancesContributions
@@ -186,6 +216,25 @@ describe('FinancesContributions', () => {
       />,
     );
     expect(screen.getAllByText('finances.contribOpen').length).toBeGreaterThan(0);
+  });
+
+  it('shows the create-fee button when canFin is true', () => {
+    const app = makeApp();
+    render(<FinancesContributions app={app as never} t={tk} f={makeFinances()} canFin={true} />);
+    expect(screen.getByText('finances.contribCreateBtn')).toBeTruthy();
+  });
+
+  it('hides the create-fee button when canFin is false', () => {
+    const app = makeApp();
+    render(<FinancesContributions app={app as never} t={tk} f={makeFinances()} canFin={false} />);
+    expect(screen.queryByText('finances.contribCreateBtn')).toBeNull();
+  });
+
+  it('clicking the create-fee button calls openContribCreate', () => {
+    const app = makeApp();
+    render(<FinancesContributions app={app as never} t={tk} f={makeFinances()} canFin={true} />);
+    fireEvent.click(screen.getByText('finances.contribCreateBtn'));
+    expect(app.openContribCreate).toHaveBeenCalled();
   });
 
   // Regression: openContribForm/api.finances.updateContribution were fully

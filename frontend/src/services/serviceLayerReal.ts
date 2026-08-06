@@ -972,6 +972,7 @@ export const realApi = {
         amount: number;
         category?: string;
         date?: string;
+        contributionId?: string;
       },
     ): Promise<Transaction> {
       const res = await apiClient.POST('/teams/{teamId}/finances/transactions', {
@@ -982,6 +983,7 @@ export const realApi = {
           amount: eurosToCents(payload.amount),
           ...opt('category', payload.category),
           ...opt('date', payload.date),
+          ...opt('contributionId', payload.contributionId),
         },
       });
       const t = await check(res);
@@ -1067,29 +1069,45 @@ export const realApi = {
       return mapPenaltyAssignment(a);
     },
 
+    async createContributions(
+      teamId: string,
+      payload: { label: string; amount: number; dueDate?: string; userIds: string[] },
+    ): Promise<Contribution[]> {
+      const res = await apiClient.POST('/teams/{teamId}/finances/contributions', {
+        params: { path: { teamId } },
+        body: {
+          name: payload.label,
+          amount: eurosToCents(payload.amount),
+          userIds: payload.userIds,
+          ...opt('dueDate', payload.dueDate),
+        },
+      });
+      const cs = await check(res);
+      return cs.map(mapContribution);
+    },
+
     async updateContribution(
       id: string,
-      patch: { label?: string; amount?: number },
+      patch: { label?: string; amount?: number; dueDate?: string },
       teamId: string,
     ): Promise<Contribution> {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/contributions/{contributionId}', {
         params: { path: { teamId, contributionId: id } },
         body: {
-          ...opt('label', patch.label),
+          ...opt('name', patch.label),
           ...opt('amount', patch.amount == null ? patch.amount : eurosToCents(patch.amount)),
+          ...opt('dueDate', patch.dueDate),
         },
       });
       const c = await check(res);
       return mapContribution(c);
     },
 
-    async setContributionPaid(id: string, teamId: string, paid: boolean): Promise<Contribution> {
-      const res = await apiClient.PUT('/teams/{teamId}/finances/contributions/{contributionId}/paid', {
+    async deleteContribution(id: string, teamId: string): Promise<void> {
+      const res = await apiClient.DELETE('/teams/{teamId}/finances/contributions/{contributionId}', {
         params: { path: { teamId, contributionId: id } },
-        body: { paid },
       });
-      const c = await check(res);
-      return mapContribution(c);
+      await checkOk(res);
     },
   },
 

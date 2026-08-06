@@ -1,7 +1,7 @@
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
-import { buildTokens, fmtMoney, monthName, NEUTRAL } from '@/styles/tokens';
+import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Av, Chip, EmptyState, Sym } from '@/components/ui';
 import type { Contribution, FinanceOverview } from '../types';
 import { getIntlLocale, t } from '@/i18n';
@@ -19,27 +19,77 @@ interface Props {
 export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const { state } = app;
   const contribs = f.contributions || [];
-  const months = [...new Set(contribs.map((c) => c.month).filter(Boolean))].sort().reverse();
-  if (!months.length) return <EmptyState icon="payments" text={t('finances.contribEmpty')} />;
-  // months[0]! is safe: the `!months.length` branch above already returned.
-  const sel = state.contribMonth && months.includes(state.contribMonth) ? state.contribMonth : months[0]!;
+
+  const header = (
+    <Box key="hd" sx={{ display: 'flex', justifyContent: 'flex-end', mb: '14px' }}>
+      {canFin ? (
+        <ButtonBase
+          onClick={() => app.openContribCreate()}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            border: 'none',
+            background: tk.primary,
+            color: tk.onPrimary,
+            borderRadius: '12px',
+            p: '10px 14px',
+            fontSize: '13px',
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          <Sym name="add" size={17} color={tk.onPrimary} />
+          {t('finances.contribCreateBtn')}
+        </ButtonBase>
+      ) : null}
+    </Box>
+  );
+
+  if (!contribs.length) {
+    return (
+      <Box key="bei">
+        {header}
+        <EmptyState icon="payments" text={t('finances.contribEmpty')} />
+      </Box>
+    );
+  }
+
+  // Groups by fee name (the batch a create action fanned out into) --
+  // soonest due date first, groups without a due date sort last, ties
+  // broken alphabetically.
+  const groupDueDate: Record<string, string | null> = {};
+  contribs.forEach((c) => {
+    const cur = groupDueDate[c.label];
+    if (cur === undefined || (c.dueDate && (!cur || c.dueDate < cur))) groupDueDate[c.label] = c.dueDate || cur || null;
+  });
+  const groups = [...new Set(contribs.map((c) => c.label))].sort((a, b) => {
+    const da = groupDueDate[a];
+    const db = groupDueDate[b];
+    if (da && db) return da.localeCompare(db);
+    if (da) return -1;
+    if (db) return 1;
+    return a.localeCompare(b, getIntlLocale());
+  });
+  // groups.length > 0 is guaranteed by the `!contribs.length` early return above.
+  const sel = state.contribGroup && groups.includes(state.contribGroup) ? state.contribGroup : groups[0]!;
   const rows = contribs
-    .filter((c) => c.month === sel)
+    .filter((c) => c.label === sel)
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', getIntlLocale()));
   const paidRows = rows.filter((c) => c.status === 'paid');
-  const sum = paidRows.reduce((s, c) => s + c.amount, 0);
+  const sum = paidRows.reduce((s, c) => s + c.paidAmount, 0);
   const total = rows.reduce((s, c) => s + c.amount, 0);
   const pct = rows.length ? Math.round((paidRows.length / rows.length) * 100) : 0;
 
-  const monthChips = (
+  const groupChips = (
     <Box key="mc" sx={{ display: 'flex', gap: '8px', overflowX: 'auto', pb: '4px', mb: '14px' }}>
-      {months.map((m) => {
-        const s = m === sel;
-        const open = contribs.filter((c) => c.month === m && c.status === 'open').length;
+      {groups.map((g) => {
+        const s = g === sel;
+        const open = contribs.filter((c) => c.label === g && c.status !== 'paid').length;
         return (
           <ButtonBase
-            key={m}
-            onClick={() => app.setState({ contribMonth: m })}
+            key={g}
+            onClick={() => app.setState({ contribGroup: g })}
             sx={{
               flex: '0 0 auto',
               display: 'flex',
@@ -52,13 +102,21 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
               border: '1.5px solid ' + (s ? tk.primary : NEUTRAL.inputBorder),
               background: s ? tk.primaryContainer : NEUTRAL.card,
               color: s ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+              maxWidth: '220px',
             }}
           >
             <Box
               component="span"
-              sx={{ fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap', textTransform: 'capitalize' }}
+              sx={{
+                fontSize: '13px',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: '100%',
+              }}
             >
-              {monthName(m)}
+              {g}
             </Box>
             <Box
               component="span"
@@ -71,6 +129,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       })}
     </Box>
   );
+  const dueDate = groupDueDate[sel];
   const summary = (
     <Box
       key="sum"
@@ -86,7 +145,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       }}
     >
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Box sx={{ fontSize: '15px', fontWeight: 700, textTransform: 'capitalize' }}>{monthName(sel)}</Box>
+        <Box sx={{ fontSize: '15px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{sel}</Box>
         <Box sx={{ fontSize: '13px', color: NEUTRAL.secondary, mt: '3px' }}>
           {t('finances.contribSummary', {
             paid: paidRows.length,
@@ -95,6 +154,11 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
             totalAmt: fmtMoney(total),
           })}
         </Box>
+        {dueDate ? (
+          <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, mt: '3px' }}>
+            {t('finances.contribDueDate')} {fmtDate(dueDate)}
+          </Box>
+        ) : null}
       </Box>
       <Box
         sx={{ fontSize: '24px', fontWeight: 800, color: pct === 100 ? NEUTRAL.success : tk.primary, flex: '0 0 auto' }}
@@ -103,10 +167,15 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       </Box>
     </Box>
   );
+  const statusMeta = (c: Contribution): { label: string; icon: string; color: string; bg: string } => {
+    if (c.status === 'paid') return { label: t('finances.contribPaid'), icon: 'check_circle', color: NEUTRAL.success, bg: NEUTRAL.successBg };
+    if (c.status === 'partial') return { label: t('finances.contribPartial'), icon: 'incomplete_circle', color: tk.primary, bg: tk.primaryContainer };
+    return { label: t('finances.contribOpen'), icon: 'schedule', color: NEUTRAL.warn, bg: '#FFE5B8' };
+  };
   const list = (
     <Box key="l" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {rows.map((c: Contribution) => {
-        const paid = c.status === 'paid';
+        const meta = statusMeta(c);
         return (
           <Box
             key={c.id}
@@ -133,7 +202,9 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
               >
                 {c.name}
               </Box>
-              <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>{fmtMoney(c.amount)}</Box>
+              <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
+                {c.status === 'partial' ? fmtMoney(c.paidAmount) + ' / ' + fmtMoney(c.amount) : fmtMoney(c.amount)}
+              </Box>
             </Box>
             {canFin ? (
               <ButtonBase
@@ -152,38 +223,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
                 <Sym name="edit" size={16} color={NEUTRAL.faint} />
               </ButtonBase>
             ) : null}
-            {canFin ? (
-              <ButtonBase
-                onClick={() => app.setContributionPaid(c.id, c.status !== 'paid')}
-                sx={{
-                  border: 'none',
-                  cursor: 'pointer',
-                  borderRadius: '9px',
-                  p: '7px 12px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  background: paid ? NEUTRAL.successBg : '#FFE5B8',
-                  color: paid ? NEUTRAL.success : NEUTRAL.warn,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                }}
-              >
-                <Sym
-                  name={paid ? 'check_circle' : 'schedule'}
-                  size={15}
-                  color={paid ? NEUTRAL.success : NEUTRAL.warn}
-                />
-                {paid ? t('finances.contribPaid') : t('finances.contribOpen')}
-              </ButtonBase>
-            ) : (
-              <Chip
-                label={paid ? t('finances.contribPaid') : t('finances.contribOpen')}
-                color={paid ? NEUTRAL.success : NEUTRAL.warn}
-                bg={paid ? NEUTRAL.successBg : '#FFE5B8'}
-                icon={paid ? 'check_circle' : 'schedule'}
-              />
-            )}
+            <Chip label={meta.label} color={meta.color} bg={meta.bg} icon={meta.icon} />
           </Box>
         );
       })}
@@ -191,7 +231,8 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   );
   return (
     <Box key="bei">
-      {monthChips}
+      {header}
+      {groupChips}
       {summary}
       {list}
     </Box>

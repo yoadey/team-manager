@@ -166,6 +166,64 @@ describe('drift-bug fix: penalty amount/label is snapshotted at assignment time'
   });
 });
 
+describe('membership fees: fan-out creation, partial payment via linked transactions, deletion', () => {
+  it('creates one row per selected member, tracks a partial payment, then a completing one, and survives contribution deletion', async () => {
+    const created = await api.finances.createContributions('t_a', {
+      label: 'Turnieranmeldung Herbst',
+      amount: 30,
+      dueDate: '2026-11-30',
+      userIds: ['u4', 'u5'],
+    });
+    expect(created).toHaveLength(2);
+    expect(created.every((c) => c.status === 'open' && c.paidAmount === 0)).toBe(true);
+    const contrib = created.find((c) => c.userId === 'u4')!;
+
+    const partial = await api.finances.addTransaction('t_a', {
+      type: 'income',
+      title: 'Anzahlung',
+      amount: 10,
+      contributionId: contrib.id,
+    });
+    expect(partial.contributionId).toBe(contrib.id);
+
+    let overview = await api.finances.overview('t_a');
+    let updated = overview.contributions.find((c) => c.id === contrib.id)!;
+    expect(updated.status).toBe('partial');
+    expect(updated.paidAmount).toBe(10);
+
+    const rest = await api.finances.addTransaction('t_a', {
+      type: 'income',
+      title: 'Restzahlung',
+      amount: 20,
+      contributionId: contrib.id,
+    });
+
+    overview = await api.finances.overview('t_a');
+    updated = overview.contributions.find((c) => c.id === contrib.id)!;
+    expect(updated.status).toBe('paid');
+    expect(updated.paidAmount).toBe(30);
+
+    // Deleting the fee must not delete the income it already booked -- only
+    // unlink it.
+    await api.finances.deleteContribution(contrib.id, 't_a');
+    overview = await api.finances.overview('t_a');
+    expect(overview.contributions.find((c) => c.id === contrib.id)).toBeUndefined();
+    const transactions = await api.finances.listTransactions('t_a');
+    expect(transactions.find((t) => t.id === rest.id)?.contributionId ?? null).toBeNull();
+  });
+
+  it('rejects linking an expense transaction to a contribution', async () => {
+    const [contrib] = await api.finances.createContributions('t_a', {
+      label: 'Fehlerfall',
+      amount: 10,
+      userIds: ['u4'],
+    });
+    await expect(
+      api.finances.addTransaction('t_a', { type: 'expense', title: 'Rückerstattung', amount: 5, contributionId: contrib!.id }),
+    ).rejects.toThrow();
+  });
+});
+
 describe('drift-bug fix: stats count only explicit attendance responses, not opt_out/absence defaults', () => {
   it('does not count a non-responder to an opt-out event toward a member quota', async () => {
     const today = todayLocalDate();

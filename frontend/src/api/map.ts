@@ -402,6 +402,7 @@ export function mapTransaction(t: S['Transaction']): Transaction {
     amount: centsToEuros(t.amount),
     date: t.date,
     category: t.category ?? '',
+    contributionId: t.contributionId ?? null,
   };
 }
 
@@ -438,9 +439,10 @@ export function mapContribution(c: S['Contribution']): Contribution {
     id: c.id,
     teamId: c.teamId,
     userId: c.userId,
-    month: c.month,
-    label: c.label ?? '',
+    label: c.name,
     amount: centsToEuros(c.amount),
+    dueDate: c.dueDate ?? null,
+    paidAmount: centsToEuros(c.paidAmount),
     status: c.status,
     photo: null,
     ...opt('name', c.memberName),

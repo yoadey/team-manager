@@ -17,16 +17,23 @@ import (
 
 // Sentinel errors for cross-team validation.
 var (
-	ErrPenaltyNotInTeam = errors.New("penalty does not belong to this team")
-	ErrUserNotInTeam    = errors.New("user is not a member of this team")
+	ErrPenaltyNotInTeam      = errors.New("penalty does not belong to this team")
+	ErrUserNotInTeam         = errors.New("user is not a member of this team")
+	ErrContributionNotInTeam = errors.New("contribution does not belong to this team")
+	// ErrContributionRequiresIncome is returned when a transaction's
+	// contributionId is set but its type isn't "income" -- linking a fee
+	// payment to an expense doesn't make sense (see design.md's "Linking is
+	// income-only" decision).
+	ErrContributionRequiresIncome = errors.New("a transaction linked to a contribution must have type income")
 )
 
 // ErrTooManyTransactions / ErrTooManyAssignments are returned once a team
 // hits maxTransactionsPerTeam / maxAssignmentsPerTeam.
 var (
-	ErrTooManyTransactions = fmt.Errorf("team has reached the maximum of %d transactions", maxTransactionsPerTeam)
-	ErrTooManyAssignments  = fmt.Errorf("team has reached the maximum of %d penalty assignments", maxAssignmentsPerTeam)
-	ErrTooManyPenalties    = fmt.Errorf("team has reached the maximum of %d penalty definitions", maxPenaltiesPerTeam)
+	ErrTooManyTransactions  = fmt.Errorf("team has reached the maximum of %d transactions", maxTransactionsPerTeam)
+	ErrTooManyAssignments   = fmt.Errorf("team has reached the maximum of %d penalty assignments", maxAssignmentsPerTeam)
+	ErrTooManyPenalties     = fmt.Errorf("team has reached the maximum of %d penalty definitions", maxPenaltiesPerTeam)
+	ErrTooManyContributions = fmt.Errorf("team has reached the maximum of %d contributions", maxContributionsPerTeam)
 )
 
 // maxTransactionsPerTeam / maxAssignmentsPerTeam cap how many rows a single
@@ -52,6 +59,13 @@ const (
 	maxTransactionsPerTeam = 100_000
 	maxAssignmentsPerTeam  = 100_000
 	maxPenaltiesPerTeam    = 500
+	// maxContributionsPerTeam mirrors maxTransactionsPerTeam/maxAssignmentsPerTeam:
+	// contributions are now created directly by the treasurer (fan-out create),
+	// not auto-generated, but a member holding only finances:write could still
+	// flood the table via repeated fan-out creates -- this bounds that the same
+	// way the other finance tables are bounded, well past what any real club's
+	// fee history should ever approach.
+	maxContributionsPerTeam = 100_000
 )
 
 // financeRepo is the interface the Service relies on.
@@ -60,7 +74,7 @@ type financeRepo interface {
 	ListTransactionsPage(ctx context.Context, teamID uuid.UUID, limit int, cur *TxCursor) ([]TransactionRow, error)
 	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
 	CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error)
-	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error)
+	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID *uuid.UUID) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 
@@ -80,9 +94,12 @@ type financeRepo interface {
 	UserIsMemberOfTeam(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
 
 	ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error)
+	CountContributions(ctx context.Context, teamID uuid.UUID) (int, error)
 	CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error)
+	CreateContributions(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]ContributionRow, error)
 	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, patch ContributionPatch) (*ContributionRow, error)
-	SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*ContributionRow, error)
+	DeleteContribution(ctx context.Context, id, teamID uuid.UUID) error
+	ContributionBelongsToTeam(ctx context.Context, contributionID, teamID uuid.UUID) (bool, error)
 
 	ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error)
 
@@ -255,8 +272,11 @@ func (s *Service) ListTransactions(ctx context.Context, teamID uuid.UUID, limit 
 	return result, next, nil
 }
 
-// CreateTransaction creates a new transaction (date defaults to today when the
-// client omits it).
+// CreateTransaction creates a new transaction (date defaults to today when
+// the client omits it). If ContributionId is set, the transaction must be
+// type income (ErrContributionRequiresIncome otherwise) and the contribution
+// must belong to teamID (ErrContributionNotInTeam otherwise) -- see
+// design.md's "Linking is income-only, and only enforced at creation".
 func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
 	count, err := s.repo.CountTransactions(ctx, teamID)
 	if err != nil {
@@ -266,11 +286,24 @@ func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body 
 		return nil, ErrTooManyTransactions
 	}
 
+	if body.ContributionId != nil {
+		if body.Type != gen.Income {
+			return nil, ErrContributionRequiresIncome
+		}
+		ok, err := s.repo.ContributionBelongsToTeam(ctx, *body.ContributionId, teamID)
+		if err != nil {
+			return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
+		}
+		if !ok {
+			return nil, ErrContributionNotInTeam
+		}
+	}
+
 	date := time.Now()
 	if body.Date != nil {
 		date = body.Date.Time
 	}
-	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, date, body.Category)
+	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, date, body.Category, body.ContributionId)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
 	}
@@ -462,9 +495,42 @@ func (s *Service) SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid
 
 // ─── Contributions ────────────────────────────────────────────────────────────
 
+// CreateContributions creates a membership fee for one or more members in a
+// single call -- one Contribution row per id in body.UserIds, all sharing
+// the given name/amount/dueDate.
+func (s *Service) CreateContributions(ctx context.Context, teamID uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error) {
+	count, err := s.repo.CountContributions(ctx, teamID)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreateContributions: %w", err)
+	}
+	if count+len(body.UserIds) > maxContributionsPerTeam {
+		return nil, ErrTooManyContributions
+	}
+
+	var dueDate *time.Time
+	if body.DueDate != nil {
+		d := body.DueDate.Time
+		dueDate = &d
+	}
+
+	rows, err := s.repo.CreateContributions(ctx, teamID, body.Name, body.Amount, dueDate, body.UserIds)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Service.CreateContributions: %w", err)
+	}
+	result := make([]gen.Contribution, 0, len(rows))
+	for _, c := range rows {
+		result = append(result, toGenContribution(c))
+	}
+	return result, nil
+}
+
 // UpdateContribution applies a patch to a contribution that belongs to teamID.
 func (s *Service) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
-	patch := ContributionPatch{Label: body.Label, Amount: body.Amount}
+	patch := ContributionPatch{Name: body.Name, Amount: body.Amount}
+	if body.DueDate != nil {
+		d := body.DueDate.Time
+		patch.DueDate = &d
+	}
 	c, err := s.repo.UpdateContribution(ctx, id, teamID, patch)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.UpdateContribution: %w", err)
@@ -473,28 +539,28 @@ func (s *Service) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, 
 	return &result, nil
 }
 
-// SetContributionPaid sets a contribution's status to paid/open for a
-// contribution that belongs to teamID (idempotent).
-func (s *Service) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error) {
-	c, err := s.repo.SetContributionPaid(ctx, id, teamID, paid)
-	if err != nil {
-		return nil, fmt.Errorf("finances.Service.SetContributionPaid: %w", err)
+// DeleteContribution deletes a contribution that belongs to teamID. Any
+// transaction linked to it is unlinked, not deleted (see
+// Repository.DeleteContribution).
+func (s *Service) DeleteContribution(ctx context.Context, id, teamID uuid.UUID) error {
+	if err := s.repo.DeleteContribution(ctx, id, teamID); err != nil {
+		return fmt.Errorf("finances.Service.DeleteContribution: %w", err)
 	}
-	result := toGenContribution(*c)
-	return &result, nil
+	return nil
 }
 
 // ─── mappers ──────────────────────────────────────────────────────────────────
 
 func toGenTransaction(t TransactionRow) gen.Transaction {
 	return gen.Transaction{
-		Id:       t.ID,
-		TeamId:   t.TeamID,
-		Type:     gen.TransactionType(t.Type),
-		Title:    t.Title,
-		Amount:   t.Amount,
-		Date:     openapi_types.Date{Time: t.Date},
-		Category: t.Category,
+		Id:             t.ID,
+		TeamId:         t.TeamID,
+		Type:           gen.TransactionType(t.Type),
+		Title:          t.Title,
+		Amount:         t.Amount,
+		Date:           openapi_types.Date{Time: t.Date},
+		Category:       t.Category,
+		ContributionId: t.ContributionID,
 	}
 }
 
@@ -524,15 +590,33 @@ func toGenAssignment(a PenaltyAssignmentRow) gen.PenaltyAssignment {
 	}
 }
 
+// contributionStatus derives a contribution's status from its paid amount
+// vs. its full amount -- never stored, see ContributionRow's doc comment.
+func contributionStatus(paidAmount, amount int64) gen.ContributionStatus {
+	switch {
+	case paidAmount <= 0:
+		return gen.Open
+	case paidAmount >= amount:
+		return gen.Paid
+	default:
+		return gen.Partial
+	}
+}
+
 func toGenContribution(c ContributionRow) gen.Contribution {
+	var dueDate *openapi_types.Date
+	if c.DueDate != nil {
+		dueDate = &openapi_types.Date{Time: *c.DueDate}
+	}
 	return gen.Contribution{
 		Id:                c.ID,
 		TeamId:            c.TeamID,
 		UserId:            c.UserID,
-		Month:             c.Month,
-		Label:             c.Label,
+		Name:              c.Name,
 		Amount:            c.Amount,
-		Status:            gen.ContributionStatus(c.Status),
+		DueDate:           dueDate,
+		PaidAmount:        c.PaidAmount,
+		Status:            contributionStatus(c.PaidAmount, c.Amount),
 		MemberName:        c.MemberName,
 		MemberAvatarColor: c.MemberAvatarColor,
 		HasPhoto:          c.HasPhoto,

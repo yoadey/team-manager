@@ -21,6 +21,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"events", "{eventId}", "comments"}, Module: "events", SelfService: true},                             // addEventComment
 	{Method: "POST", Segments: []string{"absences"}, Module: "public", SelfService: false},                                                   // createAbsence
 	{Method: "POST", Segments: []string{"calendar-shares"}, Module: "settings", SelfService: false},                                          // createCalendarShare
+	{Method: "POST", Segments: []string{"finances", "contributions"}, Module: "finances", SelfService: false},                                // createContributions
 	{Method: "POST", Segments: []string{"events"}, Module: "events", SelfService: false},                                                     // createEvent
 	{Method: "POST", Segments: []string{"invite"}, Module: "settings", SelfService: false},                                                   // createInvite
 	{Method: "POST", Segments: []string{"news"}, Module: "news", SelfService: false},                                                         // createNews
@@ -31,6 +32,7 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "POST", Segments: []string{"finances", "transactions"}, Module: "finances", SelfService: false},                                 // createTransaction
 	{Method: "DELETE", Segments: []string{"absences", "{absenceId}"}, Module: "public", SelfService: false},                                  // deleteAbsence
 	{Method: "DELETE", Segments: []string{"calendar-shares", "{viewerTeamId}"}, Module: "settings", SelfService: false},                      // deleteCalendarShare
+	{Method: "DELETE", Segments: []string{"finances", "contributions", "{contributionId}"}, Module: "finances", SelfService: false},          // deleteContribution
 	{Method: "DELETE", Segments: []string{"events", "{eventId}"}, Module: "events", SelfService: false},                                      // deleteEvent
 	{Method: "DELETE", Segments: []string{"events", "{eventId}", "comments", "{commentId}"}, Module: "events", SelfService: true},            // deleteEventComment
 	{Method: "DELETE", Segments: []string{"news", "{newsId}"}, Module: "news", SelfService: false},                                           // deleteNews
@@ -72,7 +74,6 @@ var rbacRoutes = []rbacRouteEntry{
 	{Method: "DELETE", Segments: []string{"members", "{membershipId}"}, Module: "members", SelfService: false},                               // removeMember
 	{Method: "DELETE", Segments: []string{"calendar-feed", "token"}, Module: "events", SelfService: true},                                    // revokeCalendarFeedToken
 	{Method: "POST", Segments: []string{"events", "{eventId}", "attendance"}, Module: "events", SelfService: true},                           // setAttendance
-	{Method: "PUT", Segments: []string{"finances", "contributions", "{contributionId}", "paid"}, Module: "finances", SelfService: false},     // setContributionPaid
 	{Method: "POST", Segments: []string{"events", "{eventId}", "status"}, Module: "events", SelfService: false},                              // setEventStatus
 	{Method: "PUT", Segments: []string{"members", "{membershipId}", "roles"}, Module: "settings", SelfService: false},                        // setMemberRoles
 	{Method: "PUT", Segments: []string{"events", "{eventId}", "attendance", "nominations"}, Module: "events", SelfService: false},            // setNomination

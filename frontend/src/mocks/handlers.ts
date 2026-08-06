@@ -354,7 +354,16 @@ function toWireNotification(n: (typeof db.notifications)[number], seen: string |
 }
 
 function toWireTransaction(t: (typeof db.transactions)[number]): S['Transaction'] {
-  return { id: t.id, teamId: t.teamId, type: t.type, title: t.title, amount: t.amount, date: t.date, ...opt('category', t.category || undefined) };
+  return {
+    id: t.id,
+    teamId: t.teamId,
+    type: t.type,
+    title: t.title,
+    amount: t.amount,
+    date: t.date,
+    ...opt('category', t.category || undefined),
+    ...opt('contributionId', t.contributionId || undefined),
+  };
 }
 function toWirePenalty(p: (typeof db.penalties)[number]): S['Penalty'] {
   return { id: p.id, teamId: p.teamId, label: p.label, amount: p.amount };
@@ -376,16 +385,32 @@ function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['Penalty
     ...opt('note', a.note),
   };
 }
+// paidAmount/status are derived from linked income transactions, never
+// stored on the row -- mirrors finances.Repository.ListContributions'
+// LATERAL sum on the real backend, so editing/deleting a linked transaction
+// is reflected here the same way.
+function contributionPaidAmount(contributionId: string): number {
+  return db.transactions
+    .filter((t) => t.contributionId === contributionId && t.type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+}
+function contributionStatus(paidAmount: number, amount: number): S['ContributionStatus'] {
+  if (paidAmount <= 0) return 'open';
+  if (paidAmount >= amount) return 'paid';
+  return 'partial';
+}
 function toWireContribution(c: (typeof db.contributions)[number]): S['Contribution'] {
   const u = db.users.find((x) => x.id === c.userId);
+  const paidAmount = contributionPaidAmount(c.id);
   return {
     id: c.id,
     teamId: c.teamId,
     userId: c.userId,
-    month: c.month,
+    name: c.label,
     amount: c.amount,
-    status: c.status,
-    ...opt('label', c.label || undefined),
+    paidAmount,
+    status: contributionStatus(paidAmount, c.amount),
+    ...opt('dueDate', c.dueDate),
     ...opt('memberName', u?.name),
     ...opt('memberAvatarColor', u?.avatarColor),
     ...opt('hasPhoto', u?.hasPhoto),
@@ -1396,7 +1421,7 @@ export const handlers = [
       openPenalties,
       openPenaltySum: Object.values(openByUser).reduce((s, v) => s + v, 0),
       contributions: contributions.map(toWireContribution),
-      contribOpen: contributions.filter((c) => c.status === 'open').length,
+      contribOpen: contributions.filter((c) => contributionPaidAmount(c.id) < c.amount).length,
     };
     return HttpResponse.json(body);
   }),
@@ -1418,7 +1443,22 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
-    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: body.date || todayLocalDate(), category: body.category || '' };
+    if (body.contributionId) {
+      if (body.type !== 'income') return problem(400, 'a transaction linked to a contribution must have type income');
+      if (!db.contributions.some((c) => c.id === body.contributionId && c.teamId === teamId)) {
+        return problem(400, 'contribution does not belong to this team');
+      }
+    }
+    const t = {
+      id: rid('tx'),
+      teamId,
+      type: body.type,
+      title: body.title,
+      amount: body.amount,
+      date: body.date || todayLocalDate(),
+      category: body.category || '',
+      ...opt('contributionId', body.contributionId),
+    };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
   }),
@@ -1513,23 +1553,39 @@ export const handlers = [
     return HttpResponse.json(toWireAssignment(a));
   }),
 
+  http.post(P('/teams/:teamId/finances/contributions'), async ({ params, request }) => {
+    await mockDelay();
+    const teamId = params.teamId as string;
+    const body = (await request.json()) as S['CreateContributionRequest'];
+    const created = body.userIds.map((userId) => {
+      const c = { id: rid('co'), teamId, userId, label: body.name, amount: body.amount, ...opt('dueDate', body.dueDate) };
+      db.contributions.push(c);
+      return c;
+    });
+    return HttpResponse.json(created.map(toWireContribution), { status: 201 });
+  }),
+
   http.patch(P('/teams/:teamId/finances/contributions/:contributionId'), async ({ params, request }) => {
     await mockDelay();
     const c = db.contributions.find((x) => x.id === params.contributionId);
     if (!c) return problem(404, 'Contribution not found');
     const body = (await request.json()) as S['UpdateContributionRequest'];
-    if (body.label !== undefined) c.label = body.label;
+    if (body.name !== undefined) c.label = body.name;
     if (body.amount !== undefined) c.amount = body.amount;
+    if (body.dueDate !== undefined) c.dueDate = body.dueDate;
     return HttpResponse.json(toWireContribution(c));
   }),
 
-  http.put(P('/teams/:teamId/finances/contributions/:contributionId/paid'), async ({ params, request }) => {
+  http.delete(P('/teams/:teamId/finances/contributions/:contributionId'), async ({ params }) => {
     await mockDelay();
-    const c = db.contributions.find((x) => x.id === params.contributionId);
-    if (!c) return problem(404, 'Contribution not found');
-    const body = (await request.json()) as S['SetPaidRequest'];
-    c.status = body.paid ? 'paid' : 'open';
-    return HttpResponse.json(toWireContribution(c));
+    if (!db.contributions.some((x) => x.id === params.contributionId)) return problem(404, 'Contribution not found');
+    db.contributions = db.contributions.filter((x) => x.id !== params.contributionId);
+    // Unlink (not delete) any transaction that paid this fee -- mirrors the
+    // real backend's ON DELETE SET NULL.
+    db.transactions.forEach((t) => {
+      if (t.contributionId === params.contributionId) delete t.contributionId;
+    });
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // ---- stats ----

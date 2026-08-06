@@ -64,11 +64,10 @@ type Contribution struct {
 	ID        uuid.UUID
 	TeamID    uuid.UUID
 	UserID    uuid.UUID
-	Month     string
-	Label     pgtype.Text
+	Name      pgtype.Text
 	Amount    int64
-	Status    string
 	UpdatedAt time.Time
+	DueDate   pgtype.Date
 }
 
 type EmailVerificationToken struct {
@@ -307,15 +306,16 @@ type Team struct {
 }
 
 type Transaction struct {
-	ID        uuid.UUID
-	TeamID    uuid.UUID
-	Type      string
-	Title     string
-	Amount    int64
-	Date      pgtype.Date
-	Category  pgtype.Text
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID             uuid.UUID
+	TeamID         uuid.UUID
+	Type           string
+	Title          string
+	Amount         int64
+	Date           pgtype.Date
+	Category       pgtype.Text
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	ContributionID *uuid.UUID
 }
 
 type User struct {

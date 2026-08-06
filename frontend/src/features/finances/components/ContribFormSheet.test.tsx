@@ -16,9 +16,10 @@ function makeApp(formOverrides: Record<string, unknown> = {}) {
       primaryColor: '#1565C0',
     },
     saveContrib: vi.fn(),
+    deleteContrib: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
-  return { app, formInitial: { id: 'c1', label: '', amount: '', ...formOverrides } };
+  return { app, formInitial: { id: 'c1', label: '', amount: '', dueDate: '', ...formOverrides } };
 }
 
 describe('ContribFormSheet', () => {
@@ -29,20 +30,20 @@ describe('ContribFormSheet', () => {
   it('renders label and amount fields', () => {
     const { app, formInitial } = makeApp();
     render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
-    expect(screen.getByPlaceholderText('z. B. Monatsbeitrag')).toBeTruthy();
+    expect(screen.getByPlaceholderText('z. B. Mitgliedsbeitrag Januar 2026')).toBeTruthy();
   });
 
   it('caps the label input at 255 characters matching the backend limit', () => {
     const { app, formInitial } = makeApp();
     render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
-    const input = screen.getByPlaceholderText('z. B. Monatsbeitrag') as HTMLInputElement;
+    const input = screen.getByPlaceholderText('z. B. Mitgliedsbeitrag Januar 2026') as HTMLInputElement;
     expect(input.maxLength).toBe(255);
   });
 
   it('shows label error when label is empty on blur', async () => {
     const { app, formInitial } = makeApp({ label: '' });
     render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
-    const input = screen.getByPlaceholderText('z. B. Monatsbeitrag');
+    const input = screen.getByPlaceholderText('z. B. Mitgliedsbeitrag Januar 2026');
     fireEvent.blur(input);
     await waitFor(() => {
       expect(screen.getByText('Bezeichnung fehlt.')).toBeTruthy();
@@ -100,5 +101,18 @@ describe('ContribFormSheet', () => {
     await waitFor(() => {
       expect(app.saveContrib).toHaveBeenCalled();
     });
+  });
+
+  it('renders a due-date field', () => {
+    const { app, formInitial } = makeApp();
+    render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
+    expect(document.querySelector('input[type="date"]')).toBeTruthy();
+  });
+
+  it('calls deleteContrib with the contribution id when the delete button is clicked', () => {
+    const { app, formInitial } = makeApp();
+    render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
+    fireEvent.click(screen.getByText('Löschen'));
+    expect(app.deleteContrib).toHaveBeenCalledWith('c1');
   });
 });

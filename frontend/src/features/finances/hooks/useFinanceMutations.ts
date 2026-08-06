@@ -15,7 +15,7 @@ export interface SaveTxInput {
   // create/update branch, so the caller passes `undefined` in create mode
   // rather than omitting the key.
   id?: string | undefined;
-  payload: { type: 'income' | 'expense'; title: string; amount: number; category: string };
+  payload: { type: 'income' | 'expense'; title: string; amount: number; category: string; contributionId?: string };
 }
 
 export function useSaveTxMutation(api: typeof defaultApi, teamId: string | null) {
@@ -111,7 +111,7 @@ export function useSetPenaltyPaidMutation(api: typeof defaultApi, teamId: string
 
 export interface SaveContribInput {
   id: string;
-  payload: { label: string; amount: number };
+  payload: { label: string; amount: number; dueDate?: string };
 }
 
 export function useSaveContribMutation(api: typeof defaultApi, teamId: string | null) {
@@ -123,10 +123,27 @@ export function useSaveContribMutation(api: typeof defaultApi, teamId: string | 
   });
 }
 
-export function useSetContributionPaidMutation(api: typeof defaultApi, teamId: string | null) {
+export interface CreateContribInput {
+  label: string;
+  amount: number;
+  dueDate?: string;
+  userIds: string[];
+}
+
+export function useCreateContributionsMutation(api: typeof defaultApi, teamId: string | null) {
   const invalidate = useInvalidateFinances(teamId);
   return useMutation({
-    mutationFn: ({ id, paid }: { id: string; paid: boolean }) => api.finances.setContributionPaid(id, teamId!, paid),
+    mutationFn: (payload: CreateContribInput): Promise<Contribution[]> =>
+      api.finances.createContributions(teamId!, payload),
     onSuccess: () => invalidate(),
+  });
+}
+
+// Per-call team id -- same confirm-gated-dialog rationale as useDeleteTxMutation above.
+export function useDeleteContributionMutation(api: typeof defaultApi) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, teamId }: { id: string; teamId: string }) => api.finances.deleteContribution(id, teamId),
+    onSuccess: (_data, { teamId }) => qc.invalidateQueries({ queryKey: queryKeys.finances(teamId) }),
   });
 }

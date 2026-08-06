@@ -94,11 +94,12 @@ type ExportPenaltyAssignment struct {
 }
 
 type ExportContribution struct {
-	TeamID string  `json:"teamId"`
-	Month  string  `json:"month"`
-	Label  *string `json:"label,omitempty"`
-	Amount string  `json:"amount"`
-	Status string  `json:"status"`
+	TeamID     string  `json:"teamId"`
+	Name       string  `json:"name"`
+	DueDate    *string `json:"dueDate,omitempty"`
+	Amount     string  `json:"amount"`
+	PaidAmount string  `json:"paidAmount"`
+	Status     string  `json:"status"`
 }
 
 // queryExportRows runs a single-parameter ($1 = userID) query and collects each
@@ -236,12 +237,29 @@ func (r *Repository) ExportUserData(ctx context.Context, userID string) (*Export
 		return nil, fmt.Errorf("auth.Repository.ExportUserData: penalties: %w", err)
 	}
 
+	// paidAmount/status mirror finances.Repository.ListContributions'
+	// derivation (live sum of linked income transactions, never a stored
+	// column) -- kept as a duplicated raw query here rather than importing
+	// the finances package, consistent with this file's existing pattern of
+	// standalone export queries for every other module (e.g. penalties above).
 	if out.Contributions, err = queryExportRows(ctx, r.pool.Query, `
-		SELECT team_id::text, month, label, amount::text, status
-		FROM contributions WHERE user_id = $1 ORDER BY month
+		SELECT c.team_id::text, c.name, c.due_date::text, c.amount::text,
+		       COALESCE(pa.paid_amount, 0)::text AS paid_amount,
+		       CASE
+		         WHEN COALESCE(pa.paid_amount, 0) = 0 THEN 'open'
+		         WHEN COALESCE(pa.paid_amount, 0) >= c.amount THEN 'paid'
+		         ELSE 'partial'
+		       END AS status
+		FROM contributions c
+		LEFT JOIN LATERAL (
+			SELECT SUM(t.amount) AS paid_amount
+			FROM transactions t
+			WHERE t.contribution_id = c.id AND t.type = 'income'
+		) pa ON true
+		WHERE c.user_id = $1 ORDER BY c.due_date NULLS LAST, c.name
 	`, userID, func(rows pgx.Rows) (ExportContribution, error) {
 		var c ExportContribution
-		return c, rows.Scan(&c.TeamID, &c.Month, &c.Label, &c.Amount, &c.Status)
+		return c, rows.Scan(&c.TeamID, &c.Name, &c.DueDate, &c.Amount, &c.PaidAmount, &c.Status)
 	}); err != nil {
 		return nil, fmt.Errorf("auth.Repository.ExportUserData: contributions: %w", err)
 	}

@@ -62,8 +62,9 @@ function makeApi() {
       assignPenalty: vi.fn().mockResolvedValue(undefined),
       deleteAssignment: vi.fn().mockResolvedValue(undefined),
       updateContribution: vi.fn().mockResolvedValue(undefined),
+      createContributions: vi.fn().mockResolvedValue([{ id: 'c1' }]),
+      deleteContribution: vi.fn().mockResolvedValue(undefined),
       setPenaltyPaid: vi.fn().mockResolvedValue(undefined),
-      setContributionPaid: vi.fn().mockResolvedValue(undefined),
     },
   };
 }
@@ -330,7 +331,7 @@ describe('useFinanceActions', () => {
   it('saveContrib updates contribution when valid', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.saveContrib({ label: 'Monatsbeitrag', amount: '20', id: 'c1' } as ContribFormValues);
+      await result.current.saveContrib({ label: 'Monatsbeitrag', amount: '20', dueDate: '', id: 'c1' } as ContribFormValues);
     });
     expect(api.finances.updateContribution).toHaveBeenCalledWith(
       'c1',
@@ -338,6 +339,23 @@ describe('useFinanceActions', () => {
       'team1',
     );
     expect(toastMsg).toHaveBeenCalledWith('Beitrag gespeichert');
+  });
+
+  it('saveContrib passes dueDate through when set', async () => {
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveContrib({
+        label: 'Monatsbeitrag',
+        amount: '20',
+        dueDate: '2026-06-30',
+        id: 'c1',
+      } as ContribFormValues);
+    });
+    expect(api.finances.updateContribution).toHaveBeenCalledWith(
+      'c1',
+      expect.objectContaining({ dueDate: '2026-06-30' }),
+      'team1',
+    );
   });
 
   it('setPenaltyPaid calls setPenaltyPaid with the desired value', async () => {
@@ -348,12 +366,47 @@ describe('useFinanceActions', () => {
     expect(api.finances.setPenaltyPaid).toHaveBeenCalledWith('a1', 'team1', true);
   });
 
-  it('setContributionPaid calls setContributionPaid with the desired value', async () => {
+  it('saveContribCreate fans out to createContributions with the selected members', async () => {
     const { result } = renderActions();
     await act(async () => {
-      await result.current.setContributionPaid('c1', false);
+      await result.current.saveContribCreate({
+        label: 'Mitgliedsbeitrag Juli',
+        amount: '25',
+        dueDate: '',
+        userIds: ['u1', 'u2'],
+      });
     });
-    expect(api.finances.setContributionPaid).toHaveBeenCalledWith('c1', 'team1', false);
+    expect(api.finances.createContributions).toHaveBeenCalledWith('team1', {
+      label: 'Mitgliedsbeitrag Juli',
+      amount: 25,
+      userIds: ['u1', 'u2'],
+    });
+    expect(toastMsg).toHaveBeenCalledWith('Beitrag angelegt');
+  });
+
+  it('openContribCreate opens the contribCreate sheet', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openContribCreate();
+    });
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: expect.objectContaining({ type: 'contribCreate' }),
+      }),
+    );
+  });
+
+  it('deleteContrib asks for confirmation then calls deleteContribution', async () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.deleteContrib('c1');
+    });
+    expect(askConfirm).toHaveBeenCalled();
+    const onConfirm = askConfirm.mock.calls[0]![0].onConfirm;
+    await act(async () => {
+      await onConfirm();
+    });
+    expect(api.finances.deleteContribution).toHaveBeenCalledWith('c1', 'team1');
   });
 
   it('setStatsRange updates state', () => {

@@ -94,7 +94,7 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, created_at
 		FROM transactions
 		WHERE team_id = $1
 		ORDER BY date DESC, created_at DESC, id DESC
@@ -108,7 +108,7 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	var out []TransactionRow
 	for rows.Next() {
 		var t TransactionRow
-		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListTransactions scan: %w", err)
 		}
 		out = append(out, t)
@@ -149,7 +149,7 @@ func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID,
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, created_at
 		FROM transactions
 		WHERE team_id = $1
 		  AND ($2::boolean IS FALSE
@@ -165,7 +165,7 @@ func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID,
 	var out []TransactionRow
 	for rows.Next() {
 		var t TransactionRow
-		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListTransactionsPage scan: %w", err)
 		}
 		out = append(out, t)
@@ -206,17 +206,20 @@ func (r *Repository) CountTransactions(ctx context.Context, teamID uuid.UUID) (i
 	return count, nil
 }
 
-// CreateTransaction inserts a new transaction.
-func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string) (*TransactionRow, error) {
+// CreateTransaction inserts a new transaction, optionally linked to a
+// contribution it pays (fully or in part) -- see
+// Service.CreateTransaction for the type=income/team-ownership validation
+// that must already have happened before this is called.
+func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID *uuid.UUID) (*TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO transactions (team_id, type, title, amount, date, category)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, team_id, type, title, amount, date, category, created_at
-	`, teamID, txType, title, amount, date, category).Scan(
-		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt,
+		INSERT INTO transactions (team_id, type, title, amount, date, category, contribution_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, team_id, type, title, amount, date, category, contribution_id, created_at
+	`, teamID, txType, title, amount, date, category, contributionID).Scan(
+		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.CreateTransaction: %w", err)
@@ -254,9 +257,9 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE transactions SET %s WHERE id = $%d AND team_id = $%d
-		RETURNING id, team_id, type, title, amount, date, category, created_at
+		RETURNING id, team_id, type, title, amount, date, category, contribution_id, created_at
 	`, setSQL, nextIdx, nextIdx+1), args...).Scan(
-		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt,
+		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.UpdateTransaction: %w", err)
@@ -281,9 +284,9 @@ func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID
 func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error) {
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, created_at
 		FROM transactions WHERE id = $1 AND team_id = $2
-	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.CreatedAt)
+	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -610,19 +613,48 @@ func (r *Repository) SetAssignmentPaid(ctx context.Context, id, teamID uuid.UUID
 
 // ─── Contributions ────────────────────────────────────────────────────────────
 
-// ListContributions returns up to maxOverviewRows most recent contributions
-// for the team with member info joined.
+// contributionSelectColumns is shared by every query that returns a full
+// ContributionRow: paidAmount is never stored -- it's the live sum of every
+// income transaction linked to the contribution (see migration
+// 00018_flexible_membership_fees.sql), joined here via a LATERAL subquery so
+// a linked transaction being edited or deleted is reflected immediately
+// without a second write path to keep in sync.
+const contributionSelectColumns = `
+	c.id, c.team_id, c.user_id, c.name, c.amount, c.due_date,
+	COALESCE(pa.paid_amount, 0) AS paid_amount,
+	u.name, u.avatar_color,
+	(u.photo_object_key IS NOT NULL) AS has_photo
+	FROM contributions c
+	JOIN users u ON u.id = c.user_id
+	LEFT JOIN LATERAL (
+		SELECT SUM(t.amount) AS paid_amount
+		FROM transactions t
+		WHERE t.contribution_id = c.id AND t.type = 'income'
+	) pa ON true
+`
+
+func scanContributionRow(row pgx.Row) (*ContributionRow, error) {
+	c := &ContributionRow{}
+	err := row.Scan(
+		&c.ID, &c.TeamID, &c.UserID, &c.Name, &c.Amount, &c.DueDate, &c.PaidAmount,
+		&c.MemberName, &c.MemberAvatarColor, &c.HasPhoto,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// ListContributions returns up to maxOverviewRows contributions for the
+// team with member info and paid-so-far amount joined, soonest due date
+// first (no due date sorts last).
 func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
-		       u.name, u.avatar_color,
-		       (u.photo_object_key IS NOT NULL) AS has_photo
-		FROM contributions c
-		JOIN users u ON u.id = c.user_id
+		SELECT `+contributionSelectColumns+`
 		WHERE c.team_id = $1
-		ORDER BY c.month DESC, u.name, c.id
+		ORDER BY c.due_date NULLS LAST, c.name, u.name, c.id
 		LIMIT $2
 	`, teamID, maxOverviewRows)
 	if err != nil {
@@ -632,16 +664,75 @@ func (r *Repository) ListContributions(ctx context.Context, teamID uuid.UUID) ([
 
 	var out []ContributionRow
 	for rows.Next() {
-		var c ContributionRow
-		if err := rows.Scan(
-			&c.ID, &c.TeamID, &c.UserID, &c.Month, &c.Label, &c.Amount, &c.Status,
-			&c.MemberName, &c.MemberAvatarColor, &c.HasPhoto,
-		); err != nil {
+		c, err := scanContributionRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListContributions scan: %w", err)
 		}
-		out = append(out, c)
+		out = append(out, *c)
 	}
 	return out, rows.Err()
+}
+
+// CountContributions returns the number of contributions the team has, used
+// to enforce maxContributionsPerTeam before a fan-out create.
+func (r *Repository) CountContributions(ctx context.Context, teamID uuid.UUID) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var count int
+	err := r.db.QueryRow(ctx, `SELECT COUNT(*) FROM contributions WHERE team_id = $1`, teamID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("finances.Repository.CountContributions: %w", err)
+	}
+	return count, nil
+}
+
+// CreateContributions inserts one contribution row per id in userIDs, all
+// sharing name/amount/dueDate -- the fan-out for "create this fee for these
+// members" in a single call. Runs inside one transaction, atomically
+// re-checking each id's membership via WHERE EXISTS (mirroring
+// CreateAssignment's TOCTOU-closing pattern): if any id is not a member of
+// teamID, the whole batch is rolled back rather than left partially applied.
+func (r *Repository) CreateContributions(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]ContributionRow, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("finances.Repository.CreateContributions: begin tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	out := make([]ContributionRow, 0, len(userIDs))
+	for _, userID := range userIDs {
+		var id uuid.UUID
+		err := tx.QueryRow(ctx, `
+			INSERT INTO contributions (team_id, user_id, name, amount, due_date)
+			SELECT $1, $2, $3, $4, $5
+			WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)
+			RETURNING id
+		`, teamID, userID, name, amount, dueDate).Scan(&id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("%w: %s", ErrUserNotInTeam, userID)
+			}
+			return nil, fmt.Errorf("finances.Repository.CreateContributions: insert: %w", err)
+		}
+
+		// Freshly inserted, so paidAmount is always 0 -- reload anyway
+		// (rather than hand-building the row) so the member-info join stays
+		// the single source of truth for that shape.
+		row := tx.QueryRow(ctx, `SELECT `+contributionSelectColumns+` WHERE c.id = $1`, id)
+		c, err := scanContributionRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("finances.Repository.CreateContributions: reload: %w", err)
+		}
+		out = append(out, *c)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("finances.Repository.CreateContributions: commit: %w", err)
+	}
+	return out, nil
 }
 
 // UpdateContribution applies a partial update to a contribution that belongs to teamID.
@@ -650,11 +741,14 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	defer cancel()
 
 	b := sqlbuilder.New()
-	if patch.Label != nil {
-		b.Add("label", *patch.Label)
+	if patch.Name != nil {
+		b.Add("name", *patch.Name)
 	}
 	if patch.Amount != nil {
 		b.Add("amount", *patch.Amount)
+	}
+	if patch.DueDate != nil {
+		b.Add("due_date", *patch.DueDate)
 	}
 	setSQL, args, nextIdx, ok := b.Build(1)
 	if !ok {
@@ -678,39 +772,56 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	return r.getContributionByID(ctx, id, teamID)
 }
 
-// SetContributionPaid sets a contribution's status to 'paid' or 'open' for a
-// contribution that belongs to teamID. Idempotent: applying the same value
-// twice yields the same state (unlike the previous flip-based toggle).
-func (r *Repository) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*ContributionRow, error) {
+// DeleteContribution deletes a contribution that belongs to teamID. Any
+// transaction linked to it is unlinked (ON DELETE SET NULL), not deleted --
+// the income it booked was genuinely received regardless of whether the fee
+// record describing it still exists.
+func (r *Repository) DeleteContribution(ctx context.Context, id, teamID uuid.UUID) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	status := "open"
-	if paid {
-		status = "paid"
-	}
-	tag, err := r.db.Exec(ctx, `
-		UPDATE contributions SET status = $3 WHERE id = $1 AND team_id = $2
-	`, id, teamID, status)
+	tag, err := r.db.Exec(ctx, `DELETE FROM contributions WHERE id = $1 AND team_id = $2`, id, teamID)
 	if err != nil {
-		return nil, fmt.Errorf("finances.Repository.SetContributionPaid: %w", err)
+		return fmt.Errorf("finances.Repository.DeleteContribution: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return nil, pgx.ErrNoRows
+		return pgx.ErrNoRows
 	}
-	return r.getContributionByID(ctx, id, teamID)
+	return nil
 }
 
-// CountOpenContributions returns the number of contributions with status
-// 'open' for the team, independent of the capped display list returned by
-// ListContributions.
+// ContributionBelongsToTeam returns true when the contribution exists and
+// belongs to teamID -- used to validate Transaction.contributionId at
+// creation time.
+func (r *Repository) ContributionBelongsToTeam(ctx context.Context, contributionID, teamID uuid.UUID) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var exists bool
+	err := r.db.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM contributions WHERE id = $1 AND team_id = $2)`,
+		contributionID, teamID,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("finances.Repository.ContributionBelongsToTeam: %w", err)
+	}
+	return exists, nil
+}
+
+// CountOpenContributions returns the number of contributions not yet fully
+// paid (open or partial) for the team, independent of the capped display
+// list returned by ListContributions.
 func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	var count int
-	err := r.db.QueryRow(ctx,
-		`SELECT COUNT(*) FROM contributions WHERE team_id = $1 AND status = 'open'`,
-		teamID,
-	).Scan(&count)
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM contributions c
+		WHERE c.team_id = $1
+		  AND COALESCE(
+		        (SELECT SUM(t.amount) FROM transactions t WHERE t.contribution_id = c.id AND t.type = 'income'),
+		        0
+		      ) < c.amount
+	`, teamID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("finances.Repository.CountOpenContributions: %w", err)
 	}
@@ -718,22 +829,11 @@ func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUI
 }
 
 func (r *Repository) getContributionByID(ctx context.Context, id, teamID uuid.UUID) (*ContributionRow, error) {
-	c := &ContributionRow{}
-	err := r.db.QueryRow(ctx, `
-		SELECT c.id, c.team_id, c.user_id, c.month, c.label, c.amount, c.status,
-		       u.name, u.avatar_color,
-		       (u.photo_object_key IS NOT NULL) AS has_photo
-		FROM contributions c
-		JOIN users u ON u.id = c.user_id
+	row := r.db.QueryRow(ctx, `
+		SELECT `+contributionSelectColumns+`
 		WHERE c.id = $1 AND c.team_id = $2
-	`, id, teamID).Scan(
-		&c.ID, &c.TeamID, &c.UserID, &c.Month, &c.Label, &c.Amount, &c.Status,
-		&c.MemberName, &c.MemberAvatarColor, &c.HasPhoto,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return c, nil
+	`, id, teamID)
+	return scanContributionRow(row)
 }
 
 // PenaltyBelongsToTeam returns true when the penalty exists and belongs to teamID.

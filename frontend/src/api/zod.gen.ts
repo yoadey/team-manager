@@ -501,6 +501,7 @@ const Transaction = z
     amount: z.number().int(),
     date: z.string(),
     category: z.string().optional(),
+    contributionId: z.string().uuid().nullish(),
   })
   .passthrough();
 const Penalty = z
@@ -536,15 +537,16 @@ const OpenPenalty = z
     amount: z.number().int(),
   })
   .passthrough();
-const ContributionStatus = z.enum(["paid", "open"]);
+const ContributionStatus = z.enum(["open", "partial", "paid"]);
 const Contribution = z
   .object({
     id: z.string().uuid(),
     teamId: z.string().uuid(),
     userId: z.string().uuid(),
-    month: z.string(),
-    label: z.string().optional(),
+    name: z.string(),
     amount: z.number().int(),
+    dueDate: z.string().nullish(),
+    paidAmount: z.number().int(),
     status: ContributionStatus,
     memberName: z.string().optional(),
     memberAvatarColor: z.string().optional(),
@@ -572,6 +574,7 @@ const CreateTransactionRequest = z
     amount: z.number().int().gte(1).lte(100000000),
     category: z.string().max(255).optional(),
     date: z.string().optional(),
+    contributionId: z.string().uuid().optional(),
   })
   .passthrough();
 const UpdateTransactionRequest = z
@@ -600,8 +603,20 @@ const CreatePenaltyAssignmentRequest = z
   })
   .passthrough();
 const SetPaidRequest = z.object({ paid: z.boolean() }).passthrough();
+const CreateContributionRequest = z
+  .object({
+    name: z.string().min(1).max(255),
+    amount: z.number().int().gte(1).lte(100000000),
+    dueDate: z.string().optional(),
+    userIds: z.array(z.string().uuid()).min(1).max(200),
+  })
+  .passthrough();
 const UpdateContributionRequest = z
-  .object({ label: z.string(), amount: z.number().int().gte(1).lte(100000000) })
+  .object({
+    name: z.string().min(1).max(255),
+    amount: z.number().int().gte(1).lte(100000000),
+    dueDate: z.string(),
+  })
   .partial()
   .passthrough();
 const MemberStat = z
@@ -773,6 +788,7 @@ export const schemas = {
   UpdatePenaltyRequest,
   CreatePenaltyAssignmentRequest,
   SetPaidRequest,
+  CreateContributionRequest,
   UpdateContributionRequest,
   MemberStat,
   EventStat,
@@ -1715,6 +1731,26 @@ const endpoints = makeApi([
     response: FinanceOverview,
   },
   {
+    method: "post",
+    path: "/teams/:teamId/finances/contributions",
+    alias: "createContributions",
+    description: `Creates one contribution row per member in &#x60;userIds&#x60;, all sharing the given name, amount, and optional due date -- the fan-out for assigning the same fee to several members in a single call.`,
+    requestFormat: "json",
+    parameters: [
+      {
+        name: "body",
+        type: "Body",
+        schema: CreateContributionRequest,
+      },
+      {
+        name: "teamId",
+        type: "Path",
+        schema: z.string().uuid(),
+      },
+    ],
+    response: z.array(Contribution),
+  },
+  {
     method: "patch",
     path: "/teams/:teamId/finances/contributions/:contributionId",
     alias: "updateContribution",
@@ -1739,16 +1775,12 @@ const endpoints = makeApi([
     response: Contribution,
   },
   {
-    method: "put",
-    path: "/teams/:teamId/finances/contributions/:contributionId/paid",
-    alias: "setContributionPaid",
+    method: "delete",
+    path: "/teams/:teamId/finances/contributions/:contributionId",
+    alias: "deleteContribution",
+    description: `Any transaction linked to this contribution is unlinked (not deleted) -- see Transaction.contributionId.`,
     requestFormat: "json",
     parameters: [
-      {
-        name: "body",
-        type: "Body",
-        schema: z.object({ paid: z.boolean() }).passthrough(),
-      },
       {
         name: "teamId",
         type: "Path",
@@ -1760,7 +1792,7 @@ const endpoints = makeApi([
         schema: z.string().uuid(),
       },
     ],
-    response: Contribution,
+    response: z.void(),
   },
   {
     method: "post",

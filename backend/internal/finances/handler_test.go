@@ -40,8 +40,9 @@ type mockFinanceService struct {
 	createAssignment    func(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
 	deleteAssignment    func(ctx context.Context, id, teamID uuid.UUID) error
 	setPenaltyPaid      func(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error)
+	createContributions func(ctx context.Context, teamID uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error)
 	updateContribution  func(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
-	setContributionPaid func(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error)
+	deleteContribution  func(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 func (m *mockFinanceService) GetOverview(ctx context.Context, teamID uuid.UUID) (*gen.FinanceOverview, error) {
@@ -88,12 +89,16 @@ func (m *mockFinanceService) SetPenaltyPaid(ctx context.Context, teamID, id uuid
 	return m.setPenaltyPaid(ctx, teamID, id, paid)
 }
 
+func (m *mockFinanceService) CreateContributions(ctx context.Context, teamID uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error) {
+	return m.createContributions(ctx, teamID, body)
+}
+
 func (m *mockFinanceService) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
 	return m.updateContribution(ctx, id, teamID, body)
 }
 
-func (m *mockFinanceService) SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error) {
-	return m.setContributionPaid(ctx, id, teamID, paid)
+func (m *mockFinanceService) DeleteContribution(ctx context.Context, id, teamID uuid.UUID) error {
+	return m.deleteContribution(ctx, id, teamID)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -440,15 +445,83 @@ func TestHandler_DeleteTransaction_Success(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, w.Code)
 }
 
-func TestHandler_SetContributionPaid_Unauthenticated(t *testing.T) {
+func TestHandler_UpdateContribution_Unauthenticated(t *testing.T) {
 	t.Parallel()
 	h := finances.NewHandler(&mockFinanceService{}, slog.Default(), nil)
-	_, err := h.SetContributionPaid(context.Background(), gen.SetContributionPaidRequestObject{
+	_, err := h.UpdateContribution(context.Background(), gen.UpdateContributionRequestObject{
 		TeamId:         testTeamID,
 		ContributionId: testTxID,
-		Body:           &gen.SetPaidRequest{Paid: true},
+		Body:           &gen.UpdateContributionJSONRequestBody{},
 	})
 	require.Error(t, err)
+}
+
+func TestHandler_CreateContributions_Unauthenticated(t *testing.T) {
+	t.Parallel()
+	h := finances.NewHandler(&mockFinanceService{}, slog.Default(), nil)
+	_, err := h.CreateContributions(context.Background(), gen.CreateContributionsRequestObject{
+		TeamId: testTeamID,
+		Body:   &gen.CreateContributionsJSONRequestBody{Name: "Beitrag", Amount: 2500, UserIds: []uuid.UUID{testUserID}},
+	})
+	require.Error(t, err)
+}
+
+func TestHandler_CreateContributions_RejectsEmptyUserIds(t *testing.T) {
+	t.Parallel()
+	h := finances.NewHandler(&mockFinanceService{}, slog.Default(), nil)
+	_, err := h.CreateContributions(authedCtx(), gen.CreateContributionsRequestObject{
+		TeamId: testTeamID,
+		Body:   &gen.CreateContributionsJSONRequestBody{Name: "Beitrag", Amount: 2500, UserIds: []uuid.UUID{}},
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+}
+
+func TestHandler_CreateContributions_Success(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createContributions: func(_ context.Context, _ uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error) {
+			out := make([]gen.Contribution, 0, len(body.UserIds))
+			for _, uid := range body.UserIds {
+				out = append(out, gen.Contribution{
+					Id: testTxID, TeamId: testTeamID, UserId: uid,
+					Name: body.Name, Amount: body.Amount, PaidAmount: 0, Status: gen.Open,
+				})
+			}
+			return out, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+	resp, err := h.CreateContributions(authedCtx(), gen.CreateContributionsRequestObject{
+		TeamId: testTeamID,
+		Body:   &gen.CreateContributionsJSONRequestBody{Name: "Beitrag", Amount: 2500, UserIds: []uuid.UUID{testUserID}},
+	})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitCreateContributionsResponse(w))
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var got []gen.Contribution
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Len(t, got, 1)
+	assert.Equal(t, "Beitrag", got[0].Name)
+}
+
+func TestHandler_DeleteContribution_NotFoundReturns404(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		deleteContribution: func(_ context.Context, _, _ uuid.UUID) error { return pgx.ErrNoRows },
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+	_, err := h.DeleteContribution(authedCtx(), gen.DeleteContributionRequestObject{
+		TeamId: testTeamID, ContributionId: testTxID,
+	})
+	require.Error(t, err)
+	var apiErr *apierror.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusNotFound, apiErr.Status)
 }
 
 func TestHandler_SetPenaltyPaid_NotFoundReturns404(t *testing.T) {

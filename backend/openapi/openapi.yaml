@@ -1845,6 +1845,34 @@ paths:
               schema:
                 $ref: "#/components/schemas/PenaltyAssignment"
 
+  /teams/{teamId}/finances/contributions:
+    parameters:
+      - $ref: "#/components/parameters/teamId"
+    post:
+      tags: [finances]
+      operationId: createContributions
+      x-rbac-module: finances
+      summary: Create a membership fee for one or more members
+      description: >-
+        Creates one contribution row per member in `userIds`, all sharing the
+        given name, amount, and optional due date -- the fan-out for
+        assigning the same fee to several members in a single call.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateContributionRequest"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contribution"
+
   /teams/{teamId}/finances/contributions/{contributionId}:
     parameters:
       - $ref: "#/components/parameters/teamId"
@@ -1858,7 +1886,7 @@ paths:
       tags: [finances]
       operationId: updateContribution
       x-rbac-module: finances
-      summary: Update contribution amount or label
+      summary: Update a contribution's name, amount, or due date
       requestBody:
         required: true
         content:
@@ -1872,34 +1900,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Contribution"
-
-  /teams/{teamId}/finances/contributions/{contributionId}/paid:
-    parameters:
-      - $ref: "#/components/parameters/teamId"
-      - name: contributionId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-    put:
+    delete:
       tags: [finances]
-      operationId: setContributionPaid
+      operationId: deleteContribution
       x-rbac-module: finances
-      summary: Set the paid status of a contribution (idempotent)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SetPaidRequest"
+      summary: Delete a contribution
+      description: >-
+        Any transaction linked to this contribution is unlinked (not
+        deleted) -- see Transaction.contributionId.
       responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Contribution"
+        "204":
+          description: No Content
 
   # ── Stats ───────────────────────────────────────────────────────────────────
 
@@ -2189,7 +2200,11 @@ components:
 
     ContributionStatus:
       type: string
-      enum: [paid, open]
+      description: >-
+        Derived from paidAmount vs. amount, never independently settable:
+        "open" (paidAmount is 0), "partial" (0 < paidAmount < amount), or
+        "paid" (paidAmount >= amount).
+      enum: [open, partial, paid]
 
     NotificationType:
       type: string
@@ -3341,6 +3356,14 @@ components:
           format: date
         category:
           type: string
+        contributionId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            The membership fee this transaction (fully or partially) pays,
+            or null if it isn't a fee payment. Set at creation time only --
+            see CreateTransactionRequest.contributionId.
 
     CreateTransactionRequest:
       type: object
@@ -3366,6 +3389,14 @@ components:
           description: >-
             Transaction date (e.g. to back-date a receipt). Defaults to the
             server's current date when omitted.
+        contributionId:
+          type: string
+          format: uuid
+          description: >-
+            Links this transaction to a membership fee it (fully or
+            partially) pays -- the fee's paidAmount becomes the sum of every
+            income transaction linked to it this way. Only valid when
+            `type` is `income`; rejected otherwise.
 
     UpdateTransactionRequest:
       type: object
@@ -3526,7 +3557,7 @@ components:
 
     Contribution:
       type: object
-      required: [id, teamId, userId, month, amount, status]
+      required: [id, teamId, userId, name, amount, paidAmount, status]
       properties:
         id:
           type: string
@@ -3537,15 +3568,23 @@ components:
         userId:
           type: string
           format: uuid
-        month:
+        name:
           type: string
-          description: "YYYY-MM"
-        label:
-          type: string
+          description: Free-text fee name (e.g. "Mitgliedsbeitrag Januar 2026").
         amount:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
+        dueDate:
+          type: string
+          format: date
+          nullable: true
+        paidAmount:
+          type: integer
+          format: int64
+          description: >-
+            Sum of every income transaction linked to this contribution
+            (Transaction.contributionId), in cents. Computed, not stored.
         status:
           $ref: "#/components/schemas/ContributionStatus"
         memberName:
@@ -3555,17 +3594,50 @@ components:
         hasPhoto:
           type: boolean
 
-    UpdateContributionRequest:
+    CreateContributionRequest:
       type: object
+      required: [name, amount, userIds]
       properties:
-        label:
+        name:
           type: string
+          minLength: 1
+          maxLength: 255
         amount:
           type: integer
           format: int64
           description: Amount in cents (e.g. 1050 = 10.50)
           minimum: 1
           maximum: 100000000
+        dueDate:
+          type: string
+          format: date
+        userIds:
+          type: array
+          description: >-
+            The members this fee applies to; one Contribution row is created
+            per id, all sharing this name/amount/dueDate.
+          items:
+            type: string
+            format: uuid
+          minItems: 1
+          maxItems: 200
+
+    UpdateContributionRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        amount:
+          type: integer
+          format: int64
+          description: Amount in cents (e.g. 1050 = 10.50)
+          minimum: 1
+          maximum: 100000000
+        dueDate:
+          type: string
+          format: date
 
     FinanceOverview:
       type: object
@@ -3609,6 +3681,9 @@ components:
             $ref: "#/components/schemas/Contribution"
         contribOpen:
           type: integer
+          description: >-
+            Count of contributions not yet fully paid (status "open" or
+            "partial").
 
     # ── Stats ────────────────────────────────────────────────────────────────
 

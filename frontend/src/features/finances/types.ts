@@ -6,6 +6,8 @@ export interface Transaction {
   amount: number;
   date: string;
   category: string;
+  /** The membership fee this transaction (fully or partially) pays, or null/absent if it isn't a fee payment. */
+  contributionId?: string | null;
 }
 
 export interface Penalty {
@@ -44,10 +46,15 @@ export interface Contribution {
   id: string;
   teamId: string;
   userId: string;
-  month: string;
+  /** Free-text fee name, e.g. "Mitgliedsbeitrag Januar 2026". */
   label: string;
   amount: number;
-  status: 'paid' | 'open';
+  /** Optional due date (YYYY-MM-DD). */
+  dueDate?: string | null;
+  /** Sum of every income transaction linked to this contribution, in euros. */
+  paidAmount: number;
+  status: 'open' | 'partial' | 'paid';
+  /** Member display name (mapped from the backend's memberName). */
   name?: string;
   avatarColor?: string;
   photo?: string | null;
@@ -67,33 +74,6 @@ export interface FinanceOverview {
   contribOpen: number;
 }
 
-// --- Editing buffer shapes for the finance sheets (amounts held as strings) ---
-
-/** Transaction create/edit sheet. */
-export interface TxFormValues extends Record<string, unknown> {
-  id?: string;
-  type: 'income' | 'expense';
-  title: string;
-  amount: string;
-  category: string;
-}
-
-/** Penalty-catalog create/edit sheet. */
-export interface PenaltyFormValues extends Record<string, unknown> {
-  id?: string;
-  label: string;
-  amount: string;
-}
-
-/** Assign-a-penalty-to-a-member sheet. */
-export interface PenaltyAssignFormValues extends Record<string, unknown> {
-  userId: string;
-  penaltyId: string | null;
-}
-
-/** Monthly-contribution edit sheet. */
-export interface ContribFormValues extends Record<string, unknown> {
-  id: string;
-  label: string;
-  amount: string;
-}
+// Editing buffer shapes for the finance sheets (amounts held as strings) live
+// alongside their zod schema in components/*FormSchema.ts (e.g.
+// TxFormValues in components/txFormSchema.ts), not here.

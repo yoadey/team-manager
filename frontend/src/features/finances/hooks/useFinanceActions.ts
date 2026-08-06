@@ -8,12 +8,15 @@ import type { TxFormValues } from '../components/txFormSchema';
 import type { PenaltyFormValues } from '../components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
 import type { ContribFormValues } from '../components/contribFormSchema';
+import type { ContribCreateFormValues } from '../components/contribCreateFormSchema';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
 import { todayStr } from '@/styles/tokens';
 import { queryKeys } from '@/query/keys';
 import {
+  useCreateContributionsMutation,
   useDeleteAssignmentMutation,
+  useDeleteContributionMutation,
   useDeletePenaltyMutation,
   useDeleteTxMutation,
   useSaveContribMutation,
@@ -21,7 +24,6 @@ import {
   useSavePenaltyMutation,
   useSaveTxMutation,
   useSetPenaltyPaidMutation,
-  useSetContributionPaidMutation,
 } from './useFinanceMutations';
 
 type SetState = (patch: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
@@ -51,14 +53,18 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
   );
   const { mutateAsync: deleteAssignmentAsync } = useDeleteAssignmentMutation(api);
   const { mutateAsync: saveContribAsync, isPending: savingContrib } = useSaveContribMutation(api, teamId);
+  const { mutateAsync: createContributionsAsync, isPending: savingContribCreate } = useCreateContributionsMutation(
+    api,
+    teamId,
+  );
+  const { mutateAsync: deleteContributionAsync } = useDeleteContributionMutation(api);
   const { mutateAsync: setPenaltyPaidAsync } = useSetPenaltyPaidMutation(api, teamId);
-  const { mutateAsync: setContributionPaidAsync } = useSetContributionPaidMutation(api, teamId);
 
   const openTxForm = useCallback(
     (tx?: Transaction) => {
       const f: TxFormValues = tx
         ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category }
-        : { type: 'income', title: '', amount: '', category: '' };
+        : { type: 'income', title: '', amount: '', category: '', contributionId: '' };
       setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create', formInitial: f } });
     },
     [setState],
@@ -73,7 +79,15 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
         await saveTxAsync({
           mode,
           id: f.id,
-          payload: { type: f.type, title: f.title.trim(), amount: Number(f.amount), category: f.category || '' },
+          payload: {
+            type: f.type,
+            title: f.title.trim(),
+            amount: Number(f.amount),
+            category: f.category || '',
+            // Only meaningful (and only sent) on create -- see
+            // txFormSchema.ts's contributionId doc comment.
+            ...(mode === 'create' && f.contributionId ? { contributionId: f.contributionId } : {}),
+          },
         });
         // Don't close a sheet the user has since opened for a different team
         // after switching away mid-request, or one they've since opened for a
@@ -224,7 +238,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
 
   const openContribForm = useCallback(
     (c: Contribution) => {
-      const form: ContribFormValues = { id: c.id, label: c.label, amount: String(c.amount) };
+      const form: ContribFormValues = { id: c.id, label: c.label, amount: String(c.amount), dueDate: c.dueDate || '' };
       setState({ sheet: { type: 'contribForm', formInitial: form } });
     },
     [setState],
@@ -235,7 +249,10 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
       const sh = S().sheet;
       const savedTeamId = teamId;
       try {
-        await saveContribAsync({ id: f.id, payload: { label: f.label.trim(), amount: Number(f.amount) } });
+        await saveContribAsync({
+          id: f.id,
+          payload: { label: f.label.trim(), amount: Number(f.amount), ...(f.dueDate ? { dueDate: f.dueDate } : {}) },
+        });
         if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastContribSaved'));
       } catch (err) {
@@ -244,6 +261,55 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
       }
     },
     [S, setState, saveContribAsync, teamId, toastMsg, logout],
+  );
+
+  const openContribCreate = useCallback(() => {
+    const form: ContribCreateFormValues = { label: '', amount: '', dueDate: '', userIds: [] };
+    setState({ sheet: { type: 'contribCreate', formInitial: form } });
+  }, [setState]);
+
+  const saveContribCreate = useCallback(
+    async (f: ContribCreateFormValues) => {
+      const sh = S().sheet;
+      const savedTeamId = teamId;
+      try {
+        await createContributionsAsync({
+          label: f.label.trim(),
+          amount: Number(f.amount),
+          userIds: f.userIds,
+          ...(f.dueDate ? { dueDate: f.dueDate } : {}),
+        });
+        if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
+        toastMsg(t('finances.toastContribCreated'));
+      } catch (err) {
+        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
+        throw err;
+      }
+    },
+    [S, setState, createContributionsAsync, teamId, toastMsg, logout],
+  );
+
+  const deleteContrib = useCallback(
+    (id: string) => {
+      const deletedTeamId = teamId!;
+      askConfirm({
+        title: t('finances.contribDeleteTitle'),
+        message: t('finances.contribDeleteMsg'),
+        confirmLabel: t('common.delete'),
+        danger: true,
+        onConfirm: async () => {
+          const sh = S().sheet;
+          try {
+            await deleteContributionAsync({ id, teamId: deletedTeamId });
+            if (S().activeTeamId === deletedTeamId && S().sheet === sh) setState({ sheet: null });
+            toastMsg(t('finances.toastContribDeleted'));
+          } catch (err) {
+            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
+          }
+        },
+      });
+    },
+    [S, askConfirm, deleteContributionAsync, setState, teamId, toastMsg, logout],
   );
 
   const toggleInFlight = useRef(new Set<string>());
@@ -264,22 +330,6 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     [setPenaltyPaidAsync, setState, toastMsg, logout],
   );
 
-  const setContributionPaid = useCallback(
-    async (id: string, paid: boolean) => {
-      const key = 'contribution:' + id;
-      if (toggleInFlight.current.has(key)) return;
-      toggleInFlight.current.add(key);
-      try {
-        await setContributionPaidAsync({ id, paid });
-      } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err);
-      } finally {
-        toggleInFlight.current.delete(key);
-      }
-    },
-    [setContributionPaidAsync, setState, toastMsg, logout],
-  );
-
   // Stats itself is fetched via useStatsQuery (React Query), whose
   // team-and-range-scoped key refetches on its own the moment statsRange
   // changes -- this is now a pure UI state update.
@@ -298,12 +348,15 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     deleteAssignment,
     openContribForm,
     saveContrib,
+    openContribCreate,
+    saveContribCreate,
+    deleteContrib,
     setPenaltyPaid,
-    setContributionPaid,
     setStatsRange,
     savingTx,
     savingPenalty,
     savingPenaltyAssign,
     savingContrib,
+    savingContribCreate,
   };
 }
