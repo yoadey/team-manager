@@ -61,8 +61,16 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
   const openTxForm = useCallback(
     (tx?: Transaction) => {
       const f: TxFormValues = tx
-        ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category }
-        : { type: 'income', title: '', amount: '', category: '', contributionId: '', penaltyAssignmentId: '' };
+        ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category, note: tx.note || '' }
+        : {
+            type: 'income',
+            title: '',
+            amount: '',
+            category: '',
+            contributionId: '',
+            penaltyAssignmentId: '',
+            note: '',
+          };
       setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create', formInitial: f } });
     },
     [setState],
@@ -86,6 +94,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
             // txFormSchema.ts's contributionId/penaltyAssignmentId doc comment.
             ...(mode === 'create' && f.contributionId ? { contributionId: f.contributionId } : {}),
             ...(mode === 'create' && f.penaltyAssignmentId ? { penaltyAssignmentId: f.penaltyAssignmentId } : {}),
+            note: f.note?.trim() || '',
           },
         });
         // Don't close a sheet the user has since opened for a different team
@@ -237,7 +246,14 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
 
   const openContribForm = useCallback(
     (c: Contribution) => {
-      const form: ContribFormValues = { id: c.id, label: c.label, amount: String(c.amount), dueDate: c.dueDate || '' };
+      const form: ContribFormValues = {
+        id: c.id,
+        label: c.label,
+        amount: String(c.amount),
+        description: c.description || '',
+        dueDate: c.dueDate || '',
+        archived: c.archived,
+      };
       setState({ sheet: { type: 'contribForm', formInitial: form } });
     },
     [setState],
@@ -250,7 +266,13 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
       try {
         await saveContribAsync({
           id: f.id,
-          payload: { label: f.label.trim(), amount: Number(f.amount), ...(f.dueDate ? { dueDate: f.dueDate } : {}) },
+          payload: {
+            label: f.label.trim(),
+            amount: Number(f.amount),
+            description: f.description?.trim() || '',
+            archived: f.archived,
+            ...(f.dueDate ? { dueDate: f.dueDate } : {}),
+          },
         });
         if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
         toastMsg(t('finances.toastContribSaved'));
@@ -260,6 +282,35 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
       }
     },
     [S, setState, saveContribAsync, teamId, toastMsg, logout],
+  );
+
+  // Archives (or restores) every contribution row in a fee group in one user
+  // action, fanning out the existing per-row PATCH -- see design.md's
+  // "archived and description on the row, not a new group table" decision.
+  // Promise.allSettled (not Promise.all) so a partial failure is reported as
+  // exactly that instead of leaving the caller unsure how many rows changed;
+  // re-running the action is idempotent (PATCH archived: true on an
+  // already-archived row is a no-op), so "try again" is always safe.
+  const archiveContribGroup = useCallback(
+    async (contributions: Contribution[], archived: boolean) => {
+      const results = await Promise.allSettled(
+        contributions.map((c) => saveContribAsync({ id: c.id, payload: { label: c.label, amount: c.amount, archived } })),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) {
+        toastMsg(
+          t(archived ? 'finances.toastArchiveGroupPartialFailure' : 'finances.toastUnarchiveGroupPartialFailure', {
+            failed,
+            total: contributions.length,
+          }),
+          undefined,
+          'error',
+        );
+      } else {
+        toastMsg(t(archived ? 'finances.toastArchiveGroupSuccess' : 'finances.toastUnarchiveGroupSuccess'));
+      }
+    },
+    [saveContribAsync, toastMsg],
   );
 
   const openContribCreate = useCallback(() => {
@@ -329,6 +380,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     deleteAssignment,
     openContribForm,
     saveContrib,
+    archiveContribGroup,
     openContribCreate,
     saveContribCreate,
     deleteContrib,

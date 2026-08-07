@@ -22,6 +22,7 @@ export interface SaveTxInput {
     category: string;
     contributionId?: string;
     penaltyAssignmentId?: string;
+    note?: string;
   };
 }
 
@@ -110,7 +111,7 @@ export function useDeleteAssignmentMutation(api: typeof defaultApi) {
 
 export interface SaveContribInput {
   id: string;
-  payload: { label: string; amount: number; dueDate?: string };
+  payload: { label: string; description?: string; amount: number; dueDate?: string; archived?: boolean };
 }
 
 export function useSaveContribMutation(api: typeof defaultApi, teamId: string | null) {
@@ -124,6 +125,7 @@ export function useSaveContribMutation(api: typeof defaultApi, teamId: string | 
 
 export interface CreateContribInput {
   label: string;
+  description?: string;
   amount: number;
   dueDate?: string;
   userIds: string[];

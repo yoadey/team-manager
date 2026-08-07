@@ -303,6 +303,38 @@ func TestHandler_CreateTransaction_RejectsOversizedCategory(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestHandler_CreateTransaction_RejectsOversizedNote(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		createTransaction: func(_ context.Context, _ uuid.UUID, _ *gen.CreateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when note validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	note := strings.Repeat("x", 10001)
+	body := &gen.CreateTransactionJSONRequestBody{Type: gen.Income, Title: "Membership fee", Amount: 100, Note: &note}
+	_, err := h.CreateTransaction(authedCtx(), gen.CreateTransactionRequestObject{TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+}
+
+func TestHandler_UpdateTransaction_RejectsOversizedNote(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		updateTransaction: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateTransactionJSONRequestBody) (*gen.Transaction, error) {
+			t.Fatal("service should not be called when note validation fails")
+			return nil, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+
+	note := strings.Repeat("x", 10001)
+	body := &gen.UpdateTransactionJSONRequestBody{Note: &note}
+	_, err := h.UpdateTransaction(authedCtx(), gen.UpdateTransactionRequestObject{TransactionId: testTxID, TeamId: testTeamID, Body: body})
+	require.Error(t, err)
+}
+
 func TestHandler_CreateTransaction_RejectsInvalidType(t *testing.T) {
 	t.Parallel()
 	svc := &mockFinanceService{
@@ -502,6 +534,70 @@ func TestHandler_CreateContributions_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
 	require.Len(t, got, 1)
 	assert.Equal(t, "Beitrag", got[0].Name)
+}
+
+func TestHandler_CreateContributions_RejectsOversizedDescription(t *testing.T) {
+	t.Parallel()
+	h := finances.NewHandler(&mockFinanceService{
+		createContributions: func(_ context.Context, _ uuid.UUID, _ *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error) {
+			t.Fatal("service should not be called when description validation fails")
+			return nil, nil
+		},
+	}, slog.Default(), nil)
+
+	description := strings.Repeat("x", 2001)
+	_, err := h.CreateContributions(authedCtx(), gen.CreateContributionsRequestObject{
+		TeamId: testTeamID,
+		Body: &gen.CreateContributionsJSONRequestBody{
+			Name: "Beitrag", Description: &description, Amount: 2500, UserIds: []uuid.UUID{testUserID},
+		},
+	})
+	require.Error(t, err)
+}
+
+func TestHandler_UpdateContribution_RejectsOversizedDescription(t *testing.T) {
+	t.Parallel()
+	h := finances.NewHandler(&mockFinanceService{
+		updateContribution: func(_ context.Context, _, _ uuid.UUID, _ *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
+			t.Fatal("service should not be called when description validation fails")
+			return nil, nil
+		},
+	}, slog.Default(), nil)
+
+	description := strings.Repeat("x", 2001)
+	_, err := h.UpdateContribution(authedCtx(), gen.UpdateContributionRequestObject{
+		TeamId: testTeamID, ContributionId: testTxID,
+		Body: &gen.UpdateContributionJSONRequestBody{Description: &description},
+	})
+	require.Error(t, err)
+}
+
+// TestHandler_UpdateContribution_ArchivedRoundTrips verifies the archived
+// flag flows from the request body through to the response unchanged.
+func TestHandler_UpdateContribution_ArchivedRoundTrips(t *testing.T) {
+	t.Parallel()
+	svc := &mockFinanceService{
+		updateContribution: func(_ context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
+			require.NotNil(t, body.Archived)
+			return &gen.Contribution{
+				Id: id, TeamId: teamID, UserId: testUserID,
+				Name: "Beitrag", Amount: 2500, PaidAmount: 0, Status: gen.Open, Archived: *body.Archived,
+			}, nil
+		},
+	}
+	h := finances.NewHandler(svc, slog.Default(), nil)
+	archived := true
+	resp, err := h.UpdateContribution(authedCtx(), gen.UpdateContributionRequestObject{
+		TeamId: testTeamID, ContributionId: testTxID,
+		Body: &gen.UpdateContributionJSONRequestBody{Archived: &archived},
+	})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	require.NoError(t, resp.VisitUpdateContributionResponse(w))
+	var got gen.Contribution
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	assert.True(t, got.Archived)
 }
 
 func TestHandler_DeleteContribution_NotFoundReturns404(t *testing.T) {

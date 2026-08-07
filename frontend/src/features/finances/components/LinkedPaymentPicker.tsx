@@ -4,6 +4,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Av, Sym, TextInput } from '@/components/ui';
 import type { Contribution, PenaltyAssignment } from '../types';
+import { ContribLinkMatrixDialog } from './ContribLinkMatrixDialog';
 import { getIntlLocale, t } from '@/i18n';
 
 type Tk = ReturnType<typeof buildTokens>;
@@ -42,18 +43,12 @@ export function LinkedPaymentPicker({
   const [expanded, setExpanded] = useState(false);
   const [kind, setKind] = useState<Kind>('contribution');
   const [query, setQuery] = useState('');
+  const [matrixOpen, setMatrixOpen] = useState(false);
 
   const selectedContrib = contributionId ? contributions.find((c) => c.id === contributionId) : undefined;
   const selectedAssignment = penaltyAssignmentId ? assignments.find((a) => a.id === penaltyAssignmentId) : undefined;
 
   const q = query.trim().toLowerCase();
-  const filteredContribs = useMemo(
-    () =>
-      contributions
-        .filter((c) => !q || (c.name ?? '').toLowerCase().includes(q) || c.label.toLowerCase().includes(q))
-        .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', getIntlLocale()) || a.label.localeCompare(b.label, getIntlLocale())),
-    [contributions, q],
-  );
   const filteredAssignments = useMemo(
     () =>
       assignments
@@ -150,7 +145,6 @@ export function LinkedPaymentPicker({
     ['contribution', t('finances.linkedPickerKindContrib'), contributions.length],
     ['penalty', t('finances.linkedPickerKindPenalty'), assignments.length],
   ];
-  const rows = kind === 'contribution' ? filteredContribs : filteredAssignments;
 
   return (
     <Box
@@ -200,62 +194,96 @@ export function LinkedPaymentPicker({
           );
         })}
       </Box>
-      <TextInput
-        name="linkedPaymentSearch"
-        placeholder={t('finances.linkedPickerSearchPlaceholder')}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <Box role="listbox" sx={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
-        {rows.length ? (
-          rows.map((row) => {
-            const isContrib = kind === 'contribution';
-            const c = isContrib ? (row as Contribution) : undefined;
-            const a = isContrib ? undefined : (row as PenaltyAssignment);
-            const open = c ? c.amount - c.paidAmount : (a?.amount ?? 0) - (a?.paidAmount ?? 0);
-            return (
-              <ButtonBase
-                key={row.id}
-                type="button"
-                role="option"
-                onClick={() => {
-                  if (c) onSelectContribution(c.id);
-                  else if (a) onSelectPenalty(a.id);
-                  setExpanded(false);
-                  setQuery('');
-                }}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  p: '8px 10px',
-                  borderRadius: '10px',
-                  textAlign: 'left',
-                  justifyContent: 'flex-start',
-                  border: `1px solid ${NEUTRAL.line3}`,
-                }}
-              >
-                <Av name={c ? c.name : a?.name} photo={c ? c.photo : a?.photo} color={c ? c.avatarColor : a?.avatarColor} size={28} />
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Box sx={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {c ? c.name : a?.name}
-                  </Box>
-                  <Box sx={{ fontSize: '11px', color: NEUTRAL.faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {c ? c.label : a?.label}
-                  </Box>
-                </Box>
-                <Box component="span" sx={{ fontSize: '12px', fontWeight: 700, color: NEUTRAL.secondary, flex: '0 0 auto' }}>
-                  {fmtMoney(open)}
-                </Box>
-              </ButtonBase>
-            );
-          })
-        ) : (
-          <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, textAlign: 'center', p: '12px' }}>
-            {t('finances.linkedPickerEmpty')}
+      {kind === 'contribution' ? (
+        <>
+          <ButtonBase
+            type="button"
+            onClick={() => setMatrixOpen(true)}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              p: '11px',
+              borderRadius: '11px',
+              border: `1.5px solid ${tk.primary}`,
+              color: tk.primary,
+              fontWeight: 700,
+              fontSize: '13px',
+              cursor: 'pointer',
+            }}
+          >
+            <Sym name="grid_on" size={17} color={tk.primary} />
+            {t('finances.linkedPickerMatrixOpen')}
+          </ButtonBase>
+          <ContribLinkMatrixDialog
+            tk={tk}
+            open={matrixOpen}
+            onClose={() => setMatrixOpen(false)}
+            contributions={contributions}
+            selectedId={contributionId}
+            onSelect={(id) => {
+              onSelectContribution(id);
+              setExpanded(false);
+            }}
+          />
+        </>
+      ) : (
+        <>
+          <TextInput
+            name="linkedPaymentSearch"
+            placeholder={t('finances.linkedPickerSearchPlaceholder')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <Box role="listbox" sx={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto' }}>
+            {filteredAssignments.length ? (
+              filteredAssignments.map((a) => {
+                const open = (a.amount ?? 0) - a.paidAmount;
+                return (
+                  <ButtonBase
+                    key={a.id}
+                    type="button"
+                    role="option"
+                    onClick={() => {
+                      onSelectPenalty(a.id);
+                      setExpanded(false);
+                      setQuery('');
+                    }}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      p: '8px 10px',
+                      borderRadius: '10px',
+                      textAlign: 'left',
+                      justifyContent: 'flex-start',
+                      border: `1px solid ${NEUTRAL.line3}`,
+                    }}
+                  >
+                    <Av name={a.name} photo={a.photo} color={a.avatarColor} size={28} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {a.name}
+                      </Box>
+                      <Box sx={{ fontSize: '11px', color: NEUTRAL.faint, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {a.label}
+                      </Box>
+                    </Box>
+                    <Box component="span" sx={{ fontSize: '12px', fontWeight: 700, color: NEUTRAL.secondary, flex: '0 0 auto' }}>
+                      {fmtMoney(open)}
+                    </Box>
+                  </ButtonBase>
+                );
+              })
+            ) : (
+              <Box sx={{ fontSize: '12px', color: NEUTRAL.faint, textAlign: 'center', p: '12px' }}>
+                {t('finances.linkedPickerEmpty')}
+              </Box>
+            )}
           </Box>
-        )}
-      </Box>
+        </>
+      )}
     </Box>
   );
 }

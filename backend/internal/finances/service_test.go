@@ -25,7 +25,7 @@ type mockRepo struct {
 	listTransactionsFn               func(ctx context.Context, teamID uuid.UUID) ([]finances.TransactionRow, error)
 	listTransactionsPageFn           func(ctx context.Context, teamID uuid.UUID, limit int, cur *finances.TxCursor) ([]finances.TransactionRow, error)
 	sumTransactionsFn                func(ctx context.Context, teamID uuid.UUID) (int64, int64, error)
-	createTransactionFn              func(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*finances.TransactionRow, error)
+	createTransactionFn              func(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID, note *string) (*finances.TransactionRow, error)
 	updateTransactionFn              func(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error)
 	deleteTransactionFn              func(ctx context.Context, id, teamID uuid.UUID) error
 	listPenaltiesFn                  func(ctx context.Context, teamID uuid.UUID) ([]finances.PenaltyRow, error)
@@ -42,7 +42,7 @@ type mockRepo struct {
 	userIsMemberOfTeamFn             func(ctx context.Context, userID, teamID uuid.UUID) (bool, error)
 	listContributionsFn              func(ctx context.Context, teamID uuid.UUID) ([]finances.ContributionRow, error)
 	countOpenContributionsFn         func(ctx context.Context, teamID uuid.UUID) (int, error)
-	createContributionsFn            func(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]finances.ContributionRow, error)
+	createContributionsFn            func(ctx context.Context, teamID uuid.UUID, name string, description *string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]finances.ContributionRow, error)
 	updateContributionFn             func(ctx context.Context, id, teamID uuid.UUID, patch finances.ContributionPatch) (*finances.ContributionRow, error)
 	deleteContributionFn             func(ctx context.Context, id, teamID uuid.UUID) error
 	contributionBelongsToTeamFn      func(ctx context.Context, contributionID, teamID uuid.UUID) (bool, error)
@@ -80,8 +80,8 @@ func (m *mockRepo) CountTransactions(ctx context.Context, teamID uuid.UUID) (int
 	return 0, nil
 }
 
-func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*finances.TransactionRow, error) {
-	return m.createTransactionFn(ctx, teamID, txType, title, amount, date, category, contributionID, penaltyAssignmentID)
+func (m *mockRepo) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID, note *string) (*finances.TransactionRow, error) {
+	return m.createTransactionFn(ctx, teamID, txType, title, amount, date, category, contributionID, penaltyAssignmentID, note)
 }
 
 func (m *mockRepo) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error) {
@@ -174,8 +174,8 @@ func (m *mockRepo) CountContributions(ctx context.Context, teamID uuid.UUID) (in
 	return 0, nil
 }
 
-func (m *mockRepo) CreateContributions(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]finances.ContributionRow, error) {
-	return m.createContributionsFn(ctx, teamID, name, amount, dueDate, userIDs)
+func (m *mockRepo) CreateContributions(ctx context.Context, teamID uuid.UUID, name string, description *string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]finances.ContributionRow, error) {
+	return m.createContributionsFn(ctx, teamID, name, description, amount, dueDate, userIDs)
 }
 
 func (m *mockRepo) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, patch finances.ContributionPatch) (*finances.ContributionRow, error) {
@@ -261,7 +261,7 @@ func TestService_CreateTransaction(t *testing.T) {
 	category := "equipment"
 	var capturedAmount int64
 	repo := &mockRepo{
-		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, gotCategory *string, _, _ *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, gotCategory *string, _, _ *uuid.UUID, _ *string) (*finances.TransactionRow, error) {
 			assert.Equal(t, teamID, gotTeamID)
 			assert.Equal(t, "expense", txType)
 			assert.Equal(t, &category, gotCategory)
@@ -291,7 +291,7 @@ func TestService_CreateTransaction_UsesClientDateWhenProvided(t *testing.T) {
 	want := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
 	var gotDate time.Time
 	repo := &mockRepo{
-		createTransactionFn: func(_ context.Context, _ uuid.UUID, txType, title string, amount int64, date time.Time, cat *string, _, _ *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, _ uuid.UUID, txType, title string, amount int64, date time.Time, cat *string, _, _ *uuid.UUID, _ *string) (*finances.TransactionRow, error) {
 			gotDate = date
 			return &finances.TransactionRow{ID: uuid.New(), TeamID: teamID, Type: txType, Title: title, Amount: amount, Date: date, Category: cat}, nil
 		},
@@ -327,6 +327,28 @@ func TestService_UpdateTransaction_PassesDatePatch(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, gotPatch.Date)
 	assert.Equal(t, want, *gotPatch.Date)
+}
+
+func TestService_UpdateTransaction_PassesNotePatch(t *testing.T) {
+	t.Parallel()
+
+	want := "Bar erhalten, Quittung Nr. 12"
+	var gotPatch finances.TransactionPatch
+	repo := &mockRepo{
+		updateTransactionFn: func(_ context.Context, id, teamID uuid.UUID, patch finances.TransactionPatch) (*finances.TransactionRow, error) {
+			gotPatch = patch
+			return &finances.TransactionRow{ID: id, TeamID: teamID, Type: "income", Title: "x", Amount: 1, Note: patch.Note}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.UpdateTransactionJSONRequestBody{Note: &want}
+	result, err := svc.UpdateTransaction(context.Background(), uuid.New(), uuid.New(), body)
+	require.NoError(t, err)
+	require.NotNil(t, gotPatch.Note)
+	assert.Equal(t, want, *gotPatch.Note)
+	require.NotNil(t, result.Note)
+	assert.Equal(t, want, *result.Note)
 }
 
 // ─── ListTransactions (keyset pagination) ────────────────────────────────────
@@ -413,7 +435,7 @@ func TestService_CreateTransaction_RejectsAtCap(t *testing.T) {
 	teamID := uuid.New()
 	repo := &mockRepo{
 		countTransactionsFn: func(context.Context, uuid.UUID) (int, error) { return 100_000, nil },
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID, *string) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called once the team is at the transaction cap")
 			return nil, nil
 		},
@@ -833,6 +855,36 @@ func TestService_ContributionStatus_DerivedFromPaidAmount(t *testing.T) {
 	}
 }
 
+// TestService_UpdateContribution_PassesDescriptionAndArchivedPatch verifies
+// that description/archived from the request body reach the repository
+// patch, independent of name/amount/dueDate.
+func TestService_UpdateContribution_PassesDescriptionAndArchivedPatch(t *testing.T) {
+	t.Parallel()
+
+	teamID, id := uuid.New(), uuid.New()
+	wantDesc := "Deckt Startgeld ab."
+	wantArchived := true
+	var gotPatch finances.ContributionPatch
+	repo := &mockRepo{
+		updateContributionFn: func(_ context.Context, gotID, gotTeamID uuid.UUID, patch finances.ContributionPatch) (*finances.ContributionRow, error) {
+			gotPatch = patch
+			return &finances.ContributionRow{ID: gotID, TeamID: gotTeamID, Description: patch.Description, Archived: wantArchived}, nil
+		},
+	}
+
+	svc := finances.NewService(repo, pagination.New(nil), slog.Default())
+	body := &gen.UpdateContributionJSONRequestBody{Description: &wantDesc, Archived: &wantArchived}
+	result, err := svc.UpdateContribution(context.Background(), id, teamID, body)
+	require.NoError(t, err)
+	require.NotNil(t, gotPatch.Description)
+	assert.Equal(t, wantDesc, *gotPatch.Description)
+	require.NotNil(t, gotPatch.Archived)
+	assert.True(t, *gotPatch.Archived)
+	assert.True(t, result.Archived)
+	require.NotNil(t, result.Description)
+	assert.Equal(t, wantDesc, *result.Description)
+}
+
 func TestService_CreateContributions_FansOutToOneRowPerUser(t *testing.T) {
 	t.Parallel()
 
@@ -840,7 +892,7 @@ func TestService_CreateContributions_FansOutToOneRowPerUser(t *testing.T) {
 	userIDs := []uuid.UUID{uuid.New(), uuid.New()}
 	var gotUserIDs []uuid.UUID
 	repo := &mockRepo{
-		createContributionsFn: func(_ context.Context, gotTeamID uuid.UUID, name string, amount int64, dueDate *time.Time, ids []uuid.UUID) ([]finances.ContributionRow, error) {
+		createContributionsFn: func(_ context.Context, gotTeamID uuid.UUID, name string, _ *string, amount int64, dueDate *time.Time, ids []uuid.UUID) ([]finances.ContributionRow, error) {
 			assert.Equal(t, teamID, gotTeamID)
 			assert.Equal(t, "Turnier", name)
 			assert.Equal(t, int64(1500), amount)
@@ -870,7 +922,7 @@ func TestService_CreateContributions_RejectsAtCap(t *testing.T) {
 	teamID := uuid.New()
 	repo := &mockRepo{
 		countContributionsFn: func(context.Context, uuid.UUID) (int, error) { return 100_000, nil },
-		createContributionsFn: func(context.Context, uuid.UUID, string, int64, *time.Time, []uuid.UUID) ([]finances.ContributionRow, error) {
+		createContributionsFn: func(context.Context, uuid.UUID, string, *string, int64, *time.Time, []uuid.UUID) ([]finances.ContributionRow, error) {
 			t.Fatal("CreateContributions must not be called once the team is at the contribution cap")
 			return nil, nil
 		},
@@ -904,7 +956,7 @@ func TestService_CreateTransaction_RejectsExpenseLinkedToContribution(t *testing
 
 	teamID := uuid.New()
 	repo := &mockRepo{
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID, *string) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called when an expense is linked to a contribution")
 			return nil, nil
 		},
@@ -922,7 +974,7 @@ func TestService_CreateTransaction_RejectsContributionFromAnotherTeam(t *testing
 	teamID := uuid.New()
 	repo := &mockRepo{
 		contributionBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID, *string) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called when the contribution isn't in the team")
 			return nil, nil
 		},
@@ -942,7 +994,7 @@ func TestService_CreateTransaction_LinksIncomeToContribution(t *testing.T) {
 	var gotContributionID *uuid.UUID
 	repo := &mockRepo{
 		contributionBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
-		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, _ *string, gotCID, _ *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, _ *string, gotCID, _ *uuid.UUID, _ *string) (*finances.TransactionRow, error) {
 			gotContributionID = gotCID
 			return &finances.TransactionRow{ID: uuid.New(), TeamID: gotTeamID, Type: txType, Title: title, Amount: amount, ContributionID: gotCID}, nil
 		},
@@ -964,7 +1016,7 @@ func TestService_CreateTransaction_RejectsExpenseLinkedToPenaltyAssignment(t *te
 
 	teamID := uuid.New()
 	repo := &mockRepo{
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID, *string) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called when an expense is linked to a penalty assignment")
 			return nil, nil
 		},
@@ -982,7 +1034,7 @@ func TestService_CreateTransaction_RejectsPenaltyAssignmentFromAnotherTeam(t *te
 	teamID := uuid.New()
 	repo := &mockRepo{
 		penaltyAssignmentBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return false, nil },
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID, *string) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called when the penalty assignment isn't in the team")
 			return nil, nil
 		},
@@ -1002,7 +1054,7 @@ func TestService_CreateTransaction_LinksIncomeToPenaltyAssignment(t *testing.T) 
 	var gotAssignmentID *uuid.UUID
 	repo := &mockRepo{
 		penaltyAssignmentBelongsToTeamFn: func(context.Context, uuid.UUID, uuid.UUID) (bool, error) { return true, nil },
-		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, _ *string, _, gotPAID *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(_ context.Context, gotTeamID uuid.UUID, txType, title string, amount int64, _ time.Time, _ *string, _, gotPAID *uuid.UUID, _ *string) (*finances.TransactionRow, error) {
 			gotAssignmentID = gotPAID
 			return &finances.TransactionRow{ID: uuid.New(), TeamID: gotTeamID, Type: txType, Title: title, Amount: amount, PenaltyAssignmentID: gotPAID}, nil
 		},
@@ -1025,7 +1077,7 @@ func TestService_CreateTransaction_RejectsBothContributionAndPenaltyAssignment(t
 
 	teamID := uuid.New()
 	repo := &mockRepo{
-		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID) (*finances.TransactionRow, error) {
+		createTransactionFn: func(context.Context, uuid.UUID, string, string, int64, time.Time, *string, *uuid.UUID, *uuid.UUID, *string) (*finances.TransactionRow, error) {
 			t.Fatal("CreateTransaction must not be called when both contributionId and penaltyAssignmentId are set")
 			return nil, nil
 		},

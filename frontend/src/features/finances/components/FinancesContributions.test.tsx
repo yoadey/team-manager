@@ -52,6 +52,8 @@ function makeApp(overrides = {}) {
     state: { contribGroup: null },
     openContribForm: vi.fn(),
     openContribCreate: vi.fn(),
+    askConfirm: vi.fn((cfg: { onConfirm?: () => void }) => cfg.onConfirm?.()),
+    archiveContribGroup: vi.fn(),
     ...overrides,
   };
 }
@@ -82,6 +84,7 @@ function makeContrib(overrides = {}) {
     amount: 20,
     paidAmount: 0,
     status: 'open' as const,
+    archived: false,
     name: 'Anna Müller',
     avatarColor: '#4285F4',
     photo: null,
@@ -367,5 +370,87 @@ describe('FinancesContributions', () => {
     );
     fireEvent.click(screen.getByLabelText('finances.editContribLabel'));
     expect(app.openContribForm).toHaveBeenCalledWith(contrib);
+  });
+
+  it('archived contributions are hidden by default', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib({ archived: true })] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.getByText('finances.contribEmpty')).toBeTruthy();
+    expect(screen.queryByText('Anna Müller')).toBeNull();
+  });
+
+  it('the "show archived" toggle reveals archived contributions', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib({ archived: true })] })}
+        canFin={false}
+      />,
+    );
+    fireEvent.click(screen.getByText('finances.contribShowArchived'));
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+  });
+
+  it('shows an archive-group action for canFin users that archives every row in the group', () => {
+    const app = makeApp();
+    const contribs = [
+      makeContrib({ id: 'c1', name: 'Anna', userId: 'u1' }),
+      makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' }),
+    ];
+    render(
+      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={true} />,
+    );
+    fireEvent.click(screen.getByText('finances.contribArchiveGroupBtn'));
+    expect(app.archiveContribGroup).toHaveBeenCalledWith(contribs, true);
+  });
+
+  it('hides the archive-group action when canFin is false', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.queryByText('finances.contribArchiveGroupBtn')).toBeNull();
+  });
+
+  it('shows the paid-in-excess amount instead of capping display at the fee amount', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib({ status: 'paid', paidAmount: 30, amount: 20 })] })}
+        canFin={false}
+      />,
+    );
+    expect(screen.getByText(/30 €/)).toBeTruthy();
+    expect(screen.getAllByText('finances.contribOverpaid').length).toBeGreaterThan(0);
+  });
+
+  it('switching to the matrix view renders the matrix and hides the list', () => {
+    const app = makeApp();
+    render(
+      <FinancesContributions
+        app={app as never}
+        t={tk}
+        f={makeFinances({ contributions: [makeContrib()] })}
+        canFin={false}
+      />,
+    );
+    fireEvent.click(screen.getByText('finances.contribViewMatrix'));
+    expect(screen.getByText('finances.contribMatrixMemberHeader')).toBeTruthy();
   });
 });

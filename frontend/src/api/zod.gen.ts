@@ -503,6 +503,7 @@ const Transaction = z
     category: z.string().optional(),
     contributionId: z.string().uuid().nullish(),
     penaltyAssignmentId: z.string().uuid().nullish(),
+    note: z.string().nullish(),
   })
   .passthrough();
 const Penalty = z
@@ -546,10 +547,12 @@ const Contribution = z
     teamId: z.string().uuid(),
     userId: z.string().uuid(),
     name: z.string(),
+    description: z.string().nullish(),
     amount: z.number().int(),
     dueDate: z.string().nullish(),
     paidAmount: z.number().int(),
     status: ContributionStatus,
+    archived: z.boolean(),
     memberName: z.string().optional(),
     memberAvatarColor: z.string().optional(),
     hasPhoto: z.boolean().optional(),
@@ -578,6 +581,7 @@ const CreateTransactionRequest = z
     date: z.string().optional(),
     contributionId: z.string().uuid().optional(),
     penaltyAssignmentId: z.string().uuid().optional(),
+    note: z.string().max(10000).optional(),
   })
   .passthrough();
 const UpdateTransactionRequest = z
@@ -587,6 +591,7 @@ const UpdateTransactionRequest = z
     amount: z.number().int().gte(1).lte(100000000),
     category: z.string().max(255),
     date: z.string(),
+    note: z.string().max(10000),
   })
   .partial()
   .passthrough();
@@ -608,6 +613,7 @@ const CreatePenaltyAssignmentRequest = z
 const CreateContributionRequest = z
   .object({
     name: z.string().min(1).max(255),
+    description: z.string().max(2000).optional(),
     amount: z.number().int().gte(1).lte(100000000),
     dueDate: z.string().optional(),
     userIds: z.array(z.string().uuid()).min(1).max(200),
@@ -616,8 +622,10 @@ const CreateContributionRequest = z
 const UpdateContributionRequest = z
   .object({
     name: z.string().min(1).max(255),
+    description: z.string().max(2000),
     amount: z.number().int().gte(1).lte(100000000),
     dueDate: z.string(),
+    archived: z.boolean(),
   })
   .partial()
   .passthrough();

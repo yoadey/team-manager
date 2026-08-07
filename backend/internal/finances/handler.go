@@ -126,6 +126,11 @@ func validateCreateTransactionBody(body *gen.CreateTransactionJSONRequestBody) *
 	if err := validate.PositiveAmount(body.Amount, "amount"); err != nil {
 		return apierror.BadRequest(err.Error())
 	}
+	if body.Note != nil {
+		if err := validate.MaxLen(*body.Note, 10000, "note"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
 	return nil
 }
 
@@ -162,6 +167,40 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	return gen.CreateTransaction201JSONResponse(*t), nil
 }
 
+// validateUpdateTransactionBody runs the field-level checks for
+// UpdateTransaction's request body, split out (mirroring
+// validateCreateTransactionBody) to keep the handler's cyclomatic
+// complexity under the linter's threshold.
+func validateUpdateTransactionBody(body *gen.UpdateTransactionJSONRequestBody) *apierror.APIError {
+	if body.Title != nil {
+		if err := validate.RequireNonEmpty(*body.Title, "title"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+		if err := validate.MaxLen(*body.Title, 255, "title"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
+	if body.Category != nil {
+		if err := validate.MaxLen(*body.Category, 255, "category"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
+	if body.Type != nil && !body.Type.Valid() {
+		return apierror.BadRequest("type: not a valid transaction type")
+	}
+	if body.Amount != nil {
+		if err := validate.PositiveAmount(*body.Amount, "amount"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
+	if body.Note != nil {
+		if err := validate.MaxLen(*body.Note, 10000, "note"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
+	return nil
+}
+
 // UpdateTransaction applies a partial update to a transaction.
 func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransactionRequestObject) (gen.UpdateTransactionResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
@@ -170,26 +209,8 @@ func (h *Handler) UpdateTransaction(ctx context.Context, req gen.UpdateTransacti
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if req.Body.Title != nil {
-		if err := validate.RequireNonEmpty(*req.Body.Title, "title"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-		if err := validate.MaxLen(*req.Body.Title, 255, "title"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-	}
-	if req.Body.Category != nil {
-		if err := validate.MaxLen(*req.Body.Category, 255, "category"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-	}
-	if req.Body.Type != nil && !req.Body.Type.Valid() {
-		return nil, apierror.BadRequest("type: not a valid transaction type")
-	}
-	if req.Body.Amount != nil {
-		if err := validate.PositiveAmount(*req.Body.Amount, "amount"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
+	if apiErr := validateUpdateTransactionBody(req.Body); apiErr != nil {
+		return nil, apiErr
 	}
 	t, err := h.svc.UpdateTransaction(ctx, req.TransactionId, req.TeamId, req.Body)
 	if err != nil {
@@ -384,6 +405,11 @@ func (h *Handler) CreateContributions(ctx context.Context, req gen.CreateContrib
 	if err := validate.MaxLen(req.Body.Name, 255, "name"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
+	if req.Body.Description != nil {
+		if err := validate.MaxLen(*req.Body.Description, 2000, "description"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
 	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
 		return nil, apierror.BadRequest(err.Error())
 	}
@@ -426,6 +452,11 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 			return nil, apierror.BadRequest(err.Error())
 		}
 		if err := validate.MaxLen(*req.Body.Name, 255, "name"); err != nil {
+			return nil, apierror.BadRequest(err.Error())
+		}
+	}
+	if req.Body.Description != nil {
+		if err := validate.MaxLen(*req.Body.Description, 2000, "description"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}

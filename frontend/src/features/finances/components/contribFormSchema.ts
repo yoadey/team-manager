@@ -18,7 +18,9 @@ export const contribFormSchema = z.object({
       });
     }
   }),
+  description: z.string().trim().max(2000).optional().or(z.literal('')),
   dueDate: z.string().optional().or(z.literal('')),
+  archived: z.boolean(),
 });
 
 export type ContribFormValues = z.infer<typeof contribFormSchema>;

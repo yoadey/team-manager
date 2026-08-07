@@ -115,11 +115,14 @@ describe('finance mappers convert amount fields from cents to euros', () => {
       amount: 2500,
       paidAmount: 1000,
       status: 'partial',
+      archived: false,
     });
     expect(c.amount).toBe(25);
     expect(c.paidAmount).toBe(10);
     expect(c.label).toBe('Mitgliedsbeitrag Januar 2025');
     expect(c.status).toBe('partial');
+    expect(c.archived).toBe(false);
+    expect(c.description).toBeNull();
   });
 
   it('mapFinanceOverview converts balance/income/expense/openPenaltySum and nested amounts', () => {

@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Av, Chip, EmptyState, Sym } from '@/components/ui';
 import type { Contribution, FinanceOverview } from '../types';
+import { contributionAmountStatus } from '../contributionStatus';
+import { ContribMatrixView } from './ContribMatrixView';
 import { getIntlLocale, t } from '@/i18n';
 
 type App = ReturnType<typeof useApp>;
@@ -16,12 +19,26 @@ interface Props {
   canFin: boolean;
 }
 
+// Groups by (fee name, due date) -- not name alone, since a treasurer
+// creating the same-named recurring fee period after period (there's no
+// reusable catalog forcing period-differentiated names, see design.md)
+// would otherwise merge unrelated batches into one group, blending their
+// paid/total progress and losing each row's individual due date. Two
+// batches only ever collapse into the same group when they share both
+// name AND due date, which is the actual "same fee, re-touched" case.
+export function groupKey(c: Contribution): string {
+  return c.dueDate ? c.label + ' ' + c.dueDate : c.label;
+}
+
 export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const { state } = app;
-  const contribs = f.contributions || [];
+  const [view, setView] = useState<'list' | 'matrix'>('list');
+  const [showArchived, setShowArchived] = useState(false);
+  const allContribs = f.contributions || [];
+  const contribs = showArchived ? allContribs : allContribs.filter((c) => !c.archived);
 
   const header = (
-    <Box key="hd" sx={{ display: 'flex', justifyContent: 'flex-end', mb: '14px' }}>
+    <Box key="hd" sx={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', mb: '14px' }}>
       {canFin ? (
         <ButtonBase
           onClick={() => app.openContribCreate()}
@@ -46,7 +63,68 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
     </Box>
   );
 
-  if (!contribs.length) {
+  const viewTabs = (
+    <Box
+      key="vt"
+      role="tablist"
+      aria-label={t('finances.contribViewLabel')}
+      sx={{ display: 'flex', gap: '8px', mb: '14px' }}
+    >
+      {(['list', 'matrix'] as const).map((v) => {
+        const s = view === v;
+        return (
+          <ButtonBase
+            key={v}
+            role="tab"
+            aria-selected={s}
+            onClick={() => setView(v)}
+            sx={{
+              p: '8px 14px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              border: '1.5px solid ' + (s ? tk.primary : NEUTRAL.inputBorder),
+              background: s ? tk.primaryContainer : NEUTRAL.card,
+              color: s ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+            }}
+          >
+            {v === 'list' ? t('finances.contribViewList') : t('finances.contribViewMatrix')}
+          </ButtonBase>
+        );
+      })}
+    </Box>
+  );
+
+  const archivedToggle = (
+    <ButtonBase
+      key="arc"
+      role="checkbox"
+      aria-checked={showArchived}
+      onClick={() => setShowArchived((v) => !v)}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        p: '6px 10px',
+        borderRadius: '10px',
+        fontSize: '12px',
+        fontWeight: 600,
+        color: NEUTRAL.secondary,
+        cursor: 'pointer',
+        mb: '14px',
+      }}
+    >
+      <Sym
+        name={showArchived ? 'check_box' : 'check_box_outline_blank'}
+        size={17}
+        color={showArchived ? tk.primary : NEUTRAL.faint}
+      />
+      {t('finances.contribShowArchived')}
+    </ButtonBase>
+  );
+
+  if (!allContribs.length) {
     return (
       <Box key="bei">
         {header}
@@ -55,16 +133,29 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
     );
   }
 
-  // Groups by (fee name, due date) -- not name alone, since a treasurer
-  // creating the same-named recurring fee period after period (there's no
-  // reusable catalog forcing period-differentiated names, see design.md)
-  // would otherwise merge unrelated batches into one group, blending their
-  // paid/total progress and losing each row's individual due date. Two
-  // batches only ever collapse into the same group when they share both
-  // name AND due date, which is the actual "same fee, re-touched" case.
+  if (view === 'matrix') {
+    return (
+      <Box key="bei">
+        {header}
+        {viewTabs}
+        <ContribMatrixView contributions={allContribs.filter((c) => !c.archived)} />
+      </Box>
+    );
+  }
+
+  if (!contribs.length) {
+    return (
+      <Box key="bei">
+        {header}
+        {viewTabs}
+        {archivedToggle}
+        <EmptyState icon="payments" text={t('finances.contribEmpty')} />
+      </Box>
+    );
+  }
+
   // Groups sort soonest-due-first; groups without a due date sort last;
   // ties (including the "no due date" bucket) break alphabetically by name.
-  const groupKey = (c: Contribution) => (c.dueDate ? c.label + ' ' + c.dueDate : c.label);
   const groupLabel: Record<string, string> = {};
   const groupDueDate: Record<string, string | null> = {};
   contribs.forEach((c) => {
@@ -85,6 +176,11 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const rows = contribs
     .filter((c) => groupKey(c) === sel)
     .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', getIntlLocale()));
+  // All rows sharing sel's group key, including archived ones -- used for
+  // the bulk archive/un-archive action, which must act on the whole group
+  // regardless of the "show archived" toggle's current filtering.
+  const allGroupRows = allContribs.filter((c) => groupKey(c) === sel);
+  const groupFullyArchived = allGroupRows.length > 0 && allGroupRows.every((c) => c.archived);
   const paidRows = rows.filter((c) => c.status === 'paid');
   const sum = paidRows.reduce((s, c) => s + c.paidAmount, 0);
   const total = rows.reduce((s, c) => s + c.amount, 0);
@@ -97,10 +193,15 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
         const open = contribs.filter((c) => groupKey(c) === g && c.status !== 'paid').length;
         const statusText = open ? open + ' ' + t('finances.contribOpen') : t('finances.contribPaid');
         const due = groupDueDate[g];
+        // Only reachable with the "show archived" toggle on -- a fully
+        // archived group is otherwise filtered out of `groups` entirely.
+        const archivedGroup = contribs.filter((c) => groupKey(c) === g).every((c) => c.archived);
         // Two groups can share a name (a recurring fee re-created for a new
         // period) and differ only by due date -- show it so the chips stay
         // distinguishable instead of rendering as identical-looking twins.
-        const secondaryText = due ? statusText + ' · ' + fmtDate(due) : statusText;
+        const secondaryText =
+          (archivedGroup ? t('finances.contribArchivedChip') + ' · ' : '') +
+          (due ? statusText + ' · ' + fmtDate(due) : statusText);
         return (
           <ButtonBase
             key={g}
@@ -145,6 +246,35 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
     </Box>
   );
   const dueDate = groupDueDate[sel];
+  const archiveGroupAction = canFin ? (
+    <ButtonBase
+      key="arcg"
+      onClick={() =>
+        app.askConfirm({
+          title: t(groupFullyArchived ? 'finances.contribUnarchiveGroupConfirmTitle' : 'finances.contribArchiveGroupConfirmTitle'),
+          message: t(groupFullyArchived ? 'finances.contribUnarchiveGroupConfirmMsg' : 'finances.contribArchiveGroupConfirmMsg'),
+          confirmLabel: t(groupFullyArchived ? 'finances.contribUnarchiveGroupBtn' : 'finances.contribArchiveGroupBtn'),
+          onConfirm: () => app.archiveContribGroup(allGroupRows, !groupFullyArchived),
+        })
+      }
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        p: '8px 10px',
+        borderRadius: '10px',
+        border: `1px solid ${NEUTRAL.line}`,
+        color: NEUTRAL.secondary,
+        fontSize: '12px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        flex: '0 0 auto',
+      }}
+    >
+      <Sym name={groupFullyArchived ? 'unarchive' : 'archive'} size={16} color={NEUTRAL.secondary} />
+      {t(groupFullyArchived ? 'finances.contribUnarchiveGroupBtn' : 'finances.contribArchiveGroupBtn')}
+    </ButtonBase>
+  ) : null;
   const summary = (
     <Box
       key="sum"
@@ -180,17 +310,27 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       >
         {pct + '%'}
       </Box>
+      {archiveGroupAction}
     </Box>
   );
   const statusMeta = (c: Contribution): { label: string; icon: string; color: string; bg: string } => {
-    if (c.status === 'paid') return { label: t('finances.contribPaid'), icon: 'check_circle', color: NEUTRAL.success, bg: NEUTRAL.successBg };
-    if (c.status === 'partial') return { label: t('finances.contribPartial'), icon: 'incomplete_circle', color: tk.primary, bg: tk.primaryContainer };
+    const info = contributionAmountStatus(c.amount, c.paidAmount);
+    if (info.status === 'overpaid') return { label: t('finances.contribOverpaid'), icon: 'savings', color: NEUTRAL.success, bg: NEUTRAL.successBg };
+    if (info.status === 'paid') return { label: t('finances.contribPaid'), icon: 'check_circle', color: NEUTRAL.success, bg: NEUTRAL.successBg };
+    if (info.status === 'partial') return { label: t('finances.contribPartial'), icon: 'incomplete_circle', color: tk.primary, bg: tk.primaryContainer };
     return { label: t('finances.contribOpen'), icon: 'schedule', color: NEUTRAL.warn, bg: '#FFE5B8' };
   };
   const list = (
     <Box key="l" sx={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {rows.map((c: Contribution) => {
         const meta = statusMeta(c);
+        const info = contributionAmountStatus(c.amount, c.paidAmount);
+        const amountText =
+          info.status === 'overpaid'
+            ? fmtMoney(info.displayAmount) + ' (' + t('finances.contribOverpaidAmount', { amount: fmtMoney(info.excess) }) + ')'
+            : info.status === 'partial'
+              ? fmtMoney(c.paidAmount) + ' / ' + fmtMoney(c.amount)
+              : fmtMoney(c.amount);
         return (
           <Box
             key={c.id}
@@ -214,12 +354,11 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                 }}
+                title={c.description || undefined}
               >
                 {c.name}
               </Box>
-              <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>
-                {c.status === 'partial' ? fmtMoney(c.paidAmount) + ' / ' + fmtMoney(c.amount) : fmtMoney(c.amount)}
-              </Box>
+              <Box sx={{ fontSize: '12px', color: NEUTRAL.faint }}>{amountText}</Box>
             </Box>
             {canFin ? (
               <ButtonBase
@@ -247,6 +386,8 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   return (
     <Box key="bei">
       {header}
+      {viewTabs}
+      {archivedToggle}
       {groupChips}
       {summary}
       {list}

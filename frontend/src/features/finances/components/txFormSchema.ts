@@ -20,6 +20,7 @@ export const txFormSchema = z.object({
     }
   }),
   category: z.string().trim().max(255).optional().or(z.literal('')),
+  note: z.string().trim().max(10000).optional().or(z.literal('')),
   // Only meaningful for type === 'income'; only settable at creation time
   // (TxFormSheet hides the picker in edit mode) -- see
   // CreateTransactionRequest.contributionId's doc comment. Mutually
