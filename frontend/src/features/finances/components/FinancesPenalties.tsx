@@ -72,9 +72,25 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
           .slice()
           .reverse()
           .map((a) => (
-            <ButtonBase
+            // Not a ButtonBase (<button>) -- it must contain the delete
+            // <button> below, and nested <button> elements are invalid HTML.
+            // role="button" + keyboard handling keeps it operable the same
+            // way a real button would be.
+            <Box
               key={a.id}
+              role="button"
+              tabIndex={0}
               onClick={() => app.openPenaltyAssign(a)}
+              onKeyDown={(e) => {
+                // Ignore keydowns bubbling up from the nested delete button
+                // (e.g. Enter/Space while it's focused) -- only the row
+                // itself should activate this.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  app.openPenaltyAssign(a);
+                }
+              }}
               sx={{
                 width: '100%',
                 display: 'flex',
@@ -85,7 +101,6 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                 borderRadius: '14px',
                 p: '10px 13px',
                 textAlign: 'left',
-                justifyContent: 'flex-start',
                 cursor: 'pointer',
               }}
             >
@@ -131,7 +146,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                   <Sym name="delete" size={18} color={NEUTRAL.error} />
                 </ButtonBase>
               ) : null}
-            </ButtonBase>
+            </Box>
           ))
       ) : (
         <EmptyState icon="savings" text={t('finances.penaltyEmpty')} />

@@ -154,6 +154,33 @@ describe('useFinanceActions', () => {
     );
   });
 
+  // Regression: openTxForm's edit-mode formInitial used to omit
+  // contributionId/penaltyAssignmentId, so TxFormSheet's "linked to" info
+  // could never resolve a linked contribution/penalty for an already-linked
+  // transaction reopened for editing -- see finance-detail-linked-entries.
+  it('openTxForm carries an existing contributionId/penaltyAssignmentId into the edit form', () => {
+    const tx = {
+      id: 'tx1',
+      type: 'income',
+      title: 'Beitrag',
+      amount: 25,
+      category: 'Beiträge',
+      contributionId: 'c1',
+      penaltyAssignmentId: null,
+    } as never;
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTxForm(tx);
+    });
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: expect.objectContaining({
+          formInitial: expect.objectContaining({ contributionId: 'c1', penaltyAssignmentId: '' }),
+        }),
+      }),
+    );
+  });
+
   it('saveTx creates transaction in create mode', async () => {
     const formValues = { title: 'Beitrag Jan', amount: '50', type: 'income', category: 'Beiträge' } as TxFormValues;
     stateRef = makeState({

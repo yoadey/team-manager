@@ -185,6 +185,50 @@ describe('FinancesPenalties', () => {
     expect(app.openPenaltyAssign).not.toHaveBeenCalled();
   });
 
+  it('opens the detail view on Enter/Space while the row itself is focused', () => {
+    const app = makeApp();
+    render(
+      <FinancesPenalties
+        app={app as never}
+        t={tk}
+        f={makeFinances({ assignments: [makeAssignment()] })}
+        canFin={false}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('button', { name: /Anna Müller/ }), { key: 'Enter' });
+    expect(app.openPenaltyAssign).toHaveBeenCalledWith(makeAssignment());
+  });
+
+  it('does not open the detail view on Enter while the nested delete button is focused', () => {
+    const app = makeApp();
+    render(
+      <FinancesPenalties
+        app={app as never}
+        t={tk}
+        f={makeFinances({ assignments: [makeAssignment()] })}
+        canFin={true}
+      />,
+    );
+    fireEvent.keyDown(screen.getByLabelText('common.delete'), { key: 'Enter' });
+    expect(app.openPenaltyAssign).not.toHaveBeenCalled();
+  });
+
+  // Regression: the row used to be a ButtonBase (<button>) wrapping the
+  // delete ButtonBase (<button>) -- invalid, nested-interactive-element HTML.
+  it('does not nest the delete button inside another button', () => {
+    const app = makeApp();
+    render(
+      <FinancesPenalties
+        app={app as never}
+        t={tk}
+        f={makeFinances({ assignments: [makeAssignment()] })}
+        canFin={true}
+      />,
+    );
+    const deleteBtn = screen.getByLabelText('common.delete');
+    expect(deleteBtn.closest('button')).toBe(deleteBtn);
+  });
+
   it('renders a paid chip for a paid assignment', () => {
     const app = makeApp();
     render(

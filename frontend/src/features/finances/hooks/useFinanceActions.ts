@@ -61,7 +61,16 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
   const openTxForm = useCallback(
     (tx?: Transaction) => {
       const f: TxFormValues = tx
-        ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category, note: tx.note || '' }
+        ? {
+            id: tx.id,
+            type: tx.type,
+            title: tx.title,
+            amount: String(tx.amount),
+            category: tx.category,
+            contributionId: tx.contributionId || '',
+            penaltyAssignmentId: tx.penaltyAssignmentId || '',
+            note: tx.note || '',
+          }
         : {
             type: 'income',
             title: '',
