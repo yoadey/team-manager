@@ -32,7 +32,7 @@ export function groupKey(c: Contribution): string {
 
 export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
   const { state } = app;
-  const [view, setView] = useState<'list' | 'matrix'>('list');
+  const [view, setView] = useState<'list' | 'matrix'>('matrix');
   const [showArchived, setShowArchived] = useState(false);
   const allContribs = f.contributions || [];
   const contribs = showArchived ? allContribs : allContribs.filter((c) => !c.archived);
@@ -138,7 +138,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       <Box key="bei">
         {header}
         {viewTabs}
-        <ContribMatrixView contributions={allContribs.filter((c) => !c.archived)} />
+        <ContribMatrixView app={app} contributions={allContribs.filter((c) => !c.archived)} />
       </Box>
     );
   }

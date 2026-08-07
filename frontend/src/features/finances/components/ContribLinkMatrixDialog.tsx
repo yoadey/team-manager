@@ -3,7 +3,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import Dialog from '@mui/material/Dialog';
 import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
-import { Av, EmptyState, Sym, TextInput } from '@/components/ui';
+import { EmptyState, Sym, TextInput } from '@/components/ui';
 import type { Contribution } from '../types';
 import { groupKey } from './FinancesContributions';
 import { getIntlLocale, t } from '@/i18n';
@@ -78,7 +78,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
 
   const thBase = {
     borderBottom: `1px solid ${NEUTRAL.line}`,
-    padding: '8px 6px',
+    padding: '6px 3px',
     fontSize: '12px',
     fontWeight: 700,
     color: NEUTRAL.secondary,
@@ -90,7 +90,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
     zIndex: 1,
     background: NEUTRAL.card,
     textAlign: 'left',
-    minWidth: '140px',
+    minWidth: '110px',
     boxShadow: `1px 0 0 ${NEUTRAL.line}`,
   } as const;
 
@@ -132,7 +132,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                         component="th"
                         scope="col"
                         title={due ? groupLabel[g] + ' · ' + fmtDate(due) : groupLabel[g]}
-                        sx={{ ...thBase, textAlign: 'center', minWidth: '92px', maxWidth: '130px' }}
+                        sx={{ ...thBase, textAlign: 'center', minWidth: '72px', maxWidth: '100px' }}
                       >
                         <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{groupLabel[g]}</Box>
                         {due ? <Box sx={{ fontSize: '10px', color: NEUTRAL.faint, fontWeight: 500 }}>{fmtDate(due)}</Box> : null}
@@ -147,18 +147,15 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                     <Box
                       component="th"
                       scope="row"
-                      sx={{ ...nameColSx, borderBottom: `1px solid ${NEUTRAL.line}`, padding: '6px 8px', fontWeight: 600, fontSize: '13px' }}
+                      sx={{ ...nameColSx, borderBottom: `1px solid ${NEUTRAL.line}`, padding: '5px 6px', fontWeight: 600, fontSize: '13px' }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Av name={m.name} photo={m.photo} color={m.avatarColor} size={26} />
-                        <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</Box>
-                      </Box>
+                      <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.name}</Box>
                     </Box>
                     {groups.map((g) => {
                       const c = cells[m.userId]?.[g];
                       if (!c) {
                         return (
-                          <Box key={g} component="td" sx={{ borderBottom: `1px solid ${NEUTRAL.line}`, textAlign: 'center', padding: '6px' }}>
+                          <Box key={g} component="td" sx={{ borderBottom: `1px solid ${NEUTRAL.line}`, textAlign: 'center', padding: '3px 2px' }}>
                             <Sym name="remove" size={16} color={NEUTRAL.line3} />
                           </Box>
                         );
@@ -166,7 +163,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                       const sel = c.id === selectedId;
                       const owed = c.amount - c.paidAmount;
                       return (
-                        <Box key={g} component="td" sx={{ borderBottom: `1px solid ${NEUTRAL.line}`, textAlign: 'center', padding: '4px' }}>
+                        <Box key={g} component="td" sx={{ borderBottom: `1px solid ${NEUTRAL.line}`, textAlign: 'center', padding: '2px' }}>
                           <ButtonBase
                             type="button"
                             role="checkbox"
@@ -182,8 +179,8 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                               alignItems: 'center',
                               gap: '2px',
                               width: '100%',
-                              p: '6px 4px',
-                              borderRadius: '10px',
+                              p: '5px 2px',
+                              borderRadius: 0,
                               cursor: 'pointer',
                               border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
                               background: sel ? tk.primaryContainer : NEUTRAL.card,
@@ -194,7 +191,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                               sx={{
                                 width: '16px',
                                 height: '16px',
-                                borderRadius: '4px',
+                                borderRadius: 0,
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',

@@ -300,6 +300,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       <Field label={t('finances.txFieldAmount')} required error={!!errors.amount} errorText={errors.amount?.message}>
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
+      <Field label={t('finances.txFieldDate')} required error={!!errors.date} errorText={errors.date?.message}>
+        <TextInput type="date" {...register('date')} />
+      </Field>
       <TxLinkedPicker
         show={!edit && type === 'income'}
         tk={tk}

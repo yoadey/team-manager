@@ -67,6 +67,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
             title: tx.title,
             amount: String(tx.amount),
             category: tx.category,
+            date: tx.date,
             contributionId: tx.contributionId || '',
             penaltyAssignmentId: tx.penaltyAssignmentId || '',
             note: tx.note || '',
@@ -76,11 +77,34 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
             title: '',
             amount: '',
             category: '',
+            date: todayStr(),
             contributionId: '',
             penaltyAssignmentId: '',
             note: '',
           };
       setState({ sheet: { type: 'txForm', mode: tx ? 'edit' : 'create', formInitial: f } });
+    },
+    [setState],
+  );
+
+  // Pre-links a fresh income transaction to a matrix cell's contribution --
+  // see openspec/changes/finance-matrix-transactions. Only reachable for a
+  // contribution with no payment booked yet (ContribMatrixView routes an
+  // already-paid-into cell to openContribForm instead), so the amount is
+  // always the fee's full amount at this point.
+  const openTxFormForContribution = useCallback(
+    (c: Contribution) => {
+      const f: TxFormValues = {
+        type: 'income',
+        title: c.label,
+        amount: String(c.amount - c.paidAmount),
+        category: '',
+        date: todayStr(),
+        contributionId: c.id,
+        penaltyAssignmentId: '',
+        note: '',
+      };
+      setState({ sheet: { type: 'txForm', mode: 'create', formInitial: f } });
     },
     [setState],
   );
@@ -99,6 +123,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
             title: f.title.trim(),
             amount: Number(f.amount),
             category: f.category || '',
+            date: f.date,
             // Only meaningful (and only sent) on create -- see
             // txFormSchema.ts's contributionId/penaltyAssignmentId doc comment.
             ...(mode === 'create' && f.contributionId ? { contributionId: f.contributionId } : {}),
@@ -394,6 +419,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
 
   return {
     openTxForm,
+    openTxFormForContribution,
     saveTx,
     deleteTx,
     openPenaltyCatalog,

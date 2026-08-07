@@ -43,6 +43,7 @@ function makeApp(
       title: '',
       amount: '',
       category: '',
+      date: '2025-06-01',
       id: undefined,
       contributionId: '',
       penaltyAssignmentId: '',
@@ -335,25 +336,27 @@ describe('TxFormSheet', () => {
     it('does not render when there are no open contributions or penalty assignments', () => {
       const { app, formInitial } = makeApp({ title: '', amount: '' });
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
-      expect(screen.queryByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeNull();
+      expect(screen.queryByText('Verknüpfen mit')).toBeNull();
     });
 
     it('does not render in edit mode even when open contributions exist', () => {
       const { app, formInitial } = makeApp({ title: 'Test', amount: '10', id: 'tx-1' }, [], [makeContribution()]);
       render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
-      expect(screen.queryByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeNull();
+      expect(screen.queryByText('Verknüpfen mit')).toBeNull();
     });
 
     it('does not render for expense transactions', () => {
       const { app, formInitial } = makeApp({ type: 'expense' }, [], [makeContribution()]);
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
-      expect(screen.queryByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeNull();
+      expect(screen.queryByText('Verknüpfen mit')).toBeNull();
     });
 
-    it('shows a collapsed toggle when open fees or fines exist', () => {
+    it('shows the heading with both linking buttons directly, no collapsed toggle', () => {
       const { app, formInitial } = makeApp({ title: '', amount: '' }, [], [makeContribution()]);
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
-      expect(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeTruthy();
+      expect(screen.getByText('Verknüpfen mit')).toBeTruthy();
+      expect(screen.getByText('Beiträge')).toBeTruthy();
+      expect(screen.getByText('Strafen')).toBeTruthy();
     });
 
     it('lets the user search and select an open contribution, saving contributionId on submit', async () => {
@@ -364,12 +367,15 @@ describe('TxFormSheet', () => {
       );
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
 
-      fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-      fireEvent.click(screen.getByText('Matrix öffnen'));
+      fireEvent.click(screen.getByText('Beiträge'));
       fireEvent.change(screen.getByPlaceholderText('Mitglied oder Beitrag suchen…'), {
         target: { value: 'Anna' },
       });
       fireEvent.click(screen.getByRole('checkbox'));
+      // The MUI dialog's exit transition/aria-hidden cleanup isn't
+      // synchronous with the click -- wait for it to fully close before
+      // interacting with the rest of the page again.
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
       fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
       await waitFor(() => {
@@ -377,7 +383,7 @@ describe('TxFormSheet', () => {
       });
     });
 
-    it('lets the user switch to the penalty tab and select an open penalty assignment', async () => {
+    it('lets the user open the penalty popup and select an open penalty assignment', async () => {
       const { app, formInitial } = makeApp(
         { title: 'Strafe', amount: '5' },
         [],
@@ -386,9 +392,9 @@ describe('TxFormSheet', () => {
       );
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
 
-      fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-      fireEvent.click(screen.getByText(/Strafen \(1\)/));
+      fireEvent.click(screen.getByText('Strafen'));
       fireEvent.click(screen.getByText('Ben Schmidt'));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
       fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
       await waitFor(() => {
@@ -404,16 +410,37 @@ describe('TxFormSheet', () => {
       );
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
 
-      fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-      fireEvent.click(screen.getByText('Matrix öffnen'));
+      fireEvent.click(screen.getByText('Beiträge'));
       fireEvent.click(screen.getByRole('checkbox'));
-      expect(screen.getByText(/Anna Müller/)).toBeTruthy();
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(screen.getAllByText(/Anna Müller/).length).toBeGreaterThan(0);
 
       fireEvent.click(screen.getByLabelText('Verknüpfung entfernen'));
 
       fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
       await waitFor(() => {
         expect(app.saveTx).toHaveBeenCalledWith(expect.objectContaining({ contributionId: '' }));
+      });
+    });
+  });
+
+  describe('date field', () => {
+    it('renders a date input pre-filled from formInitial', () => {
+      const { app, formInitial } = makeApp({ title: 'Test', amount: '10', date: '2025-04-02' });
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+      const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+      expect(dateInput).toBeTruthy();
+      expect(dateInput.value).toBe('2025-04-02');
+    });
+
+    it('submits the chosen date along with the rest of the transaction', async () => {
+      const { app, formInitial } = makeApp({ title: 'Beitrag', amount: '25', date: '2025-04-02' });
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+      const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement;
+      fireEvent.change(dateInput, { target: { value: '2025-04-15' } });
+      fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
+      await waitFor(() => {
+        expect(app.saveTx).toHaveBeenCalledWith(expect.objectContaining({ date: '2025-04-15' }));
       });
     });
   });

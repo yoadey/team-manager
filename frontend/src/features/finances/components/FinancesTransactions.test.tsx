@@ -24,12 +24,21 @@ vi.mock('@/styles/tokens', () => ({
     primaryText: '#212121',
     onSurfaceVariant: '#666',
     faint: '#999',
+    inputBorder: '#ccc',
   },
 }));
 
-vi.mock('@/i18n', () => ({ t: vi.fn().mockImplementation((key) => key) }));
+vi.mock('@/i18n', () => ({
+  t: vi.fn().mockImplementation((key) => key),
+  getIntlLocale: vi.fn().mockReturnValue('de-DE'),
+}));
 
-const tk = {} as never;
+const tk = {
+  primary: '#1565C0',
+  primaryContainer: '#E3F2FD',
+  onPrimaryContainer: '#0D47A1',
+  onSurfaceVariant: '#666',
+} as never;
 
 function makeApp(overrides = {}) {
   return {
@@ -142,5 +151,47 @@ describe('FinancesTransactions', () => {
       />,
     );
     expect(screen.getByText('+99 €')).toBeTruthy();
+  });
+
+  describe('category filter', () => {
+    it('does not render filter chips when no transaction has a category', () => {
+      const app = makeApp();
+      render(<FinancesTransactions app={app as never} t={tk} f={makeFinances([makeTx({ category: '' })])} canFin={false} />);
+      expect(screen.queryByText('finances.txFilterAll')).toBeNull();
+    });
+
+    it('shows a chip per distinct category plus an "all" chip', () => {
+      const app = makeApp();
+      const txs = [makeTx({ id: 'tx1', category: 'Beiträge' }), makeTx({ id: 'tx2', category: 'Sponsoring' })];
+      render(<FinancesTransactions app={app as never} t={tk} f={makeFinances(txs)} canFin={false} />);
+      expect(screen.getByText('finances.txFilterAll')).toBeTruthy();
+      expect(screen.getByText('Beiträge')).toBeTruthy();
+      expect(screen.getByText('Sponsoring')).toBeTruthy();
+    });
+
+    it('clicking a category chip narrows the list to that category', () => {
+      const app = makeApp();
+      const txs = [
+        makeTx({ id: 'tx1', title: 'Eintrag A', category: 'Beiträge' }),
+        makeTx({ id: 'tx2', title: 'Eintrag B', category: 'Sponsoring' }),
+      ];
+      render(<FinancesTransactions app={app as never} t={tk} f={makeFinances(txs)} canFin={false} />);
+      fireEvent.click(screen.getByText('Sponsoring'));
+      expect(screen.getByText('Eintrag B')).toBeTruthy();
+      expect(screen.queryByText('Eintrag A')).toBeNull();
+    });
+
+    it('clicking the "all" chip after filtering shows every transaction again', () => {
+      const app = makeApp();
+      const txs = [
+        makeTx({ id: 'tx1', title: 'Eintrag A', category: 'Beiträge' }),
+        makeTx({ id: 'tx2', title: 'Eintrag B', category: 'Sponsoring' }),
+      ];
+      render(<FinancesTransactions app={app as never} t={tk} f={makeFinances(txs)} canFin={false} />);
+      fireEvent.click(screen.getByText('Sponsoring'));
+      fireEvent.click(screen.getByText('finances.txFilterAll'));
+      expect(screen.getByText('Eintrag A')).toBeTruthy();
+      expect(screen.getByText('Eintrag B')).toBeTruthy();
+    });
   });
 });

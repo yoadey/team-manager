@@ -111,6 +111,23 @@ describe('ContribLinkMatrixDialog', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(2);
   });
 
+  it('renders without a member photo/avatar', () => {
+    render(
+      <ContribLinkMatrixDialog
+        tk={tk}
+        open={true}
+        onClose={vi.fn()}
+        contributions={[makeContribution({ name: 'Anna Müller' })]}
+        selectedId={undefined}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Anna Müller')).toBeTruthy();
+    // Av's no-photo fallback renders the member's initials -- confirming
+    // that isn't present rules out the avatar being rendered at all.
+    expect(screen.queryByText('AM')).toBeNull();
+  });
+
   it('closing the dialog calls onClose', () => {
     const onClose = vi.fn();
     render(

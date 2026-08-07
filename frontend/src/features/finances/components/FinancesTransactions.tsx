@@ -1,10 +1,11 @@
+import { useState } from 'react';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { SectionTitle, EmptyState, Sym } from '@/components/ui';
 import type { FinanceOverview, Transaction } from '../types';
-import { t } from '@/i18n';
+import { getIntlLocale, t } from '@/i18n';
 
 type App = ReturnType<typeof useApp>;
 type Tk = ReturnType<typeof buildTokens>;
@@ -17,6 +18,12 @@ interface Props {
 }
 
 export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
+  const [category, setCategory] = useState<string | null>(null);
+  const categories = [...new Set(f.transactions.map((tx) => tx.category).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, getIntlLocale()),
+  );
+  const shown = category ? f.transactions.filter((tx) => tx.category === category) : f.transactions;
+
   const txRow = (tx: Transaction) => {
     const inner = (
       <>
@@ -111,21 +118,51 @@ export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
           ) : null
         }
       >
-        {t('finances.txListTitle', { n: f.transactions.length })}
+        {t('finances.txListTitle', { n: shown.length })}
       </SectionTitle>
-      {f.transactions.length ? (
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '1px',
-            border: `1px solid ${NEUTRAL.line}`,
-            borderRadius: '16px',
-            overflow: 'hidden',
-          }}
-        >
-          {f.transactions.map(txRow)}
+      {categories.length ? (
+        <Box sx={{ display: 'flex', gap: '8px', overflowX: 'auto', pb: '4px', mb: '14px' }}>
+          {[null, ...categories].map((c) => {
+            const sel = category === c;
+            return (
+              <ButtonBase
+                key={c ?? '__all'}
+                onClick={() => setCategory(c)}
+                sx={{
+                  flex: '0 0 auto',
+                  p: '7px 13px',
+                  borderRadius: '999px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.inputBorder),
+                  background: sel ? tk.primaryContainer : NEUTRAL.card,
+                  color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+                }}
+              >
+                {c ?? t('finances.txFilterAll')}
+              </ButtonBase>
+            );
+          })}
         </Box>
+      ) : null}
+      {f.transactions.length ? (
+        shown.length ? (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1px',
+              border: `1px solid ${NEUTRAL.line}`,
+              borderRadius: '16px',
+              overflow: 'hidden',
+            }}
+          >
+            {shown.map(txRow)}
+          </Box>
+        ) : (
+          <EmptyState icon="receipt_long" text={t('finances.txFilterEmpty')} />
+        )
       ) : (
         <EmptyState icon="receipt_long" text={t('finances.txEmpty')} />
       )}

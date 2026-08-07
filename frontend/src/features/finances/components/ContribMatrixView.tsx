@@ -1,4 +1,6 @@
 import Box from '@mui/material/Box';
+import ButtonBase from '@mui/material/ButtonBase';
+import { useApp } from '@/context/AppContext';
 import { fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Av, EmptyState, Sym } from '@/components/ui';
 import type { Contribution } from '../types';
@@ -6,7 +8,10 @@ import { contributionAmountStatus, type ContributionAmountStatus } from '../cont
 import { groupKey } from './FinancesContributions';
 import { getIntlLocale, t } from '@/i18n';
 
+type App = ReturnType<typeof useApp>;
+
 interface Props {
+  app: App;
   /** Already filtered to non-archived contributions -- the matrix never shows archived fee periods. */
   contributions: Contribution[];
 }
@@ -22,7 +27,7 @@ const CELL_META: Record<ContributionAmountStatus, { icon: string; color: string 
 };
 
 /** Member x fee-group grid, mirroring Stats.tsx's attendance MatrixView. */
-export function ContribMatrixView({ contributions }: Props) {
+export function ContribMatrixView({ app, contributions }: Props) {
   if (!contributions.length) return <EmptyState icon="grid_on" text={t('finances.contribMatrixEmpty')} />;
 
   const groupLabel: Record<string, string> = {};
@@ -152,12 +157,18 @@ export function ContribMatrixView({ contributions }: Props) {
                     title={amountLabel}
                     sx={{ borderBottom: `1px solid ${NEUTRAL.line}`, textAlign: 'center', padding: '6px' }}
                   >
-                    <Sym
-                      name={cm.icon}
-                      size={18}
-                      color={cm.color}
-                      label={t('finances.contribMatrixCellAria', { name: m.name, group: groupLabel[g]!, status: amountLabel })}
-                    />
+                    <ButtonBase
+                      type="button"
+                      onClick={() => (c.paidAmount > 0 ? app.openContribForm(c) : app.openTxFormForContribution(c))}
+                      sx={{ borderRadius: '8px', p: '2px' }}
+                    >
+                      <Sym
+                        name={cm.icon}
+                        size={18}
+                        color={cm.color}
+                        label={t('finances.contribMatrixCellAria', { name: m.name, group: groupLabel[g]!, status: amountLabel })}
+                      />
+                    </ButtonBase>
                   </Box>
                 );
               })}
