@@ -78,7 +78,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
 
   const thBase = {
     borderBottom: `1px solid ${NEUTRAL.line}`,
-    padding: '6px 3px',
+    padding: '5px 3px',
     fontSize: '12px',
     fontWeight: 700,
     color: NEUTRAL.secondary,
@@ -90,7 +90,8 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
     zIndex: 1,
     background: NEUTRAL.card,
     textAlign: 'left',
-    minWidth: '110px',
+    width: '1px',
+    maxWidth: '140px',
     boxShadow: `1px 0 0 ${NEUTRAL.line}`,
   } as const;
 
@@ -132,7 +133,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                         component="th"
                         scope="col"
                         title={due ? groupLabel[g] + ' · ' + fmtDate(due) : groupLabel[g]}
-                        sx={{ ...thBase, textAlign: 'center', minWidth: '72px', maxWidth: '100px' }}
+                        sx={{ ...thBase, textAlign: 'center', minWidth: '56px', maxWidth: '84px' }}
                       >
                         <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{groupLabel[g]}</Box>
                         {due ? <Box sx={{ fontSize: '10px', color: NEUTRAL.faint, fontWeight: 500 }}>{fmtDate(due)}</Box> : null}
@@ -175,10 +176,10 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                             }}
                             sx={{
                               width: '100%',
-                              p: '7px 8px',
+                              p: '5px 6px',
                               borderRadius: '100px',
                               cursor: 'pointer',
-                              fontSize: '12.5px',
+                              fontSize: '12px',
                               fontWeight: 700,
                               border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
                               background: sel ? tk.primaryContainer : NEUTRAL.card,
