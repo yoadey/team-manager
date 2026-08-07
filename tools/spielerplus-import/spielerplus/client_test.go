@@ -1,0 +1,344 @@
+package spielerplus
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+// eventRowHTML matches the confirmed markup from a HAR capture of a live
+// /events page / ajaxgetevents fragment: a `.panel` with id
+// "event-training-<id>", title under `.panel-heading-text .panel-title`,
+// and the year-less date under `.panel-heading-info .panel-subtitle`.
+func eventRowHTML(id, dateDDMM string) string {
+	return fmt.Sprintf(`<div class="panel" id="event-training-%s">
+		<div class="panel-heading-info"><div class="panel-title">Mo.</div><div class="panel-subtitle">%s</div></div>
+		<div class="panel-heading-text"><div class="panel-title">Training</div></div>
+	</div>`, id, dateDDMM)
+}
+
+// ajaxHTMLEnvelope wraps html the way ajaxgetevents/ajaxgetparticipation
+// really do ({"html": "...", "count": N} / {"html": "..."}), confirmed from
+// a HAR capture.
+func ajaxHTMLEnvelope(t *testing.T, html string, count int) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"html": html, "count": count})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// newTestClient points a Client at an httptest server instead of the real
+// spielerplus.de, so FetchEvents/FetchAttendance can be exercised end to
+// end (request construction, header, and response parsing) without network
+// access.
+func newTestClient(t *testing.T, handler http.Handler) *Client {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	c, err := NewClient("sid=test", WithRequestDelay(0)) // no throttling in tests
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	c.baseURL = srv.URL
+	return c
+}
+
+func TestClient_FetchEvents_PaginatesUntilEmpty(t *testing.T) {
+	var ajaxCalls []string
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
+	})
+	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Requested-With"); got != "XMLHttpRequest" {
+			t.Errorf("X-Requested-With = %q, want XMLHttpRequest", got)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm() error = %v", err)
+		}
+		offset := r.FormValue("offset")
+		old := r.FormValue("old")
+		ajaxCalls = append(ajaxCalls, fmt.Sprintf("offset=%s old=%s", offset, old))
+
+		switch offset {
+		case "0":
+			fmt.Fprint(w, ajaxHTMLEnvelope(t, eventRowHTML("2", "25.07"), 1))
+		case "5":
+			fmt.Fprint(w, ajaxHTMLEnvelope(t, eventRowHTML("3", "18.07"), 1))
+		default:
+			// end of history: count 0.
+			fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
+		}
+	})
+	mux.HandleFunc("/training/view", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, eventDetailAddressHTML("Sportplatz Am Wald 1"))
+	})
+
+	c := newTestClient(t, mux)
+	now := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	events, err := c.FetchEvents(now)
+	if err != nil {
+		t.Fatalf("FetchEvents() error = %v", err)
+	}
+
+	if len(events) != 3 {
+		t.Fatalf("got %d events, want 3: %+v", len(events), events)
+	}
+	gotIDs := []string{events[0].ID, events[1].ID, events[2].ID}
+	wantIDs := []string{"1", "2", "3"}
+	for i := range wantIDs {
+		if gotIDs[i] != wantIDs[i] {
+			t.Errorf("events[%d].ID = %q, want %q", i, gotIDs[i], wantIDs[i])
+		}
+	}
+	// Event 3 (18.07) resolved relative to event 2 (25.07.2026) must stay
+	// in 2026, not jump forward/back a year.
+	if events[2].Start.Year() != 2026 {
+		t.Errorf("events[2].Start = %v, want year 2026", events[2].Start)
+	}
+	for _, ev := range events {
+		if ev.Location != "Sportplatz Am Wald 1" {
+			t.Errorf("event %s Location = %q, want the fetched detail-page address", ev.ID, ev.Location)
+		}
+	}
+
+	wantCalls := []string{"offset=0 old=true", "offset=5 old=true", "offset=10 old=true"}
+	if len(ajaxCalls) != len(wantCalls) {
+		t.Fatalf("ajax calls = %v, want %v", ajaxCalls, wantCalls)
+	}
+	for i := range wantCalls {
+		if ajaxCalls[i] != wantCalls[i] {
+			t.Errorf("ajax call %d = %q, want %q", i, ajaxCalls[i], wantCalls[i])
+		}
+	}
+}
+
+func TestClient_FetchEvents_NoHistoryPages(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
+	})
+	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
+	})
+
+	c := newTestClient(t, mux)
+	events, err := c.FetchEvents(time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("FetchEvents() error = %v", err)
+	}
+	if len(events) != 1 || events[0].ID != "1" {
+		t.Fatalf("events = %+v, want only the initial page's event", events)
+	}
+}
+
+func TestClient_FetchAttendance_SendsEventIDAndType(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events/ajaxgetparticipation", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm() error = %v", err)
+		}
+		if got := r.FormValue("eventid"); got != "42" {
+			t.Errorf("eventid = %q, want 42", got)
+		}
+		if got := r.FormValue("eventtype"); got != "training" {
+			t.Errorf("eventtype = %q, want training", got)
+		}
+		if got := r.Header.Get("X-Requested-With"); got != "XMLHttpRequest" {
+			t.Errorf("X-Requested-With = %q, want XMLHttpRequest", got)
+		}
+		html := `<div class="collapse in" id="1-parti-collapse">
+			<div class="participation-list-user">
+				<a class="participation-list-user-photo" href="/user/view?id=7"></a>
+			</div>
+		</div>`
+		b, _ := json.Marshal(map[string]string{"html": html})
+		w.Write(b)
+	})
+
+	c := newTestClient(t, mux)
+	records, err := c.FetchAttendance("42", EventTraining)
+	if err != nil {
+		t.Fatalf("FetchAttendance() error = %v", err)
+	}
+	if len(records) != 1 || records[0].MemberID != "7" || records[0].Status != ParticipationAccepted {
+		t.Fatalf("records = %+v", records)
+	}
+}
+
+func TestClient_FetchActiveTeamName(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/dashboard/index", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<div class="navigation__card"><div class="navigation__card__title">TSC B-Team 25/26</div></div>`)
+	})
+
+	c := newTestClient(t, mux)
+	name, err := c.FetchActiveTeamName()
+	if err != nil {
+		t.Fatalf("FetchActiveTeamName() error = %v", err)
+	}
+	if name != "TSC B-Team 25/26" {
+		t.Errorf("name = %q, want %q", name, "TSC B-Team 25/26")
+	}
+}
+
+func TestClient_FetchAsset(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/images/user/200x200/abc.jpg", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("fake-photo-bytes"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	data, err := c.FetchAsset(srv.URL + "/images/user/200x200/abc.jpg")
+	if err != nil {
+		t.Fatalf("FetchAsset() error = %v", err)
+	}
+	if string(data) != "fake-photo-bytes" {
+		t.Errorf("data = %q", data)
+	}
+}
+
+func TestClient_FetchAsset_NotFound(t *testing.T) {
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := c.FetchAsset(srv.URL + "/missing.jpg"); err == nil {
+		t.Fatal("expected an error for a 404 asset")
+	}
+}
+
+func TestClient_FetchAsset_TooLarge(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/big.jpg", func(w http.ResponseWriter, r *http.Request) {
+		w.Write(make([]byte, maxAssetBytes+1))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+
+	if _, err := c.FetchAsset(srv.URL + "/big.jpg"); err == nil {
+		t.Fatal("expected an error for an oversized asset")
+	}
+}
+
+func TestClient_Get_NotAuthenticated(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/site/login", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<html><body>login please</body></html>`)
+	})
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/site/login", http.StatusFound)
+	})
+
+	c := newTestClient(t, mux)
+	_, err := c.FetchEvents(time.Now())
+	if err == nil || !strings.Contains(err.Error(), "not authenticated") {
+		t.Fatalf("FetchEvents() error = %v, want ErrNotAuthenticated", err)
+	}
+}
+
+func TestClient_Throttle_EnforcesMinimumGap(t *testing.T) {
+	var timestamps []time.Time
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		timestamps = append(timestamps, time.Now())
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
+	})
+	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
+		timestamps = append(timestamps, time.Now())
+		fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	delay := 100 * time.Millisecond
+	c, err := NewClient("sid=test", WithRequestDelay(delay))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	c.baseURL = srv.URL
+
+	if _, err := c.FetchEvents(time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("FetchEvents() error = %v", err)
+	}
+	if len(timestamps) < 2 {
+		t.Fatalf("got %d requests, want at least 2", len(timestamps))
+	}
+	// Allow a small tolerance for scheduler/timer jitter around time.Sleep -
+	// this is checking the throttle actually delays back-to-back requests,
+	// not asserting sub-millisecond precision.
+	const tolerance = 5 * time.Millisecond
+	for i := 1; i < len(timestamps); i++ {
+		gap := timestamps[i].Sub(timestamps[i-1])
+		if gap < delay-tolerance {
+			t.Errorf("request %d came %v after the previous one, want at least ~%v", i, gap, delay)
+		}
+	}
+}
+
+func TestClient_Throttle_DisabledWithZero(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, eventRowHTML("1", "01.08"))
+	})
+	mux.HandleFunc("/events/ajaxgetevents", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, ajaxHTMLEnvelope(t, "", 0))
+	})
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	c, err := NewClient("sid=test", WithRequestDelay(0))
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	c.baseURL = srv.URL
+
+	start := time.Now()
+	if _, err := c.FetchEvents(time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("FetchEvents() error = %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+		t.Errorf("FetchEvents() took %v with throttling disabled, want fast", elapsed)
+	}
+}
+
+func TestNewClient_DefaultRequestDelay(t *testing.T) {
+	c, err := NewClient("sid=test")
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	if c.requestDelay != DefaultRequestDelay {
+		t.Errorf("requestDelay = %v, want default %v", c.requestDelay, DefaultRequestDelay)
+	}
+}
+
+func TestNewClient_EmptyCookie(t *testing.T) {
+	if _, err := NewClient(""); err == nil {
+		t.Fatal("expected an error for an empty session cookie")
+	}
+	if _, err := NewClient("   "); err == nil {
+		t.Fatal("expected an error for a whitespace-only session cookie")
+	}
+}
