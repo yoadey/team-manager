@@ -42,12 +42,8 @@ export function renderSheet(app: AppContextValue, sheet: SheetState) {
   return Comp ? <Comp app={app} sheet={sheet} /> : null;
 }
 
-export function sheetMeta(
-  app: AppContextValue,
-  sheet: SheetState,
-): { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } {
-  const s = sheet;
-  const titles: Record<string, string> = {
+function sheetTitles(s: SheetState): Record<string, string> {
+  return {
     teams: t('sheet.teams'),
     more: t('sheet.more'),
     legal: s.legalPage === 'datenschutz' ? t('sheet.legalDatenschutz') : t('sheet.legalImpressum'),
@@ -74,10 +70,18 @@ export function sheetMeta(
     pollVoters: t('sheet.pollVoters'),
     penaltyForm: s.mode === 'create' ? t('sheet.penaltyFormCreate') : t('sheet.penaltyFormEdit'),
     penaltyCatalog: t('sheet.penaltyCatalog'),
-    penaltyAssign: t('sheet.penaltyAssign'),
+    penaltyAssign: s.mode === 'view' ? t('sheet.penaltyAssignDetail') : t('sheet.penaltyAssign'),
     contribForm: t('sheet.contribForm'),
     contribCreate: t('sheet.contribCreate'),
   };
+}
+
+export function sheetMeta(
+  app: AppContextValue,
+  sheet: SheetState,
+): { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } {
+  const s = sheet;
+  const titles = sheetTitles(s);
   const meta: { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } = {
     title: titles[s.type] || '',
     hasBack: false,

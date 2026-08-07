@@ -32,6 +32,8 @@ function makeApp(
     saveTx: vi.fn(),
     deleteTx: vi.fn(),
     askConfirm: vi.fn(),
+    openContribForm: vi.fn(),
+    openPenaltyAssign: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
   return {
@@ -413,6 +415,58 @@ describe('TxFormSheet', () => {
       await waitFor(() => {
         expect(app.saveTx).toHaveBeenCalledWith(expect.objectContaining({ contributionId: '' }));
       });
+    });
+  });
+
+  describe('linked entry info in edit mode', () => {
+    it('shows the linked contribution when reopening an already-linked transaction', () => {
+      const { app, formInitial } = makeApp(
+        { title: 'Beitrag', amount: '25', id: 'tx-1', contributionId: 'c1' },
+        [],
+        [makeContribution({ id: 'c1', label: 'Mitgliedsbeitrag Januar', status: 'paid' })],
+      );
+      render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
+      expect(screen.getByText('Verknüpft mit Beitrag „Mitgliedsbeitrag Januar“')).toBeTruthy();
+    });
+
+    it('shows the linked penalty assignment when reopening an already-linked transaction', () => {
+      const { app, formInitial } = makeApp(
+        { title: 'Strafe', amount: '5', id: 'tx-1', penaltyAssignmentId: 'a1' },
+        [],
+        [],
+        [makeAssignment({ id: 'a1', label: 'Zu spät zum Training', paid: true })],
+      );
+      render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
+      expect(screen.getByText('Verknüpft mit Strafe „Zu spät zum Training“')).toBeTruthy();
+    });
+
+    it('clicking the linked contribution opens its detail sheet', () => {
+      const contribution = makeContribution({ id: 'c1', label: 'Mitgliedsbeitrag Januar', status: 'paid' });
+      const { app, formInitial } = makeApp(
+        { title: 'Beitrag', amount: '25', id: 'tx-1', contributionId: 'c1' },
+        [],
+        [contribution],
+      );
+      app.openContribForm = vi.fn();
+      render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
+      fireEvent.click(screen.getByText('Verknüpft mit Beitrag „Mitgliedsbeitrag Januar“'));
+      expect(app.openContribForm).toHaveBeenCalledWith(contribution);
+    });
+
+    it('does not show linked info when the transaction has no link', () => {
+      const { app, formInitial } = makeApp({ title: 'Sponsoring', amount: '50', id: 'tx-1' });
+      render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
+      expect(screen.queryByText(/Verknüpft mit/)).toBeNull();
+    });
+
+    it('does not show linked info in create mode', () => {
+      const { app, formInitial } = makeApp(
+        { title: 'Beitrag', amount: '25', contributionId: 'c1' },
+        [],
+        [makeContribution({ id: 'c1', label: 'Mitgliedsbeitrag Januar' })],
+      );
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+      expect(screen.queryByText(/Verknüpft mit/)).toBeNull();
     });
   });
 });

@@ -26,7 +26,7 @@ import type {
 import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
 import type { EventFormValues } from '@/features/events/components/eventFormSchema';
 import type { AbsenceFormValues } from '@/features/events/components/absenceFormSchema';
-import type { Contribution, Penalty, Transaction } from '@/features/finances';
+import type { Contribution, Penalty, PenaltyAssignment, Transaction } from '@/features/finances';
 import type { ContribFormValues } from '@/features/finances/components/contribFormSchema';
 import type { ContribCreateFormValues } from '@/features/finances/components/contribCreateFormSchema';
 import type { PenaltyFormValues } from '@/features/finances/components/penaltyFormSchema';
@@ -119,7 +119,7 @@ export interface SheetState {
   back?: SheetState | null;
   // Typed payload properties shared across sheet variants (all optional)
   cfg?: ConfirmConfig;
-  mode?: 'edit' | 'create';
+  mode?: 'edit' | 'create' | 'view';
   self?: boolean;
   action?: 'cancel' | 'delete' | 'reactivate';
   /** Used by the `seriesAction` confirm sheet only -- the `eventDetail` sheet
@@ -411,7 +411,7 @@ export interface AppContextValue {
   openPenaltyForm: (p?: Penalty) => void;
   savePenalty: (f: PenaltyFormValues) => Promise<void>;
   deletePenaltyDef: (id: string) => void;
-  openPenaltyAssign: () => void;
+  openPenaltyAssign: (a?: PenaltyAssignment) => void;
   savePenaltyAssign: (f: PenaltyAssignFormValues) => Promise<void>;
   deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;

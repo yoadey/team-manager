@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { t } from '@/i18n';
 
 export const penaltyAssignFormSchema = z.object({
+  // Set only in `view` mode (an existing assignment reopened read-only) --
+  // absent for `create`, where the assignment doesn't exist yet.
+  id: z.string().optional(),
   // Not `.uuid()` -- opaque, server-issued ids chosen via a select, never
   // typed by the user; the MSW demo backend's ids (e.g. "u1", "pen_xyz")
   // aren't RFC4122 UUIDs, so a strict uuid() check here would silently

@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { api as defaultApi } from '@/services';
 import type { DateRange } from '@/types';
 import type { AppState, ConfirmConfig } from '@/context/AppContext';
-import type { Contribution, FinanceOverview, Penalty, Transaction } from '../types';
+import type { Contribution, FinanceOverview, Penalty, PenaltyAssignment, Transaction } from '../types';
 import type { TxFormValues } from '../components/txFormSchema';
 import type { PenaltyFormValues } from '../components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
@@ -61,7 +61,16 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
   const openTxForm = useCallback(
     (tx?: Transaction) => {
       const f: TxFormValues = tx
-        ? { id: tx.id, type: tx.type, title: tx.title, amount: String(tx.amount), category: tx.category, note: tx.note || '' }
+        ? {
+            id: tx.id,
+            type: tx.type,
+            title: tx.title,
+            amount: String(tx.amount),
+            category: tx.category,
+            contributionId: tx.contributionId || '',
+            penaltyAssignmentId: tx.penaltyAssignmentId || '',
+            note: tx.note || '',
+          }
         : {
             type: 'income',
             title: '',
@@ -191,15 +200,31 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     [S, askConfirm, deletePenaltyAsync, setState, teamId, toastMsg, logout],
   );
 
-  const openPenaltyAssign = useCallback(() => {
-    // The member picker and penalty catalog are populated by
-    // PenaltyAssignSheet's own useMembersQuery/useFinanceOverviewQuery, which
-    // fetch/retry on their own -- no manual refresh needed here.
-    const f = queryClient.getQueryData<FinanceOverview>(queryKeys.finances(teamId ?? ''));
-    const first = f && f.penalties[0] ? f.penalties[0].id : '';
-    const form: PenaltyAssignFormValues = { userId: '', penaltyId: first, date: todayStr(), note: '' };
-    setState({ sheet: { type: 'penaltyAssign', formInitial: form } });
-  }, [queryClient, teamId, setState]);
+  const openPenaltyAssign = useCallback(
+    (a?: PenaltyAssignment) => {
+      if (a) {
+        // Read-only detail view of an existing assignment -- see
+        // openspec/changes/finance-detail-linked-entries.
+        const form: PenaltyAssignFormValues = {
+          id: a.id,
+          userId: a.userId,
+          penaltyId: a.penaltyId || '',
+          date: a.date,
+          note: a.note || '',
+        };
+        setState({ sheet: { type: 'penaltyAssign', mode: 'view', formInitial: form } });
+        return;
+      }
+      // The member picker and penalty catalog are populated by
+      // PenaltyAssignSheet's own useMembersQuery/useFinanceOverviewQuery, which
+      // fetch/retry on their own -- no manual refresh needed here.
+      const f = queryClient.getQueryData<FinanceOverview>(queryKeys.finances(teamId ?? ''));
+      const first = f && f.penalties[0] ? f.penalties[0].id : '';
+      const form: PenaltyAssignFormValues = { userId: '', penaltyId: first, date: todayStr(), note: '' };
+      setState({ sheet: { type: 'penaltyAssign', mode: 'create', formInitial: form } });
+    },
+    [queryClient, teamId, setState],
+  );
 
   const savePenaltyAssign = useCallback(
     async (f: PenaltyAssignFormValues) => {

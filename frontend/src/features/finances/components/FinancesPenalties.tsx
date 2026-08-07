@@ -72,9 +72,27 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
           .slice()
           .reverse()
           .map((a) => (
+            // Not a ButtonBase (<button>) -- it must contain the delete
+            // <button> below, and nested <button> elements are invalid HTML.
+            // role="button" + keyboard handling keeps it operable the same
+            // way a real button would be.
             <Box
               key={a.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => app.openPenaltyAssign(a)}
+              onKeyDown={(e) => {
+                // Ignore keydowns bubbling up from the nested delete button
+                // (e.g. Enter/Space while it's focused) -- only the row
+                // itself should activate this.
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  app.openPenaltyAssign(a);
+                }
+              }}
               sx={{
+                width: '100%',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '11px',
@@ -82,6 +100,8 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                 border: `1px solid ${NEUTRAL.line}`,
                 borderRadius: '14px',
                 p: '10px 13px',
+                textAlign: 'left',
+                cursor: 'pointer',
               }}
             >
               <Av name={a.name} photo={a.photo} color={a.avatarColor} size={36} />
@@ -107,7 +127,10 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
               )}
               {canFin ? (
                 <ButtonBase
-                  onClick={() => app.deleteAssignment(a.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    app.deleteAssignment(a.id);
+                  }}
                   aria-label={t('common.delete')}
                   sx={{
                     width: '30px',
