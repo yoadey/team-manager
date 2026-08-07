@@ -19,7 +19,7 @@ function makeApp(formOverrides: Record<string, unknown> = {}) {
     deleteContrib: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
-  return { app, formInitial: { id: 'c1', label: '', amount: '', dueDate: '', ...formOverrides } };
+  return { app, formInitial: { id: 'c1', label: '', amount: '', description: '', dueDate: '', archived: false, ...formOverrides } };
 }
 
 describe('ContribFormSheet', () => {
@@ -114,5 +114,35 @@ describe('ContribFormSheet', () => {
     render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
     fireEvent.click(screen.getByText('Löschen'));
     expect(app.deleteContrib).toHaveBeenCalledWith('c1');
+  });
+
+  it('renders a description field', () => {
+    const { app, formInitial } = makeApp();
+    render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
+    expect(screen.getByPlaceholderText('z. B. Deckt Startgeld und Transport ab.')).toBeTruthy();
+  });
+
+  it('shows an archive-not-a-delete action for a non-archived contribution', () => {
+    const { app, formInitial } = makeApp();
+    render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
+    expect(screen.getByText('Archivieren')).toBeTruthy();
+    expect(screen.queryByText('Aus dem Archiv holen')).toBeNull();
+  });
+
+  it('toggling archive flips the button label to un-archive and saves with archived: true', async () => {
+    const { app, formInitial } = makeApp({ label: 'Monatsbeitrag', amount: '15' });
+    render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
+    fireEvent.click(screen.getByText('Archivieren'));
+    expect(screen.getByText('Aus dem Archiv holen')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Änderungen speichern/i }));
+    await waitFor(() => {
+      expect(app.saveContrib).toHaveBeenCalledWith(expect.objectContaining({ archived: true }));
+    });
+  });
+
+  it('shows an archived notice and un-archive action for an already-archived contribution', () => {
+    const { app, formInitial } = makeApp({ archived: true });
+    render(<ContribFormSheet app={app as never} sheet={{ formInitial } as never} />);
+    expect(screen.getByText('Aus dem Archiv holen')).toBeTruthy();
   });
 });

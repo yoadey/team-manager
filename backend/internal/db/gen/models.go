@@ -61,13 +61,15 @@ type CalendarShare struct {
 }
 
 type Contribution struct {
-	ID        uuid.UUID
-	TeamID    uuid.UUID
-	UserID    uuid.UUID
-	Name      pgtype.Text
-	Amount    int64
-	UpdatedAt time.Time
-	DueDate   pgtype.Date
+	ID          uuid.UUID
+	TeamID      uuid.UUID
+	UserID      uuid.UUID
+	Name        pgtype.Text
+	Amount      int64
+	UpdatedAt   time.Time
+	DueDate     pgtype.Date
+	Description pgtype.Text
+	Archived    bool
 }
 
 type EmailVerificationToken struct {
@@ -316,6 +318,7 @@ type Transaction struct {
 	UpdatedAt           time.Time
 	ContributionID      *uuid.UUID
 	PenaltyAssignmentID *uuid.UUID
+	Note                pgtype.Text
 }
 
 type User struct {

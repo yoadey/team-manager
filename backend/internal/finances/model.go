@@ -26,7 +26,10 @@ type TransactionRow struct {
 	// or nil if it isn't a fine payment. Same ON DELETE SET NULL/mutual-
 	// exclusivity reasoning as ContributionID.
 	PenaltyAssignmentID *uuid.UUID
-	CreatedAt           time.Time
+	// Note is an optional free-text note, never rendered in the transaction
+	// list -- only shown when the transaction is reopened for editing.
+	Note      *string
+	CreatedAt time.Time
 }
 
 // PenaltyRow is the internal DB representation of a penalty definition.
@@ -69,13 +72,19 @@ type PenaltyAssignmentRow struct {
 // Repository.ListContributions) so it can never drift from the ledger that
 // is its source of truth.
 type ContributionRow struct {
-	ID                uuid.UUID
-	TeamID            uuid.UUID
-	UserID            uuid.UUID
-	Name              string
-	Amount            int64
-	DueDate           *time.Time
-	PaidAmount        int64
+	ID     uuid.UUID
+	TeamID uuid.UUID
+	UserID uuid.UUID
+	Name   string
+	// Description is an optional free-text description beyond Name.
+	Description *string
+	Amount      int64
+	DueDate     *time.Time
+	PaidAmount  int64
+	// Archived excludes this row from the default display, the contribution
+	// matrix, the linking picker, and CountOpenContributions -- without
+	// unlinking any transaction that already paid it.
+	Archived          bool
 	MemberName        *string
 	MemberAvatarColor *string
 	HasPhoto          *bool
@@ -94,11 +103,14 @@ type TransactionPatch struct {
 	Amount   *int64
 	Category *string
 	Date     *time.Time
+	Note     *string
 }
 
 // ContributionPatch carries optional fields for an UPDATE contributions query.
 type ContributionPatch struct {
-	Name    *string
-	Amount  *int64
-	DueDate *time.Time
+	Name        *string
+	Description *string
+	Amount      *int64
+	DueDate     *time.Time
+	Archived    *bool
 }

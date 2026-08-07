@@ -404,6 +404,7 @@ export function mapTransaction(t: S['Transaction']): Transaction {
     category: t.category ?? '',
     contributionId: t.contributionId ?? null,
     penaltyAssignmentId: t.penaltyAssignmentId ?? null,
+    note: t.note ?? null,
   };
 }
 
@@ -442,10 +443,12 @@ export function mapContribution(c: S['Contribution']): Contribution {
     teamId: c.teamId,
     userId: c.userId,
     label: c.name,
+    description: c.description ?? null,
     amount: centsToEuros(c.amount),
     dueDate: c.dueDate ?? null,
     paidAmount: centsToEuros(c.paidAmount),
     status: c.status,
+    archived: c.archived,
     photo: null,
     ...opt('name', c.memberName),
     ...opt('avatarColor', c.memberAvatarColor),

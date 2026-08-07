@@ -3,7 +3,7 @@ import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { buildTokens, NEUTRAL } from '@/styles/tokens';
-import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
+import { Field, PrimaryButton, Sym, TextArea, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { txFormSchema, type TxFormValues } from './txFormSchema';
 import { LinkedPaymentPicker } from './LinkedPaymentPicker';
@@ -80,7 +80,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   // Only offered when creating a new income transaction -- linking only
   // happens at creation time (see CreateTransactionRequest.contributionId's
   // doc comment), and only fees/fines not yet fully paid are worth picking.
-  const openContribs = ((finances && finances.contributions) || []).filter((c) => c.status !== 'paid');
+  const openContribs = ((finances && finances.contributions) || []).filter(
+    (c) => c.status !== 'paid' && !c.archived,
+  );
   const openAssignments = ((finances && finances.assignments) || []).filter((a) => !a.paid);
   const contributionId = watch('contributionId');
   const penaltyAssignmentId = watch('penaltyAssignmentId');
@@ -212,6 +214,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       </Field>
       {linkedPicker}
       {catField}
+      <Field label={t('finances.txFieldNote')} error={!!errors.note} errorText={errors.note?.message}>
+        <TextArea maxLength={10000} placeholder={t('finances.txFieldNotePlaceholder')} {...register('note')} />
+      </Field>
       <PrimaryButton
         label={edit ? t('finances.txSaveEdit') : t('finances.txSave')}
         onClick={handleSubmit(onSubmit)}

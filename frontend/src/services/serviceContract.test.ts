@@ -228,6 +228,54 @@ describe('membership fees: fan-out creation, partial payment via linked transact
       api.finances.createContributions('t_a', { label: 'Fremd', amount: 10, userIds: ['u-not-a-member'] }),
     ).rejects.toThrow();
   });
+
+  it('archives a contribution, hides it from the open count, and un-archives it again', async () => {
+    const [contrib] = await api.finances.createContributions('t_a', {
+      label: 'Altes Semester',
+      description: 'Deckt Halle und Trainer ab.',
+      amount: 15,
+      userIds: ['u4'],
+    });
+    expect(contrib!.description).toBe('Deckt Halle und Trainer ab.');
+    expect(contrib!.archived).toBe(false);
+
+    let overview = await api.finances.overview('t_a');
+    const openBefore = overview.contribOpen;
+
+    const archived = await api.finances.updateContribution(contrib!.id, { archived: true }, 't_a');
+    expect(archived.archived).toBe(true);
+    // Editing archived must not touch name/amount/description.
+    expect(archived.label).toBe('Altes Semester');
+    expect(archived.description).toBe('Deckt Halle und Trainer ab.');
+
+    overview = await api.finances.overview('t_a');
+    expect(overview.contribOpen).toBe(openBefore - 1);
+
+    const restored = await api.finances.updateContribution(contrib!.id, { archived: false }, 't_a');
+    expect(restored.archived).toBe(false);
+    overview = await api.finances.overview('t_a');
+    expect(overview.contribOpen).toBe(openBefore);
+  });
+});
+
+describe('transaction note: settable on create/update, not part of any other field', () => {
+  it('round-trips an optional note through create and update', async () => {
+    const created = await api.finances.addTransaction('t_a', {
+      type: 'income',
+      title: 'Spende',
+      amount: 5,
+      note: 'Bar erhalten, Quittung Nr. 12',
+    });
+    expect(created.note).toBe('Bar erhalten, Quittung Nr. 12');
+
+    const updated = await api.finances.updateTransaction(created.id, { note: 'Korrektur: Quittung Nr. 13' }, 't_a');
+    expect(updated.note).toBe('Korrektur: Quittung Nr. 13');
+  });
+
+  it('has no note when omitted', async () => {
+    const created = await api.finances.addTransaction('t_a', { type: 'expense', title: 'Bälle', amount: 20 });
+    expect(created.note ?? null).toBeNull();
+  });
 });
 
 describe('penalty assignments: default unpaid, paid only via a linked transaction', () => {

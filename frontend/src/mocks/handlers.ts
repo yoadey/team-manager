@@ -364,6 +364,7 @@ function toWireTransaction(t: (typeof db.transactions)[number]): S['Transaction'
     ...opt('category', t.category || undefined),
     ...opt('contributionId', t.contributionId || undefined),
     ...opt('penaltyAssignmentId', t.penaltyAssignmentId || undefined),
+    ...opt('note', t.note || undefined),
   };
 }
 function toWirePenalty(p: (typeof db.penalties)[number]): S['Penalty'] {
@@ -423,6 +424,8 @@ function toWireContribution(c: (typeof db.contributions)[number]): S['Contributi
     amount: c.amount,
     paidAmount,
     status: contributionStatus(paidAmount, c.amount),
+    archived: c.archived ?? false,
+    ...opt('description', c.description),
     ...opt('dueDate', c.dueDate),
     ...opt('memberName', u?.name),
     ...opt('memberAvatarColor', u?.avatarColor),
@@ -1438,7 +1441,7 @@ export const handlers = [
       openPenalties,
       openPenaltySum: Object.values(openByUser).reduce((s, v) => s + v, 0),
       contributions: contributions.map(toWireContribution),
-      contribOpen: contributions.filter((c) => contributionPaidAmount(c.id) < c.amount).length,
+      contribOpen: contributions.filter((c) => !c.archived && contributionPaidAmount(c.id) < c.amount).length,
     };
     return HttpResponse.json(body);
   }),
@@ -1487,6 +1490,7 @@ export const handlers = [
       category: body.category || '',
       ...opt('contributionId', body.contributionId),
       ...opt('penaltyAssignmentId', body.penaltyAssignmentId),
+      ...opt('note', body.note),
     };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
@@ -1502,6 +1506,7 @@ export const handlers = [
     if (body.amount !== undefined) t.amount = body.amount;
     if (body.category !== undefined) t.category = body.category;
     if (body.date !== undefined) t.date = body.date;
+    if (body.note !== undefined) t.note = body.note;
     return HttpResponse.json(toWireTransaction(t));
   }),
 
@@ -1588,7 +1593,15 @@ export const handlers = [
       return problem(400, 'user is not a member of this team');
     }
     const created = body.userIds.map((userId) => {
-      const c = { id: rid('co'), teamId, userId, label: body.name, amount: body.amount, ...opt('dueDate', body.dueDate) };
+      const c = {
+        id: rid('co'),
+        teamId,
+        userId,
+        label: body.name,
+        amount: body.amount,
+        ...opt('description', body.description),
+        ...opt('dueDate', body.dueDate),
+      };
       db.contributions.push(c);
       return c;
     });
@@ -1601,8 +1614,10 @@ export const handlers = [
     if (!c) return problem(404, 'Contribution not found');
     const body = (await request.json()) as S['UpdateContributionRequest'];
     if (body.name !== undefined) c.label = body.name;
+    if (body.description !== undefined) c.description = body.description;
     if (body.amount !== undefined) c.amount = body.amount;
     if (body.dueDate !== undefined) c.dueDate = body.dueDate;
+    if (body.archived !== undefined) c.archived = body.archived;
     return HttpResponse.json(toWireContribution(c));
   }),
 

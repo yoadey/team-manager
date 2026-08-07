@@ -94,7 +94,7 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, note, created_at
 		FROM transactions
 		WHERE team_id = $1
 		ORDER BY date DESC, created_at DESC, id DESC
@@ -108,7 +108,7 @@ func (r *Repository) ListTransactions(ctx context.Context, teamID uuid.UUID) ([]
 	var out []TransactionRow
 	for rows.Next() {
 		var t TransactionRow
-		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.Note, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListTransactions scan: %w", err)
 		}
 		out = append(out, t)
@@ -149,7 +149,7 @@ func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID,
 	}
 
 	rows, err := r.db.Query(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, note, created_at
 		FROM transactions
 		WHERE team_id = $1
 		  AND ($2::boolean IS FALSE
@@ -165,7 +165,7 @@ func (r *Repository) ListTransactionsPage(ctx context.Context, teamID uuid.UUID,
 	var out []TransactionRow
 	for rows.Next() {
 		var t TransactionRow
-		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.Note, &t.CreatedAt); err != nil {
 			return nil, fmt.Errorf("finances.Repository.ListTransactionsPage scan: %w", err)
 		}
 		out = append(out, t)
@@ -211,16 +211,16 @@ func (r *Repository) CountTransactions(ctx context.Context, teamID uuid.UUID) (i
 // Service.CreateTransaction for the type=income/team-ownership/mutual-
 // exclusivity validation that must already have happened before this is
 // called.
-func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*TransactionRow, error) {
+func (r *Repository) CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID, note *string) (*TransactionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, `
-		INSERT INTO transactions (team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
-	`, teamID, txType, title, amount, date, category, contributionID, penaltyAssignmentID).Scan(
-		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt,
+		INSERT INTO transactions (team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, note)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, note, created_at
+	`, teamID, txType, title, amount, date, category, contributionID, penaltyAssignmentID, note).Scan(
+		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.Note, &t.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.CreateTransaction: %w", err)
@@ -249,6 +249,9 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	if patch.Date != nil {
 		b.Add("date", *patch.Date)
 	}
+	if patch.Note != nil {
+		b.Add("note", *patch.Note)
+	}
 	setSQL, args, nextIdx, ok := b.Build(1)
 	if !ok {
 		return r.getTransactionByID(ctx, id, teamID)
@@ -258,9 +261,9 @@ func (r *Repository) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, fmt.Sprintf(`
 		UPDATE transactions SET %s WHERE id = $%d AND team_id = $%d
-		RETURNING id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
+		RETURNING id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, note, created_at
 	`, setSQL, nextIdx, nextIdx+1), args...).Scan(
-		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt,
+		&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.Note, &t.CreatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Repository.UpdateTransaction: %w", err)
@@ -285,9 +288,9 @@ func (r *Repository) DeleteTransaction(ctx context.Context, id, teamID uuid.UUID
 func (r *Repository) getTransactionByID(ctx context.Context, id, teamID uuid.UUID) (*TransactionRow, error) {
 	t := &TransactionRow{}
 	err := r.db.QueryRow(ctx, `
-		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, created_at
+		SELECT id, team_id, type, title, amount, date, category, contribution_id, penalty_assignment_id, note, created_at
 		FROM transactions WHERE id = $1 AND team_id = $2
-	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.CreatedAt)
+	`, id, teamID).Scan(&t.ID, &t.TeamID, &t.Type, &t.Title, &t.Amount, &t.Date, &t.Category, &t.ContributionID, &t.PenaltyAssignmentID, &t.Note, &t.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -632,8 +635,8 @@ func (r *Repository) PenaltyAssignmentBelongsToTeam(ctx context.Context, assignm
 // a linked transaction being edited or deleted is reflected immediately
 // without a second write path to keep in sync.
 const contributionSelectColumns = `
-	c.id, c.team_id, c.user_id, c.name, c.amount, c.due_date,
-	COALESCE(pa.paid_amount, 0) AS paid_amount,
+	c.id, c.team_id, c.user_id, c.name, c.description, c.amount, c.due_date,
+	COALESCE(pa.paid_amount, 0) AS paid_amount, c.archived,
 	u.name, u.avatar_color,
 	(u.photo_object_key IS NOT NULL) AS has_photo
 	FROM contributions c
@@ -648,7 +651,7 @@ const contributionSelectColumns = `
 func scanContributionRow(row pgx.Row) (*ContributionRow, error) {
 	c := &ContributionRow{}
 	err := row.Scan(
-		&c.ID, &c.TeamID, &c.UserID, &c.Name, &c.Amount, &c.DueDate, &c.PaidAmount,
+		&c.ID, &c.TeamID, &c.UserID, &c.Name, &c.Description, &c.Amount, &c.DueDate, &c.PaidAmount, &c.Archived,
 		&c.MemberName, &c.MemberAvatarColor, &c.HasPhoto,
 	)
 	if err != nil {
@@ -704,7 +707,7 @@ func (r *Repository) CountContributions(ctx context.Context, teamID uuid.UUID) (
 // re-checking each id's membership via WHERE EXISTS (mirroring
 // CreateAssignment's TOCTOU-closing pattern): if any id is not a member of
 // teamID, the whole batch is rolled back rather than left partially applied.
-func (r *Repository) CreateContributions(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]ContributionRow, error) {
+func (r *Repository) CreateContributions(ctx context.Context, teamID uuid.UUID, name string, description *string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]ContributionRow, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -718,11 +721,11 @@ func (r *Repository) CreateContributions(ctx context.Context, teamID uuid.UUID, 
 	for _, userID := range userIDs {
 		var id uuid.UUID
 		err := tx.QueryRow(ctx, `
-			INSERT INTO contributions (team_id, user_id, name, amount, due_date)
-			SELECT $1, $2, $3, $4, $5
+			INSERT INTO contributions (team_id, user_id, name, description, amount, due_date)
+			SELECT $1, $2, $3, $4, $5, $6
 			WHERE EXISTS (SELECT 1 FROM memberships WHERE team_id = $1 AND user_id = $2)
 			RETURNING id
-		`, teamID, userID, name, amount, dueDate).Scan(&id)
+		`, teamID, userID, name, description, amount, dueDate).Scan(&id)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, fmt.Errorf("%w: %s", ErrUserNotInTeam, userID)
@@ -756,11 +759,17 @@ func (r *Repository) UpdateContribution(ctx context.Context, id, teamID uuid.UUI
 	if patch.Name != nil {
 		b.Add("name", *patch.Name)
 	}
+	if patch.Description != nil {
+		b.Add("description", *patch.Description)
+	}
 	if patch.Amount != nil {
 		b.Add("amount", *patch.Amount)
 	}
 	if patch.DueDate != nil {
 		b.Add("due_date", *patch.DueDate)
+	}
+	if patch.Archived != nil {
+		b.Add("archived", *patch.Archived)
 	}
 	setSQL, args, nextIdx, ok := b.Build(1)
 	if !ok {
@@ -820,7 +829,8 @@ func (r *Repository) ContributionBelongsToTeam(ctx context.Context, contribution
 
 // CountOpenContributions returns the number of contributions not yet fully
 // paid (open or partial) for the team, independent of the capped display
-// list returned by ListContributions.
+// list returned by ListContributions. Archived contributions are excluded
+// regardless of their paid state -- see Contribution.archived's doc comment.
 func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -829,6 +839,7 @@ func (r *Repository) CountOpenContributions(ctx context.Context, teamID uuid.UUI
 		SELECT COUNT(*)
 		FROM contributions c
 		WHERE c.team_id = $1
+		  AND NOT c.archived
 		  AND COALESCE(
 		        (SELECT SUM(t.amount) FROM transactions t WHERE t.contribution_id = c.id AND t.type = 'income'),
 		        0

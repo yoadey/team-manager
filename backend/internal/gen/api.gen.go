@@ -509,7 +509,13 @@ type CalendarShare struct {
 // Contribution defines model for Contribution.
 type Contribution struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
-	Amount            int64               `json:"amount"`
+	Amount int64 `json:"amount"`
+
+	// Archived When true, this contribution is excluded from the default display, the contribution matrix, the linking picker, and the contribOpen aggregate. Never affects linked transactions.
+	Archived bool `json:"archived"`
+
+	// Description Optional free-text description beyond the short name.
+	Description       *string             `json:"description,omitempty"`
 	DueDate           *openapi_types.Date `json:"dueDate,omitempty"`
 	HasPhoto          *bool               `json:"hasPhoto,omitempty"`
 	Id                openapi_types.UUID  `json:"id"`
@@ -519,7 +525,7 @@ type Contribution struct {
 	// Name Free-text fee name (e.g. "Mitgliedsbeitrag Januar 2026").
 	Name string `json:"name"`
 
-	// PaidAmount Sum of every income transaction linked to this contribution (Transaction.contributionId), in cents. Computed, not stored.
+	// PaidAmount Sum of every income transaction linked to this contribution (Transaction.contributionId), in cents. Computed, not stored. May exceed `amount` when overpaid -- not capped.
 	PaidAmount int64 `json:"paidAmount"`
 
 	// Status Derived from paidAmount vs. amount, never independently settable: "open" (paidAmount is 0), "partial" (0 < paidAmount < amount), or "paid" (paidAmount >= amount).
@@ -547,11 +553,12 @@ type CreateCalendarShareRequest struct {
 // CreateContributionRequest defines model for CreateContributionRequest.
 type CreateContributionRequest struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
-	Amount  int64               `json:"amount"`
-	DueDate *openapi_types.Date `json:"dueDate,omitempty"`
-	Name    string              `json:"name"`
+	Amount      int64               `json:"amount"`
+	Description *string             `json:"description,omitempty"`
+	DueDate     *openapi_types.Date `json:"dueDate,omitempty"`
+	Name        string              `json:"name"`
 
-	// UserIds The members this fee applies to; one Contribution row is created per id, all sharing this name/amount/dueDate.
+	// UserIds The members this fee applies to; one Contribution row is created per id, all sharing this name/amount/dueDate/description.
 	UserIds []openapi_types.UUID `json:"userIds"`
 }
 
@@ -638,6 +645,9 @@ type CreateTransactionRequest struct {
 
 	// Date Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
 	Date *openapi_types.Date `json:"date,omitempty"`
+
+	// Note Optional free-text note. Never shown in the transaction list -- only when the transaction is opened for editing.
+	Note *string `json:"note,omitempty"`
 
 	// PenaltyAssignmentId Links this transaction to a penalty assignment (fine) it pays -- the assignment's paidAmount becomes the sum of every income transaction linked to it this way, and paid becomes true once that sum reaches the assignment's amount. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with contributionId.
 	PenaltyAssignmentId *openapi_types.UUID `json:"penaltyAssignmentId,omitempty"`
@@ -1109,6 +1119,9 @@ type Transaction struct {
 	Date           openapi_types.Date  `json:"date"`
 	Id             openapi_types.UUID  `json:"id"`
 
+	// Note Optional free-text note about the transaction. Never shown in the transaction list -- only when the transaction is opened for editing.
+	Note *string `json:"note,omitempty"`
+
 	// PenaltyAssignmentId The penalty assignment this transaction pays, or null if it isn't a fine payment. Mutually exclusive with contributionId. Set at creation time only -- see CreateTransactionRequest.penaltyAssignmentId.
 	PenaltyAssignmentId *openapi_types.UUID `json:"penaltyAssignmentId,omitempty"`
 	TeamId              openapi_types.UUID  `json:"teamId"`
@@ -1129,9 +1142,11 @@ type UpdateAbsenceRequest struct {
 // UpdateContributionRequest defines model for UpdateContributionRequest.
 type UpdateContributionRequest struct {
 	// Amount Amount in cents (e.g. 1050 = 10.50)
-	Amount  *int64              `json:"amount,omitempty"`
-	DueDate *openapi_types.Date `json:"dueDate,omitempty"`
-	Name    *string             `json:"name,omitempty"`
+	Amount      *int64              `json:"amount,omitempty"`
+	Archived    *bool               `json:"archived,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	DueDate     *openapi_types.Date `json:"dueDate,omitempty"`
+	Name        *string             `json:"name,omitempty"`
 }
 
 // UpdateEventRequest defines model for UpdateEventRequest.
@@ -1204,6 +1219,7 @@ type UpdateTransactionRequest struct {
 
 	// Date Transaction date.
 	Date  *openapi_types.Date `json:"date,omitempty"`
+	Note  *string             `json:"note,omitempty"`
 	Title *string             `json:"title,omitempty"`
 	Type  *TransactionType    `json:"type,omitempty"`
 }
@@ -1663,7 +1679,7 @@ type ServerInterface interface {
 	// Delete a contribution
 	// (DELETE /teams/{teamId}/finances/contributions/{contributionId})
 	DeleteContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
-	// Update a contribution's name, amount, or due date
+	// Update a contribution's name, amount, due date, description, or archived flag
 	// (PATCH /teams/{teamId}/finances/contributions/{contributionId})
 	UpdateContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID)
 	// Create penalty template
@@ -2083,7 +2099,7 @@ func (_ Unimplemented) DeleteContribution(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Update a contribution's name, amount, or due date
+// Update a contribution's name, amount, due date, description, or archived flag
 // (PATCH /teams/{teamId}/finances/contributions/{contributionId})
 func (_ Unimplemented) UpdateContribution(w http.ResponseWriter, r *http.Request, teamId TeamId, contributionId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -8831,7 +8847,7 @@ type StrictServerInterface interface {
 	// Delete a contribution
 	// (DELETE /teams/{teamId}/finances/contributions/{contributionId})
 	DeleteContribution(ctx context.Context, request DeleteContributionRequestObject) (DeleteContributionResponseObject, error)
-	// Update a contribution's name, amount, or due date
+	// Update a contribution's name, amount, due date, description, or archived flag
 	// (PATCH /teams/{teamId}/finances/contributions/{contributionId})
 	UpdateContribution(ctx context.Context, request UpdateContributionRequestObject) (UpdateContributionResponseObject, error)
 	// Create penalty template
