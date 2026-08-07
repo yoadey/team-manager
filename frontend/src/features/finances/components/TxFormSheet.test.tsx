@@ -32,7 +32,7 @@ function makeApp(
     saveTx: vi.fn(),
     deleteTx: vi.fn(),
     askConfirm: vi.fn(),
-    openContribForm: vi.fn(),
+    openContribDetail: vi.fn(),
     openPenaltyAssign: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
@@ -474,10 +474,10 @@ describe('TxFormSheet', () => {
         [],
         [contribution],
       );
-      app.openContribForm = vi.fn();
+      app.openContribDetail = vi.fn();
       render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
       fireEvent.click(screen.getByText('Verknüpft mit Beitrag „Mitgliedsbeitrag Januar“'));
-      expect(app.openContribForm).toHaveBeenCalledWith(contribution);
+      expect(app.openContribDetail).toHaveBeenCalledWith(contribution);
     });
 
     it('does not show linked info when the transaction has no link', () => {

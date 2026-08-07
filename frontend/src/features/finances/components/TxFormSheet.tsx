@@ -31,7 +31,7 @@ function TxLinkedInfo({
   return (
     <ButtonBase
       type="button"
-      onClick={() => (contribution ? app.openContribForm(contribution) : app.openPenaltyAssign(assignment))}
+      onClick={() => (contribution ? app.openContribDetail(contribution) : app.openPenaltyAssign(assignment))}
       sx={{
         display: 'flex',
         alignItems: 'center',

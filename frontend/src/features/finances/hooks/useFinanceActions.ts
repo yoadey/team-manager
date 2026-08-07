@@ -7,7 +7,7 @@ import type { Contribution, FinanceOverview, Penalty, PenaltyAssignment, Transac
 import type { TxFormValues } from '../components/txFormSchema';
 import type { PenaltyFormValues } from '../components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
-import type { ContribFormValues } from '../components/contribFormSchema';
+import type { ContribGroupEditFormValues } from '../components/contribGroupEditFormSchema';
 import type { ContribCreateFormValues } from '../components/contribCreateFormSchema';
 import { reportActionError } from '@/utils/errors';
 import { t } from '@/i18n';
@@ -16,7 +16,6 @@ import { queryKeys } from '@/query/keys';
 import {
   useCreateContributionsMutation,
   useDeleteAssignmentMutation,
-  useDeleteContributionMutation,
   useDeletePenaltyMutation,
   useDeleteTxMutation,
   useSaveContribMutation,
@@ -56,8 +55,6 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     api,
     teamId,
   );
-  const { mutateAsync: deleteContributionAsync } = useDeleteContributionMutation(api);
-
   const openTxForm = useCallback(
     (tx?: Transaction) => {
       const f: TxFormValues = tx
@@ -87,17 +84,16 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     [setState],
   );
 
-  // Pre-links a fresh income transaction to a matrix cell's contribution --
-  // see openspec/changes/finance-matrix-transactions. Only reachable for a
-  // contribution with no payment booked yet (ContribMatrixView routes an
-  // already-paid-into cell to openContribForm instead), so the amount is
-  // always the fee's full amount at this point.
+  // Pre-links a fresh income transaction to a contribution -- reached via the
+  // contribution detail view's "Beitrag erfassen" button, for a first or any
+  // further partial payment. See
+  // openspec/changes/contribution-detail-readonly-parent-edit.
   const openTxFormForContribution = useCallback(
     (c: Contribution) => {
       const f: TxFormValues = {
         type: 'income',
         title: c.label,
-        amount: String(c.amount - c.paidAmount),
+        amount: String(Math.max(c.amount - c.paidAmount, 0)),
         category: '',
         date: todayStr(),
         contributionId: c.id,
@@ -294,44 +290,57 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     [askConfirm, deleteAssignmentAsync, setState, teamId, toastMsg, logout],
   );
 
-  const openContribForm = useCallback(
+  const openContribDetail = useCallback(
     (c: Contribution) => {
-      const form: ContribFormValues = {
-        id: c.id,
-        label: c.label,
-        amount: String(c.amount),
-        description: c.description || '',
-        dueDate: c.dueDate || '',
-        archived: c.archived,
-      };
-      setState({ sheet: { type: 'contribForm', formInitial: form } });
+      setState({ sheet: { type: 'contribDetail', formInitial: { id: c.id } } });
     },
     [setState],
   );
 
-  const saveContrib = useCallback(
-    async (f: ContribFormValues) => {
+  const openContribGroupEdit = useCallback(
+    (contributions: Contribution[]) => {
+      const first = contributions[0];
+      if (!first) return;
+      const form: ContribGroupEditFormValues = {
+        label: first.label,
+        amount: String(first.amount),
+        description: first.description || '',
+        dueDate: first.dueDate || '',
+      };
+      setState({ sheet: { type: 'contribGroupEdit', formInitial: form, contribGroupRows: contributions } });
+    },
+    [setState],
+  );
+
+  // Edits a whole fee group (label/amount/description/dueDate) in one user
+  // action, fanning out the existing per-row PATCH -- mirrors
+  // archiveContribGroup below exactly, same reasoning (see design.md).
+  const editContribGroup = useCallback(
+    async (contributions: Contribution[], values: ContribGroupEditFormValues) => {
       const sh = S().sheet;
       const savedTeamId = teamId;
-      try {
-        await saveContribAsync({
-          id: f.id,
-          payload: {
-            label: f.label.trim(),
-            amount: Number(f.amount),
-            description: f.description?.trim() || '',
-            archived: f.archived,
-            ...(f.dueDate ? { dueDate: f.dueDate } : {}),
-          },
-        });
+      const payload = {
+        label: values.label.trim(),
+        amount: Number(values.amount),
+        description: values.description?.trim() || '',
+        ...(values.dueDate ? { dueDate: values.dueDate } : {}),
+      };
+      const results = await Promise.allSettled(
+        contributions.map((c) => saveContribAsync({ id: c.id, payload })),
+      );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) {
+        toastMsg(
+          t('finances.toastContribGroupEditPartialFailure', { failed, total: contributions.length }),
+          undefined,
+          'error',
+        );
+      } else {
         if (S().activeTeamId === savedTeamId && S().sheet === sh) setState({ sheet: null });
-        toastMsg(t('finances.toastContribSaved'));
-      } catch (err) {
-        reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.save');
-        throw err;
+        toastMsg(t('finances.toastContribGroupEditSuccess'));
       }
     },
-    [S, setState, saveContribAsync, teamId, toastMsg, logout],
+    [S, setState, saveContribAsync, teamId, toastMsg],
   );
 
   // Archives (or restores) every contribution row in a fee group in one user
@@ -389,29 +398,6 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     [S, setState, createContributionsAsync, teamId, toastMsg, logout],
   );
 
-  const deleteContrib = useCallback(
-    (id: string) => {
-      const deletedTeamId = teamId!;
-      askConfirm({
-        title: t('finances.contribDeleteTitle'),
-        message: t('finances.contribDeleteMsg'),
-        confirmLabel: t('common.delete'),
-        danger: true,
-        onConfirm: async () => {
-          const sh = S().sheet;
-          try {
-            await deleteContributionAsync({ id, teamId: deletedTeamId });
-            if (S().activeTeamId === deletedTeamId && S().sheet === sh) setState({ sheet: null });
-            toastMsg(t('finances.toastContribDeleted'));
-          } catch (err) {
-            reportActionError({ setState, toastMsg, onAuthError: logout }, err, 'error.delete');
-          }
-        },
-      });
-    },
-    [S, askConfirm, deleteContributionAsync, setState, teamId, toastMsg, logout],
-  );
-
   // Stats itself is fetched via useStatsQuery (React Query), whose
   // team-and-range-scoped key refetches on its own the moment statsRange
   // changes -- this is now a pure UI state update.
@@ -429,12 +415,12 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
     openPenaltyAssign,
     savePenaltyAssign,
     deleteAssignment,
-    openContribForm,
-    saveContrib,
+    openContribDetail,
+    openContribGroupEdit,
+    editContribGroup,
     archiveContribGroup,
     openContribCreate,
     saveContribCreate,
-    deleteContrib,
     setStatsRange,
     savingTx,
     savingPenalty,

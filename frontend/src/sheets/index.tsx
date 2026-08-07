@@ -71,7 +71,8 @@ function sheetTitles(s: SheetState): Record<string, string> {
     penaltyForm: s.mode === 'create' ? t('sheet.penaltyFormCreate') : t('sheet.penaltyFormEdit'),
     penaltyCatalog: t('sheet.penaltyCatalog'),
     penaltyAssign: s.mode === 'view' ? t('sheet.penaltyAssignDetail') : t('sheet.penaltyAssign'),
-    contribForm: t('sheet.contribForm'),
+    contribDetail: t('sheet.contribDetail'),
+    contribGroupEdit: t('sheet.contribGroupEdit'),
     contribCreate: t('sheet.contribCreate'),
   };
 }

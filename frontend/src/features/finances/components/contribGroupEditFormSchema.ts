@@ -2,8 +2,7 @@ import { z } from 'zod';
 import { t } from '@/i18n';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 
-export const contribFormSchema = z.object({
-  id: z.string(),
+export const contribGroupEditFormSchema = z.object({
   label: z
     .string()
     .trim()
@@ -20,7 +19,6 @@ export const contribFormSchema = z.object({
   }),
   description: z.string().trim().max(2000).optional().or(z.literal('')),
   dueDate: z.string().optional().or(z.literal('')),
-  archived: z.boolean(),
 });
 
-export type ContribFormValues = z.infer<typeof contribFormSchema>;
+export type ContribGroupEditFormValues = z.infer<typeof contribGroupEditFormSchema>;

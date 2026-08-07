@@ -7,7 +7,8 @@ import { TxFormSheet } from './components/TxFormSheet';
 import { PenaltyCatalogSheet } from './components/PenaltyCatalogSheet';
 import { PenaltyFormSheet } from './components/PenaltyFormSheet';
 import { PenaltyAssignSheet } from './components/PenaltyAssignSheet';
-import { ContribFormSheet } from './components/ContribFormSheet';
+import { ContribDetailSheet } from './components/ContribDetailSheet';
+import { ContribGroupEditSheet } from './components/ContribGroupEditSheet';
 import { ContribCreateSheet } from './components/ContribCreateSheet';
 
 export const financeSheetMap = {
@@ -15,11 +16,20 @@ export const financeSheetMap = {
   penaltyCatalog: PenaltyCatalogSheet,
   penaltyForm: PenaltyFormSheet,
   penaltyAssign: PenaltyAssignSheet,
-  contribForm: ContribFormSheet,
+  contribDetail: ContribDetailSheet,
+  contribGroupEdit: ContribGroupEditSheet,
   contribCreate: ContribCreateSheet,
 } as const;
 
-export { TxFormSheet, PenaltyCatalogSheet, PenaltyFormSheet, PenaltyAssignSheet, ContribFormSheet, ContribCreateSheet };
+export {
+  TxFormSheet,
+  PenaltyCatalogSheet,
+  PenaltyFormSheet,
+  PenaltyAssignSheet,
+  ContribDetailSheet,
+  ContribGroupEditSheet,
+  ContribCreateSheet,
+};
 
 export { FinancesPage } from './FinancesPage';
 export { FinancesTransactions } from './components/FinancesTransactions';

@@ -35,7 +35,7 @@ function makeContrib(overrides: Partial<Contribution> = {}): Contribution {
 function makeApp() {
   return {
     openTxFormForContribution: vi.fn(),
-    openContribForm: vi.fn(),
+    openContribDetail: vi.fn(),
   };
 }
 
@@ -80,13 +80,13 @@ describe('ContribMatrixView', () => {
     expect(screen.getByRole('img').getAttribute('data-testid')).toBe('CheckOutlinedIcon');
   });
 
-  it('clicking a cell with no payment yet opens the pre-linked transaction form', () => {
+  it('clicking a cell with no payment yet opens the contribution detail sheet', () => {
     const app = makeApp();
     const c = makeContrib({ paidAmount: 0 });
     render(<ContribMatrixView app={app as never} contributions={[c]} />);
     fireEvent.click(screen.getByRole('button'));
-    expect(app.openTxFormForContribution).toHaveBeenCalledWith(c);
-    expect(app.openContribForm).not.toHaveBeenCalled();
+    expect(app.openContribDetail).toHaveBeenCalledWith(c);
+    expect(app.openTxFormForContribution).not.toHaveBeenCalled();
   });
 
   it('clicking a cell with at least one payment opens the contribution detail sheet', () => {
@@ -94,7 +94,7 @@ describe('ContribMatrixView', () => {
     const c = makeContrib({ paidAmount: 10 });
     render(<ContribMatrixView app={app as never} contributions={[c]} />);
     fireEvent.click(screen.getByRole('button'));
-    expect(app.openContribForm).toHaveBeenCalledWith(c);
+    expect(app.openContribDetail).toHaveBeenCalledWith(c);
     expect(app.openTxFormForContribution).not.toHaveBeenCalled();
   });
 

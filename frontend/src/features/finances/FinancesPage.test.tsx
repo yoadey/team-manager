@@ -58,8 +58,9 @@ function makeApp(overrides: Record<string, unknown> = {}) {
     openPenaltyAssign: vi.fn(),
     deleteAssignment: vi.fn(),
     setPenaltyPaid: vi.fn(),
-    openContribForm: vi.fn(),
-    saveContrib: vi.fn(),
+    openContribDetail: vi.fn(),
+    openContribGroupEdit: vi.fn(),
+    editContribGroup: vi.fn(),
     setContributionPaid: vi.fn(),
   };
 }

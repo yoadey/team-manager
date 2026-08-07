@@ -140,12 +140,3 @@ export function useCreateContributionsMutation(api: typeof defaultApi, teamId: s
     onSuccess: () => invalidate(),
   });
 }
-
-// Per-call team id -- same confirm-gated-dialog rationale as useDeleteTxMutation above.
-export function useDeleteContributionMutation(api: typeof defaultApi) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, teamId }: { id: string; teamId: string }) => api.finances.deleteContribution(id, teamId),
-    onSuccess: (_data, { teamId }) => qc.invalidateQueries({ queryKey: queryKeys.finances(teamId) }),
-  });
-}

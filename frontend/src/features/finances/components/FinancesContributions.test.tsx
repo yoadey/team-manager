@@ -50,7 +50,8 @@ function makeApp(overrides = {}) {
   return {
     setState: vi.fn(),
     state: { contribGroup: null },
-    openContribForm: vi.fn(),
+    openContribDetail: vi.fn(),
+    openContribGroupEdit: vi.fn(),
     openContribCreate: vi.fn(),
     openTxFormForContribution: vi.fn(),
     askConfirm: vi.fn((cfg: { onConfirm?: () => void }) => cfg.onConfirm?.()),
@@ -295,11 +296,7 @@ describe('FinancesContributions', () => {
     expect(app.openContribCreate).toHaveBeenCalled();
   });
 
-  // Regression: openContribForm/api.finances.updateContribution were fully
-  // implemented (hook, sheet, service layer) but no rendered component ever
-  // called openContribForm -- a contribution's label/amount could never be
-  // corrected through the UI. Only visible with canFin=true.
-  it('shows an edit action for each contribution when canFin is true', () => {
+  it('shows a view action for each contribution when canFin is true', () => {
     const app = makeApp();
     renderList({
       app: app as never,
@@ -307,10 +304,10 @@ describe('FinancesContributions', () => {
       f: makeFinances({ contributions: [makeContrib()] }),
       canFin: true,
     });
-    expect(screen.getByLabelText('finances.editContribLabel')).toBeTruthy();
+    expect(screen.getByLabelText('finances.viewContribLabel')).toBeTruthy();
   });
 
-  it('hides the edit action when canFin is false', () => {
+  it('hides the view action when canFin is false', () => {
     const app = makeApp();
     renderList({
       app: app as never,
@@ -318,7 +315,7 @@ describe('FinancesContributions', () => {
       f: makeFinances({ contributions: [makeContrib()] }),
       canFin: false,
     });
-    expect(screen.queryByLabelText('finances.editContribLabel')).toBeNull();
+    expect(screen.queryByLabelText('finances.viewContribLabel')).toBeNull();
   });
 
   // Regression test: memberName is optional per the OpenAPI Contribution
@@ -357,12 +354,12 @@ describe('FinancesContributions', () => {
     vi.mocked(i18n.getIntlLocale).mockReturnValue('de-DE');
   });
 
-  it('clicking the edit action calls openContribForm with the contribution', () => {
+  it('clicking the view action calls openContribDetail with the contribution', () => {
     const app = makeApp();
     const contrib = makeContrib();
     renderList({ app: app as never, t: tk, f: makeFinances({ contributions: [contrib] }), canFin: true });
-    fireEvent.click(screen.getByLabelText('finances.editContribLabel'));
-    expect(app.openContribForm).toHaveBeenCalledWith(contrib);
+    fireEvent.click(screen.getByLabelText('finances.viewContribLabel'));
+    expect(app.openContribDetail).toHaveBeenCalledWith(contrib);
   });
 
   it('archived contributions are hidden by default', () => {
@@ -387,6 +384,28 @@ describe('FinancesContributions', () => {
     });
     fireEvent.click(screen.getByText('finances.contribShowArchived'));
     expect(screen.getByText('Anna Müller')).toBeTruthy();
+  });
+
+  it('shows an edit-group action for canFin users that opens the group edit sheet', () => {
+    const app = makeApp();
+    const contribs = [
+      makeContrib({ id: 'c1', name: 'Anna', userId: 'u1' }),
+      makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' }),
+    ];
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: true });
+    fireEvent.click(screen.getByText('finances.contribGroupEditBtn'));
+    expect(app.openContribGroupEdit).toHaveBeenCalledWith(contribs);
+  });
+
+  it('hides the edit-group action when canFin is false', () => {
+    const app = makeApp();
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: false,
+    });
+    expect(screen.queryByText('finances.contribGroupEditBtn')).toBeNull();
   });
 
   it('shows an archive-group action for canFin users that archives every row in the group', () => {
@@ -423,17 +442,18 @@ describe('FinancesContributions', () => {
     expect(screen.getAllByText('finances.contribOverpaid').length).toBeGreaterThan(0);
   });
 
-  it('clicking an unpaid matrix cell calls openTxFormForContribution', () => {
+  it('clicking a matrix cell opens the contribution detail sheet', () => {
     const app = makeApp();
+    const contrib = makeContrib({ paidAmount: 0 });
     render(
       <FinancesContributions
         app={app as never}
         t={tk}
-        f={makeFinances({ contributions: [makeContrib({ paidAmount: 0 })] })}
+        f={makeFinances({ contributions: [contrib] })}
         canFin={false}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /finances.contribMatrixCellAria/i }));
-    expect(app.openTxFormForContribution).toHaveBeenCalled();
+    expect(app.openContribDetail).toHaveBeenCalledWith(contrib);
   });
 });
