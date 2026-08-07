@@ -1,9 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Contribution description
-A contribution MAY carry an optional free-text description (≤2000 characters),
-editable after creation alongside its name/amount/due date via the existing
-per-row update endpoint.
+A contribution MAY carry an optional free-text description (≤2000 characters).
+The system MUST store it as provided and MUST make it editable after creation
+alongside the contribution's name/amount/due date, via the existing per-row
+update endpoint.
 
 #### Scenario: Adding a description to an existing fee
 - **WHEN** the treasurer edits a contribution and sets a description

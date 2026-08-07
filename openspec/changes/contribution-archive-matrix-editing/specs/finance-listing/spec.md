@@ -44,8 +44,8 @@ contributions, showing each selectable cell's still-owed amount.
 
 ### Requirement: Optional transaction note, hidden from the list
 A finance transaction MAY carry an optional free-text note (≤10000
-characters), settable on creation and update, that is never rendered in the
-transaction list view.
+characters). The system MUST accept it on creation and update, MUST store it
+as provided, and MUST NOT render it in the transaction list view.
 
 #### Scenario: Recording a note on a transaction
 - **WHEN** a treasurer adds a note while creating or editing a transaction
