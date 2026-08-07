@@ -1,6 +1,97 @@
 /* Shared UI atoms — faithful MUI re-implementations of the prototype's helper
    render functions (icon, avatar, chip, section title, buttons, form fields). */
 import React, { useEffect, useState } from 'react';
+import AddIcon from '@mui/icons-material/Add';
+import AddCircleIcon from '@mui/icons-material/AddCircle';
+import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import AutorenewIcon from '@mui/icons-material/Autorenew';
+import BadgeIcon from '@mui/icons-material/Badge';
+import BeachAccessIcon from '@mui/icons-material/BeachAccess';
+import BlockIcon from '@mui/icons-material/Block';
+import BrightnessAutoIcon from '@mui/icons-material/BrightnessAuto';
+import CakeIcon from '@mui/icons-material/Cake';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import CampaignIcon from '@mui/icons-material/Campaign';
+import CancelIcon from '@mui/icons-material/Cancel';
+import CategoryIcon from '@mui/icons-material/Category';
+import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
+import CheckIcon from '@mui/icons-material/Check';
+import CheckBoxIcon from '@mui/icons-material/CheckBox';
+import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import CircleIcon from '@mui/icons-material/Circle';
+import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
+import DeleteIcon from '@mui/icons-material/Delete';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import DownloadIcon from '@mui/icons-material/Download';
+import EditIcon from '@mui/icons-material/Edit';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
+import ErrorIcon from '@mui/icons-material/Error';
+import EventIcon from '@mui/icons-material/Event';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import EventBusyIcon from '@mui/icons-material/EventBusy';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import GavelIcon from '@mui/icons-material/Gavel';
+import GridOnIcon from '@mui/icons-material/GridOn';
+import GroupsIcon from '@mui/icons-material/Groups';
+import HelpIcon from '@mui/icons-material/Help';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
+import HomeIcon from '@mui/icons-material/Home';
+import HourglassTopIcon from '@mui/icons-material/HourglassTop';
+import HowToVoteIcon from '@mui/icons-material/HowToVote';
+import InfoIcon from '@mui/icons-material/Info';
+import InsightsIcon from '@mui/icons-material/Insights';
+import InstallMobileIcon from '@mui/icons-material/InstallMobile';
+import IosShareIcon from '@mui/icons-material/IosShare';
+import LightModeIcon from '@mui/icons-material/LightMode';
+import LinkIcon from '@mui/icons-material/Link';
+import LockIcon from '@mui/icons-material/Lock';
+import LoginIcon from '@mui/icons-material/Login';
+import LogoutIcon from '@mui/icons-material/Logout';
+import MailIcon from '@mui/icons-material/Mail';
+import MenuBookIcon from '@mui/icons-material/MenuBook';
+import NoteIcon from '@mui/icons-material/Note';
+import NotificationsIcon from '@mui/icons-material/Notifications';
+import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
+import PaymentsIcon from '@mui/icons-material/Payments';
+import PendingActionsIcon from '@mui/icons-material/PendingActions';
+import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import PersonOffIcon from '@mui/icons-material/PersonOff';
+import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone';
+import PlaceIcon from '@mui/icons-material/Place';
+import PushPinIcon from '@mui/icons-material/PushPin';
+import QuestionMarkIcon from '@mui/icons-material/QuestionMark';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import RemoveIcon from '@mui/icons-material/Remove';
+import RepeatIcon from '@mui/icons-material/Repeat';
+import SavingsIcon from '@mui/icons-material/Savings';
+import ScheduleIcon from '@mui/icons-material/Schedule';
+import SearchOffIcon from '@mui/icons-material/SearchOff';
+import SendIcon from '@mui/icons-material/Send';
+import SettingsIcon from '@mui/icons-material/Settings';
+import StickyNote2Icon from '@mui/icons-material/StickyNote2';
+import SyncIcon from '@mui/icons-material/Sync';
+import TitleIcon from '@mui/icons-material/Title';
+import ToggleOffIcon from '@mui/icons-material/ToggleOff';
+import ToggleOnIcon from '@mui/icons-material/ToggleOn';
+import TuneIcon from '@mui/icons-material/Tune';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import WarningIcon from '@mui/icons-material/Warning';
+import ImageIcon from '@mui/icons-material/Image';
+import NorthEastIcon from '@mui/icons-material/NorthEast';
+import SouthWestIcon from '@mui/icons-material/SouthWest';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import type { SvgIconComponent } from '@mui/icons-material';
 import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import MuiSkeleton from '@mui/material/Skeleton';
@@ -9,7 +100,101 @@ import { initials as toInitials, NEUTRAL } from '@/styles/tokens';
 import { useApp } from '@/context/AppContext';
 import { t } from '@/i18n';
 
-/** Material Symbols Outlined glyph (rendered by glyph name, like the prototype).
+const ICONS: Record<string, SvgIconComponent> = {
+  add: AddIcon,
+  add_circle: AddCircleIcon,
+  add_photo_alternate: AddPhotoAlternateIcon,
+  admin_panel_settings: AdminPanelSettingsIcon,
+  arrow_back: ArrowBackIcon,
+  autorenew: AutorenewIcon,
+  badge: BadgeIcon,
+  beach_access: BeachAccessIcon,
+  block: BlockIcon,
+  brightness_auto: BrightnessAutoIcon,
+  cake: CakeIcon,
+  calendar_month: CalendarMonthIcon,
+  campaign: CampaignIcon,
+  cancel: CancelIcon,
+  category: CategoryIcon,
+  chat_bubble: ChatBubbleIcon,
+  check: CheckIcon,
+  check_box: CheckBoxIcon,
+  check_box_outline_blank: CheckBoxOutlineBlankIcon,
+  check_circle: CheckCircleIcon,
+  chevron_left: ChevronLeftIcon,
+  chevron_right: ChevronRightIcon,
+  circle: CircleIcon,
+  close: CloseIcon,
+  content_copy: ContentCopyIcon,
+  dark_mode: DarkModeIcon,
+  delete: DeleteIcon,
+  delete_forever: DeleteForeverIcon,
+  download: DownloadIcon,
+  edit: EditIcon,
+  emoji_events: EmojiEventsIcon,
+  error: ErrorIcon,
+  event: EventIcon,
+  event_available: EventAvailableIcon,
+  event_busy: EventBusyIcon,
+  expand_less: ExpandLessIcon,
+  expand_more: ExpandMoreIcon,
+  gavel: GavelIcon,
+  grid_on: GridOnIcon,
+  groups: GroupsIcon,
+  help: HelpIcon,
+  home: HomeIcon,
+  hourglass_top: HourglassTopIcon,
+  how_to_vote: HowToVoteIcon,
+  info: InfoIcon,
+  insights: InsightsIcon,
+  install_mobile: InstallMobileIcon,
+  ios_share: IosShareIcon,
+  light_mode: LightModeIcon,
+  link: LinkIcon,
+  lock: LockIcon,
+  login: LoginIcon,
+  logout: LogoutIcon,
+  mail: MailIcon,
+  menu_book: MenuBookIcon,
+  note: NoteIcon,
+  notifications: NotificationsIcon,
+  notifications_off: NotificationsOffIcon,
+  payments: PaymentsIcon,
+  pending_actions: PendingActionsIcon,
+  person_add: PersonAddIcon,
+  person_off: PersonOffIcon,
+  person_remove: PersonRemoveIcon,
+  photo_camera: PhotoCameraIcon,
+  phone_iphone: PhoneIphoneIcon,
+  place: PlaceIcon,
+  push_pin: PushPinIcon,
+  question_mark: QuestionMarkIcon,
+  receipt_long: ReceiptLongIcon,
+  remove: RemoveIcon,
+  repeat: RepeatIcon,
+  savings: SavingsIcon,
+  schedule: ScheduleIcon,
+  search_off: SearchOffIcon,
+  send: SendIcon,
+  settings: SettingsIcon,
+  shield_person: AdminPanelSettingsIcon,
+  sticky_note_2: StickyNote2Icon,
+  sync: SyncIcon,
+  title: TitleIcon,
+  toggle_off: ToggleOffIcon,
+  toggle_on: ToggleOnIcon,
+  tune: TuneIcon,
+  unfold_more: UnfoldMoreIcon,
+  warning: WarningIcon,
+  image: ImageIcon,
+  north_east: NorthEastIcon,
+  south_west: SouthWestIcon,
+  event_upcoming: EventAvailableIcon,
+  visibility: VisibilityIcon,
+  visibility_off: VisibilityOffIcon,
+};
+
+/** SVG icon rendered by symbolic name.
  *  Decorative by default (aria-hidden); pass `label` to expose it to assistive
  *  tech as a standalone meaningful icon. */
 export function Sym({
@@ -25,24 +210,19 @@ export function Sym({
   sx?: SxProps<Theme>;
   label?: string;
 }) {
+  const Icon = ICONS[name] ?? HelpOutlineIcon;
   return (
-    <Box
-      component="span"
+    <Icon
       aria-hidden={label ? undefined : true}
       role={label ? 'img' : undefined}
       aria-label={label}
       sx={{
-        fontFamily: "'Material Symbols Outlined'",
         fontSize: size + 'px',
-        lineHeight: 1,
         color,
         flex: '0 0 auto',
-        userSelect: 'none',
         ...(sx as object),
       }}
-    >
-      {name}
-    </Box>
+    />
   );
 }
 

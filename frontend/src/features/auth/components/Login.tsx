@@ -152,7 +152,11 @@ export function Login() {
         ) : view === 'forgotPassword' ? (
           <ForgotPassword onBack={() => setView('password')} />
         ) : view === 'password' ? (
-          <Box component="form" onSubmit={handlePasswordSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <Box
+            component="form"
+            onSubmit={handlePasswordSubmit}
+            sx={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+          >
             <Box component="label" htmlFor="login-email" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <Box component="span" sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, px: '2px' }}>
                 {t('auth.emailLabel')}
@@ -168,7 +172,11 @@ export function Login() {
                 sx={inputSx}
               />
             </Box>
-            <Box component="label" htmlFor="login-password" sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <Box
+              component="label"
+              htmlFor="login-password"
+              sx={{ display: 'flex', flexDirection: 'column', gap: '4px' }}
+            >
               <Box component="span" sx={{ fontSize: '12px', fontWeight: 600, color: NEUTRAL.secondary, px: '2px' }}>
                 {t('auth.passwordLabel')}
               </Box>
@@ -261,10 +269,9 @@ export function Login() {
                       background: isApple ? 'transparent' : 'rgba(0,0,0,.05)',
                       color: p.fg,
                       flex: '0 0 auto',
-                      fontFamily: isApple ? "'Material Symbols Outlined'" : 'inherit',
                     }}
                   >
-                    {glyph}
+                    {isApple ? <Sym name="phone_iphone" size={18} color={p.fg} /> : glyph}
                   </Box>
                   <Box component="span" sx={{ flex: 1, textAlign: 'left' }}>
                     <Box component="span" sx={{ display: 'block', fontSize: '15px', fontWeight: 600, lineHeight: 1.2 }}>

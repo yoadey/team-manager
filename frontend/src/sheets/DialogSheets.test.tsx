@@ -57,7 +57,7 @@ vi.mock('@/styles/tokens', () => ({
   },
 }));
 
-// Mock shared UI atoms so tests don't need Material Symbols font etc.
+// Mock shared UI atoms so tests don't need MUI icon font etc.
 vi.mock('@/components/ui', () => ({
   Sym: ({ name }: { name: string }) => <span data-testid={`sym-${name}`}>{name}</span>,
   Chip: ({ label }: { label: string }) => <span data-testid="chip">{label}</span>,

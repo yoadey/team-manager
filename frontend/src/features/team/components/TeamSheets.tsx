@@ -99,13 +99,7 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
       >
         {photo ? t('team.photoSelected') : t('team.photoUpload')}
       </Box>
-      <input
-        key="f"
-        type="file"
-        accept="image/*"
-        onChange={(e) => app.onFile(e, (d) => setValue('photo', d))}
-        hidden
-      />
+      <input key="f" type="file" accept="image/*" onChange={(e) => app.onFile(e, (d) => setValue('photo', d))} hidden />
     </Box>
   );
 
@@ -139,7 +133,12 @@ export function CreateTeamSheet({ app, sheet }: SheetProps) {
         <Box key="l" sx={labelSx}>
           {t('team.iconLabel')}
         </Box>
-        <Box key="b" role="radiogroup" aria-label={t('team.iconLabel')} sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+        <Box
+          key="b"
+          role="radiogroup"
+          aria-label={t('team.iconLabel')}
+          sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}
+        >
           {icons}
         </Box>
       </Box>
@@ -174,11 +173,9 @@ export function InviteSheet({ app, sheet }: SheetProps) {
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: "'Material Symbols Outlined'",
-            fontSize: '34px',
           }}
         >
-          link
+          <Sym name="link" size={34} color={tk.primary} />
         </Box>
         <Box key="s" sx={{ fontSize: '14px', color: NEUTRAL.secondary, mt: '12px', lineHeight: 1.5 }}>
           {/* Interpolate a sentinel token (never present in translated text) rather
@@ -411,16 +408,16 @@ export function TeamSettingsSheet({ app, sheet }: SheetProps) {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontFamily: "'Material Symbols Outlined'",
-              fontSize: '26px',
               flex: '0 0 auto',
             }}
           >
-            image
+            <Sym name="image" size={26} color={NEUTRAL.faint} />
           </Box>
         )}
-        {upLabel('photo_camera', team.photo ? t('team.settingsPhotoChange') : t('team.settingsPhotoUpload'), (d, teamId) =>
-          app.saveTeamPhoto(d, teamId),
+        {upLabel(
+          'photo_camera',
+          team.photo ? t('team.settingsPhotoChange') : t('team.settingsPhotoUpload'),
+          (d, teamId) => app.saveTeamPhoto(d, teamId),
         )}
         {team.photo ? (
           <ButtonBase

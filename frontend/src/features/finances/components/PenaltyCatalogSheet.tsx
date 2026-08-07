@@ -30,12 +30,10 @@ export function PenaltyCatalogSheet({ app, sheet }: SheetProps) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: "'Material Symbols Outlined'",
-            fontSize: '19px',
             flex: '0 0 auto',
           }}
         >
-          gavel
+          <Sym name="gavel" size={19} color={tk.primary} />
         </Box>
         <Box key="m" sx={{ flex: 1, minWidth: 0 }}>
           <Box
