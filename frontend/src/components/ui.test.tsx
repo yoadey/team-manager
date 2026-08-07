@@ -26,7 +26,7 @@ vi.mock('@/context/AppContext', () => ({
 describe('Sym', () => {
   it('renders SVG icon for symbolic name', () => {
     render(<Sym name="home" />);
-    expect(screen.getByTestId('HomeIcon')).toBeTruthy();
+    expect(screen.getByTestId('HomeOutlinedIcon')).toBeTruthy();
   });
 
   it('exposes label to assistive tech when label provided', () => {
@@ -73,7 +73,7 @@ describe('Chip', () => {
 
   it('renders icon when provided', () => {
     render(<Chip label="Active" color="#000" bg="#fff" icon="check" />);
-    expect(screen.getByTestId('CheckIcon')).toBeTruthy();
+    expect(screen.getByTestId('CheckOutlinedIcon')).toBeTruthy();
   });
 });
 

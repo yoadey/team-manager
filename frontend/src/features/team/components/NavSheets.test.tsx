@@ -273,7 +273,7 @@ describe('MoreSheet', () => {
     const app = makeApp();
     render(<MoreSheet app={app as never} sheet={SHEET} />);
     // Each item shows a chevron_right SVG icon
-    const chevrons = screen.getAllByTestId('ChevronRightIcon');
+    const chevrons = screen.getAllByTestId('ChevronRightOutlinedIcon');
     expect(chevrons.length).toBeGreaterThan(0);
   });
 });

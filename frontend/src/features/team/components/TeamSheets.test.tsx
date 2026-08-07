@@ -240,7 +240,7 @@ describe('InviteSheet — without invite', () => {
     const app = makeApp();
     render(<InviteSheet app={app} sheet={sheetNoInvite} />);
     // The hero box renders the link SVG icon
-    expect(screen.getByTestId('LinkIcon')).toBeTruthy();
+    expect(screen.getByTestId('LinkOutlinedIcon')).toBeTruthy();
   });
 
   it('renders team short name in description', () => {
@@ -511,7 +511,7 @@ describe('TeamSettingsSheet', () => {
     const app = makeSettingsApp({ reasonVisibilityRoles: ['r1'] }, roles);
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
     // When selected, Sym name="check" renders the check SVG icon inside the button
-    expect(screen.getByTestId('CheckIcon')).toBeTruthy();
+    expect(screen.getByTestId('CheckOutlinedIcon')).toBeTruthy();
   });
 
   it('shows icon emoji in logo preview box when no logo image is set', () => {
