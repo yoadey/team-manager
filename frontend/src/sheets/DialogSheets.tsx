@@ -24,11 +24,9 @@ export function ConfirmSheet({ app, sheet }: SheetProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontFamily: "'Material Symbols Outlined'",
-          fontSize: '30px',
         }}
       >
-        {danger ? 'warning' : 'help'}
+        <Sym name={danger ? 'warning' : 'help'} size={30} />
       </Box>
       <Box key="m" sx={{ fontSize: '14px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.55 }}>
         {c.message || t('common.areYouSure')}
@@ -117,12 +115,10 @@ export function SeriesActionSheet({ app, sheet }: SheetProps) {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontFamily: "'Material Symbols Outlined'",
-          fontSize: '21px',
           flex: '0 0 auto',
         }}
       >
-        {icon}
+        <Sym name={icon} size={21} color={L.col} />
       </Box>
       <Box key="m" sx={{ flex: 1, minWidth: 0 }}>
         <Box key="t" sx={{ fontSize: '15px', fontWeight: 700 }}>

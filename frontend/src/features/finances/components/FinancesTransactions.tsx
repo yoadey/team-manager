@@ -31,12 +31,14 @@ export function FinancesTransactions({ app, t: tk, f, canFin }: Props) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: "'Material Symbols Outlined'",
-            fontSize: '20px',
             flex: '0 0 auto',
           }}
         >
-          {tx.type === 'income' ? 'south_west' : 'north_east'}
+          <Sym
+            name={tx.type === 'income' ? 'south_west' : 'north_east'}
+            size={20}
+            color={tx.type === 'income' ? NEUTRAL.success : NEUTRAL.error}
+          />
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box

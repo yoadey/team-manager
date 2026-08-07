@@ -68,7 +68,10 @@ export function TeamsSheet({ app }: SheetProps) {
                 {tm.name}
               </Box>
               <Box component="span" sx={{ display: 'block', fontSize: '12px', color: NEUTRAL.secondary }}>
-                {[tm.myRoles.map((r) => r.name).join(', '), t('team.membersCount', { n: tm.memberCount, count: tm.memberCount })]
+                {[
+                  tm.myRoles.map((r) => r.name).join(', '),
+                  t('team.membersCount', { n: tm.memberCount, count: tm.memberCount }),
+                ]
                   .filter(Boolean)
                   .join(' · ')}
               </Box>
@@ -156,12 +159,10 @@ export function MoreSheet({ app }: SheetProps) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontFamily: "'Material Symbols Outlined'",
-                fontSize: '21px',
                 flex: '0 0 auto',
               }}
             >
-              {i[2]}
+              <Sym name={i[2]} size={21} color={NEUTRAL.onSurfaceVariant} />
             </Box>
             <Box component="span" key="l" sx={{ flex: 1, textAlign: 'left', fontSize: '15px', fontWeight: 600 }}>
               {i[1]}

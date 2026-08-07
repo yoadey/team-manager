@@ -33,7 +33,11 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
         fontSize: '13px',
       }}
     >
-      <Sym name={checked ? 'check_box' : 'check_box_outline_blank'} size={20} color={checked ? tk.primary : NEUTRAL.secondary} />
+      <Sym
+        name={checked ? 'check_box' : 'check_box_outline_blank'}
+        size={20}
+        color={checked ? tk.primary : NEUTRAL.secondary}
+      />
       {label}
     </ButtonBase>
   );
@@ -66,11 +70,9 @@ export function CalExportSheet({ app, sheet }: SheetProps) {
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: "'Material Symbols Outlined'",
-            fontSize: '32px',
           }}
         >
-          event_upcoming
+          <Sym name="event_upcoming" size={32} color={tk.primary} />
         </Box>
         <Box key="s" sx={{ fontSize: '14px', color: NEUTRAL.secondary, mt: '12px', lineHeight: 1.5 }}>
           {t('events.calExportHero', { n: cnt, count: cnt })}

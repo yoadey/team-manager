@@ -5,7 +5,7 @@ import type { SheetProps } from '@/sheets/types';
 import type { AppNotification } from '../types';
 import { buildTokens, statusMeta, fmtDate, relTime, NEUTRAL } from '@/styles/tokens';
 import { getIntlLocale, t } from '@/i18n';
-import { Av, EmptyState, SpinnerBox } from '@/components/ui';
+import { Av, EmptyState, SpinnerBox, Sym } from '@/components/ui';
 import { useNotificationsQuery } from '../hooks/useNotificationQueries';
 
 interface NotifMeta {
@@ -219,12 +219,10 @@ export function NotificationsSheet({ app }: SheetProps) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontFamily: "'Material Symbols Outlined'",
-            fontSize: '20px',
             flex: '0 0 auto',
           }}
         >
-          {m.icon}
+          <Sym name={m.icon} size={20} color={m.col} />
         </Box>
       );
     const dot = n.unread ? (

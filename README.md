@@ -16,7 +16,7 @@ Backend um, je nachdem ob `VITE_API_BASE_URL` gesetzt ist.
 
 - **React 19 + TypeScript 5 (strict)** + **Vite**
 - **MUI (Material UI v9)** + **Emotion** als Komponenten- und Theming-Basis (Material Design 3)
-- **Roboto** (`@fontsource/roboto`) + **Material Symbols Outlined** (`material-symbols`)
+- **Roboto** (`@fontsource/roboto`) + SVG icons (`@mui/icons-material`)
 - **Vitest** (+ Testing Library, `vitest-axe`) für Unit-/Komponententests, **Playwright** für E2E
 - **Sentry** für Fehler-Monitoring (optional, via `VITE_SENTRY_DSN`)
 - Zentraler App-State über React Context (`frontend/src/context/AppContext.tsx`)

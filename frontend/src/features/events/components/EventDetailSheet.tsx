@@ -17,7 +17,15 @@ import { t } from '@/i18n';
 type AppApi = SheetProps['app'];
 type Tokens = ReturnType<typeof buildTokens>;
 
-function CancelledBanner({ event, canEdit, onReactivate }: { event: TeamEvent; canEdit: boolean; onReactivate: () => void }) {
+function CancelledBanner({
+  event,
+  canEdit,
+  onReactivate,
+}: {
+  event: TeamEvent;
+  canEdit: boolean;
+  onReactivate: () => void;
+}) {
   if (event.status !== 'cancelled') return null;
   return (
     <Box
@@ -263,7 +271,9 @@ function MyResponseSection({ app, event, tk, me, canEdit }: MyResponseSectionPro
         />
       </Box>
       <ButtonBase
-        onClick={() => app.openComment(event, { userId: me, name: t('events.meLabel'), status: myStatus, reason: myComment })}
+        onClick={() =>
+          app.openComment(event, { userId: me, name: t('events.meLabel'), status: myStatus, reason: myComment })
+        }
         sx={{
           display: 'flex',
           alignItems: 'center',
@@ -369,12 +379,10 @@ function AttendanceStatusButton({
         cursor: 'pointer',
         background: selected ? color : '#F1F2F6',
         color: selected ? '#fff' : NEUTRAL.faint,
-        fontFamily: "'Material Symbols Outlined'",
-        fontSize: '17px',
         flex: '0 0 auto',
       }}
     >
-      {icon}
+      <Sym name={icon} size={17} color={selected ? '#fff' : NEUTRAL.faint} />
     </ButtonBase>
   );
 }
@@ -506,11 +514,21 @@ function AttendanceRowItem({
     >
       <Av name={row.name} photo={row.photo} color={row.avatarColor} size={34} font={12} />
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        <Box sx={{ fontSize: '14px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <Box
+          sx={{ fontSize: '14px', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
           {row.name + (mine ? ' · ' + t('events.meLabel') : '')}
         </Box>
         {canSeeComment && row.reason ? (
-          <Box sx={{ fontSize: '11px', color: NEUTRAL.warn, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <Box
+            sx={{
+              fontSize: '11px',
+              color: NEUTRAL.warn,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
             {row.reason}
           </Box>
         ) : (
@@ -650,7 +668,9 @@ function CommentThread({
                     {fmtDateTime(c.createdAt)}
                   </Box>
                 </Box>
-                <Box sx={{ fontSize: '13px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.45, wordBreak: 'break-word' }}>
+                <Box
+                  sx={{ fontSize: '13px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.45, wordBreak: 'break-word' }}
+                >
                   {c.text}
                 </Box>
               </Box>
@@ -762,7 +782,16 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
       <CancelledBanner event={e} canEdit={canEdit} onReactivate={() => app.askEventAction('reactivate', e)} />
       <EventInfoCard event={e} />
       {e.note ? (
-        <Box sx={{ display: 'flex', gap: '10px', p: '12px 14px', background: NEUTRAL.sidebar, borderRadius: '14px', mb: '14px' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            gap: '10px',
+            p: '12px 14px',
+            background: NEUTRAL.sidebar,
+            borderRadius: '14px',
+            mb: '14px',
+          }}
+        >
           <Sym name="sticky_note_2" size={18} color={NEUTRAL.secondary} />
           <Box component="span" sx={{ fontSize: '13px', color: NEUTRAL.onSurfaceVariant, lineHeight: 1.5 }}>
             {e.note}
@@ -770,7 +799,16 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
         </Box>
       ) : null}
       {e.result ? (
-        <Box sx={{ display: 'flex', gap: '10px', p: '12px 14px', background: NEUTRAL.successBg, borderRadius: '14px', mb: '14px' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            gap: '10px',
+            p: '12px 14px',
+            background: NEUTRAL.successBg,
+            borderRadius: '14px',
+            mb: '14px',
+          }}
+        >
           <Sym name="emoji_events" size={18} color={NEUTRAL.success} />
           <Box component="span" sx={{ fontSize: '13px', color: NEUTRAL.success, fontWeight: 600, lineHeight: 1.5 }}>
             {t('events.result', { val: e.result })}
