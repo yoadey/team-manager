@@ -61,40 +61,25 @@ describe('LinkedPaymentPicker', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('starts collapsed behind a toggle button', () => {
+  it('shows the "Verknüpfen mit" heading with both buttons directly, no collapsed toggle', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
         tk={tk}
         contributions={[makeContribution()]}
-        assignments={[]}
-        contributionId={undefined}
-        penaltyAssignmentId={undefined}
-        {...handlers}
-      />,
-    );
-    expect(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeTruthy();
-    expect(screen.queryByPlaceholderText('Mitglied oder Bezeichnung suchen…')).toBeNull();
-  });
-
-  it('expands to show both kind tabs with counts', () => {
-    const handlers = makeHandlers();
-    render(
-      <LinkedPaymentPicker
-        tk={tk}
-        contributions={[makeContribution(), makeContribution({ id: 'c2' })]}
         assignments={[makeAssignment()]}
         contributionId={undefined}
         penaltyAssignmentId={undefined}
         {...handlers}
       />,
     );
-    fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    expect(screen.getByText('Beiträge (2)')).toBeTruthy();
-    expect(screen.getByText('Strafen (1)')).toBeTruthy();
+    expect(screen.getByText('Verknüpfen mit')).toBeTruthy();
+    expect(screen.getByText('Beiträge')).toBeTruthy();
+    expect(screen.getByText('Strafen')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Mitglied oder Beitrag suchen…')).toBeNull();
   });
 
-  it('opens a matrix dialog for linking a contribution, filterable by search text', () => {
+  it('opens the fee matrix dialog directly from the "Beiträge" button, filterable by search text', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
@@ -109,8 +94,7 @@ describe('LinkedPaymentPicker', () => {
         {...handlers}
       />,
     );
-    fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    fireEvent.click(screen.getByText('Matrix öffnen'));
+    fireEvent.click(screen.getByText('Beiträge'));
     expect(screen.getByText('Anna Müller')).toBeTruthy();
     expect(screen.getByText('Ben Schmidt')).toBeTruthy();
 
@@ -119,26 +103,6 @@ describe('LinkedPaymentPicker', () => {
     });
     expect(screen.queryByText('Anna Müller')).toBeNull();
     expect(screen.getByText('Ben Schmidt')).toBeTruthy();
-  });
-
-  it('shows an empty state in the matrix dialog when the search matches nothing', () => {
-    const handlers = makeHandlers();
-    render(
-      <LinkedPaymentPicker
-        tk={tk}
-        contributions={[makeContribution()]}
-        assignments={[]}
-        contributionId={undefined}
-        penaltyAssignmentId={undefined}
-        {...handlers}
-      />,
-    );
-    fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    fireEvent.click(screen.getByText('Matrix öffnen'));
-    fireEvent.change(screen.getByPlaceholderText('Mitglied oder Beitrag suchen…'), {
-      target: { value: 'nonexistent' },
-    });
-    expect(screen.getByText('Keine offenen Beiträge')).toBeTruthy();
   });
 
   it('calls onSelectContribution when a matrix cell is clicked', () => {
@@ -153,13 +117,12 @@ describe('LinkedPaymentPicker', () => {
         {...handlers}
       />,
     );
-    fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    fireEvent.click(screen.getByText('Matrix öffnen'));
+    fireEvent.click(screen.getByText('Beiträge'));
     fireEvent.click(screen.getByRole('checkbox'));
     expect(handlers.onSelectContribution).toHaveBeenCalledWith('c1');
   });
 
-  it('switches to the penalty tab and calls onSelectPenalty when a row is clicked', () => {
+  it('opens the penalty popup directly from the "Strafen" button and calls onSelectPenalty when a row is clicked', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
@@ -171,56 +134,12 @@ describe('LinkedPaymentPicker', () => {
         {...handlers}
       />,
     );
-    fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    fireEvent.click(screen.getByText(/Strafen \(1\)/));
+    fireEvent.click(screen.getByText('Strafen'));
     fireEvent.click(screen.getByText('Ben Schmidt'));
     expect(handlers.onSelectPenalty).toHaveBeenCalledWith('a1');
   });
 
-  // Regression test: the amount shown for a penalty assignment must be the
-  // still-outstanding balance (amount - paidAmount), same as contributions --
-  // a partially-paid assignment stays unpaid (paid derives from paidAmount
-  // >= amount) and keeps showing up here, so showing the full original
-  // amount instead of what's actually still owed would mislead the person
-  // recording the next payment.
-  it('shows the outstanding balance, not the full amount, for a partially-paid penalty assignment', () => {
-    const handlers = makeHandlers();
-    render(
-      <LinkedPaymentPicker
-        tk={tk}
-        contributions={[]}
-        assignments={[makeAssignment({ id: 'a1', name: 'Ben Schmidt', amount: 50, paidAmount: 30, paid: false })]}
-        contributionId={undefined}
-        penaltyAssignmentId={undefined}
-        {...handlers}
-      />,
-    );
-    fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    fireEvent.click(screen.getByText(/Strafen \(1\)/));
-    expect(screen.getByText('20,00 €')).toBeTruthy();
-    expect(screen.queryByText('50,00 €')).toBeNull();
-
-    fireEvent.click(screen.getByText('Ben Schmidt'));
-    expect(handlers.onSelectPenalty).toHaveBeenCalledWith('a1');
-  });
-
-  it('shows the outstanding balance in the collapsed summary once a partially-paid penalty assignment is selected', () => {
-    const handlers = makeHandlers();
-    render(
-      <LinkedPaymentPicker
-        tk={tk}
-        contributions={[]}
-        assignments={[makeAssignment({ id: 'a1', name: 'Ben Schmidt', amount: 50, paidAmount: 30, paid: false })]}
-        contributionId={undefined}
-        penaltyAssignmentId="a1"
-        {...handlers}
-      />,
-    );
-    expect(screen.getByText('20,00 €')).toBeTruthy();
-    expect(screen.queryByText('50,00 €')).toBeNull();
-  });
-
-  it('shows a collapsed summary with member/label/amount once a contribution is selected', () => {
+  it('shows a summary with member/label/amount once a contribution is selected', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
@@ -235,6 +154,25 @@ describe('LinkedPaymentPicker', () => {
     expect(screen.getByText(/Anna Müller.*Mitgliedsbeitrag Januar/)).toBeTruthy();
     // Shows the outstanding amount (25 - 10 paid), not the full fee amount.
     expect(screen.getByText('15,00 €')).toBeTruthy();
+    // No un-selected linking buttons once something is already linked.
+    expect(screen.queryByText('Beiträge')).toBeNull();
+    expect(screen.queryByText('Strafen')).toBeNull();
+  });
+
+  it('shows the outstanding balance, not the full amount, once a partially-paid penalty assignment is selected', () => {
+    const handlers = makeHandlers();
+    render(
+      <LinkedPaymentPicker
+        tk={tk}
+        contributions={[]}
+        assignments={[makeAssignment({ id: 'a1', name: 'Ben Schmidt', amount: 50, paidAmount: 30, paid: false })]}
+        contributionId={undefined}
+        penaltyAssignmentId="a1"
+        {...handlers}
+      />,
+    );
+    expect(screen.getByText('20,00 €')).toBeTruthy();
+    expect(screen.queryByText('50,00 €')).toBeNull();
   });
 
   it('calls onClear when the remove button on the summary is clicked', () => {
@@ -253,12 +191,12 @@ describe('LinkedPaymentPicker', () => {
     expect(handlers.onClear).toHaveBeenCalled();
   });
 
-  it('reopens the picker when "Ändern" is clicked on the summary', () => {
+  it('reopens the matrix dialog when "Ändern" is clicked on a fee summary', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
         tk={tk}
-        contributions={[makeContribution({ id: 'c1' })]}
+        contributions={[makeContribution({ id: 'c1', name: 'Anna Müller' })]}
         assignments={[]}
         contributionId="c1"
         penaltyAssignmentId={undefined}
@@ -266,6 +204,23 @@ describe('LinkedPaymentPicker', () => {
       />,
     );
     fireEvent.click(screen.getByText('Ändern'));
-    expect(screen.getByText('Matrix öffnen')).toBeTruthy();
+    expect(screen.getAllByText('Anna Müller').length).toBeGreaterThan(0);
+    expect(screen.getByRole('checkbox')).toBeTruthy();
+  });
+
+  it('reopens the penalty popup when "Ändern" is clicked on a penalty summary', () => {
+    const handlers = makeHandlers();
+    render(
+      <LinkedPaymentPicker
+        tk={tk}
+        contributions={[]}
+        assignments={[makeAssignment({ id: 'a1', name: 'Ben Schmidt' })]}
+        contributionId={undefined}
+        penaltyAssignmentId="a1"
+        {...handlers}
+      />,
+    );
+    fireEvent.click(screen.getByText('Ändern'));
+    expect(screen.getByRole('option')).toBeTruthy();
   });
 });

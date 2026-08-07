@@ -8,8 +8,9 @@ import type { TxFormValues } from '../components/txFormSchema';
 import type { PenaltyFormValues } from '../components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
 import type { ContribFormValues } from '../components/contribFormSchema';
-import type { FinanceOverview } from '../types';
+import type { Contribution, FinanceOverview } from '../types';
 import type { QueryClient } from '@tanstack/react-query';
+import { todayStr } from '@/styles/tokens';
 
 function makeOverview(overrides: Partial<FinanceOverview> = {}): FinanceOverview {
   return {
@@ -141,6 +142,62 @@ describe('useFinanceActions', () => {
     );
   });
 
+  it('openTxForm defaults a new transaction date to today', () => {
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTxForm();
+    });
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: expect.objectContaining({ formInitial: expect.objectContaining({ date: todayStr() }) }),
+      }),
+    );
+  });
+
+  it('openTxForm carries an existing transaction date into the edit form', () => {
+    const tx = { id: 'tx1', type: 'income', title: 'Test', amount: 50, category: '', date: '2025-03-01' } as never;
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTxForm(tx);
+    });
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: expect.objectContaining({ formInitial: expect.objectContaining({ date: '2025-03-01' }) }),
+      }),
+    );
+  });
+
+  it('openTxFormForContribution pre-links a create-mode form to the contribution', () => {
+    const c = {
+      id: 'c1',
+      label: 'Monatsbeitrag',
+      amount: 20,
+      paidAmount: 5,
+      userId: 'u1',
+      teamId: 'team1',
+    } as Contribution;
+    const { result } = renderActions();
+    act(() => {
+      result.current.openTxFormForContribution(c);
+    });
+    expect(setState).toHaveBeenCalledWith({
+      sheet: {
+        type: 'txForm',
+        mode: 'create',
+        formInitial: {
+          type: 'income',
+          title: 'Monatsbeitrag',
+          amount: '15',
+          category: '',
+          date: todayStr(),
+          contributionId: 'c1',
+          penaltyAssignmentId: '',
+          note: '',
+        },
+      },
+    });
+  });
+
   it('openTxForm sets edit sheet when transaction passed', () => {
     const tx = { id: 'tx1', type: 'income', title: 'Test', amount: 50, category: 'Beiträge' } as never;
     const { result } = renderActions();
@@ -192,6 +249,24 @@ describe('useFinanceActions', () => {
     });
     expect(api.finances.addTransaction).toHaveBeenCalled();
     expect(toastMsg).toHaveBeenCalledWith('Buchung gespeichert');
+  });
+
+  it('saveTx includes the chosen date in the payload', async () => {
+    const formValues = {
+      title: 'Beitrag Jan',
+      amount: '50',
+      type: 'income',
+      category: 'Beiträge',
+      date: '2025-05-10',
+    } as TxFormValues;
+    stateRef = makeState({
+      sheet: { type: 'txForm', mode: 'create', formInitial: formValues } as never,
+    });
+    const { result } = renderActions();
+    await act(async () => {
+      await result.current.saveTx(formValues);
+    });
+    expect(api.finances.addTransaction).toHaveBeenCalledWith('team1', expect.objectContaining({ date: '2025-05-10' }));
   });
 
   it('saveTx updates transaction in edit mode', async () => {

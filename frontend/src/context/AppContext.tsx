@@ -405,6 +405,7 @@ export interface AppContextValue {
   removeNews: (id: string) => void;
   // finances
   openTxForm: (tx?: Transaction) => void;
+  openTxFormForContribution: (c: Contribution) => void;
   saveTx: (f: TxFormValues) => Promise<void>;
   deleteTx: (id: string) => Promise<void>;
   openPenaltyCatalog: () => void;
@@ -1214,6 +1215,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     saveNews,
     removeNews,
     openTxForm,
+    openTxFormForContribution,
     saveTx,
     deleteTx,
     openPenaltyCatalog,
@@ -1488,6 +1490,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveNews,
       removeNews,
       openTxForm,
+      openTxFormForContribution,
       saveTx,
       deleteTx,
       openPenaltyCatalog,
@@ -1596,6 +1599,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveNews,
       removeNews,
       openTxForm,
+      openTxFormForContribution,
       saveTx,
       deleteTx,
       openPenaltyCatalog,

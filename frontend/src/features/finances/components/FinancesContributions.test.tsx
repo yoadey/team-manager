@@ -52,6 +52,7 @@ function makeApp(overrides = {}) {
     state: { contribGroup: null },
     openContribForm: vi.fn(),
     openContribCreate: vi.fn(),
+    openTxFormForContribution: vi.fn(),
     askConfirm: vi.fn((cfg: { onConfirm?: () => void }) => cfg.onConfirm?.()),
     archiveContribGroup: vi.fn(),
     ...overrides,
@@ -92,6 +93,15 @@ function makeContrib(overrides = {}) {
   };
 }
 
+/** Renders and switches to the list view -- the matrix view is the default
+ * (see openspec/changes/finance-matrix-transactions), so list-specific
+ * assertions need this instead of a bare render. */
+function renderList(props: Parameters<typeof FinancesContributions>[0]) {
+  const result = render(<FinancesContributions {...props} />);
+  fireEvent.click(screen.getByText('finances.contribViewList'));
+  return result;
+}
+
 describe('FinancesContributions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -103,7 +113,7 @@ describe('FinancesContributions', () => {
     expect(screen.getByText('finances.contribEmpty')).toBeTruthy();
   });
 
-  it('renders a fee-name chip for contributions', () => {
+  it('defaults to the matrix view', () => {
     const app = makeApp();
     render(
       <FinancesContributions
@@ -113,59 +123,74 @@ describe('FinancesContributions', () => {
         canFin={false}
       />,
     );
+    expect(screen.getByText('finances.contribMatrixMemberHeader')).toBeTruthy();
+  });
+
+  it('switching to the list view renders the list and hides the matrix', () => {
+    const app = makeApp();
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: false,
+    });
+    expect(screen.queryByText('finances.contribMatrixMemberHeader')).toBeNull();
+    expect(screen.getAllByText('Monatsbeitrag').length).toBeGreaterThan(0);
+  });
+
+  it('renders a fee-name chip for contributions', () => {
+    const app = makeApp();
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: false,
+    });
     expect(screen.getAllByText('Monatsbeitrag').length).toBeGreaterThan(0);
   });
 
   it('renders contribution member name', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib()] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: false,
+    });
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
 
   it('renders paid contribution row', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib({ status: 'paid', paidAmount: 20 })] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib({ status: 'paid', paidAmount: 20 })] }),
+      canFin: false,
+    });
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
 
   it('renders a partially paid contribution row with a paid/total amount', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib({ status: 'partial', paidAmount: 10 })] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib({ status: 'partial', paidAmount: 10 })] }),
+      canFin: false,
+    });
     expect(screen.getByText('10 € / 20 €')).toBeTruthy();
     expect(screen.getAllByText('finances.contribPartial').length).toBeGreaterThan(0);
   });
 
   it('clicking a fee-name chip calls setState with the group key', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib()] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: false,
+    });
     fireEvent.click(screen.getAllByText('Monatsbeitrag')[0]!.closest('button')!);
     expect(app.setState).toHaveBeenCalledWith({ contribGroup: 'Monatsbeitrag' });
   });
@@ -176,9 +201,7 @@ describe('FinancesContributions', () => {
       makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag Juni', name: 'Anna' }),
       makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag Mai', name: 'Bob', userId: 'u2' }),
     ];
-    render(
-      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: false });
     expect(screen.getAllByText('Mitgliedsbeitrag Juni').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Mitgliedsbeitrag Mai').length).toBeGreaterThan(0);
   });
@@ -189,9 +212,7 @@ describe('FinancesContributions', () => {
       makeContrib({ id: 'c1', label: 'Später fällig', name: 'Anna', dueDate: '2026-08-31' }),
       makeContrib({ id: 'c2', label: 'Bald fällig', name: 'Bob', userId: 'u2', dueDate: '2026-01-31' }),
     ];
-    render(
-      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: false });
     // The soonest-due group is selected by default, so its member renders.
     expect(screen.getByText('Bob')).toBeTruthy();
   });
@@ -206,9 +227,7 @@ describe('FinancesContributions', () => {
       makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag', name: 'Anna', dueDate: '2026-01-31', amount: 25 }),
       makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag', name: 'Bob', userId: 'u2', dueDate: '2026-02-28', amount: 25 }),
     ];
-    render(
-      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: false });
     // The soonest-due group (January) is selected by default -- only Anna's
     // row shows, Bob's February batch must not be blended in.
     expect(screen.getByText('Anna')).toBeTruthy();
@@ -231,9 +250,7 @@ describe('FinancesContributions', () => {
       makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag', name: 'Anna', dueDate: '2026-01-31' }),
       makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag', name: 'Bob', userId: 'u2', dueDate: '2026-01-31' }),
     ];
-    render(
-      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: false });
     expect(screen.getByText('Anna')).toBeTruthy();
     expect(screen.getByText('Bob')).toBeTruthy();
   });
@@ -244,22 +261,18 @@ describe('FinancesContributions', () => {
       makeContrib({ id: 'c1', label: 'Mitgliedsbeitrag Juni', name: 'Anna' }),
       makeContrib({ id: 'c2', label: 'Mitgliedsbeitrag Mai', name: 'Bob', userId: 'u2' }),
     ];
-    render(
-      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: false });
     expect(screen.getByText('Bob')).toBeTruthy();
   });
 
   it('shows open count in the fee-name chip when there are open contribs', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib({ status: 'open' })] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib({ status: 'open' })] }),
+      canFin: false,
+    });
     expect(screen.getAllByText('finances.contribOpen').length).toBeGreaterThan(0);
   });
 
@@ -288,27 +301,23 @@ describe('FinancesContributions', () => {
   // corrected through the UI. Only visible with canFin=true.
   it('shows an edit action for each contribution when canFin is true', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib()] })}
-        canFin={true}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: true,
+    });
     expect(screen.getByLabelText('finances.editContribLabel')).toBeTruthy();
   });
 
   it('hides the edit action when canFin is false', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib()] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: false,
+    });
     expect(screen.queryByLabelText('finances.editContribLabel')).toBeNull();
   });
 
@@ -324,14 +333,7 @@ describe('FinancesContributions', () => {
       makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' }),
     ];
     expect(() =>
-      render(
-        <FinancesContributions
-          app={app as never}
-          t={tk}
-          f={makeFinances({ contributions: contribs })}
-          canFin={false}
-        />,
-      ),
+      renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: false }),
     ).not.toThrow();
     expect(screen.getByText('Bob')).toBeTruthy();
   });
@@ -345,9 +347,7 @@ describe('FinancesContributions', () => {
     const localeCompareSpy = vi.spyOn(String.prototype, 'localeCompare');
     const app = makeApp();
     const contribs = [makeContrib({ id: 'c1', name: 'Alice' }), makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' })];
-    render(
-      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={false} />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: false });
 
     const usedLocaleArgs = localeCompareSpy.mock.calls.map((c) => c[1]);
     expect(usedLocaleArgs).toContain('en-US');
@@ -360,42 +360,31 @@ describe('FinancesContributions', () => {
   it('clicking the edit action calls openContribForm with the contribution', () => {
     const app = makeApp();
     const contrib = makeContrib();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [contrib] })}
-        canFin={true}
-      />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: [contrib] }), canFin: true });
     fireEvent.click(screen.getByLabelText('finances.editContribLabel'));
     expect(app.openContribForm).toHaveBeenCalledWith(contrib);
   });
 
   it('archived contributions are hidden by default', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib({ archived: true })] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib({ archived: true })] }),
+      canFin: false,
+    });
     expect(screen.getByText('finances.contribEmpty')).toBeTruthy();
     expect(screen.queryByText('Anna Müller')).toBeNull();
   });
 
   it('the "show archived" toggle reveals archived contributions', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib({ archived: true })] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib({ archived: true })] }),
+      canFin: false,
+    });
     fireEvent.click(screen.getByText('finances.contribShowArchived'));
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
@@ -406,51 +395,45 @@ describe('FinancesContributions', () => {
       makeContrib({ id: 'c1', name: 'Anna', userId: 'u1' }),
       makeContrib({ id: 'c2', name: 'Bob', userId: 'u2' }),
     ];
-    render(
-      <FinancesContributions app={app as never} t={tk} f={makeFinances({ contributions: contribs })} canFin={true} />,
-    );
+    renderList({ app: app as never, t: tk, f: makeFinances({ contributions: contribs }), canFin: true });
     fireEvent.click(screen.getByText('finances.contribArchiveGroupBtn'));
     expect(app.archiveContribGroup).toHaveBeenCalledWith(contribs, true);
   });
 
   it('hides the archive-group action when canFin is false', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib()] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib()] }),
+      canFin: false,
+    });
     expect(screen.queryByText('finances.contribArchiveGroupBtn')).toBeNull();
   });
 
   it('shows the paid-in-excess amount instead of capping display at the fee amount', () => {
     const app = makeApp();
-    render(
-      <FinancesContributions
-        app={app as never}
-        t={tk}
-        f={makeFinances({ contributions: [makeContrib({ status: 'paid', paidAmount: 30, amount: 20 })] })}
-        canFin={false}
-      />,
-    );
+    renderList({
+      app: app as never,
+      t: tk,
+      f: makeFinances({ contributions: [makeContrib({ status: 'paid', paidAmount: 30, amount: 20 })] }),
+      canFin: false,
+    });
     expect(screen.getByText(/30 €/)).toBeTruthy();
     expect(screen.getAllByText('finances.contribOverpaid').length).toBeGreaterThan(0);
   });
 
-  it('switching to the matrix view renders the matrix and hides the list', () => {
+  it('clicking an unpaid matrix cell calls openTxFormForContribution', () => {
     const app = makeApp();
     render(
       <FinancesContributions
         app={app as never}
         t={tk}
-        f={makeFinances({ contributions: [makeContrib()] })}
+        f={makeFinances({ contributions: [makeContrib({ paidAmount: 0 })] })}
         canFin={false}
       />,
     );
-    fireEvent.click(screen.getByText('finances.contribViewMatrix'));
-    expect(screen.getByText('finances.contribMatrixMemberHeader')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /finances.contribMatrixCellAria/i }));
+    expect(app.openTxFormForContribution).toHaveBeenCalled();
   });
 });

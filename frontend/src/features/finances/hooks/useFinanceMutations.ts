@@ -20,6 +20,7 @@ export interface SaveTxInput {
     title: string;
     amount: number;
     category: string;
+    date?: string;
     contributionId?: string;
     penaltyAssignmentId?: string;
     note?: string;
