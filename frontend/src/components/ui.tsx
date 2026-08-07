@@ -5,6 +5,8 @@ import AddIcon from '@mui/icons-material/Add';
 import AddCircleIcon from '@mui/icons-material/AddCircle';
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import ArchiveIcon from '@mui/icons-material/Archive';
+import UnarchiveIcon from '@mui/icons-material/Unarchive';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AppsIcon from '@mui/icons-material/Apps';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
@@ -116,6 +118,8 @@ const ICONS: Record<string, SvgIconComponent> = {
   add_circle: AddCircleIcon,
   add_photo_alternate: AddPhotoAlternateIcon,
   admin_panel_settings: AdminPanelSettingsIcon,
+  archive: ArchiveIcon,
+  unarchive: UnarchiveIcon,
   arrow_back: ArrowBackIcon,
   apps: AppsIcon,
   autorenew: AutorenewIcon,

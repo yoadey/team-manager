@@ -152,11 +152,11 @@ describe('NewsCard', () => {
 
   it('renders pin icon when pinned', () => {
     render(<NewsCard n={makeNews({ pinned: true })} primaryColor="#4285F4" />);
-    expect(screen.getByText('push_pin')).toBeTruthy();
+    expect(screen.getByTestId('PushPinIcon')).toBeTruthy();
   });
 
   it('does not render pin icon when not pinned', () => {
     render(<NewsCard n={makeNews()} primaryColor="#4285F4" />);
-    expect(screen.queryByText('push_pin')).toBeNull();
+    expect(screen.queryByTestId('PushPinIcon')).toBeNull();
   });
 });

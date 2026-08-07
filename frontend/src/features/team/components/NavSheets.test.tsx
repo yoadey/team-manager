@@ -272,8 +272,8 @@ describe('MoreSheet', () => {
   it('renders chevron_right icons for each nav item', () => {
     const app = makeApp();
     render(<MoreSheet app={app as never} sheet={SHEET} />);
-    // Each item shows "chevron_right" glyph text (Sym renders glyph name as text)
-    const chevrons = screen.getAllByText('chevron_right');
+    // Each item shows a chevron_right SVG icon
+    const chevrons = screen.getAllByTestId('ChevronRightIcon');
     expect(chevrons.length).toBeGreaterThan(0);
   });
 });

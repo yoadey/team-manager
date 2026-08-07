@@ -54,7 +54,7 @@ describe('Toast', () => {
   it('defaults to the success checkmark when kind is omitted', () => {
     mockUseApp.mockReturnValue({ state: { toast: { message: 'Gespeichert!' } } });
     render(<Toast />);
-    expect(screen.getByText('check_circle')).toBeTruthy();
+    expect(screen.getByTestId('CheckCircleIcon')).toBeTruthy();
     expect(screen.getByRole('status')).toBeTruthy();
   });
 
@@ -62,8 +62,8 @@ describe('Toast', () => {
     mockUseApp.mockReturnValue({ state: { toast: { message: 'Keine Berechtigung', kind: 'error' } } });
     render(<Toast />);
     expect(screen.getByText('Keine Berechtigung')).toBeTruthy();
-    expect(screen.getByText('error')).toBeTruthy();
-    expect(screen.queryByText('check_circle')).toBeNull();
+    expect(screen.getByTestId('ErrorIcon')).toBeTruthy();
+    expect(screen.queryByTestId('CheckCircleIcon')).toBeNull();
     const toast = screen.getByRole('alert');
     expect(toast.getAttribute('aria-live')).toBe('assertive');
   });

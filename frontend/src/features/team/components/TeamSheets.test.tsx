@@ -239,8 +239,8 @@ describe('InviteSheet — without invite', () => {
   it('renders the hero icon element', () => {
     const app = makeApp();
     render(<InviteSheet app={app} sheet={sheetNoInvite} />);
-    // The hero box renders the material icon name 'link'
-    expect(document.body.textContent).toContain('link');
+    // The hero box renders the link SVG icon
+    expect(screen.getByTestId('LinkIcon')).toBeTruthy();
   });
 
   it('renders team short name in description', () => {
@@ -510,8 +510,8 @@ describe('TeamSettingsSheet', () => {
     const roles = [makeRole({ id: 'r1', name: 'Trainer', color: '#00796B' })];
     const app = makeSettingsApp({ reasonVisibilityRoles: ['r1'] }, roles);
     render(<TeamSettingsSheet app={app} sheet={sheet} />);
-    // When selected, Sym name="check" renders the text 'check' inside the button
-    expect(document.body.textContent).toContain('check');
+    // When selected, Sym name="check" renders the check SVG icon inside the button
+    expect(screen.getByTestId('CheckIcon')).toBeTruthy();
   });
 
   it('shows icon emoji in logo preview box when no logo image is set', () => {
