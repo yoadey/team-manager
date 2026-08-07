@@ -34,7 +34,6 @@ function makeApp(overrides = {}) {
   return {
     openPenaltyCatalog: vi.fn(),
     openPenaltyAssign: vi.fn(),
-    setPenaltyPaid: vi.fn(),
     deleteAssignment: vi.fn(),
     ...overrides,
   };
@@ -63,6 +62,7 @@ function makeAssignment(overrides = {}) {
     userId: 'u1',
     penaltyId: 'p1',
     paid: false,
+    paidAmount: 0,
     date: '2025-06-01',
     name: 'Anna Müller',
     avatarColor: '#4285F4',
@@ -128,7 +128,7 @@ describe('FinancesPenalties', () => {
     expect(screen.getByText('Anna Müller')).toBeTruthy();
   });
 
-  it('calls setPenaltyPaid with the toggled value when the button is clicked', () => {
+  it('renders an open chip for an unpaid assignment (no interactive toggle)', () => {
     const app = makeApp();
     render(
       <FinancesPenalties
@@ -138,10 +138,9 @@ describe('FinancesPenalties', () => {
         canFin={true}
       />,
     );
-    fireEvent.click(screen.getByText('finances.penaltyPaid'));
-    // The assignment is unpaid (makeAssignment defaults paid:false), so the
-    // click requests the opposite value explicitly (idempotent set, not toggle).
-    expect(app.setPenaltyPaid).toHaveBeenCalledWith('a1', true);
+    // paid is now derived from linked transactions, never a settable field --
+    // there is no button to click to toggle it, only a static status chip.
+    expect(screen.getByText('finances.penaltyOpen')).toBeTruthy();
   });
 
   it('calls deleteAssignment when delete button clicked', () => {
@@ -158,16 +157,16 @@ describe('FinancesPenalties', () => {
     expect(app.deleteAssignment).toHaveBeenCalledWith('a1');
   });
 
-  it('renders paid assignment with different label', () => {
+  it('renders a paid chip for a paid assignment', () => {
     const app = makeApp();
     render(
       <FinancesPenalties
         app={app as never}
         t={tk}
-        f={makeFinances({ assignments: [makeAssignment({ paid: true })] })}
+        f={makeFinances({ assignments: [makeAssignment({ paid: true, paidAmount: 10 })] })}
         canFin={true}
       />,
     );
-    expect(screen.getByText('finances.penaltyOpen')).toBeTruthy();
+    expect(screen.getByText('finances.penaltyPaid')).toBeTruthy();
   });
 });

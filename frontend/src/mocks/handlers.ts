@@ -354,19 +354,50 @@ function toWireNotification(n: (typeof db.notifications)[number], seen: string |
 }
 
 function toWireTransaction(t: (typeof db.transactions)[number]): S['Transaction'] {
-  return { id: t.id, teamId: t.teamId, type: t.type, title: t.title, amount: t.amount, date: t.date, ...opt('category', t.category || undefined) };
+  return {
+    id: t.id,
+    teamId: t.teamId,
+    type: t.type,
+    title: t.title,
+    amount: t.amount,
+    date: t.date,
+    ...opt('category', t.category || undefined),
+    ...opt('contributionId', t.contributionId || undefined),
+    ...opt('penaltyAssignmentId', t.penaltyAssignmentId || undefined),
+  };
 }
 function toWirePenalty(p: (typeof db.penalties)[number]): S['Penalty'] {
   return { id: p.id, teamId: p.teamId, label: p.label, amount: p.amount };
 }
+// paidAmount/status are derived from linked income transactions, never
+// stored on the row -- mirrors finances.Repository.ListContributions'
+// LATERAL sum on the real backend, so editing/deleting a linked transaction
+// is reflected here the same way.
+function contributionPaidAmount(contributionId: string): number {
+  return db.transactions
+    .filter((t) => t.contributionId === contributionId && t.type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+}
+// Same derivation as contributionPaidAmount, for penalty assignments -- see
+// finances.Repository.ListAssignments' LATERAL sum on the real backend.
+function assignmentPaidAmount(assignmentId: string): number {
+  return db.transactions
+    .filter((t) => t.penaltyAssignmentId === assignmentId && t.type === 'income')
+    .reduce((sum, t) => sum + t.amount, 0);
+}
+function assignmentIsPaid(paidAmount: number, amount: number): boolean {
+  return paidAmount >= amount;
+}
 function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['PenaltyAssignment'] {
   const u = db.users.find((x) => x.id === a.userId);
+  const paidAmount = assignmentPaidAmount(a.id);
   return {
     id: a.id,
     teamId: a.teamId,
     userId: a.userId,
     penaltyId: a.penaltyId,
-    paid: a.paid,
+    paid: assignmentIsPaid(paidAmount, a.amount),
+    paidAmount,
     date: a.date,
     ...opt('memberName', u?.name),
     ...opt('memberAvatarColor', u?.avatarColor),
@@ -376,16 +407,23 @@ function toWireAssignment(a: (typeof db.penaltyAssignments)[number]): S['Penalty
     ...opt('note', a.note),
   };
 }
+function contributionStatus(paidAmount: number, amount: number): S['ContributionStatus'] {
+  if (paidAmount <= 0) return 'open';
+  if (paidAmount >= amount) return 'paid';
+  return 'partial';
+}
 function toWireContribution(c: (typeof db.contributions)[number]): S['Contribution'] {
   const u = db.users.find((x) => x.id === c.userId);
+  const paidAmount = contributionPaidAmount(c.id);
   return {
     id: c.id,
     teamId: c.teamId,
     userId: c.userId,
-    month: c.month,
+    name: c.label,
     amount: c.amount,
-    status: c.status,
-    ...opt('label', c.label || undefined),
+    paidAmount,
+    status: contributionStatus(paidAmount, c.amount),
+    ...opt('dueDate', c.dueDate),
     ...opt('memberName', u?.name),
     ...opt('memberAvatarColor', u?.avatarColor),
     ...opt('hasPhoto', u?.hasPhoto),
@@ -1378,7 +1416,11 @@ export const handlers = [
     const penalties = db.penalties.filter((p) => p.teamId === teamId);
     const assignments = db.penaltyAssignments.filter((p) => p.teamId === teamId);
     const openByUser: Record<string, number> = {};
-    assignments.filter((a) => !a.paid).forEach((a) => { openByUser[a.userId] = (openByUser[a.userId] || 0) + (a.amount || 0); });
+    assignments.forEach((a) => {
+      const paidAmount = assignmentPaidAmount(a.id);
+      const outstanding = Math.max(a.amount - paidAmount, 0);
+      if (outstanding > 0) openByUser[a.userId] = (openByUser[a.userId] || 0) + outstanding;
+    });
     const openPenalties: S['OpenPenalty'][] = Object.keys(openByUser)
       .map((uid) => {
         const u = requireUser(uid);
@@ -1396,7 +1438,7 @@ export const handlers = [
       openPenalties,
       openPenaltySum: Object.values(openByUser).reduce((s, v) => s + v, 0),
       contributions: contributions.map(toWireContribution),
-      contribOpen: contributions.filter((c) => c.status === 'open').length,
+      contribOpen: contributions.filter((c) => contributionPaidAmount(c.id) < c.amount).length,
     };
     return HttpResponse.json(body);
   }),
@@ -1418,7 +1460,34 @@ export const handlers = [
     await mockDelay();
     const teamId = params.teamId as string;
     const body = (await request.json()) as S['CreateTransactionRequest'];
-    const t = { id: rid('tx'), teamId, type: body.type, title: body.title, amount: body.amount, date: body.date || todayLocalDate(), category: body.category || '' };
+    if (body.contributionId && body.penaltyAssignmentId) {
+      return problem(400, 'a transaction can be linked to at most one of contributionId or penaltyAssignmentId');
+    }
+    if (body.contributionId) {
+      if (body.type !== 'income') return problem(400, 'a transaction linked to a contribution must have type income');
+      if (!db.contributions.some((c) => c.id === body.contributionId && c.teamId === teamId)) {
+        return problem(400, 'contribution does not belong to this team');
+      }
+    }
+    if (body.penaltyAssignmentId) {
+      if (body.type !== 'income') {
+        return problem(400, 'a transaction linked to a penalty assignment must have type income');
+      }
+      if (!db.penaltyAssignments.some((a) => a.id === body.penaltyAssignmentId && a.teamId === teamId)) {
+        return problem(400, 'penalty assignment does not belong to this team');
+      }
+    }
+    const t = {
+      id: rid('tx'),
+      teamId,
+      type: body.type,
+      title: body.title,
+      amount: body.amount,
+      date: body.date || todayLocalDate(),
+      category: body.category || '',
+      ...opt('contributionId', body.contributionId),
+      ...opt('penaltyAssignmentId', body.penaltyAssignmentId),
+    };
     db.transactions.push(t);
     return HttpResponse.json(toWireTransaction(t), { status: 201 });
   }),
@@ -1487,7 +1556,6 @@ export const handlers = [
       teamId,
       userId: body.userId,
       penaltyId: body.penaltyId,
-      paid: false,
       date: body.date || todayLocalDate(),
       label: penalty.label,
       amount: penalty.amount,
@@ -1501,16 +1569,30 @@ export const handlers = [
     await mockDelay();
     if (!db.penaltyAssignments.some((x) => x.id === params.assignmentId)) return problem(404, 'Penalty assignment not found');
     db.penaltyAssignments = db.penaltyAssignments.filter((x) => x.id !== params.assignmentId);
+    // Unlink (not delete) any transaction that paid this fine -- mirrors the
+    // real backend's ON DELETE SET NULL.
+    db.transactions.forEach((t) => {
+      if (t.penaltyAssignmentId === params.assignmentId) delete t.penaltyAssignmentId;
+    });
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.put(P('/teams/:teamId/finances/penalty-assignments/:assignmentId/paid'), async ({ params, request }) => {
+  http.post(P('/teams/:teamId/finances/contributions'), async ({ params, request }) => {
     await mockDelay();
-    const a = db.penaltyAssignments.find((x) => x.id === params.assignmentId);
-    if (!a) return problem(404, 'Assignment not found');
-    const body = (await request.json()) as S['SetPaidRequest'];
-    a.paid = body.paid;
-    return HttpResponse.json(toWireAssignment(a));
+    const teamId = params.teamId as string;
+    const body = (await request.json()) as S['CreateContributionRequest'];
+    // Mirrors finances.Service.CreateContributions' atomic per-userId
+    // membership re-check -- reject the whole fan-out if any target isn't
+    // (or is no longer) a member of this team.
+    if (body.userIds.some((userId) => !db.memberships.some((m) => m.teamId === teamId && m.userId === userId))) {
+      return problem(400, 'user is not a member of this team');
+    }
+    const created = body.userIds.map((userId) => {
+      const c = { id: rid('co'), teamId, userId, label: body.name, amount: body.amount, ...opt('dueDate', body.dueDate) };
+      db.contributions.push(c);
+      return c;
+    });
+    return HttpResponse.json(created.map(toWireContribution), { status: 201 });
   }),
 
   http.patch(P('/teams/:teamId/finances/contributions/:contributionId'), async ({ params, request }) => {
@@ -1518,18 +1600,22 @@ export const handlers = [
     const c = db.contributions.find((x) => x.id === params.contributionId);
     if (!c) return problem(404, 'Contribution not found');
     const body = (await request.json()) as S['UpdateContributionRequest'];
-    if (body.label !== undefined) c.label = body.label;
+    if (body.name !== undefined) c.label = body.name;
     if (body.amount !== undefined) c.amount = body.amount;
+    if (body.dueDate !== undefined) c.dueDate = body.dueDate;
     return HttpResponse.json(toWireContribution(c));
   }),
 
-  http.put(P('/teams/:teamId/finances/contributions/:contributionId/paid'), async ({ params, request }) => {
+  http.delete(P('/teams/:teamId/finances/contributions/:contributionId'), async ({ params }) => {
     await mockDelay();
-    const c = db.contributions.find((x) => x.id === params.contributionId);
-    if (!c) return problem(404, 'Contribution not found');
-    const body = (await request.json()) as S['SetPaidRequest'];
-    c.status = body.paid ? 'paid' : 'open';
-    return HttpResponse.json(toWireContribution(c));
+    if (!db.contributions.some((x) => x.id === params.contributionId)) return problem(404, 'Contribution not found');
+    db.contributions = db.contributions.filter((x) => x.id !== params.contributionId);
+    // Unlink (not delete) any transaction that paid this fee -- mirrors the
+    // real backend's ON DELETE SET NULL.
+    db.transactions.forEach((t) => {
+      if (t.contributionId === params.contributionId) delete t.contributionId;
+    });
+    return new HttpResponse(null, { status: 204 });
   }),
 
   // ---- stats ----

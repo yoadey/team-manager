@@ -8,6 +8,7 @@ import { PenaltyCatalogSheet } from './components/PenaltyCatalogSheet';
 import { PenaltyFormSheet } from './components/PenaltyFormSheet';
 import { PenaltyAssignSheet } from './components/PenaltyAssignSheet';
 import { ContribFormSheet } from './components/ContribFormSheet';
+import { ContribCreateSheet } from './components/ContribCreateSheet';
 
 export const financeSheetMap = {
   txForm: TxFormSheet,
@@ -15,9 +16,10 @@ export const financeSheetMap = {
   penaltyForm: PenaltyFormSheet,
   penaltyAssign: PenaltyAssignSheet,
   contribForm: ContribFormSheet,
+  contribCreate: ContribCreateSheet,
 } as const;
 
-export { TxFormSheet, PenaltyCatalogSheet, PenaltyFormSheet, PenaltyAssignSheet, ContribFormSheet };
+export { TxFormSheet, PenaltyCatalogSheet, PenaltyFormSheet, PenaltyAssignSheet, ContribFormSheet, ContribCreateSheet };
 
 export { FinancesPage } from './FinancesPage';
 export { FinancesTransactions } from './components/FinancesTransactions';

@@ -1,7 +1,9 @@
 import Box from '@mui/material/Box';
+import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Field, PrimaryButton, TextInput } from '@/components/ui';
+import { NEUTRAL } from '@/styles/tokens';
+import { Field, PrimaryButton, Sym, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { contribFormSchema, type ContribFormValues } from './contribFormSchema';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
@@ -48,12 +50,35 @@ export function ContribFormSheet({ app, sheet }: SheetProps) {
       >
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
+      <Field label={t('finances.contribFieldDueDate')} error={!!errors.dueDate} errorText={errors.dueDate?.message}>
+        <TextInput type="date" {...register('dueDate')} />
+      </Field>
       <PrimaryButton
         label={t('finances.contribSave')}
         onClick={handleSubmit(onSubmit)}
         busy={isSubmitting || app.state.savingContrib}
         disabled={!canSubmit}
       />
+      <ButtonBase
+        type="button"
+        onClick={() => app.deleteContrib((sheet.formInitial as ContribFormValues).id)}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+          p: '12px',
+          borderRadius: '13px',
+          border: '1px solid #F0C4C0',
+          background: NEUTRAL.errorBg,
+          color: NEUTRAL.error,
+          fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        <Sym name="delete" size={19} color={NEUTRAL.error} />
+        {t('common.delete')}
+      </ButtonBase>
     </Box>
   );
 }

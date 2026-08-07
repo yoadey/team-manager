@@ -6,11 +6,42 @@
 // response shape.
 import type { Invite, Membership, ModuleKey, Permissions, PermLevel, RoleDto, Team, User } from '@/types';
 import type { Absence, AttendanceDto, EventComment, EventDto, ResponseMode } from '@/features/events';
-import type { Contribution, Penalty, PenaltyAssignment, Transaction } from '@/features/finances';
+import type { Penalty, Transaction } from '@/features/finances';
 import type { NewsItem } from '@/features/news';
 import type { AppNotification } from '@/features/notifications';
 import type { PollDto } from '@/features/polls';
+import { monthName } from '@/styles/tokens';
 import { formatDateOnly, monthsAgoLocal, todayLocalDate } from '@/utils/date';
+
+// Unlike Penalty/Transaction, `Contribution` (the frontend DTO) carries
+// paidAmount/status fields that are derived from linked transactions, not
+// stored input state (see finances.ContributionRow's doc comment on the
+// backend) -- so the row stored here only holds what's actually persisted;
+// handlers.ts's toWireContribution computes paidAmount/status the same way
+// the real backend does, by summing db.transactions linked via
+// contributionId.
+export interface ContributionRow {
+  id: string;
+  teamId: string;
+  userId: string;
+  label: string;
+  amount: number;
+  dueDate?: string;
+}
+
+// Same reasoning as ContributionRow above: `paid`/`paidAmount` are derived
+// from linked transactions (see handlers.ts's toWireAssignment), not stored
+// input state, so the row only holds what a real client actually submits.
+export interface PenaltyAssignmentRow {
+  id: string;
+  teamId: string;
+  userId: string;
+  penaltyId: string;
+  date: string;
+  label: string;
+  amount: number;
+  note?: string;
+}
 
 export const rid = (p: string) => p + '_' + Math.random().toString(36).slice(2, 9);
 const DAY = 86400000;
@@ -171,8 +202,8 @@ export interface DemoDb {
   news: NewsRow[];
   transactions: Transaction[];
   penalties: Penalty[];
-  penaltyAssignments: PenaltyAssignment[];
-  contributions: Contribution[];
+  penaltyAssignments: PenaltyAssignmentRow[];
+  contributions: ContributionRow[];
   polls: PollDto[];
   eventComments: EventComment[];
   notifications: AppNotification[];
@@ -582,18 +613,25 @@ export function createSeedData(): DemoDb {
     { id: rid('pen'), teamId: 't_a', label: 'Tanzschuhe vergessen', amount: 300 },
   ];
   const pen = (i: number) => db.penalties[i];
+  // Mirrors CO()'s reasoning below: `paid` demonstrates the derived-from-
+  // linked-transaction paid state by booking (or not booking) a matching
+  // income transaction, instead of a stored paid/open boolean.
   const PA = (userId: string, penIdx: number, paid: boolean, daysAgo: number) => {
     const p = pen(penIdx);
     if (!p) return;
-    db.penaltyAssignments.push({
-      id: rid('pa'),
+    const id = rid('pa');
+    const date = plusDays(-daysAgo);
+    db.penaltyAssignments.push({ id, teamId: 't_a', userId, penaltyId: p.id, date, label: p.label, amount: p.amount });
+    if (!paid) return;
+    db.transactions.push({
+      id: rid('tx'),
       teamId: 't_a',
-      userId,
-      penaltyId: p.id,
-      paid,
-      date: plusDays(-daysAgo),
-      label: p.label,
+      type: 'income',
+      title: 'Strafe: ' + p.label,
       amount: p.amount,
+      date,
+      category: 'Strafen',
+      penaltyAssignmentId: id,
     });
   };
   PA('u4', 0, false, 2);
@@ -608,24 +646,44 @@ export function createSeedData(): DemoDb {
     d.setMonth(d.getMonth() - off);
     return formatDateOnly(d).slice(0, 7);
   };
-  const CO = (userId: string, month: string, paid: boolean) =>
-    db.contributions.push({
-      id: rid('co'),
+  // Last day of the month `off` months ago -- a plausible due date for that
+  // month's fee.
+  const dueDateOff = (off: number) => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - off + 1);
+    d.setDate(0);
+    return formatDateOnly(d);
+  };
+  // Each fee is created once, by hand, the way the real flow works now (no
+  // month-based auto-generation) -- `payState` demonstrates the new
+  // partial-payment tracking by linking an income transaction covering none,
+  // half, or all of the fee, instead of a stored paid/open boolean.
+  const CO = (userId: string, off: number, payState: 'open' | 'partial' | 'paid') => {
+    const month = monthKeyOff(off);
+    const amount = 2500;
+    const dueDate = dueDateOff(off);
+    const id = rid('co');
+    db.contributions.push({ id, teamId: 't_a', userId, label: 'Mitgliedsbeitrag ' + monthName(month), amount, dueDate });
+    if (payState === 'open') return;
+    db.transactions.push({
+      id: rid('tx'),
       teamId: 't_a',
-      userId,
-      month,
-      label: 'Mitgliedsbeitrag',
-      amount: 2500,
-      status: paid ? 'paid' : 'open',
+      type: 'income',
+      title: (payState === 'partial' ? 'Teilzahlung ' : '') + 'Mitgliedsbeitrag ' + monthName(month),
+      amount: payState === 'partial' ? Math.round(amount / 2) : amount,
+      date: dueDate,
+      category: 'Beiträge',
+      contributionId: id,
     });
+  };
   aMembers.forEach((uid, i) => {
     for (let off = 0; off < 6; off++) {
-      const month = monthKeyOff(off);
-      let paid: boolean;
-      if (off === 0) paid = i % 3 !== 0;
-      else if (off === 1) paid = i % 5 !== 0;
-      else paid = i % 7 !== 0;
-      CO(uid, month, paid);
+      let payState: 'open' | 'partial' | 'paid';
+      if (off === 0) payState = i % 3 === 0 ? 'open' : i % 3 === 1 ? 'partial' : 'paid';
+      else if (off === 1) payState = i % 5 === 0 ? 'open' : 'paid';
+      else payState = i % 7 === 0 ? 'open' : 'paid';
+      CO(uid, off, payState);
     }
   });
 

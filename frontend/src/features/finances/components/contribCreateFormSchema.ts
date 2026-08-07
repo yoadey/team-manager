@@ -2,8 +2,7 @@ import { z } from 'zod';
 import { t } from '@/i18n';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 
-export const contribFormSchema = z.object({
-  id: z.string(),
+export const contribCreateFormSchema = z.object({
   label: z
     .string()
     .trim()
@@ -19,6 +18,7 @@ export const contribFormSchema = z.object({
     }
   }),
   dueDate: z.string().optional().or(z.literal('')),
+  userIds: z.array(z.string()).min(1, { message: t('finances.contribCreateMembersError') }),
 });
 
-export type ContribFormValues = z.infer<typeof contribFormSchema>;
+export type ContribCreateFormValues = z.infer<typeof contribCreateFormSchema>;

@@ -291,17 +291,22 @@ describe('finances', () => {
     expect(listed.find((t) => t.id === created.id)?.date).toBe('2023-02-01');
   });
 
-  it('sets a penalty assignment paid state (idempotent)', async () => {
+  it('marks a penalty assignment paid by booking a linked income transaction, not by a settable field', async () => {
     const overview = await api.finances.overview('t_a');
-    const assignment = overview.assignments[0]!;
-    const target = !assignment.paid;
-    await api.finances.setPenaltyPaid(assignment.id, 't_a', target);
-    let reloaded = await api.finances.overview('t_a');
-    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(target);
-    // Idempotent: applying the same value again keeps it, not flips it.
-    await api.finances.setPenaltyPaid(assignment.id, 't_a', target);
-    reloaded = await api.finances.overview('t_a');
-    expect(reloaded.assignments.find((a) => a.id === assignment.id)?.paid).toBe(target);
+    const unpaid = overview.assignments.find((a) => !a.paid)!;
+    expect(unpaid.paidAmount).toBe(0);
+
+    await api.finances.addTransaction('t_a', {
+      type: 'income',
+      title: 'Strafe bezahlt',
+      amount: unpaid.amount!,
+      penaltyAssignmentId: unpaid.id,
+    });
+
+    const reloaded = await api.finances.overview('t_a');
+    const paid = reloaded.assignments.find((a) => a.id === unpaid.id)!;
+    expect(paid.paid).toBe(true);
+    expect(paid.paidAmount).toBe(unpaid.amount);
   });
 
   it('deletes a transaction', async () => {

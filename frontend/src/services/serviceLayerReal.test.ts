@@ -816,6 +816,16 @@ describe('finances', () => {
       __mapped: 'transaction',
     });
 
+    client.POST.mockResolvedValueOnce(ok({ id: 'tx2' }));
+    expect(
+      await realApi.finances.addTransaction('t1', {
+        type: 'income',
+        title: 'Strafe',
+        amount: 5,
+        penaltyAssignmentId: 'pa1',
+      }),
+    ).toMatchObject({ __mapped: 'transaction' });
+
     client.PATCH.mockResolvedValueOnce(ok({ id: 'tx1' }));
     expect(await realApi.finances.updateTransaction('tx1', { amount: 9 }, 't1')).toMatchObject({
       __mapped: 'transaction',
@@ -851,19 +861,25 @@ describe('finances', () => {
 
     client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
     await expect(realApi.finances.deleteAssignment('pa1', 't1')).resolves.toBeUndefined();
-
-    client.PUT.mockResolvedValueOnce(ok({ id: 'pa1' }));
-    expect(await realApi.finances.setPenaltyPaid('pa1', 't1', true)).toMatchObject({ __mapped: 'penaltyAssignment' });
   });
 
   it('contributions', async () => {
+    client.POST.mockResolvedValueOnce(ok([{ id: 'co1' }], 201));
+    const created = await realApi.finances.createContributions('t1', {
+      label: 'Beitrag',
+      amount: 25,
+      userIds: ['u1', 'u2'],
+    });
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ __mapped: 'contribution' });
+
     client.PATCH.mockResolvedValueOnce(ok({ id: 'co1' }));
     expect(await realApi.finances.updateContribution('co1', { amount: 1 }, 't1')).toMatchObject({
       __mapped: 'contribution',
     });
 
-    client.PUT.mockResolvedValueOnce(ok({ id: 'co1' }));
-    expect(await realApi.finances.setContributionPaid('co1', 't1', true)).toMatchObject({ __mapped: 'contribution' });
+    client.DELETE.mockResolvedValueOnce(ok(undefined, 204));
+    await expect(realApi.finances.deleteContribution('co1', 't1')).resolves.toBeUndefined();
   });
 });
 

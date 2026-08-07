@@ -10,14 +10,23 @@ import (
 // Amount is stored as integer cents (e.g. 1050 = 10.50) to avoid the binary
 // floating-point imprecision that float64 introduces at the API boundary.
 type TransactionRow struct {
-	ID        uuid.UUID
-	TeamID    uuid.UUID
-	Type      string
-	Title     string
-	Amount    int64
-	Date      time.Time
-	Category  *string
-	CreatedAt time.Time
+	ID       uuid.UUID
+	TeamID   uuid.UUID
+	Type     string
+	Title    string
+	Amount   int64
+	Date     time.Time
+	Category *string
+	// ContributionID is the membership fee this transaction (fully or
+	// partially) pays, or nil if it isn't a fee payment. ON DELETE SET NULL
+	// on the FK -- deleting the contribution never deletes booked income.
+	// Mutually exclusive with PenaltyAssignmentID.
+	ContributionID *uuid.UUID
+	// PenaltyAssignmentID is the penalty assignment this transaction pays,
+	// or nil if it isn't a fine payment. Same ON DELETE SET NULL/mutual-
+	// exclusivity reasoning as ContributionID.
+	PenaltyAssignmentID *uuid.UUID
+	CreatedAt           time.Time
 }
 
 // PenaltyRow is the internal DB representation of a penalty definition.
@@ -29,8 +38,12 @@ type PenaltyRow struct {
 	Amount int64
 }
 
-// PenaltyAssignmentRow is the internal DB representation of a penalty assignment.
-// PenaltyAmount is stored as integer cents.
+// PenaltyAssignmentRow is the internal DB representation of a penalty
+// assignment. PenaltyAmount/PaidAmount are stored as integer cents.
+// PaidAmount is never stored on the penalty_assignments table itself -- like
+// ContributionRow.PaidAmount, it's computed live as the sum of linked
+// transactions (see Repository.ListAssignments) so it can never drift from
+// the ledger that is its source of truth.
 type PenaltyAssignmentRow struct {
 	ID     uuid.UUID
 	TeamID uuid.UUID
@@ -39,7 +52,7 @@ type PenaltyAssignmentRow struct {
 	// entry is deleted (ON DELETE SET NULL, migration 00027). The assignment's
 	// snapshotted PenaltyLabel/PenaltyAmount remain the authoritative record.
 	PenaltyID         *uuid.UUID
-	Paid              bool
+	PaidAmount        int64
 	Date              time.Time
 	Note              *string
 	PenaltyLabel      *string
@@ -49,16 +62,20 @@ type PenaltyAssignmentRow struct {
 	HasPhoto          *bool
 }
 
-// ContributionRow is the internal DB representation of a monthly contribution.
-// Amount is stored as integer cents.
+// ContributionRow is the internal DB representation of a membership fee, one
+// row per member it applies to. Amount/PaidAmount are stored as integer
+// cents. PaidAmount is never stored on the contributions table itself -- it
+// is computed live as the sum of linked transactions (see
+// Repository.ListContributions) so it can never drift from the ledger that
+// is its source of truth.
 type ContributionRow struct {
 	ID                uuid.UUID
 	TeamID            uuid.UUID
 	UserID            uuid.UUID
-	Month             string // YYYY-MM
-	Label             *string
+	Name              string
 	Amount            int64
-	Status            string
+	DueDate           *time.Time
+	PaidAmount        int64
 	MemberName        *string
 	MemberAvatarColor *string
 	HasPhoto          *bool
@@ -81,6 +98,7 @@ type TransactionPatch struct {
 
 // ContributionPatch carries optional fields for an UPDATE contributions query.
 type ContributionPatch struct {
-	Label  *string
-	Amount *int64
+	Name    *string
+	Amount  *int64
+	DueDate *time.Time
 }

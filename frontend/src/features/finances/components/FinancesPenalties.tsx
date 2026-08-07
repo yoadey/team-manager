@@ -2,7 +2,7 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useApp } from '@/context/AppContext';
 import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
-import { Av, EmptyState, SectionTitle, Sym } from '@/components/ui';
+import { Av, Chip, EmptyState, SectionTitle, Sym } from '@/components/ui';
 import type { FinanceOverview } from '../types';
 import { t } from '@/i18n';
 
@@ -100,23 +100,11 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
               >
                 {fmtMoney(a.amount || 0)}
               </Box>
-              {canFin ? (
-                <ButtonBase
-                  onClick={() => app.setPenaltyPaid(a.id, !a.paid)}
-                  sx={{
-                    border: 'none',
-                    cursor: 'pointer',
-                    borderRadius: '9px',
-                    p: '7px 11px',
-                    fontSize: '12px',
-                    fontWeight: 600,
-                    background: a.paid ? NEUTRAL.line2 : NEUTRAL.successBg,
-                    color: a.paid ? NEUTRAL.secondary : NEUTRAL.success,
-                  }}
-                >
-                  {a.paid ? t('finances.penaltyOpen') : t('finances.penaltyPaid')}
-                </ButtonBase>
-              ) : null}
+              {a.paid ? (
+                <Chip label={t('finances.penaltyPaid')} color={NEUTRAL.success} bg={NEUTRAL.successBg} icon="check_circle" />
+              ) : (
+                <Chip label={t('finances.penaltyOpen')} color={NEUTRAL.warn} bg="#FFE5B8" icon="schedule" />
+              )}
               {canFin ? (
                 <ButtonBase
                   onClick={() => app.deleteAssignment(a.id)}

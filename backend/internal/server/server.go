@@ -210,11 +210,15 @@ func (StrictUnimplemented) GetFinanceOverview(_ context.Context, _ gen.GetFinanc
 	return nil, errNotImplemented
 }
 
+func (StrictUnimplemented) CreateContributions(_ context.Context, _ gen.CreateContributionsRequestObject) (gen.CreateContributionsResponseObject, error) {
+	return nil, errNotImplemented
+}
+
 func (StrictUnimplemented) UpdateContribution(_ context.Context, _ gen.UpdateContributionRequestObject) (gen.UpdateContributionResponseObject, error) {
 	return nil, errNotImplemented
 }
 
-func (StrictUnimplemented) SetContributionPaid(_ context.Context, _ gen.SetContributionPaidRequestObject) (gen.SetContributionPaidResponseObject, error) {
+func (StrictUnimplemented) DeleteContribution(_ context.Context, _ gen.DeleteContributionRequestObject) (gen.DeleteContributionResponseObject, error) {
 	return nil, errNotImplemented
 }
 
@@ -235,10 +239,6 @@ func (StrictUnimplemented) CreatePenaltyAssignment(_ context.Context, _ gen.Crea
 }
 
 func (StrictUnimplemented) DeletePenaltyAssignment(_ context.Context, _ gen.DeletePenaltyAssignmentRequestObject) (gen.DeletePenaltyAssignmentResponseObject, error) {
-	return nil, errNotImplemented
-}
-
-func (StrictUnimplemented) SetPenaltyPaid(_ context.Context, _ gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
 	return nil, errNotImplemented
 }
 
@@ -720,16 +720,16 @@ func (s *Server) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePena
 	return s.Finances.DeletePenaltyAssignment(ctx, req)
 }
 
-func (s *Server) SetPenaltyPaid(ctx context.Context, req gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
-	return s.Finances.SetPenaltyPaid(ctx, req)
+func (s *Server) CreateContributions(ctx context.Context, req gen.CreateContributionsRequestObject) (gen.CreateContributionsResponseObject, error) {
+	return s.Finances.CreateContributions(ctx, req)
 }
 
 func (s *Server) UpdateContribution(ctx context.Context, req gen.UpdateContributionRequestObject) (gen.UpdateContributionResponseObject, error) {
 	return s.Finances.UpdateContribution(ctx, req)
 }
 
-func (s *Server) SetContributionPaid(ctx context.Context, req gen.SetContributionPaidRequestObject) (gen.SetContributionPaidResponseObject, error) {
-	return s.Finances.SetContributionPaid(ctx, req)
+func (s *Server) DeleteContribution(ctx context.Context, req gen.DeleteContributionRequestObject) (gen.DeleteContributionResponseObject, error) {
+	return s.Finances.DeleteContribution(ctx, req)
 }
 
 // ─── Stats delegations ────────────────────────────────────────────────────────

@@ -76,6 +76,7 @@ export function sheetMeta(
     penaltyCatalog: t('sheet.penaltyCatalog'),
     penaltyAssign: t('sheet.penaltyAssign'),
     contribForm: t('sheet.contribForm'),
+    contribCreate: t('sheet.contribCreate'),
   };
   const meta: { title: string; hasBack: boolean; onBack?: () => void; subtitle?: string } = {
     title: titles[s.type] || '',

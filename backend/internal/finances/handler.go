@@ -29,9 +29,9 @@ type financeService interface {
 	DeletePenalty(ctx context.Context, id, teamID uuid.UUID) error
 	CreateAssignment(ctx context.Context, teamID uuid.UUID, body *gen.CreatePenaltyAssignmentJSONRequestBody) (*gen.PenaltyAssignment, error)
 	DeleteAssignment(ctx context.Context, id, teamID uuid.UUID) error
-	SetPenaltyPaid(ctx context.Context, teamID, id uuid.UUID, paid bool) (*gen.PenaltyAssignment, error)
+	CreateContributions(ctx context.Context, teamID uuid.UUID, body *gen.CreateContributionsJSONRequestBody) ([]gen.Contribution, error)
 	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error)
-	SetContributionPaid(ctx context.Context, id, teamID uuid.UUID, paid bool) (*gen.Contribution, error)
+	DeleteContribution(ctx context.Context, id, teamID uuid.UUID) error
 }
 
 // Handler implements the finance-related methods of gen.StrictServerInterface.
@@ -105,6 +105,30 @@ func (h *Handler) ListTransactions(ctx context.Context, req gen.ListTransactions
 	return gen.ListTransactions200JSONResponse{Items: items, NextCursor: next}, nil
 }
 
+// validateCreateTransactionBody runs the field-level checks for
+// CreateTransaction's request body, split out to keep the handler's
+// cyclomatic complexity under the linter's threshold.
+func validateCreateTransactionBody(body *gen.CreateTransactionJSONRequestBody) *apierror.APIError {
+	if err := validate.RequireNonEmpty(body.Title, "title"); err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	if err := validate.MaxLen(body.Title, 255, "title"); err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	if body.Category != nil {
+		if err := validate.MaxLen(*body.Category, 255, "category"); err != nil {
+			return apierror.BadRequest(err.Error())
+		}
+	}
+	if !body.Type.Valid() {
+		return apierror.BadRequest("type: not a valid transaction type")
+	}
+	if err := validate.PositiveAmount(body.Amount, "amount"); err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	return nil
+}
+
 // CreateTransaction creates a new financial transaction.
 func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransactionRequestObject) (gen.CreateTransactionResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
@@ -113,28 +137,20 @@ func (h *Handler) CreateTransaction(ctx context.Context, req gen.CreateTransacti
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if err := validate.RequireNonEmpty(req.Body.Title, "title"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
-	}
-	if err := validate.MaxLen(req.Body.Title, 255, "title"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
-	}
-	if req.Body.Category != nil {
-		if err := validate.MaxLen(*req.Body.Category, 255, "category"); err != nil {
-			return nil, apierror.BadRequest(err.Error())
-		}
-	}
-	if !req.Body.Type.Valid() {
-		return nil, apierror.BadRequest("type: not a valid transaction type")
-	}
-	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
-		return nil, apierror.BadRequest(err.Error())
+	if apiErr := validateCreateTransactionBody(req.Body); apiErr != nil {
+		return nil, apiErr
 	}
 	t, err := h.svc.CreateTransaction(ctx, req.TeamId, req.Body)
 	if err != nil {
 		if errors.Is(err, ErrTooManyTransactions) {
 			h.recordFinanceFailure(ctx, "transaction.create", err.Error())
 			return nil, apierror.UnprocessableEntity(err.Error())
+		}
+		if errors.Is(err, ErrContributionRequiresIncome) || errors.Is(err, ErrContributionNotInTeam) ||
+			errors.Is(err, ErrPenaltyAssignmentRequiresIncome) || errors.Is(err, ErrPenaltyAssignmentNotInTeam) ||
+			errors.Is(err, ErrTransactionLinksMultipleTargets) {
+			h.recordFinanceFailure(ctx, "transaction.create", err.Error())
+			return nil, apierror.BadRequest(err.Error())
 		}
 		h.logger.ErrorContext(ctx, "CreateTransaction failed", "err", err)
 		h.recordFinanceFailure(ctx, "transaction.create", "internal error")
@@ -354,29 +370,47 @@ func (h *Handler) DeletePenaltyAssignment(ctx context.Context, req gen.DeletePen
 	return gen.DeletePenaltyAssignment204Response{}, nil
 }
 
-// SetPenaltyPaid sets the paid flag on a penalty assignment to an explicit
-// value (idempotent PUT).
-func (h *Handler) SetPenaltyPaid(ctx context.Context, req gen.SetPenaltyPaidRequestObject) (gen.SetPenaltyPaidResponseObject, error) {
+// CreateContributions creates a membership fee for one or more members.
+func (h *Handler) CreateContributions(ctx context.Context, req gen.CreateContributionsRequestObject) (gen.CreateContributionsResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	a, err := h.svc.SetPenaltyPaid(ctx, req.TeamId, req.AssignmentId, req.Body.Paid)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			h.recordFinanceFailure(ctx, "assignment.set_paid", "not found")
-			return nil, apierror.NotFound("penalty assignment not found")
-		}
-		h.recordFinanceFailure(ctx, "assignment.set_paid", "internal error")
-		h.logger.ErrorContext(ctx, "SetPenaltyPaid failed", "err", err)
-		return nil, apierror.Internal("failed to set penalty paid status")
+	if err := validate.RequireNonEmpty(req.Body.Name, "name"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
 	}
-	h.recordFinance(ctx, "assignment.set_paid",
-		slog.String("teamId", req.TeamId.String()), slog.String("assignmentId", req.AssignmentId.String()))
-	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
-	return gen.SetPenaltyPaid200JSONResponse(*a), nil
+	if err := validate.MaxLen(req.Body.Name, 255, "name"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if err := validate.PositiveAmount(req.Body.Amount, "amount"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	if len(req.Body.UserIds) < 1 {
+		return nil, apierror.BadRequest("userIds: must contain at least 1 entry")
+	}
+	if err := validate.UUIDItems(len(req.Body.UserIds), "userIds"); err != nil {
+		return nil, apierror.BadRequest(err.Error())
+	}
+	cs, err := h.svc.CreateContributions(ctx, req.TeamId, req.Body)
+	if err != nil {
+		if errors.Is(err, ErrTooManyContributions) {
+			h.recordFinanceFailure(ctx, "contribution.create", err.Error())
+			return nil, apierror.UnprocessableEntity(err.Error())
+		}
+		if errors.Is(err, ErrUserNotInTeam) {
+			h.recordFinanceFailure(ctx, "contribution.create", err.Error())
+			return nil, apierror.BadRequest(err.Error())
+		}
+		h.logger.ErrorContext(ctx, "CreateContributions failed", "err", err)
+		h.recordFinanceFailure(ctx, "contribution.create", "internal error")
+		return nil, apierror.Internal("failed to create contribution")
+	}
+	h.recordFinance(ctx, "contribution.create",
+		slog.String("teamId", req.TeamId.String()), slog.Int("count", len(cs)))
+	metrics.TeamEvents.WithLabelValues("finance", "create").Inc()
+	return gen.CreateContributions201JSONResponse(cs), nil
 }
 
 // UpdateContribution applies a partial update to a contribution.
@@ -387,11 +421,11 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 	if req.Body == nil {
 		return nil, apierror.BadRequest("missing request body")
 	}
-	if req.Body.Label != nil {
-		if err := validate.RequireNonEmpty(*req.Body.Label, "label"); err != nil {
+	if req.Body.Name != nil {
+		if err := validate.RequireNonEmpty(*req.Body.Name, "name"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
-		if err := validate.MaxLen(*req.Body.Label, 255, "label"); err != nil {
+		if err := validate.MaxLen(*req.Body.Name, 255, "name"); err != nil {
 			return nil, apierror.BadRequest(err.Error())
 		}
 	}
@@ -415,25 +449,22 @@ func (h *Handler) UpdateContribution(ctx context.Context, req gen.UpdateContribu
 	return gen.UpdateContribution200JSONResponse(*c), nil
 }
 
-// SetContributionPaid sets a contribution's status to paid/open (idempotent PUT).
-func (h *Handler) SetContributionPaid(ctx context.Context, req gen.SetContributionPaidRequestObject) (gen.SetContributionPaidResponseObject, error) {
+// DeleteContribution removes a contribution. Any transaction linked to it is
+// unlinked, not deleted (see Repository.DeleteContribution).
+func (h *Handler) DeleteContribution(ctx context.Context, req gen.DeleteContributionRequestObject) (gen.DeleteContributionResponseObject, error) {
 	if _, ok := auth.UserFromContext(ctx); !ok {
 		return nil, apierror.Unauthorized("not authenticated")
 	}
-	if req.Body == nil {
-		return nil, apierror.BadRequest("missing request body")
-	}
-	c, err := h.svc.SetContributionPaid(ctx, req.ContributionId, req.TeamId, req.Body.Paid)
-	if err != nil {
+	if err := h.svc.DeleteContribution(ctx, req.ContributionId, req.TeamId); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			h.recordFinanceFailure(ctx, "contribution.set_paid", "not found")
+			h.recordFinanceFailure(ctx, "contribution.delete", "not found")
 			return nil, apierror.NotFound("contribution not found")
 		}
-		h.recordFinanceFailure(ctx, "contribution.set_paid", "internal error")
-		h.logger.ErrorContext(ctx, "SetContributionPaid failed", "err", err)
-		return nil, apierror.Internal("failed to set contribution status")
+		h.recordFinanceFailure(ctx, "contribution.delete", "internal error")
+		h.logger.ErrorContext(ctx, "DeleteContribution failed", "err", err)
+		return nil, apierror.Internal("failed to delete contribution")
 	}
-	h.recordFinance(ctx, "contribution.set_paid", slog.String("contributionId", req.ContributionId.String()))
-	metrics.TeamEvents.WithLabelValues("finance", "update").Inc()
-	return gen.SetContributionPaid200JSONResponse(*c), nil
+	h.recordFinance(ctx, "contribution.delete", slog.String("contributionId", req.ContributionId.String()))
+	metrics.TeamEvents.WithLabelValues("finance", "delete").Inc()
+	return gen.DeleteContribution204Response{}, nil
 }

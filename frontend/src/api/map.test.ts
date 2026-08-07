@@ -72,6 +72,7 @@ describe('finance mappers convert amount fields from cents to euros', () => {
       userId: 'u1',
       penaltyId: 'p1',
       paid: false,
+      paidAmount: 0,
       date: '2025-01-01',
     });
     expect(a.amount).toBeUndefined();
@@ -84,10 +85,25 @@ describe('finance mappers convert amount fields from cents to euros', () => {
       userId: 'u1',
       penaltyId: 'p1',
       paid: false,
+      paidAmount: 0,
       date: '2025-01-01',
       amount: 1500,
     });
     expect(a.amount).toBe(15);
+  });
+
+  it('mapPenaltyAssignment converts paidAmount', () => {
+    const a = mapPenaltyAssignment({
+      id: 'a1',
+      teamId: 'team1',
+      userId: 'u1',
+      penaltyId: 'p1',
+      paid: true,
+      paidAmount: 500,
+      date: '2025-01-01',
+      amount: 500,
+    });
+    expect(a.paidAmount).toBe(5);
   });
 
   it('mapContribution', () => {
@@ -95,11 +111,15 @@ describe('finance mappers convert amount fields from cents to euros', () => {
       id: 'c1',
       teamId: 'team1',
       userId: 'u1',
-      month: '2025-01',
+      name: 'Mitgliedsbeitrag Januar 2025',
       amount: 2500,
-      status: 'open',
+      paidAmount: 1000,
+      status: 'partial',
     });
     expect(c.amount).toBe(25);
+    expect(c.paidAmount).toBe(10);
+    expect(c.label).toBe('Mitgliedsbeitrag Januar 2025');
+    expect(c.status).toBe('partial');
   });
 
   it('mapFinanceOverview converts balance/income/expense/openPenaltySum and nested amounts', () => {

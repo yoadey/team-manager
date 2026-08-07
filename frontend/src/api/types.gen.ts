@@ -1118,20 +1118,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/teams/{teamId}/finances/penalty-assignments/{assignmentId}/paid": {
+    "/teams/{teamId}/finances/contributions": {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 teamId: components["parameters"]["teamId"];
-                assignmentId: string;
             };
             cookie?: never;
         };
         get?: never;
-        /** Set the paid status of a penalty assignment (idempotent) */
-        put: operations["setPenaltyPaid"];
-        post?: never;
+        put?: never;
+        /**
+         * Create a membership fee for one or more members
+         * @description Creates one contribution row per member in `userIds`, all sharing the given name, amount, and optional due date -- the fan-out for assigning the same fee to several members in a single call.
+         */
+        post: operations["createContributions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1151,31 +1153,15 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete a contribution
+         * @description Any transaction linked to this contribution is unlinked (not deleted) -- see Transaction.contributionId.
+         */
+        delete: operations["deleteContribution"];
         options?: never;
         head?: never;
-        /** Update contribution amount or label */
+        /** Update a contribution's name, amount, or due date */
         patch: operations["updateContribution"];
-        trace?: never;
-    };
-    "/teams/{teamId}/finances/contributions/{contributionId}/paid": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                teamId: components["parameters"]["teamId"];
-                contributionId: string;
-            };
-            cookie?: never;
-        };
-        get?: never;
-        /** Set the paid status of a contribution (idempotent) */
-        put: operations["setContributionPaid"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
         trace?: never;
     };
     "/teams/{teamId}/stats": {
@@ -1287,8 +1273,11 @@ export interface components {
         ResponseMode: "opt_in" | "opt_out";
         /** @enum {string} */
         TransactionType: "income" | "expense";
-        /** @enum {string} */
-        ContributionStatus: "paid" | "open";
+        /**
+         * @description Derived from paidAmount vs. amount, never independently settable: "open" (paidAmount is 0), "partial" (0 < paidAmount < amount), or "paid" (paidAmount >= amount).
+         * @enum {string}
+         */
+        ContributionStatus: "open" | "partial" | "paid";
         /** @enum {string} */
         NotificationType: "attendance" | "event_created" | "event_updated" | "event_cancelled" | "event_reactivated" | "event_deleted" | "news" | "poll" | "absence";
         Provider: {
@@ -1826,6 +1815,16 @@ export interface components {
             /** Format: date */
             date: string;
             category?: string;
+            /**
+             * Format: uuid
+             * @description The membership fee this transaction (fully or partially) pays, or null if it isn't a fee payment. Set at creation time only -- see CreateTransactionRequest.contributionId.
+             */
+            contributionId?: string | null;
+            /**
+             * Format: uuid
+             * @description The penalty assignment this transaction pays, or null if it isn't a fine payment. Mutually exclusive with contributionId. Set at creation time only -- see CreateTransactionRequest.penaltyAssignmentId.
+             */
+            penaltyAssignmentId?: string | null;
         };
         CreateTransactionRequest: {
             type: components["schemas"]["TransactionType"];
@@ -1841,6 +1840,16 @@ export interface components {
              * @description Transaction date (e.g. to back-date a receipt). Defaults to the server's current date when omitted.
              */
             date?: string;
+            /**
+             * Format: uuid
+             * @description Links this transaction to a membership fee it (fully or partially) pays -- the fee's paidAmount becomes the sum of every income transaction linked to it this way. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with penaltyAssignmentId.
+             */
+            contributionId?: string;
+            /**
+             * Format: uuid
+             * @description Links this transaction to a penalty assignment (fine) it pays -- the assignment's paidAmount becomes the sum of every income transaction linked to it this way, and paid becomes true once that sum reaches the assignment's amount. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with contributionId.
+             */
+            penaltyAssignmentId?: string;
         };
         UpdateTransactionRequest: {
             type?: components["schemas"]["TransactionType"];
@@ -1897,7 +1906,13 @@ export interface components {
              * @description The catalog penalty this assignment was created from, or null if that penalty has since been deleted. The assignment's own label and amount snapshot (taken at creation) remain the authoritative record.
              */
             penaltyId?: string | null;
+            /** @description Derived from paidAmount vs. amount (paidAmount >= amount), never independently settable -- see Transaction.penaltyAssignmentId. */
             paid: boolean;
+            /**
+             * Format: int64
+             * @description Sum of every income transaction linked to this assignment (Transaction.penaltyAssignmentId), in cents. Computed, not stored.
+             */
+            paidAmount: number;
             /** Format: date */
             date: string;
             memberName?: string;
@@ -1924,10 +1939,6 @@ export interface components {
             /** @description Optional free-text note explaining the assignment. */
             note?: string;
         };
-        SetPaidRequest: {
-            /** @description The desired paid state. Idempotent — sending the same value twice yields the same result, so a retried request never flips the state back (unlike the previous toggle endpoints). */
-            paid: boolean;
-        };
         OpenPenalty: {
             /** Format: uuid */
             userId: string;
@@ -1947,26 +1958,46 @@ export interface components {
             teamId: string;
             /** Format: uuid */
             userId: string;
-            /** @description YYYY-MM */
-            month: string;
-            label?: string;
+            /** @description Free-text fee name (e.g. "Mitgliedsbeitrag Januar 2026"). */
+            name: string;
             /**
              * Format: int64
              * @description Amount in cents (e.g. 1050 = 10.50)
              */
             amount: number;
+            /** Format: date */
+            dueDate?: string | null;
+            /**
+             * Format: int64
+             * @description Sum of every income transaction linked to this contribution (Transaction.contributionId), in cents. Computed, not stored.
+             */
+            paidAmount: number;
             status: components["schemas"]["ContributionStatus"];
             memberName?: string;
             memberAvatarColor?: string;
             hasPhoto?: boolean;
         };
+        CreateContributionRequest: {
+            name: string;
+            /**
+             * Format: int64
+             * @description Amount in cents (e.g. 1050 = 10.50)
+             */
+            amount: number;
+            /** Format: date */
+            dueDate?: string;
+            /** @description The members this fee applies to; one Contribution row is created per id, all sharing this name/amount/dueDate. */
+            userIds: string[];
+        };
         UpdateContributionRequest: {
-            label?: string;
+            name?: string;
             /**
              * Format: int64
              * @description Amount in cents (e.g. 1050 = 10.50)
              */
             amount?: number;
+            /** Format: date */
+            dueDate?: string;
         };
         FinanceOverview: {
             /**
@@ -1994,6 +2025,7 @@ export interface components {
              */
             openPenaltySum: number;
             contributions: components["schemas"]["Contribution"][];
+            /** @description Count of contributions not yet fully paid (status "open" or "partial"). */
             contribOpen: number;
         };
         MemberAttendanceStats: {
@@ -4234,30 +4266,50 @@ export interface operations {
             };
         };
     };
-    setPenaltyPaid: {
+    createContributions: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 teamId: components["parameters"]["teamId"];
-                assignmentId: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SetPaidRequest"];
+                "application/json": components["schemas"]["CreateContributionRequest"];
             };
         };
         responses: {
-            /** @description OK */
-            200: {
+            /** @description Created */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PenaltyAssignment"];
+                    "application/json": components["schemas"]["Contribution"][];
                 };
+            };
+        };
+    };
+    deleteContribution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                teamId: components["parameters"]["teamId"];
+                contributionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -4274,33 +4326,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["UpdateContributionRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Contribution"];
-                };
-            };
-        };
-    };
-    setContributionPaid: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                teamId: components["parameters"]["teamId"];
-                contributionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetPaidRequest"];
             };
         };
         responses: {

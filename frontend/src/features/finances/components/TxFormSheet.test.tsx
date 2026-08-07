@@ -16,8 +16,13 @@ import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 const mockUseApp = vi.mocked(useApp);
 const mockUseFinanceOverviewQuery = useFinanceOverviewQuery as ReturnType<typeof vi.fn>;
 
-function makeApp(formOverrides: Record<string, unknown> = {}, transactions: { category: string }[] = []) {
-  mockUseFinanceOverviewQuery.mockReturnValue({ data: { transactions } });
+function makeApp(
+  formOverrides: Record<string, unknown> = {},
+  transactions: { category: string }[] = [],
+  contributions: Record<string, unknown>[] = [],
+  assignments: Record<string, unknown>[] = [],
+) {
+  mockUseFinanceOverviewQuery.mockReturnValue({ data: { transactions, contributions, assignments } });
   const app = {
     api: {},
     state: {
@@ -29,7 +34,49 @@ function makeApp(formOverrides: Record<string, unknown> = {}, transactions: { ca
     askConfirm: vi.fn(),
   };
   mockUseApp.mockReturnValue(app as unknown as ReturnType<typeof useApp>);
-  return { app, formInitial: { type: 'income', title: '', amount: '', category: '', id: null, ...formOverrides } };
+  return {
+    app,
+    formInitial: {
+      type: 'income',
+      title: '',
+      amount: '',
+      category: '',
+      id: undefined,
+      contributionId: '',
+      penaltyAssignmentId: '',
+      ...formOverrides,
+    },
+  };
+}
+
+function makeContribution(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'c1',
+    teamId: 't1',
+    userId: 'u1',
+    label: 'Mitgliedsbeitrag Januar',
+    amount: 25,
+    paidAmount: 0,
+    status: 'open',
+    name: 'Anna Müller',
+    ...overrides,
+  };
+}
+
+function makeAssignment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'a1',
+    teamId: 't1',
+    userId: 'u1',
+    penaltyId: 'p1',
+    paid: false,
+    paidAmount: 0,
+    date: '2025-06-01',
+    label: 'Zu spät zum Training',
+    amount: 5,
+    name: 'Ben Schmidt',
+    ...overrides,
+  };
 }
 
 function makeSheet(mode: 'create' | 'edit', formInitial: Record<string, unknown>) {
@@ -256,5 +303,90 @@ describe('TxFormSheet', () => {
     render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
     fireEvent.click(screen.getByText('Buchung löschen'));
     expect(app.askConfirm).toHaveBeenCalled();
+  });
+
+  describe('linked payment picker', () => {
+    it('does not render when there are no open contributions or penalty assignments', () => {
+      const { app, formInitial } = makeApp({ title: '', amount: '' });
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+      expect(screen.queryByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeNull();
+    });
+
+    it('does not render in edit mode even when open contributions exist', () => {
+      const { app, formInitial } = makeApp({ title: 'Test', amount: '10', id: 'tx-1' }, [], [makeContribution()]);
+      render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
+      expect(screen.queryByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeNull();
+    });
+
+    it('does not render for expense transactions', () => {
+      const { app, formInitial } = makeApp({ type: 'expense' }, [], [makeContribution()]);
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+      expect(screen.queryByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeNull();
+    });
+
+    it('shows a collapsed toggle when open fees or fines exist', () => {
+      const { app, formInitial } = makeApp({ title: '', amount: '' }, [], [makeContribution()]);
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+      expect(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)')).toBeTruthy();
+    });
+
+    it('lets the user search and select an open contribution, saving contributionId on submit', async () => {
+      const { app, formInitial } = makeApp(
+        { title: 'Beitrag', amount: '25' },
+        [],
+        [makeContribution({ id: 'c1', name: 'Anna Müller', label: 'Mitgliedsbeitrag Januar' })],
+      );
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+
+      fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
+      fireEvent.change(screen.getByPlaceholderText('Mitglied oder Bezeichnung suchen…'), {
+        target: { value: 'Anna' },
+      });
+      fireEvent.click(screen.getByText('Anna Müller'));
+
+      fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
+      await waitFor(() => {
+        expect(app.saveTx).toHaveBeenCalledWith(expect.objectContaining({ contributionId: 'c1' }));
+      });
+    });
+
+    it('lets the user switch to the penalty tab and select an open penalty assignment', async () => {
+      const { app, formInitial } = makeApp(
+        { title: 'Strafe', amount: '5' },
+        [],
+        [makeContribution()],
+        [makeAssignment({ id: 'a1', name: 'Ben Schmidt', label: 'Zu spät zum Training' })],
+      );
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+
+      fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
+      fireEvent.click(screen.getByText(/Strafen \(1\)/));
+      fireEvent.click(screen.getByText('Ben Schmidt'));
+
+      fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
+      await waitFor(() => {
+        expect(app.saveTx).toHaveBeenCalledWith(expect.objectContaining({ penaltyAssignmentId: 'a1' }));
+      });
+    });
+
+    it('clearing a selected link removes it before submit', async () => {
+      const { app, formInitial } = makeApp(
+        { title: 'Beitrag', amount: '25' },
+        [],
+        [makeContribution({ id: 'c1', name: 'Anna Müller', label: 'Mitgliedsbeitrag Januar' })],
+      );
+      render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+
+      fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
+      fireEvent.click(screen.getByText('Anna Müller'));
+      expect(screen.getByText(/Anna Müller/)).toBeTruthy();
+
+      fireEvent.click(screen.getByLabelText('Verknüpfung entfernen'));
+
+      fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
+      await waitFor(() => {
+        expect(app.saveTx).toHaveBeenCalledWith(expect.objectContaining({ contributionId: '' }));
+      });
+    });
   });
 });

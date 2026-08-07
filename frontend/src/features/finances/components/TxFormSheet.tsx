@@ -6,6 +6,7 @@ import { buildTokens, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextInput, inputSx } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { txFormSchema, type TxFormValues } from './txFormSchema';
+import { LinkedPaymentPicker } from './LinkedPaymentPicker';
 import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { getIntlLocale, t } from '@/i18n';
@@ -75,6 +76,36 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       </ButtonBase>
     );
   });
+
+  // Only offered when creating a new income transaction -- linking only
+  // happens at creation time (see CreateTransactionRequest.contributionId's
+  // doc comment), and only fees/fines not yet fully paid are worth picking.
+  const openContribs = ((finances && finances.contributions) || []).filter((c) => c.status !== 'paid');
+  const openAssignments = ((finances && finances.assignments) || []).filter((a) => !a.paid);
+  const contributionId = watch('contributionId');
+  const penaltyAssignmentId = watch('penaltyAssignmentId');
+  const linkedPicker =
+    !edit && type === 'income' ? (
+      <LinkedPaymentPicker
+        tk={tk}
+        contributions={openContribs}
+        assignments={openAssignments}
+        contributionId={contributionId}
+        penaltyAssignmentId={penaltyAssignmentId}
+        onSelectContribution={(id) => {
+          setValue('contributionId', id, { shouldValidate: true });
+          setValue('penaltyAssignmentId', '', { shouldValidate: true });
+        }}
+        onSelectPenalty={(id) => {
+          setValue('penaltyAssignmentId', id, { shouldValidate: true });
+          setValue('contributionId', '', { shouldValidate: true });
+        }}
+        onClear={() => {
+          setValue('contributionId', '', { shouldValidate: true });
+          setValue('penaltyAssignmentId', '', { shouldValidate: true });
+        }}
+      />
+    ) : null;
 
   const cats = [...new Set(((finances && finances.transactions) || []).map((x) => x.category).filter(Boolean))].sort(
     (a, b) => a.localeCompare(b, getIntlLocale()),
@@ -179,6 +210,7 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
       <Field label={t('finances.txFieldAmount')} required error={!!errors.amount} errorText={errors.amount?.message}>
         <TextInput type="number" max={MAX_MONEY_AMOUNT_EUROS} {...register('amount')} />
       </Field>
+      {linkedPicker}
       {catField}
       <PrimaryButton
         label={edit ? t('finances.txSaveEdit') : t('finances.txSave')}
