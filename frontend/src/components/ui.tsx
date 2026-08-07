@@ -6,6 +6,7 @@ import AddCircleIcon from '@mui/icons-material/AddCircle';
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import AppsIcon from '@mui/icons-material/Apps';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import BadgeIcon from '@mui/icons-material/Badge';
 import BeachAccessIcon from '@mui/icons-material/BeachAccess';
@@ -16,6 +17,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import CancelIcon from '@mui/icons-material/Cancel';
 import CategoryIcon from '@mui/icons-material/Category';
+import CelebrationIcon from '@mui/icons-material/Celebration';
 import ChatBubbleIcon from '@mui/icons-material/ChatBubble';
 import CheckIcon from '@mui/icons-material/Check';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
@@ -38,14 +40,17 @@ import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import EventBusyIcon from '@mui/icons-material/EventBusy';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FitnessCenterIcon from '@mui/icons-material/FitnessCenter';
 import GavelIcon from '@mui/icons-material/Gavel';
 import GridOnIcon from '@mui/icons-material/GridOn';
+import GroupIcon from '@mui/icons-material/Group';
 import GroupsIcon from '@mui/icons-material/Groups';
 import HelpIcon from '@mui/icons-material/Help';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutlined';
 import HomeIcon from '@mui/icons-material/Home';
 import HourglassTopIcon from '@mui/icons-material/HourglassTop';
 import HowToVoteIcon from '@mui/icons-material/HowToVote';
+import IncompleteCircleIcon from '@mui/icons-material/IncompleteCircle';
 import InfoIcon from '@mui/icons-material/Info';
 import InsightsIcon from '@mui/icons-material/Insights';
 import InstallMobileIcon from '@mui/icons-material/InstallMobile';
@@ -57,11 +62,14 @@ import LoginIcon from '@mui/icons-material/Login';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MailIcon from '@mui/icons-material/Mail';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
+import MusicNoteIcon from '@mui/icons-material/MusicNote';
 import NoteIcon from '@mui/icons-material/Note';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import NotificationsOffIcon from '@mui/icons-material/NotificationsOff';
 import PaymentsIcon from '@mui/icons-material/Payments';
+import PaletteIcon from '@mui/icons-material/Palette';
 import PendingActionsIcon from '@mui/icons-material/PendingActions';
+import PersonIcon from '@mui/icons-material/Person';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import PersonOffIcon from '@mui/icons-material/PersonOff';
 import PersonRemoveIcon from '@mui/icons-material/PersonRemove';
@@ -69,6 +77,7 @@ import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import PhoneIphoneIcon from '@mui/icons-material/PhoneIphone';
 import PlaceIcon from '@mui/icons-material/Place';
 import PushPinIcon from '@mui/icons-material/PushPin';
+import PrivacyTipIcon from '@mui/icons-material/PrivacyTip';
 import QuestionMarkIcon from '@mui/icons-material/QuestionMark';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -78,6 +87,7 @@ import ScheduleIcon from '@mui/icons-material/Schedule';
 import SearchOffIcon from '@mui/icons-material/SearchOff';
 import SendIcon from '@mui/icons-material/Send';
 import SettingsIcon from '@mui/icons-material/Settings';
+import ShieldIcon from '@mui/icons-material/Shield';
 import StickyNote2Icon from '@mui/icons-material/StickyNote2';
 import SyncIcon from '@mui/icons-material/Sync';
 import TitleIcon from '@mui/icons-material/Title';
@@ -89,6 +99,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import ImageIcon from '@mui/icons-material/Image';
 import NorthEastIcon from '@mui/icons-material/NorthEast';
 import SouthWestIcon from '@mui/icons-material/SouthWest';
+import SportsIcon from '@mui/icons-material/Sports';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import type { SvgIconComponent } from '@mui/icons-material';
@@ -106,6 +117,7 @@ const ICONS: Record<string, SvgIconComponent> = {
   add_photo_alternate: AddPhotoAlternateIcon,
   admin_panel_settings: AdminPanelSettingsIcon,
   arrow_back: ArrowBackIcon,
+  apps: AppsIcon,
   autorenew: AutorenewIcon,
   badge: BadgeIcon,
   beach_access: BeachAccessIcon,
@@ -116,6 +128,7 @@ const ICONS: Record<string, SvgIconComponent> = {
   campaign: CampaignIcon,
   cancel: CancelIcon,
   category: CategoryIcon,
+  celebration: CelebrationIcon,
   chat_bubble: ChatBubbleIcon,
   check: CheckIcon,
   check_box: CheckBoxIcon,
@@ -138,13 +151,16 @@ const ICONS: Record<string, SvgIconComponent> = {
   event_busy: EventBusyIcon,
   expand_less: ExpandLessIcon,
   expand_more: ExpandMoreIcon,
+  fitness_center: FitnessCenterIcon,
   gavel: GavelIcon,
   grid_on: GridOnIcon,
+  group: GroupIcon,
   groups: GroupsIcon,
   help: HelpIcon,
   home: HomeIcon,
   hourglass_top: HourglassTopIcon,
   how_to_vote: HowToVoteIcon,
+  incomplete_circle: IncompleteCircleIcon,
   info: InfoIcon,
   insights: InsightsIcon,
   install_mobile: InstallMobileIcon,
@@ -156,11 +172,14 @@ const ICONS: Record<string, SvgIconComponent> = {
   logout: LogoutIcon,
   mail: MailIcon,
   menu_book: MenuBookIcon,
+  music_note: MusicNoteIcon,
   note: NoteIcon,
   notifications: NotificationsIcon,
   notifications_off: NotificationsOffIcon,
   payments: PaymentsIcon,
+  palette: PaletteIcon,
   pending_actions: PendingActionsIcon,
+  person: PersonIcon,
   person_add: PersonAddIcon,
   person_off: PersonOffIcon,
   person_remove: PersonRemoveIcon,
@@ -168,6 +187,7 @@ const ICONS: Record<string, SvgIconComponent> = {
   phone_iphone: PhoneIphoneIcon,
   place: PlaceIcon,
   push_pin: PushPinIcon,
+  privacy_tip: PrivacyTipIcon,
   question_mark: QuestionMarkIcon,
   receipt_long: ReceiptLongIcon,
   remove: RemoveIcon,
@@ -177,6 +197,7 @@ const ICONS: Record<string, SvgIconComponent> = {
   search_off: SearchOffIcon,
   send: SendIcon,
   settings: SettingsIcon,
+  shield: ShieldIcon,
   shield_person: AdminPanelSettingsIcon,
   sticky_note_2: StickyNote2Icon,
   sync: SyncIcon,
@@ -189,6 +210,7 @@ const ICONS: Record<string, SvgIconComponent> = {
   image: ImageIcon,
   north_east: NorthEastIcon,
   south_west: SouthWestIcon,
+  sports: SportsIcon,
   event_upcoming: EventAvailableIcon,
   visibility: VisibilityIcon,
   visibility_off: VisibilityOffIcon,
