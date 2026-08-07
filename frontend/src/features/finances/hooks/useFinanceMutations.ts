@@ -111,7 +111,7 @@ export function useDeleteAssignmentMutation(api: typeof defaultApi) {
 
 export interface SaveContribInput {
   id: string;
-  payload: { label: string; description?: string; amount: number; dueDate?: string; archived?: boolean };
+  payload: { label?: string; description?: string; amount?: number; dueDate?: string; archived?: boolean };
 }
 
 export function useSaveContribMutation(api: typeof defaultApi, teamId: string | null) {

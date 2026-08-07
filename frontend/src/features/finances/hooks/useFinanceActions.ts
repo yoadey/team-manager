@@ -294,7 +294,7 @@ export function useFinanceActions({ api, S, setState, teamId, askConfirm, toastM
   const archiveContribGroup = useCallback(
     async (contributions: Contribution[], archived: boolean) => {
       const results = await Promise.allSettled(
-        contributions.map((c) => saveContribAsync({ id: c.id, payload: { label: c.label, amount: c.amount, archived } })),
+        contributions.map((c) => saveContribAsync({ id: c.id, payload: { archived } })),
       );
       const failed = results.filter((r) => r.status === 'rejected').length;
       if (failed > 0) {

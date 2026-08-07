@@ -80,7 +80,9 @@ export function TxFormSheet({ app, sheet }: SheetProps) {
   // Only offered when creating a new income transaction -- linking only
   // happens at creation time (see CreateTransactionRequest.contributionId's
   // doc comment), and only fees/fines not yet fully paid are worth picking.
-  const openContribs = ((finances && finances.contributions) || []).filter((c) => c.status !== 'paid');
+  const openContribs = ((finances && finances.contributions) || []).filter(
+    (c) => c.status !== 'paid' && !c.archived,
+  );
   const openAssignments = ((finances && finances.assignments) || []).filter((a) => !a.paid);
   const contributionId = watch('contributionId');
   const penaltyAssignmentId = watch('penaltyAssignmentId');
