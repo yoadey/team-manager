@@ -174,36 +174,20 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                               onClose();
                             }}
                             sx={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              gap: '2px',
                               width: '100%',
-                              p: '5px 2px',
-                              borderRadius: 0,
+                              p: '7px 8px',
+                              borderRadius: '100px',
                               cursor: 'pointer',
+                              fontSize: '12.5px',
+                              fontWeight: 700,
                               border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
                               background: sel ? tk.primaryContainer : NEUTRAL.card,
+                              color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+                              transition: 'border-color .12s ease, background .12s ease',
+                              '&:hover': { borderColor: tk.primary },
                             }}
                           >
-                            <Box
-                              component="span"
-                              sx={{
-                                width: '16px',
-                                height: '16px',
-                                borderRadius: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                border: '2px solid ' + (sel ? tk.primary : NEUTRAL.faint),
-                                background: sel ? tk.primary : 'transparent',
-                              }}
-                            >
-                              {sel ? <Sym name="check" size={11} color="#fff" /> : null}
-                            </Box>
-                            <Box component="span" sx={{ fontSize: '11px', fontWeight: 700, color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant }}>
-                              {fmtMoney(owed)}
-                            </Box>
+                            {fmtMoney(owed)}
                           </ButtonBase>
                         </Box>
                       );
