@@ -72,9 +72,11 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
           .slice()
           .reverse()
           .map((a) => (
-            <Box
+            <ButtonBase
               key={a.id}
+              onClick={() => app.openPenaltyAssign(a)}
               sx={{
+                width: '100%',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '11px',
@@ -82,6 +84,9 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                 border: `1px solid ${NEUTRAL.line}`,
                 borderRadius: '14px',
                 p: '10px 13px',
+                textAlign: 'left',
+                justifyContent: 'flex-start',
+                cursor: 'pointer',
               }}
             >
               <Av name={a.name} photo={a.photo} color={a.avatarColor} size={36} />
@@ -107,7 +112,10 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
               )}
               {canFin ? (
                 <ButtonBase
-                  onClick={() => app.deleteAssignment(a.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    app.deleteAssignment(a.id);
+                  }}
                   aria-label={t('common.delete')}
                   sx={{
                     width: '30px',
@@ -123,7 +131,7 @@ export function FinancesPenalties({ app, t: tk, f, canFin }: Props) {
                   <Sym name="delete" size={18} color={NEUTRAL.error} />
                 </ButtonBase>
               ) : null}
-            </Box>
+            </ButtonBase>
           ))
       ) : (
         <EmptyState icon="savings" text={t('finances.penaltyEmpty')} />

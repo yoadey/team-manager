@@ -157,6 +157,34 @@ describe('FinancesPenalties', () => {
     expect(app.deleteAssignment).toHaveBeenCalledWith('a1');
   });
 
+  it('opens the assignment detail view when a row is clicked', () => {
+    const app = makeApp();
+    render(
+      <FinancesPenalties
+        app={app as never}
+        t={tk}
+        f={makeFinances({ assignments: [makeAssignment()] })}
+        canFin={false}
+      />,
+    );
+    fireEvent.click(screen.getByText('Anna Müller'));
+    expect(app.openPenaltyAssign).toHaveBeenCalledWith(makeAssignment());
+  });
+
+  it('does not open the detail view when the delete button is clicked', () => {
+    const app = makeApp();
+    render(
+      <FinancesPenalties
+        app={app as never}
+        t={tk}
+        f={makeFinances({ assignments: [makeAssignment()] })}
+        canFin={true}
+      />,
+    );
+    fireEvent.click(screen.getByLabelText('common.delete'));
+    expect(app.openPenaltyAssign).not.toHaveBeenCalled();
+  });
+
   it('renders a paid chip for a paid assignment', () => {
     const app = makeApp();
     render(

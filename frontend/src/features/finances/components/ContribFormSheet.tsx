@@ -6,10 +6,16 @@ import { NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, Sym, TextArea, TextInput } from '@/components/ui';
 import type { SheetProps } from '@/sheets/types';
 import { contribFormSchema, type ContribFormValues } from './contribFormSchema';
+import { LinkedTransactionsList } from './LinkedTransactionsList';
+import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { MAX_MONEY_AMOUNT_EUROS, validateMoneyAmount } from '@/utils/validation';
 import { t } from '@/i18n';
 
 export function ContribFormSheet({ app, sheet }: SheetProps) {
+  const { state } = app;
+  const { data: finances } = useFinanceOverviewQuery(app.api, state.activeTeamId);
+  const contribId = (sheet.formInitial as ContribFormValues).id;
+  const linkedTx = ((finances && finances.transactions) || []).filter((tx) => tx.contributionId === contribId);
   const {
     register,
     handleSubmit,
@@ -80,6 +86,7 @@ export function ContribFormSheet({ app, sheet }: SheetProps) {
       <Field label={t('finances.contribFieldDueDate')} error={!!errors.dueDate} errorText={errors.dueDate?.message}>
         <TextInput type="date" {...register('dueDate')} />
       </Field>
+      <LinkedTransactionsList transactions={linkedTx} onSelect={(tx) => app.openTxForm(tx)} />
       <PrimaryButton
         label={t('finances.contribSave')}
         onClick={handleSubmit(onSubmit)}

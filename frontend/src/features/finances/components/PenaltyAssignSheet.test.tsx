@@ -56,6 +56,7 @@ function makeApp(
     },
     savePenaltyAssign: vi.fn(),
     can: vi.fn().mockReturnValue(true),
+    openTxForm: vi.fn(),
   };
   const formInitial = { userId: '', penaltyId: '', ...formOverrides };
   mockUseApp.mockReturnValue(app as never);
@@ -161,6 +162,57 @@ describe('PenaltyAssignSheet', () => {
     fireEvent.click(screen.getByRole('button', { name: /Strafe erfassen/i }));
     await waitFor(() => {
       expect(app.savePenaltyAssign).toHaveBeenCalledWith(expect.objectContaining({ userId: 'u2', penaltyId: 'p1' }));
+    });
+  });
+
+  describe('view mode (detail)', () => {
+    it('lists transactions linked to the assignment', () => {
+      const { app, formInitial } = makeApp(
+        { id: 'a1' },
+        [makeMember()],
+        {
+          penalties: [makePenalty()],
+          assignments: [{ id: 'a1', name: 'Anna Müller', label: 'Versäumtes Training', date: '2026-06-01', amount: 10 }],
+          transactions: [
+            { id: 'tx1', title: 'Bar erhalten', date: '2026-06-02', amount: 10, penaltyAssignmentId: 'a1' },
+            { id: 'tx2', title: 'Unrelated', date: '2026-06-03', amount: 5, penaltyAssignmentId: 'other' },
+          ],
+        },
+      );
+      render(<PenaltyAssignSheet app={app as never} sheet={{ mode: 'view', formInitial } as never} />);
+      expect(screen.getByText('Bar erhalten')).toBeTruthy();
+      expect(screen.queryByText('Unrelated')).toBeNull();
+    });
+
+    it('shows an empty state when no transaction is linked yet', () => {
+      const { app, formInitial } = makeApp(
+        { id: 'a1' },
+        [makeMember()],
+        {
+          penalties: [makePenalty()],
+          assignments: [{ id: 'a1', name: 'Anna Müller', label: 'Versäumtes Training', date: '2026-06-01', amount: 10 }],
+          transactions: [],
+        },
+      );
+      render(<PenaltyAssignSheet app={app as never} sheet={{ mode: 'view', formInitial } as never} />);
+      expect(screen.getByText('Keine verknüpften Buchungen')).toBeTruthy();
+    });
+
+    it('clicking a linked transaction opens it via openTxForm', () => {
+      const tx = { id: 'tx1', title: 'Bar erhalten', date: '2026-06-02', amount: 10, penaltyAssignmentId: 'a1' };
+      const { app, formInitial } = makeApp(
+        { id: 'a1' },
+        [makeMember()],
+        {
+          penalties: [makePenalty()],
+          assignments: [{ id: 'a1', name: 'Anna Müller', label: 'Versäumtes Training', date: '2026-06-01', amount: 10 }],
+          transactions: [tx],
+        },
+      );
+      app.openTxForm = vi.fn();
+      render(<PenaltyAssignSheet app={app as never} sheet={{ mode: 'view', formInitial } as never} />);
+      fireEvent.click(screen.getByText('Bar erhalten'));
+      expect(app.openTxForm).toHaveBeenCalledWith(tx);
     });
   });
 });

@@ -2,15 +2,61 @@ import Box from '@mui/material/Box';
 import ButtonBase from '@mui/material/ButtonBase';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { buildTokens, fmtMoney, NEUTRAL } from '@/styles/tokens';
+import { buildTokens, fmtDate, fmtMoney, NEUTRAL } from '@/styles/tokens';
 import { Field, PrimaryButton, TextArea, TextInput, inputSx, labelSx } from '@/components/ui';
 import { useMembersQuery } from '@/features/members';
 import type { SheetProps } from '@/sheets/types';
 import { penaltyAssignFormSchema, type PenaltyAssignFormValues } from './penaltyAssignFormSchema';
+import { LinkedTransactionsList } from './LinkedTransactionsList';
 import { useFinanceOverviewQuery } from '../hooks/useFinanceQueries';
 import { t } from '@/i18n';
 
-export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
+/** Read-only detail view of an existing assignment -- see
+ * openspec/changes/finance-detail-linked-entries. */
+function PenaltyAssignDetail({ app, sheet }: SheetProps) {
+  const { state } = app;
+  const tk = buildTokens(state.primaryColor);
+  const { data: f } = useFinanceOverviewQuery(app.api, state.activeTeamId);
+  const initial = sheet.formInitial as PenaltyAssignFormValues;
+  const assignment = (f && f.assignments.find((a) => a.id === initial.id)) || null;
+  const linkedTx = ((f && f.transactions) || []).filter((tx) => tx.penaltyAssignmentId === assignment?.id);
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '11px',
+          background: NEUTRAL.card,
+          border: `1px solid ${NEUTRAL.line}`,
+          borderRadius: '14px',
+          p: '12px 14px',
+        }}
+      >
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Box sx={{ fontSize: '15px', fontWeight: 700 }}>{assignment?.name}</Box>
+          <Box sx={{ fontSize: '13px', color: NEUTRAL.faint, mt: '2px' }}>
+            {(assignment?.label || '') + ' · ' + fmtDate(assignment?.date || '')}
+          </Box>
+        </Box>
+        <Box component="span" sx={{ fontSize: '15px', fontWeight: 700, color: tk.primary }}>
+          {fmtMoney(assignment?.amount || 0)}
+        </Box>
+      </Box>
+      {assignment?.note ? (
+        <Field label={t('finances.assignmentDetailNote')}>
+          <Box sx={{ fontSize: '13px', color: NEUTRAL.onSurfaceVariant, whiteSpace: 'pre-wrap' }}>
+            {assignment.note}
+          </Box>
+        </Field>
+      ) : null}
+      <LinkedTransactionsList transactions={linkedTx} onSelect={(tx) => app.openTxForm(tx)} />
+    </Box>
+  );
+}
+
+function PenaltyAssignCreateForm({ app, sheet }: SheetProps) {
   const { state } = app;
   const tk = buildTokens(state.primaryColor);
   const { data: f } = useFinanceOverviewQuery(app.api, state.activeTeamId);
@@ -145,4 +191,8 @@ export function PenaltyAssignSheet({ app, sheet }: SheetProps) {
       />
     </Box>
   );
+}
+
+export function PenaltyAssignSheet(props: SheetProps) {
+  return props.sheet.mode === 'view' ? <PenaltyAssignDetail {...props} /> : <PenaltyAssignCreateForm {...props} />;
 }
