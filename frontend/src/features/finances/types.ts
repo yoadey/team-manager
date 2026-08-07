@@ -10,6 +10,8 @@ export interface Transaction {
   contributionId?: string | null;
   /** The penalty assignment (fine) this transaction (fully or partially) pays, or null/absent if it isn't a fine payment. Mutually exclusive with contributionId. */
   penaltyAssignmentId?: string | null;
+  /** Optional free-text note, settable on create/update. Never shown in the transaction list -- only in the edit form. */
+  note?: string | null;
 }
 
 export interface Penalty {
@@ -53,12 +55,16 @@ export interface Contribution {
   userId: string;
   /** Free-text fee name, e.g. "Mitgliedsbeitrag Januar 2026". */
   label: string;
+  /** Optional free-text description beyond the short name. */
+  description?: string | null;
   amount: number;
   /** Optional due date (YYYY-MM-DD). */
   dueDate?: string | null;
-  /** Sum of every income transaction linked to this contribution, in euros. */
+  /** Sum of every income transaction linked to this contribution, in euros. May exceed `amount` when overpaid -- not capped. */
   paidAmount: number;
   status: 'open' | 'partial' | 'paid';
+  /** When true, excluded from the default display, the matrix, and the linking picker -- never affects linked transactions. */
+  archived: boolean;
   /** Member display name (mapped from the backend's memberName). */
   name?: string;
   avatarColor?: string;

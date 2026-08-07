@@ -416,6 +416,7 @@ export interface AppContextValue {
   deleteAssignment: (id: string) => void;
   openContribForm: (c: Contribution) => void;
   saveContrib: (f: ContribFormValues) => Promise<void>;
+  archiveContribGroup: (contributions: Contribution[], archived: boolean) => Promise<void>;
   openContribCreate: () => void;
   saveContribCreate: (f: ContribCreateFormValues) => Promise<void>;
   deleteContrib: (id: string) => void;
@@ -1224,6 +1225,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     deleteAssignment,
     openContribForm,
     saveContrib,
+    archiveContribGroup,
     openContribCreate,
     saveContribCreate,
     deleteContrib,
@@ -1497,6 +1499,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAssignment,
       openContribForm,
       saveContrib,
+      archiveContribGroup,
       openContribCreate,
       saveContribCreate,
       deleteContrib,
@@ -1604,6 +1607,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deleteAssignment,
       openContribForm,
       saveContrib,
+      archiveContribGroup,
       openContribCreate,
       saveContribCreate,
       deleteContrib,

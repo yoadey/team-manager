@@ -25,8 +25,10 @@ export interface ContributionRow {
   teamId: string;
   userId: string;
   label: string;
+  description?: string;
   amount: number;
   dueDate?: string;
+  archived?: boolean;
 }
 
 // Same reasoning as ContributionRow above: `paid`/`paidAmount` are derived

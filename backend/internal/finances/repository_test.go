@@ -43,14 +43,14 @@ func TestFinancesRepository_Transactions(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 
 	category := "income"
-	tx, err := repo.CreateTransaction(ctx, teamID, "income", "Membership Fee", 5000, time.Now().UTC(), &category, nil, nil)
+	tx, err := repo.CreateTransaction(ctx, teamID, "income", "Membership Fee", 5000, time.Now().UTC(), &category, nil, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, tx)
 	assert.Equal(t, "Membership Fee", tx.Title)
 	assert.Equal(t, int64(5000), tx.Amount)
 
 	expenseCategory := "gear"
-	_, err = repo.CreateTransaction(ctx, teamID, "expense", "New Balls", 2000, time.Now().UTC(), &expenseCategory, nil, nil)
+	_, err = repo.CreateTransaction(ctx, teamID, "expense", "New Balls", 2000, time.Now().UTC(), &expenseCategory, nil, nil, nil)
 	require.NoError(t, err)
 
 	list, err := repo.ListTransactions(ctx, teamID)
@@ -110,7 +110,7 @@ func TestFinancesRepository_ListTransactionsPage_KeysetPaginatesWholeHistory(t *
 	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 	for i := 0; i < total; i++ {
 		cat := "dues"
-		_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", int64(100+i), base.AddDate(0, 0, i), &cat, nil, nil)
+		_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", int64(100+i), base.AddDate(0, 0, i), &cat, nil, nil, nil)
 		require.NoError(t, err)
 	}
 
@@ -167,7 +167,7 @@ func TestFinancesRepository_ListTransactionsPage_ScopedToTeam(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 
 	cat := "dues"
-	_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil, nil)
+	_, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil, nil, nil)
 	require.NoError(t, err)
 
 	// A different team sees none of this team's rows.
@@ -189,7 +189,7 @@ func TestFinancesRepository_UpdateTransaction_SetsDate(t *testing.T) {
 	teamID := uuid.MustParse(tid)
 
 	cat := "dues"
-	tx, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil, nil)
+	tx, err := repo.CreateTransaction(ctx, teamID, "income", "tx", 100, time.Now().UTC(), &cat, nil, nil, nil)
 	require.NoError(t, err)
 
 	want := time.Date(2022, 6, 30, 0, 0, 0, 0, time.UTC)
@@ -250,7 +250,7 @@ func TestFinancesRepository_Penalties(t *testing.T) {
 	assert.ErrorIs(t, err, pgx.ErrNoRows)
 
 	payCategory := "fine"
-	_, err = repo.CreateTransaction(ctx, teamID, "income", "Fine payment", 500, time.Now().UTC(), &payCategory, nil, &assign.ID)
+	_, err = repo.CreateTransaction(ctx, teamID, "income", "Fine payment", 500, time.Now().UTC(), &payCategory, nil, &assign.ID, nil)
 	require.NoError(t, err)
 
 	toggled, err := repo.GetAssignmentByID(ctx, assign.ID, teamID)
@@ -302,7 +302,7 @@ func TestFinancesRepository_DeletePenalty_PreservesAssignments(t *testing.T) {
 	paid, err := repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
 	payCategory := "fine"
-	_, err = repo.CreateTransaction(ctx, teamID, "income", "Fine payment", 500, time.Now().UTC(), &payCategory, nil, &paid.ID)
+	_, err = repo.CreateTransaction(ctx, teamID, "income", "Fine payment", 500, time.Now().UTC(), &payCategory, nil, &paid.ID, nil)
 	require.NoError(t, err)
 	_, err = repo.CreateAssignment(ctx, teamID, userID, pen.ID, time.Now(), nil)
 	require.NoError(t, err)
@@ -641,7 +641,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
 	require.NoError(t, err)
 
-	created, err := repo.CreateContributions(ctx, teamID, "Mitgliedsbeitrag Juni", 2500, nil, []uuid.UUID{userID})
+	created, err := repo.CreateContributions(ctx, teamID, "Mitgliedsbeitrag Juni", nil, 2500, nil, []uuid.UUID{userID})
 	require.NoError(t, err)
 	require.Len(t, created, 1)
 	contribID := created[0].ID
@@ -679,7 +679,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	// settable field: booking a partial payment moves the contribution to
 	// "partial", a second one covering the rest moves it to "paid".
 	category := "Beiträge"
-	tx1, err := repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 1", 1000, time.Now().UTC(), &category, &contribID, nil)
+	tx1, err := repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 1", 1000, time.Now().UTC(), &category, &contribID, nil, nil)
 	require.NoError(t, err)
 	list, err = repo.ListContributions(ctx, teamID)
 	require.NoError(t, err)
@@ -690,7 +690,7 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, openCount) // still open (partial < amount)
 
-	_, err = repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 2", 2000, time.Now().UTC(), &category, &contribID, nil)
+	_, err = repo.CreateTransaction(ctx, teamID, "income", "Teilzahlung 2", 2000, time.Now().UTC(), &category, &contribID, nil, nil)
 	require.NoError(t, err)
 	list, err = repo.ListContributions(ctx, teamID)
 	require.NoError(t, err)
@@ -741,6 +741,128 @@ func TestFinancesRepository_Contributions(t *testing.T) {
 	assert.Nil(t, txs[0].ContributionID)
 }
 
+// TestFinancesRepository_UpdateContribution_DescriptionAndArchived verifies
+// that description and archived are independently patchable, persist across
+// a reload, and archiving never touches the row's other fields or any
+// linked transaction.
+func TestFinancesRepository_UpdateContribution_DescriptionAndArchived(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	created, err := repo.CreateContributions(ctx, teamID, "Turniergebühr", nil, 1500, nil, []uuid.UUID{userID})
+	require.NoError(t, err)
+	require.Len(t, created, 1)
+	contribID := created[0].ID
+	assert.Nil(t, created[0].Description)
+	assert.False(t, created[0].Archived)
+
+	desc := "Deckt Startgeld und Transport ab."
+	updated, err := repo.UpdateContribution(ctx, contribID, teamID, finances.ContributionPatch{Description: &desc})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Description)
+	assert.Equal(t, desc, *updated.Description)
+	assert.False(t, updated.Archived)
+	// Untouched by the description-only patch.
+	assert.Equal(t, "Turniergebühr", updated.Name)
+	assert.Equal(t, int64(1500), updated.Amount)
+
+	archived := true
+	updated, err = repo.UpdateContribution(ctx, contribID, teamID, finances.ContributionPatch{Archived: &archived})
+	require.NoError(t, err)
+	assert.True(t, updated.Archived)
+	require.NotNil(t, updated.Description)
+	assert.Equal(t, desc, *updated.Description) // untouched by the archived-only patch
+
+	list, err := repo.ListContributions(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.True(t, list[0].Archived)
+
+	unarchived := false
+	updated, err = repo.UpdateContribution(ctx, contribID, teamID, finances.ContributionPatch{Archived: &unarchived})
+	require.NoError(t, err)
+	assert.False(t, updated.Archived)
+}
+
+// TestFinancesRepository_CountOpenContributions_ExcludesArchived verifies
+// that an archived contribution is excluded from the open-contributions
+// count regardless of its paid state, per Contribution.archived's contract.
+func TestFinancesRepository_CountOpenContributions_ExcludesArchived(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+	userID := uuid.MustParse(uid)
+	_, err := pool.Exec(ctx, `INSERT INTO memberships (team_id, user_id) VALUES ($1, $2)`, tid, uid)
+	require.NoError(t, err)
+
+	created, err := repo.CreateContributions(ctx, teamID, "Mitgliedsbeitrag", nil, 2000, nil, []uuid.UUID{userID})
+	require.NoError(t, err)
+	contribID := created[0].ID
+
+	openCount, err := repo.CountOpenContributions(ctx, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, 1, openCount)
+
+	archived := true
+	_, err = repo.UpdateContribution(ctx, contribID, teamID, finances.ContributionPatch{Archived: &archived})
+	require.NoError(t, err)
+
+	openCount, err = repo.CountOpenContributions(ctx, teamID)
+	require.NoError(t, err)
+	assert.Equal(t, 0, openCount, "archived contribution must not count as open even though it's unpaid")
+}
+
+// TestFinancesRepository_TransactionNote_RoundTrips verifies that an
+// optional transaction note persists through create, list, and update.
+func TestFinancesRepository_TransactionNote_RoundTrips(t *testing.T) {
+	t.Parallel()
+
+	pool := testutil.NewTestDB(t)
+	repo := finances.NewRepository(pool)
+	ctx := context.Background()
+
+	uid := uuid.New().String()
+	tid := uuid.New().String()
+	seedFinanceFixtures(t, pool, uid, tid)
+	teamID := uuid.MustParse(tid)
+
+	note := "Bar erhalten, Quittung Nr. 12"
+	created, err := repo.CreateTransaction(ctx, teamID, "income", "Spende", 500, time.Now().UTC(), nil, nil, nil, &note)
+	require.NoError(t, err)
+	require.NotNil(t, created.Note)
+	assert.Equal(t, note, *created.Note)
+
+	list, err := repo.ListTransactions(ctx, teamID)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.NotNil(t, list[0].Note)
+	assert.Equal(t, note, *list[0].Note)
+
+	newNote := "Korrektur: eigentlich Quittung Nr. 13"
+	updated, err := repo.UpdateTransaction(ctx, created.ID, teamID, finances.TransactionPatch{Note: &newNote})
+	require.NoError(t, err)
+	require.NotNil(t, updated.Note)
+	assert.Equal(t, newNote, *updated.Note)
+}
+
 // TestFinancesRepository_CreateContributions_FanOutIsAtomic verifies the
 // membership-fee fan-out create: one row per userID, and if any id fails
 // the atomic membership re-check, the whole batch rolls back rather than
@@ -767,14 +889,14 @@ func TestFinancesRepository_CreateContributions_FanOutIsAtomic(t *testing.T) {
 	// userID2 is deliberately NOT a member of teamID.
 
 	// Fan-out to a real member succeeds and creates exactly one row.
-	created, err := repo.CreateContributions(ctx, teamID, "Turnier", 1000, nil, []uuid.UUID{userID1})
+	created, err := repo.CreateContributions(ctx, teamID, "Turnier", nil, 1000, nil, []uuid.UUID{userID1})
 	require.NoError(t, err)
 	require.Len(t, created, 1)
 
 	// A batch containing a non-member is rejected in full: the whole
 	// transaction rolls back, so the member-only row from a mixed batch is
 	// never left behind either.
-	_, err = repo.CreateContributions(ctx, teamID, "Batch", 1000, nil, []uuid.UUID{userID1, userID2})
+	_, err = repo.CreateContributions(ctx, teamID, "Batch", nil, 1000, nil, []uuid.UUID{userID1, userID2})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, finances.ErrUserNotInTeam)
 

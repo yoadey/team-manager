@@ -77,7 +77,7 @@ type financeRepo interface {
 	ListTransactionsPage(ctx context.Context, teamID uuid.UUID, limit int, cur *TxCursor) ([]TransactionRow, error)
 	SumTransactions(ctx context.Context, teamID uuid.UUID) (income, expense int64, err error)
 	CountTransactions(ctx context.Context, teamID uuid.UUID) (int, error)
-	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID) (*TransactionRow, error)
+	CreateTransaction(ctx context.Context, teamID uuid.UUID, txType, title string, amount int64, date time.Time, category *string, contributionID, penaltyAssignmentID *uuid.UUID, note *string) (*TransactionRow, error)
 	UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, patch TransactionPatch) (*TransactionRow, error)
 	DeleteTransaction(ctx context.Context, id, teamID uuid.UUID) error
 
@@ -99,7 +99,7 @@ type financeRepo interface {
 	ListContributions(ctx context.Context, teamID uuid.UUID) ([]ContributionRow, error)
 	CountContributions(ctx context.Context, teamID uuid.UUID) (int, error)
 	CountOpenContributions(ctx context.Context, teamID uuid.UUID) (int, error)
-	CreateContributions(ctx context.Context, teamID uuid.UUID, name string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]ContributionRow, error)
+	CreateContributions(ctx context.Context, teamID uuid.UUID, name string, description *string, amount int64, dueDate *time.Time, userIDs []uuid.UUID) ([]ContributionRow, error)
 	UpdateContribution(ctx context.Context, id, teamID uuid.UUID, patch ContributionPatch) (*ContributionRow, error)
 	DeleteContribution(ctx context.Context, id, teamID uuid.UUID) error
 	ContributionBelongsToTeam(ctx context.Context, contributionID, teamID uuid.UUID) (bool, error)
@@ -326,7 +326,7 @@ func (s *Service) CreateTransaction(ctx context.Context, teamID uuid.UUID, body 
 	if body.Date != nil {
 		date = body.Date.Time
 	}
-	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, date, body.Category, body.ContributionId, body.PenaltyAssignmentId)
+	t, err := s.repo.CreateTransaction(ctx, teamID, string(body.Type), body.Title, body.Amount, date, body.Category, body.ContributionId, body.PenaltyAssignmentId, body.Note)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateTransaction: %w", err)
 	}
@@ -353,6 +353,9 @@ func (s *Service) UpdateTransaction(ctx context.Context, id, teamID uuid.UUID, b
 	if body.Date != nil {
 		d := body.Date.Time
 		patch.Date = &d
+	}
+	if body.Note != nil {
+		patch.Note = body.Note
 	}
 	t, err := s.repo.UpdateTransaction(ctx, id, teamID, patch)
 	if err != nil {
@@ -511,7 +514,7 @@ func (s *Service) CreateContributions(ctx context.Context, teamID uuid.UUID, bod
 		dueDate = &d
 	}
 
-	rows, err := s.repo.CreateContributions(ctx, teamID, body.Name, body.Amount, dueDate, body.UserIds)
+	rows, err := s.repo.CreateContributions(ctx, teamID, body.Name, body.Description, body.Amount, dueDate, body.UserIds)
 	if err != nil {
 		return nil, fmt.Errorf("finances.Service.CreateContributions: %w", err)
 	}
@@ -524,7 +527,7 @@ func (s *Service) CreateContributions(ctx context.Context, teamID uuid.UUID, bod
 
 // UpdateContribution applies a patch to a contribution that belongs to teamID.
 func (s *Service) UpdateContribution(ctx context.Context, id, teamID uuid.UUID, body *gen.UpdateContributionJSONRequestBody) (*gen.Contribution, error) {
-	patch := ContributionPatch{Name: body.Name, Amount: body.Amount}
+	patch := ContributionPatch{Name: body.Name, Description: body.Description, Amount: body.Amount, Archived: body.Archived}
 	if body.DueDate != nil {
 		d := body.DueDate.Time
 		patch.DueDate = &d
@@ -560,6 +563,7 @@ func toGenTransaction(t TransactionRow) gen.Transaction {
 		Category:            t.Category,
 		ContributionId:      t.ContributionID,
 		PenaltyAssignmentId: t.PenaltyAssignmentID,
+		Note:                t.Note,
 	}
 }
 
@@ -624,10 +628,12 @@ func toGenContribution(c ContributionRow) gen.Contribution {
 		TeamId:            c.TeamID,
 		UserId:            c.UserID,
 		Name:              c.Name,
+		Description:       c.Description,
 		Amount:            c.Amount,
 		DueDate:           dueDate,
 		PaidAmount:        c.PaidAmount,
 		Status:            contributionStatus(c.PaidAmount, c.Amount),
+		Archived:          c.Archived,
 		MemberName:        c.MemberName,
 		MemberAvatarColor: c.MemberAvatarColor,
 		HasPhoto:          c.HasPhoto,

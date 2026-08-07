@@ -305,6 +305,30 @@ describe('TxFormSheet', () => {
     expect(app.askConfirm).toHaveBeenCalled();
   });
 
+  it('renders an optional note field, not shown anywhere else in this form', () => {
+    const { app, formInitial } = makeApp();
+    render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+    expect(screen.getByPlaceholderText('z. B. Bar erhalten, Quittung Nr. 12')).toBeTruthy();
+  });
+
+  it('submits the entered note along with the rest of the transaction', async () => {
+    const { app, formInitial } = makeApp({ title: 'Spende', amount: '10' });
+    render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
+    fireEvent.change(screen.getByPlaceholderText('z. B. Bar erhalten, Quittung Nr. 12'), {
+      target: { value: 'Bar erhalten, Quittung Nr. 12' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
+    await waitFor(() => {
+      expect(app.saveTx).toHaveBeenCalledWith(expect.objectContaining({ note: 'Bar erhalten, Quittung Nr. 12' }));
+    });
+  });
+
+  it('pre-fills the note field in edit mode from the transaction being edited', () => {
+    const { app, formInitial } = makeApp({ title: 'Alte Buchung', amount: '100', id: 'tx-42', note: 'Bereits erfasste Notiz' });
+    render(<TxFormSheet app={app as never} sheet={makeSheet('edit', formInitial)} />);
+    expect(screen.getByDisplayValue('Bereits erfasste Notiz')).toBeTruthy();
+  });
+
   describe('linked payment picker', () => {
     it('does not render when there are no open contributions or penalty assignments', () => {
       const { app, formInitial } = makeApp({ title: '', amount: '' });
@@ -339,10 +363,11 @@ describe('TxFormSheet', () => {
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
 
       fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-      fireEvent.change(screen.getByPlaceholderText('Mitglied oder Bezeichnung suchen…'), {
+      fireEvent.click(screen.getByText('Matrix öffnen'));
+      fireEvent.change(screen.getByPlaceholderText('Mitglied oder Beitrag suchen…'), {
         target: { value: 'Anna' },
       });
-      fireEvent.click(screen.getByText('Anna Müller'));
+      fireEvent.click(screen.getByRole('checkbox'));
 
       fireEvent.click(screen.getByRole('button', { name: /Buchung erfassen/i }));
       await waitFor(() => {
@@ -378,7 +403,8 @@ describe('TxFormSheet', () => {
       render(<TxFormSheet app={app as never} sheet={makeSheet('create', formInitial)} />);
 
       fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-      fireEvent.click(screen.getByText('Anna Müller'));
+      fireEvent.click(screen.getByText('Matrix öffnen'));
+      fireEvent.click(screen.getByRole('checkbox'));
       expect(screen.getByText(/Anna Müller/)).toBeTruthy();
 
       fireEvent.click(screen.getByLabelText('Verknüpfung entfernen'));

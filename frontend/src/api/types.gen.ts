@@ -1160,7 +1160,7 @@ export interface paths {
         delete: operations["deleteContribution"];
         options?: never;
         head?: never;
-        /** Update a contribution's name, amount, or due date */
+        /** Update a contribution's name, amount, due date, description, or archived flag */
         patch: operations["updateContribution"];
         trace?: never;
     };
@@ -1825,6 +1825,8 @@ export interface components {
              * @description The penalty assignment this transaction pays, or null if it isn't a fine payment. Mutually exclusive with contributionId. Set at creation time only -- see CreateTransactionRequest.penaltyAssignmentId.
              */
             penaltyAssignmentId?: string | null;
+            /** @description Optional free-text note about the transaction. Never shown in the transaction list -- only when the transaction is opened for editing. */
+            note?: string | null;
         };
         CreateTransactionRequest: {
             type: components["schemas"]["TransactionType"];
@@ -1850,6 +1852,8 @@ export interface components {
              * @description Links this transaction to a penalty assignment (fine) it pays -- the assignment's paidAmount becomes the sum of every income transaction linked to it this way, and paid becomes true once that sum reaches the assignment's amount. Only valid when `type` is `income`; rejected otherwise. Mutually exclusive with contributionId.
              */
             penaltyAssignmentId?: string;
+            /** @description Optional free-text note. Never shown in the transaction list -- only when the transaction is opened for editing. */
+            note?: string;
         };
         UpdateTransactionRequest: {
             type?: components["schemas"]["TransactionType"];
@@ -1865,6 +1869,7 @@ export interface components {
              * @description Transaction date.
              */
             date?: string;
+            note?: string;
         };
         Penalty: {
             /** Format: uuid */
@@ -1960,6 +1965,8 @@ export interface components {
             userId: string;
             /** @description Free-text fee name (e.g. "Mitgliedsbeitrag Januar 2026"). */
             name: string;
+            /** @description Optional free-text description beyond the short name. */
+            description?: string | null;
             /**
              * Format: int64
              * @description Amount in cents (e.g. 1050 = 10.50)
@@ -1969,16 +1976,19 @@ export interface components {
             dueDate?: string | null;
             /**
              * Format: int64
-             * @description Sum of every income transaction linked to this contribution (Transaction.contributionId), in cents. Computed, not stored.
+             * @description Sum of every income transaction linked to this contribution (Transaction.contributionId), in cents. Computed, not stored. May exceed `amount` when overpaid -- not capped.
              */
             paidAmount: number;
             status: components["schemas"]["ContributionStatus"];
+            /** @description When true, this contribution is excluded from the default display, the contribution matrix, the linking picker, and the contribOpen aggregate. Never affects linked transactions. */
+            archived: boolean;
             memberName?: string;
             memberAvatarColor?: string;
             hasPhoto?: boolean;
         };
         CreateContributionRequest: {
             name: string;
+            description?: string;
             /**
              * Format: int64
              * @description Amount in cents (e.g. 1050 = 10.50)
@@ -1986,11 +1996,12 @@ export interface components {
             amount: number;
             /** Format: date */
             dueDate?: string;
-            /** @description The members this fee applies to; one Contribution row is created per id, all sharing this name/amount/dueDate. */
+            /** @description The members this fee applies to; one Contribution row is created per id, all sharing this name/amount/dueDate/description. */
             userIds: string[];
         };
         UpdateContributionRequest: {
             name?: string;
+            description?: string;
             /**
              * Format: int64
              * @description Amount in cents (e.g. 1050 = 10.50)
@@ -1998,6 +2009,7 @@ export interface components {
             amount?: number;
             /** Format: date */
             dueDate?: string;
+            archived?: boolean;
         };
         FinanceOverview: {
             /**

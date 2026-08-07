@@ -15,6 +15,7 @@ function makeContribution(overrides: Partial<Contribution> = {}): Contribution {
     amount: 25,
     paidAmount: 0,
     status: 'open',
+    archived: false,
     name: 'Anna Müller',
     ...overrides,
   };
@@ -93,14 +94,14 @@ describe('LinkedPaymentPicker', () => {
     expect(screen.getByText('Strafen (1)')).toBeTruthy();
   });
 
-  it('filters the contribution list by search text across member name and label', () => {
+  it('opens a matrix dialog for linking a contribution, filterable by search text', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
         tk={tk}
         contributions={[
           makeContribution({ id: 'c1', name: 'Anna Müller', label: 'Mitgliedsbeitrag Januar' }),
-          makeContribution({ id: 'c2', name: 'Ben Schmidt', label: 'Turniergebühr' }),
+          makeContribution({ id: 'c2', userId: 'u2', name: 'Ben Schmidt', label: 'Turniergebühr' }),
         ]}
         assignments={[]}
         contributionId={undefined}
@@ -109,17 +110,18 @@ describe('LinkedPaymentPicker', () => {
       />,
     );
     fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
+    fireEvent.click(screen.getByText('Matrix öffnen'));
     expect(screen.getByText('Anna Müller')).toBeTruthy();
     expect(screen.getByText('Ben Schmidt')).toBeTruthy();
 
-    fireEvent.change(screen.getByPlaceholderText('Mitglied oder Bezeichnung suchen…'), {
+    fireEvent.change(screen.getByPlaceholderText('Mitglied oder Beitrag suchen…'), {
       target: { value: 'Turnier' },
     });
     expect(screen.queryByText('Anna Müller')).toBeNull();
     expect(screen.getByText('Ben Schmidt')).toBeTruthy();
   });
 
-  it('shows an empty state when the search matches nothing', () => {
+  it('shows an empty state in the matrix dialog when the search matches nothing', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
@@ -132,13 +134,14 @@ describe('LinkedPaymentPicker', () => {
       />,
     );
     fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    fireEvent.change(screen.getByPlaceholderText('Mitglied oder Bezeichnung suchen…'), {
+    fireEvent.click(screen.getByText('Matrix öffnen'));
+    fireEvent.change(screen.getByPlaceholderText('Mitglied oder Beitrag suchen…'), {
       target: { value: 'nonexistent' },
     });
-    expect(screen.getByText('Keine Treffer')).toBeTruthy();
+    expect(screen.getByText('Keine offenen Beiträge')).toBeTruthy();
   });
 
-  it('calls onSelectContribution when a contribution row is clicked', () => {
+  it('calls onSelectContribution when a matrix cell is clicked', () => {
     const handlers = makeHandlers();
     render(
       <LinkedPaymentPicker
@@ -151,7 +154,8 @@ describe('LinkedPaymentPicker', () => {
       />,
     );
     fireEvent.click(screen.getByText('Mit Beitrag oder Strafe verknüpfen (optional)'));
-    fireEvent.click(screen.getByText('Anna Müller'));
+    fireEvent.click(screen.getByText('Matrix öffnen'));
+    fireEvent.click(screen.getByRole('checkbox'));
     expect(handlers.onSelectContribution).toHaveBeenCalledWith('c1');
   });
 
@@ -262,6 +266,6 @@ describe('LinkedPaymentPicker', () => {
       />,
     );
     fireEvent.click(screen.getByText('Ändern'));
-    expect(screen.getByPlaceholderText('Mitglied oder Bezeichnung suchen…')).toBeTruthy();
+    expect(screen.getByText('Matrix öffnen')).toBeTruthy();
   });
 });

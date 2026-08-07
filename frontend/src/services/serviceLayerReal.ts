@@ -974,6 +974,7 @@ export const realApi = {
         date?: string;
         contributionId?: string;
         penaltyAssignmentId?: string;
+        note?: string;
       },
     ): Promise<Transaction> {
       const res = await apiClient.POST('/teams/{teamId}/finances/transactions', {
@@ -986,6 +987,7 @@ export const realApi = {
           ...opt('date', payload.date),
           ...opt('contributionId', payload.contributionId),
           ...opt('penaltyAssignmentId', payload.penaltyAssignmentId),
+          ...opt('note', payload.note),
         },
       });
       const t = await check(res);
@@ -1001,6 +1003,7 @@ export const realApi = {
           ...opt('amount', patch.amount == null ? patch.amount : eurosToCents(patch.amount)),
           ...opt('category', patch.category),
           ...opt('date', patch.date),
+          ...opt('note', patch.note ?? undefined),
         },
       });
       const t = await check(res);
@@ -1064,7 +1067,7 @@ export const realApi = {
 
     async createContributions(
       teamId: string,
-      payload: { label: string; amount: number; dueDate?: string; userIds: string[] },
+      payload: { label: string; description?: string; amount: number; dueDate?: string; userIds: string[] },
     ): Promise<Contribution[]> {
       const res = await apiClient.POST('/teams/{teamId}/finances/contributions', {
         params: { path: { teamId } },
@@ -1072,6 +1075,7 @@ export const realApi = {
           name: payload.label,
           amount: eurosToCents(payload.amount),
           userIds: payload.userIds,
+          ...opt('description', payload.description),
           ...opt('dueDate', payload.dueDate),
         },
       });
@@ -1081,15 +1085,17 @@ export const realApi = {
 
     async updateContribution(
       id: string,
-      patch: { label?: string; amount?: number; dueDate?: string },
+      patch: { label?: string; description?: string; amount?: number; dueDate?: string; archived?: boolean },
       teamId: string,
     ): Promise<Contribution> {
       const res = await apiClient.PATCH('/teams/{teamId}/finances/contributions/{contributionId}', {
         params: { path: { teamId, contributionId: id } },
         body: {
           ...opt('name', patch.label),
+          ...opt('description', patch.description),
           ...opt('amount', patch.amount == null ? patch.amount : eurosToCents(patch.amount)),
           ...opt('dueDate', patch.dueDate),
+          ...opt('archived', patch.archived),
         },
       });
       const c = await check(res);

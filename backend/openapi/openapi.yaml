@@ -1858,7 +1858,7 @@ paths:
       tags: [finances]
       operationId: updateContribution
       x-rbac-module: finances
-      summary: Update a contribution's name, amount, or due date
+      summary: Update a contribution's name, amount, due date, description, or archived flag
       requestBody:
         required: true
         content:
@@ -3345,6 +3345,13 @@ components:
             isn't a fine payment. Mutually exclusive with contributionId.
             Set at creation time only -- see
             CreateTransactionRequest.penaltyAssignmentId.
+        note:
+          type: string
+          nullable: true
+          description: >-
+            Optional free-text note about the transaction. Never shown in
+            the transaction list -- only when the transaction is opened for
+            editing.
 
     CreateTransactionRequest:
       type: object
@@ -3389,6 +3396,12 @@ components:
             that sum reaches the assignment's amount. Only valid when `type`
             is `income`; rejected otherwise. Mutually exclusive with
             contributionId.
+        note:
+          type: string
+          maxLength: 10000
+          description: >-
+            Optional free-text note. Never shown in the transaction list --
+            only when the transaction is opened for editing.
 
     UpdateTransactionRequest:
       type: object
@@ -3411,6 +3424,9 @@ components:
           type: string
           format: date
           description: Transaction date.
+        note:
+          type: string
+          maxLength: 10000
 
     Penalty:
       type: object
@@ -3547,7 +3563,7 @@ components:
 
     Contribution:
       type: object
-      required: [id, teamId, userId, name, amount, paidAmount, status]
+      required: [id, teamId, userId, name, amount, paidAmount, status, archived]
       properties:
         id:
           type: string
@@ -3561,6 +3577,10 @@ components:
         name:
           type: string
           description: Free-text fee name (e.g. "Mitgliedsbeitrag Januar 2026").
+        description:
+          type: string
+          nullable: true
+          description: Optional free-text description beyond the short name.
         amount:
           type: integer
           format: int64
@@ -3575,8 +3595,15 @@ components:
           description: >-
             Sum of every income transaction linked to this contribution
             (Transaction.contributionId), in cents. Computed, not stored.
+            May exceed `amount` when overpaid -- not capped.
         status:
           $ref: "#/components/schemas/ContributionStatus"
+        archived:
+          type: boolean
+          description: >-
+            When true, this contribution is excluded from the default
+            display, the contribution matrix, the linking picker, and the
+            contribOpen aggregate. Never affects linked transactions.
         memberName:
           type: string
         memberAvatarColor:
@@ -3592,6 +3619,9 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+        description:
+          type: string
+          maxLength: 2000
         amount:
           type: integer
           format: int64
@@ -3605,7 +3635,7 @@ components:
           type: array
           description: >-
             The members this fee applies to; one Contribution row is created
-            per id, all sharing this name/amount/dueDate.
+            per id, all sharing this name/amount/dueDate/description.
           items:
             type: string
             format: uuid
@@ -3619,6 +3649,9 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+        description:
+          type: string
+          maxLength: 2000
         amount:
           type: integer
           format: int64
@@ -3628,6 +3661,8 @@ components:
         dueDate:
           type: string
           format: date
+        archived:
+          type: boolean
 
     FinanceOverview:
       type: object
