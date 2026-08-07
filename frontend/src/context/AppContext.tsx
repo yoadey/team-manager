@@ -27,7 +27,7 @@ import type { Absence, AttendanceRow, TeamEvent } from '@/features/events';
 import type { EventFormValues } from '@/features/events/components/eventFormSchema';
 import type { AbsenceFormValues } from '@/features/events/components/absenceFormSchema';
 import type { Contribution, Penalty, PenaltyAssignment, Transaction } from '@/features/finances';
-import type { ContribFormValues } from '@/features/finances/components/contribFormSchema';
+import type { ContribGroupEditFormValues } from '@/features/finances/components/contribGroupEditFormSchema';
 import type { ContribCreateFormValues } from '@/features/finances/components/contribCreateFormSchema';
 import type { PenaltyFormValues } from '@/features/finances/components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '@/features/finances/components/penaltyAssignFormSchema';
@@ -96,7 +96,8 @@ export type SheetType =
   | 'penaltyCatalog'
   | 'penaltyAssign'
   | 'penaltyForm'
-  | 'contribForm'
+  | 'contribDetail'
+  | 'contribGroupEdit'
   | 'contribCreate'
   | 'pollForm'
   | 'pollVoters'
@@ -149,6 +150,9 @@ export interface SheetState {
   formInitial?: unknown;
   /** Which static legal page the `legal` sheet renders. */
   legalPage?: 'impressum' | 'datenschutz';
+  /** Carried by the `contribGroupEdit` sheet: every row in the fee-group
+   * being edited, so submitting can fan the change out over all of them. */
+  contribGroupRows?: Contribution[];
 }
 
 export interface AppState {
@@ -415,12 +419,12 @@ export interface AppContextValue {
   openPenaltyAssign: (a?: PenaltyAssignment) => void;
   savePenaltyAssign: (f: PenaltyAssignFormValues) => Promise<void>;
   deleteAssignment: (id: string) => void;
-  openContribForm: (c: Contribution) => void;
-  saveContrib: (f: ContribFormValues) => Promise<void>;
+  openContribDetail: (c: Contribution) => void;
+  openContribGroupEdit: (contributions: Contribution[]) => void;
+  editContribGroup: (contributions: Contribution[], values: ContribGroupEditFormValues) => Promise<void>;
   archiveContribGroup: (contributions: Contribution[], archived: boolean) => Promise<void>;
   openContribCreate: () => void;
   saveContribCreate: (f: ContribCreateFormValues) => Promise<void>;
-  deleteContrib: (id: string) => void;
   setStatsRange: (range: DateRange | null) => void;
   // polls
   openPollForm: () => void;
@@ -1225,12 +1229,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     openPenaltyAssign,
     savePenaltyAssign,
     deleteAssignment,
-    openContribForm,
-    saveContrib,
+    openContribDetail,
+    openContribGroupEdit,
+    editContribGroup,
     archiveContribGroup,
     openContribCreate,
     saveContribCreate,
-    deleteContrib,
     setStatsRange,
     openPollForm,
     openPollVoters,
@@ -1500,12 +1504,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openPenaltyAssign,
       savePenaltyAssign,
       deleteAssignment,
-      openContribForm,
-      saveContrib,
+      openContribDetail,
+      openContribGroupEdit,
+      editContribGroup,
       archiveContribGroup,
       openContribCreate,
       saveContribCreate,
-      deleteContrib,
       setStatsRange,
       openPollForm,
       openPollVoters,
@@ -1609,12 +1613,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       openPenaltyAssign,
       savePenaltyAssign,
       deleteAssignment,
-      openContribForm,
-      saveContrib,
+      openContribDetail,
+      openContribGroupEdit,
+      editContribGroup,
       archiveContribGroup,
       openContribCreate,
       saveContribCreate,
-      deleteContrib,
       setStatsRange,
       openPollForm,
       openPollVoters,

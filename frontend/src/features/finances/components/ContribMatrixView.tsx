@@ -159,7 +159,7 @@ export function ContribMatrixView({ app, contributions }: Props) {
                   >
                     <ButtonBase
                       type="button"
-                      onClick={() => (c.paidAmount > 0 ? app.openContribForm(c) : app.openTxFormForContribution(c))}
+                      onClick={() => app.openContribDetail(c)}
                       sx={{ borderRadius: '8px', p: '2px' }}
                     >
                       <Sym

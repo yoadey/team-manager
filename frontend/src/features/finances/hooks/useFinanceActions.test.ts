@@ -7,7 +7,7 @@ import type { AppState } from '@/context/AppContext';
 import type { TxFormValues } from '../components/txFormSchema';
 import type { PenaltyFormValues } from '../components/penaltyFormSchema';
 import type { PenaltyAssignFormValues } from '../components/penaltyAssignFormSchema';
-import type { ContribFormValues } from '../components/contribFormSchema';
+import type { ContribGroupEditFormValues } from '../components/contribGroupEditFormSchema';
 import type { Contribution, FinanceOverview } from '../types';
 import type { QueryClient } from '@tanstack/react-query';
 import { todayStr } from '@/styles/tokens';
@@ -429,34 +429,60 @@ describe('useFinanceActions', () => {
   });
 
 
-  it('saveContrib updates contribution when valid', async () => {
+  it('editContribGroup fans the update out over every row in the group', async () => {
     const { result } = renderActions();
+    const rows = [{ id: 'c1' }, { id: 'c2' }] as Contribution[];
     await act(async () => {
-      await result.current.saveContrib({ label: 'Monatsbeitrag', amount: '20', dueDate: '', id: 'c1' } as ContribFormValues);
+      await result.current.editContribGroup(rows, {
+        label: 'Monatsbeitrag',
+        amount: '20',
+        dueDate: '',
+      } as ContribGroupEditFormValues);
     });
     expect(api.finances.updateContribution).toHaveBeenCalledWith(
       'c1',
       expect.objectContaining({ label: 'Monatsbeitrag' }),
       'team1',
     );
-    expect(toastMsg).toHaveBeenCalledWith('Beitrag gespeichert');
+    expect(api.finances.updateContribution).toHaveBeenCalledWith(
+      'c2',
+      expect.objectContaining({ label: 'Monatsbeitrag' }),
+      'team1',
+    );
+    expect(toastMsg).toHaveBeenCalledWith('Beitrag aktualisiert');
   });
 
-  it('saveContrib passes dueDate through when set', async () => {
+  it('editContribGroup passes dueDate through when set', async () => {
     const { result } = renderActions();
+    const rows = [{ id: 'c1' }] as Contribution[];
     await act(async () => {
-      await result.current.saveContrib({
+      await result.current.editContribGroup(rows, {
         label: 'Monatsbeitrag',
         amount: '20',
         dueDate: '2026-06-30',
-        id: 'c1',
-      } as ContribFormValues);
+      } as ContribGroupEditFormValues);
     });
     expect(api.finances.updateContribution).toHaveBeenCalledWith(
       'c1',
       expect.objectContaining({ dueDate: '2026-06-30' }),
       'team1',
     );
+  });
+
+  it('editContribGroup reports a partial failure without clearing all failures', async () => {
+    (api.finances.updateContribution as ReturnType<typeof vi.fn>).mockImplementationOnce(() =>
+      Promise.reject(new Error('boom')),
+    );
+    const { result } = renderActions();
+    const rows = [{ id: 'c1' }, { id: 'c2' }] as Contribution[];
+    await act(async () => {
+      await result.current.editContribGroup(rows, {
+        label: 'Monatsbeitrag',
+        amount: '20',
+        dueDate: '',
+      } as ContribGroupEditFormValues);
+    });
+    expect(toastMsg).toHaveBeenCalledWith('1 von 2 Beiträgen konnten nicht gespeichert werden', undefined, 'error');
   });
 
   it('saveContribCreate fans out to createContributions with the selected members', async () => {
@@ -489,19 +515,6 @@ describe('useFinanceActions', () => {
     );
   });
 
-  it('deleteContrib asks for confirmation then calls deleteContribution', async () => {
-    const { result } = renderActions();
-    act(() => {
-      result.current.deleteContrib('c1');
-    });
-    expect(askConfirm).toHaveBeenCalled();
-    const onConfirm = askConfirm.mock.calls[0]![0].onConfirm;
-    await act(async () => {
-      await onConfirm();
-    });
-    expect(api.finances.deleteContribution).toHaveBeenCalledWith('c1', 'team1');
-  });
-
   it('setStatsRange updates state', () => {
     const { result } = renderActions();
     const range = { from: '2026-01-01', to: '2026-12-31' } as never;
@@ -511,15 +524,35 @@ describe('useFinanceActions', () => {
     expect(setState).toHaveBeenCalledWith({ statsRange: range });
   });
 
-  it('openContribForm sets contribForm sheet', () => {
+  it('openContribDetail sets contribDetail sheet', () => {
     const c = { id: 'c1', label: 'Beitrag', amount: 20 } as never;
     const { result } = renderActions();
     act(() => {
-      result.current.openContribForm(c);
+      result.current.openContribDetail(c);
     });
     expect(setState).toHaveBeenCalledWith(
       expect.objectContaining({
-        sheet: expect.objectContaining({ type: 'contribForm' }),
+        sheet: expect.objectContaining({ type: 'contribDetail', formInitial: { id: 'c1' } }),
+      }),
+    );
+  });
+
+  it('openContribGroupEdit sets contribGroupEdit sheet prefilled from the first row', () => {
+    const rows = [
+      { id: 'c1', label: 'Monatsbeitrag', amount: 20, description: 'desc', dueDate: '2026-06-30' },
+      { id: 'c2', label: 'Monatsbeitrag', amount: 20, description: 'desc', dueDate: '2026-06-30' },
+    ] as Contribution[];
+    const { result } = renderActions();
+    act(() => {
+      result.current.openContribGroupEdit(rows);
+    });
+    expect(setState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sheet: expect.objectContaining({
+          type: 'contribGroupEdit',
+          formInitial: { label: 'Monatsbeitrag', amount: '20', description: 'desc', dueDate: '2026-06-30' },
+          contribGroupRows: rows,
+        }),
       }),
     );
   });

@@ -246,6 +246,28 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
     </Box>
   );
   const dueDate = groupDueDate[sel];
+  const editGroupAction = canFin ? (
+    <ButtonBase
+      key="editg"
+      onClick={() => app.openContribGroupEdit(allGroupRows)}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        p: '8px 10px',
+        borderRadius: '10px',
+        border: `1px solid ${NEUTRAL.line}`,
+        color: NEUTRAL.secondary,
+        fontSize: '12px',
+        fontWeight: 600,
+        cursor: 'pointer',
+        flex: '0 0 auto',
+      }}
+    >
+      <Sym name="edit" size={16} color={NEUTRAL.secondary} />
+      {t('finances.contribGroupEditBtn')}
+    </ButtonBase>
+  ) : null;
   const archiveGroupAction = canFin ? (
     <ButtonBase
       key="arcg"
@@ -310,6 +332,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
       >
         {pct + '%'}
       </Box>
+      {editGroupAction}
       {archiveGroupAction}
     </Box>
   );
@@ -362,8 +385,8 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
             </Box>
             {canFin ? (
               <ButtonBase
-                onClick={() => app.openContribForm(c)}
-                aria-label={t('finances.editContribLabel')}
+                onClick={() => app.openContribDetail(c)}
+                aria-label={t('finances.viewContribLabel')}
                 sx={{
                   width: '30px',
                   height: '30px',
@@ -374,7 +397,7 @@ export function FinancesContributions({ app, t: tk, f, canFin }: Props) {
                   flex: '0 0 auto',
                 }}
               >
-                <Sym name="edit" size={16} color={NEUTRAL.faint} />
+                <Sym name="chevron_right" size={18} color={NEUTRAL.faint} />
               </ButtonBase>
             ) : null}
             <Chip label={meta.label} color={meta.color} bg={meta.bg} icon={meta.icon} />
