@@ -78,7 +78,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
 
   const thBase = {
     borderBottom: `1px solid ${NEUTRAL.line}`,
-    padding: '6px 3px',
+    padding: '5px 3px',
     fontSize: '12px',
     fontWeight: 700,
     color: NEUTRAL.secondary,
@@ -90,7 +90,8 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
     zIndex: 1,
     background: NEUTRAL.card,
     textAlign: 'left',
-    minWidth: '110px',
+    width: '1px',
+    maxWidth: '140px',
     boxShadow: `1px 0 0 ${NEUTRAL.line}`,
   } as const;
 
@@ -132,7 +133,7 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                         component="th"
                         scope="col"
                         title={due ? groupLabel[g] + ' · ' + fmtDate(due) : groupLabel[g]}
-                        sx={{ ...thBase, textAlign: 'center', minWidth: '72px', maxWidth: '100px' }}
+                        sx={{ ...thBase, textAlign: 'center', minWidth: '56px', maxWidth: '84px' }}
                       >
                         <Box sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{groupLabel[g]}</Box>
                         {due ? <Box sx={{ fontSize: '10px', color: NEUTRAL.faint, fontWeight: 500 }}>{fmtDate(due)}</Box> : null}
@@ -174,36 +175,20 @@ export function ContribLinkMatrixDialog({ tk, open, onClose, contributions, sele
                               onClose();
                             }}
                             sx={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              gap: '2px',
                               width: '100%',
-                              p: '5px 2px',
-                              borderRadius: 0,
+                              p: '5px 6px',
+                              borderRadius: '100px',
                               cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 700,
                               border: '1.5px solid ' + (sel ? tk.primary : NEUTRAL.line3),
                               background: sel ? tk.primaryContainer : NEUTRAL.card,
+                              color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant,
+                              transition: 'border-color .12s ease, background .12s ease',
+                              '&:hover': { borderColor: tk.primary },
                             }}
                           >
-                            <Box
-                              component="span"
-                              sx={{
-                                width: '16px',
-                                height: '16px',
-                                borderRadius: 0,
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                border: '2px solid ' + (sel ? tk.primary : NEUTRAL.faint),
-                                background: sel ? tk.primary : 'transparent',
-                              }}
-                            >
-                              {sel ? <Sym name="check" size={11} color="#fff" /> : null}
-                            </Box>
-                            <Box component="span" sx={{ fontSize: '11px', fontWeight: 700, color: sel ? tk.onPrimaryContainer : NEUTRAL.onSurfaceVariant }}>
-                              {fmtMoney(owed)}
-                            </Box>
+                            {fmtMoney(owed)}
                           </ButtonBase>
                         </Box>
                       );
