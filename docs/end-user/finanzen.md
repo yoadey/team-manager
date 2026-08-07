@@ -36,10 +36,18 @@ Mitgliedsbeiträge (z. B. der Monatsbeitrag) je Mitglied, ebenfalls mit dem
 Status **offen** oder **bezahlt**. Standardmäßig als Matrix (Mitglied x
 Beitragsperiode) dargestellt; eine Listenansicht mit Zusammenfassung
 (wie viele Beiträge bzw. welcher Betrag insgesamt bereits bezahlt wurde)
-ist über den Ansicht-Umschalter erreichbar. Ein Klick auf eine Zelle der
-Matrix öffnet — je nachdem, ob für diesen Beitrag schon eine Zahlung
-erfasst wurde — entweder direkt die Buchungsmaske für eine neue Zahlung
-oder die Detailansicht mit den bereits verknüpften Buchungen.
+ist über den Ansicht-Umschalter erreichbar.
+
+Ein Klick auf eine Zelle der Matrix oder eine Zeile der Liste öffnet immer
+die reine Detailansicht des Beitrags für dieses Mitglied: Name,
+bezahlter/geforderter Betrag und die bereits verknüpften Buchungen. Über
+den Button „Beitrag erfassen" darin lässt sich eine neue Zahlung dafür
+buchen. Bezeichnung, Betrag, Beschreibung und Fälligkeit lassen sich hier
+nicht ändern — das geschieht ausschließlich über die Beitragsperiode als
+Ganzes: Der Button „Bearbeiten" bei der Beitragsperiode (neben
+„Fälligkeitsperiode archivieren") ändert diese Angaben für alle
+Mitglieder der Periode auf einmal, damit die Beiträge einer Periode nicht
+unbemerkt auseinanderlaufen können.
 
 ## Wer sieht was?
 
