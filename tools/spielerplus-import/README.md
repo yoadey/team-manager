@@ -50,18 +50,15 @@ full design and rationale.
     catalog + assigned punishments (`GET /punishment-catalog/index`,
     `GET /punishments/index`) all match confirmed real markup. Two things to
     know before you rely on this:
-    - **Membership dues don't map cleanly onto `contributions`.**
-      Teamverwaltung expects one row per member per *calendar month*.
-      SpielerPlus's dues are a matrix of freely-named, club-defined columns
-      (e.g. "Teamkasse1", "Fahrtgeld1") with no date of their own at all. A
-      member's columns are therefore spread across **synthetic consecutive
-      months starting at the import date** (column 1 -> the import month,
-      column 2 -> +1 month, and so on) purely so each column gets its own
-      row without violating the one-row-per-month constraint - the month
-      shown in Teamverwaltung for an imported due is **not** a real due
-      date, just a distinct slot. Re-running the import lands on the same
-      months (idempotent), but this is a lossy approximation worth
-      explaining to members afterwards.
+    - **Membership dues map directly onto `contributions`, one row per
+      SpielerPlus due column.** Each freely-named, club-defined column
+      (e.g. "Teamkasse1", "Fahrtgeld1") becomes its own `contributions` row
+      (`name` = the column label); there's no month to invent, since
+      `contributions` no longer has a "month" concept at all (removed
+      together with its old `UNIQUE(team_id, user_id, month)` constraint -
+      an earlier version of this importer worked around that constraint by
+      spreading a member's columns across made-up consecutive months, which
+      is no longer needed or done).
     - **Assigned punishments are matched to members by name, not id.**
       Unlike every other page this tool reads, SpielerPlus's punishment
       pages (list and detail) show only a member's display name, with no
@@ -70,6 +67,19 @@ full design and rationale.
       in the run summary) rather than guessed - check the skip reasons for
       near-miss names (nicknames, middle names) if a punishment seems
       missing.
+    - **Whether a due or penalty was paid on SpielerPlus is not imported.**
+      Teamverwaltung derives a contribution's/penalty assignment's paid
+      status from income `transactions` linked to it, rather than storing a
+      paid/open flag directly. This importer books the cashbox ledger as
+      plain `transactions` but does not attempt to link any of them to the
+      dues/penalties it also imports (matching a specific ledger entry to
+      the fee it paid would mean guessing from title text, which felt too
+      risky for financial data) - so every imported due/penalty initially
+      shows as open/unpaid in Teamverwaltung, even ones that were marked
+      paid on SpielerPlus. The run summary reports how many fall into this
+      category (`... were paid on SpielerPlus but will show as open until
+      linked to a transaction`) so a treasurer knows how many to reconcile
+      by hand (via Teamverwaltung's own "link a payment" UI).
   - **Member photos** (`spielerplus/members.go`, `storage/`): the `/team`
     roster page's own `.user-icon img` already carries each member's photo
     URL - no extra request needed to discover it (unlike email/birthday,
@@ -170,12 +180,11 @@ The tool prints a summary of created/skipped records per entity type, and a
 list of skip reasons (e.g. an absence that overlapped an existing one, or
 attendance for a member not found on the imported roster).
 
-It's safe to run more than once: users are deduplicated by email,
-attendance by the database's own per-event-per-user uniqueness, dues by the
-database's own per-user-per-month uniqueness, and events/absences/
-transactions/the penalty catalog/penalty assignments via a local state file
-(`STATE_PATH`) mapping SpielerPlus IDs to Teamverwaltung IDs - keep that
-file around between runs.
+It's safe to run more than once: users are deduplicated by email, attendance
+by the database's own per-event-per-user uniqueness, and events/absences/
+transactions/dues/the penalty catalog/penalty assignments via a local state
+file (`STATE_PATH`) mapping SpielerPlus IDs to Teamverwaltung IDs - keep
+that file around between runs.
 
 ## What imported users can do afterwards
 

@@ -157,17 +157,23 @@
       year-less dates). Insert into `transactions` (using the state file for
       idempotency, since it has no natural unique key).
 - [x] 4a.2 Parse the membership-dues matrix (`GET /cashbox/dues`) into per-
-      (member, due-column) `Due` records (label, amount, paid/unpaid, column
-      position). **Confirmed from the same HAR capture**: a `<table>` with one
-      header `<th>` per due column (label from a `title` attribute, amount
-      trimmed off the header's own text) and one `<tr>` per member, each cell's
+      (member, due-column) `Due` records (label, amount, paid/unpaid).
+      **Confirmed from the same HAR capture**: a `<table>` with one header `<th>`
+      per due column (label from a `title` attribute, amount trimmed off the
+      header's own text) and one `<tr>` per member, each cell's
       `onclick="toggleCashbox(this, <memberID>, <dueColumnID>)"` giving both the
       member id (a reliable join to the imported roster, unlike penalties - see
-      4a.3) and the column's own SpielerPlus id. Upsert into `contributions`,
-      spreading each member's columns across synthetic consecutive months
-      starting at the import date (naturally idempotent on
-      `UNIQUE(team_id, user_id, month)`) — see design.md for why this
-      approximation was needed and user-confirmed.
+      4a.3) and the column's own SpielerPlus id. Insert into `contributions`, one
+      row per (member, column) — using the state file for idempotency, since
+      **as of the backend's `flexible-membership-fees` change**
+      (`00018_flexible_membership_fees`), `contributions` has no "month" column
+      or unique constraint left to upsert against at all. `db.InsertContribution`
+      writes `name` (the column label) directly; no `due_date` (SpielerPlus gives
+      none) and no paid/open status (no longer a stored column - see 4a.4). This
+      replaced an earlier version that spread a member's columns across
+      synthetic consecutive months to work around the old schema's
+      one-row-per-month limit — no longer needed once that limit was removed;
+      see design.md.
 - [x] 4a.3 Parse the penalty catalog (`GET /punishment-catalog/index`) and
       assigned punishments (`GET /punishments/index`, paginated by analogy to
       `/cashbox` — unconfirmed for this specific page, the captured club had too
@@ -184,6 +190,18 @@
       reason text against a catalog label — either one not matching is logged
       and skipped (member name) or falls back to a direct amount/label snapshot
       with a `NULL` `penalty_id` (reason), never guessed.
+- [x] 4a.4 **Adapted to the backend's `flexible-membership-fees` change**
+      (migrations `00018_flexible_membership_fees`,
+      `00020_penalty_assignment_linked_payment`, developed on a separate branch
+      and merged after 4a.2/4a.3 were first written): `contributions.status` and
+      `penalty_assignments.paid` were both dropped in favor of paid status
+      derived from income `transactions` linked via
+      `transactions.contribution_id`/`penalty_assignment_id`. Rather than
+      heuristically matching an imported cashbox transaction to the due/penalty
+      it might pay (rejected as too risky for financial data — see design.md),
+      every imported due/penalty is left unlinked; `Summary.DuesPaidNotLinked`/
+      `PenaltiesPaidNotLinked` count how many were actually paid on SpielerPlus
+      so the run summary can tell an operator how many to reconcile by hand.
 
 ## 4b. Member photos (`storage/`, `spielerplus/client.go`'s `FetchAsset`,
       `importrun/run.go`'s `importMemberPhoto`)

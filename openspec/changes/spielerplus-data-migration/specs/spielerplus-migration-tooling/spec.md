@@ -119,24 +119,43 @@ The tool MUST import the team's SpielerPlus cashbox ledger into Teamverwaltung's
 - **WHEN** the SpielerPlus cashbox shows a ledger entry with a non-negative amount
 - **THEN** a `transactions` row is created with `type = 'income'`
 
-### Requirement: Membership dues are imported with a documented month approximation
+### Requirement: Membership dues are imported one row per due column
 The tool MUST import SpielerPlus's per-member membership-dues matrix into
-Teamverwaltung's `contributions`. Since SpielerPlus's due columns carry no month of
-their own and `contributions` requires one row per member per calendar month, each
-member's due columns MUST be spread across consecutive synthetic months starting
-at the import date, consistently by column position, and this approximation MUST
-be documented for operators.
+Teamverwaltung's `contributions`, one row per (member, due column), using the
+column's label as the contribution's name. The tool MUST track imported dues in
+its local idempotency state, since `contributions` has no natural unique key to
+dedupe on.
 
 #### Scenario: A member with multiple simultaneous dues
 - **WHEN** a member has more than one SpielerPlus due column
-- **THEN** each column is imported as its own `contributions` row, in consecutive
-  months starting at the import month, so no two columns collide on
-  `UNIQUE(team_id, user_id, month)`
+- **THEN** each column is imported as its own `contributions` row for that member
 
 #### Scenario: Re-running the import does not duplicate a due
 - **WHEN** the tool is run twice against unchanged SpielerPlus dues data
-- **THEN** the second run updates the same `contributions` rows in place (matched
-  via the same synthetic month) rather than creating duplicates
+- **THEN** the second run creates no additional `contributions` rows for dues
+  already recorded in the idempotency state from the first run
+
+### Requirement: Paid status for dues and penalties is not imported
+Since Teamverwaltung derives a contribution's or penalty assignment's paid status
+from income transactions linked to it, rather than storing it directly, the tool
+MUST NOT attempt to link an imported transaction to the due/penalty it may pay.
+Every imported due/penalty MUST be left unlinked, and the tool MUST report, in
+the run summary, how many imported dues/penalties were marked paid on
+SpielerPlus, so an operator knows how many to reconcile by hand.
+
+#### Scenario: A due paid on SpielerPlus is imported
+- **WHEN** a SpielerPlus due column is marked paid for a member
+- **THEN** the imported `contributions` row has no linked transaction (shows as
+  open in Teamverwaltung)
+- **AND** the run summary's count of paid-on-SpielerPlus-but-unlinked dues
+  includes it
+
+#### Scenario: A penalty paid on SpielerPlus is imported
+- **WHEN** an assigned punishment is marked paid on SpielerPlus
+- **THEN** the imported `penalty_assignments` row has no linked transaction
+  (shows as open in Teamverwaltung)
+- **AND** the run summary's count of paid-on-SpielerPlus-but-unlinked penalties
+  includes it
 
 ### Requirement: Penalties are imported with best-effort name matching
 The tool MUST import SpielerPlus's penalty catalog into Teamverwaltung's

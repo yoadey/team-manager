@@ -48,7 +48,15 @@ type Summary struct {
 	DuesCreated, DuesSkipped                 int
 	PenaltiesCreated, PenaltiesSkipped       int
 	PhotosUploaded, PhotosSkipped            int
-	SkipReasons                              []string
+	// DuesPaidNotLinked/PenaltiesPaidNotLinked count imported dues/penalty
+	// assignments that were marked paid on SpielerPlus, but - since
+	// Teamverwaltung derives paid status from a linked transaction rather
+	// than storing it directly (migrations 00018/00020) and this importer
+	// doesn't attempt to create or match one (see design.md) - will show as
+	// open/unpaid in Teamverwaltung until a treasurer links or books a
+	// matching transaction by hand.
+	DuesPaidNotLinked, PenaltiesPaidNotLinked int
+	SkipReasons                               []string
 }
 
 func (s *Summary) skip(format string, args ...any) {
@@ -83,7 +91,9 @@ func Run(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Opti
 	if err := importTransactions(ctx, sp, store, opts, summary); err != nil {
 		summary.skip("transactions: %v", err)
 	}
-	importDues(ctx, sp, store, opts, memberIDs, summary)
+	if err := importDues(ctx, sp, store, opts, memberIDs, summary); err != nil {
+		summary.skip("dues: %v", err)
+	}
 	if err := importPenalties(ctx, sp, store, opts, memberNames, summary); err != nil {
 		summary.skip("penalties: %v", err)
 	}
@@ -365,19 +375,25 @@ func importTransactions(ctx context.Context, sp *spielerplus.Client, store *db.S
 
 // importDues imports the membership-dues matrix as contributions, keyed by
 // the imported roster's SpielerPlus member id (a reliable id join, unlike
-// penalty assignments - see importPenalties). Each member's due columns are
-// spread across consecutive synthetic months starting at opts.Now, since
-// contributions requires one row per (user, month) and SpielerPlus's due
-// columns carry no real month of their own (a user-confirmed approximation,
-// see design.md).
-func importDues(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Options, memberIDs map[string]string, summary *Summary) {
+// penalty assignments - see importPenalties). Each SpielerPlus due column
+// becomes its own contributions row (name = column label, no due_date -
+// SpielerPlus gives none); since migration 00018_flexible_membership_fees
+// dropped contributions' "month" column and its UNIQUE(team_id, user_id,
+// month) constraint, there's no schema-imposed one-row-per-month limit to
+// work around anymore, so - unlike every other entity here - dues need the
+// state file for idempotency (contributions has no natural unique key at
+// all post-migration).
+func importDues(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Options, memberIDs map[string]string, summary *Summary) error {
 	dues, err := sp.FetchDues()
 	if err != nil {
-		summary.skip("dues: fetch failed: %v", err)
-		return
+		return fmt.Errorf("fetch dues: %w", err)
 	}
 
 	for _, d := range dues {
+		if _, already := opts.State.Dues[d.ID]; already {
+			summary.DuesSkipped++
+			continue
+		}
 		tvUserID, ok := memberIDs[d.MemberID]
 		if !ok {
 			summary.DuesSkipped++
@@ -385,14 +401,25 @@ func importDues(ctx context.Context, sp *spielerplus.Client, store *db.Store, op
 			continue
 		}
 
-		month := opts.Now.AddDate(0, d.ColumnIndex, 0).Format("2006-01")
-		if _, err := store.UpsertContribution(ctx, opts.TeamID, tvUserID, month, d.Label, d.AmountCents, d.Paid); err != nil {
+		tvID, err := store.InsertContribution(ctx, opts.TeamID, tvUserID, d.Label, d.AmountCents)
+		if err != nil {
 			summary.DuesSkipped++
 			summary.skip("due %s (member %s): %v", d.ID, d.MemberID, err)
 			continue
 		}
 		summary.DuesCreated++
+		if d.Paid {
+			summary.DuesPaidNotLinked++
+		}
+
+		if !store.DryRun {
+			opts.State.Dues[d.ID] = tvID
+			if err := opts.State.Save(); err != nil {
+				return fmt.Errorf("save state after due %s: %w", d.ID, err)
+			}
+		}
 	}
+	return nil
 }
 
 // importPenalties imports the penalty catalog, then every assigned
@@ -405,6 +432,8 @@ func importDues(ctx context.Context, sp *spielerplus.Client, store *db.Store, op
 // member is skipped and logged, and a reason with no matching catalog entry
 // still imports with its own amount/label snapshotted directly
 // (penalty_assignments.penalty_id is nullable for exactly this case).
+// SpielerPlus's own paid/unpaid state for an assignment is not written
+// anywhere - see Summary.PenaltiesPaidNotLinked.
 func importPenalties(ctx context.Context, sp *spielerplus.Client, store *db.Store, opts Options, memberNames map[string]string, summary *Summary) error {
 	catalog, err := sp.FetchPenaltyCatalog()
 	if err != nil {
@@ -451,13 +480,16 @@ func importPenalties(ctx context.Context, sp *spielerplus.Client, store *db.Stor
 			continue
 		}
 
-		tvID, err := store.InsertPenaltyAssignment(ctx, opts.TeamID, tvUserID, labelToPenaltyID[a.Reason], a.AmountCents, a.Reason, a.Paid, a.Date)
+		tvID, err := store.InsertPenaltyAssignment(ctx, opts.TeamID, tvUserID, labelToPenaltyID[a.Reason], a.AmountCents, a.Reason, a.Date)
 		if err != nil {
 			summary.PenaltiesSkipped++
 			summary.skip("penalty assignment %s (%s): %v", a.ID, a.MemberName, err)
 			continue
 		}
 		summary.PenaltiesCreated++
+		if a.Paid {
+			summary.PenaltiesPaidNotLinked++
+		}
 
 		if !store.DryRun {
 			opts.State.PenaltyAssignments[a.ID] = tvID

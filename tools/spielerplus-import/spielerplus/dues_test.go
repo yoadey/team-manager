@@ -44,7 +44,7 @@ func TestParseDues(t *testing.T) {
 	if !ok {
 		t.Fatalf("dues = %+v, want an entry for column 100, member 1", dues)
 	}
-	if teamkasse1Member1.Label != "Teamkasse1" || teamkasse1Member1.AmountCents != 2000 || !teamkasse1Member1.Paid || teamkasse1Member1.ColumnIndex != 0 {
+	if teamkasse1Member1.Label != "Teamkasse1" || teamkasse1Member1.AmountCents != 2000 || !teamkasse1Member1.Paid {
 		t.Errorf("teamkasse1Member1 = %+v", teamkasse1Member1)
 	}
 
@@ -52,7 +52,7 @@ func TestParseDues(t *testing.T) {
 	if !ok || fahrtgeld1Member1.Paid {
 		t.Errorf("fahrtgeld1Member1 = %+v, want unpaid", fahrtgeld1Member1)
 	}
-	if fahrtgeld1Member1.AmountCents != 500 || fahrtgeld1Member1.ColumnIndex != 1 {
+	if fahrtgeld1Member1.AmountCents != 500 {
 		t.Errorf("fahrtgeld1Member1 = %+v", fahrtgeld1Member1)
 	}
 }

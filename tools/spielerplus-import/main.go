@@ -118,8 +118,16 @@ func printSummary(w *os.File, s *importrun.Summary, dryRun bool) {
 	fmt.Fprintf(w, "attendance: %d %s, %d skipped\n", s.AttendanceWritten, attendanceVerb, s.AttendanceSkipped)
 	fmt.Fprintf(w, "absences: %d %s, %d skipped\n", s.AbsencesCreated, verb, s.AbsencesSkipped)
 	fmt.Fprintf(w, "transactions: %d %s, %d skipped\n", s.TransactionsCreated, verb, s.TransactionsSkipped)
-	fmt.Fprintf(w, "dues: %d %s, %d skipped\n", s.DuesCreated, verb, s.DuesSkipped)
-	fmt.Fprintf(w, "penalties: %d %s, %d skipped\n", s.PenaltiesCreated, verb, s.PenaltiesSkipped)
+	fmt.Fprintf(w, "dues: %d %s, %d skipped", s.DuesCreated, verb, s.DuesSkipped)
+	if s.DuesPaidNotLinked > 0 {
+		fmt.Fprintf(w, " (%d were paid on SpielerPlus but will show as open until linked to a transaction)", s.DuesPaidNotLinked)
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "penalties: %d %s, %d skipped", s.PenaltiesCreated, verb, s.PenaltiesSkipped)
+	if s.PenaltiesPaidNotLinked > 0 {
+		fmt.Fprintf(w, " (%d were paid on SpielerPlus but will show as open until linked to a transaction)", s.PenaltiesPaidNotLinked)
+	}
+	fmt.Fprintln(w)
 	uploadVerb := "uploaded"
 	if dryRun {
 		uploadVerb = "would be uploaded"

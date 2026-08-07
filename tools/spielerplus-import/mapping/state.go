@@ -9,9 +9,12 @@ import (
 // State is the local idempotency mapping from SpielerPlus IDs to
 // Teamverwaltung UUIDs, for entity kinds with no natural unique key to
 // dedupe on (events, absences, transactions, the penalty catalog, penalty
-// assignments). Users dedupe on email, attendance dedupes on the DB's own
-// UNIQUE(event_id, user_id), and dues/contributions dedupe on
-// UNIQUE(team_id, user_id, month) - see design.md.
+// assignments, dues). Users dedupe on email; attendance dedupes on the DB's
+// own UNIQUE(event_id, user_id). Dues/contributions used to dedupe on
+// UNIQUE(team_id, user_id, month), but that constraint (and the "month"
+// column itself) no longer exists as of migration
+// 00018_flexible_membership_fees, so dues now need the same state-file
+// tracking as everything else in this struct - see design.md.
 type State struct {
 	path               string
 	Events             map[string]string `json:"events"`              // spielerplus event id -> teamverwaltung events.id
@@ -19,6 +22,7 @@ type State struct {
 	Transactions       map[string]string `json:"transactions"`        // spielerplus cashbox transaction id -> teamverwaltung transactions.id
 	PenaltyCatalog     map[string]string `json:"penalty_catalog"`     // spielerplus punishment-catalog entry id -> teamverwaltung penalties.id
 	PenaltyAssignments map[string]string `json:"penalty_assignments"` // spielerplus punishment id -> teamverwaltung penalty_assignments.id
+	Dues               map[string]string `json:"dues"`                // spielerplus "<dueColumnID>:<memberID>" -> teamverwaltung contributions.id
 }
 
 // LoadState reads the state file at path, returning an empty State if it
@@ -31,6 +35,7 @@ func LoadState(path string) (*State, error) {
 		Transactions:       map[string]string{},
 		PenaltyCatalog:     map[string]string{},
 		PenaltyAssignments: map[string]string{},
+		Dues:               map[string]string{},
 	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -57,6 +62,9 @@ func LoadState(path string) (*State, error) {
 	}
 	if s.PenaltyAssignments == nil {
 		s.PenaltyAssignments = map[string]string{}
+	}
+	if s.Dues == nil {
+		s.Dues = map[string]string{}
 	}
 	return s, nil
 }

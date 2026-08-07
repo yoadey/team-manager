@@ -188,22 +188,43 @@ assignments don't, so matching against the imported roster is a best-effort exac
 match on `Member.Name`, and an unmatched name is skipped and logged rather than
 guessed.
 
-**Membership dues have no natural mapping onto `contributions` and needed an
-explicit, user-confirmed approximation.** `GET /cashbox/dues` renders a matrix -
-one row per member, one column per club-defined, freely-named due/installment
-(e.g. "Teamkasse1", "Fahrtgeld1") - with a paid/unpaid toggle per cell and no date
-or month anywhere on the page. Teamverwaltung's `contributions` table is the
-opposite shape: `UNIQUE(team_id, user_id, month)` allows exactly one row per
-member per *calendar month*. Since a club can (and, in the captured account, does)
-have several due columns active at once, importing them all under the same
-literal import month would collide on that unique constraint. After confirming
-with the user, each member's due columns are spread across **synthetic
-consecutive months starting at the import date** (column 1 -> the import month,
-column 2 -> import month + 1, and so on, consistently by column position across
-every member) purely to give each column its own row - the month value written to
-Teamverwaltung is **not a real due date**, just a distinct slot satisfying the
-schema, and this is documented prominently in README.md so an operator doesn't
-mistake it for one.
+**Membership dues originally had no natural mapping onto `contributions`; a later
+backend migration removed the mismatch instead of the importer having to work
+around it.** `GET /cashbox/dues` renders a matrix - one row per member, one
+column per club-defined, freely-named due/installment (e.g. "Teamkasse1",
+"Fahrtgeld1") - with a paid/unpaid toggle per cell and no date or month anywhere
+on the page. `contributions` originally required exactly one row per member per
+*calendar month* (`UNIQUE(team_id, user_id, month)`), which a club with several
+simultaneous due columns would collide against; the first version of this
+importer worked around that by spreading a member's columns across synthetic,
+made-up consecutive months. Once `backend`'s `flexible-membership-fees` change
+(migration `00018_flexible_membership_fees`) landed - dropping `month`/`status`
+entirely in favor of a free-text `name`, an optional real `due_date`, and paid
+status derived from linked `transactions` rows - that workaround was removed:
+each SpielerPlus due column now becomes its own `contributions` row directly
+(`name` = the column label, `due_date` left unset since SpielerPlus gives none),
+no month-juggling needed. The trade-off moved rather than disappeared, though:
+`contributions` lost its natural `UNIQUE(team_id, user_id, month)` idempotency
+key along with `month` itself, so dues now need the same local state-file
+tracking as events/absences/transactions/the penalty catalog (see
+`mapping.State.Dues`) - previously the only entity in this importer that didn't.
+
+**Paid/unpaid state for dues and penalty assignments is deliberately not
+imported.** The same `flexible-membership-fees` migration (and its
+`penalty_assignment_linked_payment` migration for penalties) replaced both
+`contributions.status` and `penalty_assignments.paid` with a derived value: a fee
+or fine counts as paid to the extent that income `transactions` rows are linked
+to it via `transactions.contribution_id`/`penalty_assignment_id`. This importer
+already books the cashbox ledger as plain `transactions`, so linking the right
+one to the right due/penalty was considered - and rejected: the only signal
+available is matching a transaction's *title* text against a due/penalty's label
+and member name (e.g. a ledger entry titled "Beiträge: <Name> (<Column>)"), which
+is a heuristic, not a confirmed guarantee, for financial data where a wrong link
+would misattribute real money. Every imported due/penalty is therefore left
+unlinked (open/unpaid in Teamverwaltung) regardless of its SpielerPlus paid
+state; `Summary.DuesPaidNotLinked`/`PenaltiesPaidNotLinked` count how many were
+actually paid on SpielerPlus, so the run summary tells a treasurer how many to
+reconcile by hand afterward via Teamverwaltung's own payment-linking UI.
 
 **Event location, found missing during live testing, is on the event's own detail
 page, not the list.** A second, targeted HAR capture of a live event detail page
@@ -253,3 +274,12 @@ user, consistent with birthday's "existing account is left alone" rule.
 - **ToS considerations**: scraping a third-party site outside its documented API may be
   against SpielerPlus's terms of service. This is the club's own account and data, same
   as the precedent community projects; flagged here, not blocking implementation.
+- **Schema dependency on `flexible-membership-fees`**: dues/penalty import
+  (`db.InsertContribution`, `db.InsertPenaltyAssignment`) targets the schema *after*
+  migrations `00018_flexible_membership_fees`/`00020_penalty_assignment_linked_payment`
+  are applied (`contributions.name`/`due_date`, no `month`/`status`;
+  `penalty_assignments` with no `paid` column). Running this importer against a
+  database that hasn't had that migration applied yet will fail loudly (unknown
+  column) rather than silently writing to the wrong shape - acceptable since both
+  are expected to land together operationally, but worth calling out since the two
+  changes were developed on separate branches.

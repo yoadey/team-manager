@@ -13,11 +13,11 @@ import (
 // cashboxDuesPath is SpielerPlus's membership-dues matrix: one row per
 // member, one column per club-defined, freely-named due/installment (e.g.
 // "Teamkasse1", "Fahrtgeld1" - confirmed from a HAR capture of a live
-// /cashbox/dues page). Unlike Teamverwaltung's contributions (a fixed
-// monthly cycle per member), SpielerPlus's due columns carry no date/month
-// of their own anywhere in the page - see FetchDues and importrun, which
-// spreads a member's columns across synthetic consecutive months at import
-// time (an explicit, documented approximation - see design.md).
+// /cashbox/dues page). Each column becomes its own Teamverwaltung
+// `contributions` row (see design.md and importrun) - since migration
+// 00018_flexible_membership_fees, contributions has no "month" concept to
+// map these onto in the first place, so this is a direct mapping, not an
+// approximation.
 const cashboxDuesPath = "/cashbox/dues"
 
 const (
@@ -43,11 +43,13 @@ type Due struct {
 	MemberID    string
 	Label       string
 	AmountCents int64
-	Paid        bool
-	// ColumnIndex is the column's 0-based position on the page (stable
-	// across all members) - used by importrun to derive a consistent
-	// synthetic month per column, since SpielerPlus gives none.
-	ColumnIndex int
+	// Paid reflects SpielerPlus's own toggle state, informational only -
+	// Teamverwaltung's contributions no longer stores a paid/open status
+	// directly (it's derived from linked transactions, which this importer
+	// doesn't create - see design.md), so importrun only uses this to log
+	// how many imported dues were paid on SpielerPlus but won't show as
+	// such until a treasurer links or books a matching transaction.
+	Paid bool
 }
 
 type duesColumn struct {
@@ -137,7 +139,6 @@ func ParseDues(body io.Reader) ([]Due, error) {
 				Label:       col.label,
 				AmountCents: col.amountCents,
 				Paid:        paid,
-				ColumnIndex: colIdx,
 			})
 		})
 	})

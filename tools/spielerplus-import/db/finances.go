@@ -65,11 +65,21 @@ func (s *Store) InsertPenalty(ctx context.Context, teamID, label string, amountC
 // InsertPenaltyAssignment writes one punishment assigned to a member.
 // penaltyID may be "" (no matching catalog entry was found for the
 // assignment's reason text) - penalty_assignments.penalty_id is nullable
-// for exactly this case, snapshotting amount/label directly instead. Not
-// idempotent by itself - callers must consult the local state file
+// for exactly this case, snapshotting amount/label directly instead
+// (mirroring what the backend's own CreateAssignment snapshots from the
+// catalog entry it looked up, minus the requirement that a catalog entry
+// exist at all - this importer writes directly to Postgres, bypassing that
+// requirement, same as everywhere else it bypasses the app's services).
+// Whether the assignment was paid on SpielerPlus is not written anywhere:
+// since migration 00020_penalty_assignment_linked_payment,
+// penalty_assignments has no paid column at all - paid state is derived
+// from income transactions linked via transactions.penalty_assignment_id,
+// which this importer deliberately does not attempt to set (see
+// design.md's "paid state is not linked" decision). Not idempotent by
+// itself - callers must consult the local state file
 // (State.PenaltyAssignments), since penalty_assignments has no
 // external-id column.
-func (s *Store) InsertPenaltyAssignment(ctx context.Context, teamID, userID, penaltyID string, amountCents int64, label string, paid bool, date time.Time) (id string, err error) {
+func (s *Store) InsertPenaltyAssignment(ctx context.Context, teamID, userID, penaltyID string, amountCents int64, label string, date time.Time) (id string, err error) {
 	if amountCents <= 0 {
 		return "", fmt.Errorf("%w: penalty assignment (user %s) amount must be positive, got %d cents", ErrFinanceRecordSkipped, userID, amountCents)
 	}
@@ -79,46 +89,47 @@ func (s *Store) InsertPenaltyAssignment(ctx context.Context, teamID, userID, pen
 
 	newID := uuid.NewString()
 	_, err = s.Pool.Exec(ctx, `
-		INSERT INTO penalty_assignments (id, team_id, user_id, penalty_id, paid, date, amount, label)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	`, newID, teamID, userID, nullIfEmpty(penaltyID), paid, date.Format("2006-01-02"), amountCents, label)
+		INSERT INTO penalty_assignments (id, team_id, user_id, penalty_id, date, amount, label)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, newID, teamID, userID, nullIfEmpty(penaltyID), date.Format("2006-01-02"), amountCents, label)
 	if err != nil {
 		return "", fmt.Errorf("db: insert penalty assignment (team %s, user %s): %w", teamID, userID, err)
 	}
 	return newID, nil
 }
 
-func contributionStatus(paid bool) string {
-	if paid {
-		return "paid"
-	}
-	return "open"
-}
-
-// UpsertContribution writes one member's status for one SpielerPlus due
-// column, keyed by (teamID, userID, month). Naturally idempotent on the
-// DB's own UNIQUE(team_id, user_id, month) - no state file needed. month
-// is a synthetic placeholder assigned by importrun (SpielerPlus's due
-// columns carry no real month of their own - see design.md), not a real
-// due date.
-func (s *Store) UpsertContribution(ctx context.Context, teamID, userID, month, label string, amountCents int64, paid bool) (id string, err error) {
+// InsertContribution writes one member's SpielerPlus due column as a
+// Teamverwaltung contribution. Since migration
+// 00018_flexible_membership_fees, contributions no longer has a "month"
+// concept at all (name is free text, due_date is an optional real date, and
+// there is no UNIQUE(team_id, user_id, month) constraint to upsert
+// against) - so each SpielerPlus due column simply becomes its own row,
+// with no synthetic month juggling needed (see design.md; this replaced an
+// earlier, more awkward approach that spread columns across made-up
+// consecutive months to work around the old schema's one-row-per-month
+// limit). dueDate is nil: SpielerPlus's due columns carry no date of their
+// own to map it from. Whether the due was paid on SpielerPlus is not
+// written anywhere, for the same reason as InsertPenaltyAssignment - paid
+// state is now derived from a linked transaction, which this importer
+// doesn't attempt to set. Not idempotent by itself - callers must consult
+// the local state file (State.Dues), since contributions has no
+// external-id column (and, post-migration, no other natural unique key to
+// dedupe on either).
+func (s *Store) InsertContribution(ctx context.Context, teamID, userID, name string, amountCents int64) (id string, err error) {
 	if amountCents <= 0 {
-		return "", fmt.Errorf("%w: contribution %q (user %s) amount must be positive, got %d cents", ErrFinanceRecordSkipped, label, userID, amountCents)
+		return "", fmt.Errorf("%w: contribution %q (user %s) amount must be positive, got %d cents", ErrFinanceRecordSkipped, name, userID, amountCents)
 	}
 	if s.DryRun {
 		return dryRunID, nil
 	}
 
 	newID := uuid.NewString()
-	err = s.Pool.QueryRow(ctx, `
-		INSERT INTO contributions (id, team_id, user_id, month, label, amount, status, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-		ON CONFLICT (team_id, user_id, month) DO UPDATE
-			SET label = EXCLUDED.label, amount = EXCLUDED.amount, status = EXCLUDED.status, updated_at = now()
-		RETURNING id
-	`, newID, teamID, userID, month, nullIfEmpty(label), amountCents, contributionStatus(paid)).Scan(&id)
+	_, err = s.Pool.Exec(ctx, `
+		INSERT INTO contributions (id, team_id, user_id, name, amount, updated_at)
+		VALUES ($1, $2, $3, $4, $5, now())
+	`, newID, teamID, userID, name, amountCents)
 	if err != nil {
-		return "", fmt.Errorf("db: upsert contribution (team %s, user %s, month %s): %w", teamID, userID, month, err)
+		return "", fmt.Errorf("db: insert contribution %q (user %s): %w", name, userID, err)
 	}
-	return id, nil
+	return newID, nil
 }
