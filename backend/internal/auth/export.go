@@ -226,9 +226,22 @@ func (r *Repository) ExportUserData(ctx context.Context, userID string) (*Export
 		return nil, fmt.Errorf("auth.Repository.ExportUserData: votes: %w", err)
 	}
 
+	// paid mirrors finances.Repository.ListAssignments/assignmentPaid's
+	// derivation (live sum of linked income transactions vs. the assignment's
+	// own snapshotted amount, since migration
+	// 00020_penalty_assignment_linked_payment.sql dropped the stored `paid`
+	// column) -- kept as a duplicated raw query here rather than importing
+	// the finances package, consistent with the contributions query below.
 	if out.PenaltyAssignments, err = queryExportRows(ctx, r.pool.Query, `
-		SELECT pa.team_id::text, pa.label, pa.amount::text, pa.paid, pa.date::text
+		SELECT pa.team_id::text, pa.label, pa.amount::text,
+		       COALESCE(paidtx.paid_amount, 0) >= pa.amount AS paid,
+		       pa.date::text
 		FROM penalty_assignments pa
+		LEFT JOIN LATERAL (
+			SELECT SUM(t.amount) AS paid_amount
+			FROM transactions t
+			WHERE t.penalty_assignment_id = pa.id AND t.type = 'income'
+		) paidtx ON true
 		WHERE pa.user_id = $1 ORDER BY pa.date
 	`, userID, func(rows pgx.Rows) (ExportPenaltyAssignment, error) {
 		var p ExportPenaltyAssignment

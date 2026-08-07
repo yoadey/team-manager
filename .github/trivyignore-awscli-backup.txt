@@ -33,7 +33,7 @@ CVE-2026-58016
 CVE-2026-54369
 CVE-2026-54370
 #
-# python3 / python3-libs (5 CVEs, each reported once per package since aws-
+# python3 / python3-libs (8 CVEs, each reported once per package since aws-
 # cli v2 bundles its own Python runtime):
 # - CVE-2026-0864 (configparser injection via crafted multi-line input)
 #   requires attacker-controlled content in a config file aws-cli parses;
@@ -50,13 +50,45 @@ CVE-2026-54370
 #   region values -- none of it attacker-influenced.
 # - CVE-2026-9669 (BZ2 decompression DoS) requires decompressing untrusted
 #   bzip2 data; this container never decompresses anything.
+# - CVE-2026-15308 (HTML parser CPU DoS via repeated unterminated tags)
+#   requires feeding attacker-crafted HTML to Python's html.parser; this
+#   container never parses HTML.
+# - CVE-2026-4360 / CVE-2026-7774 (tarfile hardlink ownership / arbitrary
+#   file write via crafted link entries) are both reached only through the
+#   same tarfile.extractall()/open() call as CVE-2026-11940/-11972 above,
+#   which `aws s3 cp` never makes.
 CVE-2026-0864
 CVE-2026-11940
 CVE-2026-11972
 CVE-2026-3276
 CVE-2026-9669
+CVE-2026-15308
+CVE-2026-4360
+CVE-2026-7774
+#
+# gawk (3 CVEs: use-after-free DoS, integer-overflow memory corruption,
+# ftype() buffer overflow) -- gawk is an OS package incidentally present in
+# the base image; this container's single `aws s3 cp` invocation never
+# shells out to awk.
+CVE-2026-40467
+CVE-2026-40468
+CVE-2026-40553
+#
+# glib2 (1 CVE: heap buffer overflow in _xdg_mime_magic_parse_magic_line())
+# -- reached only via GLib's shared-mime-info magic-byte content sniffing.
+# aws-cli's own Content-Type detection for `aws s3 cp` uses Python's
+# mimetypes module (extension-based), never GLib's mime database, so this
+# entry point is never reached here -- same reasoning as the other glib2
+# CVEs above.
+CVE-2026-16118
+#
+# python3-rpm / rpm / rpm-build-libs / rpm-libs / rpm-sign-libs (1 CVE, heap
+# buffer overflow in NDB slot table parsing) -- reached only by invoking
+# rpm/yum/dnf to install, query, or verify RPM packages at runtime. This
+# container never runs any package-manager command, only `aws s3 cp`.
+CVE-2026-44605
 #
 # Re-check when Amazon publishes a rebuilt amazon/aws-cli:2.35.18 (or newer)
-# digest carrying patched glib2/libacl/python3 packages, and re-pin
+# digest carrying patched gawk/glib2/libacl/python3/rpm packages, and re-pin
 # helm/team-manager/values.yaml + both workflow files' image-ref then;
 # remove the corresponding entries once that happens.

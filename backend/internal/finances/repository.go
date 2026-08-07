@@ -892,7 +892,10 @@ type OpenPenaltyAggregate struct {
 // ListOpenPenaltiesByUser returns unpaid penalty amounts aggregated per user
 // for the team, summed from each assignment's own amount snapshot (see
 // ListAssignments) minus whatever's already been paid toward it, rather than
-// the current penalty definition.
+// the current penalty definition. A NULL amount snapshot (see
+// TestFinancesRepository_CreateAssignment_ToleratesPreSnapshotInsert) is
+// always treated as open, matching assignmentPaid's nil-amount-is-unpaid
+// semantics, and contributes 0 to the summed total.
 func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UUID) ([]OpenPenaltyAggregate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -907,7 +910,7 @@ func (r *Repository) ListOpenPenaltiesByUser(ctx context.Context, teamID uuid.UU
 			FROM transactions t
 			WHERE t.penalty_assignment_id = pa.id AND t.type = 'income'
 		) paidtx ON true
-		WHERE pa.team_id = $1 AND COALESCE(paidtx.paid_amount, 0) < pa.amount
+		WHERE pa.team_id = $1 AND (pa.amount IS NULL OR COALESCE(paidtx.paid_amount, 0) < pa.amount)
 		GROUP BY pa.user_id, u.name, u.avatar_color, (u.photo_object_key IS NOT NULL)
 		ORDER BY total_amount DESC
 	`, teamID)
