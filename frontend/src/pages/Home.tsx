@@ -6,6 +6,7 @@ import { todayLocalDate } from '@/utils/date';
 import { Av, EmptyState, SectionTitle, Sym } from '@/components/ui';
 import { EventCard, NewsCard } from '@/components/cards';
 import { useEventsQuery } from '@/features/events';
+import { isEventPast } from '@/features/events/rsvpCutoff';
 import { useNewsQuery } from '@/features/news/hooks/useNewsQueries';
 import { t as tr } from '@/i18n';
 
@@ -18,10 +19,10 @@ export function Home() {
   const { data: events } = useEventsQuery(app.api, state.activeTeamId);
   const { data: newsItems } = useNewsQuery(app.api, state.activeTeamId);
 
-  const next = (events ?? []).filter((e) => e.date >= today).slice(0, 3);
+  const next = (events ?? []).filter((e) => !isEventPast(e, today)).slice(0, 3);
   const news = (newsItems || []).slice(0, 3);
   const myPending = (events ?? []).filter(
-    (e) => e.date >= today && e.myStatus === 'pending' && e.status !== 'cancelled',
+    (e) => !isEventPast(e, today) && e.myStatus === 'pending' && e.status !== 'cancelled',
   ).length;
 
   // A role can have events/members/news set to 'none' -- cross-links and
@@ -96,7 +97,7 @@ export function Home() {
         {canSeeEvents &&
           quickStat(
             tr('home.statUpcoming'),
-            (events ?? []).filter((e) => e.date >= today && e.status !== 'cancelled').length,
+            (events ?? []).filter((e) => !isEventPast(e, today) && e.status !== 'cancelled').length,
             'event',
             t.primary,
             () => app.go('events'),

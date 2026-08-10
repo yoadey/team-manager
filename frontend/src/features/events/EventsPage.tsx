@@ -8,6 +8,7 @@ import { Sym, EmptyState, SkeletonList } from '@/components/ui';
 import { EventCard } from '@/components/cards';
 import { EventCalendar, EventAbsences, useEventsQuery } from '@/features/events';
 import type { TeamEvent } from '@/features/events';
+import { isEventPast } from '@/features/events/rsvpCutoff';
 import { t } from '@/i18n';
 
 export function EventsPage() {
@@ -19,7 +20,7 @@ export function EventsPage() {
 
   const scoped = useMemo(() => {
     let list = (events ?? []).filter((e: TeamEvent) =>
-      state.eventScope === 'upcoming' ? e.date >= today : e.date < today,
+      state.eventScope === 'upcoming' ? !isEventPast(e, today) : isEventPast(e, today),
     );
     if (state.eventsOnlyPending && state.eventScope === 'upcoming')
       list = list.filter((e) => e.myStatus === 'pending' && e.status !== 'cancelled');

@@ -35,3 +35,20 @@ export function isRsvpCutoffPassed(event: CutoffEventFields, now: number = Date.
   const cutoff = effectiveRsvpCutoff(event);
   return cutoff !== null && now >= cutoff.getTime();
 }
+
+/**
+ * The last calendar day (YYYY-MM-DD) an event occurs on: multiDayEndDate
+ * when set, otherwise date -- mirrors backend/internal/events/repository.go's
+ * ListEvents `COALESCE(end_date, date)`. Every UI spot that classifies an
+ * event as past/upcoming (event lists, cards, RSVP controls) must derive
+ * "past" from this, not from `date` alone, or an ongoing multi-day event
+ * reads as already over the moment its first day passes.
+ */
+export function eventEffectiveEndDate(event: Pick<TeamEvent, 'date' | 'multiDayEndDate'>): string {
+  return event.multiDayEndDate || event.date;
+}
+
+/** Whether an event's last occurring day is strictly before `today` (YYYY-MM-DD). */
+export function isEventPast(event: Pick<TeamEvent, 'date' | 'multiDayEndDate'>, today: string): boolean {
+  return eventEffectiveEndDate(event) < today;
+}

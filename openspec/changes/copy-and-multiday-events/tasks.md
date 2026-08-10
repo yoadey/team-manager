@@ -87,6 +87,17 @@
       `(team_id, (COALESCE(end_date, date)), id)`, restoring a sargable
       index for `ListEvents`' upcoming/past scope filter
 
+## 4c. Frontend "is this event past?" consistency
+
+- [x] 4c.1 `features/events/rsvpCutoff.ts`: shared `eventEffectiveEndDate`/
+      `isEventPast` helpers (multiDayEndDate when set, else date)
+- [x] 4c.2 Replace every inline `e.date < today` / `e.date >= today` past/
+      upcoming check with the shared helper: `EventDetailSheet.tsx` (both
+      `MyResponseSection` and the main detail body), `EventsPage.tsx`,
+      `components/cards.tsx` (`EventCard`), `pages/Home.tsx` (next-events,
+      pending count, upcoming stat), `layouts/AppShell.tsx` (nav pending
+      badge)
+
 ## 5. Verification
 
 - [x] 5.1 openapi-drift green (regenerated clients committed)

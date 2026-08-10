@@ -11,7 +11,7 @@ import type { SheetProps } from '@/sheets/types';
 import { reportActionError } from '@/utils/errors';
 import { useEventDetailQuery } from '../hooks/useEventQueries';
 import { RsvpCountdown } from './RsvpCountdown';
-import { effectiveRsvpCutoff, isRsvpCutoffPassed } from '../rsvpCutoff';
+import { effectiveRsvpCutoff, isRsvpCutoffPassed, isEventPast } from '../rsvpCutoff';
 import { t } from '@/i18n';
 
 type AppApi = SheetProps['app'];
@@ -170,7 +170,7 @@ interface MyResponseSectionProps {
 
 function MyResponseSection({ app, event, tk, me, canEdit }: MyResponseSectionProps) {
   const today = todayLocalDate();
-  const isPast = event.date < today;
+  const isPast = isEventPast(event, today);
   const cancelled = event.status === 'cancelled';
   if (isPast || cancelled) return null;
 
@@ -783,7 +783,7 @@ export function EventDetailSheet({ app, sheet }: SheetProps) {
 
   const tm = typeMeta(e.type);
   const today = todayLocalDate();
-  const isPast = e.date < today;
+  const isPast = isEventPast(e, today);
   const canEdit = app.can('events', 'write');
   const rsvpCutoff = effectiveRsvpCutoff(e);
   const me = state.user!.id;

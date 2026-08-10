@@ -80,6 +80,14 @@ describe('EventCard', () => {
     expect(screen.queryByRole('button', { name: 'Zusagen' })).toBeNull();
   });
 
+  // Regression test: a multi-day event's card used to dim/hide RSVP as soon
+  // as its start `date` (2000-01-01, in the past) passed, even though the
+  // event -- per its multiDayEndDate -- is still ongoing far in the future.
+  it('still shows inline RSVP controls for an ongoing multi-day event whose start date is in the past', () => {
+    render(<EventCard e={makeEvent({ date: '2000-01-01', multiDayEndDate: '2099-06-17', myStatus: 'maybe' })} />);
+    expect(screen.getByRole('button', { name: 'Zusagen' })).toBeTruthy();
+  });
+
   it('does not show inline RSVP controls once the cancellation lead time has passed', () => {
     // Event itself is still upcoming (default date 2099-06-15), but an
     // enormous lead time pushes the effective cutoff (start minus

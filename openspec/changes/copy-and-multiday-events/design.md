@@ -67,6 +67,17 @@ touches, DST-safely.
   dedicated boolean flag (matching how e.g. `meetTimeMandatory` is already
   a plain boolean) is the minimal-diff way to make "make this a single-day
   event again" an actual, working action instead of a silently-ignored one.
+- **Every "is this past?" UI check must use the effective end date, not
+  `date` alone**: `EventDetailSheet.tsx`, `EventsPage.tsx`,
+  `components/cards.tsx` (`EventCard`), `pages/Home.tsx`, and
+  `layouts/AppShell.tsx` each independently classified an event as past/
+  upcoming from `date` — mirroring the same bug `ListEvents` had before its
+  `COALESCE(end_date, date)` fix, just client-side. A shared
+  `isEventPast`/`eventEffectiveEndDate` helper
+  (`features/events/rsvpCutoff.ts`) replaces every one of those inline
+  comparisons, so an ongoing multi-day event stays "upcoming" (RSVP
+  controls visible, included in next-events/pending counts, not dimmed)
+  consistently everywhere, not just in the calendar and the backend list.
 - **Upcoming/past index**: `ListEvents`' scope filter on
   `COALESCE(end_date, date)` isn't served by the existing
   `idx_events_team_date_id (team_id, date, id)` index as a sargable range

@@ -49,3 +49,6 @@ The upcoming/past listing scope MUST key off an event's last occurring day
   `multiDayEndDate` is today or later
 - **THEN** the event appears in the upcoming list
 - **AND** it does not appear in the past list
+- **AND** it is treated as upcoming, not past, everywhere the client
+  classifies events this way (event lists, cards, RSVP controls, and
+  navigation/dashboard pending-response counts)
